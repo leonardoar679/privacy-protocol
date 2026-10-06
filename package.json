@@ -1,0 +1,15 @@
+{
+  "name": "privacy-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Immutable, non-custodial Ethereum L1 shielded pool (V1 scaffold). Contracts are a separate Foundry project under contracts/.",
+  "workspaces": [
+    "reference/typescript",
+    "frontend"
+  ],
+  "scripts": {
+    "test:reference": "npm --workspace reference/typescript run test",
+    "vectors": "npm --workspace reference/typescript run vectors",
+    "dev:frontend": "npm --workspace frontend run dev"
+  }
+}

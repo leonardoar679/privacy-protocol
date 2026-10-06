@@ -1,0 +1,7 @@
+# Keep LF everywhere: the vendored Poseidon2 sources are pinned by sha256 of their LF content.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.wasm binary
+*.zkey binary
+*.ptau binary

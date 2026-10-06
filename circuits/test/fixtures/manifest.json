@@ -1,0 +1,86 @@
+[
+  {
+    "schema": "v1",
+    "name": "ok-transfer",
+    "expect": "sat",
+    "rule": "1 real input + phantom pad, 3 outputs, mode 0"
+  },
+  {
+    "schema": "v1",
+    "name": "ok-withdraw",
+    "expect": "sat",
+    "rule": "public exit through the note's own vault, mode 1"
+  },
+  {
+    "schema": "v1",
+    "name": "ok-two-inputs",
+    "expect": "sat",
+    "rule": "both input slots real (merge 1.0 + 2.0)"
+  },
+  {
+    "schema": "v1",
+    "name": "ok-relayer-fee",
+    "expect": "sat",
+    "rule": "withdraw 0.6 with a 0.05 private fee note to the relayer (plan §49)"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-foreign-key",
+    "expect": "unsat",
+    "rule": "owner binding (PP-C01): spend Alice's note with Mallory's key"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-duplicate-input",
+    "expect": "unsat",
+    "rule": "distinct nullifiers (PP-C03): same note in both slots mints 2x"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-inflation",
+    "expect": "unsat",
+    "rule": "value conservation: outputs 1.1 > input 1.0"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-negative-amount",
+    "expect": "unsat",
+    "rule": "range check: outputs 2.0 + (p - 1.0) wrap to 1.0 mod p"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-cross-asset",
+    "expect": "unsat",
+    "rule": "asset conservation: VAULT note spent into OTHER_VAULT outputs"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-withdraw-wrong-vault",
+    "expect": "unsat",
+    "rule": "mode rule: exit through a vault other than the note's asset"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-withdraw-as-transfer",
+    "expect": "unsat",
+    "rule": "mode rule: a public exit amount under mode 0"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-phantom-burn",
+    "expect": "unsat",
+    "rule": "phantom derivation (PP-C02): choose nullifier[1] = an unspent note's nullifier"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-phantom-without-key",
+    "expect": "unsat",
+    "rule": "phantom derivation (PP-P02): nullifier[1] computed without the spending key"
+  },
+  {
+    "schema": "v1",
+    "name": "attack-wrong-note-secret",
+    "expect": "unsat",
+    "rule": "commitment opening: wrong noteSecret for the spent note"
+  }
+]

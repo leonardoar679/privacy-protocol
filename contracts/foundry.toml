@@ -1,0 +1,28 @@
+# Privacy Protocol V1 — contracts (Foundry).
+# No external deps: everything needed is vendored (src/utils, src/hasher/poseidon), so
+# `forge build` only requires solc. The mock suites use MockVerifier + MockPoseidon to
+# isolate contract logic; test/{verifier,hasher,e2e} run the real Groth16 verifier and
+# real Poseidon end to end.
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+# Pinned build settings (spec §18): the deployed runtime code must be reproducible byte-for-byte.
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+evm_version = "paris"
+via_ir = false
+bytecode_hash = "none"
+cbor_metadata = false
+# Only the e2e fixture generator writes files (E2E_DUMP=true; see circuits/scripts/e2e-fixture.sh).
+fs_permissions = [{ access = "write", path = "./test/e2e" }]
+
+[fuzz]
+runs = 128
+
+[invariant]
+runs = 64
+depth = 48
+fail_on_revert = false

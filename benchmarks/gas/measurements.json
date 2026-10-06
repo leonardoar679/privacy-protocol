@@ -1,0 +1,15 @@
+{
+  "_source": "forge test --match-contract GasBenchTest -vv (steady state, real Poseidon2, depth 32, mock verifier) + Groth16RealProofTest (real verifier) — solc 0.8.24, optimizer 200, paris",
+  "_measured": "2026-10-05",
+  "verifyRealGroth16": 285523,
+  "verifyMock": 3000,
+  "operations": {
+    "deposit (ETH shield)": { "gas": 1519179, "target": 150000, "note": "32 Poseidon2 hashes + 5-input body hash + storage" },
+    "deposit (ERC-20 shield)": { "gas": 1560000, "target": 200000, "note": "ETH deposit + transferFrom + two balanceOf reads (estimate: +~40k)" },
+    "private transaction (transfer)": { "gas": 1794176, "target": 650000, "note": "33 Poseidon2 hashes + 3 commitments + real Groth16 verify + storage" },
+    "withdrawal (transact + release)": { "gas": 1830000, "target": 750000, "note": "private transaction + vault release (ETH call); estimate: +~36k" },
+    "Groth16 verify alone": { "gas": 285523, "target": null, "note": "snarkjs verifier via the IProofVerifier adapter, 14 public inputs" },
+    "Poseidon2 (2 inputs, external call)": { "gas": 28193, "target": null, "note": "LibPoseidon2Yul via IHasher; ~20k inside, ~8k call + encoding" },
+    "Poseidon2 (5 inputs, external call)": { "gas": 183021, "target": null, "note": "pure-Solidity sponge, two permutations (deposit note body only)" }
+  }
+}

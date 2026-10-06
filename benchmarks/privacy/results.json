@@ -1,0 +1,58 @@
+{
+  "opts": {
+    "users": 8000,
+    "rate": 10,
+    "seed": 4242,
+    "warmup": 0.2
+  },
+  "rows": [
+    {
+      "policy": "P0",
+      "withdrawals": 6400,
+      "piecesPerUser": 1,
+      "nominal": 234.83625,
+      "effTiming": 193.253589611873,
+      "effAmount": 12.05734375,
+      "effJoint": 10.017493330950318,
+      "guessHitJoint": 0.2409375,
+      "uniqueAmount": 0.115,
+      "uniqueJoint": 0.115
+    },
+    {
+      "policy": "C",
+      "withdrawals": 6400,
+      "piecesPerUser": 1,
+      "nominal": 238.88359375,
+      "effTiming": 197.26081039176069,
+      "effAmount": 86.26890625,
+      "effJoint": 71.2254198676847,
+      "guessHitJoint": 0.01890625,
+      "uniqueAmount": 0.000625,
+      "uniqueJoint": 0.000625
+    },
+    {
+      "policy": "P1",
+      "withdrawals": 37134,
+      "piecesPerUser": 5.79975,
+      "nominal": 5040.110545591641,
+      "effTiming": 655.665585274768,
+      "effAmount": 1727.1825550708277,
+      "effJoint": 349.12265102079806,
+      "guessHitJoint": 0.007351753110357085,
+      "uniqueAmount": 0.000026929498572736575,
+      "uniqueJoint": 0.000026929498572736575
+    },
+    {
+      "policy": "P2",
+      "withdrawals": 55714,
+      "piecesPerUser": 8.706,
+      "nominal": 5482.050777183473,
+      "effTiming": 1896.7399791932764,
+      "effAmount": 2190.1428545786825,
+      "effJoint": 1073.1960111414824,
+      "guessHitJoint": 0.0020282155293104066,
+      "uniqueAmount": 0.000017948809993897406,
+      "uniqueJoint": 0.000017948809993897406
+    }
+  ]
+}

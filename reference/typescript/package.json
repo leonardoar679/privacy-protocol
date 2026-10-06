@@ -1,0 +1,21 @@
+{
+  "name": "privacy-protocol-reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Executable cryptographic reference (spec v1.0): Poseidon2 (vendored, nargo-verified), note/nullifier/Merkle primitives, the circuit witness builder, and the shared test vectors.",
+  "scripts": {
+    "test": "vitest run",
+    "vectors": "tsx src/genVectors.ts",
+    "fixtures": "tsx src/genTxFixtures.ts",
+    "e2e": "tsx src/genE2EInputs.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

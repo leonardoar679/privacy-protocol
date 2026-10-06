@@ -1,0 +1,20 @@
+[
+  {
+    "schema": "v0-draft",
+    "name": "ok-transfer",
+    "expect": "sat",
+    "rule": "baseline: Alice spends her own note"
+  },
+  {
+    "schema": "v0-draft",
+    "name": "bug-foreign-key",
+    "expect": "sat",
+    "rule": "PP-C01: Alice's note spent with Mallory's key (draft accepts)"
+  },
+  {
+    "schema": "v0-draft",
+    "name": "bug-foreign-key-2",
+    "expect": "sat",
+    "rule": "PP-C01: same note again with a second key -> a third nullifier"
+  }
+]
