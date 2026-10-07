@@ -221,13 +221,16 @@ otherwise the route is quoted for information and filtered from selection.
   re-shield: the order's asset, and for an ETH order the wrapped native token. A route that swaps first
   and bridges the result pays an unfilled deposit back in the swapped token (Across refunds the deposit's
   input token to its depositor), and LI.FI's Mayan facet sweeps its swap surplus in it; such a route is
-  refused unless that token re-shields: the order's asset or, for ETH, WETH (through `refund()`), or a
-  token the pool has a vault for, which `refundToken(token, noteData)` re-shields into that token's
-  canonical vault in the same pool as the committed refund vault (the escrow reaches the pool's
-  permissionless vault factory through that vault, so no factory parameter can redirect it), as a note
-  with the pre-committed owner and secret (PP-S08: LI.FI routed ETH → USDC on Base through USDT). The
-  check runs at quote time, so the engine never ranks such a route, and the accepted route's foreign
-  token is handed to the executor (`refundTokens`). Token calls accept a token that returns nothing
+  refused unless that token re-shields: the order's asset or, for ETH, WETH (through `refund()`); for
+  an order in a token, WETH or ETH, which `refundToken` re-shields as ETH into the pool's native vault
+  (it unwraps the WETH; `refundToken(address(0))` moves ETH that lands at such an escrow, which
+  `refund()` never touches); or a token the pool has a vault for, which `refundToken(token, noteData)`
+  re-shields into that token's canonical vault in the same pool as the committed refund vault (the
+  escrow reaches the pool's permissionless vault factory through that vault, so no factory parameter
+  can redirect it). Each lands as a note with the pre-committed owner and secret (PP-S08: LI.FI routed
+  ETH → USDC on Base through USDT). The check runs at quote time, so the engine never ranks such a
+  route, and the accepted route's foreign asset is handed to the executor (`refundTokens`; `address(0)`
+  stands for the escrow's ETH). Token calls accept a token that returns nothing
   (USDT; PP-S10: typed calls expecting a bool made such an order unable to execute or refund).
 - A provider can pay back after `refundAfter`: Across sets the fill deadline 2 h after the quote and
   refunds an unfilled deposit with the next settlement bundle. The executor therefore watches an
