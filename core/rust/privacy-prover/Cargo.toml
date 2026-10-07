@@ -16,9 +16,11 @@ ark-poly = { version = "0.5", default-features = false }
 ark-groth16 = { version = "0.5", default-features = false }
 ark-relations = { version = "0.5", default-features = false }
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
 serde_json = "1"
+# the circuit's own WASM run by a pure-Rust interpreter (no JIT: works on iOS) for native witnesses. The
+# loop-based "portable" dispatch: the default tail-call dispatch relies on LLVM eliminating sibling calls,
+# which it does not on every target (here it grew the native stack per instruction until it overflowed).
+wasmi = { version = "2", default-features = false, features = ["std", "validate", "portable-dispatch"] }
 
 # Native hosts (phones, desktops) prove on every core: arkworks' MSMs and FFTs through rayon. The
 # wasm32 build keeps the single-threaded, std-free configuration (resolver 2 ignores these features there).

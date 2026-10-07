@@ -8,6 +8,11 @@
 //! the native proofs with the fixture blinding are exactly the ones the EVM verifier accepts
 //! (contracts/test/verifier/NativeProofFixtures.sol, regenerated with UPDATE_NATIVE_PROOF_FIXTURE=1).
 //!
+//! The native witness calculator (the circuit's WASM under wasmi) is held to the same artifacts: its
+//! witness equals snarkjs' for every fixture, the whole inputs → witness → proof path verifies, and
+//! the circuit soundness manifest (circuits/test/fixtures/manifest.json: 4 honest, 10 attacks) gives
+//! exactly the verdicts circuits/test/witness.mjs gets from snarkjs.
+//!
 //! The artifacts are build outputs (gitignored). When they are missing the tests say so and pass,
 //! unless PRIVACY_PROVER_REQUIRE_ARTIFACTS is set — scripts/verify-all.mjs sets it whenever the
 //! circuit is built, so the full verification never skips them silently.
@@ -41,6 +46,7 @@ struct Fixture {
 struct Artifacts {
     zkey: Zkey,
     zkey_bytes: Vec<u8>,
+    circuit_wasm: Vec<u8>,
     published_vk: VerifyingKey<Bn254>,
     fixtures: Vec<Fixture>,
     parse_ms: u128,
@@ -68,10 +74,12 @@ fn vk_from_json(v: &Value) -> VerifyingKey<Bn254> {
 
 fn load() -> Option<Artifacts> {
     let zkey_path = repo("circuits/build/setup/transaction_final.zkey");
+    let wasm_path = repo("circuits/build/transaction_js/transaction.wasm");
     let fixture_dir = repo("circuits/build/prover-fixtures");
-    if !zkey_path.exists() || !fixture_dir.join("ok-transfer.wtns").exists() {
+    if !zkey_path.exists() || !wasm_path.exists() || !fixture_dir.join("ok-transfer.wtns").exists() {
         return None;
     }
+    let circuit_wasm = std::fs::read(&wasm_path).unwrap();
     let zkey_bytes = std::fs::read(&zkey_path).unwrap();
     let t0 = Instant::now();
     let zkey = read_zkey(&zkey_bytes).expect("the dev zkey parses");
@@ -85,14 +93,14 @@ fn load() -> Option<Artifacts> {
             snarkjs: serde_json::from_str(&std::fs::read_to_string(fixture_dir.join(format!("{name}.proof.json"))).unwrap()).unwrap(),
         })
         .collect();
-    Some(Artifacts { zkey, zkey_bytes, published_vk, fixtures, parse_ms })
+    Some(Artifacts { zkey, zkey_bytes, circuit_wasm, published_vk, fixtures, parse_ms })
 }
 
 fn artifacts() -> Option<&'static Artifacts> {
     static CELL: OnceLock<Option<Artifacts>> = OnceLock::new();
     let a = CELL.get_or_init(load).as_ref();
     if a.is_none() {
-        let hint = "circuits/build/setup/transaction_final.zkey + circuits/build/prover-fixtures are missing: build the circuit and the dev setup, then run node core/rust/scripts/gen-prover-fixtures.mjs";
+        let hint = "circuits/build/setup/transaction_final.zkey, circuits/build/transaction_js/transaction.wasm or circuits/build/prover-fixtures are missing: build the circuit and the dev setup, then run node core/rust/scripts/gen-prover-fixtures.mjs";
         if std::env::var_os("PRIVACY_PROVER_REQUIRE_ARTIFACTS").is_some() {
             panic!("{hint}");
         }
@@ -278,4 +286,112 @@ fn rejects_truncated_or_foreign_files() {
     let last = non_canonical.len() - 32; // the last witness element := p (not canonical)
     non_canonical[last..].copy_from_slice(&Fr::MODULUS.to_bytes_le());
     assert!(matches!(read_wtns(&non_canonical), Err(WtnsError::NonCanonical(_))));
+}
+
+fn circuit_input(name: &str) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(repo(&format!("circuits/test/fixtures/v1/{name}.json"))).unwrap()).unwrap()
+}
+
+#[test]
+fn native_witnesses_equal_snarkjs_witnesses() {
+    let Some(a) = artifacts() else { return };
+    let t0 = Instant::now();
+    let mut calc = WitnessCalculator::new(&a.circuit_wasm).expect("the circuit WASM loads");
+    let load_ms = t0.elapsed().as_millis();
+    assert_eq!(calc.witness_size, a.zkey.n_vars, "the circuit's witness is the proving key's assignment");
+    for f in &a.fixtures {
+        let inputs = inputs_from_json(&circuit_input(f.name)).unwrap();
+        let t0 = Instant::now();
+        let w = calc.calculate(&inputs).expect("an honest fixture is satisfiable");
+        let ms = t0.elapsed().as_millis();
+        assert_eq!(w.len(), f.witness.len());
+        let first_diff = w.iter().zip(&f.witness).position(|(x, y)| x != y);
+        assert_eq!(first_diff, None, "{}: the native witness equals the snarkjs .wtns element for element", f.name);
+        eprintln!("{}: native witness in {ms} ms (module loaded in {load_ms} ms)", f.name);
+    }
+}
+
+#[test]
+fn circuit_inputs_to_a_verified_proof_without_snarkjs() {
+    let Some(a) = artifacts() else { return };
+    let mut calc = WitnessCalculator::new(&a.circuit_wasm).unwrap();
+    let (r, s) = blinding();
+    for name in ["ok-withdraw", "ok-relayer-fee"] {
+        let input = circuit_input(name);
+        let t0 = Instant::now();
+        let w = calc.calculate(&inputs_from_json(&input).unwrap()).unwrap();
+        let proof = prove(&a.zkey, &w, r, s).unwrap();
+        let ms = t0.elapsed().as_millis();
+        let public = public_inputs(&a.zkey, &w);
+        assert!(verify(&a.published_vk, &proof, public), "{name}: inputs → native witness → native proof verifies");
+        // the public inputs are the ones the inputs declare (PrivacyCore.encodePublicInputs order)
+        let declared: Vec<Fr> = ["root", "nullifier", "outputBody", "mode", "withdrawalVault", "withdrawalAmount", "withdrawalRecipient", "outDataHash", "txDomain"]
+            .iter()
+            .flat_map(|k| {
+                let mut v = Vec::new();
+                match &input[*k] {
+                    Value::Array(xs) => xs.iter().for_each(|x| v.push(fr_from_json(x).unwrap())),
+                    x => v.push(fr_from_json(x).unwrap()),
+                }
+                v
+            })
+            .collect();
+        assert_eq!(public, declared.as_slice());
+        eprintln!("{name}: inputs → witness → proof in {ms} ms, all native");
+    }
+}
+
+#[test]
+fn the_soundness_manifest_gives_the_same_verdicts_natively() {
+    let Some(a) = artifacts() else { return };
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(repo("circuits/test/fixtures/manifest.json")).unwrap()).unwrap();
+    let mut calc = WitnessCalculator::new(&a.circuit_wasm).unwrap();
+    let mut verdicts = 0;
+    for e in manifest.as_array().unwrap().iter().filter(|e| e["schema"] == "v1") {
+        let name = e["name"].as_str().unwrap();
+        let result = calc.calculate(&inputs_from_json(&circuit_input(name)).unwrap());
+        match e["expect"].as_str().unwrap() {
+            "sat" => assert!(result.is_ok(), "{name} must be satisfiable: {result:?}"),
+            _ => match result {
+                Err(WitnessError::Circuit { code: 4, messages, .. }) => {
+                    assert!(messages.iter().any(|m| m.contains("line")), "{name}: the circuit names the failing constraint: {messages:?}");
+                    eprintln!("{name}: rejected — {}", messages.join(" | "));
+                }
+                other => panic!("{name} ({}) must fail an assertion, got {other:?}", e["rule"]),
+            },
+        }
+        verdicts += 1;
+    }
+    assert_eq!(verdicts, 14, "4 honest fixtures + 10 attacks");
+    // the calculator is reusable after a rejected input
+    assert!(calc.calculate(&inputs_from_json(&circuit_input("ok-transfer")).unwrap()).is_ok());
+}
+
+#[test]
+fn the_calculator_refuses_malformed_inputs_and_modules() {
+    let Some(a) = artifacts() else { return };
+    let mut calc = WitnessCalculator::new(&a.circuit_wasm).unwrap();
+    let good = inputs_from_json(&circuit_input("ok-transfer")).unwrap();
+    let mut unknown = good.clone();
+    unknown.push(("notASignal".into(), vec![Fr::from(1u64)]));
+    assert_eq!(calc.calculate(&unknown).unwrap_err(), WitnessError::UnknownSignal("notASignal".into()));
+    let mut short = good.clone();
+    let k = short.iter().position(|(n, _)| n == "nullifier").unwrap();
+    short[k].1.pop();
+    assert_eq!(calc.calculate(&short).unwrap_err(), WitnessError::WrongLength { signal: "nullifier".into(), expected: 2, got: 1 });
+    let missing: Vec<_> = good.iter().filter(|(n, _)| n != "txDomain").cloned().collect();
+    assert!(matches!(calc.calculate(&missing).unwrap_err(), WitnessError::MissingInputs { .. }));
+    assert!(matches!(WitnessCalculator::new(b"\0asm not a module"), Err(WitnessError::Wasm(_))));
+    // input values: decimal, hex, negative (mod p) and plain numbers; anything else is refused
+    assert_eq!(fr_from_json(&serde_json::json!("255")).unwrap(), Fr::from(255u64));
+    assert_eq!(fr_from_json(&serde_json::json!("0xff")).unwrap(), Fr::from(255u64));
+    assert_eq!(fr_from_json(&serde_json::json!("-1")).unwrap(), -Fr::from(1u64));
+    assert_eq!(fr_from_json(&serde_json::json!(7)).unwrap(), Fr::from(7u64));
+    for bad in [serde_json::json!("12a"), serde_json::json!(""), serde_json::json!(true), serde_json::json!(-3)] {
+        assert!(matches!(fr_from_json(&bad), Err(WitnessError::BadValue(_))), "{bad}");
+    }
+    // FNV-1a 64 reference values
+    assert_eq!(fnv(""), (0xcbf29ce4u32 as i32, 0x84222325u32 as i32));
+    assert_eq!(fnv("a"), (0xaf63dc4cu32 as i32, 0x8601ec8cu32 as i32));
+    assert_eq!(fnv("foobar"), (0x85944171u32 as i32, 0xf73967e8u32 as i32));
 }

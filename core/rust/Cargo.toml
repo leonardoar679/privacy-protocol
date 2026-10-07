@@ -7,8 +7,8 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
-# Proving is MSMs and FFTs: unoptimized they take minutes. Test builds compile the prover and the
-# arkworks crates optimized (the rest of the workspace keeps fast debug builds).
+# Proving is MSMs and FFTs and the witness is an interpreter run: unoptimized they take minutes (and the
+# interpreter overflows a test thread stack). Test builds compile the prover, arkworks and wasmi optimized.
 [profile.dev.package.privacy-prover]
 opt-level = 3
 [profile.dev.package.ark-ff]
@@ -22,4 +22,14 @@ opt-level = 3
 [profile.dev.package.ark-bn254]
 opt-level = 3
 [profile.dev.package.ark-std]
+opt-level = 3
+[profile.dev.package.wasmi]
+opt-level = 3
+[profile.dev.package.wasmi_core]
+opt-level = 3
+[profile.dev.package.wasmi_ir]
+opt-level = 3
+[profile.dev.package.wasmi_collections]
+opt-level = 3
+[profile.dev.package.wasmparser]
 opt-level = 3

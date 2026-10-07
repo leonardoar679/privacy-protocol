@@ -1,15 +1,16 @@
-//! Proving benchmark on a real witness: where the time goes (zkey parse, QAP witness map, each
-//! multi-scalar multiplication) and the end-to-end proof. Run it on the device you care about
-//! (docs/mobile.md "proving benchmarks"):
+//! Proving benchmark on a real witness: where the time goes (zkey parse, the native witness from the
+//! circuit inputs, QAP witness map, each multi-scalar multiplication) and the end-to-end proof. Run it
+//! on the device you care about (docs/mobile.md "proving benchmarks"):
 //!   cargo run --release -p privacy-prover --example prove-bench -- <zkey> <wtns> [runs]
-//! Defaults: the dev zkey and the ok-transfer witness of circuits/build (core/rust/scripts/gen-prover-fixtures.mjs).
+//! Defaults: the dev zkey and the ok-transfer witness of circuits/build (core/rust/scripts/gen-prover-fixtures.mjs);
+//! the native witness step runs when circuits/build/transaction_js/transaction.wasm is there.
 use ark_bn254::{Fr, G1Projective, G2Projective};
 use ark_ec::VariableBaseMSM;
 use ark_ff::PrimeField;
 use ark_groth16::r1cs_to_qap::R1CSToQAP;
 use ark_poly::GeneralEvaluationDomain;
 use privacy_prover::qap::CircomReduction;
-use privacy_prover::{fr_from_bytes, prove, public_inputs, read_wtns, read_zkey, verify};
+use privacy_prover::{fr_from_bytes, inputs_from_json, prove, public_inputs, read_wtns, read_zkey, verify, WitnessCalculator};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -29,6 +30,17 @@ fn main() {
     let zkey = read_zkey(&bytes).expect("zkey");
     println!("zkey parse: {:.0} ms ({} constraints, {} signals, domain 2^{})", ms(t), zkey.matrices.num_constraints, zkey.n_vars, zkey.domain_size.trailing_zeros());
     let w = read_wtns(&std::fs::read(&wtns_path).unwrap_or_else(|e| panic!("{}: {e}", wtns_path.display()))).expect("wtns");
+    let circuit_wasm = repo.join("circuits/build/transaction_js/transaction.wasm");
+    if circuit_wasm.exists() {
+        let t = Instant::now();
+        let mut calc = WitnessCalculator::new(&std::fs::read(&circuit_wasm).unwrap()).expect("circuit wasm");
+        let load = ms(t);
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.join("circuits/test/fixtures/v1/ok-transfer.json")).unwrap()).unwrap();
+        let inputs = inputs_from_json(&input).unwrap();
+        let t = Instant::now();
+        let native = calc.calculate(&inputs).expect("witness");
+        println!("native witness (wasmi, {} signals): {:.0} ms (module {load:.0} ms){}", native.len(), ms(t), if wtns_path.ends_with("ok-transfer.wtns") { if native == w { ", == the snarkjs .wtns" } else { ", DIFFERS from the snarkjs .wtns" } } else { "" });
+    }
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     println!("threads available: {threads} (rayon {})", if cfg!(target_arch = "wasm32") { "off" } else { "on" });
 
