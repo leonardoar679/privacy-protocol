@@ -37,7 +37,9 @@ backup file = { "v": 1, "keystore": keystore, "journal": journal | null }
 ```
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
 `orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
-`refundCounter`, `refundNoteData` (the random 169-byte refund payload the order commits to), `provider`,
+`refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then
+keccak256(seed ‖ "/refund-payload/" ‖ counter (4 bytes BE) ‖ i) for i = 0…5, truncated; derived, so a
+rescan without the journal regenerates it), `provider`,
 `policy`, `request` (`from`, `to`, `destination`: the reference every provider call is checked against
 before signing), `params` (the on-chain OrderParams, from which the escrow address is recomputed),
 `endpoint`, `approvedMin` (the least the user agreed to receive, destination base units; a call
