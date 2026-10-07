@@ -34,6 +34,9 @@ export function thorAsset(a: AssetRef): string {
 export const to1e8 = (amount: bigint, decimals: number) => (amount * 10n ** 8n) / 10n ** BigInt(decimals);
 export const from1e8 = (amount1e8: bigint, decimals: number) => (amount1e8 * 10n ** BigInt(decimals)) / 10n ** 8n;
 
+/** THORChain's Ethereum router (v4.1.1), pinned like every other provider contract an escrow calls; the wallet pins it too (THORCHAIN_ROUTER after a router upgrade). */
+export const THORCHAIN_ROUTER_ETHEREUM = (process.env.THORCHAIN_ROUTER ?? "0xd37bbe5744d730a1d98d8dc97c42f0ca46ad7146").toLowerCase();
+
 /** Distinct gateways that must agree on the inbound vault/router before an ingress is produced (plan §74). */
 export const THORNODE_QUORUM = Number(process.env.THORNODE_QUORUM ?? "2");
 
@@ -138,9 +141,11 @@ export class ThorchainAdapter implements ProviderAdapter {
     // the deposit target must be confirmed by independent gateways, never taken from one quote response
     const inbound = await inboundQuorum(CHAIN[req.from.chain]);
     if (inbound.halted) throw new Error(`THORChain: ${CHAIN[req.from.chain]} inbound is halted`);
+    // an ERC-20 escrow approves the router for its whole balance: even agreeing gateways cannot name another contract
+    if (req.from.chain === "ethereum" && inbound.router !== THORCHAIN_ROUTER_ETHEREUM) throw new Error(`THORChain: the gateways report router ${inbound.router}, not the pinned Ethereum router ${THORCHAIN_ROUTER_ETHEREUM} (set THORCHAIN_ROUTER after a router upgrade)`);
     if (q.inbound_address.toLowerCase() !== inbound.address) throw new Error(`THORChain: the quote's inbound address ${q.inbound_address} is not confirmed by the gateway quorum (${inbound.address})`);
     if ((q.router ?? "").toLowerCase() !== (inbound.router ?? "")) throw new Error(`THORChain: the quote's router ${q.router} is not confirmed by the gateway quorum (${inbound.router})`);
-    const verified = [`inbound vault (${inbound.agreeing.length} gateways agree)`, "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`];
+    const verified = [`inbound vault (${inbound.agreeing.length} gateways agree)`, req.from.chain === "ethereum" ? "router (quorum + pinned)" : "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`];
     if (!evmSource) {
       return { kind: "plain-address", to: q.inbound_address, calldata: "0x", value: req.amount, memo, expiresAt: q.expiry, minOutEncoded: true, verified };
     }

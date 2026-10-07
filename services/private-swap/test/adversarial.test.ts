@@ -203,6 +203,10 @@ describe("§74 THORChain gateway malicious — inbound vault/router need a gatew
     await quorumUp(ctx);
     await expect(withTamper([{ match: THORNODE_URLS[0] + "/thorchain/inbound_addresses", json: (b) => b.map((c: any) => (c.chain === "ETH" ? { ...c, router: ATTACKER } : c)) }], () => inboundQuorum("ETH"))).rejects.toThrow(/disagree/);
   }, 60_000);
+  it("all gateways agree on another router → refused: the Ethereum router is pinned", async (ctx) => {
+    await quorumUp(ctx);
+    await expect(withTamper([{ match: "/thorchain/inbound_addresses", json: (b) => b.map((c: any) => (c.chain === "ETH" ? { ...c, router: ATTACKER } : c)) }], async () => a.prepareIngress(req, await a.quote(req)))).rejects.toThrow(/pinned Ethereum router/);
+  }, 90_000);
   it("an escrow-sourced memo without the escrow as refund address is never produced", async () => {
     // a router deposit refunds to the transaction sender (the relayer) unless the memo names a refund address
     const q = { raw: { inbound_address: "0x0", memo: "", min1e8: "1" } } as any;

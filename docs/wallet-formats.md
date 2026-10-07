@@ -35,6 +35,15 @@ plaintext JSON = { "v": 1, "notes": [...], "noteCounter": n, "chainIndexes": { c
                    "swaps": [...], "schedule": [...], "settings": {...} }     (bigints as decimal strings)
 backup file = { "v": 1, "keystore": keystore, "journal": journal | null }
 ```
+A swap record holds what the wallet needs to finish or refund an order without the swap service:
+`orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
+`refundCounter`, `refundNoteData` (the random 169-byte refund payload the order commits to), `provider`,
+`policy`, `request` (`from`, `to`, `destination`: the reference every provider call is checked against
+before signing), `params` (the on-chain OrderParams, from which the escrow address is recomputed),
+`endpoint`, `approvedMin` (the least the user agreed to receive, destination base units; a call
+guaranteeing less is signed only after fresh consent), `quote`, `createdAt`, `dueAt`, `fundedTx`,
+`jobId`, `state`.
+
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. Nothing in either file is ever stored in the clear; the only two
