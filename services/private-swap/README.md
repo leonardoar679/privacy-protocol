@@ -7,7 +7,7 @@ scoring with a live incident feed, the cross-chain privacy score, and the one-ti
 
 ```
 npm install
-npm test                                   # 122 tests: 43 offline + 79 LIVE (real quote APIs, read-only, no funds)
+npm test                                   # 133 tests: 43 offline + 90 LIVE (real quote APIs, read-only, no funds)
 npx tsx src/cli.ts 1 BTC best-privacy       # quote all providers, choose, derive the endpoint, sign the execution
 npx tsx src/cli.ts 1 USDC_BASE best-price
 ```
@@ -25,7 +25,7 @@ npx tsx src/cli.ts 1 USDC_BASE best-price
 | `src/adapters/chainflip.ts` | **implemented**: `/v2/quote` vault-swap quotes, `POST /api/encodeVaultSwapData` → `Vault.xSwapNative/xSwapToken` calldata **decoded and verified locally** (pinned Vault address, destination chain/asset/address, refund = escrow, min price, no broker/boost/DCA), `/v2/swaps/{tx}` status, `cf_safe_mode_statuses` halts |
 | `src/adapters/mayan.ts` | **implemented**: `/v3/quote` (Fast MCTP, CCTP-settled), order payload (destination, `amountOutMin`, deadline, fees) **built locally** exactly as the SDK does and wrapped in `MayanForwarder.swapAndForwardEth` / `forwardERC20`; the only API bytes are the source-chain router calldata, bounded on-chain by `minMiddleAmount`; explorer status; `refundTarget: destination` |
 | `src/adapters/nearIntents.ts` | **implemented (quotes + status)**: 1Click API dry quotes (signed by the service, `minAmountOut`, `refundTo` = escrow on the origin chain), token list, `/v0/status`. `prepareIngress` **refuses an escrow source** until 1Click confirms that deposits sent by a contract (internal transactions) are credited (`ONECLICK_CONTRACT_DEPOSITS_CONFIRMED=1`); the engine ranks it but never chooses it (`contractSender: false` → filtered) |
-| `src/adapters/across.ts` | **implemented (bridge)**: `suggested-fees` → `SpokePool.depositV3` built locally (exact `outputAmount` fill, depositor = escrow → origin-chain refund), pinned SpokePools, `deposit/status`; the Uniswap leg (asset change) is not implemented |
+| `src/adapters/across.ts` | **implemented (bridge + swap leg)**: the same asset: `suggested-fees` → `SpokePool.depositV3` built locally (exact `outputAmount` fill, depositor = escrow → origin-chain refund), pinned SpokePools, `deposit/status`; an asset change: the Uniswap leg through Across's Swap API (`src/adapters/acrossSwap.ts`): `SpokePoolPeriphery.swapAndBridge` decoded and checked in full (pinned periphery and SpokePool, escrow as depositor, the swapped token re-shieldable and reported, the destination message only draining the output token to the fresh address on the pinned MulticallHandler); ERC-20 destinations |
 | `src/abi.ts` | tiny ABI encoder/decoder shared by the adapters (words, dynamic bytes, selectors) |
 
 The engine never holds money keys. The order key is derived per order by the wallet and used once;

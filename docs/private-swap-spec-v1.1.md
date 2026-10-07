@@ -125,7 +125,12 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   selector only (AcrossFacetV4, MayanFacet; any other facet is refused under every policy), for
   AcrossFacetV4 the refund address, the assets and the output the facet hands Across — in the swap
   variant `minAmount × outputAmountMultiplier / 1e18`, because the facet recomputes it on chain — and
-  for MayanFacet the sweep recipient (the escrow) and `mayanAmountIn`; the THORChain adapter takes the inbound vault and
+  for MayanFacet the sweep recipient (the escrow) and `mayanAmountIn`; the Across swap leg pins the
+  SpokePoolPeriphery and the SpokePool it deposits into (the periphery accepts any and approves it for
+  the swapped tokens), takes the guaranteed output from the deposit's `outputAmount` (proportional
+  adjustment only raises it), requires the escrow as depositor, and reads the destination message: only
+  `drainLeftoverTokens(output token, fresh address)` on the pinned MulticallHandler and `emitData` on the
+  pinned AcrossEventEmitter, with something draining the output token to the fresh address; the THORChain adapter takes the inbound vault and
   router only from a quorum of independent gateways; Mayan's Fast-MCTP contract is pinned). The executor therefore cannot lower the limit:
   a different calldata has a different signature.
 - A quote whose claimed minimum is inconsistent with the requested slippage (more than slippage +
