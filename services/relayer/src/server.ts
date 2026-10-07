@@ -1,6 +1,7 @@
 // HTTP front of the relayer: GET /info (fee, privacy address), POST /submit (a proven transact +
 // the fee note's opening), GET /status/:txHash, GET /jobs; swap orders: POST /swap/execute
-// (factory, params, signed execution, refund payload), GET /swap/:orderId, GET /swap. Loopback by default; CORS for the Vite
+// (factory, params, signed execution, refund payload), POST /swap/refund (factory, params, refund payload:
+// return a funded order to the pool without executing it), GET /swap/:orderId, GET /swap. Loopback by default; CORS for the Vite
 // dev origins. Env: RPC_URL, CORE, FEE_VAULT, CHAIN_ID, RELAYER_PRIVATE_KEY (gas EOA), RELAYER_SEED
 // (fee-note wallet seed: utf8 or 0x-hex), MIN_FEE_WEI, GAS_ESTIMATE, FEE_MARGIN_BPS,
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
@@ -64,6 +65,15 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname.startsWith("/swap/")) {
       const job = executor.get(url.pathname.slice("/swap/".length));
       return job ? send(200, job) : send(404, { error: "unknown swap job" });
+    }
+    if (req.method === "POST" && url.pathname === "/swap/refund") {
+      // return a funded order to the pool after its window, without executing it (no execution needed)
+      if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
+      let body = "";
+      for await (const chunk of req) { body += chunk; if (body.length > 1_000_000) throw new RelayerError("too_large", "request too large"); }
+      const job = executor.addRefund(JSON.parse(body));
+      executor.tick().catch(() => {}); // refund at once if the window has already passed
+      return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/execute") {
       if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });

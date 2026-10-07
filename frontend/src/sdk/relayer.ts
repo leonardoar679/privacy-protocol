@@ -27,7 +27,9 @@ export interface SwapExecuteRequest {
   execution: { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex };
   refundNoteData: Hex;
 }
-export type SwapJobState = "waiting-funding" | "expired" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+/** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
+export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;
+export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
 export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; error?: string; balance?: string; updatedAt: number }
 
 export class RelayerRefusal extends Error {
@@ -50,6 +52,7 @@ export const relayerInfo = (url: string, fetchImpl: typeof fetch = fetch) => cal
 export const relayerSubmit = (url: string, req: RelayerSubmitRequest, fetchImpl: typeof fetch = fetch) => call<RelayerSubmitResult>(url, "/submit", req, fetchImpl);
 export const relayerStatus = (url: string, txHash: Hex, fetchImpl: typeof fetch = fetch) => call<{ status: string }>(url, `/status/${txHash}`, undefined, fetchImpl);
 export const relayerSwapExecute = (url: string, req: SwapExecuteRequest, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, "/swap/execute", req, fetchImpl);
+export const relayerSwapRefund = (url: string, req: SwapRefundRequest, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, "/swap/refund", req, fetchImpl);
 export const relayerSwapStatus = (url: string, orderId: string, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, `/swap/${orderId}`, undefined, fetchImpl);
 
 /** A refusal is the relayer's decision (4xx with a code); anything else (network, 5xx) is a reason to try the next relayer. */
@@ -92,7 +95,7 @@ export function swapJobStatus(s: SwapJobState): "Pending" | "Executing" | "Compl
     case "waiting-funding": return "Pending";
     case "executing": case "executed": return "Executing";
     case "completed": return "Completed";
-    case "expired": case "refunding": return "Refunding";
+    case "expired": case "refund-only": case "refunding": return "Refunding";
     case "refunded": return "Refunded";
     default: return "Failed";
   }

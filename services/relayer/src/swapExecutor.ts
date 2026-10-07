@@ -9,6 +9,10 @@
 //   waiting-funding ──(balance ≥ amount, before the signed deadline)──▶ executing ──▶ executed ──▶ completed
 //        │ deadline passed ▶ expired                                               ▲ leftover after refundAfter
 //        └──────────────── refundAfter reached with a balance ──▶ refunding ──▶ refunded ◀─┘
+// A wallet that will not (or cannot) execute an order hands over a REFUND-ONLY job instead — params and
+// the committed refund payload, no execution — so that the funded escrow still returns to the pool after
+// `refundAfter` (refund() is permissionless; somebody has to know the escrow and the payload to call it).
+// A later signed execution for the same order replaces a refund-only job while it is still open.
 // An ETH order's escrow can be paid back in WETH (an unfilled Across deposit is refunded to its
 // depositor in the input token); the escrow unwraps it in refund(), so that balance counts for the
 // refund decision — never for execution, which needs native ETH.
@@ -35,8 +39,11 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export interface SwapParamsJson { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
 export interface SwapExecutionJson { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex }
 export interface SwapJobRequest { factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex }
-export type SwapJobState = "waiting-funding" | "expired" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
-export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex; state: SwapJobState; txHash?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number }
+/** Return a funded order to the pool after its window, without executing it. */
+export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; refundNoteData: Hex }
+export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+/** `execution` is absent for a refund-only job. */
+export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; state: SwapJobState; txHash?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number }
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
@@ -56,8 +63,8 @@ const executionTuple = (x: SwapExecutionJson) => ({ provider: x.provider, value:
 export const encodeDeployAndExecute = (p: SwapParamsJson, x: SwapExecutionJson): Hex => encodeFunctionData({ abi: factoryAbi, functionName: "deployAndExecute", args: [paramsTuple(p), executionTuple(x)] });
 export const encodeDeployAndRefund = (p: SwapParamsJson, noteData: Hex): Hex => encodeFunctionData({ abi: factoryAbi, functionName: "deployAndRefund", args: [paramsTuple(p), noteData] });
 
-/** States in which a newer execution (re-signed with a fresh quote) may replace the stored one. */
-const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-failed"];
+/** States in which a newer execution (re-signed with a fresh quote) may replace the stored one, or a refund-only request drop it. */
+const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-failed", "refund-only"];
 
 export class SwapExecutor {
   private jobs = new Map<string, SwapJob>();
@@ -71,14 +78,46 @@ export class SwapExecutor {
   private persist(): void { this.cfg.journal?.save([...this.jobs.values()]); }
 
   /** Everything checkable before watching the chain; throws SwapJobError. */
+  /** What every job needs, executed or not: a known asset type, sane deadlines, the refund payload the order committed to. */
+  private checkOrder(req: { factory: Address; params: SwapParamsJson; refundNoteData: Hex }): void {
+    const p = req?.params;
+    if (!p || !isHex(req.factory, 20)) throw new SwapJobError("bad_request", "factory and params are required");
+    if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
+    if (!isHex(req.refundNoteData, 169)) throw new SwapJobError("bad_refund_payload", "refundNoteData must be the 169-byte payload");
+    if (keccak256(req.refundNoteData) !== String(p.refundNoteDataHash).toLowerCase()) throw new SwapJobError("refund_payload_mismatch", "refundNoteData does not hash to the committed refundNoteDataHash");
+    if (!(Number(p.executeDeadline) < Number(p.refundAfter))) throw new SwapJobError("bad_deadlines", "executeDeadline must precede refundAfter");
+  }
+
+  /**
+   * A refund-only job: the order will not be executed (the wallet refused the provider call, or the user
+   * cancelled), so whatever the escrow holds re-shields as the committed note once `refundAfter` is
+   * reached. Drops a stored execution that has not run yet; an order already executing or settled is
+   * left alone (its leftovers are refunded anyway).
+   */
+  addRefund(req: SwapRefundRequest): SwapJob {
+    this.checkOrder(req);
+    const p = req.params;
+    const escrow = predictEscrow(req.factory, this.cfg.escrowCreationCode, toEngineParams(p));
+    const id = p.orderId.toLowerCase();
+    const existing = this.jobs.get(id);
+    if (existing) {
+      if (REPLACEABLE.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
+        existing.execution = undefined; existing.state = "refund-only"; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
+        this.persist();
+      }
+      return existing;
+    }
+    const job: SwapJob = { id, escrow, factory: req.factory, params: p, refundNoteData: req.refundNoteData, state: "refund-only", createdAt: Date.now(), updatedAt: Date.now() };
+    this.jobs.set(id, job);
+    this.persist();
+    return job;
+  }
+
   add(req: SwapJobRequest): SwapJob {
     const p = req?.params, x = req?.execution;
-    if (!p || !x || !isHex(req.factory, 20)) throw new SwapJobError("bad_request", "factory, params and execution are required");
-    if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
+    if (!x) throw new SwapJobError("bad_request", "factory, params and execution are required");
+    this.checkOrder(req);
     if (Number(p.assetType) === 1 && BigInt(x.value) !== 0n) throw new SwapJobError("bad_execution", "an ERC-20 order forwards no ETH value (the provider pulls the tokens)");
-    if (!isHex(req.refundNoteData, 169)) throw new SwapJobError("bad_refund_payload", "refundNoteData must be the 169-byte payload");
-    if (keccak256(req.refundNoteData) !== p.refundNoteDataHash.toLowerCase()) throw new SwapJobError("refund_payload_mismatch", "refundNoteData does not hash to the committed refundNoteDataHash");
-    if (!(Number(p.executeDeadline) < Number(p.refundAfter))) throw new SwapJobError("bad_deadlines", "executeDeadline must precede refundAfter");
     if (!(Number(x.deadline) <= Number(p.executeDeadline))) throw new SwapJobError("bad_deadlines", "the signed deadline exceeds the committed executeDeadline");
     if (!isHex(x.signature, 65) || !isHex(x.providerCalldata) || !isHex(x.provider, 20)) throw new SwapJobError("bad_execution", "execution needs provider, calldata and a 65-byte signature");
     const escrow = predictEscrow(req.factory, this.cfg.escrowCreationCode, toEngineParams(p));
@@ -178,7 +217,7 @@ export class SwapExecutor {
         else if (job.state === "executed") { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); }
         continue;
       }
-      if (job.state === "waiting-funding") {
+      if (job.state === "waiting-funding" && job.execution) {
         if (now > Number(job.execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); continue; }
         if (balance >= BigInt(p.amount)) await this.send(job, encodeDeployAndExecute(p, job.execution), "executing", "execute-failed");
       }

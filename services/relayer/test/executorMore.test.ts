@@ -80,6 +80,40 @@ beforeAll(async () => {
 });
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
+describe("refund-only jobs (the wallet will not execute: it refused the call, or the user cancelled)", () => {
+  it("need no execution, are never executed even when funded, and refund once the window opens", async () => {
+    const ex = executorWith();
+    const req = makeRequest(("0x" + "1a".repeat(32)) as Hex, 1500);
+    clock = 1000; ethBalance = BigInt(req.params.amount); receiptStatus = null; raws.length = 0;
+    const job = ex.addRefund({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData });
+    expect(job.state).toBe("refund-only");
+    expect(job.execution).toBeUndefined();
+    await ex.tick();
+    expect(raws.length, "funded, but never executed").toBe(0);
+    expect(job.state).toBe("refund-only");
+    clock = Number(req.params.refundAfter);
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[0]).data! }).functionName).toBe("deployAndRefund");
+    ethBalance = 0n; receiptStatus = null; clock = 1000;
+  });
+  it("drop a stored execution that has not run; a later execution replaces them; a payload that is not the committed one is refused", async () => {
+    const ex = executorWith();
+    const orderId = ("0x" + "1b".repeat(32)) as Hex;
+    clock = 1000; ethBalance = 0n;
+    const req = makeRequest(orderId, 1500);
+    const job = ex.add(req);
+    expect(job.state).toBe("waiting-funding");
+    expect(ex.addRefund({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData })).toBe(job);
+    expect(job.state).toBe("refund-only");
+    expect(job.execution, "the signed execution is dropped").toBeUndefined();
+    ex.add(makeRequest(orderId, 1600)); // the user changed their mind, with a fresh quote
+    expect(job.state).toBe("waiting-funding");
+    expect(job.execution?.deadline).toBe(1600);
+    expect(() => ex.addRefund({ factory: req.factory, params: req.params, refundNoteData: ("0x" + "ff".repeat(169)) as Hex })).toThrow(/does not hash/);
+  });
+});
+
 describe("re-signed executions", () => {
   it("an expired execution is replaced by a fresh one for the same order and then executed with the new signature", async () => {
     const ex = executorWith();
@@ -91,7 +125,7 @@ describe("re-signed executions", () => {
     const fresh = makeRequest(orderId, 1700); // re-quoted, re-signed by the same one-time key (deadline ≤ executeDeadline 1801)
     expect(ex.add(fresh)).toBe(job);
     expect(job.state).toBe("waiting-funding");
-    expect(job.execution.signature).toBe(fresh.execution.signature);
+    expect(job.execution?.signature).toBe(fresh.execution.signature);
     ethBalance = BigInt(first.params.amount);
     await ex.tick();
     expect(job.state).toBe("executing");
@@ -101,7 +135,7 @@ describe("re-signed executions", () => {
     // once executing, a further execution is ignored
     const late = makeRequest(orderId, 1750);
     ex.add(late);
-    expect(job.execution.signature).toBe(fresh.execution.signature);
+    expect(job.execution?.signature).toBe(fresh.execution.signature);
     ethBalance = 0n;
   });
 });

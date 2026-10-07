@@ -65,6 +65,8 @@ export interface CallExpectation {
   /** amount − executor tip: what the escrow forwards to the provider */
   net: bigint;
   policy: Policy;
+  /** the deployment's chain: the pinned provider contracts exist on Ethereum mainnet (1) only */
+  chainId?: bigint;
   /** unix seconds (tests) */
   now?: number;
 }
@@ -210,6 +212,8 @@ function decode<A extends readonly unknown[]>(provider: ProviderName, abi: A, da
  */
 export async function checkProviderCall(call: ProviderCall, e: CallExpectation, deps: { inbound?: InboundLookup } = {}): Promise<CheckedCall> {
   if (e.from.chain !== "ethereum") throw new ProviderCallMismatch("escrow", "source", "escrows live on Ethereum");
+  // on a testnet the pinned addresses hold no contract: the escrow's call would succeed and pay an empty address
+  if (e.chainId !== undefined && e.chainId !== 1n) throw new ProviderCallMismatch("escrow", "chain", `the provider contracts are on Ethereum mainnet; this deployment is chain ${e.chainId}, where they do not exist (return the order to your private balance instead)`);
   if (!isAddress(call.provider)) throw new ProviderCallMismatch("escrow", "provider", `${call.provider} is not an address`);
   const now = e.now ?? Math.floor(Date.now() / 1000);
   let checked: CheckedCall;

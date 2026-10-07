@@ -210,6 +210,12 @@ otherwise the route is quoted for information and filtered from selection.
   is lost, but the wallet MUST show that a failure ends in USDC on the destination chain, not in the pool.
 - Partial delivery (§3 PARTIAL) is reported, never silently accepted; the remainder in escrow is
   refundable after `refundAfter`.
+- A funded order the wallet will not execute — it refused the provider call (§2), the user did not
+  accept a lower minimum, or simply changed their mind — MUST still come back: the wallet hands an
+  executor a refund-only job (`POST /swap/refund`: factory, params, refund payload; no execution, nothing
+  signed), which calls `deployAndRefund` once `refundAfter` is reached. `refund()` is permissionless,
+  but only the wallet knows the params and the payload, so without such a job nobody would call it.
+  A signed execution handed over later still replaces a refund-only job while it is open.
 
 ## 8. Privacy budget (plan §29–§31)
 - **Delay**: under `best-privacy` the wallet schedules SOURCE_SUBMITTED uniformly at random within

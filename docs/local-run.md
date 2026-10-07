@@ -49,17 +49,21 @@ suites already cover, so what is being checked is the glue in a real browser on 
 5. **Swap privately**: Get a quote (one route in plain words; *View route* lists the providers) → Swap →
    under *Best privacy* the funding is scheduled at a random time in the window (reload the page, unlock:
    the order is still there under "Your open swaps"; *Fund now* skips the wait) → 2 · Confirm the swap →
-   the executor's state goes Pending → Executing (`deployAndExecute` from the relayer key); on Sepolia the
-   provider call is a mock, so let the window pass and watch Refunding → Refunded (`deployAndRefund`
-   re-shields the pre-committed note; rescan to see it).
+   the wallet reads the provider call before signing and states what it checked; the executor's state
+   goes Pending → Executing (`deployAndExecute` from the relayer key). On a testnet the wallet refuses to
+   sign (the pinned provider contracts exist on mainnet only): choose **Return to my private balance**,
+   let the window pass and watch Refunding → Refunded (`deployAndRefund` re-shields the pre-committed
+   note; rescan to see it). If the price moved since the quote, the wallet shows the new minimum and
+   signs only after *Confirm at the new minimum*.
 5b. **Swap without a wallet** (lock screen): BTC → ETH quote → deposit instruction (THORChain inbound address
-   + memo, confirmed by the gateway quorum) → paste a txid → status.
+   + memo; the browser checks both against three public THORNode gateways and your inputs before showing
+   them) → paste a txid → status.
 6. **Private AI** (Sepolia zkAPI, needs Sepolia ETH and the server's shared password): fund the fresh
    address from the pool, deposit credit, start a private chat, end it, withdraw unused credit.
 
 ## What to expect to break first
 - Provider quotes: live APIs rate-limit and change shapes; the adversarial suite is the reference.
-- The swap on Sepolia cannot reach a real provider (mainnet pins); only the escrow / executor / refund
-  mechanics are exercised there.
+- The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call
+  there, so only the escrow / executor / refund mechanics are exercised (Return to my private balance).
 - The relayer needs a gas balance; it refuses anything below its live minimum fee.
 - Wallet state lives in the encrypted journal (localStorage); clearing site data means Restore from phrase + rescan, or the backup file.

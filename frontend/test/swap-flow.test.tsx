@@ -49,6 +49,8 @@ const json = (x: unknown, status = 200) => new Response(wire(x), { status, heade
 const request = (b: any): QuoteRequest => ({ from: { ...b.from, decimals: Number(b.from.decimals) }, to: { ...b.to, decimals: Number(b.to.decimals) }, amount: BigInt(b.amount), destination: String(b.destination), slippageBps: Number(b.slippageBps ?? 50) });
 const score = { provider: "thorchain", total: 80, components: { price: 80, security: 90, privacy: 70, latency: 60, liquidity: 80, reliability: 90 } };
 const calls: string[] = [];
+const relayerBodies: any[] = [];
+const jobs = new Map<string, string>();
 
 async function service(path: string, body: any): Promise<Response> {
   switch (path) {
@@ -87,13 +89,18 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   calls.push(`${u.host}${u.pathname}`);
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
   if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
-  if (u.host === "127.0.0.1:8790") return json({ id: body?.params?.orderId ?? u.pathname.slice("/swap/".length), escrow: FACTORY, state: "executing", updatedAt: Date.now() });
+  if (u.host === "127.0.0.1:8790") {
+    if (u.pathname === "/swap/refund") { relayerBodies.push(body); jobs.set(String(body.params.orderId).toLowerCase(), "refund-only"); }
+    if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
+    const id = String(body?.params?.orderId ?? u.pathname.slice("/swap/".length)).toLowerCase();
+    return json({ id, escrow: FACTORY, state: jobs.get(id) ?? "executing", updatedAt: Date.now() });
+  }
   return json({ error: `unexpected request ${url}` }, 404);
 });
 
 beforeAll(() => { globalThis.fetch = fetchMock as unknown as typeof fetch; });
 let root: Root | null = null;
-afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); bend = {}; calls.length = 0; orders.clear(); });
+afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); bend = {}; calls.length = 0; orders.clear(); relayerBodies.length = 0; jobs.clear(); });
 
 const button = (c: HTMLElement, text: string | RegExp) => [...c.querySelectorAll("button")].find((b) => (typeof text === "string" ? b.textContent?.trim() === text : text.test(b.textContent ?? ""))) as HTMLButtonElement | undefined;
 async function mount(container: HTMLElement) {
@@ -140,6 +147,24 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     await vi.waitFor(() => expect(container.textContent).toMatch(/does not do what this wallet asked for \(thorchain receiver/), { timeout: 20_000 });
     expect(calls).not.toContain("127.0.0.1:8787/finalize");
     expect(calls).not.toContain("127.0.0.1:8790/swap/execute");
+  });
+
+  it("a refused call can be returned to the private balance: a refund-only job with the journaled params, no signature", async () => {
+    const container = document.createElement("div");
+    const orderId = await committedAndFunded(container);
+    bend = { dest: "bc1qattacker" };
+    await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toMatch(/does not do what this wallet asked for/), { timeout: 20_000 });
+    await act(async () => { button(container, "Return to my private balance")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toContain("Returning to your private balance"), { timeout: 20_000 });
+    expect(relayerBodies).toHaveLength(1);
+    const sent = relayerBodies[0];
+    expect(sent.execution, "nothing signed is handed over").toBeUndefined();
+    expect(sent.params).toEqual(session.journal().swaps.find((s) => s.orderId === orderId)!.params);
+    expect(sent.factory.toLowerCase()).toBe(FACTORY.toLowerCase());
+    expect(sent.refundNoteData).toMatch(/^0x[0-9a-f]{338}$/);
+    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(session.journal().swaps.find((s) => s.orderId === orderId)?.state).toBe("refund-only");
   });
 
   it("a lower minimum is not signed until the user confirms exactly it; the consent is journaled", async () => {

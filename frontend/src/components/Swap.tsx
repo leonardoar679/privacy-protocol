@@ -9,7 +9,7 @@ import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chai
 import { privateWithdrawal } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
-import { relayerSwapExecute, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
+import { relayerSwapExecute, relayerSwapRefund, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
 import { session, useSession } from "../wallet/session";
@@ -37,7 +37,9 @@ const TARGETS: Record<string, { ref: AssetRef; network: string }> = {
 };
 const fmt = (units: string, decimals: number) => (Number(units) / 10 ** decimals).toFixed(Math.min(decimals, 6));
 const hours = (s: number) => (s >= 3600 ? `${Math.round(s / 3600)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
-const OPEN_FOR_RESIGN = ["expired", "execute-failed"];
+const OPEN_FOR_RESIGN = ["expired", "execute-failed", "refund-only"];
+/** A funded order can still be returned unexecuted while no execution is running or settled. */
+const CAN_RETURN = (job: SwapJob | null) => !job || ["waiting-funding", "expired", "execute-failed"].includes(job.state);
 const risk = (security: number) => (security >= 85 ? "Low" : security >= 70 ? "Medium" : "High");
 const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "native deposit address" : p === "near-intents" ? "solver network" : p === "mayan" ? "signed intent (drivers compete)" : "aggregator / bridge");
 const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
@@ -180,6 +182,22 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     if (!stored) return;
     const w = await run("Private withdrawal to the one-time escrow…", () => fund(stored));
     if (w) completeAction(`fund-escrow:${stored.orderId}`);
+  }
+
+  /**
+   * Return a funded order to the private balance without executing it: hand the executor a refund-only
+   * job (the journaled params and refund payload, no signature), which re-shields the escrow's balance as
+   * the committed note once the window opens. For a call this wallet refused, a minimum the user does not
+   * accept, or simply a change of mind; signing a fresh quote later still replaces it.
+   */
+  async function returnToBalance() {
+    if (!order || !stored || !refundNoteData) return;
+    if (submission.kind !== "relayer") { setError(`Switch to relayer submission (advanced), or call deployAndRefund on the factory yourself after ${new Date(order.params.refundAfter * 1000).toLocaleString()}.`); return; }
+    const url = submission.url;
+    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactory(), params: stored.params as any, refundNoteData }));
+    if (!j) return;
+    setMoved(null); setJob(j);
+    patchStored(order.orderId, { jobId: j.id, state: j.state });
   }
 
   /**
@@ -332,6 +350,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
             <button className="primary" onClick={() => signAndHand()} disabled={!!busy || !funded || (!!job && !OPEN_FOR_RESIGN.includes(job.state))}>
               {job && OPEN_FOR_RESIGN.includes(job.state) ? "2 · Confirm again with a fresh quote" : "2 · Confirm the swap"}
             </button>
+            {funded && CAN_RETURN(job) && <button className="tab" onClick={returnToBalance} disabled={!!busy} title="The order is not executed; its escrow re-shields into your private balance once the window opens">Return to my private balance</button>}
           </div>
           {moved && (() => {
             const t = (stored?.request as any)?.to as AssetRef | undefined;
@@ -342,6 +361,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
                 <p style={{ fontSize: 13, margin: 0 }}>The price moved. This route now guarantees at least <b>{fmt(moved.minOut.toString(), dec)} {sym}</b>; you approved {fmt(moved.approved.toString(), dec)} {sym} (−{drop} %). Nothing has been signed.</p>
                 <p className="muted" style={{ fontSize: 12 }}>Confirm at the new minimum, or wait and confirm later against a fresh quote. An order that is never confirmed returns to your private balance after {new Date(order.params.refundAfter * 1000).toLocaleString()}.</p>
                 <button className="tab" onClick={() => signAndHand(moved.minOut)} disabled={!!busy}>Confirm at the new minimum</button>
+                <button className="tab" onClick={returnToBalance} disabled={!!busy}>Return it to my private balance instead</button>
               </div>
             );
           })()}
@@ -354,7 +374,8 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
           {signed && <p className="muted" style={{ fontSize: 12 }}>Confirmed: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission (advanced)." : ""}</p>}
           {job
             ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>
-            : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked." : "fund the swap, then confirm it."}</p>}
+            : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote, or return it to your private balance." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked." : "fund the swap, then confirm it."}</p>}
+          {job?.state === "refund-only" && <p className="muted" style={{ fontSize: 12 }}>Returning to your private balance: the escrow re-shields as your pre-committed note after {new Date(order.params.refundAfter * 1000).toLocaleString()}; the next rescan shows it.</p>}
         </div>
       )}
     </div>

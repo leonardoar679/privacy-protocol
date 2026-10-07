@@ -31,7 +31,7 @@ export async function checkBeforeSigning(a: {
   checkPrepared(a.prepared, { ...a.order, orderId: params.orderId, endpoint: escrow, params }, a.chainId, a.now);
   const call = await checkProviderCall(
     { provider: a.prepared.provider, value: BigInt(a.prepared.value), calldata: a.prepared.calldata },
-    { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, now: a.now },
+    { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, chainId: a.chainId, now: a.now },
     { inbound: a.inbound },
   );
   const approved = a.acceptMin ?? BigInt(a.journaled.approvedMin ?? a.journaled.quote?.toAmountMin ?? "0");

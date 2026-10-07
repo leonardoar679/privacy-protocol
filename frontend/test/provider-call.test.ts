@@ -340,5 +340,7 @@ describe("dispatch: only pinned provider contracts; deposit addresses are a prom
     const transfer = encodeFunctionData({ abi: parseAbi(["function transfer(address to, uint256 amount)"]), functionName: "transfer", args: [ATTACKER, 1_000_000_000n] });
     await refused(checkProviderCall({ provider: getAddress(USDC.asset), value: 0n, calldata: transfer }, expectation({ from: USDC, net: 1_000_000_000n })), /deposit address/);
     await refused(checkProviderCall({ provider: PINNED.chainflipVault, value: NET, calldata: "0x" }, expectation({ from: { ...ETH, chain: "base" } })), /Ethereum/);
+    // a testnet deployment: the pinned addresses hold no contract there, so nothing is signed
+    await refused(checkProviderCall({ provider: PINNED.chainflipVault, value: NET, calldata: "0x" }, expectation({ chainId: 11155111n })), /chain 11155111/);
   });
 });
