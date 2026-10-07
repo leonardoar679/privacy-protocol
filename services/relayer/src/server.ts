@@ -3,7 +3,8 @@
 // (factory, params, signed execution, refund payload), GET /swap/:orderId, GET /swap. Loopback by default; CORS for the Vite
 // dev origins. Env: RPC_URL, CORE, FEE_VAULT, CHAIN_ID, RELAYER_PRIVATE_KEY (gas EOA), RELAYER_SEED
 // (fee-note wallet seed: utf8 or 0x-hex), MIN_FEE_WEI, GAS_ESTIMATE, FEE_MARGIN_BPS,
-// REQUIRE_READABLE_FEE_PAYLOAD (1), RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs),
+// FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
+// RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs),
 // RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open), PORT (8790), HOST (127.0.0.1).
 import { createServer } from "node:http";
 import type { Hex } from "viem";
@@ -16,8 +17,16 @@ import { join } from "node:path";
 const env = (k: string, d?: string): string => { const v = process.env[k] ?? d; if (v === undefined) throw new Error(`missing env ${k}`); return v; };
 const seed = (s: string): Uint8Array => (s.startsWith("0x") ? Uint8Array.from(s.slice(2).match(/../g)!.map((x) => parseInt(x, 16))) : new TextEncoder().encode(s));
 
+/** FEE_VAULTS='{"0xvault":{"symbol":"USDC","decimals":6,"minFee":"2000000"}}' → lowercase vault -> fixed terms */
+function feeVaults(): RelayerConfig["feeVaults"] {
+  const raw = process.env.FEE_VAULTS;
+  if (!raw) return {};
+  const parsed = JSON.parse(raw) as Record<string, { symbol: string; decimals: number; minFee: string }>;
+  return Object.fromEntries(Object.entries(parsed).map(([vault, t]) => [vault.toLowerCase(), { symbol: String(t.symbol), decimals: Number(t.decimals), minFee: BigInt(t.minFee) }]));
+}
+
 const cfg: RelayerConfig = {
-  chainId: Number(env("CHAIN_ID", "31337")), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex,
+  chainId: Number(env("CHAIN_ID", "31337")), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex, feeVaults: feeVaults(),
   minFeeWei: BigInt(env("MIN_FEE_WEI", "0")), gasEstimate: BigInt(env("GAS_ESTIMATE", "1800000")), feeMarginBps: Number(env("FEE_MARGIN_BPS", "2000")),
   privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: seed(env("RELAYER_SEED")), rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",

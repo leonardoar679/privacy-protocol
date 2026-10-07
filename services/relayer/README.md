@@ -11,8 +11,8 @@ any URL, and self-submission as the fallback.
 ## Protocol
 | Call | Body / result |
 |---|---|
-| `GET /info` | `{ chainId, core, feeVault, relayer (gas EOA), privacyAddress (pp1…: where fee notes go), minFeeWei, gasPriceWei, gasEstimate, feeMarginBps, requireReadableFeePayload, inflight }` |
-| `POST /submit` | `{ proof (abi.encode(a,b,c)), publicInputs (14 decimal strings), noteData[3], fee: { outputIndex, amount, noteSecret } }` → `{ txHash, feeWei, gas, feePayloadReadable }` |
+| `GET /info` | `{ chainId, core, feeVault, relayer (gas EOA), privacyAddress (pp1…: where fee notes go), minFeeWei, gasPriceWei, gasEstimate, feeMarginBps, requireReadableFeePayload, inflight, feeVaults: [{ vault, symbol, decimals, minFee }] }` — the ERC-20 vaults it takes fee notes in, each with a fixed minimum in token units (`FEE_VAULTS`, plan §36) |
+| `POST /submit` | `{ proof (abi.encode(a,b,c)), publicInputs (14 decimal strings), noteData[3], fee: { outputIndex, amount, noteSecret, vault? } }` → `{ txHash, feeWei, feeVault, gas, feePayloadReadable }` — `fee.vault` names the vault of the fee note (default: the ETH vault); a transaction is single-asset, so a USDC withdrawal pays in USDC |
 | `GET /status/:txHash` | the job (`submitted` / `mined` / `reverted`) |
 
 The wallet includes the fee note's opening so the relayer can verify it is really paid before it
@@ -24,7 +24,7 @@ so the relayer can also rediscover the note from chain like any wallet.
 2. `txDomain` == this chain / core (no replay across deployments);
 3. every payload hashes to its proven `noteDataHash`;
 4. the fee output is `noteBody(feeVault, amount, relayer's ownerCommitment, noteSecret)`;
-5. `amount ≥ minFeeWei` = max(floor, gasEstimate × gasPrice × (1 + margin)) — live;
+5. `amount ≥` the vault's minimum: in the ETH vault max(floor, gasEstimate × gasPrice × (1 + margin)) — live; in an ERC-20 vault the fixed `FEE_VAULTS` minimum (no oracle: the operator reprices by config); an unlisted vault is refused (`fee_vault_not_accepted`);
 6. the nullifiers are not already in flight here;
 7. `eth_estimateGas` from the relayer's address succeeds (proof, root and nullifier set are checked by
    the contract; a reverting call never reaches the chain);

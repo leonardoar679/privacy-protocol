@@ -6,9 +6,13 @@
 // public input, including the payload hashes). It can only refuse, which is why the wallet keeps
 // self-submission and any other relayer as fallbacks (plan §85 rule 5).
 //
+// Fees: a transaction is single-asset, so the fee note lives in the transaction's vault. The ETH
+// vault's minimum is priced live from gas; ERC-20 vaults (plan §36: private USDC / USDT) carry a
+// fixed operator-set minimum per vault (no price oracle here — the operator reprices by config).
+//
 // Before spending gas the relayer checks: the chain/core binding (txDomain), every payload hash, that
-// the fee output really is a note to it in the configured vault with at least the current minimum
-// fee, that the nullifiers are not already in flight here, and that the call simulates without
+// the fee output really is a note to it in an accepted vault with at least that vault's current
+// minimum, that the nullifiers are not already in flight here, and that the call simulates without
 // reverting (which covers the proof, the root and the nullifier set).
 import { createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -20,10 +24,14 @@ import { encodePrivacyAddress } from "../../../reference/typescript/src/address"
 import { coreAbi, encodeTransact, piFromStrings, type PublicInputs } from "./abi";
 import type { Journal } from "./journal";
 
+/** An ERC-20 vault the relayer accepts fee notes in, with a fixed minimum in the token's base units. */
+export interface FeeVaultTerms { symbol: string; decimals: number; minFee: bigint }
+
 export interface RelayerConfig {
   chainId: number;
   core: Address;
-  feeVault: Address; // the canonical vault the relayer accepts fees in (ETH vault)
+  feeVault: Address; // the canonical ETH vault: fee notes in it are priced live from gas
+  feeVaults?: Record<string, FeeVaultTerms>; // lowercase ERC-20 vault address -> fixed terms (plan §36)
   minFeeWei: bigint; // floor; the live minimum is max(floor, gasEstimate × gasPrice × (1 + margin))
   gasEstimate: bigint; // transact ≈ 1.8M gas (benchmarks/gas)
   feeMarginBps: number;
@@ -34,9 +42,10 @@ export interface RelayerConfig {
   journal?: Journal<Job>; // durable submissions: in-flight nullifiers and fee notes survive a restart
 }
 
-export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string }
+/** The fee note's opening; `vault` defaults to the ETH vault (older wallets omit it). */
+export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address }
 export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening }
-export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" }
+export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" }
 
 export class RelayerError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -76,11 +85,19 @@ export class Relayer {
     return new Relayer(cfg, { publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }) });
   }
 
-  /** The live minimum fee: gas for one transact at the current price plus the margin, never below the floor. */
+  /** The live minimum fee in the ETH vault: gas for one transact at the current price plus the margin, never below the floor. */
   async minFeeWei(): Promise<{ minFeeWei: bigint; gasPriceWei: bigint }> {
     const gasPriceWei = await this.clients.publicClient.getGasPrice();
     const dynamic = (this.cfg.gasEstimate * gasPriceWei * BigInt(10_000 + this.cfg.feeMarginBps)) / 10_000n;
     return { minFeeWei: dynamic > this.cfg.minFeeWei ? dynamic : this.cfg.minFeeWei, gasPriceWei };
+  }
+
+  /** The vault a fee opening names (default: the ETH vault), or null when the relayer does not take fees there. */
+  feeVaultOf(fee: { vault?: Address }): { vault: Address; erc20: FeeVaultTerms | null } | null {
+    const vault = (fee.vault ?? this.cfg.feeVault).toLowerCase() as Address;
+    if (vault === this.cfg.feeVault.toLowerCase()) return { vault: this.cfg.feeVault, erc20: null };
+    const terms = this.cfg.feeVaults?.[vault];
+    return terms ? { vault, erc20: terms } : null;
   }
 
   async info() {
@@ -89,11 +106,12 @@ export class Relayer {
       chainId: this.cfg.chainId, core: this.cfg.core, feeVault: this.cfg.feeVault, relayer: this.account.address, privacyAddress: this.identity.privacyAddress,
       minFeeWei: minFeeWei.toString(), gasPriceWei: gasPriceWei.toString(), gasEstimate: this.cfg.gasEstimate.toString(), feeMarginBps: this.cfg.feeMarginBps,
       requireReadableFeePayload: this.cfg.requireReadableFeePayload, inflight: this.inflight.size,
+      feeVaults: Object.entries(this.cfg.feeVaults ?? {}).map(([vault, t]) => ({ vault, symbol: t.symbol, decimals: t.decimals, minFee: t.minFee.toString() })),
     };
   }
 
   /** Everything checkable without the chain. */
-  validateShape(req: SubmitRequest): { pi: PublicInputs; feeWei: bigint; feePayloadReadable: boolean } {
+  validateShape(req: SubmitRequest): { pi: PublicInputs; feeWei: bigint; feeVault: Address; feePayloadReadable: boolean } {
     if (!isHex(req?.proof, 256)) throw new RelayerError("bad_proof", "proof must be abi.encode(a, b, c): 256 bytes");
     let pi: PublicInputs;
     try { pi = piFromStrings(req.publicInputs); } catch (e) { throw new RelayerError("bad_public_inputs", String((e as Error).message)); }
@@ -103,21 +121,31 @@ export class Relayer {
     req.noteData.forEach((n, k) => { if (noteDataHash(hexToBytes(n)) !== hashes[k]) throw new RelayerError("payload_hash_mismatch", `noteData${k} does not hash to the proven value`); });
     const f = req.fee;
     if (!f || ![0, 1, 2].includes(f.outputIndex)) throw new RelayerError("bad_fee", "fee.outputIndex must be 0, 1 or 2");
+    if (f.vault !== undefined && !isHex(f.vault, 20)) throw new RelayerError("bad_fee", "fee.vault must be a vault address");
+    const fv = this.feeVaultOf(f);
+    if (!fv) throw new RelayerError("fee_vault_not_accepted", `this relayer takes no fees in vault ${f.vault}; accepted: ${[this.cfg.feeVault, ...Object.keys(this.cfg.feeVaults ?? {})].join(", ")}`);
     let amount: bigint, secret: bigint;
     try { amount = BigInt(f.amount); secret = BigInt(f.noteSecret); } catch { throw new RelayerError("bad_fee", "fee.amount / fee.noteSecret must be integers"); }
-    const body = noteBody({ vaultId: BigInt(this.cfg.feeVault), amount, ownerCommitment: this.identity.ownerCommitment, noteSecret: secret });
+    const body = noteBody({ vaultId: BigInt(fv.vault), amount, ownerCommitment: this.identity.ownerCommitment, noteSecret: secret });
     const bodies = [pi.outputBody0, pi.outputBody1, pi.outputBody2];
-    if (body !== bodies[f.outputIndex]) throw new RelayerError("fee_note_mismatch", `output ${f.outputIndex} is not a note of ${amount} wei to this relayer in vault ${this.cfg.feeVault}`);
+    if (body !== bodies[f.outputIndex]) throw new RelayerError("fee_note_mismatch", `output ${f.outputIndex} is not a note of ${amount} units to this relayer in vault ${fv.vault}`);
     const opened = decryptNoteData(this.identity.view, hexToBytes(req.noteData[f.outputIndex]));
-    const feePayloadReadable = !!opened && opened.amount === amount && opened.noteSecret === secret && opened.vaultId === BigInt(this.cfg.feeVault);
+    const feePayloadReadable = !!opened && opened.amount === amount && opened.noteSecret === secret && opened.vaultId === BigInt(fv.vault);
     if (this.cfg.requireReadableFeePayload && !feePayloadReadable) throw new RelayerError("fee_payload_unreadable", "the fee note's payload is not encrypted to this relayer's view key");
-    return { pi, feeWei: amount, feePayloadReadable };
+    return { pi, feeWei: amount, feeVault: fv.vault, feePayloadReadable };
   }
 
-  async submit(req: SubmitRequest): Promise<{ txHash: Hex; feeWei: string; gas: string; feePayloadReadable: boolean }> {
-    const { pi, feeWei, feePayloadReadable } = this.validateShape(req);
-    const { minFeeWei } = await this.minFeeWei();
-    if (feeWei < minFeeWei) throw new RelayerError("fee_too_low", `fee ${feeWei} wei is below the current minimum ${minFeeWei} wei`);
+  /** The minimum this relayer takes in a vault right now: live from gas in the ETH vault, the configured floor elsewhere. */
+  async minFeeIn(fee: { vault?: Address }): Promise<bigint> {
+    const fv = this.feeVaultOf(fee);
+    if (!fv) throw new RelayerError("fee_vault_not_accepted", `no fees taken in vault ${fee.vault}`);
+    return fv.erc20 ? fv.erc20.minFee : (await this.minFeeWei()).minFeeWei;
+  }
+
+  async submit(req: SubmitRequest): Promise<{ txHash: Hex; feeWei: string; feeVault: Address; gas: string; feePayloadReadable: boolean }> {
+    const { pi, feeWei, feeVault, feePayloadReadable } = this.validateShape(req);
+    const minFee = await this.minFeeIn(req.fee);
+    if (feeWei < minFee) throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     const data = encodeTransact(req.proof, pi, req.noteData);
@@ -135,9 +163,9 @@ export class Relayer {
       nullifiers.forEach((n) => this.inflight.delete(n));
       throw new RelayerError("send_failed", String((e as Error).message).split("\n")[0].slice(0, 200));
     }
-    this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeOutputIndex: req.fee.outputIndex, feeNoteSecret: req.fee.noteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
+    this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret: req.fee.noteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
     this.persist();
-    return { txHash, feeWei: feeWei.toString(), gas: gas.toString(), feePayloadReadable };
+    return { txHash, feeWei: feeWei.toString(), feeVault, gas: gas.toString(), feePayloadReadable };
   }
 
   async status(txHash: Hex): Promise<(Job & { blockNumber?: string }) | null> {
