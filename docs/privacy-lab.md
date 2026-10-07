@@ -55,3 +55,59 @@ shield); withdrawals go to fresh addresses as the wallet enforces; private hops 
 beyond their absence from the public surface; the observer's balance oracle is stronger than
 reality; network-layer channels (RPC, mempool, relayer — L3/L4) are outside this lab and are the
 reason the wallet's privacy score still discounts them (`frontend/src/privacy/privacyScore.ts`).
+
+## Cross-chain leg (plan §72, step 17) — `benchmarks/privacy/run-crosschain.mjs`
+**Question.** A private swap leaves the pool through a one-time escrow that pays the provider
+(amount A·(1 − tip), time t_e) and a fresh address receives ≈ A·rate·(1 − fee) at t_e + ETA. The
+escrow address ties the withdrawal to the provider ingress by construction, so the pool side is the
+lab above; what remains is: can an observer tell WHICH destination arrival belongs to WHICH ingress?
+
+**Method.** `services/private-swap/src/sim/crossChainLab.ts`: Poisson provider traffic (background
+users with the study's amount law; a share of 0.2 are this wallet's users),
+three provider classes (ETA / spread / fee / execution noise), a random-walk market rate, and the
+study's Bayesian observer with a lognormal ETA likelihood and a log-amount likelihood whose tolerance
+is the execution noise plus the rate drift over the ETA. Seeded, 6000 swaps per row,
+20 % warm-up.
+
+| class | swaps/h | amounts | median candidates | eff. timing | eff. amount | **eff. joint** | guess-hit | uniquely linked |
+|---|---|---|---|---|---|---|---|---|
+| fast-intent | 5 | arbitrary | 1 | 1.2 | 1.0 | **1.0** | 100.0 % | 99.9 % |
+| fast-intent | 5 | bucketed | 1 | 1.1 | 1.1 | **1.0** | 99.7 % | 98.0 % |
+| fast-intent | 20 | arbitrary | 3 | 1.6 | 1.0 | **1.0** | 99.9 % | 99.8 % |
+| fast-intent | 20 | bucketed | 3 | 1.5 | 1.3 | **1.1** | 97.3 % | 87.3 % |
+| fast-intent | 100 | arbitrary | 13 | 3.8 | 1.0 | **1.0** | 99.7 % | 97.5 % |
+| fast-intent | 100 | bucketed | 13 | 3.7 | 2.6 | **1.4** | 86.5 % | 51.3 % |
+| native-chain | 5 | arbitrary | 11 | 2.7 | 1.1 | **1.0** | 99.2 % | 97.4 % |
+| native-chain | 5 | bucketed | 11 | 2.8 | 2.3 | **1.2** | 92.0 % | 66.3 % |
+| native-chain | 20 | arbitrary | 41 | 7.8 | 1.4 | **1.1** | 98.2 % | 86.7 % |
+| native-chain | 20 | bucketed | 41 | 8.0 | 6.2 | **2.0** | 75.5 % | 18.1 % |
+| native-chain | 100 | arbitrary | 206 | 35.8 | 2.8 | **1.3** | 90.9 % | 55.4 % |
+| native-chain | 100 | bucketed | 204 | 35.5 | 27.6 | **5.9** | 34.5 % | 0.3 % |
+| bridge-aggregator | 5 | arbitrary | 26 | 4.0 | 1.1 | **1.0** | 99.6 % | 97.9 % |
+| bridge-aggregator | 5 | bucketed | 26 | 4.1 | 3.1 | **1.4** | 90.4 % | 51.0 % |
+| bridge-aggregator | 20 | arbitrary | 103 | 13.8 | 1.3 | **1.0** | 98.9 % | 92.8 % |
+| bridge-aggregator | 20 | bucketed | 101 | 13.4 | 9.7 | **2.6** | 68.5 % | 9.3 % |
+| bridge-aggregator | 100 | arbitrary | 495 | 62.1 | 2.6 | **1.2** | 96.1 % | 67.8 % |
+| bridge-aggregator | 100 | bucketed | 511 | 63.7 | 49.8 | **8.9** | 33.7 % | 0.2 % |
+
+**Reading.**
+- **Arbitrary amounts are linked** across every class and throughput (joint effective set ≈ 1,
+  55–100 % uniquely linked): the output amount is a near-deterministic function of the input.
+- **Bucketing helps only with cover traffic.** Bucketed amounts share the wallet's alphabet, so the
+  cover is the other bucketed swaps inside the provider's ETA window: native-chain class at
+  100 swaps/h → joint set 5.9, 0.3 % unique; at 5/h → 1.2, 66 % unique. Fast intents (1 min ETA)
+  have almost no window to hide in whatever the throughput.
+- **The delay policy does nothing for this leg** (by construction); it protects the pool side.
+  Slower providers with wider ETA spread are *more* private here — the opposite of the UX ranking.
+- **Consequence for the score (spec §10).** The amount / timing penalties of a swap are now
+  `1 − log2(eff)/4` with `eff = 1 + k·candidates` fitted from this table (k = 0.02 bucketed,
+  0.0006 arbitrary); the wallet therefore shows e.g. 85 for a bucketed THORChain-class swap at
+  100/h and 72 at 5/h instead of a flat 97. The engine uses static throughput estimates until a
+  live volume feed exists (`docs/roadmap.md`, deferred).
+- **Design options this suggests** (not implemented): splitting one swap across providers / time
+  windows (more candidates per piece), preferring the provider with the most same-bucket traffic
+  for the pair, and showing the user the live cover size next to the score.
+
+**Limits.** The observer knows the provider's fee and ETA law exactly; background amounts follow the
+study's law, not measured provider histograms; one pair per run; no provider-internal batching
+(Chainflip's batched egress or THORChain's outbound queue would add cover not modelled here).

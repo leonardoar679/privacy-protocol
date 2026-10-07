@@ -1,0 +1,74 @@
+// One-time endpoints (spec §6): the EVM source endpoint is a counterfactual SwapOrderEscrow whose
+// CREATE2 address is computed here exactly as SwapOrderFactory.predict does on-chain, and the
+// execution authorization is the digest SwapOrderEscrow.executionDigest computes.
+import { keccak_256 } from "@noble/hashes/sha3";
+import { secp256k1 } from "@noble/curves/secp256k1";
+import type { OrderParams } from "./types";
+
+export const EXECUTE_TAG = keccak_256(new TextEncoder().encode("privacy-protocol/v1.1/swap-order/execute"));
+
+const hex = (b: Uint8Array) => ("0x" + Buffer.from(b).toString("hex")) as `0x${string}`;
+const bytes = (h: string) => Buffer.from(h.replace(/^0x/, ""), "hex");
+export const word = (v: bigint | number | string): Buffer => {
+  let x = typeof v === "string" ? BigInt(v) : BigInt(v);
+  const out = Buffer.alloc(32);
+  for (let i = 31; i >= 0; i--) { out[i] = Number(x & 0xffn); x >>= 8n; }
+  return out;
+};
+const addrWord = (a: string) => word(BigInt(a));
+const b32 = (h: string) => { const b = bytes(h); if (b.length !== 32) throw new Error("expected 32 bytes"); return b; };
+
+/** abi.encode(OrderParams): a static struct = 12 consecutive 32-byte words. */
+export function encodeOrderParams(p: OrderParams): Buffer {
+  return Buffer.concat([
+    b32(p.orderId), word(p.assetType), addrWord(p.asset), word(p.amount), addrWord(p.orderSigner),
+    word(p.executeDeadline), word(p.refundAfter), addrWord(p.refundVault),
+    word(p.refundOwnerCommitment), word(p.refundNoteSecret), b32(p.refundNoteDataHash), word(p.executorTip),
+  ]);
+}
+
+export function initCodeHash(creationCode: string, p: OrderParams): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([bytes(creationCode), encodeOrderParams(p)])));
+}
+
+/** address(uint160(uint256(keccak256(0xff ‖ factory ‖ salt ‖ initCodeHash)))) */
+export function predictEscrow(factory: string, creationCode: string, p: OrderParams): `0x${string}` {
+  const h = keccak_256(Buffer.concat([Buffer.from([0xff]), addrWord(factory).subarray(12), b32(p.orderId), bytes(initCodeHash(creationCode, p))]));
+  return hex(h.subarray(12));
+}
+
+/** keccak256(abi.encode(EXECUTE_TAG, chainId, escrow, orderId, provider, value, keccak256(calldata), deadline)) */
+export function executionDigest(chainId: bigint, escrow: string, orderId: string, provider: string, value: bigint, calldata: string, deadline: number): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([
+    Buffer.from(EXECUTE_TAG), word(chainId), addrWord(escrow), b32(orderId), addrWord(provider), word(value),
+    Buffer.from(keccak_256(bytes(calldata))), word(deadline),
+  ])));
+}
+
+/** 65-byte r‖s‖v signature by the one-time order key (low-s), as SwapOrderEscrow._recover expects. */
+export function signExecution(orderPrivateKey: Uint8Array, digest: `0x${string}`): `0x${string}` {
+  const sig = secp256k1.sign(bytes(digest), orderPrivateKey, { lowS: true });
+  const r = word(sig.r), s = word(sig.s);
+  return hex(Buffer.concat([r, s, Buffer.from([27 + sig.recovery])]));
+}
+
+export function orderSignerAddress(orderPrivateKey: Uint8Array): `0x${string}` {
+  const pub = secp256k1.getPublicKey(orderPrivateKey, false).subarray(1); // drop 0x04
+  return hex(keccak_256(pub).subarray(12));
+}
+
+/** Address that produced a 65-byte r‖s‖v signature over `digest` (low-s enforced, like the escrow). */
+export function recoverExecutionSigner(digest: `0x${string}`, signature: `0x${string}`): `0x${string}` {
+  const sig = bytes(signature);
+  if (sig.length !== 65) throw new Error("signature must be 65 bytes");
+  const r = BigInt("0x" + Buffer.from(sig.subarray(0, 32)).toString("hex"));
+  const s = BigInt("0x" + Buffer.from(sig.subarray(32, 64)).toString("hex"));
+  const v = sig[64];
+  if (v !== 27 && v !== 28) throw new Error("bad v");
+  if (s > secp256k1.CURVE.n / 2n) throw new Error("high-s signature");
+  const pub = new secp256k1.Signature(r, s).addRecoveryBit(v - 27).recoverPublicKey(bytes(digest)).toRawBytes(false).subarray(1);
+  return hex(keccak_256(pub).subarray(12));
+}
+
+export const keccakHex = (data: string | Uint8Array): `0x${string}` =>
+  hex(keccak_256(typeof data === "string" ? bytes(data) : data));

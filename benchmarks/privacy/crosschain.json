@@ -1,0 +1,254 @@
+{
+  "opts": {
+    "swaps": 6000,
+    "seed": 4242,
+    "warmup": 0.2,
+    "walletShare": 0.2,
+    "rateDriftPerSqrtMin": 0.0005,
+    "tipBps": 25
+  },
+  "classes": [
+    {
+      "name": "fast-intent",
+      "like": "Mayan / NEAR Intents / Across",
+      "etaSeconds": 60,
+      "etaSigma": 0.4,
+      "feeBps": 30,
+      "execNoise": 0.002
+    },
+    {
+      "name": "native-chain",
+      "like": "THORChain / Chainflip",
+      "etaSeconds": 600,
+      "etaSigma": 0.5,
+      "feeBps": 50,
+      "execNoise": 0.005
+    },
+    {
+      "name": "bridge-aggregator",
+      "like": "LI.FI over a bridge",
+      "etaSeconds": 900,
+      "etaSigma": 0.6,
+      "feeBps": 20,
+      "execNoise": 0.001
+    }
+  ],
+  "rows": [
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 5,
+      "policy": "arbitrary",
+      "arrivals": 956,
+      "effTiming": 1.1597029543140969,
+      "effAmount": 1.0021438702768253,
+      "effJoint": 1.0000903683279958,
+      "guessHit": 1,
+      "unique": 0.9989539748953975,
+      "medianCandidates": 1
+    },
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 5,
+      "policy": "bucketed",
+      "arrivals": 958,
+      "effTiming": 1.1423580592504194,
+      "effAmount": 1.0587912449724672,
+      "effJoint": 1.007369269247574,
+      "guessHit": 0.9968684759916493,
+      "unique": 0.9801670146137788,
+      "medianCandidates": 1
+    },
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 20,
+      "policy": "arbitrary",
+      "arrivals": 1020,
+      "effTiming": 1.5967285496431016,
+      "effAmount": 1.0072893795308542,
+      "effJoint": 1.0011017608921948,
+      "guessHit": 0.9990196078431373,
+      "unique": 0.9980392156862745,
+      "medianCandidates": 3
+    },
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 20,
+      "policy": "bucketed",
+      "arrivals": 985,
+      "effTiming": 1.5431896938431284,
+      "effAmount": 1.3350207647409984,
+      "effJoint": 1.0732507859347846,
+      "guessHit": 0.9725888324873097,
+      "unique": 0.8730964467005076,
+      "medianCandidates": 3
+    },
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 100,
+      "policy": "arbitrary",
+      "arrivals": 962,
+      "effTiming": 3.7774591953095946,
+      "effAmount": 1.0413980906807214,
+      "effJoint": 1.0119651357320103,
+      "guessHit": 0.9968814968814969,
+      "unique": 0.975051975051975,
+      "medianCandidates": 13
+    },
+    {
+      "cls": "fast-intent",
+      "ratePerHour": 100,
+      "policy": "bucketed",
+      "arrivals": 961,
+      "effTiming": 3.7163266527881538,
+      "effAmount": 2.615773773081789,
+      "effJoint": 1.382572362703731,
+      "guessHit": 0.8647242455775234,
+      "unique": 0.5130072840790842,
+      "medianCandidates": 13
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 5,
+      "policy": "arbitrary",
+      "arrivals": 918,
+      "effTiming": 2.7336408056879757,
+      "effAmount": 1.0969138842677313,
+      "effJoint": 1.0164568262659228,
+      "guessHit": 0.9923747276688453,
+      "unique": 0.9738562091503268,
+      "medianCandidates": 11
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 5,
+      "policy": "bucketed",
+      "arrivals": 914,
+      "effTiming": 2.820655628996179,
+      "effAmount": 2.3009895756811565,
+      "effJoint": 1.2497265896568195,
+      "guessHit": 0.9201312910284464,
+      "unique": 0.6630196936542669,
+      "medianCandidates": 11
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 20,
+      "policy": "arbitrary",
+      "arrivals": 989,
+      "effTiming": 7.832588824822588,
+      "effAmount": 1.3778078051984,
+      "effJoint": 1.0672914724049385,
+      "guessHit": 0.9817997977755308,
+      "unique": 0.8665318503538928,
+      "medianCandidates": 41
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 20,
+      "policy": "bucketed",
+      "arrivals": 969,
+      "effTiming": 7.963387928160506,
+      "effAmount": 6.226291954162541,
+      "effJoint": 1.9568000265358332,
+      "guessHit": 0.7554179566563467,
+      "unique": 0.18059855521155832,
+      "medianCandidates": 41
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 100,
+      "policy": "arbitrary",
+      "arrivals": 981,
+      "effTiming": 35.77418663841473,
+      "effAmount": 2.8165381678790777,
+      "effJoint": 1.3252520256474623,
+      "guessHit": 0.90927624872579,
+      "unique": 0.5535168195718655,
+      "medianCandidates": 206
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 100,
+      "policy": "bucketed",
+      "arrivals": 981,
+      "effTiming": 35.472192491325025,
+      "effAmount": 27.553384324498765,
+      "effJoint": 5.868679838722679,
+      "guessHit": 0.34454638124362896,
+      "unique": 0.0030581039755351682,
+      "medianCandidates": 204
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 5,
+      "policy": "arbitrary",
+      "arrivals": 940,
+      "effTiming": 4.010195722551245,
+      "effAmount": 1.086709308059719,
+      "effJoint": 1.0111695044164637,
+      "guessHit": 0.9957446808510638,
+      "unique": 0.9787234042553191,
+      "medianCandidates": 26
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 5,
+      "policy": "bucketed",
+      "arrivals": 977,
+      "effTiming": 4.068189306693149,
+      "effAmount": 3.052269713572781,
+      "effJoint": 1.369528501441764,
+      "guessHit": 0.9037871033776868,
+      "unique": 0.5097236438075742,
+      "medianCandidates": 26
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 20,
+      "policy": "arbitrary",
+      "arrivals": 918,
+      "effTiming": 13.763549577480193,
+      "effAmount": 1.3225544669270777,
+      "effJoint": 1.0403619575814498,
+      "guessHit": 0.9891067538126361,
+      "unique": 0.9281045751633987,
+      "medianCandidates": 103
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 20,
+      "policy": "bucketed",
+      "arrivals": 999,
+      "effTiming": 13.4064203164991,
+      "effAmount": 9.6821914231057,
+      "effJoint": 2.5609752381903674,
+      "guessHit": 0.6846846846846847,
+      "unique": 0.09309309309309309,
+      "medianCandidates": 101
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 100,
+      "policy": "arbitrary",
+      "arrivals": 951,
+      "effTiming": 62.116790628403066,
+      "effAmount": 2.629245605269935,
+      "effJoint": 1.1963744138531234,
+      "guessHit": 0.961093585699264,
+      "unique": 0.6782334384858044,
+      "medianCandidates": 495
+    },
+    {
+      "cls": "bridge-aggregator",
+      "ratePerHour": 100,
+      "policy": "bucketed",
+      "arrivals": 985,
+      "effTiming": 63.69442416430387,
+      "effAmount": 49.83630068981909,
+      "effJoint": 8.908760236550334,
+      "guessHit": 0.33705583756345175,
+      "unique": 0.0020304568527918783,
+      "medianCandidates": 511
+    }
+  ]
+}
