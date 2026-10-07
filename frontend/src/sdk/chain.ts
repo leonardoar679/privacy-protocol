@@ -110,12 +110,17 @@ export async function noteInsertedLogsQuorum(d: Deployment): Promise<NoteInserte
  * count, the root and every event byte for byte; the agreed view is hashed once.
  */
 export async function syncTreeQuorum(d: Deployment): Promise<TreeState> {
+  return (await syncPoolQuorum(d)).tree;
+}
+
+/** The tree and the note events it was built from, both agreed by every configured endpoint (a rescan needs the payloads too). */
+export async function syncPoolQuorum(d: Deployment): Promise<{ tree: TreeState; logs: NoteInsertedLog[] }> {
   const views = await Promise.all(clientsFor(d).map((c) => readView(c, d)));
   const keys = views.map((v) => `${v.nextLeafIndex}/${v.onChainRoot.toString(16).slice(0, 10)}`);
   if (new Set(keys).size !== 1) throw new RpcDisagreement("the tree", keys);
   const digests = views.map((v) => logsDigest(v.logs));
   if (new Set(digests).size !== 1) throw new RpcDisagreement("the note events", digests.map((x) => x.slice(0, 10)));
-  return buildTree(views[0]);
+  return { tree: await buildTree(views[0]), logs: views[0].logs };
 }
 
 /** Submit through the injected wallet (public submission — a relayer / private channel is the L3 upgrade). */

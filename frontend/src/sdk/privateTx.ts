@@ -24,10 +24,10 @@ import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
 import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreAbi } from "./privacyProtocol";
-import { clientFor, noteInsertedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncTreeQuorum, txDomainOf, type Deployment } from "./chain";
+import { clientFor, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment } from "./chain";
 import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
-import { verifyTree } from "./verifiedReads";
+import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 
 const toHex = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
 const randomField = (): bigint => { const b = new Uint8Array(32); crypto.getRandomValues(b); return BigInt(toHex(b)) % FIELD; };
@@ -334,20 +334,29 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
  * Note discovery (spec §12): walk every NoteInserted payload, open the ones encrypted to our view
  * key, keep only those that reproduce the leaf's commitment with OUR owner commitment, and read
  * their spent status from the core's nullifier set. Idempotent: known leaves are only updated.
+ * On a chain the light client serves (plan §38), the tree the payloads came from must contain the
+ * pool proven at the latest finalized block (a forged event cannot add a note there), and each found
+ * note's spent status is also proven at that block: an endpoint that calls a spent note unspent is
+ * refused; a spend after that block still counts.
  */
 export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number }> {
   const keys = deriveKeys(o.masterSeed);
   const client = clientFor(o.deployment);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
-  const logs = await noteInsertedLogsQuorum(o.deployment);
-  poolStats.set({ notes: logs.length, leaves: logs.reduce((m, l) => Math.max(m, l.leafIndex + 1), 0) });
+  const { tree, logs } = await syncPoolQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus);
+  poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
   const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
   const hits = await discoverNotes(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
+  const nullifiers = hits.map(({ leafIndex }) => nullifier(byLeaf.get(leafIndex)!.commitment, keys.spendKey));
+  const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: o.deployment.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
+  const proven = await provenSpent(o.deployment, nullifiers);
   let found = 0, added = 0, spentCount = 0;
-  for (const { leafIndex, note } of hits) {
+  for (const [i, { leafIndex, note }] of hits.entries()) {
     const l = byLeaf.get(leafIndex)!;
     found++;
-    const spent = (await client.readContract({ address: o.deployment.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nullifier(l.commitment, keys.spendKey)] })) as boolean;
+    if (proven?.spent[i] && !rpcSpent[i]) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${leafIndex} is unspent; it was spent by finalized block ${proven.blockNumber}`);
+    const spent = rpcSpent[i] || !!proven?.spent[i];
     if (spent) spentCount++;
     const known = noteStore.all().find((n) => n.leafIndex === leafIndex);
     if (known) {

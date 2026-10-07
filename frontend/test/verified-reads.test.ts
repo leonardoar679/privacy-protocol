@@ -3,7 +3,8 @@
 // the light client and the storage prover are stubbed here (both run live in test/live/lightclient).
 import { describe, it, expect, afterEach } from "vitest";
 import { treeLayers } from "../src/sdk/core";
-import { checkTreeAgainstProof, provenPool, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "../src/sdk/verifiedReads";
+import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "../src/sdk/verifiedReads";
+import { encodeAbiParameters, keccak256 } from "viem";
 import type { Deployment, TreeState } from "../src/sdk/chain";
 import { settings, DEFAULT_SETTINGS } from "../src/wallet/settings";
 import { session } from "../src/wallet/session";
@@ -51,6 +52,17 @@ describe("verifyTree in the spend flows", () => {
     expect(session.journal().lightClient).toMatchObject({ chainId: "1" });
     // a lying RPC quorum: the proven pool has a different root
     await expect(verifyTree(dep(1), t, undefined, { sync: stubSync(15_000_001), prover: stubProver(12n, 999n) })).rejects.toThrow(TreeNotProven);
+  });
+  it("proves spent status at keccak256(nullifier ‖ 8), and stays off the network when off or on a devnet", async () => {
+    const nf = 0xbeefn;
+    expect(nullifierSlot(nf)).toBe(keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [nf, 8n]))); // forge: test_SpentNullifierSlot
+    const seen: { slots?: string[] } = {};
+    const prover = (async (_lc: unknown, _r: string[], _c: string, slots: string[]) => { seen.slots = slots; return { header: { number: 99n }, account: {}, values: slots.map((_, i) => (i === 0 ? 1n : 0n)) }; }) as any;
+    await expect(provenSpent(dep(1), [nf, nf + 1n], { sync: stubSync(15_000_000), prover })).resolves.toEqual({ blockNumber: 99n, spent: [true, false] });
+    expect(seen.slots).toEqual([nullifierSlot(nf), nullifierSlot(nf + 1n)]);
+    await expect(provenSpent(dep(31337), [nf])).resolves.toBeNull();
+    settings.set({ verifyReads: false });
+    await expect(provenSpent(dep(1), [nf])).resolves.toBeNull();
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);

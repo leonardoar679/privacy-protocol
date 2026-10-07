@@ -6,7 +6,7 @@
 // this light client does not serve (a local devnet) are reported as such; the check can be switched off
 // under Advanced.
 import { useSyncExternalStore } from "react";
-import type { Hex } from "viem";
+import { keccak256, type Hex } from "viem";
 import { TX_LEVELS } from "@ref/txInputs";
 import type { LightClient, StoreSnapshot } from "./lightclient";
 import type { provenStorage as ProvenStorage, syncLightClient as SyncLightClient } from "./lightclient";
@@ -17,7 +17,7 @@ import { settings } from "../wallet/settings";
 import { session } from "../wallet/session";
 
 /** PrivacyCore storage (MerkleAccumulator, `forge inspect`): pinned by contracts/test/core/StorageLayout.t.sol. */
-export const POOL_SLOTS = { nextLeafIndex: "0x0" as Hex, currentRoot: "0x1" as Hex };
+export const POOL_SLOTS = { nextLeafIndex: "0x0" as Hex, currentRoot: "0x1" as Hex, /** mapping(uint256 => bool) spentNullifier */ spentNullifierMapping: 8 };
 /** A saved store older than this (sync-committee periods of ~27 h) is not walked forward but replaced:
  *  keys of long-retired committees are the light client's weak-subjectivity risk. */
 export const MAX_SNAPSHOT_AGE_PERIODS = 12;
@@ -49,8 +49,10 @@ let live: { chainId: bigint; lc: LightClient } | null = null;
 /** Forget the in-memory light client (tests; a lock). */
 export const resetLightClient = () => { live = null; };
 
-/** The pool's leaf count and root at the latest finalized block, proven. */
-export async function provenPool(d: Deployment, o: { fetchFn?: typeof fetch; sync?: typeof SyncLightClient; prover?: typeof ProvenStorage } = {}): Promise<PoolProof> {
+type ProofOptions = { fetchFn?: typeof fetch; sync?: typeof SyncLightClient; prover?: typeof ProvenStorage };
+
+/** Storage words of the core at the light client's latest finalized block, proven (the client is synced and its store journaled first). */
+async function provenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Promise<{ blockNumber: bigint; slot: number; values: bigint[] }> {
   const spec = specForChain(d.chainId);
   if (!spec) throw new Error(`no light client for chain ${d.chainId}`);
   const saved = session.isUnlocked() ? (session.journal().lightClient as { chainId: string; snapshot: StoreSnapshot } | undefined) : undefined;
@@ -61,8 +63,27 @@ export async function provenPool(d: Deployment, o: { fetchFn?: typeof fetch; syn
   const lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: BEACON_URLS, checkpoint: LC_CHECKPOINT, snapshot, fetchFn: o.fetchFn });
   live = { chainId: spec.chainId, lc };
   if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: lc.snapshot() }; });
-  const p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, [POOL_SLOTS.nextLeafIndex, POOL_SLOTS.currentRoot], o.fetchFn);
-  return { blockNumber: p.header.number, slot: lc.finalizedSlot, nextLeafIndex: Number(p.values[0] & 0xffffffffn), root: p.values[1] };
+  const p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, slots, o.fetchFn);
+  return { blockNumber: p.header.number, slot: lc.finalizedSlot, values: p.values };
+}
+
+/** The pool's leaf count and root at the latest finalized block, proven. */
+export async function provenPool(d: Deployment, o: ProofOptions = {}): Promise<PoolProof> {
+  const p = await provenCoreWords(d, [POOL_SLOTS.nextLeafIndex, POOL_SLOTS.currentRoot], o);
+  return { blockNumber: p.blockNumber, slot: p.slot, nextLeafIndex: Number(p.values[0] & 0xffffffffn), root: p.values[1] };
+}
+
+/** keccak256(nullifier ‖ 8): the spentNullifier mapping's slot for a nullifier. */
+export const nullifierSlot = (nf: bigint): Hex => {
+  const hex = (v: bigint) => v.toString(16).padStart(64, "0");
+  return keccak256(`0x${hex(nf)}${hex(BigInt(POOL_SLOTS.spentNullifierMapping))}` as Hex);
+};
+
+/** Whether each nullifier was spent as of the latest finalized block, proven; null when no light client applies (off, or a chain it does not serve). */
+export async function provenSpent(d: Deployment, nullifiers: bigint[], o: ProofOptions = {}): Promise<{ blockNumber: bigint; spent: boolean[] } | null> {
+  if (settings.get().verifyReads === false || !specForChain(d.chainId) || !nullifiers.length) return null;
+  const p = await provenCoreWords(d, nullifiers.map(nullifierSlot), o);
+  return { blockNumber: p.blockNumber, spent: p.values.map((v) => v !== 0n) };
 }
 
 /** The tree's first `proof.nextLeafIndex` leaves must hash to the proven root; the RPCs may know more leaves, never fewer. */
@@ -73,7 +94,7 @@ export async function checkTreeAgainstProof(tree: TreeState, proof: PoolProof): 
 }
 
 /** Verify a freshly synced tree, when this chain has a light client and the user has not switched it off. */
-export async function verifyTree(d: Deployment, tree: TreeState, onStatus?: (s: string) => void, o: Parameters<typeof provenPool>[1] = {}): Promise<VerifyStatus> {
+export async function verifyTree(d: Deployment, tree: TreeState, onStatus?: (s: string) => void, o: ProofOptions = {}): Promise<VerifyStatus> {
   let s: VerifyStatus;
   if (settings.get().verifyReads === false) s = { kind: "off" };
   else if (!specForChain(d.chainId)) s = { kind: "unavailable", reason: `no light client for chain ${d.chainId}: reads rest on the RPC quorum` };
