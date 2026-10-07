@@ -76,7 +76,7 @@ export class NearIntentsAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["A", "B", "C", "D", "E"], ingress: ["plain-address"], nativeAssets: true, atomic: false, chains: ["bitcoin", "ethereum", "solana", "base", "arbitrum", "bsc", "polygon", "avalanche", "optimism", "doge", "litecoin"], contractSender: ONECLICK_CONTRACT_DEPOSITS_CONFIRMED };
+    return { routes: ["A", "B", "C", "D", "E"], ingress: ["plain-address"], nativeAssets: true, atomic: false, chains: ["bitcoin", "ethereum", "solana", "base", "arbitrum", "bsc", "polygon", "avalanche", "optimism", "doge", "litecoin"], contractSender: ONECLICK_CONTRACT_DEPOSITS_CONFIRMED, destinationLinkPublic: true, linkEvidence: "unverified: the payout to the destination executes on the NEAR intents contract; treated as public until shown otherwise" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

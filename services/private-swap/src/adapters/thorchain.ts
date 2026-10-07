@@ -101,7 +101,7 @@ export class ThorchainAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call", "plain-address"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "base", "avalanche", "bsc", "litecoin", "doge", "tron"] };
+    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call", "plain-address"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "base", "avalanche", "bsc", "litecoin", "doge", "tron"], destinationLinkPublic: true, linkEvidence: "the deposit memo names the destination (=:ASSET:DEST:LIMIT) and the outbound carries OUT:<inbound tx>" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

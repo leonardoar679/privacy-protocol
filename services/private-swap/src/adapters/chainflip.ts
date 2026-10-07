@@ -151,7 +151,7 @@ export class ChainflipAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "arbitrum", "tron"] };
+    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "arbitrum", "tron"], destinationLinkPublic: true, linkEvidence: "the vault-swap calldata encodes the destination address (decoded locally before signing)" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

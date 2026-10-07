@@ -99,14 +99,31 @@ is the execution noise plus the rate drift over the ETA. Seeded, 6000 swaps per 
   have almost no window to hide in whatever the throughput.
 - **The delay policy does nothing for this leg** (by construction); it protects the pool side.
   Slower providers with wider ETA spread are *more* private here — the opposite of the UX ranking.
-- **Consequence for the score (spec §10).** The amount / timing penalties of a swap are now
-  `1 − log2(eff)/4` with `eff = 1 + k·candidates` fitted from this table (k = 0.02 bucketed,
-  0.0006 arbitrary); the wallet therefore shows e.g. 85 for a bucketed THORChain-class swap at
-  100/h and 72 at 5/h instead of a flat 97. The engine uses static throughput estimates until a
-  live volume feed exists (`docs/roadmap.md`, deferred).
+- **Consequence for the score (spec §10) — corrected 2026-10-07, see below.** The fit stays
+  (`eff = 1 + k·candidates`, k = 0.02 bucketed, 0.0006 arbitrary; `1 − log2(eff)/4` as the
+  probability-like link penalty), but it is a *second hurdle* that multiplies the pool-side
+  penalties, and only for a provider that keeps the escrow → destination link private.
 - **Design options this suggests** (not implemented): splitting one swap across providers / time
   windows (more candidates per piece), preferring the provider with the most same-bucket traffic
   for the pair, and showing the user the live cover size next to the score.
+
+**What the escrow architecture makes of this (correction, 2026-10-07).** The question above —
+which arrival belongs to which ingress — is answered on-chain for every adapter we run: THORChain's
+deposit memo names the destination (`=:ASSET:DEST:LIMIT`) and its outbound carries `OUT:<inbound tx>`;
+Across' deposit event names the recipient; Mayan's order payload carries `destAddr`; Chainflip's
+vault-swap calldata encodes the destination; LI.FI's bridge call carries the receiver; NEAR Intents
+pays out on the NEAR intents contract (unverified, so treated as public). The adapters declare this
+(`Capabilities.destinationLinkPublic` + where, shown under "View route"). The public link reaches
+only the one-time escrow, which a private withdrawal funded, so it costs nothing: to tie a
+destination to a user the observer must link the user's deposit to that withdrawal (the pool side,
+measured by the amount / timing penalties above) **and** the destination to the withdrawal. The two
+links multiply; with the second one public the swap is exactly as private as the pool side, whatever
+the provider's traffic. The first version of the score instead took the *worse* of the pool-side and
+cross-chain penalties, which charged low-traffic providers for a link that is public on every route
+and harmless on all of them; it now multiplies (`privacyScore.ts`), the cross-chain leg can only add
+privacy, and for every adapter today it adds none. Consequences: no throughput-based penalty; a live
+provider-volume feed would only matter for a provider verified to keep the link private (none is),
+so it is not built; the design options above remain valid for such a provider.
 
 **Limits.** The observer knows the provider's fee and ETA law exactly; background amounts follow the
 study's law, not measured provider histograms; one pair per run; no provider-internal batching

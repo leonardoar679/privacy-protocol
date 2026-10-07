@@ -89,6 +89,39 @@ describe("cross-chain privacy score (spec §10)", () => {
     expect(privacyScore({ ...best, delaySeconds: 0 })).toBeLessThan(privacyScore({ ...best, delaySeconds: 3600 }));
     expect(privacyScore({ ...best, nativeAssets: false })).toBeLessThan(privacyScore(best));
   });
+  it("a public escrow → destination link (every adapter today) leaves the pool-side score exactly as it is, whatever the provider's traffic", () => {
+    const arbitrary = { ...best, amountIsBucket: false, amountUniqueness: 0.9, delaySeconds: 600 };
+    for (const base of [best, arbitrary])
+      for (const throughputPerHour of [0, 5, 100, 10_000])
+        expect(privacyScore({ ...base, crossChain: { throughputPerHour, etaSeconds: 600, linkPublic: true } })).toBe(privacyScore(base));
+  });
+  it("a provider that kept the link private would add a second hurdle: never lower, higher with more cover traffic", () => {
+    const arbitrary = { ...best, amountIsBucket: false, amountUniqueness: 0.9, delaySeconds: 600 };
+    const at = (base: typeof best, throughputPerHour: number) => privacyScore({ ...base, crossChain: { throughputPerHour, etaSeconds: 1800, linkPublic: false } });
+    for (const base of [{ ...best, delaySeconds: 600 }, arbitrary]) {
+      expect(at(base, 0)).toBe(privacyScore(base));
+      let last = privacyScore(base);
+      for (const r of [5, 20, 100, 1000, 100_000]) {
+        expect(at(base, r)).toBeGreaterThanOrEqual(last);
+        last = at(base, r);
+      }
+      expect(last).toBeGreaterThan(privacyScore(base));
+    }
+  });
+  it("every adapter states whether it publishes the escrow → destination link, and where; orders and quote sets carry it", async () => {
+    const { defaultEngine } = await import("../src/config");
+    const engine = defaultEngine();
+    for (const a of engine.cfg.adapters) {
+      const c = a.capabilities();
+      expect(typeof c.destinationLinkPublic, a.id).toBe("boolean");
+      expect(c.linkEvidence.length, a.id).toBeGreaterThan(20);
+      expect(engine.linkPublic(a.id)).toBe(c.destinationLinkPublic);
+    }
+    const quote: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 600, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: {}, obtainedAt: Date.now() };
+    const order = engine.buildOrder({ from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: 10n ** 18n, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50 }, "best-privacy", quote, { orderSigner: "0x000000000000000000000000000000000000a11c", refundOwnerCommitment: 1n, refundNoteSecret: 2n, refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}` });
+    expect(order.privacy.destinationLinkPublic).toBe(true);
+    expect(order.privacy.score).toBe(privacyScore({ sourceIsPool: true, destinationFresh: true, amountIsBucket: true, amountUniqueness: 0.5, delaySeconds: order.privacy.delaySeconds[0], providerKind: "deposit-address", nativeAssets: true, oneTimeEndpoints: true, privateSubmission: true }));
+  });
 });
 
 describe("routes that cannot be executed from the escrow", () => {

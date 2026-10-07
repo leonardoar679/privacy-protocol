@@ -192,10 +192,10 @@ otherwise the route is quoted for information and filtered from selection.
   with the odd remainder kept private; the swap amount is then the bucket minus tip. This MUST stay
   within the user's minimum-output requirement (re-quote the bucketed amount).
 - The wallet MUST show the computed cross-chain privacy score (§10), never a flat "Private".
-- The scheduled delay protects the pool side (shield ↔ withdrawal); it does NOT hide which
-  destination arrival belongs to the escrow's provider ingress — the escrow address ties withdrawal
-  and ingress. That leg is protected only by bucketed amounts and the provider's cover traffic
-  (`docs/privacy-lab.md`, cross-chain section), which is why bucketing is the default for swaps.
+- The scheduled delay and bucketing protect the pool side (shield ↔ withdrawal), and that is where
+  a swap's privacy comes from: the escrow ties withdrawal and ingress, and every adapter today also
+  publishes the ingress → destination link (memo, event or calldata names the destination), which
+  reaches only the privately funded one-time escrow (`docs/privacy-lab.md`, cross-chain section).
 
 ## 9. Route selection (plan §24–§25, §50)
 ```
@@ -224,12 +224,15 @@ providerVisibility .10   bridgeVisibility .08   addressReuse .07   mempoolVisibi
 - providerVisibility: what the provider learns (deposit-address flows 0.3, signed intents 0.6);
 - bridgeVisibility: 0 for native-asset routes, 1 for wrapped/bridged legs;
 - addressReuse: 0 for one-time endpoints; mempoolVisibility: 0 for private submission.
-- **cross-chain term** (lab-calibrated, `privacyScore.ts::crossChainEffectiveSet`): for a swap the
-  amount and timing penalties are raised to `1 − log2(eff) / 4`, where `eff = 1 + k · candidates`,
-  `candidates = throughput/h · ETA · e^{5σ} / 3600`, `k = 0.02` for bucketed and `0.0006` for
-  arbitrary amounts (fit of `benchmarks/privacy/crosschain.json`). The engine feeds static
-  throughput estimates (`DEFAULT_PROVIDER_THROUGHPUT`) until a live volume feed exists; a 16-strong
-  effective set earns full marks.
+- **cross-chain term** (lab-calibrated, `privacyScore.ts::crossChainEffectiveSet`): only for a
+  provider that keeps the escrow → destination link private (`Capabilities.destinationLinkPublic =
+  false`; no adapter today), the amount and timing penalties are MULTIPLIED by
+  `1 − log2(eff) / 4`, where `eff = 1 + k · candidates`, `candidates = throughput/h · ETA · e^{5σ} /
+  3600`, `k = 0.02` for bucketed and `0.0006` for arbitrary amounts (fit of
+  `benchmarks/privacy/crosschain.json`); a 16-strong effective set hides the arrival completely. Both
+  links must hold for an observer, so the leg can only add privacy; with a public link (every adapter
+  today) it adds none and takes none. Orders carry `privacy.destinationLinkPublic`; quote sets carry
+  the per-provider link and where it is published.
 The same function runs in the engine and the wallet; the privacy lab's constants calibrate it.
 
 ## 11. Solidity-side interface

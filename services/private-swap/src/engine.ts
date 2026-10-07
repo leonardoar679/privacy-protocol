@@ -18,11 +18,11 @@ export interface EngineConfig {
   refundVaults: Record<string, string>; // asset ("native" or token address) -> canonical vault
   tipBps: number; // executor tip in bps of amount (<= 100)
   refundWindowSeconds: number; // refundAfter = executeDeadline + this
-  /** cover traffic per provider (swaps/hour on a typical pair) for the cross-chain privacy term; a live volume feed should replace these estimates */
+  /** cover traffic per provider (swaps/hour on a typical pair): it counts only for a provider that keeps the escrow → destination link private (spec §10) */
   providerThroughput?: Partial<Record<ProviderId, number>>;
 }
 
-/** Conservative static estimates until a volume feed exists (docs/privacy-lab.md, cross-chain section). */
+/** Static estimates (docs/privacy-lab.md, cross-chain section); they matter only for a provider that keeps the escrow → destination link private, and no adapter does today. */
 export const DEFAULT_PROVIDER_THROUGHPUT: Record<ProviderId, number> = { thorchain: 60, chainflip: 30, mayan: 60, "near-intents": 40, lifi: 100, "uniswap-across": 100 };
 
 export interface PreparedExecution {
@@ -36,6 +36,8 @@ export interface PreparedExecution {
 }
 
 export interface QuoteSet {
+  /** per quoted provider: is the escrow → destination link public, and where (shown under "View route") */
+  links: Partial<Record<ProviderId, { public: boolean; evidence: string }>>;
   quotes: Quote[];
   errors: Partial<Record<ProviderId, string>>;
   health: Record<ProviderId, Health>;
@@ -103,7 +105,13 @@ export class PrivateSwapEngine {
     const errors = Object.fromEntries(results.filter((r) => r.error).map((r) => [r.id, r.error])) as Partial<Record<ProviderId, string>>;
     const unexecutable = Object.fromEntries(ordered.filter((a) => a.capabilities().contractSender === false).map((a) => [a.id, "ingress from a contract sender unconfirmed by the provider"])) as Partial<Record<ProviderId, string>>;
     const scores = scoreRoutes(quotes, health, policy, Date.now(), unexecutable);
-    return { quotes, errors, health, scores, chosen: chooseRoute(scores) };
+    const links = Object.fromEntries(ordered.map((a) => [a.id, { public: a.capabilities().destinationLinkPublic, evidence: a.capabilities().linkEvidence }])) as QuoteSet["links"];
+    return { quotes, errors, health, scores, chosen: chooseRoute(scores), links };
+  }
+
+  /** Whether this provider publishes the escrow → destination link; an unknown provider counts as public (no credit for cover traffic). */
+  linkPublic(provider: ProviderId): boolean {
+    return this.cfg.adapters.find((a) => a.id === provider)?.capabilities().destinationLinkPublic ?? true;
   }
 
   /** Build the order object + on-chain params for a chosen quote (spec §2, §6). */
@@ -127,11 +135,11 @@ export class PrivateSwapEngine {
       sourceIsPool: true, destinationFresh: true, amountIsBucket: isBucket(amount), amountUniqueness: 0.5, delaySeconds: dMin,
       providerKind: quote.provider === "thorchain" || quote.provider === "chainflip" || quote.provider === "near-intents" ? "deposit-address" : quote.provider === "mayan" ? "signed-intent" : "aggregator-api",
       nativeAssets: quote.nativeAssets, oneTimeEndpoints: true, privateSubmission: policy !== "fastest",
-      crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds },
+      crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds, linkPublic: this.linkPublic(quote.provider) },
     });
     return {
       orderId, request: req, policy, quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
-      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(amount), score }, state: "QUOTED", history: [{ state: "QUOTED", at: Date.now() }],
+      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(amount), score, destinationLinkPublic: this.linkPublic(quote.provider) }, state: "QUOTED", history: [{ state: "QUOTED", at: Date.now() }],
     };
   }
 
@@ -149,11 +157,11 @@ export class PrivateSwapEngine {
       sourceIsPool: true, destinationFresh: true, amountIsBucket: isBucket(params.amount), amountUniqueness: 0.5, delaySeconds: dMin,
       providerKind: quote.provider === "thorchain" || quote.provider === "chainflip" || quote.provider === "near-intents" ? "deposit-address" : quote.provider === "mayan" ? "signed-intent" : "aggregator-api",
       nativeAssets: quote.nativeAssets, oneTimeEndpoints: true, privateSubmission: policy !== "fastest",
-      crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds },
+      crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds, linkPublic: this.linkPublic(quote.provider) },
     });
     return {
       orderId: params.orderId, request: req, policy, quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
-      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(params.amount), score }, state: "COMMITTED", history: [{ state: "COMMITTED", at: Date.now(), note: "restored by the wallet" }],
+      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(params.amount), score, destinationLinkPublic: this.linkPublic(quote.provider) }, state: "COMMITTED", history: [{ state: "COMMITTED", at: Date.now(), note: "restored by the wallet" }],
     };
   }
 

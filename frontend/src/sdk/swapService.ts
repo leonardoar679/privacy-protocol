@@ -12,7 +12,7 @@ export interface SwapRequest { from: AssetRef; to: AssetRef; amount: string; des
 export interface RouteScore { provider: string; total: number; filtered?: string; components: { price: number; security: number; privacy: number; latency: number; liquidity: number; reliability: number } }
 export interface ServiceFee { kind: string; amount: string; asset: string; usd?: number }
 export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[] }
-export interface QuoteSet { quotes: ServiceQuote[]; scores: RouteScore[]; errors: Record<string, string>; chosen?: RouteScore }
+export interface QuoteSet { quotes: ServiceQuote[]; scores: RouteScore[]; errors: Record<string, string>; chosen?: RouteScore; /** per provider: is the escrow -> destination link public, and where (spec §10) */ links?: Record<string, { public: boolean; evidence: string }> }
 /** The on-chain OrderParams (SwapOrderTypes.OrderParams) as the service serialises them (bigints as strings). */
 export interface ServiceOrderParams { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
 export interface ServiceOrder { orderId: Hex; endpoint: Address; state: string; quote: ServiceQuote; params: ServiceOrderParams; privacy: { delaySeconds: [number, number]; score: number } }

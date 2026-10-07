@@ -156,10 +156,12 @@ if (isMain) {
   console.log(line(["class", "swaps/h", "amounts", "cands", "eff timing", "eff amount", "eff joint", "guess-hit", "unique%"]));
   console.log(line(w.map((n) => "-".repeat(n - 1))));
   for (const r of rows) console.log(line([r.cls, r.ratePerHour, r.policy, r.medianCandidates, f(r.effTiming), f(r.effAmount), f(r.effJoint), f(r.guessHit, 3), f(100 * r.unique)]));
-  // the spec §10 score with the lab-calibrated cross-chain term the engine now applies (6 h delay, fresh endpoints, private submission)
-  const score = (bucket: boolean, cls: ProviderClass, rate: number) => privacyScore({ sourceIsPool: true, destinationFresh: true, amountIsBucket: bucket, amountUniqueness: 0.8, delaySeconds: 6 * 3600, providerKind: cls.name === "fast-intent" ? "signed-intent" : cls.name === "native-chain" ? "deposit-address" : "aggregator-api", nativeAssets: cls.name !== "bridge-aggregator", oneTimeEndpoints: true, privateSubmission: true, crossChain: { throughputPerHour: rate, etaSeconds: cls.etaSeconds, etaSigma: cls.etaSigma } });
+  // the spec §10 score (1 h delay, fresh endpoints, private submission): with the link public (every
+  // adapter today) the cross-chain leg neither adds nor takes; a provider that kept it private would add
+  // a second hurdle as strong as this table's effective set
+  const score = (bucket: boolean, cls: ProviderClass, rate: number, linkPublic: boolean) => privacyScore({ sourceIsPool: true, destinationFresh: true, amountIsBucket: bucket, amountUniqueness: 0.8, delaySeconds: 3600, providerKind: cls.name === "fast-intent" ? "signed-intent" : cls.name === "native-chain" ? "deposit-address" : "aggregator-api", nativeAssets: cls.name !== "bridge-aggregator", oneTimeEndpoints: true, privateSubmission: true, crossChain: { throughputPerHour: rate, etaSeconds: cls.etaSeconds, etaSigma: cls.etaSigma, linkPublic } });
   console.log(`
-# spec §10 score with the cross-chain term (bucketed / arbitrary):`);
-  for (const cls of CLASSES) console.log(`#   ${cls.name.padEnd(18)} ${THROUGHPUTS.map((r) => `${r}/h ${score(true, cls, r)} / ${score(false, cls, r)}`).join("   ")}`);
+# spec §10 score, bucketed / arbitrary — link public (every adapter today) | link private (hypothetical):`);
+  for (const cls of CLASSES) console.log(`#   ${cls.name.padEnd(18)} ${THROUGHPUTS.map((r) => `${r}/h ${score(true, cls, r, true)} / ${score(false, cls, r, true)} | ${score(true, cls, r, false)} / ${score(false, cls, r, false)}`).join("   ")}`);
   if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ opts, classes: CLASSES, rows }, null, 2) + "\n");
 }

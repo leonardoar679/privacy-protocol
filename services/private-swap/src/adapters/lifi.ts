@@ -144,7 +144,7 @@ export class LifiAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["B", "C", "D", "E"], ingress: ["contract-call"], nativeAssets: false, atomic: false, chains: ["ethereum", "base", "arbitrum", "bsc", "avalanche", "optimism", "polygon", "solana", "bitcoin"] };
+    return { routes: ["B", "C", "D", "E"], ingress: ["contract-call"], nativeAssets: false, atomic: false, chains: ["ethereum", "base", "arbitrum", "bsc", "avalanche", "optimism", "polygon", "solana", "bitcoin"], destinationLinkPublic: true, linkEvidence: "the bridge call carries the receiver (bridgeData.receiver, decoded locally before signing)" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

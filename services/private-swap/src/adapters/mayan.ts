@@ -124,7 +124,7 @@ export class MayanAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["B", "C", "D"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "solana", "base", "arbitrum", "optimism", "polygon", "avalanche", "bsc"] };
+    return { routes: ["B", "C", "D"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "solana", "base", "arbitrum", "optimism", "polygon", "avalanche", "bsc"], destinationLinkPublic: true, linkEvidence: "the order payload carries destAddr (decoded locally before signing)" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

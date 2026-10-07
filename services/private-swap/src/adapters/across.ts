@@ -65,7 +65,7 @@ export class AcrossAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["C"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "base", "arbitrum", "optimism"] };
+    return { routes: ["C"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "base", "arbitrum", "optimism"], destinationLinkPublic: true, linkEvidence: "the deposit names the recipient (depositV3 recipient, emitted in FundsDeposited)" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {

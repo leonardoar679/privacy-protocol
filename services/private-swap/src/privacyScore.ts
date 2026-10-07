@@ -11,12 +11,15 @@ export interface PrivacyInputs {
   oneTimeEndpoints: boolean;
   privateSubmission: boolean;
   /**
-   * For a cross-chain swap: the provider's cover traffic on the pair (swaps/hour) and its delivery
-   * time. The ingress → arrival link is only as private as the number of comparable swaps in the
-   * provider's ETA window (benchmarks/privacy/crosschain.json): the amount and timing penalties are
-   * then taken from the lab's fit instead of the single-chain rules.
+   * For a cross-chain swap: the provider's cover traffic on the pair (swaps/hour), its delivery time,
+   * and whether the provider publishes the escrow → destination link (Capabilities.destinationLinkPublic).
+   * To tie the destination to the user an observer must link the user's deposit to the pool withdrawal
+   * (the pool side: amount and timing penalties) AND the destination to that withdrawal. Through the
+   * one-time escrow the second link is public for every adapter today, so the swap is exactly as
+   * private as the pool side; a provider that kept it private would add a second hurdle, as strong as
+   * its cover traffic (benchmarks/privacy/crosschain.json).
    */
-  crossChain?: { throughputPerHour: number; etaSeconds: number; etaSigma?: number };
+  crossChain?: { throughputPerHour: number; etaSeconds: number; etaSigma?: number; linkPublic: boolean };
 }
 
 /** Lab fit (docs/privacy-lab.md, cross-chain section): effective joint set ≈ 1 + k · candidates, k = 0.02 bucketed / 0.0006 arbitrary. */
@@ -36,13 +39,15 @@ export function privacyPenalties(i: PrivacyInputs) {
   const timing = i.delaySeconds >= 6 * 3600 ? 0 : i.delaySeconds >= 3600 ? 0.3 : i.delaySeconds >= 300 ? 0.7 : 1;
   let amountCorrelation = i.amountIsBucket ? 0 : Math.min(1, Math.max(0.2, i.amountUniqueness ?? 0.8));
   let timingCorrelation = timing;
-  if (i.crossChain) {
-    // the cross-chain leg: how many comparable swaps hide this arrival (lab-calibrated); the delay
-    // policy does not help here (the escrow ties withdrawal and ingress), only cover traffic does
+  if (i.crossChain && !i.crossChain.linkPublic) {
+    // a second hurdle: the observer must also pick this arrival among the provider's comparable swaps
+    // (lab-calibrated; 1 = linked, 0 = hidden). Both links must hold, so the penalties multiply — the
+    // cross-chain leg can only add privacy. A public link (every adapter today) adds none and takes
+    // none: it reaches only the privately funded escrow.
     const eff = crossChainEffectiveSet(i.crossChain, i.amountIsBucket);
     const cc = 1 - Math.min(1, Math.log2(eff) / CROSS_CHAIN_TARGET_BITS);
-    amountCorrelation = Math.max(amountCorrelation, cc);
-    timingCorrelation = Math.max(timingCorrelation, cc);
+    amountCorrelation *= cc;
+    timingCorrelation *= cc;
   }
   return {
     sourceIdentity: i.sourceIsPool ? 0 : 1,

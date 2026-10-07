@@ -237,6 +237,8 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
                 <div className="muted" style={{ fontSize: 12 }}>
                   Output at least {fmt(q.toAmountMin, to.ref.decimals)} · ~{hours(q.etaSeconds)} · Provider risk: {risk(s.components.security)} · Bridge: {q.nativeAssets ? "none (native assets)" : "wrapped leg"} · Settlement: {settlement(s.provider)} · Privacy {s.components.privacy}
                   {q.refundTarget === "destination" ? " · a failure refunds at the destination, not to the pool" : ""}
+                  {quotes.links?.[s.provider]?.public ? " · the provider publishes the escrow → destination link (harmless: your escrow was funded privately; this swap is as private as your pool withdrawal)" : ""}
+                  {advanced && quotes.links?.[s.provider] ? ` · link: ${quotes.links[s.provider].evidence}` : ""}
                   {s.filtered ? ` · not selectable: ${s.filtered}` : ""}
                   {advanced ? ` · score ${s.total} (price ${s.components.price}, security ${s.components.security}, latency ${s.components.latency}, reliability ${s.components.reliability})` : ""}
                 </div>

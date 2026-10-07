@@ -97,6 +97,15 @@ export interface Capabilities {
   chains: Chain[];
   /** false when the provider has not confirmed that an ingress sent BY A CONTRACT (our escrow) is credited; such routes are quoted but never chosen */
   contractSender?: boolean;
+  /**
+   * Whether the escrow → destination link is public: the ingress (memo, event, calldata) or the
+   * provider's own outbound names the destination. Harmless by design — it reaches only the one-time
+   * escrow, which a private withdrawal funded — but it means the provider's cover traffic hides
+   * nothing on this leg (spec §10). True unless a provider is verified to keep the link private.
+   */
+  destinationLinkPublic: boolean;
+  /** where the link is published (shown under "View route") */
+  linkEvidence: string;
 }
 
 /** Provider adapter interface — spec §4. */
@@ -144,7 +153,7 @@ export interface Order {
   params: OrderParams;
   endpoint: string; // predicted escrow address
   execution?: Execution; // signed once the wallet has the final ingress
-  privacy: { delaySeconds: [number, number]; amountNormalized: boolean; score: number };
+  privacy: { delaySeconds: [number, number]; amountNormalized: boolean; score: number; destinationLinkPublic: boolean };
   state: OrderState;
   history: { state: OrderState; at: number; note?: string }[];
 }
