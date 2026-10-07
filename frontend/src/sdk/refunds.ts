@@ -10,6 +10,7 @@ import { deriveNoteSecret, type WalletKeys } from "@ref/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
 import type { DepositedLog, NoteInsertedLog } from "./chain";
 import type { StoredSwap } from "../wallet/journal";
+import { refundPayload } from "../keys/swapKeys";
 
 /** What the wallet needs to recognise an order's refund: the committed payload and the counter its secret derives from. */
 export interface RefundClaim { orderId: string; noteData: Hex; counter: number }
@@ -18,6 +19,30 @@ export interface RecoveredRefund { orderId: string; leafIndex: number; note: Not
 /** The refunds the journaled orders can receive. */
 export const refundClaims = (swaps: StoredSwap[]): RefundClaim[] =>
   swaps.filter((s) => s.refundNoteData).map((s) => ({ orderId: s.orderId, noteData: s.refundNoteData as Hex, counter: s.refundCounter }));
+
+/** The refund payloads of counters [0, upTo), regenerated from the seed: a wallet without its journal still recognises its refunds (orderId unknown). */
+export const seedRefundClaims = (masterSeed: Uint8Array, upTo: number): RefundClaim[] =>
+  Array.from({ length: upTo }, (_, counter) => ({ orderId: "", noteData: refundPayload(masterSeed, counter), counter }));
+
+/**
+ * Which counters this wallet has used, from the note secrets it found (PP-P03): after a restore from the
+ * phrase alone the journal's counter is gone, and a counter used again derives a note secret used
+ * again, which a public deposit would reveal. The secrets of counters [0, n) are compared in batches
+ * until a batch finds none of them.
+ */
+export function usedCounters(noteKey: bigint, secrets: bigint[], batch = 1024): Map<bigint, number> {
+  const want = new Set(secrets);
+  const found = new Map<bigint, number>();
+  for (let start = 0; want.size > found.size; start += batch) {
+    let hit = false;
+    for (let c = start; c < start + batch; c++) {
+      const s = deriveNoteSecret(noteKey, c);
+      if (want.has(s)) { found.set(s, c); hit = true; }
+    }
+    if (!hit) break;
+  }
+  return found;
+}
 
 const payloads = (claims: RefundClaim[]) => new Map(claims.map((c) => [c.noteData.toLowerCase(), c]));
 

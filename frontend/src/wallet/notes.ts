@@ -44,11 +44,21 @@ export class NoteStore {
   all(): OwnedNote[] {
     return this.snapshot;
   }
+  /** The counter allocateCounter() would hand out next (read-only). */
+  nextCounter(): number {
+    return this.counter;
+  }
   /** Next noteSecret counter for a note of ours (spec §5.5: never reused). */
   allocateCounter(): number {
     const c = this.counter++;
     this.emit();
     return c;
+  }
+  /** A counter this wallet is known to have used (a rescan found a note derived from it): the next one is past it. */
+  observeCounter(used: number): void {
+    if (used + 1 <= this.counter) return;
+    this.counter = used + 1;
+    this.emit();
   }
   /** Everything the journal keeps. */
   serialize(): { notes: SerializedNote[]; noteCounter: number } {

@@ -25,7 +25,7 @@ import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
 import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreAbi } from "./privacyProtocol";
 import { clientFor, depositedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
-import { hasRefundCandidates, matchRefunds, refundClaims, type RecoveredRefund, type RefundClaim } from "./refunds";
+import { hasRefundCandidates, matchRefunds, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "../wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
@@ -374,6 +374,14 @@ async function findRefunds(d: Deployment, keys: WalletKeys, logs: NoteInsertedLo
   return matchRefunds(keys, logs, await depositedLogsQuorum(d), claims);
 }
 
+/** The journal's claims, then the seed's for every counter up to `upTo` (a journal-less wallet's refunds), one per payload. */
+function allRefundClaims(masterSeed: Uint8Array, journal: RefundClaim[], upTo: number): RefundClaim[] {
+  const seen = new Set(journal.map((c) => c.noteData.toLowerCase()));
+  return [...journal, ...seedRefundClaims(masterSeed, upTo).filter((c) => !seen.has(c.noteData.toLowerCase()))];
+}
+/** How far past the highest counter found a refund is still looked for (refunds are rarer than notes). */
+const REFUND_COUNTER_MARGIN = 1024;
+
 const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: "swap refund", counter: r.counter });
 
 /** Each order a refund came back for: its refund notes and the refunded state (a completed order keeps its state). */
@@ -398,12 +406,17 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
   const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
   const hits = await discoverNotes(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
-  const found: FoundNote[] = hits.map(({ leafIndex, note }) => { const l = byLeaf.get(leafIndex)!; return { leafIndex, note, commitment: l.commitment, noteData: l.noteData, txHash: l.transactionHash, label: "discovered" }; });
-  // swap refunds carry the order's random payload, not an envelope: discovery cannot see them (PP-S09)
-  const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
+  // which counters this wallet used, by the secrets of the notes it found (PP-P03: a phrase-only restore has no journal counter)
+  const counters = usedCounters(keys.noteKey, hits.map((h) => h.note.noteSecret));
+  const found: FoundNote[] = hits.map(({ leafIndex, note }) => { const l = byLeaf.get(leafIndex)!; const c = counters.get(note.noteSecret); return { leafIndex, note, commitment: l.commitment, noteData: l.noteData, txHash: l.transactionHash, label: "discovered", ...(c !== undefined ? { counter: c } : {}) }; });
+  // swap refunds carry the order's payload, not an envelope: discovery cannot see them (PP-S09); the journal names them,
+  // and the payload derives from the seed and the counter, so a wallet without its journal regenerates them
+  const upTo = Math.max(noteStore.nextCounter(), ...[...counters.values()].map((c) => c + 1), 0) + REFUND_COUNTER_MARGIN;
+  const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? allRefundClaims(o.masterSeed, journaledRefundClaims(), upTo));
   for (const r of refunds) if (!found.some((f) => f.leafIndex === r.leafIndex)) found.push(refundFound(r));
   const r = await recordFound(o.deployment, keys, found);
   journalRefunds(refunds);
+  for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
   return { scanned: logs.length, ...r, refunds: refunds.length };
 }

@@ -13,9 +13,10 @@ import { MerkleTree, ZERO_LEAF } from "@ref/merkle";
 import { TX_LEVELS } from "@ref/txInputs";
 import { deriveKeys, deriveNoteSecret } from "@ref/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
-import { dummyNoteData } from "@ref/envelope";
+import { dummyNoteData, encryptNoteData, viewKeyPair } from "@ref/envelope";
+import { deriveRefundNote, refundPayload } from "../src/keys/swapKeys";
 import { coreAbi } from "../src/sdk/privacyProtocol";
-import { hasRefundCandidates, matchRefunds, refundClaims } from "../src/sdk/refunds";
+import { hasRefundCandidates, matchRefunds, refundClaims, usedCounters } from "../src/sdk/refunds";
 import { recoverSwapRefunds, scanNotes } from "../src/sdk/privateTx";
 import type { DepositedLog, Deployment, NoteInsertedLog } from "../src/sdk/chain";
 import { noteStore } from "../src/wallet/notes";
@@ -80,10 +81,17 @@ const ours = refundNote(ETH_VAULT, AMOUNT);
 // leaf 0: someone's deposit; leaf 4: our order's refund; leaves 8..10: a transaction whose first output copied our public payload
 const inserts: NoteInsertedLog[] = [ins(0, 0x1111n), ins(4, cm(ours, 4), PAYLOAD), ins(8, 0x8888n, PAYLOAD), ins(9, 0x9999n), ins(10, 0xaaaan)];
 const deposits: DepositedLog[] = [dep(ETH_VAULT, 0, 5n, OTHER_OC), dep(ETH_VAULT, 4, AMOUNT)];
-const tree = new MerkleTree(TX_LEVELS);
-tree.insertGroup([0x1111n, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
-tree.insertGroup([cm(ours, 4), ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
-tree.insertGroup([0x8888n, 0x9999n, 0xaaaan, ZERO_LEAF]);
+/** The chain the mock serves: its events and the tree the core would hold over them (groups of four). */
+function chainOf(ins: NoteInsertedLog[], deps: DepositedLog[]) {
+  const next = Math.ceil((Math.max(...ins.map((l) => l.leafIndex)) + 1) / 4) * 4;
+  const leaves: bigint[] = Array(next).fill(ZERO_LEAF);
+  for (const l of ins) leaves[l.leafIndex] = l.commitment;
+  const t = new MerkleTree(TX_LEVELS);
+  for (let i = 0; i < next; i += 4) t.insertGroup(leaves.slice(i, i + 4));
+  return { inserts: ins, deposits: deps, next, root: t.root };
+}
+const scenarioA = chainOf(inserts, deposits);
+let chain = scenarioA;
 
 const EVENTS = parseAbi(["event Deposited(bytes32 indexed ownerCommitment, uint256 amount, uint32 leafIndex)"]);
 const [NOTE_TOPIC] = encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted" });
@@ -101,14 +109,14 @@ function mockRpc(deps: () => DepositedLog[], seen: { depositReads: number }) {
       case "eth_blockNumber": return res("0x10");
       case "eth_getLogs": {
         const topic = req.params[0].topics?.[0];
-        if (topic === NOTE_TOPIC) return res(inserts.map(noteLog));
+        if (topic === NOTE_TOPIC) return res(chain.inserts.map(noteLog));
         if (topic === DEPOSIT_TOPIC) { seen.depositReads++; const vaults = [req.params[0].address].flat().map((a: string) => a.toLowerCase()); return res(deps().filter((d) => vaults.includes(d.vault.toLowerCase())).map(depositLog)); }
         return res([]);
       }
       case "eth_call": {
         const data: string = req.params[0].data;
-        if (data.startsWith(toFunctionSelector("nextLeafIndex()"))) return res(pad32(12n));
-        if (data.startsWith(toFunctionSelector("currentRoot()"))) return res(pad32(tree.root));
+        if (data.startsWith(toFunctionSelector("nextLeafIndex()"))) return res(pad32(BigInt(chain.next)));
+        if (data.startsWith(toFunctionSelector("currentRoot()"))) return res(pad32(chain.root));
         if (data.startsWith(toFunctionSelector("isNullifierSpent(uint256)"))) return res(pad32(0n));
         return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
       }
@@ -127,14 +135,14 @@ const lying = { depositReads: 0 };
 let honest: Server, liar: Server, deployment: Deployment, liarUrl = "";
 const listen = async (s: Server) => { await new Promise<void>((r) => s.listen(0, "127.0.0.1", r)); return `http://127.0.0.1:${(s.address() as { port: number }).port}`; };
 beforeAll(async () => {
-  honest = mockRpc(() => deposits, seen);
-  liar = mockRpc(() => deposits.map((d) => (d.leafIndex === 4 ? { ...d, amount: d.amount * 2n } : d)), lying);
+  honest = mockRpc(() => chain.deposits, seen);
+  liar = mockRpc(() => chain.deposits.map((d) => (d.leafIndex === 4 ? { ...d, amount: d.amount * 2n } : d)), lying);
   const url = await listen(honest);
   liarUrl = await listen(liar);
   deployment = { chainId: 31337, core: CORE, ethVault: ETH_VAULT, rpcUrl: url, rpcUrls: [url], fromBlock: 0n, erc20Vaults: [] };
 });
 afterAll(async () => { await new Promise<void>((r) => honest.close(() => r())); await new Promise<void>((r) => liar.close(() => r())); });
-afterEach(() => { session.forget(); noteStore.clear(); seen.depositReads = 0; });
+afterEach(() => { session.forget(); noteStore.clear(); seen.depositReads = 0; chain = scenarioA; });
 
 async function walletWithOrder(state = "funded") {
   await session.create("a strong password", seed);
@@ -173,5 +181,37 @@ describe("a refunded order reaches the wallet (PP-S09)", () => {
     const alone = await scanNotes({ masterSeed: seed, deployment: { ...deployment, rpcUrl: liarUrl, rpcUrls: [liarUrl] } });
     expect(alone.refunds).toBe(0);
     expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(0n);
+  });
+});
+
+describe("a wallet restored from its phrase alone: no journal (PP-P03, journal-free refunds)", () => {
+  it("the refund payload is the seed's, per counter: deterministic, envelope-shaped, distinct; the order commits to it", () => {
+    const p7 = refundPayload(seed, 7);
+    expect(p7).toBe(refundPayload(seed, 7));
+    expect((p7.length - 2) / 2).toBe(169);
+    expect(p7.slice(0, 4)).toBe("0x01");
+    expect(refundPayload(seed, 8)).not.toBe(p7);
+    expect(refundPayload(sha256(utf8ToBytes("another seed")), 7)).not.toBe(p7);
+    expect(deriveRefundNote(seed, 7).noteData).toBe(p7);
+  });
+  it("finds its own counters by their note secrets, in batches, and stops at the first batch with none", () => {
+    const s = (c: number) => deriveNoteSecret(keys.noteKey, c);
+    const m = usedCounters(keys.noteKey, [s(3), s(1500), 12345n], 1024);
+    expect([...m.entries()]).toEqual([[s(3), 3], [s(1500), 1500]]);
+    expect(usedCounters(keys.noteKey, [s(3000)], 1024).size, "a counter a whole empty batch beyond the last hit is not reached").toBe(0);
+  });
+  it("a rescan finds the wallet's own note and its refund without the journal, and the counter moves past both", async () => {
+    // leaf 0: our note made with counter 5 (its envelope opens with our view key); leaf 4: a refund at counter 9, payload from the seed
+    const own: Note = { vaultId: BigInt(ETH_VAULT), amount: 3n * 10n ** 17n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 5) };
+    const envelope = hex(encryptNoteData(viewKeyPair(keys.viewKey).publicKey, { amount: own.amount, noteSecret: own.noteSecret, vaultId: own.vaultId }));
+    const refund = refundNote(ETH_VAULT, 4n * 10n ** 17n, 9);
+    chain = chainOf([ins(0, cm(own, 0), envelope), ins(4, cm(refund, 4), refundPayload(seed, 9))], [dep(ETH_VAULT, 0, own.amount), dep(ETH_VAULT, 4, refund.amount)]);
+    expect(session.isUnlocked(), "no journal: nothing journaled names the refund").toBe(false);
+    expect(noteStore.nextCounter()).toBe(0);
+    const r = await scanNotes({ masterSeed: seed, deployment });
+    expect(r).toEqual({ scanned: 2, found: 2, added: 2, spent: 0, refunds: 1 });
+    expect(noteStore.all().map((n) => [n.leafIndex, n.label, n.counter])).toEqual([[0, "discovered", 5], [4, "swap refund", 9]]);
+    expect(noteStore.nextCounter(), "a counter used again would derive a note secret used again (PP-P03)").toBe(10);
+    expect(noteStore.allocateCounter()).toBe(10);
   });
 });

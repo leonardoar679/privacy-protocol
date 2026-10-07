@@ -1,7 +1,7 @@
 // Per-order wallet keys for private swaps (spec v1.1 §2, §6): a ONE-TIME secp256k1 order key that
 // authorizes exactly one provider call, and the pre-committed refund note that a failed order becomes.
 // Both derive from the master seed; nothing here is ever persisted to dapp-origin storage (TC-01).
-import { keccak256, type Hex } from "viem";
+import { hexToBytes, keccak256, type Hex } from "viem";
 import { privateKeyToAddress, sign } from "viem/accounts";
 import { deriveKeys, deriveNoteSecret } from "@ref/keys";
 import { ownerCommitmentOf } from "@ref/note";
@@ -38,14 +38,22 @@ export interface RefundNote {
 }
 
 /**
- * The fresh note a refund re-shields into. `counter` must be unique per order (the wallet's note
- * counter). The payload is random here — the production wallet writes the encrypted note record
- * (spec §12) so the note can be recovered from chain; until then the wallet keeps `noteData` itself.
+ * The 169-byte payload a refund re-shields with, derived from the seed and the note counter: a version
+ * byte as in a §12 envelope, then a keyed pseudo-random stream nobody without the seed can tell from a
+ * dummy's. The refund amount is not known when the order is committed, so the payload cannot be an
+ * envelope of the note; deriving it lets a wallet restored from its phrase alone (no journal) regenerate
+ * the payloads of its counters and find its refunds on chain (sdk/refunds.ts).
  */
+export function refundPayload(masterSeed: Uint8Array, counter: number): Hex {
+  const c = Uint8Array.of((counter >>> 24) & 0xff, (counter >>> 16) & 0xff, (counter >>> 8) & 0xff, counter & 0xff);
+  const stream = Array.from({ length: Math.ceil((NOTE_DATA_BYTES - 1) / 32) }, (_, i) => hexToBytes(keccak256(concat(masterSeed, enc.encode("/refund-payload/"), c, Uint8Array.of(i)))));
+  const payload = concat(Uint8Array.of(0x01), ...stream).subarray(0, NOTE_DATA_BYTES);
+  return ("0x" + Array.from(payload, (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
+}
+
+/** The fresh note a refund re-shields into. `counter` must be unique per order (the wallet's note counter). */
 export function deriveRefundNote(masterSeed: Uint8Array, counter: number): RefundNote {
   const keys = deriveKeys(masterSeed);
-  const payload = new Uint8Array(NOTE_DATA_BYTES);
-  crypto.getRandomValues(payload);
-  const noteData = ("0x" + Array.from(payload, (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
+  const noteData = refundPayload(masterSeed, counter);
   return { ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter), noteData, noteDataHash: keccak256(noteData) };
 }
