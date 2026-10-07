@@ -50,7 +50,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 | reference | TypeScript 72 (vitest, incl. 9 WASM-vs-TypeScript), Python 31 (vectors); five implementations agree on every primitive | `npm test` in `reference/typescript`, `python reference/python/test_vectors.py` |
 | Rust core + native prover + FFI | 11 Python tests over the generated UniFFI bindings (`core/rust/privacy-ffi`), 14 vector suites (`core/rust/privacy-core`), 11 prover tests (`core/rust/privacy-prover`: the native witness == snarkjs' and the soundness manifest's verdicts, the zkey parses to the published key, native ⇄ snarkjs proofs verified both ways), wasm32 build | `cargo test` in `core/rust` (after `node core/rust/scripts/gen-prover-fixtures.mjs`), `node core/rust/scripts/ffi-bindings.mjs` |
 | wallet | 57 vitest (keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
-| private-swap engine | 103 vitest: 36 offline (state machine, scoring, privacy score, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset), 20 live adapter quotes, **42 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping), 4 flow (§72, incl. USDC-sourced orders), 1 guest deposit — `docs/test-matrix.md` | `npm test` (network) |
+| private-swap engine | 106 vitest: 39 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset), 20 live adapter quotes, **42 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping), 4 flow (§72, incl. USDC-sourced orders), 1 guest deposit — `docs/test-matrix.md` | `npm test` (network) |
 | privacy | lab (`benchmarks/privacy/results.json`), cross-chain lab (`benchmarks/privacy/crosschain.json`) | `docs/privacy-lab.md` |
 | relayer | 27 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector, journals, limits | `cd services/relayer && npm test` |
 | **everything** | `node scripts/verify-all.mjs --forge <solc-0.8.24> --rust` (add `--live` for the provider suites) — 13/13 steps here, incl. `tsc --noEmit` for the swap engine and the relayer, the Rust core, the native prover, the UniFFI bindings and the WASM package | |
@@ -61,12 +61,16 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 2. **Proof system not final** (plan §41–42): Groth16 today; Halo2/FRI comparison outstanding.
 3. **Payload cipher binding is a proposal** (`crypto-spec.md`, "Output payload envelope"): view key → X25519 via tagged sha256, envelope key from the shared secret and both public keys; please review the KDF and the absence of sender authentication (by design: the recipient verifies the opening against the leaf).
 4. **Gas above targets** (`transact` 1.79M vs 650k target); levers in `benchmarks/gas/README.md`.
-5. **Wallet-side proving is stubbed** in the UI shell; proofs are produced by the test pipeline.
+5. **Proving**: the web wallet proves with snarkjs in a Web Worker; the native wallets with
+   `core/rust/privacy-prover` (native witness + Groth16, proofs verified by the on-chain verifier in
+   forge). Both use the INSECURE dev key until the ceremony (item 1).
 6. **Provider adapters are mainnet-pinned**; NEAR Intents' ingress is withheld (contract-sent
    deposits unconfirmed); Mayan's source-chain swap leg trusts Mayan's router calldata within the
    §74 damage bound; THORChain's gateway quorum is limited to the two public gateways reachable.
-7. **Cross-chain privacy is throughput-bound** (`docs/privacy-lab.md`, cross-chain section): the
-   score now says so; a live provider-volume feed is still to be built.
+7. **Cross-chain privacy** (`docs/privacy-lab.md`, cross-chain section): every adapter publishes the
+   escrow → destination link; it reaches only the privately funded escrow, so a swap is as private as
+   its pool withdrawal. The score multiplies the pool-side and cross-chain links (corrected 2026-10-07
+   from taking the worse of the two); please check that composition.
 8. **zkAPI** is used as service credit only; its own issues (pause + 30-day expiry, single-party
    setup, server-dependent operation) are in `docs/zkapi/security.md`.
 
