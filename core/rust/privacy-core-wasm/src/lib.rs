@@ -10,8 +10,9 @@ use privacy_core::envelope::{decrypt_note_data as core_decrypt, encrypt_note_dat
 use privacy_core::field::{fr_from_be32_checked, fr_to_be32, Fr};
 use privacy_core::keys::{derive_keys as core_derive_keys, derive_note_secret as core_derive_note_secret};
 use privacy_core::keystore::{unlock_keystore as core_unlock, Keystore};
-use privacy_core::merkle::MerkleTree;
-use privacy_core::note::{note_body as core_note_body, note_commitment as core_note_commitment, nullifier as core_nullifier, owner_commitment_of, phantom_nullifier as core_phantom, Note};
+use privacy_core::merkle::{layers, MerkleTree};
+use privacy_core::note::{note_body as core_note_body, note_commitment as core_note_commitment, nullifier as core_nullifier, owner_commitment_of, phantom_nullifier as core_phantom, scan_payloads, Note};
+use privacy_core::payload::NOTE_DATA_BYTES;
 use privacy_core::payload::{note_data_hash as core_note_data_hash, pack_plaintext, tx_domain as core_tx_domain};
 use privacy_core::poseidon2::hash;
 use wasm_bindgen::prelude::*;
@@ -121,6 +122,53 @@ pub fn merkle_root(leaves: &[u8], levels: u32) -> Result<Vec<u8>, JsError> {
         tree.insert_group(&group);
     }
     Ok(out(tree.root))
+}
+
+/// Layers 1..=levels of the tree over `leaves` (k × 32 bytes, any k), concatenated: layer l holds
+/// ceil(size(l-1) / 2) words with size(0) = k, so the caller can split the result without a header;
+/// the last word is the root. One call per sync instead of one hash per JS call.
+#[wasm_bindgen]
+pub fn merkle_layers(leaves: &[u8], levels: u32) -> Result<Vec<u8>, JsError> {
+    if leaves.len() % 32 != 0 {
+        return Err(JsError::new("leaves must be 32-byte words"));
+    }
+    if !(3..=32).contains(&levels) {
+        return Err(JsError::new("levels out of range"));
+    }
+    let fr_leaves: Result<Vec<Fr>, JsError> = leaves.chunks(32).map(fr).collect();
+    let all = layers(&fr_leaves?, levels as usize);
+    let mut out = Vec::with_capacity(all[1..].iter().map(|l| l.len() * 32).sum());
+    for layer in &all[1..] {
+        for x in layer {
+            out.extend_from_slice(&fr_to_be32(x));
+        }
+    }
+    Ok(out)
+}
+
+/// Note discovery over a whole log set: the payloads (n × 169 bytes) that open with this view key and
+/// reproduce their leaf (commitments n × 32 bytes, leaf indexes n) with `owner_commitment`.
+/// Each hit is leafIndex(4, big-endian) ‖ amount(32) ‖ noteSecret(32) ‖ vaultId(32).
+#[wasm_bindgen]
+pub fn scan_note_payloads(view_key: &[u8], owner_commitment: &[u8], leaf_indexes: &[u32], commitments: &[u8], payloads: &[u8]) -> Result<Vec<u8>, JsError> {
+    let n = leaf_indexes.len();
+    if commitments.len() != n * 32 || payloads.len() != n * NOTE_DATA_BYTES {
+        return Err(JsError::new("leaf indexes, commitments (32 bytes each) and payloads (169 bytes each) must have the same count"));
+    }
+    let view = view_key_pair(&fr(view_key)?);
+    let oc = fr(owner_commitment)?;
+    let mut items = Vec::with_capacity(n);
+    for i in 0..n {
+        items.push((leaf_indexes[i], fr(&commitments[i * 32..(i + 1) * 32])?, &payloads[i * NOTE_DATA_BYTES..(i + 1) * NOTE_DATA_BYTES]));
+    }
+    let mut out = Vec::new();
+    for d in scan_payloads(&view, &oc, items) {
+        out.extend_from_slice(&d.leaf_index.to_be_bytes());
+        out.extend_from_slice(&fr_to_be32(&d.note.amount));
+        out.extend_from_slice(&fr_to_be32(&d.note.note_secret));
+        out.extend_from_slice(&fr_to_be32(&d.note.vault_id));
+    }
+    Ok(out)
 }
 
 #[wasm_bindgen]

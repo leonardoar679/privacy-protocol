@@ -82,3 +82,23 @@ pub fn note_from_payload(view: &ViewKeyPair, owner_commitment: &Fr, leaf_index: 
     let note = Note { vault_id: pt.vault_id, amount: pt.amount, owner_commitment: *owner_commitment, note_secret: pt.note_secret };
     if note_commitment(&note_body(&note), leaf_index) == *leaf { Some(note) } else { None }
 }
+
+/// A note found by `scan_payloads`, with the leaf it sits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Discovered {
+    pub leaf_index: u32,
+    pub note: Note,
+}
+
+/// Note discovery over a whole log set (spec §12, the wallet's rescan): every `(leaf_index, commitment,
+/// note_data)` whose payload opens with this view key AND reproduces its leaf with OUR owner
+/// commitment. One pass, no allocation per miss — the batch the WASM / native wallets scan with.
+pub fn scan_payloads<'a, I>(view: &ViewKeyPair, owner_commitment: &Fr, items: I) -> Vec<Discovered>
+where
+    I: IntoIterator<Item = (u32, Fr, &'a [u8])>,
+{
+    items
+        .into_iter()
+        .filter_map(|(leaf_index, leaf, note_data)| note_from_payload(view, owner_commitment, leaf_index as u64, &leaf, note_data).map(|note| Discovered { leaf_index, note }))
+        .collect()
+}

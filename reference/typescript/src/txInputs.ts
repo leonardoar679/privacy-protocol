@@ -3,7 +3,7 @@
 // private). This is what a wallet does before proving; it mirrors circuits/transaction.circom.
 import { ownerCommitmentOf, noteBody, noteCommitment, type Note } from "./note";
 import { nullifier, phantomNullifier } from "./nullifier";
-import { ZERO_LEAF, merkleProof, zeroHashes } from "./merkle";
+import { MerkleLayers, ZERO_LEAF, zeroHashes } from "./merkle";
 
 export const TX_LEVELS = 32; // circuit depth: Transaction(32, 2, 3)
 
@@ -19,6 +19,7 @@ export interface Withdrawal {
 }
 export interface TxSpec {
   leaves: bigint[]; // on-chain tree contents in leaf order, incl. ZERO_LEAF padding
+  tree?: MerkleLayers; // the layers over `leaves` when already computed (a synced wallet); built here otherwise
   inputs: [SpendNote, SpendNote | null]; // slot 0 is always real; a null slot 1 is a phantom pad
   outputs: [Note, Note, Note]; // recipient / change / fee (or dummies), any order
   withdrawal: Withdrawal | null; // null = internal transfer (mode 0)
@@ -39,7 +40,9 @@ export const dummyOutput = (vaultId: bigint, rnd: () => bigint): Note => ({
 export function buildTxInputs(spec: TxSpec, opts: { check?: boolean } = {}): CircuitInputs {
   const check = opts.check ?? true; // false only when deliberately building an invalid (attack) witness
   const levels = spec.levels ?? TX_LEVELS;
-  const { root } = merkleProof(spec.leaves, 0, levels);
+  const tree = spec.tree ?? MerkleLayers.build(spec.leaves, levels);
+  if (tree.levels !== levels || tree.leaves.length !== spec.leaves.length) throw new Error("the tree layers do not belong to these leaves");
+  const root = tree.root;
   const asset = spec.inputs[0].vaultId;
   const zeroPath = zeroHashes(levels).slice(0, levels);
 
@@ -49,7 +52,7 @@ export function buildTxInputs(spec: TxSpec, opts: { check?: boolean } = {}): Cir
       if (check && oc !== n.ownerCommitment) throw new Error(`input ${i}: spending key does not own the note`);
       const cm = noteCommitment(noteBody({ ...n, ownerCommitment: oc }), BigInt(n.leafIndex));
       if (check && cm !== spec.leaves[n.leafIndex]) throw new Error(`input ${i} does not open leaf ${n.leafIndex}`);
-      const path = merkleProof(spec.leaves, n.leafIndex, levels);
+      const path = tree.proof(n.leafIndex);
       return {
         isReal: 1n, amount: n.amount, vaultId: n.vaultId, spendKey: n.spendKey, noteSecret: n.noteSecret,
         leafIndex: BigInt(n.leafIndex), pathElements: path.pathElements, pathIndices: path.pathIndices,

@@ -7,8 +7,8 @@ use privacy_core::domains;
 use privacy_core::envelope::{decrypt_note_data, dummy_note_data, encrypt_note_data, view_key_pair, NotePlaintext};
 use privacy_core::field::{fr_from_dec, fr_to_be32, fr_to_dec, Fr};
 use privacy_core::keys::{derive_keys, derive_note_secret};
-use privacy_core::merkle::{fold_path, merkle_proof, zero_hashes, zero_leaf, MerkleTree};
-use privacy_core::note::{decode_note, encode_note, note_body, note_commitment, note_from_payload, nullifier, owner_commitment_of, phantom_nullifier, Note};
+use privacy_core::merkle::{fold_path, layers, layers_root, merkle_proof, proof_from_layers, zero_hashes, zero_leaf, MerkleTree};
+use privacy_core::note::{decode_note, encode_note, note_body, note_commitment, note_from_payload, nullifier, owner_commitment_of, phantom_nullifier, scan_payloads, Discovered, Note};
 use privacy_core::payload::{note_data_hash, pack_plaintext, tx_domain, NOTE_DATA_BYTES};
 use privacy_core::poseidon2::{hash, permute};
 use serde_json::Value;
@@ -229,4 +229,67 @@ fn circuit_fixture_depth_32_path_nullifiers_and_bodies() {
     let outs: Fr = (0..3).map(|i| dec(&f["outAmount"][i])).sum();
     assert_eq!(ins, outs);
     assert_eq!(fr_to_be32(&Fr::from(1u64))[31], 1);
+}
+
+#[test]
+fn layers_give_the_incremental_root_and_every_path_in_one_pass() {
+    let levels = 10;
+    for n in [0usize, 1, 2, 3, 4, 5, 8, 13, 16, 100] {
+        let leaves: Vec<Fr> = (0..n).map(|i| Fr::from(1000 + i as u64)).collect();
+        let l = layers(&leaves, levels);
+        assert_eq!(l.len(), levels + 1);
+        assert_eq!(l[0], leaves);
+        let root = layers_root(&l, levels);
+        if n == 0 {
+            assert_eq!(root, zero_hashes(levels)[levels]);
+            assert!(l[levels].is_empty());
+            continue;
+        }
+        assert_eq!(l[levels].len(), 1, "the top layer is the root");
+        if n % 4 == 0 {
+            let mut tree = MerkleTree::new(levels);
+            for g in leaves.chunks(4) {
+                tree.insert_group(&[g[0], g[1], g[2], g[3]]);
+            }
+            assert_eq!(root, tree.root, "n = {n}: the layered root is the accumulator's");
+        }
+        for i in 0..n {
+            let p = proof_from_layers(&l, i, levels);
+            assert_eq!(p.root, root);
+            assert_eq!(p.path_elements.len(), levels);
+            assert_eq!(fold_path(leaves[i], &p.path_elements, &p.path_indices), root, "n = {n}, leaf {i}");
+            assert_eq!(p, merkle_proof(&leaves, i, levels));
+        }
+    }
+}
+
+#[test]
+fn scan_payloads_finds_exactly_the_notes_that_open_their_leaf_for_us() {
+    let ours = derive_keys(EXAMPLE_SEED);
+    let other = derive_keys(b"someone else entirely");
+    let view = view_key_pair(&ours.view_key);
+    let oc = owner_commitment_of(&ours.spend_key);
+    let eph = [0x11u8; 32];
+    let nonce = [0x22u8; 24];
+    let mine = Note { vault_id: Fr::from(171u64), amount: Fr::from(5u64), owner_commitment: oc, note_secret: derive_note_secret(&ours.note_key, 3) };
+    let plain = |n: &Note| NotePlaintext { amount: n.amount, note_secret: n.note_secret, vault_id: n.vault_id };
+    // leaf 4: ours. leaf 5: someone else's (their view key). leaf 6: decrypts for us but the leaf holds another
+    // commitment (a payload that lies). leaf 7: a dummy. leaf 8: ours again at a different index.
+    let p4 = encrypt_note_data(&view.public, &plain(&mine), eph, nonce);
+    let p5 = encrypt_note_data(&view_key_pair(&other.view_key).public, &plain(&mine), eph, nonce);
+    let p6 = encrypt_note_data(&view.public, &plain(&mine), [0x33u8; 32], nonce);
+    let p7 = dummy_note_data([0x44u8; NOTE_DATA_BYTES]);
+    let again = Note { amount: Fr::from(9u64), ..mine };
+    let p8 = encrypt_note_data(&view.public, &plain(&again), [0x55u8; 32], nonce);
+    let items: Vec<(u32, Fr, &[u8])> = vec![
+        (4, note_commitment(&note_body(&mine), 4), &p4[..]),
+        (5, note_commitment(&note_body(&Note { owner_commitment: owner_commitment_of(&other.spend_key), ..mine }), 5), &p5[..]),
+        (6, Fr::from(123456u64), &p6[..]),
+        (7, Fr::from(7u64), &p7[..]),
+        (8, note_commitment(&note_body(&again), 8), &p8[..]),
+    ];
+    let found = scan_payloads(&view, &oc, items.iter().cloned());
+    assert_eq!(found, vec![Discovered { leaf_index: 4, note: mine }, Discovered { leaf_index: 8, note: again }]);
+    assert!(scan_payloads(&view_key_pair(&other.view_key), &owner_commitment_of(&other.spend_key), items.iter().cloned()).iter().all(|d| d.leaf_index == 5));
+    assert!(scan_payloads(&view, &oc, std::iter::empty()).is_empty());
 }

@@ -14,9 +14,9 @@ import { hash } from "../src/poseidon2";
 import { deriveKeys, deriveNoteSecret } from "../src/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "../src/note";
 import { nullifier, phantomNullifier } from "../src/nullifier";
-import { decryptNoteData, encryptNoteData, viewKeyPair } from "../src/envelope";
+import { decryptNoteData, dummyNoteData, encryptNoteData, noteFromPayload, viewKeyPair } from "../src/envelope";
 import { noteDataHash, txDomain } from "../src/payload";
-import { MerkleTree, ZERO_LEAF } from "../src/merkle";
+import { MerkleLayers, MerkleTree, ZERO_LEAF } from "../src/merkle";
 import { encodePrivacyAddress, decodePrivacyAddress } from "../src/address";
 import { bip39Seed, bitcoinAccount, evmAccount, solanaAccount } from "../src/wallet/chainKeys";
 
@@ -100,6 +100,61 @@ describe.skipIf(!wasm)("WASM core == TypeScript reference (build: node core/rust
     expect(fromBe(wasm.merkle_root(new Uint8Array(0), 10))).toBe(new MerkleTree(10).root);
   });
 
+  it("builds every tree layer in one call (the sync batch) with the reference's layers and paths", () => {
+    const leaves = Array.from({ length: 1000 }, (_, i) => BigInt(i + 1) * 7919n);
+    const ts = MerkleLayers.build(leaves, 32);
+    const out: Uint8Array = wasm.merkle_layers(concat(...leaves.map(be32)), 32);
+    const upper: bigint[][] = [];
+    let size = leaves.length, off = 0;
+    for (let l = 0; l < 32; l++) {
+      size = Math.ceil(size / 2);
+      const layer: bigint[] = [];
+      for (let i = 0; i < size; i++, off += 32) layer.push(fromBe(out.subarray(off, off + 32)));
+      upper.push(layer);
+    }
+    expect(off).toBe(out.length);
+    const rs = MerkleLayers.fromLayers(leaves, upper, 32);
+    expect(rs.root).toBe(ts.root);
+    expect(rs.layers).toEqual(ts.layers);
+    for (const i of [0, 1, 2, 511, 998, 999]) expect(rs.proof(i)).toEqual(ts.proof(i));
+    expect(wasm.merkle_layers(new Uint8Array(0), 32).length).toBe(0);
+    expect(() => wasm.merkle_layers(new Uint8Array(33), 32)).toThrow();
+    expect(() => wasm.merkle_layers(new Uint8Array(32), 2)).toThrow();
+  });
+
+  it("scans a payload set for our notes in one call (the rescan batch) exactly like noteFromPayload", () => {
+    const view = viewKeyPair(keys.viewKey);
+    const other = deriveKeys(utf8ToBytes("someone else"));
+    const oc = ownerCommitmentOf(keys.spendKey);
+    const mine: Note = { vaultId: 171n, amount: 5n * 10n ** 17n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 3) };
+    const again: Note = { ...mine, amount: 9n };
+    const plain = (n: Note) => ({ amount: n.amount, noteSecret: n.noteSecret, vaultId: n.vaultId });
+    // leaf 4 ours; 5 someone else's; 6 decrypts for us but the leaf holds another commitment; 7 a dummy; 8 ours; 9 ours but tampered
+    const tampered = encryptNoteData(view.publicKey, plain(mine));
+    tampered[100] ^= 1;
+    const items = [
+      { leafIndex: 4, commitment: noteCommitment(noteBody(mine), 4n), noteData: encryptNoteData(view.publicKey, plain(mine)) },
+      { leafIndex: 5, commitment: noteCommitment(noteBody({ ...mine, ownerCommitment: ownerCommitmentOf(other.spendKey) }), 5n), noteData: encryptNoteData(viewKeyPair(other.viewKey).publicKey, plain(mine)) },
+      { leafIndex: 6, commitment: 123456n, noteData: encryptNoteData(view.publicKey, plain(mine)) },
+      { leafIndex: 7, commitment: 7n, noteData: dummyNoteData() },
+      { leafIndex: 8, commitment: noteCommitment(noteBody(again), 8n), noteData: encryptNoteData(view.publicKey, plain(again)) },
+      { leafIndex: 9, commitment: noteCommitment(noteBody(mine), 9n), noteData: tampered },
+    ];
+    const idx = new Uint32Array(items.map((i) => i.leafIndex));
+    const out: Uint8Array = wasm.scan_note_payloads(be32(keys.viewKey), be32(oc), idx, concat(...items.map((i) => be32(i.commitment))), concat(...items.map((i) => i.noteData)));
+    expect(out.length % 100).toBe(0);
+    const hits = [];
+    for (let off = 0; off < out.length; off += 100) {
+      const leafIndex = new DataView(out.buffer, out.byteOffset + off, 4).getUint32(0);
+      hits.push({ leafIndex, note: { vaultId: fromBe(out.subarray(off + 68, off + 100)), amount: fromBe(out.subarray(off + 4, off + 36)), ownerCommitment: oc, noteSecret: fromBe(out.subarray(off + 36, off + 68)) } });
+    }
+    const expected = items.flatMap((i) => { const n = noteFromPayload(view, oc, i.leafIndex, i.commitment, i.noteData); return n ? [{ leafIndex: i.leafIndex, note: n }] : []; });
+    expect(hits).toEqual(expected);
+    expect(hits.map((h) => h.leafIndex)).toEqual([4, 8]);
+    expect(wasm.scan_note_payloads(be32(keys.viewKey), be32(oc), new Uint32Array(0), new Uint8Array(0), new Uint8Array(0)).length).toBe(0);
+    expect(() => wasm.scan_note_payloads(be32(keys.viewKey), be32(oc), idx, new Uint8Array(32), new Uint8Array(169))).toThrow(/same count/);
+  });
+
   it("recovery phrase, BIP-39 seed and chain keys", () => {
     const entropy = new Uint8Array(32).map((_, i) => (i * 11 + 3) & 0xff);
     const phrase = entropyToMnemonic(entropy, wordlist);
@@ -130,5 +185,25 @@ describe.skipIf(!wasm)("WASM core == TypeScript reference (build: node core/rust
     const tsMs = performance.now() - t0;
     console.log(`Poseidon2 hash2 × ${N}: wasm ${wasmMs.toFixed(0)} ms, TypeScript ${tsMs.toFixed(0)} ms (×${(tsMs / wasmMs).toFixed(1)})`);
     expect(wasmMs).toBeLessThan(tsMs * 2); // never dramatically slower, whatever the machine
+    // the batches a sync is made of: every layer of a 4096-leaf tree, and discovery over 300 payloads
+    const leaves = Array.from({ length: 4096 }, (_, i) => BigInt(i + 1));
+    const packed = concat(...leaves.map(be32));
+    t0 = performance.now();
+    wasm.merkle_layers(packed, 32);
+    const layersWasm = performance.now() - t0;
+    t0 = performance.now();
+    MerkleLayers.build(leaves, 32);
+    const layersTs = performance.now() - t0;
+    const view = viewKeyPair(keys.viewKey);
+    const payloads = Array.from({ length: 300 }, () => encryptNoteData(view.publicKey, { amount: 1n, noteSecret: 2n, vaultId: 3n }));
+    const cms = concat(...payloads.map(() => be32(1n)));
+    t0 = performance.now();
+    wasm.scan_note_payloads(be32(keys.viewKey), be32(ownerCommitmentOf(keys.spendKey)), new Uint32Array(300), cms, concat(...payloads));
+    const scanWasm = performance.now() - t0;
+    t0 = performance.now();
+    for (const p of payloads) decryptNoteData(view, p);
+    const scanTs = performance.now() - t0;
+    console.log(`tree layers x 4096 leaves: wasm ${layersWasm.toFixed(0)} ms, TypeScript ${layersTs.toFixed(0)} ms (x${(layersTs / layersWasm).toFixed(1)}); discovery x 300 payloads: wasm ${scanWasm.toFixed(0)} ms, TypeScript ${scanTs.toFixed(0)} ms (x${(scanTs / scanWasm).toFixed(1)})`);
+    expect(layersWasm).toBeLessThan(layersTs);
   });
 });

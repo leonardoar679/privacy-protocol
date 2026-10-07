@@ -101,19 +101,17 @@ pub struct MerkleProof {
     pub path_indices: Vec<u8>,
 }
 
-/// Root + authentication path of leaf `index` in the tree holding `leaves` (flat, with padding).
-pub fn merkle_proof(leaves: &[Fr], index: usize, levels: usize) -> MerkleProof {
-    assert!(index < leaves.len(), "leaf index out of range");
+/// Every layer of the tree holding `leaves` (flat, with padding): `layers[0]` is the leaves, and
+/// `layers[l + 1][i] = H(layers[l][2i], layers[l][2i + 1])` with the empty-subtree hash `z[l]` standing in
+/// for a missing right sibling, up to `layers[levels] = [root]`. About one hash per leaf, once; every
+/// authentication path is then a lookup (`proof_from_layers`). No leaves: every layer is empty and the
+/// root is the empty-tree root. This is the batch the WASM / native wallets run a sync through.
+pub fn layers(leaves: &[Fr], levels: usize) -> Vec<Vec<Fr>> {
     let z = zero_hashes(levels);
-    let mut path_elements = Vec::with_capacity(levels);
-    let mut path_indices = Vec::with_capacity(levels);
-    let mut layer: Vec<Fr> = leaves.to_vec();
-    let mut idx = index;
+    let mut out: Vec<Vec<Fr>> = Vec::with_capacity(levels + 1);
+    out.push(leaves.to_vec());
     for lvl in 0..levels {
-        let bit = idx % 2;
-        let sib = if bit == 1 { idx - 1 } else { idx + 1 };
-        path_elements.push(if sib < layer.len() { layer[sib] } else { z[lvl] });
-        path_indices.push(bit as u8);
+        let layer = &out[lvl];
         let mut next = Vec::with_capacity(layer.len().div_ceil(2));
         let mut k = 0;
         while k < layer.len() {
@@ -121,10 +119,39 @@ pub fn merkle_proof(leaves: &[Fr], index: usize, levels: usize) -> MerkleProof {
             next.push(hash2(layer[k], right));
             k += 2;
         }
-        layer = next;
+        out.push(next);
+    }
+    out
+}
+
+/// The root a `layers(..)` result stands for (the empty-tree root when there are no leaves).
+pub fn layers_root(layers: &[Vec<Fr>], levels: usize) -> Fr {
+    assert_eq!(layers.len(), levels + 1, "layers must have levels + 1 entries");
+    layers[levels].first().copied().unwrap_or_else(|| zero_hashes(levels)[levels])
+}
+
+/// Root + authentication path of leaf `index` from precomputed layers.
+pub fn proof_from_layers(layers: &[Vec<Fr>], index: usize, levels: usize) -> MerkleProof {
+    assert_eq!(layers.len(), levels + 1, "layers must have levels + 1 entries");
+    assert!(index < layers[0].len(), "leaf index out of range");
+    let z = zero_hashes(levels);
+    let mut path_elements = Vec::with_capacity(levels);
+    let mut path_indices = Vec::with_capacity(levels);
+    let mut idx = index;
+    for lvl in 0..levels {
+        let bit = idx % 2;
+        let sib = if bit == 1 { idx - 1 } else { idx + 1 };
+        path_elements.push(if sib < layers[lvl].len() { layers[lvl][sib] } else { z[lvl] });
+        path_indices.push(bit as u8);
         idx /= 2;
     }
-    MerkleProof { root: layer[0], path_elements, path_indices }
+    MerkleProof { root: layers[levels][0], path_elements, path_indices }
+}
+
+/// Root + authentication path of leaf `index` in the tree holding `leaves` (flat, with padding).
+pub fn merkle_proof(leaves: &[Fr], index: usize, levels: usize) -> MerkleProof {
+    assert!(index < leaves.len(), "leaf index out of range");
+    proof_from_layers(&layers(leaves, levels), index, levels)
 }
 
 /// Fold a leaf up an authentication path (the circuit's Merkle check): `path_indices[i]` = 1 when the

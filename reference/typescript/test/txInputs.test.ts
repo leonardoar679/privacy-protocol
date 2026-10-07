@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { hash2 } from "../src/poseidon";
-import { MerkleTree, ZERO_LEAF, merkleProof } from "../src/merkle";
+import { MerkleLayers, MerkleTree, ZERO_LEAF, merkleProof } from "../src/merkle";
 import { noteBody, noteCommitment, ownerCommitmentOf, encodeNote, decodeNote } from "../src/note";
 import { nullifier, phantomNullifier } from "../src/nullifier";
 import { deriveKeys, deriveNoteSecret } from "../src/keys";
@@ -62,6 +62,36 @@ describe("merkle accumulator (4-aligned groups)", () => {
   });
 });
 
+describe("merkle layers (one pass for the root and every path)", () => {
+  it("gives the accumulator root for every aligned size and paths that fold back to it", () => {
+    for (const n of [0, 4, 8, 12, 20, 64, 100]) {
+      const leaves = Array.from({ length: n }, (_, i) => BigInt(1000 + i));
+      const t = new MerkleTree(10);
+      for (let i = 0; i < n; i += 4) t.insertGroup(leaves.slice(i, i + 4));
+      const l = MerkleLayers.build(leaves, 10);
+      expect(l.root).toBe(t.root);
+      expect(l.layers.length).toBe(11);
+      for (const i of [0, 1, n - 1, Math.floor(n / 2)].filter((i) => i >= 0 && i < n)) {
+        const p = l.proof(i);
+        expect(p).toEqual(merkleProof(leaves, i, 10));
+        let cur = leaves[i];
+        p.pathElements.forEach((sib, k) => (cur = p.pathIndices[k] ? hash2(sib, cur) : hash2(cur, sib)));
+        expect(cur).toBe(t.root);
+      }
+    }
+    expect(() => MerkleLayers.build([1n], 10).proof(1)).toThrow(/out of range/);
+  });
+  it("accepts layers computed elsewhere only when their shape fits the leaves", () => {
+    const leaves = [c0, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF, 7n, 8n, 9n, ZERO_LEAF];
+    const built = MerkleLayers.build(leaves, 10);
+    const again = MerkleLayers.fromLayers(leaves, built.layers.slice(1), 10);
+    expect(again.root).toBe(built.root);
+    expect(again.proof(6)).toEqual(built.proof(6));
+    expect(() => MerkleLayers.fromLayers(leaves, built.layers.slice(2), 10)).toThrow(/expected 10 upper layers/);
+    expect(() => MerkleLayers.fromLayers(leaves.slice(0, 4), built.layers.slice(1), 10)).toThrow(/layer 1 has 4 nodes, expected 2/);
+  });
+});
+
 describe("note record encoding", () => {
   it("round-trips the 121-byte record", () => {
     const b = encodeNote(note0, 42);
@@ -94,6 +124,13 @@ describe("buildTxInputs", () => {
     expect(i.inIsReal).toEqual(["1", "0"]);
     expect(i.inOwnerKey).toEqual([keys.spendKey.toString(), "0"]);
     expect((i.inPathElements as string[][])[0].length).toBe(32);
+  });
+
+  it("takes the synced layers when the wallet has them and builds the same witness", () => {
+    const layers = MerkleLayers.build(t.leaves, 32);
+    expect(buildTxInputs({ ...spec, tree: layers })).toEqual(buildTxInputs(spec));
+    expect(() => buildTxInputs({ ...spec, tree: MerkleLayers.build(t.leaves, 10) })).toThrow(/do not belong/);
+    expect(() => buildTxInputs({ ...spec, tree: MerkleLayers.build([...t.leaves, ...t.leaves], 32) })).toThrow(/do not belong/);
   });
 
   it("refuses to spend a note under a foreign key or a wrong secret", () => {
