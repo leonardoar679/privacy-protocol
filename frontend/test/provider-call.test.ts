@@ -11,7 +11,7 @@ import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, MinimumMoved, bytes32
 import { buildMemo, encodeDepositWithExpiry, thorAsset as engineThorAsset } from "../../services/private-swap/src/adapters/thorchain";
 import { CF_ASSET_ID, CF_CHAIN_ID, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, SEL_X_SWAP_TOKEN, decodeVaultSwapCalldata, minOutFromPrice } from "../../services/private-swap/src/adapters/chainflip";
 import { SPOKE_POOL, WETH as ENGINE_WETH, encodeDepositV3 } from "../../services/private-swap/src/adapters/across";
-import { MAYAN_FAST_MCTP, MAYAN_FORWARDER, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, addressHex32, encodeCreateOrder } from "../../services/private-swap/src/adapters/mayan";
+import { MAYAN_ETH_WRAPPER, MAYAN_FAST_MCTP, MAYAN_FORWARDER, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, SEL_WRAP, WETH_ETHEREUM, addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type SwiftOrder } from "../../services/private-swap/src/adapters/mayan";
 import { LIFI_DIAMOND, SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP, SEL_MAYAN, SEL_MAYAN_SWAP, verifyLifiTransaction } from "../../services/private-swap/src/adapters/lifi";
 import { ACROSS_EVENT_EMITTER, ACROSS_MULTICALL_HANDLER, ACROSS_PERIPHERY, SEL_SWAP_AND_BRIDGE, acrossSwapPins, verifyAcrossSwapCall } from "../../services/private-swap/src/adapters/acrossSwap";
 import { encodeCall } from "../../services/private-swap/src/abi";
@@ -40,6 +40,8 @@ describe("the wallet's pins and notation equal the swap service's", () => {
     expect(PINNED.lifiDiamond.toLowerCase()).toBe(LIFI_DIAMOND.ethereum);
     expect(PINNED.mayanForwarder.toLowerCase()).toBe(MAYAN_FORWARDER);
     expect(PINNED.mayanFastMctp.toLowerCase()).toBe(MAYAN_FAST_MCTP);
+    expect(PINNED.mayanSwiftV2.toLowerCase()).toBe(MAYAN_SWIFT_V2);
+    expect(PINNED.mayanEthWrapper.toLowerCase()).toBe(MAYAN_ETH_WRAPPER);
     expect(PINNED.acrossSpokePool.toLowerCase()).toBe(SPOKE_POOL.ethereum);
     expect(CF_CHAIN_ID.Bitcoin).toBe(3);
     expect(CF_ASSET_ID["Bitcoin.BTC"]).toBe(5);
@@ -250,6 +252,66 @@ describe("Mayan: forwarder and Fast-MCTP pinned, the order pays the fresh addres
   });
   it("a malformed destination is a mismatch, not a crash", async () => {
     await refused(checkProviderCall(ethCall(), { ...e, destination: "not-base58-0OIl" }), /call/);
+  });
+});
+
+// ---- Mayan SWIFT (forwarder + Swift V2: an auction order, refunded on Ethereum to its trader) ---------------
+describe("Mayan SWIFT: Swift V2 and the ETH wrapper pinned, the order pays the fresh address, an unfilled order refunds the escrow", () => {
+  const MIN = 2_189_073_633n; // 21.89073633 SOL in Swift's 8 decimals
+  const so = (o: Partial<SwiftOrder> = {}): SwiftOrder => ({
+    payloadType: 1, trader: addressHex32("ethereum", ESCROW), destAddr: addressHex32("solana", DEST_SOL), destChainId: 1, referrerAddr: Buffer.alloc(32), tokenOut: Buffer.alloc(32),
+    minAmountOut: MIN, gasDrop: 0n, cancelFee: 53n, refundFee: 10_651n, deadline: BigInt(NOW + 1500), referrerBps: 0, auctionMode: 2, random: Buffer.alloc(32, 7), ...o,
+  });
+  const swiftEth = (o: { order?: SwiftOrder; tokenIn?: string; amountIn?: bigint; wrapper?: string; wrapData?: Hex; middle?: string; minMiddle?: bigint } = {}) => ({
+    provider: PINNED.mayanForwarder, value: NET,
+    calldata: encodeCall("swapAndForwardEth(uint256,address,bytes,address,uint256,address,bytes)", [
+      { t: "uint", v: NET }, { t: "address", v: o.wrapper ?? MAYAN_ETH_WRAPPER }, { t: "bytes", v: o.wrapData ?? SEL_WRAP }, { t: "address", v: o.middle ?? WETH_ETHEREUM },
+      { t: "uint", v: o.minMiddle ?? NET }, { t: "address", v: MAYAN_SWIFT_V2 }, { t: "bytes", v: encodeSwiftCreateOrder(o.tokenIn ?? ZERO, o.amountIn ?? NET, o.order ?? so()) },
+    ]) as Hex,
+  });
+  const e = expectation({ to: SOL, destination: DEST_SOL });
+  it("the engine's ETH order passes: minimum = minAmountOut scaled to SOL's 9 decimals; an unfilled order refunds the escrow", async () => {
+    await expect(checkProviderCall(swiftEth(), e)).resolves.toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN * 10n, refundTo: "escrow" });
+  });
+  it("refuses an ETH order not wrapped 1:1 by the pinned wrapper, or not locked as wrap & lock (its refund would not be ETH)", async () => {
+    await refused(checkProviderCall(swiftEth({ wrapper: ATTACKER }), e), /swap/);
+    await refused(checkProviderCall(swiftEth({ wrapData: "0xd46eb11a" }), e), /swap/);
+    await refused(checkProviderCall(swiftEth({ minMiddle: NET - 1n }), e), /swap/);
+    await refused(checkProviderCall(swiftEth({ middle: USDC.asset }), e), /swap/);
+    await refused(checkProviderCall(swiftEth({ tokenIn: WETH_ETHEREUM }), e), /wrap & lock/);
+    await refused(checkProviderCall(swiftEth({ amountIn: NET - 1n }), e), /order/);
+  });
+  it("refuses a trader other than the escrow, another receiver, chain or token out, a gas drop, a referrer, fees above 1%, a custom payload, a deadline past or beyond 6 h", async () => {
+    const onePercent = NET / 10n ** 10n / 100n; // of the order in Swift's 8 decimals
+    const bad: [Partial<SwiftOrder>, RegExp][] = [
+      [{ trader: addressHex32("ethereum", ATTACKER) }, /refund/],
+      [{ destAddr: addressHex32("solana", "11111111111111111111111111111112") }, /receiver/],
+      [{ destChainId: 30 }, /chain/],
+      [{ tokenOut: addressHex32("ethereum", USDC.asset) }, /asset/],
+      [{ gasDrop: 1n }, /gas drop/],
+      [{ referrerAddr: addressHex32("ethereum", ATTACKER), referrerBps: 50 }, /fees/],
+      [{ cancelFee: 0n, refundFee: onePercent + 1n }, /fees/],
+      [{ payloadType: 2 }, /payload/],
+      [{ deadline: BigInt(NOW) }, /deadline/],
+      [{ deadline: BigInt(NOW + 6 * 3600 + 1) }, /deadline/],
+      [{ auctionMode: 0 }, /auction/],
+    ];
+    for (const [o, why] of bad) await refused(checkProviderCall(swiftEth({ order: so(o) }), e), why);
+    await expect(checkProviderCall(swiftEth({ order: so({ cancelFee: 0n, refundFee: onePercent }) }), e), "fees of exactly 1% pass").resolves.toMatchObject({ refundTo: "escrow" });
+  });
+  it("a USDC order locks USDC itself through forwardERC20, exactly the net amount", async () => {
+    const NET_USDC = 2_000_000_000n;
+    const eu = expectation({ from: USDC, to: SOL, destination: DEST_SOL, net: NET_USDC });
+    const erc = (o: { tokenIn?: string; amountIn?: bigint } = {}) => ({
+      provider: PINNED.mayanForwarder, value: 0n,
+      calldata: encodeCall("forwardERC20(address,uint256,(uint256,uint256,uint8,bytes32,bytes32),address,bytes)", [
+        { t: "address", v: USDC.asset }, { t: "uint", v: NET_USDC }, { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "bytes32", v: Buffer.alloc(32) }, { t: "bytes32", v: Buffer.alloc(32) },
+        { t: "address", v: MAYAN_SWIFT_V2 }, { t: "bytes", v: encodeSwiftCreateOrder(o.tokenIn ?? USDC.asset, o.amountIn ?? NET_USDC, so({ cancelFee: 1338n, refundFee: 272_870n })) },
+      ]) as Hex,
+    });
+    await expect(checkProviderCall(erc(), eu)).resolves.toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN * 10n, refundTo: "escrow" });
+    await refused(checkProviderCall(erc({ tokenIn: ZERO }), eu), /locks/);
+    await refused(checkProviderCall(erc({ amountIn: NET_USDC - 1n }), eu), /order/);
   });
 });
 

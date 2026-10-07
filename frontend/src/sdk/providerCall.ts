@@ -28,6 +28,10 @@ export const PINNED = {
   lifiDiamond: getAddress("0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae"),
   mayanForwarder: getAddress("0x337685fdab40d39bd02028545a4ffa7d287cc3e2"),
   mayanFastMctp: getAddress("0xc1062b7c5dc8e4b1df9f200fe360cdc0ed6e7741"),
+  /** Swift V2 (Sourcify exact match; on the forwarder's whitelist): SWIFT auction orders, refunded on Ethereum to their trader */
+  mayanSwiftV2: getAddress("0x40ffe85a28dc9993541449464d7529a922142960"),
+  /** Mayan's EthWrapper (Sourcify exact match): wrap() turns the ETH sent into WETH 1:1 for the caller */
+  mayanEthWrapper: getAddress("0x529863940bf6065d8c122a550c2ff37c1cfefa16"),
   acrossSpokePool: getAddress("0x5c7bcd6e7de5423a257d81b442095a1a6ced35c5"),
   /** Across SpokePoolPeriphery: swapAndBridge, a swap on Ethereum and then the bridge (Sourcify exact match) */
   acrossPeriphery: getAddress("0x97ccdbea4632140639ad5ea9b944aa034eb15fd4"),
@@ -62,6 +66,11 @@ const LIFI_CHAIN_ID: Record<string, bigint> = { ...Object.fromEntries(Object.ent
 /** LI.FI's NON_EVM_ADDRESS: BridgeData.receiver for a non-EVM destination (the real receiver is in the facet data). */
 const LIFI_NON_EVM_RECEIVER = "0x11f111f111f111f111f111f111f111f111f111f1";
 const CCTP_DOMAIN: Record<string, number> = { ethereum: 0, avalanche: 1, optimism: 2, arbitrum: 3, solana: 5, base: 6, polygon: 7 };
+/** Wormhole chain ids, as Swift orders name their destination */
+const WORMHOLE_CHAIN: Record<string, number> = { solana: 1, ethereum: 2, bsc: 4, polygon: 5, avalanche: 6, arbitrum: 23, optimism: 24, base: 30 };
+/** A SWIFT order's cancel + refund fees, charged only on a refund, at most this share of the order (bps); its deadline at most this far ahead. */
+const SWIFT_MAX_REFUND_FEES_BPS = 100n;
+const SWIFT_MAX_DEADLINE_SECONDS = 6 * 3600;
 export const THOR_CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };
 const CF_CHAIN: Record<string, [string, number]> = { ethereum: ["Ethereum", 1], bitcoin: ["Bitcoin", 3], arbitrum: ["Arbitrum", 4], solana: ["Solana", 5], tron: ["Tron", 7] };
 const CF_ASSET: Record<string, number> = {
@@ -217,6 +226,12 @@ const MAYAN_FORWARDER_ABI = parseAbi([
   "function swapAndForwardEth(uint256 amountIn, address swapProtocol, bytes swapData, address middleToken, uint256 minMiddleAmount, address mayanProtocol, bytes mayanData) payable",
   "function forwardERC20(address tokenIn, uint256 amountIn, PermitParams permitParams, address mayanProtocol, bytes protocolData) payable",
 ]);
+/** SwiftSource V2 (Mayan, verified source): createOrderWithToken; a tokenIn of 0 locks WETH and refunds ETH ("wrap & lock") */
+const SWIFT_V2_ABI = parseAbi([
+  "struct OrderParams { uint8 payloadType; bytes32 trader; bytes32 destAddr; uint16 destChainId; bytes32 referrerAddr; bytes32 tokenOut; uint64 minAmountOut; uint64 gasDrop; uint64 cancelFee; uint64 refundFee; uint64 deadline; uint8 referrerBps; uint8 auctionMode; bytes32 random; }",
+  "function createOrderWithToken(address tokenIn, uint256 amountIn, OrderParams params, bytes customPayload) returns (bytes32)",
+]);
+const SEL_WRAP = "0xd46eb119"; // EthWrapper.wrap()
 const FAST_MCTP_ABI = parseAbi([
   "struct OrderPayload { uint8 payloadType; bytes32 destAddr; bytes32 tokenOut; uint64 amountOutMin; uint64 gasDrop; uint64 redeemFee; uint64 refundFee; uint64 deadline; bytes32 referrerAddr; uint8 referrerBps; }",
   "function createOrder(address tokenIn, uint256 amountIn, uint256 circleMaxFee, uint32 destDomain, uint32 minFinalityThreshold, OrderPayload orderPayload)",
@@ -445,14 +460,51 @@ function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCal
   return { provider: P, receiver: recipient, minOut: outputAmount, refundTo: "escrow", facts: ["SpokePool pinned", "pays your fresh address", "exact fill amount, an unfilled deposit refunds the escrow"] };
 }
 
+/**
+ * A Mayan SWIFT order (Swift V2): decoded in full. ETH must be wrapped 1:1 by the pinned wrapper (wrap(), the whole amount
+ * bounded in WETH) and locked as "wrap & lock" (tokenIn 0), so a refund pays ETH; an ERC-20 locks itself. The trader, where an
+ * unfilled order is refunded after its deadline, must be the escrow; the order must pay the fresh address on the asked chain
+ * in the asked asset, with no gas drop, no referrer, cancel + refund fees within 1% and a deadline within 6 h.
+ */
+function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; data: Hex; middleToken: Address; minMiddle: bigint } | null, data: Hex): CheckedCall {
+  const P: ProviderName = "mayan";
+  const native = e.from.asset === "native";
+  if (native) {
+    must(!!swap && same(swap.protocol, PINNED.mayanEthWrapper) && swap.data.toLowerCase() === SEL_WRAP, P, "swap", "the ETH is not wrapped by the pinned wrapper's wrap()");
+    must(same(swap!.middleToken, WETH.ethereum) && swap!.minMiddle === e.net, P, "swap", "the wrap is not bounded to the whole amount in WETH");
+  } else must(!swap, P, "swap", "an ERC-20 order swaps first");
+  const { args } = decode(P, SWIFT_V2_ABI, data);
+  const [tokenIn, amountIn, o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
+  must(native ? same(tokenIn, ZERO) : same(tokenIn, e.from.asset), P, "order", native ? "the ETH is not locked as wrap & lock: a refund would not pay ETH" : `locks ${tokenIn}, not ${e.from.symbol}`);
+  must(amountIn === e.net, P, "order", `orders ${amountIn}, not ${e.net}`);
+  must(o.payloadType === 1 && customPayload === "0x", P, "order", "carries a custom payload");
+  must(same(o.trader, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled order would be refunded to another address than the escrow");
+  must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
+  must(same(o.destAddr, bytes32Of(e.to.chain, e.destination)), P, "receiver", "the order pays another address than your fresh one");
+  const wantTokenOut = e.to.asset === "native" ? padHex("0x", { size: 32 }) : bytes32Of(e.to.chain, e.to.asset);
+  must(same(o.tokenOut, wantTokenOut), P, "asset", `delivers ${o.tokenOut}, not ${e.to.symbol}`);
+  must(o.gasDrop === 0n, P, "order", "asks for a gas drop");
+  must(BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "carries a referrer fee");
+  // Swift amounts carry at most 8 decimals
+  const inDecimals = native ? 18 : e.from.decimals;
+  const normalizedIn = inDecimals > 8 ? e.net / 10n ** BigInt(inDecimals - 8) : e.net;
+  must((o.cancelFee + o.refundFee) * 10000n <= normalizedIn * SWIFT_MAX_REFUND_FEES_BPS, P, "fees", "the cancel and refund fees exceed 1% of the order");
+  must(o.deadline > BigInt(now) && o.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", "the order deadline has passed or lies more than 6 h ahead");
+  must(o.auctionMode > 0, P, "order", "no auction mode");
+  const minOut = e.to.decimals > 8 ? o.minAmountOut * 10n ** BigInt(e.to.decimals - 8) : o.minAmountOut;
+  must(minOut > 0n, P, "minimum", "a zero minimum");
+  return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", facts: ["forwarder and Swift V2 pinned; the order is decoded", native ? "the ETH is wrapped 1:1 by the pinned wrapper" : `${e.from.symbol} is locked as is`, "the order pays your fresh address", "an unfilled order is cancelled after its deadline and refunded to the escrow"] };
+}
+
 function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
   const P: ProviderName = "mayan";
   const { functionName, args } = decode(P, MAYAN_FORWARDER_ABI, call.calldata);
   let mayanProtocol: Address, protocolData: Hex;
+  let swap: { protocol: Address; data: Hex; middleToken: Address; minMiddle: bigint } | null = null;
   if (functionName === "swapAndForwardEth") {
-    const [amountIn, , , middleToken, minMiddleAmount, protocol, data] = args as [bigint, Address, Hex, Address, bigint, Address, Hex];
+    const [amountIn, swapProtocol, swapData, middleToken, minMiddleAmount, protocol, data] = args as [bigint, Address, Hex, Address, bigint, Address, Hex];
     must(e.from.asset === "native" && amountIn === e.net && call.value === e.net, P, "amount", `${amountIn} (value ${call.value}) != ${e.net}`);
-    must(same(middleToken, USDC_ETHEREUM) && minMiddleAmount > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+    swap = { protocol: swapProtocol, data: swapData, middleToken, minMiddle: minMiddleAmount };
     mayanProtocol = protocol; protocolData = data;
   } else {
     const [tokenIn, amountIn, permit, protocol, data] = args as [Address, bigint, { value: bigint; deadline: bigint }, Address, Hex];
@@ -460,7 +512,9 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
     must(permit.value === 0n && permit.deadline === 0n, P, "permit", "carries a permit (the escrow approves instead)");
     mayanProtocol = protocol; protocolData = data;
   }
-  must(same(mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${mayanProtocol}, not the pinned Fast-MCTP contract`);
+  if (same(mayanProtocol, PINNED.mayanSwiftV2)) return mayanSwift(e, now, swap, protocolData);
+  if (swap) must(same(swap.middleToken, USDC_ETHEREUM) && swap.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+  must(same(mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
   const order = decode(P, FAST_MCTP_ABI, protocolData);
   const [tokenIn, amountIn, , destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
   must(same(tokenIn, USDC_ETHEREUM), P, "order", "the order is not funded in USDC");
