@@ -1,6 +1,7 @@
 // Prove the end-to-end witnesses (test/fixtures/e2e, built by reference/typescript genE2EInputs.ts
-// for the forge deployment) and emit contracts/test/e2e/E2EFixture.sol: two transactions (Alice's
-// withdrawal with a private relayer-fee note; the relayer spending it), their payloads and the roots.
+// for the forge deployment) and emit contracts/test/e2e/E2EFixture.sol: four transactions (Alice's
+// withdrawal with a private relayer-fee note; the relayer spending it; Alice's change note exiting to a
+// swap-order escrow; Alice spending the order's refund note), their payloads, the order and the roots.
 // `--stub` writes an all-zero fixture so the contracts compile before the first generation.
 // Driven by scripts/e2e-fixture.sh.
 import { readFileSync, writeFileSync } from "fs";
@@ -20,14 +21,16 @@ if (stub) {
   const z = "0x" + "00".repeat(NOTE_DATA_BYTES);
   meta = {
     vaultId: 0, aliceOwnerCommitment: 0, aliceNoteSecret: 0, recipient: 0, relayer: 0, deposit: 0, withdrawal: 0,
-    fee: 0, root: 0, rootAfter: 0, rootAfter2: 0, depositNoteData: z, noteData: [[z, z, z], [z, z, z]],
+    fee: 0, root: 0, rootAfter: 0, rootAfter2: 0, depositNoteData: z, noteData: [[z, z, z], [z, z, z], [z, z, z], [z, z, z]],
+    recipient2: 0, orderId: 0, orderSigner: 0, escrow: 0, swapAmount: 0, swapTip: 0, executeDeadline: 0, refundAfter: 0,
+    refundNoteSecret: 0, refundNoteData: z, rootAfter3: 0, rootAfterRefund: 0, rootAfter4: 0,
   };
-  txs = [0, 1].map(() => ({ a: [0, 0], b: [[0, 0], [0, 0]], c: [0, 0], pub: Array(14).fill(0) }));
+  txs = [0, 1, 2, 3].map(() => ({ a: [0, 0], b: [[0, 0], [0, 0]], c: [0, 0], pub: Array(14).fill(0) }));
 } else {
   meta = read("test/fixtures/e2e/meta.json");
   const vk = read("setup/dev/verification_key.json");
   txs = [];
-  for (const name of ["tx1", "tx2"]) {
+  for (const name of ["tx1", "tx2", "tx3", "tx4"]) {
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
       read(`test/fixtures/e2e/${name}.json`),
       join(root, "build/transaction_js/transaction.wasm"),
@@ -71,25 +74,50 @@ library E2EFixture {
     uint256 internal constant ROOT_AFTER = ${meta.rootAfter};
     uint256 internal constant ROOT_AFTER_2 = ${meta.rootAfter2};
 
+    // V1.1 private-swap exit (tx3 → escrow, refund re-shield, tx4 spends the refund note)
+    uint256 internal constant RECIPIENT2 = ${meta.recipient2};
+    uint256 internal constant ORDER_ID = ${meta.orderId};
+    uint256 internal constant ORDER_SIGNER = ${meta.orderSigner};
+    uint256 internal constant ESCROW = ${meta.escrow};
+    uint256 internal constant SWAP_AMOUNT = ${meta.swapAmount};
+    uint256 internal constant SWAP_TIP = ${meta.swapTip};
+    uint256 internal constant EXECUTE_DEADLINE = ${meta.executeDeadline};
+    uint256 internal constant REFUND_AFTER = ${meta.refundAfter};
+    uint256 internal constant REFUND_NOTE_SECRET = ${meta.refundNoteSecret};
+    uint256 internal constant ROOT_AFTER_3 = ${meta.rootAfter3};
+    uint256 internal constant ROOT_AFTER_REFUND = ${meta.rootAfterRefund};
+    uint256 internal constant ROOT_AFTER_4 = ${meta.rootAfter4};
+
     function depositNoteData() internal pure returns (bytes memory) {
         return ${hexLit(meta.depositNoteData)};
+    }
+
+    /// The 169-byte payload the escrow's refund supplies (keccak == OrderParams.refundNoteDataHash).
+    function refundNoteData() internal pure returns (bytes memory) {
+        return ${hexLit(meta.refundNoteData)};
     }
 
     /// Fixed-size output payload k of transaction t.
     function noteData(uint8 t, uint8 k) internal pure returns (bytes memory) {
 ${noteDataBranch(0)}
 ${noteDataBranch(1)}
+${noteDataBranch(2)}
+${noteDataBranch(3)}
         revert("no such payload");
     }
 
     function proof(uint8 t) internal pure returns (uint256[2] memory a, uint256[2][2] memory b, uint256[2] memory c) {
 ${proofBranch(0)}
 ${proofBranch(1)}
+${proofBranch(2)}
+${proofBranch(3)}
     }
 
     function pub(uint8 t) internal pure returns (uint256[14] memory p) {
 ${pubBranch(0)}
 ${pubBranch(1)}
+${pubBranch(2)}
+${pubBranch(3)}
     }
 }
 `);

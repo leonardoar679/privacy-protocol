@@ -47,7 +47,7 @@ node test/kat.mjs           # 18/18 known answers
 node test/witness.mjs       # 17/17 fixtures
 bash scripts/dev-setup.sh   # ~3 min: 2^15 ptau, phase 2, zkey verify
 node test/prove.mjs         # 14/14 + Solidity proof fixtures
-FORGE_FLAGS="--use <solc>" bash scripts/e2e-fixture.sh   # two e2e proofs for the forge deployment
+FORGE_FLAGS="--use <solc>" bash scripts/e2e-fixture.sh   # four e2e proofs for the forge deployment (incl. the swap-order exit + refund-note spend)
 ```
 
 ## The dev setup (insecure by design)

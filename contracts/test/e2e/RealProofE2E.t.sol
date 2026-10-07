@@ -10,6 +10,9 @@ import {Poseidon2Hasher} from "../../src/hasher/Poseidon2Hasher.sol";
 import {Groth16Verifier, ITransactionGroth16Verifier} from "../../src/verifier/Groth16Verifier.sol";
 import {TransactionVerifierDev} from "../../src/verifier/dev/TransactionVerifierDev.sol";
 import {E2EFixture as F} from "./E2EFixture.sol";
+import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
+import {SwapOrderTypes as T} from "../../src/periphery/swap/SwapOrderTypes.sol";
+import {MockSwapProvider} from "../mocks/MockSwapProvider.sol";
 
 /// END-TO-END, nothing mocked: Poseidon2 on-chain over a depth-32 tree, the snarkjs Groth16 verifier,
 /// and real proofs of circuits/transaction.circom whose witnesses the wallet reference built against
@@ -18,8 +21,13 @@ import {E2EFixture as F} from "./E2EFixture.sol";
 ///        a shielded change note and pays a 0.05 ETH **private relayer-fee note** (plan §49, §76).
 ///   tx2  The relayer spends its fee note and withdraws 0.05 ETH to its own address — no relayer
 ///        address or fee ever appears in tx1.
-/// The proofs bind the vault's address, so a change that moves it needs new fixtures:
-/// circuits/scripts/e2e-fixture.sh.
+///   tx3  (V1.1 private-swap exit) Alice spends her 0.35 ETH change note and withdraws it to the
+///        counterfactual SwapOrderEscrow of a pre-committed order; a relayer then deploys the escrow
+///        and executes the provider call the one-time order key signed — or, after the refund window,
+///        re-shields the balance as the order's pre-committed refund note;
+///   tx4  Alice spends THAT refund note with a real proof — the round trip pool → swap order → pool.
+/// The proofs bind the vault's address and the escrow address, so a change that moves either needs
+/// new fixtures: circuits/scripts/e2e-fixture.sh.
 contract RealProofE2ETest is Test {
     uint256 internal constant LEVELS = 32; // must equal the circuit's tree depth
 
@@ -28,13 +36,39 @@ contract RealProofE2ETest is Test {
     address internal alice = address(0xA11CE);
     address internal recipient = address(uint160(F.RECIPIENT));
     address internal relayer = address(uint160(F.RELAYER));
+    address internal recipient2 = address(uint160(F.RECIPIENT2));
+    SwapOrderFactory internal swapFactory;
+    MockSwapProvider internal provider;
+    uint256 internal constant ORDER_KEY = 0xA11CE0; // the wallet's one-time order key (fixture: ORDER_SIGNER)
+
+    /// the test contract is the executor of the un-pranked escrow calls, so it receives the tip
+    receive() external payable {}
 
     function setUp() public {
         Groth16Verifier verifier =
             new Groth16Verifier(ITransactionGroth16Verifier(address(new TransactionVerifierDev())));
         core = new PrivacyCore(verifier, new Poseidon2Hasher(), LEVELS);
         vault = NativeAssetVault(payable(AssetVaultFactory(core.VAULT_FACTORY()).getOrCreateNativeVault()));
+        swapFactory = new SwapOrderFactory();
+        provider = new MockSwapProvider();
         vm.roll(1_000);
+        vm.warp(1_900_000_000); // the fixture's order deadlines are absolute (2_000_000_000 / 2_000_100_000)
+    }
+
+    /// The order the wallet pre-committed (constants shared with reference/typescript genE2EInputs.ts).
+    function _swapParams() internal view returns (T.OrderParams memory p) {
+        p.orderId = bytes32(F.ORDER_ID);
+        p.assetType = T.ASSET_ETH;
+        p.asset = address(0);
+        p.amount = F.SWAP_AMOUNT;
+        p.orderSigner = vm.addr(ORDER_KEY);
+        p.executeDeadline = uint64(F.EXECUTE_DEADLINE);
+        p.refundAfter = uint64(F.REFUND_AFTER);
+        p.refundVault = address(vault);
+        p.refundOwnerCommitment = F.ALICE_OWNER_COMMITMENT;
+        p.refundNoteSecret = F.REFUND_NOTE_SECRET;
+        p.refundNoteDataHash = keccak256(F.refundNoteData());
+        p.executorTip = F.SWAP_TIP;
     }
 
     /// Pass 1 of fixture generation (E2E_DUMP=true): what the wallet must know about the deployment.
@@ -46,7 +80,9 @@ contract RealProofE2ETest is Test {
                 '{"vault":"', vm.toString(address(vault)),
                 '","core":"', vm.toString(address(core)),
                 '","chainId":', vm.toString(block.chainid),
-                ',"txDomain":"', vm.toString(core.TX_DOMAIN()), '"}\n'
+                ',"txDomain":"', vm.toString(core.TX_DOMAIN()),
+                '","swapFactory":"', vm.toString(address(swapFactory)),
+                '","orderSigner":"', vm.toString(vm.addr(ORDER_KEY)), '"}\n'
             )
         );
     }
@@ -75,6 +111,87 @@ contract RealProofE2ETest is Test {
 
     function _tx1() internal {
         _transact(0, _pi(0), F.noteData(0, 0));
+    }
+
+    /// tx3: the change note leaves the pool for the escrow on the strength of a real proof.
+    function _tx3ToEscrow() internal returns (address escrow) {
+        escrow = swapFactory.predict(_swapParams());
+        require(
+            escrow == address(uint160(F.ESCROW)),
+            "E2E fixture is stale (the predicted escrow moved): run circuits/scripts/e2e-fixture.sh"
+        );
+        _transact(2, _pi(2), F.noteData(2, 0));
+        assertEq(escrow.balance, F.SWAP_AMOUNT, "escrow funded by a private withdrawal");
+        assertEq(escrow.code.length, 0, "counterfactual: nothing deployed yet");
+    }
+
+    function _execution(address escrow) internal view returns (T.Execution memory x) {
+        uint256 value = F.SWAP_AMOUNT - F.SWAP_TIP;
+        bytes memory cd = abi.encodeWithSelector(
+            MockSwapProvider.depositWithExpiry.selector,
+            address(0xB0B),
+            address(0),
+            value,
+            "=:BTC.BTC:bc1qfresh:3107812",
+            block.timestamp + 1 hours
+        );
+        uint64 deadline = uint64(block.timestamp + 20 minutes);
+        bytes32 digest = keccak256(
+            abi.encode(T.EXECUTE_TAG, block.chainid, escrow, F.ORDER_ID, address(provider), value, keccak256(cd), deadline)
+        );
+        (uint8 v, bytes32 r, bytes32 sg) = vm.sign(ORDER_KEY, digest);
+        x = T.Execution({
+            provider: address(provider),
+            value: value,
+            providerCalldata: cd,
+            deadline: deadline,
+            signature: abi.encodePacked(r, sg, v)
+        });
+    }
+
+    /// V1.1 step 14: pool → swap order, with the real circuit and verifier. The core never knew.
+    function test_E2E_PrivateNoteExitsToSwapOrder_RealProof() public {
+        _shield();
+        _tx1();
+        address escrow = _tx3ToEscrow();
+        assertEq(uint256(core.currentRoot()), F.ROOT_AFTER_3, "tx3 outputs appended as committed");
+        uint256 accounted = vault.accountedDeposits();
+
+        vm.prank(relayer);
+        swapFactory.deployAndExecute(_swapParams(), _execution(escrow));
+
+        assertEq(address(provider).balance, F.SWAP_AMOUNT - F.SWAP_TIP, "provider received the order's value");
+        assertEq(relayer.balance, F.SWAP_TIP, "the executing relayer took exactly the committed tip");
+        assertEq(escrow.balance, 0, "escrow drained");
+        assertEq(address(core).balance, 0, "core holds nothing, before and after");
+        assertEq(vault.accountedDeposits(), accounted, "the pool's accounting is untouched by the swap");
+        assertTrue(vault.isSolvent());
+    }
+
+    /// The failure branch of the same order: nobody executed before the refund window, so the balance
+    /// returns to the pool as the pre-committed note, and that note is spendable with a real proof.
+    function test_E2E_SwapOrderRefund_ReShieldsAndIsSpendableWithRealProof() public {
+        _shield();
+        _tx1();
+        address escrow = _tx3ToEscrow();
+        vm.warp(F.REFUND_AFTER + 1);
+        uint256 accounted = vault.accountedDeposits();
+
+        vm.prank(relayer);
+        swapFactory.deployAndRefund(_swapParams(), F.refundNoteData());
+
+        assertEq(escrow.balance, 0, "escrow emptied");
+        assertEq(relayer.balance, F.SWAP_TIP, "refunding relayer took the tip");
+        assertEq(vault.accountedDeposits(), accounted + F.SWAP_AMOUNT - F.SWAP_TIP, "the rest is back in the pool");
+        assertEq(core.nextLeafIndex(), 16, "deposit, tx1, tx3 and the refund deposit: four groups");
+        assertEq(uint256(core.currentRoot()), F.ROOT_AFTER_REFUND, "the refund note is exactly the wallet's pre-committed note");
+
+        // tx4: Alice spends the refunded note (leaf 12) and withdraws it to a second fresh address
+        _transact(3, _pi(3), F.noteData(3, 0));
+        assertEq(recipient2.balance, F.SWAP_AMOUNT - F.SWAP_TIP, "refund note spent with a real proof");
+        assertEq(uint256(core.currentRoot()), F.ROOT_AFTER_4, "tx4 appended as committed");
+        assertTrue(vault.isSolvent());
+        assertEq(address(core).balance, 0);
     }
 
     function test_E2E_OnChainTreeMatchesWallet() public {

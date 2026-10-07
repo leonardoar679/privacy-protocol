@@ -53,6 +53,6 @@ real ceremony, never `TransactionVerifierDev`. Gas at depth 32: `transact` ≈ 1
 
 ## Regenerating fixtures
 `test/verifier/DevProofFixtures.sol` comes from `circuits/test/prove.mjs`; `test/e2e/E2EFixture.sol`
-from `circuits/scripts/e2e-fixture.sh`. The proofs bind the vault's address, so any change to the
+from `circuits/scripts/e2e-fixture.sh`. The proofs bind the vault's address and the predicted swap escrow (factory address + `OrderParams`), so any change to the
 vault/core bytecode (or build settings) makes the e2e tests fail with "fixture is stale" — rerun the
 script. Lint warnings (arbitrary-send on the withdrawal; bounded typecasts) are expected and documented inline.

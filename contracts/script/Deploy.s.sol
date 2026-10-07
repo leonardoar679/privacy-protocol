@@ -26,8 +26,11 @@ interface VmDeploy {
 ///   USDC / USDT     optional; when set, their canonical vaults are created too.
 ///   DEV_VERIFIER=true   local dry runs only: deploys the INSECURE dev verifier instead. Hard-gated to
 ///                   chain id 31337, so it cannot be broadcast to a real network by mistake.
+///   SEPOLIA_DEV_VERIFIER=true   testnet rehearsals (docs/testnet.md): the same INSECURE dev verifier,
+///                   hard-gated to Sepolia (11155111). Never a production path.
 ///
 /// Dry run (no network):   DEV_VERIFIER=true forge script script/Deploy.s.sol
+/// Sepolia rehearsal:      SEPOLIA_DEV_VERIFIER=true forge script script/Deploy.s.sol --rpc-url $SEPOLIA --broadcast
 /// Broadcast:              INNER_VERIFIER=0x… forge script script/Deploy.s.sol --rpc-url $RPC --broadcast --verify
 contract Deploy {
     VmDeploy internal constant vm = VmDeploy(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -36,7 +39,10 @@ contract Deploy {
     function run() external {
         address inner = vm.envOr("INNER_VERIFIER", address(0));
         bool dev = vm.envOr("DEV_VERIFIER", false);
+        bool sepoliaDev = vm.envOr("SEPOLIA_DEV_VERIFIER", false);
         require(!dev || block.chainid == 31337, "DEV_VERIFIER is for local dry runs only (chain id 31337)");
+        require(!sepoliaDev || block.chainid == 11155111, "SEPOLIA_DEV_VERIFIER is for Sepolia only (chain id 11155111)");
+        dev = dev || sepoliaDev;
 
         vm.startBroadcast();
         if (dev) inner = address(new TransactionVerifierDev());

@@ -20,6 +20,8 @@ interface Vm {
     function writeFile(string calldata path, string calldata data) external;
     function toString(address) external pure returns (string memory);
     function toString(uint256) external pure returns (string memory);
+    function toString(bytes32) external pure returns (string memory);
+    function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
 }
 
 abstract contract Test {
@@ -74,6 +76,10 @@ abstract contract Test {
 
     function assertEq(bytes32 a, bytes32 b, string memory m) internal pure {
         require(a == b, m);
+    }
+
+    function assertEq(string memory a, string memory b, string memory m) internal pure {
+        require(keccak256(bytes(a)) == keccak256(bytes(b)), m);
     }
 
     /// forge's console precompile (what forge-std's console.log talks to); shown with -vv.

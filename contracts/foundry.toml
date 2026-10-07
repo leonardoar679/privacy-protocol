@@ -17,7 +17,7 @@ via_ir = false
 bytecode_hash = "none"
 cbor_metadata = false
 # Only the e2e fixture generator writes files (E2E_DUMP=true; see circuits/scripts/e2e-fixture.sh).
-fs_permissions = [{ access = "write", path = "./test/e2e" }]
+fs_permissions = [{ access = "write", path = "./test/e2e" }, { access = "write", path = "./test/periphery/vectors" }]
 
 [fuzz]
 runs = 128

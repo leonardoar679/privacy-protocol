@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {PPTestBase} from "../PPTestBase.sol";
 import {ERC20AssetVault} from "../../src/vault/ERC20AssetVault.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
+import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
+import {SwapOrderTypes} from "../../src/periphery/swap/SwapOrderTypes.sol";
 
 /// Invariant 10 (spec §16, plan §74): no privileged state transition exists. Walks the deployed
 /// RUNTIME bytecode of every production contract (skipping PUSH immediates, so data bytes are not
@@ -96,6 +98,23 @@ contract NoPrivilegeTest is PPTestBase {
         assertFalse(s.selfdestruct, "factory: SELFDESTRUCT present");
         assertFalse(s.create, "factory: CREATE present (must be CREATE2)");
         assertTrue(s.create2, "factory deploys vaults with CREATE2");
+    }
+
+    /// Periphery (private-swap spec §11): the escrow is a plain state machine; the factory only CREATE2s.
+    function test_SwapPeripheryHasNoPrivilegedPath() public {
+        SwapOrderFactory f = new SwapOrderFactory();
+        Scan memory fs = _scan(address(f), _adminSelectors());
+        assertFalse(fs.delegatecall || fs.callcode || fs.selfdestruct || fs.create, "swap factory: privileged opcode");
+        assertTrue(fs.create2, "swap factory deploys escrows with CREATE2");
+
+        SwapOrderTypes.OrderParams memory p;
+        p.orderId = keccak256("scan");
+        p.amount = 1 ether;
+        p.orderSigner = address(0xBEEF);
+        p.refundVault = address(nativeVault);
+        p.executeDeadline = uint64(block.timestamp + 1);
+        p.refundAfter = uint64(block.timestamp + 2);
+        _assertStateMachineOnly(address(f.deploy(p)), "SwapOrderEscrow");
     }
 
     /// The walker itself is sound: it does find the opcodes when they are really there.
