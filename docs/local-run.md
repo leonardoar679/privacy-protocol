@@ -41,9 +41,14 @@ suites already cover, so what is being checked is the glue in a real browser on 
 1. **Shield** 1 ETH with the injected wallet → "Added 1 ETH to your private balance" (leaf index under *Advanced*).
 1b. With a test token in `VITE_ERC20_VAULTS`: **Shield** 100 USDC → the approve, then the deposit; **Send / Withdraw** in USDC pay the relayer in USDC (its `FEE_VAULTS`).
 2. **Rescan the chain for my notes** → the same note is rediscovered from its encrypted payload.
-3. **Withdraw** 0.4 ETH to a fresh address with submission = *Relayer* → the proof is produced in the
-   Web Worker (≈ 1–3 s on a laptop), the relayer submits from its own key, the change note and the
-   relayer's fee note are on chain; the relayer's `GET /jobs` shows the submission mined.
+3. **Withdraw** 0.4 ETH to a fresh address with submission = *Relayer* → on Sepolia the wallet first
+   proves the pool with the Ethereum light client ("Verifying the pool…": a few seconds the first time;
+   *Advanced* then shows the finalized block and how many leaves are proven; a local `anvil` has no light
+   client and says so; the RPC endpoints must serve `eth_getProof` at the finalized block), the proof is
+   produced in the Web Worker (≈ 1–3 s on a laptop), the relayer submits from its own key, the change
+   note and the relayer's fee note are on chain; the relayer's `GET /jobs` shows the submission mined.
+   A note shielded in the last ~13 minutes is newer than finality: it is spendable, but proven only once
+   its block is final.
 4. **Send privately** to a second wallet's `pp1…` address (its **Receive** tab shows it with a QR) → the recipient rescans and finds the note.
 4b. **Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
 5. **Swap privately**: Get a quote (one route in plain words; *View route* lists the providers) → Swap →
