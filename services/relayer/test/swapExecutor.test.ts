@@ -55,7 +55,7 @@ beforeAll(async () => {
   const chain = { id: CHAIN_ID, name: "test", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } } as const;
   const transport = http(rpcUrl, { batch: true });
   const account = privateKeyToAccount(RELAYER_KEY);
-  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock });
+  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
   // a job for the vector's order, re-signed by a key we hold (the vector's signer key is forge's)
   const refundNoteData = ("0x" + "cd".repeat(169)) as Hex;
   const params = { ...vector.params, orderSigner: orderSignerAddress(ORDER_KEY), refundNoteDataHash: keccak256(refundNoteData) };
