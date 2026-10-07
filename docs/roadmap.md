@@ -11,7 +11,7 @@ From the spec (§103–§120) and the Core Protocol Specification Plan (§91). L
 | 4 | Immutable core | ✅ 4-aligned groups, txDomain binding, fixed-size payloads, custom errors, no-privilege scan |
 | 5 | Deposit tests (malicious tokens, donation, reentrancy) | ✅ |
 | 6 | Private transfer | ✅ real proofs for transfer / withdraw / merge / relayer-fee verify on-chain; e2e withdraw + fee spend; wallet-side proving ✅ (web: snarkjs in a Web Worker; native: `core/rust/privacy-prover`, its proofs verified on-chain in forge) |
-| 7 | Withdrawal (stealth recipient, claimable, fee) | ✅ claimable-fallback; private fee note; stealth UX ⏳ |
+| 7 | Withdrawal (stealth recipient, claimable, fee) | ✅ claimable-fallback; private fee note; **fresh recipient by default** (the wallet pre-fills its next fresh EVM address, reserved only on confirm; pinned by `frontend/test/first-launch.test.tsx`); stealth meta-addresses for third parties (ERC-5564) ⏳ — a private transfer to their `pp1…` address is the private way to pay them |
 | 8 | Issuer attack lab | ✅ three vaults, asset-local damage, no cross-vault deficit |
 | 9 | Reorg lab | ✅ block-based roots (forge) + reorg-aware indexer at depths 1/3/12/64 (TS) |
 | 10 | Privacy lab vs the Tornado baseline | ✅ `docs/privacy-lab.md`: §68 targets met (amount unique-link 0 %; joint set 10 → 349 / 1,073) |

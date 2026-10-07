@@ -8,6 +8,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/App";
 import { session } from "../src/wallet/session";
+import { peekFreshAddress } from "../src/keys/chainKeys";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,6 +60,13 @@ describe("first launch (plan §39)", () => {
       await act(async () => { byText(container, tab)!.click(); });
       expect(fetchSpy, `after opening ${tab}`).not.toHaveBeenCalled();
       if (tab === "Receive") expect(container.querySelector("svg"), "the Receive QR is inline, no image request").toBeTruthy();
+      if (tab === "Withdraw") {
+        // the default recipient is the next fresh EVM address of this wallet, shown but not reserved
+        const evmIndex = session.journal().chainIndexes.evm ?? 0;
+        const recipient = [...container.querySelectorAll("input")].find((i) => /^0x[0-9a-fA-F]{40}$/.test((i as HTMLInputElement).value)) as HTMLInputElement | undefined;
+        expect(recipient?.value, "Withdraw pre-fills a fresh address").toBe(peekFreshAddress(session.state().seed!, "evm").address);
+        expect(session.journal().chainIndexes.evm ?? 0, "showing it reserves nothing").toBe(evmIndex);
+      }
     }
     expect(beaconSpy).not.toHaveBeenCalled();
 
