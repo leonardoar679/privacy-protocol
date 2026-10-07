@@ -62,7 +62,9 @@ dropped with the reason, never blocking the rest. After execution no tip pays fo
 are bounded (PP-S12): at most `MAX_UNPAID_REFUNDS` (3) per order, each moving at least its floor (twice its
 gas for ETH and WETH, 1% of the order for its own token, the wallet's `refundFloors` for a listed token,
 which a later request can only raise), and a token only into a vault its pool already has; dust and
-anything past the budget stay in the escrow, where anyone can re-shield them.
+anything past the budget stay in the escrow, where anyone can re-shield them. A failed gas estimate
+is an answer only when the call reverts: an RPC failure is retried next tick, never ends the watch
+and never drops a listed token.
 `SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
 late refunds and foreign tokens.
 
