@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // One command for the whole verification surface (docs/audit-package.md §3): every offline suite,
-// the builds, and — opt-in — the live adapter suites, forge and the Rust core (+ its WASM build).
+// the builds, and — opt-in — the live suites, forge and the Rust core (+ its WASM build).
 // Prints a summary and exits non-zero if anything failed. Usage:
 //   node scripts/verify-all.mjs                 # offline suites + builds (≈ 3 min)
-//   node scripts/verify-all.mjs --live          # + the live provider suites (network, ≈ 2 min more)
+//   node scripts/verify-all.mjs --live          # + the live suites (network, ≈ 3 min more): provider adapters and the
+//                                               #   wallet's own checks against real provider calls; the wallet's light
+//                                               #   client on mainnet and Sepolia. LI.FI allows an anonymous caller 75
+//                                               #   quotes per 2 h: one run uses about 30
 //   node scripts/verify-all.mjs --forge <solc>  # + forge test with that solc binary (FOUNDRY_OFFLINE)
 //   node scripts/verify-all.mjs --rust          # + cargo test of core/rust (incl. the native prover against the circuit's
 //                                               #   real artifacts when circuits/build exists), the wasm32 build, the WASM
