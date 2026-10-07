@@ -12,7 +12,8 @@
 //                                               #   real artifacts when circuits/build exists), the wasm32 build, the WASM
 //                                               #   package (CARGO, WASM_BINDGEN env for the binaries) and the WASM-vs-TypeScript check
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,18 +49,32 @@ const steps = [
   ...(solc ? [{ name: "contracts (forge: 99 incl. real-proof e2e, swap periphery, native-prover proofs on the verifier)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
 ];
 
+// a failed step's whole output is kept here: a live suite spends rate-limited quota, so a failure must be readable without a rerun
+const logDir = join(tmpdir(), "privacy-protocol-verify");
 const results = [];
-for (const s of steps) {
+for (const [i, s] of steps.entries()) {
   const cwd = join(root, s.cwd);
   if (!existsSync(cwd)) { results.push({ ...s, ok: false, ms: 0, note: "missing directory" }); continue; }
   const t0 = Date.now();
   const r = spawnSync(s.cmd, s.args, { cwd, encoding: "utf8", shell: process.platform === "win32" && s.cmd !== process.execPath, env: { ...process.env, ...(s.env ?? {}) } });
   const out = ((r.stdout ?? "") + (r.stderr ?? "")).replace(/\x1b\[[0-9;]*m/g, ""); // plain text summaries
   const cargoRuns = [...out.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
+  // vitest's count line is anchored: its stderr (appended last) opens the failure list with "Failed Tests N"
   const summary = cargoRuns.length > 1
     ? `cargo: ${cargoRuns.reduce((n, m) => n + Number(m[1]), 0)} passed, ${cargoRuns.reduce((n, m) => n + Number(m[2]), 0)} failed across ${cargoRuns.length} test binaries`
-    : out.match(/Tests\s+[^\n]*|Ran \d+ test suites[^\n]*|✓ built in [^\n]*|test result: [^\n]*|Finished `[^\n]*|pkg\/node \+ pkg\/web written[^\n]*|written to [^\n]*|bindings generated[^\n]*|Ran \d+ tests in [^\n]*/g)?.slice(-1)[0]?.trim();
-  results.push({ ...s, ok: r.status === 0, ms: Date.now() - t0, note: summary ?? (r.status === 0 ? "ok" : out.split("\n").filter((l) => /error|FAIL|×/i.test(l)).slice(0, 3).join(" | ")) });
+    : out.match(/^[ \t]*Tests[ \t]+\d[^\n]*|Ran \d+ test suites[^\n]*|✓ built in [^\n]*|test result: [^\n]*|Finished `[^\n]*|pkg\/node \+ pkg\/web written[^\n]*|written to [^\n]*|bindings generated[^\n]*|Ran \d+ tests in [^\n]*/gm)?.slice(-1)[0]?.trim();
+  let note = summary ?? (r.status === 0 ? "ok" : out.split("\n").filter((l) => /error|FAIL|×/i.test(l)).slice(0, 3).join(" | "));
+  if (r.status !== 0) {
+    // which tests failed and why: vitest's "FAIL file > suite > test" lines, each with the first error line under it
+    const lines = out.split("\n");
+    const firstError = (k) => lines.slice(k + 1, k + 15).find((m) => /Error|expected/.test(m))?.trim().slice(0, 300);
+    const failing = lines.flatMap((l, k) => (/^\s*FAIL\s+\S+ >/.test(l) ? [`${l.trim()}${firstError(k) ? `  ::  ${firstError(k)}` : ""}`] : []));
+    mkdirSync(logDir, { recursive: true });
+    const log = join(logDir, `${String(i + 1).padStart(2, "0")}-${s.cwd.replace(/\W+/g, "_")}.log`);
+    writeFileSync(log, out);
+    note = [note, ...failing.slice(0, 10), `full output: ${log}`].join("\n      ");
+  }
+  results.push({ ...s, ok: r.status === 0, ms: Date.now() - t0, note });
   console.log(`${r.status === 0 ? "PASS" : "FAIL"}  ${s.name}  (${((Date.now() - t0) / 1000).toFixed(0)} s)  ${summary ?? ""}`);
 }
 const failed = results.filter((r) => !r.ok);
