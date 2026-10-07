@@ -11,6 +11,16 @@ import {SwapOrderEscrow} from "./SwapOrderEscrow.sol";
 contract SwapOrderFactory {
     event OrderEscrowDeployed(bytes32 indexed orderId, address escrow);
 
+    /// @notice The chain's wrapped native token (WETH9 on Ethereum), or address(0). Every escrow reads
+    /// it at construction: a bridge that refunds a native deposit in its wrapped form (Across pays an
+    /// unfilled deposit back to the depositor in the input token, WETH) pays an ETH order's escrow in
+    /// WETH, which the escrow unwraps before it re-shields. Immutable: another token, another factory.
+    address public immutable WRAPPED_NATIVE;
+
+    constructor(address wrappedNative) {
+        WRAPPED_NATIVE = wrappedNative;
+    }
+
     function initCodeHash(T.OrderParams calldata p) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(type(SwapOrderEscrow).creationCode, abi.encode(p)));
     }

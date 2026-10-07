@@ -9,6 +9,7 @@ interface VmPeriphery {
     function stopBroadcast() external;
     function toString(address) external pure returns (string memory);
     function toString(bytes32) external pure returns (string memory);
+    function envOr(string calldata name, address defaultValue) external view returns (address);
 }
 
 /// Private-swap periphery (spec v1.1 §11, plan step 19): one permissionless, ownerless, stateless
@@ -21,19 +22,30 @@ interface VmPeriphery {
 /// in contracts/abi/periphery/SwapOrderEscrow.json — the address prediction in endpoints.ts is only
 /// valid for that exact creation code.
 ///
+/// The factory takes the chain's wrapped native token (WETH9 on mainnet, WETH on Sepolia; WRAPPED_NATIVE
+/// overrides): escrows unwrap a wrapped refund of an ETH order before re-shielding it.
+///
 /// Dry run (no network):   forge script script/DeploySwapPeriphery.s.sol
 /// Broadcast:              forge script script/DeploySwapPeriphery.s.sol --rpc-url $RPC --broadcast --verify
 contract DeploySwapPeriphery {
     VmPeriphery internal constant vm = VmPeriphery(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function run() external {
+        address wrappedNative = vm.envOr("WRAPPED_NATIVE", _wrappedNative());
         vm.startBroadcast();
-        SwapOrderFactory factory = new SwapOrderFactory();
+        SwapOrderFactory factory = new SwapOrderFactory(wrappedNative);
         vm.stopBroadcast();
 
         _log("SwapOrderFactory", vm.toString(address(factory)));
+        _log("wrapped native (escrows unwrap refunds paid in it)", vm.toString(wrappedNative));
         _log("SwapOrderEscrow creationCode keccak256", vm.toString(keccak256(type(SwapOrderEscrow).creationCode)));
         _log("engine env", string.concat("SWAP_FACTORY=", vm.toString(address(factory))));
+    }
+
+    function _wrappedNative() internal view returns (address) {
+        if (block.chainid == 1) return 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2; // WETH9
+        if (block.chainid == 11155111) return 0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14; // Sepolia WETH ("Wrapped Ether")
+        return address(0);
     }
 
     function _log(string memory what, string memory v) internal view {

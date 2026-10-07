@@ -9,6 +9,9 @@
 //   waiting-funding ──(balance ≥ amount, before the signed deadline)──▶ executing ──▶ executed ──▶ completed
 //        │ deadline passed ▶ expired                                               ▲ leftover after refundAfter
 //        └──────────────── refundAfter reached with a balance ──▶ refunding ──▶ refunded ◀─┘
+// An ETH order's escrow can be paid back in WETH (an unfilled Across deposit is refunded to its
+// depositor in the input token); the escrow unwraps it in refund(), so that balance counts for the
+// refund decision — never for execution, which needs native ETH.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +29,8 @@ export const factoryAbi = parseAbi([
   `function predict(${ORDER_PARAMS} p) view returns (address)`,
 ]);
 const erc20Abi = parseAbi(["function balanceOf(address owner) view returns (uint256)"]);
+const factoryConfigAbi = parseAbi(["function WRAPPED_NATIVE() view returns (address)"]);
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export interface SwapParamsJson { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
 export interface SwapExecutionJson { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex }
@@ -56,6 +61,8 @@ const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-fail
 
 export class SwapExecutor {
   private jobs = new Map<string, SwapJob>();
+  /** factory -> its wrapped native token (null: none, or a factory from before the getter) */
+  private wrapped = new Map<string, Address | null>();
   constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; now?: () => number; journal?: Journal<SwapJob> }) {
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -97,10 +104,33 @@ export class SwapExecutor {
     return job;
   }
 
-  /** The balance held by the escrow, in the order asset (ETH or the ERC-20). */
-  private async escrowBalance(job: SwapJob): Promise<bigint> {
-    if (Number(job.params.assetType) === 1) return (await this.cfg.publicClient.readContract({ address: job.params.asset, abi: erc20Abi, functionName: "balanceOf", args: [job.escrow] })) as bigint;
-    return this.cfg.publicClient.getBalance({ address: job.escrow });
+  /** The factory's wrapped native token; looked up once per factory (a failed lookup is retried next tick). */
+  private async wrappedNative(factory: Address): Promise<Address | null> {
+    const key = factory.toLowerCase();
+    if (this.wrapped.has(key)) return this.wrapped.get(key)!;
+    try {
+      const w = (await this.cfg.publicClient.readContract({ address: factory, abi: factoryConfigAbi, functionName: "WRAPPED_NATIVE" })) as Address;
+      const v = w.toLowerCase() === ZERO_ADDRESS ? null : w;
+      this.wrapped.set(key, v);
+      return v;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * What the escrow holds in the order asset: `spendable` is what execute() can forward (native ETH or
+   * the ERC-20); `refundable` adds, for an ETH order, the WETH refund() unwraps before re-shielding.
+   */
+  private async escrowBalances(job: SwapJob): Promise<{ spendable: bigint; refundable: bigint }> {
+    if (Number(job.params.assetType) === 1) {
+      const b = (await this.cfg.publicClient.readContract({ address: job.params.asset, abi: erc20Abi, functionName: "balanceOf", args: [job.escrow] })) as bigint;
+      return { spendable: b, refundable: b };
+    }
+    const eth = await this.cfg.publicClient.getBalance({ address: job.escrow });
+    const w = await this.wrappedNative(job.factory);
+    const wrapped = w ? ((await this.cfg.publicClient.readContract({ address: w, abi: erc20Abi, functionName: "balanceOf", args: [job.escrow] }).catch(() => 0n)) as bigint) : 0n;
+    return { spendable: eth, refundable: eth + wrapped };
   }
 
   get(id: string): SwapJob | undefined { return this.jobs.get(id.toLowerCase()); }
@@ -140,11 +170,11 @@ export class SwapExecutor {
         this.persist();
         continue;
       }
-      const balance = await this.escrowBalance(job);
-      job.balance = balance.toString();
-      // refund path: from refundAfter on, anything left in the escrow re-shields as the committed note
+      const { spendable: balance, refundable } = await this.escrowBalances(job);
+      job.balance = refundable.toString();
+      // refund path: from refundAfter on, anything left in the escrow (incl. WETH an ETH order was paid back in) re-shields as the committed note
       if (now >= Number(p.refundAfter)) {
-        if (balance > 0n) await this.send(job, encodeDeployAndRefund(p, job.refundNoteData), "refunding", "refund-failed");
+        if (refundable > 0n) await this.send(job, encodeDeployAndRefund(p, job.refundNoteData), "refunding", "refund-failed");
         else if (job.state === "executed") { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); }
         continue;
       }

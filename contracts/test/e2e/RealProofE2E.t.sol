@@ -49,7 +49,7 @@ contract RealProofE2ETest is Test {
             new Groth16Verifier(ITransactionGroth16Verifier(address(new TransactionVerifierDev())));
         core = new PrivacyCore(verifier, new Poseidon2Hasher(), LEVELS);
         vault = NativeAssetVault(payable(AssetVaultFactory(core.VAULT_FACTORY()).getOrCreateNativeVault()));
-        swapFactory = new SwapOrderFactory();
+        swapFactory = new SwapOrderFactory(address(0)); // no wrapped-native refunds in these flows
         provider = new MockSwapProvider();
         vm.roll(1_000);
         vm.warp(1_900_000_000); // the fixture's order deadlines are absolute (2_000_000_000 / 2_000_100_000)

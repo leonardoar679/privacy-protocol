@@ -197,7 +197,14 @@ otherwise the route is quoted for information and filtered from selection.
 - Provider-level refunds (THORChain refund memo, Chainflip refund address) MUST point at the escrow
   address, so a provider refund lands where `refund()` can re-shield it. A THORChain memo without a
   refund address refunds to the transaction's originator, which for an escrow deposit is the relayer
-  that sent `execute()`; the memo is therefore `=:ASSET:DEST/ESCROW:LIMIT`. Where a provider can only
+  that sent `execute()`; the memo is therefore `=:ASSET:DEST/ESCROW:LIMIT`. A provider may refund a
+  native deposit in its wrapped form: Across pays an unfilled deposit back to its depositor in the input
+  token, which for ETH is WETH. An ETH order's escrow therefore unwraps any balance of the chain's
+  wrapped native token (`SwapOrderFactory.WRAPPED_NATIVE`, read by each escrow at construction) at the
+  start of `refund()`, so that value re-shields as ETH too; a wrapped token that misbehaves is skipped,
+  never allowed to block the ETH. Provider refunds arrive with a gas stipend (THORChain's router: `send`,
+  2300; Chainflip's Vault: 8,000; WETH9's `withdraw`: 2300), so the escrow's `receive()` MUST stay empty.
+  Where a provider can only
   refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`), the quote
   MUST say so (`refundTarget: "destination"`); the destination is the user's fresh address, so nothing
   is lost, but the wallet MUST show that a failure ends in USDC on the destination chain, not in the pool.

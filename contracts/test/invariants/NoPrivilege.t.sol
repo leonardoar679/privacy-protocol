@@ -102,7 +102,7 @@ contract NoPrivilegeTest is PPTestBase {
 
     /// Periphery (private-swap spec §11): the escrow is a plain state machine; the factory only CREATE2s.
     function test_SwapPeripheryHasNoPrivilegedPath() public {
-        SwapOrderFactory f = new SwapOrderFactory();
+        SwapOrderFactory f = new SwapOrderFactory(address(0));
         Scan memory fs = _scan(address(f), _adminSelectors());
         assertFalse(fs.delegatecall || fs.callcode || fs.selfdestruct || fs.create, "swap factory: privileged opcode");
         assertTrue(fs.create2, "swap factory deploys escrows with CREATE2");

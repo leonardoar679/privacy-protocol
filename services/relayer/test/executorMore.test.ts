@@ -1,6 +1,7 @@
 // Executor: a re-signed execution replaces an expired one (fresh quote after the delay budget),
-// ERC-20 escrows are watched through balanceOf, and both journals survive a restart (a new executor
-// / relayer instance resumes the open jobs and keeps the in-flight nullifiers). Mock chain only.
+// ERC-20 escrows are watched through balanceOf, an ETH order paid back in WETH is still refunded, and
+// both journals survive a restart (a new executor / relayer instance resumes the open jobs and keeps
+// the in-flight nullifiers). Mock chain only.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -23,9 +24,12 @@ const RELAYER_KEY = ("0x" + "7f".repeat(32)) as Hex;
 const ORDER_KEY = new Uint8Array(32).fill(0xc3);
 const TOKEN = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const selBalanceOf = toFunctionSelector("balanceOf(address)");
+const selWrappedNative = toFunctionSelector("WRAPPED_NATIVE()");
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
 const raws: Hex[] = [];
-let ethBalance = 0n, tokenBalance = 0n;
+let ethBalance = 0n, tokenBalance = 0n, wethBalance = 0n;
+let factoryWrappedNative: string | null = null; // null: the factory has no WRAPPED_NATIVE() (the call errors)
 let receiptStatus: "0x1" | "0x0" | null = null;
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
 function handle(req: { id: number; method: string; params: any[] }) {
@@ -37,7 +41,12 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_gasPrice": case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(ethBalance));
-    case "eth_call": return String(req.params[0].data).startsWith(selBalanceOf) ? res("0x" + tokenBalance.toString(16).padStart(64, "0")) : { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
+    case "eth_call": {
+      const { to, data } = req.params[0];
+      if (String(data).startsWith(selWrappedNative) && factoryWrappedNative) return res("0x" + factoryWrappedNative.slice(2).toLowerCase().padStart(64, "0"));
+      if (String(data).startsWith(selBalanceOf)) return res("0x" + (String(to).toLowerCase() === WETH.toLowerCase() ? wethBalance : tokenBalance).toString(16).padStart(64, "0"));
+      return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
+    }
     case "eth_estimateGas": return res("0x7a120");
     case "eth_sendRawTransaction": raws.push(req.params[0]); return res(keccak256(req.params[0]));
     case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1", gasUsed: "0x1", effectiveGasPrice: "0x1", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
@@ -116,6 +125,36 @@ describe("ERC-20 escrows", () => {
 });
 
 describe("journals", () => {
+  it("an ETH order paid back in WETH (an unfilled Across deposit) is refunded: the escrow unwraps it, so it counts", async () => {
+    const ex = executorWith();
+    const orderId = ("0x" + "0e".repeat(32)) as Hex;
+    const req = makeRequest(orderId, 1500);
+    clock = 1000;
+    const job = ex.add(req);
+    factoryWrappedNative = WETH;
+    ethBalance = BigInt(req.params.amount);
+    raws.length = 0;
+    await ex.tick(); // funded with ETH: executed
+    expect(job.state).toBe("executing");
+    receiptStatus = "0x1";
+    await ex.tick();
+    expect(job.state).toBe("executed");
+    ethBalance = 0n; wethBalance = 123_456n; // the provider refunded in WETH
+    clock = Number(req.params.refundAfter);
+    raws.length = 0;
+    await ex.tick();
+    expect(job.state, "WETH alone triggers the refund").toBe("refunding");
+    expect(job.balance).toBe("123456");
+    const sent = decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[0]).data! });
+    expect(sent.functionName).toBe("deployAndRefund");
+    // and WETH never counts as funding: execution needs native ETH
+    clock = 1000; ethBalance = 0n; wethBalance = BigInt(req.params.amount); receiptStatus = null;
+    const ex2 = executorWith();
+    const job2 = ex2.add(makeRequest(("0x" + "0f".repeat(32)) as Hex, 1500));
+    await ex2.tick();
+    expect(job2.state, "WETH does not fund an ETH order").toBe("waiting-funding");
+    factoryWrappedNative = null; wethBalance = 0n;
+  });
   it("a restarted executor resumes its open jobs from the file journal and finishes them", async () => {
     const dir = mkdtempSync(join(tmpdir(), "relayer-journal-"));
     try {

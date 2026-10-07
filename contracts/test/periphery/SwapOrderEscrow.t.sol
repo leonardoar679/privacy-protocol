@@ -10,6 +10,7 @@ import {SwapOrderEscrow} from "../../src/periphery/swap/SwapOrderEscrow.sol";
 import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
 import {MockSwapProvider} from "../mocks/MockSwapProvider.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
+import {WETH9Mock} from "../mocks/WETH9Mock.sol";
 
 /// The private-swap exit interface (private-swap spec §6, §7, §11): a private withdrawal funds a
 /// counterfactual escrow; a relayer submits an execution signed by the order's one-time key; failures
@@ -23,6 +24,7 @@ contract SwapOrderEscrowTest is PPTestBase {
     SwapOrderFactory internal swapFactory;
     MockSwapProvider internal provider;
     MockSwapProvider internal fallbackProvider;
+    WETH9Mock internal weth;
 
     uint256 internal constant AMOUNT = 0.5 ether;
     uint256 internal constant TIP = 0.002 ether; // 0.4% < 1%
@@ -31,7 +33,8 @@ contract SwapOrderEscrowTest is PPTestBase {
     function setUp() public {
         _deployCore();
         _depositNative(alice, 1 ether, 1);
-        swapFactory = new SwapOrderFactory();
+        weth = new WETH9Mock();
+        swapFactory = new SwapOrderFactory(address(weth));
         provider = new MockSwapProvider();
         fallbackProvider = new MockSwapProvider();
         orderSigner = vm.addr(ORDER_KEY);
@@ -191,6 +194,57 @@ contract SwapOrderEscrowTest is PPTestBase {
         vm.warp(block.timestamp + 3 hours);
         swapFactory.deployAndRefund(p, _noteData(778));
         assertEq(nativeVault.accountedDeposits(), 1 ether - AMOUNT + AMOUNT - TIP);
+    }
+
+    /// Across refunds an unfilled native deposit to its depositor in the input token — WETH
+    /// (SpokePool._distributeRelayerRefunds). Without unwrapping, that refund would sit in an ETH order's
+    /// escrow for good: refund() re-shields ETH and nothing else can move the WETH.
+    function test_ProviderRefundsWrappedNative_UnwrappedAndReShielded() public {
+        T.OrderParams memory p = _ethParams();
+        address escrow = _fund(p, address(nativeVault), 11, 12);
+        provider.setWrappedNative(address(weth));
+        provider.setMode(MockSwapProvider.Mode.RefundWrappedToSender);
+        swapFactory.deployAndExecute(p, _ethExecution(escrow, address(provider)));
+        assertEq(escrow.balance, 0, "the refund came back wrapped");
+        assertEq(weth.balanceOf(escrow), AMOUNT - TIP);
+        assertEq(SwapOrderEscrow(payable(escrow)).WRAPPED_NATIVE(), address(weth), "read from the factory");
+        vm.warp(block.timestamp + 3 hours);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(weth.balanceOf(escrow), 0, "unwrapped");
+        assertEq(escrow.balance, 0);
+        assertEq(nativeVault.accountedDeposits(), 1 ether - TIP, "the whole order is back in the pool");
+    }
+
+    /// A wrapped token that misbehaves cannot hold the ETH refund hostage; its balance is unwrapped by a
+    /// later refund() once it works again.
+    function test_BrokenWrappedNative_StillReShieldsTheEth_ThenTheRest() public {
+        T.OrderParams memory p = _ethParams();
+        address escrow = _fund(p, address(nativeVault), 11, 12);
+        provider.setMode(MockSwapProvider.Mode.RefundToSender);
+        swapFactory.deployAndExecute(p, _ethExecution(escrow, address(provider)));
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 0.01 ether}();
+        weth.transfer(escrow, 0.01 ether);
+        weth.setBroken(true);
+        vm.warp(block.timestamp + 3 hours);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(escrow.balance, 0, "the ETH re-shielded");
+        assertEq(weth.balanceOf(escrow), 0.01 ether, "the wrapped part waits");
+        weth.setBroken(false);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(weth.balanceOf(escrow), 0);
+        assertEq(nativeVault.accountedDeposits(), 1 ether - TIP + 0.01 ether);
+    }
+
+    /// A chain without a wrapped native token (factory configured with address(0)): refunds work as before.
+    function test_NoWrappedNative_RefundUnchanged() public {
+        swapFactory = new SwapOrderFactory(address(0));
+        T.OrderParams memory p = _ethParams();
+        address escrow = _fund(p, address(nativeVault), 11, 12);
+        vm.warp(block.timestamp + 3 hours);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(escrow.balance, 0);
+        assertEq(SwapOrderEscrow(payable(escrow)).WRAPPED_NATIVE(), address(0));
     }
 
     /// Provider refunds reach the escrow with a gas stipend: THORChain's router refunds ETH with `send`

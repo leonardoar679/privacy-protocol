@@ -19,7 +19,7 @@ The wallet includes the fee note's opening so the relayer can verify it is reall
 spends gas; the payload of that output is encrypted to the relayer's view key (its privacy address),
 so the relayer can also rediscover the note from chain like any wallet.
 
-## What is checked before gas is spent (test/ — 27 tests across the service against forge fixtures on a mock chain)
+## What is checked before gas is spent (test/ — 28 tests across the service against forge fixtures on a mock chain)
 1. shapes: 256-byte proof, 14 public inputs, three 169-byte payloads;
 2. `txDomain` == this chain / core (no replay across deployments);
 3. every payload hashes to its proven `noteDataHash`;

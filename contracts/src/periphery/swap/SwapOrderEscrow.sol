@@ -13,6 +13,15 @@ interface IERC20VaultDeposit {
     function deposit(uint256 amount, uint256 ownerCommitment, uint256 noteSecret, bytes calldata noteData) external returns (uint32);
 }
 
+interface IWrappedNative {
+    function balanceOf(address owner) external view returns (uint256);
+    function withdraw(uint256 amount) external;
+}
+
+interface ISwapOrderFactoryConfig {
+    function WRAPPED_NATIVE() external view returns (address);
+}
+
 /// @title SwapOrderEscrow — one-time source endpoint for a private cross-chain swap (spec §6, §7, §11)
 /// @notice PERIPHERY, never core. A private withdrawal pays this counterfactual address; anyone (a
 /// relayer) then deploys it and runs `execute` with an execution signed by the order's one-time key,
@@ -20,7 +29,8 @@ interface IERC20VaultDeposit {
 /// deadline. If that never happens — or the provider refunds here — anyone may `refund` after
 /// `refundAfter`, which re-shields the whole balance into our canonical vault as the pre-committed
 /// fresh note. The user's permanent address never appears, the user signs nothing with a public key
-/// that is ever reused, and a provider can never reach more than this one order's balance.
+/// that is ever reused, and a provider can never reach more than this one order's balance. An ETH
+/// order unwraps any wrapped native token it was paid back in before re-shielding.
 /// No owner, no setters, no upgrade.
 contract SwapOrderEscrow is ReentrancyGuard {
     bytes32 public immutable ORDER_ID;
@@ -35,6 +45,8 @@ contract SwapOrderEscrow is ReentrancyGuard {
     uint256 public immutable REFUND_NOTE_SECRET;
     bytes32 public immutable REFUND_NOTE_DATA_HASH;
     uint256 public immutable EXECUTOR_TIP;
+    /// @notice The chain's wrapped native token, from the deploying factory (address(0) if none).
+    address public immutable WRAPPED_NATIVE;
 
     bool public executed;
     bool public tipPaid;
@@ -58,9 +70,13 @@ contract SwapOrderEscrow is ReentrancyGuard {
         REFUND_NOTE_SECRET = p.refundNoteSecret;
         REFUND_NOTE_DATA_HASH = p.refundNoteDataHash;
         EXECUTOR_TIP = p.executorTip;
+        // read from the factory (the only deployer), so OrderParams and the CREATE2 address formula stay as they are
+        WRAPPED_NATIVE = ISwapOrderFactoryConfig(msg.sender).WRAPPED_NATIVE();
     }
 
-    /// @dev The private withdrawal (vault.release) and provider refunds land here.
+    /// @dev The private withdrawal (vault.release), provider refunds and unwrapped WETH land here. It must
+    /// stay this cheap: THORChain's router refunds with `send` (2300 gas), Chainflip's Vault and WETH9
+    /// forward 8,000 / 2300 (test_ProviderRefund_FitsTheGasStipendsProvidersForward).
     receive() external payable {}
 
     function balance() public view returns (uint256) {
@@ -105,6 +121,7 @@ contract SwapOrderEscrow is ReentrancyGuard {
     function refund(bytes calldata noteData, address tipRecipient) external nonReentrant {
         if (block.timestamp < REFUND_AFTER) revert T.TooEarlyToRefund();
         if (keccak256(noteData) != REFUND_NOTE_DATA_HASH) revert T.NoteDataMismatch();
+        _unwrapNative();
         _payTip(tipRecipient);
         uint256 amt = balance();
         if (amt == 0) revert T.NothingToRefund();
@@ -115,6 +132,19 @@ contract SwapOrderEscrow is ReentrancyGuard {
             IERC20VaultDeposit(REFUND_VAULT).deposit(amt, REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
         }
         emit Refunded(REFUND_VAULT, amt, tipRecipient);
+    }
+
+    /// @dev An ETH order may be paid back wrapped (an unfilled Across deposit is refunded to its depositor
+    /// in WETH): unwrap it so the whole value re-shields as ETH. A wrapped token that misbehaves is
+    /// skipped, never allowed to block the ETH refund; the WETH can be unwrapped by a later refund().
+    function _unwrapNative() private {
+        address w = WRAPPED_NATIVE;
+        if (ASSET_TYPE != T.ASSET_ETH || w.code.length == 0) return;
+        try IWrappedNative(w).balanceOf(address(this)) returns (uint256 wrapped) {
+            if (wrapped != 0) {
+                try IWrappedNative(w).withdraw(wrapped) {} catch {}
+            }
+        } catch {}
     }
 
     function _payTip(address to) private {

@@ -3,6 +3,10 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "../../src/vault/IERC20.sol";
 
+interface IWrappedNativeDeposit {
+    function deposit() external payable;
+}
+
 /// @dev Stand-in for a cross-chain provider's ingress (THORChain router / LI.FI diamond / deposit
 /// contract). Records what it received and the memo it was given; can be told to revert, to refund
 /// the escrow, or to behave maliciously (try to reach our contracts) — the provider-compromise tests.
@@ -11,7 +15,9 @@ contract MockSwapProvider {
         Accept,
         Revert,
         RefundToSender,
-        Malicious
+        Malicious,
+        /// Across: an unfilled native deposit is refunded to its depositor in the wrapped input token
+        RefundWrappedToSender
     }
 
     Mode public mode;
@@ -21,9 +27,14 @@ contract MockSwapProvider {
     address public maliciousTarget;
     bytes public maliciousCalldata;
     bool public maliciousCallOk;
+    address public wrappedNative;
 
     function setMode(Mode m) external {
         mode = m;
+    }
+
+    function setWrappedNative(address w) external {
+        wrappedNative = w;
     }
 
     function arm(address target, bytes calldata data) external {
@@ -44,6 +55,11 @@ contract MockSwapProvider {
         if (mode == Mode.RefundToSender) {
             (bool ok,) = msg.sender.call{value: msg.value}("");
             require(ok, "refund failed");
+            receivedEth -= msg.value;
+        }
+        if (mode == Mode.RefundWrappedToSender) {
+            IWrappedNativeDeposit(wrappedNative).deposit{value: msg.value}();
+            require(IERC20(wrappedNative).transfer(msg.sender, msg.value), "wrapped refund failed");
             receivedEth -= msg.value;
         }
         if (mode == Mode.Malicious) {
