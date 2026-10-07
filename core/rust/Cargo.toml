@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["privacy-core", "privacy-core-wasm", "privacy-prover"]
+members = ["privacy-core", "privacy-core-wasm", "privacy-prover", "privacy-ffi", "uniffi-bindgen"]
 
 [profile.release]
 opt-level = 3

@@ -65,36 +65,61 @@ fn fq_dec(s: &str) -> Result<Fq, ImportError> {
     Fq::from_str(s).map_err(|_| ImportError::NotANumber)
 }
 
+fn g1_checked(x: Fq, y: Fq) -> Result<G1Affine, ImportError> {
+    if x.is_zero() && y.is_zero() {
+        return Ok(G1Affine::identity());
+    }
+    let p = G1Affine::new_unchecked(x, y);
+    if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
+        return Err(ImportError::NotOnCurve);
+    }
+    Ok(p)
+}
+
+fn g2_checked(x: Fq2, y: Fq2) -> Result<G2Affine, ImportError> {
+    if x.is_zero() && y.is_zero() {
+        return Ok(G2Affine::identity());
+    }
+    let p = G2Affine::new_unchecked(x, y);
+    if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
+        return Err(ImportError::NotOnCurve);
+    }
+    Ok(p)
+}
+
 /// A snarkjs proof (its `fullProve` / `prove` output) as an arkworks proof.
 pub fn from_snarkjs(p: &ProofJson) -> Result<Proof<Bn254>, ImportError> {
     if p.pi_a.len() < 2 || p.pi_c.len() < 2 || p.pi_b.len() < 2 || p.pi_b[0].len() != 2 || p.pi_b[1].len() != 2 {
         return Err(ImportError::Shape);
     }
-    let g1 = |x: &str, y: &str| -> Result<G1Affine, ImportError> {
-        let (x, y) = (fq_dec(x)?, fq_dec(y)?);
-        if x.is_zero() && y.is_zero() {
-            return Ok(G1Affine::identity());
-        }
-        let p = G1Affine::new_unchecked(x, y);
-        if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
-            return Err(ImportError::NotOnCurve);
-        }
-        Ok(p)
-    };
-    let a = g1(&p.pi_a[0], &p.pi_a[1])?;
-    let c = g1(&p.pi_c[0], &p.pi_c[1])?;
-    let bx = Fq2::new(fq_dec(&p.pi_b[0][0])?, fq_dec(&p.pi_b[0][1])?);
-    let by = Fq2::new(fq_dec(&p.pi_b[1][0])?, fq_dec(&p.pi_b[1][1])?);
-    let b = if bx.is_zero() && by.is_zero() {
-        G2Affine::identity()
-    } else {
-        let p = G2Affine::new_unchecked(bx, by);
-        if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
-            return Err(ImportError::NotOnCurve);
-        }
-        p
-    };
+    let a = g1_checked(fq_dec(&p.pi_a[0])?, fq_dec(&p.pi_a[1])?)?;
+    let c = g1_checked(fq_dec(&p.pi_c[0])?, fq_dec(&p.pi_c[1])?)?;
+    let b = g2_checked(Fq2::new(fq_dec(&p.pi_b[0][0])?, fq_dec(&p.pi_b[0][1])?), Fq2::new(fq_dec(&p.pi_b[1][0])?, fq_dec(&p.pi_b[1][1])?))?;
     Ok(Proof { a, b, c })
+}
+
+/// The proof from the 256-byte `proof` argument of `transact` (a, b with its limbs swapped, c): every
+/// word canonical, every point on its curve and in its subgroup — what a wallet checks before it
+/// trusts a proof it did not make, or re-verifies its own.
+pub fn from_calldata_bytes(b: &[u8]) -> Result<Proof<Bn254>, ImportError> {
+    if b.len() != 256 {
+        return Err(ImportError::Shape);
+    }
+    let w = |i: usize| -> Result<Fq, ImportError> {
+        let bytes = &b[i * 32..(i + 1) * 32];
+        let x = Fq::from_be_bytes_mod_order(bytes);
+        let mut canon = [0u8; 32];
+        let be = x.into_bigint().to_bytes_be();
+        canon[32 - be.len()..].copy_from_slice(&be);
+        if canon != bytes {
+            return Err(ImportError::NotANumber);
+        }
+        Ok(x)
+    };
+    let a = g1_checked(w(0)?, w(1)?)?;
+    let bb = g2_checked(Fq2::new(w(3)?, w(2)?), Fq2::new(w(5)?, w(4)?))?;
+    let c = g1_checked(w(6)?, w(7)?)?;
+    Ok(Proof { a, b: bb, c })
 }
 
 /// The calldata words: `a = (x, y)`, `b = [[x.c1, x.c0], [y.c1, y.c0]]`, `c = (x, y)`.

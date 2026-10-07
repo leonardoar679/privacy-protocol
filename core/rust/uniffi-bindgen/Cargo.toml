@@ -1,0 +1,14 @@
+[package]
+name = "uniffi-bindgen"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The UniFFI binding generator, pinned to the workspace's uniffi version: Swift, Kotlin and Python sources from the compiled privacy-ffi library"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }

@@ -15,7 +15,7 @@ pub mod witness;
 pub mod wtns;
 pub mod zkey;
 
-pub use export::{calldata_bytes, from_snarkjs, to_calldata, to_snarkjs, Calldata, ImportError, ProofJson};
+pub use export::{calldata_bytes, from_calldata_bytes, from_snarkjs, to_calldata, to_snarkjs, Calldata, ImportError, ProofJson};
 pub use prove::{fr_from_bytes, prove, public_inputs, verify, ProveError};
 pub use witness::{fnv, fr_from_json, inputs_from_json, WitnessCalculator, WitnessError};
 pub use wtns::{read_wtns, WtnsError};

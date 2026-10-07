@@ -1,0 +1,17 @@
+[package]
+name = "privacy-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "UniFFI surface of privacy-core and privacy-prover for the native wallets: Swift (iOS), Kotlin (Android) and Python bindings generated from the compiled library"
+
+[lib]
+name = "privacy_ffi"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+privacy-core = { path = "../privacy-core" }
+privacy-prover = { path = "../privacy-prover" }
+uniffi = { version = "0.32", default-features = false }
+thiserror = "2"
+serde_json = "1"
