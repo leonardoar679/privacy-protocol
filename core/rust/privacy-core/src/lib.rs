@@ -6,8 +6,8 @@
 //!
 //! It must agree bit for bit with the circuit, the contracts and the TypeScript reference; the
 //! shared vectors (`circuits/vectors/primitives.json`, `reference/typescript/test/vectors/*.json`,
-//! `circuits/test/fixtures/v1/*.json`) are the test suite. Proof generation stays outside this crate
-//! (snarkjs/WASM in the browser today; a native Groth16 prover is the follow-up — see README).
+//! `circuits/test/fixtures/v1/*.json`) are the test suite. Proof generation lives next to it: snarkjs
+//! (WASM) in the browser, `core/rust/privacy-prover` (native Groth16 over the same proving key) elsewhere.
 //!
 //! No randomness is drawn here: every function that needs it (ephemeral keys, nonces, salts, dummies)
 //! takes the bytes from the caller, so each platform uses its own CSPRNG / secure enclave.
