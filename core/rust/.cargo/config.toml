@@ -1,0 +1,11 @@
+# Offline build on this machine: cargo cannot reach crates.io (Winsock LSP), so every crate comes from
+# the directory source vendored by services/zkapi-lab/vendor-crates.mjs (checksums verified there).
+# On a normal machine delete this file and cargo resolves from crates.io as usual.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "E:/Code/Tornado/zkapi-vendor"
+
+[net]
+offline = true

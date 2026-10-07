@@ -59,6 +59,9 @@ key and nonce per payload; no sender identity is encoded (the recipient learns n
 **Privacy address** (wallet convention, `reference/typescript/src/address.ts`): bech32m, hrp `pp`,
 data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)` → `pp1…` (113 characters, typo-detecting, case-insensitive).
 
+## Wallet keystore, recovery phrase, journal and chain keys (V1.1, plan §44–§45)
+Specified in [`wallet-formats.md`](wallet-formats.md): scrypt + XChaCha20-Poly1305 keystore, the BIP-39 phrase of the seed, the seed-keyed journal, the backup file, and the BIP-44 / BIP-84 / SLIP-0010 derivations — pinned by `reference/typescript/test/vectors/{wallet,chainkeys}.json` and reproduced by the web wallet and the Rust core.
+
 ## Proof system (spec §11; §41–42 of the plan still open)
 Groth16/BN254 is the measured V1 baseline (~0.9 s proving, ~285k gas verify, 23,343 constraints);
 the verifier is immutable behind `IProofVerifier`, so a universal/transparent system can replace it

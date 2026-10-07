@@ -19,3 +19,7 @@ __pycache__/
 # generated zkAPI SDK assets (npm run zkapi:assets)
 frontend/public/zkapi/
 frontend/tsconfig.tsbuildinfo
+
+# Rust core build output
+core/rust/target/
+core/rust/pkg/
