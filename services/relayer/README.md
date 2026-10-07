@@ -51,7 +51,15 @@ simulation gate behave. ETH and ERC-20 escrows (`balanceOf` for tokens; an ERC-2
 value). A **re-signed execution for the same order replaces** a waiting / expired / failed one (quotes are
 short-lived while the privacy delay budget is long, so the wallet funds first and signs against a fresh
 quote at execution time); an order that is executing or settled ignores later executions.
-`SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20 and journals.
+A provider can pay back after `refundAfter` (Across refunds an unfilled deposit with the settlement
+bundle after its fill deadline, 2 h after the quote): an **executed order stays watched** for
+`LATE_REFUND_WATCH_SECONDS` (24 h) past the window, everything that arrives re-shields, and only an
+escrow still empty then is `completed` (PP-S11). A route that swapped first pays back in the swapped
+token: the wallet lists it (`refundTokens`, at most four, never the order's asset) and the executor calls
+the escrow's **`refundToken`** for each one held, before the order's asset; a token its vault refuses is
+dropped with the reason, never blocking the rest.
+`SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
+late refunds and foreign tokens.
 
 ## Run
 `.env.example` lists every setting (copy to `.env`); `npm run typecheck` runs `tsc --noEmit`.

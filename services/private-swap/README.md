@@ -7,7 +7,7 @@ scoring with a live incident feed, the cross-chain privacy score, and the one-ti
 
 ```
 npm install
-npm test                                   # 118 tests: 39 offline + 79 LIVE (real quote APIs, read-only, no funds)
+npm test                                   # 122 tests: 43 offline + 79 LIVE (real quote APIs, read-only, no funds)
 npx tsx src/cli.ts 1 BTC best-privacy       # quote all providers, choose, derive the endpoint, sign the execution
 npx tsx src/cli.ts 1 USDC_BASE best-price
 ```
