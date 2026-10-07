@@ -83,7 +83,7 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
         expect(calls.some((c) => (c.body ?? "").toLowerCase().includes(escrow))).toBe(true); // the escrow is the only sender the provider ever sees
       }
       if (p.provider === "thorchain") {
-        expect(p.memo).toBe(`=:BTC.BTC:${DEST_BTC}:${(p.order.quote.raw as any).min1e8}`);
+        expect(p.memo).toBe(`=:BTC.BTC:${DEST_BTC}/${p.order.endpoint}:${(p.order.quote.raw as any).min1e8}`); // a THORChain refund lands in the escrow
         const [vault, asset, amount] = decodeParams(hexBuf(p.calldata).subarray(4), ["address", "address", "uint"]);
         expect(amount).toBe(net);
         expect(String(asset)).toBe("0x" + "00".repeat(20));

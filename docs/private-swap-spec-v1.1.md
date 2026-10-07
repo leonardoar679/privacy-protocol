@@ -186,7 +186,9 @@ otherwise the route is quoted for information and filtered from selection.
   The funds return to private state as the pre-committed note with no user action; the wallet already
   holds the note's secret and can spend it.
 - Provider-level refunds (THORChain refund memo, Chainflip refund address) MUST point at the escrow
-  address, so a provider refund lands where `refund()` can re-shield it. Where a provider can only
+  address, so a provider refund lands where `refund()` can re-shield it. A THORChain memo without a
+  refund address refunds to the transaction's originator, which for an escrow deposit is the relayer
+  that sent `execute()`; the memo is therefore `=:ASSET:DEST/ESCROW:LIMIT`. Where a provider can only
   refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`), the quote
   MUST say so (`refundTarget: "destination"`); the destination is the user's fresh address, so nothing
   is lost, but the wallet MUST show that a failure ends in USDC on the destination chain, not in the pool.

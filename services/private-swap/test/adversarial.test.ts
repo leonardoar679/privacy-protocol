@@ -176,8 +176,8 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
 describe("§74 THORChain gateway malicious — inbound vault/router need a gateway quorum (live, tampered)", () => {
   const a = new ThorchainAdapter();
   const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, source: ESCROW, slippageBps: 50 };
-  // only two public gateways answer from here (liquify, cosmos.directory): when one is down the quorum
-  // cannot be reached untampered and the product correctly fails closed — those tests are skipped with the reason
+  // when too few public gateways answer, the quorum cannot be reached untampered and the product correctly
+  // fails closed — those tests are skipped with the reason
   const quorumUp = async (ctx: { skip: () => void }) => { try { return await inboundQuorum("ETH"); } catch (e) { console.warn(`skipping: ${(e as Error).message}`); ctx.skip(); throw e; } };
   it("untampered: at least the quorum agrees and the ingress targets the quorum's router", async (ctx) => {
     const inb = await quorumUp(ctx);
@@ -191,6 +191,11 @@ describe("§74 THORChain gateway malicious — inbound vault/router need a gatew
     await quorumUp(ctx);
     await expect(withTamper([{ match: THORNODE_URLS[0] + "/thorchain/inbound_addresses", json: (b) => b.map((c: any) => (c.chain === "ETH" ? { ...c, router: ATTACKER } : c)) }], () => inboundQuorum("ETH"))).rejects.toThrow(/disagree/);
   }, 60_000);
+  it("an escrow-sourced memo without the escrow as refund address is never produced", async () => {
+    // a router deposit refunds to the transaction sender (the relayer) unless the memo names a refund address
+    const q = { raw: { inbound_address: "0x0", memo: "", min1e8: "1" } } as any;
+    await expect(a.prepareIngress({ ...req, source: undefined }, q)).rejects.toThrow(/refund address/);
+  });
   it("only one gateway reachable → quorum not reached → refused", async () => {
     await expect(withTamper(THORNODE_URLS.slice(1).map((u) => ({ match: u, fail: true })), () => inboundQuorum("ETH"))).rejects.toThrow(/quorum not reached/);
   }, 60_000);
@@ -201,12 +206,12 @@ describe("§74 THORChain gateway malicious — inbound vault/router need a gatew
       await expect(a.prepareIngress(req, q)).rejects.toThrow(/not confirmed by the gateway quorum/);
     });
   }, 90_000);
-  it("the memo from the API is never used: destination and limit come from the request", async (ctx) => {
+  it("the memo from the API is never used: destination, refund address and limit come from the request", async (ctx) => {
     await quorumUp(ctx);
     await withTamper([{ match: "/thorchain/quote/swap", json: (b) => ({ ...b, memo: "=:BTC.BTC:bc1qattacker:1" }) }], async () => {
       const q = await a.quote(req);
       const ing = await a.prepareIngress(req, q);
-      expect(ing.memo).toBe(`=:BTC.BTC:${DEST_BTC}:${(q.raw as any).min1e8}`);
+      expect(ing.memo).toBe(`=:BTC.BTC:${DEST_BTC}/${ESCROW}:${(q.raw as any).min1e8}`);
       expect(Buffer.from(ing.calldata.slice(2), "hex").toString("latin1")).not.toContain("bc1qattacker");
     });
   }, 90_000);

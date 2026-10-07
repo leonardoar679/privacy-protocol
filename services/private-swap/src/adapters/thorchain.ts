@@ -1,6 +1,13 @@
 // THORChain adapter (plan §15): native-asset swaps via the THORNode quote API, ingress through the
 // ETH router `depositWithExpiry`, limit (minimum output) encoded in the memo, status via tx/status.
 // Public THORNode endpoints change; try a list, then THORNODE_URL if set.
+//
+// Refunds (spec §7): without a refund address in the memo THORChain refunds "to the originator's
+// address" — for a router deposit that is the account that sent the transaction, i.e. the relayer
+// executing the escrow, not the escrow. So an escrow-sourced memo always carries `/<escrow>` after the
+// destination (`=:ASSET:DEST/REFUND:LIMIT`, the form THORNode's own quote API emits for
+// `refund_address`); a refund then lands in the escrow, whose `refund()` re-shields it. The router pays
+// ETH refunds with `send` (2300 gas), which the escrow's empty `receive()` accepts.
 import { keccak_256 } from "@noble/hashes/sha3";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { categoryOf } from "../types";
@@ -82,8 +89,8 @@ interface ThorQuote {
   warning?: string; error?: string;
 }
 
-/** `=:ASSET:dest:limit` — the limit is the minimum output in 1e8 units; the swap refunds below it. */
-export const buildMemo = (toAsset: string, destination: string, limit1e8: bigint) => `=:${toAsset}:${destination}:${limit1e8}`;
+/** `=:ASSET:dest[/refund]:limit` — the limit is the minimum output in 1e8 units; the swap refunds below it, to `refund` when given (else to the originator). */
+export const buildMemo = (toAsset: string, destination: string, limit1e8: bigint, refund?: string) => `=:${toAsset}:${destination}${refund ? `/${refund}` : ""}:${limit1e8}`;
 
 const SELECTOR_DEPOSIT_WITH_EXPIRY = Buffer.from(keccak_256(new TextEncoder().encode("depositWithExpiry(address,address,uint256,string,uint256)"))).subarray(0, 4);
 const w = (v: bigint) => { const b = Buffer.alloc(32); let x = v; for (let i = 31; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; };
@@ -102,7 +109,7 @@ export class ThorchainAdapter implements ProviderAdapter {
   readonly implemented = true;
 
   capabilities(): Capabilities {
-    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call", "plain-address"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "base", "avalanche", "bsc", "litecoin", "doge", "tron"], destinationLinkPublic: true, linkEvidence: "the deposit memo names the destination (=:ASSET:DEST:LIMIT) and the outbound carries OUT:<inbound tx>" };
+    return { routes: ["A", "B", "C", "E"], ingress: ["contract-call", "plain-address"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "base", "avalanche", "bsc", "litecoin", "doge", "tron"], destinationLinkPublic: true, linkEvidence: "the deposit memo names the destination and the refund escrow (=:ASSET:DEST/ESCROW:LIMIT) and the outbound carries OUT:<inbound tx>" };
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {
@@ -124,14 +131,17 @@ export class ThorchainAdapter implements ProviderAdapter {
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as ThorQuote & { min1e8: string };
-    const memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8)); // limit from OUR min-out, not the API memo
+    const evmSource = ["ethereum", "base", "avalanche", "bsc"].includes(req.from.chain);
+    if (evmSource && !req.source) throw new Error("THORChain: the escrow address (req.source) is required as the refund address (a router deposit otherwise refunds to the transaction sender, the relayer)");
+    // limit from OUR min-out, not the API memo; a refund goes to the escrow (spec §7), never to the relayer that sends the transaction
+    const memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8), evmSource ? req.source : undefined);
     // the deposit target must be confirmed by independent gateways, never taken from one quote response
     const inbound = await inboundQuorum(CHAIN[req.from.chain]);
     if (inbound.halted) throw new Error(`THORChain: ${CHAIN[req.from.chain]} inbound is halted`);
     if (q.inbound_address.toLowerCase() !== inbound.address) throw new Error(`THORChain: the quote's inbound address ${q.inbound_address} is not confirmed by the gateway quorum (${inbound.address})`);
     if ((q.router ?? "").toLowerCase() !== (inbound.router ?? "")) throw new Error(`THORChain: the quote's router ${q.router} is not confirmed by the gateway quorum (${inbound.router})`);
-    const verified = [`inbound vault (${inbound.agreeing.length} gateways agree)`, "router (quorum)", "memo: destination + limit built locally"];
-    if (req.from.chain !== "ethereum" && req.from.chain !== "base" && req.from.chain !== "avalanche" && req.from.chain !== "bsc") {
+    const verified = [`inbound vault (${inbound.agreeing.length} gateways agree)`, "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`];
+    if (!evmSource) {
       return { kind: "plain-address", to: q.inbound_address, calldata: "0x", value: req.amount, memo, expiresAt: q.expiry, minOutEncoded: true, verified };
     }
     if (!q.router) throw new Error("THORChain quote has no router for an EVM source");

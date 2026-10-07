@@ -36,7 +36,7 @@ describe("THORChain adapter (live)", () => {
     expect(ing.kind).toBe("contract-call");
     expect(ing.to.toLowerCase()).toMatch(/^0x[0-9a-f]{40}$/);
     expect(ing.value).toBe(10n ** 18n);
-    expect(ing.memo).toMatch(/^=:BTC\.BTC:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh:\d+$/);
+    expect(ing.memo).toMatch(new RegExp(`^=:BTC\\.BTC:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh/${ESCROW}:\\d+$`)); // a refund goes to the escrow, not the relayer
     expect(ing.calldata.startsWith("0x")).toBe(true);
     // the memo (destination + limit) is inside the calldata the order key signs
     expect(Buffer.from(ing.calldata.slice(2), "hex").toString("latin1")).toContain(ing.memo);
@@ -45,6 +45,7 @@ describe("THORChain adapter (live)", () => {
     expect(thorAsset(ETH)).toBe("ETH.ETH");
     expect(thorAsset(USDC_BASE)).toBe("BASE.USDC-0X833589FCD6EDB6E08F4C7C32D4F71B54BDA02913");
     expect(buildMemo("BTC.BTC", "bc1qdest", 123n)).toBe("=:BTC.BTC:bc1qdest:123");
+    expect(buildMemo("BTC.BTC", "bc1qdest", 123n, ESCROW)).toBe(`=:BTC.BTC:bc1qdest/${ESCROW}:123`); // THORNode's own quote API emits this form for refund_address
     const cd = encodeDepositWithExpiry("0x" + "11".repeat(20), "0x" + "00".repeat(20), 5n, "=:b:x", 99n);
     expect(cd.slice(0, 10)).toBe("0x44bc937b"); // depositWithExpiry selector (cast sig)
   });
