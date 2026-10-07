@@ -32,6 +32,7 @@ interface ICoreVaultFactory {
 }
 
 interface IVaultFactory {
+    function getOrCreateNativeVault() external returns (address);
     function getOrCreateERC20Vault(address token) external returns (address);
 }
 
@@ -149,19 +150,39 @@ contract SwapOrderEscrow is ReentrancyGuard {
         emit Refunded(REFUND_VAULT, amt, tipRecipient);
     }
 
-    /// @notice After `refundAfter`, re-shield a token a provider paid back that is not this order's
-    /// asset: a route that swaps first and bridges the result refunds an unfilled deposit in the
-    /// swapped token. It goes into that token's canonical vault in the same pool as the committed
-    /// refund vault (created on demand by the pool's permissionless factory), as a note with the
-    /// pre-committed owner and secret. The order's asset, and an ETH order's wrapped native token,
-    /// re-shield through `refund()`. No tip: it was paid with the order's asset.
+    /// @notice After `refundAfter`, re-shield what a provider paid back in something other than this
+    /// order's asset: a route that swaps first and bridges the result refunds an unfilled deposit in the
+    /// swapped token. A token goes into its canonical vault in the same pool as the committed refund
+    /// vault (created on demand by the pool's permissionless factory). An ERC-20 order paid back in the
+    /// wrapped native token has it unwrapped, and it re-shields as ETH into the pool's native vault, as
+    /// does ETH that lands at such an escrow (`token == address(0)`), which nothing else could move.
+    /// Each lands as a note with the pre-committed owner and secret. The order's asset, and an ETH
+    /// order's ETH and wrapped native token, re-shield through `refund()`. No tip: it was paid with the
+    /// order's asset.
     function refundToken(address token, bytes calldata noteData) external nonReentrant {
         if (block.timestamp < REFUND_AFTER) revert T.TooEarlyToRefund();
         if (keccak256(noteData) != REFUND_NOTE_DATA_HASH) revert T.NoteDataMismatch();
-        if (token == address(0) || token == ASSET || (ASSET_TYPE == T.ASSET_ETH && token == WRAPPED_NATIVE)) revert T.NotAForeignToken();
+        if (token == ASSET || (ASSET_TYPE == T.ASSET_ETH && (token == address(0) || token == WRAPPED_NATIVE))) {
+            revert T.NotAForeignToken();
+        }
+        IVaultFactory vaults = IVaultFactory(ICoreVaultFactory(IVaultCoreLink(REFUND_VAULT).core()).VAULT_FACTORY());
+        if (token == address(0) || token == WRAPPED_NATIVE) {
+            // strict here: a wrapped token that fails to unwrap reverts this call only; the ETH already
+            // here still re-shields through refundToken(address(0))
+            if (token != address(0)) {
+                uint256 wrapped = IWrappedNative(token).balanceOf(address(this));
+                if (wrapped != 0) IWrappedNative(token).withdraw(wrapped);
+            }
+            uint256 eth = address(this).balance;
+            if (eth == 0) revert T.NothingToRefund();
+            address nativeVault = vaults.getOrCreateNativeVault();
+            INativeVaultDeposit(nativeVault).deposit{value: eth}(REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
+            emit Refunded(nativeVault, eth, msg.sender);
+            return;
+        }
         uint256 amt = IERC20(token).balanceOf(address(this));
         if (amt == 0) revert T.NothingToRefund();
-        address vault = IVaultFactory(ICoreVaultFactory(IVaultCoreLink(REFUND_VAULT).core()).VAULT_FACTORY()).getOrCreateERC20Vault(token);
+        address vault = vaults.getOrCreateERC20Vault(token);
         if (!_approve(token, vault, amt)) revert T.TokenCallFailed();
         IERC20VaultDeposit(vault).deposit(amt, REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
         emit Refunded(vault, amt, msg.sender);

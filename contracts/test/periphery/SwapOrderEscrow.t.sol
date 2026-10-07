@@ -513,7 +513,7 @@ contract SwapOrderEscrowTest is PPTestBase {
         vm.warp(block.timestamp + 3 hours);
         vm.expectRevert(T.NoteDataMismatch.selector);
         e.refundToken(address(usdc), _noteData(779));
-        vm.expectRevert(T.NotAForeignToken.selector);
+        vm.expectRevert(T.NotAForeignToken.selector); // an ETH order's ETH re-shields through refund()
         e.refundToken(address(0), _noteData(778));
         vm.expectRevert(T.NotAForeignToken.selector); // an ETH order's WETH unwraps through refund()
         e.refundToken(address(weth), _noteData(778));
@@ -531,6 +531,106 @@ contract SwapOrderEscrowTest is PPTestBase {
         vm.warp(q.refundAfter);
         vm.expectRevert(T.NotAForeignToken.selector);
         f.refundToken(address(tok), _noteData(778));
+    }
+
+    /// An ERC-20 order whose route swapped the token into WETH and bridged it (the Across swap leg to a
+    /// native destination, USDC -> WETH): the unfilled deposit comes back in WETH. refundToken unwraps it
+    /// and re-shields it as ETH into the pool's native vault, not as private WETH.
+    function _erc20PaidBackIn(address token, uint256 amount) internal returns (ERC20Mock usdc, ERC20AssetVault v, SwapOrderEscrow e) {
+        usdc = new ERC20Mock();
+        v = ERC20AssetVault(factory.getOrCreateERC20Vault(address(usdc)));
+        usdc.mint(alice, 10_000e6);
+        vm.prank(alice);
+        usdc.approve(address(v), type(uint256).max);
+        _depositERC20(v, alice, 5_000e6, 5);
+        T.OrderParams memory p = _params(T.ASSET_ERC20, address(usdc), address(v), 2_000e6, 2e6);
+        p.orderId = keccak256(abi.encode("erc20 paid back in", token));
+        address escrow = _fund(p, address(v), 71, 72);
+        provider.setSwappedRefund(token == address(0) ? address(usdc) : token, token == address(0) ? 0 : amount);
+        provider.setMode(MockSwapProvider.Mode.RefundTokenToSender);
+        T.Execution memory x = _sign(escrow, p.orderId, ORDER_KEY, address(provider), 0, _calldata(address(usdc), 2_000e6 - 2e6, string(MEMO)), uint64(block.timestamp + 20 minutes));
+        vm.prank(relayer);
+        swapFactory.deployAndExecute(p, x);
+        e = SwapOrderEscrow(payable(escrow));
+        assertEq(usdc.balanceOf(escrow), 0, "the provider pulled the order");
+    }
+
+    function test_ERC20Order_PaidBackInWrappedNative_ReShieldsAsEth() public {
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 0.6 ether}();
+        weth.transfer(address(provider), 0.6 ether);
+        (, ERC20AssetVault v, SwapOrderEscrow e) = _erc20PaidBackIn(address(weth), 0.6 ether);
+        assertEq(weth.balanceOf(address(e)), 0.6 ether, "the bridge refunded the swapped WETH to the escrow");
+        uint256 pooled = nativeVault.accountedDeposits();
+        uint256 leaves = core.nextLeafIndex();
+        vm.warp(block.timestamp + 3 hours);
+        vm.prank(relayer);
+        e.refundToken(address(weth), _noteData(778));
+        assertEq(weth.balanceOf(address(e)), 0, "unwrapped");
+        assertEq(address(e).balance, 0, "nothing left in the escrow");
+        assertEq(nativeVault.accountedDeposits(), pooled + 0.6 ether, "re-shielded as ETH into the native vault");
+        assertEq(factory.vaultOf(address(weth)), address(0), "no private WETH: no WETH vault was needed");
+        assertEq(core.nextLeafIndex(), leaves + 4, "one deposit group: the pre-committed note");
+        assertEq(v.accountedDeposits(), 3_000e6, "the token vault released exactly the order");
+        assertTrue(nativeVault.isSolvent());
+    }
+
+    /// ETH that lands at an ERC-20 order's escrow (a provider refunding natively, or anyone sending it)
+    /// re-shields as ETH too; refund() only moves the order's token, so nothing else could move it.
+    function test_ERC20Order_EthAtTheEscrow_ReShieldsAsEth() public {
+        (ERC20Mock usdc,, SwapOrderEscrow e) = _erc20PaidBackIn(address(0), 0);
+        vm.deal(address(this), 1 ether);
+        (bool ok,) = address(e).call{value: 0.25 ether}("");
+        assertTrue(ok);
+        vm.warp(block.timestamp + 3 hours);
+        T.OrderParams memory p = _paramsOf(e);
+        vm.expectRevert(T.NothingToRefund.selector);
+        swapFactory.deployAndRefund(p, _noteData(778)); // the order's own token: nothing left
+        uint256 pooled = nativeVault.accountedDeposits();
+        e.refundToken(address(0), _noteData(778));
+        assertEq(address(e).balance, 0);
+        assertEq(nativeVault.accountedDeposits(), pooled + 0.25 ether);
+        vm.expectRevert(T.NothingToRefund.selector);
+        e.refundToken(address(0), _noteData(778));
+        vm.expectRevert(T.NotAForeignToken.selector);
+        e.refundToken(address(usdc), _noteData(778));
+    }
+
+    /// A wrapped token that fails to unwrap blocks only its own refund; ETH at the escrow still re-shields.
+    function test_ERC20Order_BrokenWrappedNative_EthStillReShields() public {
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 0.3 ether}();
+        weth.transfer(address(provider), 0.3 ether);
+        (, , SwapOrderEscrow e) = _erc20PaidBackIn(address(weth), 0.3 ether);
+        (bool ok,) = address(e).call{value: 0.1 ether}("");
+        assertTrue(ok);
+        weth.setBroken(true);
+        vm.warp(block.timestamp + 3 hours);
+        vm.expectRevert();
+        e.refundToken(address(weth), _noteData(778));
+        uint256 pooled = nativeVault.accountedDeposits();
+        e.refundToken(address(0), _noteData(778));
+        assertEq(nativeVault.accountedDeposits(), pooled + 0.1 ether, "the ETH re-shielded");
+        assertEq(weth.balanceOf(address(e)), 0.3 ether, "the wrapped part waits");
+        weth.setBroken(false);
+        e.refundToken(address(weth), _noteData(778));
+        assertEq(nativeVault.accountedDeposits(), pooled + 0.4 ether, "then the rest, as ETH");
+        assertEq(weth.balanceOf(address(e)), 0);
+    }
+
+    function _paramsOf(SwapOrderEscrow e) internal view returns (T.OrderParams memory p) {
+        p.orderId = e.ORDER_ID();
+        p.assetType = e.ASSET_TYPE();
+        p.asset = e.ASSET();
+        p.amount = e.AMOUNT();
+        p.orderSigner = e.ORDER_SIGNER();
+        p.executeDeadline = e.EXECUTE_DEADLINE();
+        p.refundAfter = e.REFUND_AFTER();
+        p.refundVault = e.REFUND_VAULT();
+        p.refundOwnerCommitment = e.REFUND_OWNER_COMMITMENT();
+        p.refundNoteSecret = e.REFUND_NOTE_SECRET();
+        p.refundNoteDataHash = e.REFUND_NOTE_DATA_HASH();
+        p.executorTip = e.EXECUTOR_TIP();
     }
 
     // ---- provider compromise (plan §74): the damage bound ----
