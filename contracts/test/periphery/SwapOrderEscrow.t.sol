@@ -11,6 +11,7 @@ import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
 import {MockSwapProvider} from "../mocks/MockSwapProvider.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
 import {WETH9Mock} from "../mocks/WETH9Mock.sol";
+import {NoReturnToken} from "../mocks/NoReturnToken.sol";
 
 /// The private-swap exit interface (private-swap spec §6, §7, §11): a private withdrawal funds a
 /// counterfactual escrow; a relayer submits an execution signed by the order's one-time key; failures
@@ -416,6 +417,120 @@ contract SwapOrderEscrowTest is PPTestBase {
         assertEq(tok.balanceOf(relayer), tip, "the executor tip");
         assertEq(tok.balanceOf(escrow), 0, "nothing left in the escrow");
         assertEq(v.accountedDeposits(), 6e18, "the vault released exactly the order");
+    }
+
+    /// A USDT-like asset (approve / transfer return nothing; the core's vault supports it, spec §8.2):
+    /// an order in it must still execute, tip and refund (PP-S10). Typed IERC20 calls expecting a bool
+    /// revert on the empty return, which stranded such an order in its escrow.
+    function _noReturnOrder() internal returns (NoReturnToken tok, ERC20AssetVault v, T.OrderParams memory p, address escrow) {
+        tok = new NoReturnToken();
+        v = ERC20AssetVault(factory.getOrCreateERC20Vault(address(tok)));
+        tok.mint(alice, 100e6);
+        vm.prank(alice);
+        tok.approve(address(v), type(uint256).max);
+        _depositERC20(v, alice, 10e6, 5);
+        p = _params(T.ASSET_ERC20, address(tok), address(v), 4e6, 1e4);
+        escrow = _fund(p, address(v), 51, 52);
+        assertEq(tok.balanceOf(escrow), 4e6, "tokens released to the predicted escrow");
+    }
+
+    function test_NoReturnTokenOrder_ExecutesAndTips() public {
+        (NoReturnToken tok,, T.OrderParams memory p, address escrow) = _noReturnOrder();
+        address deposit = address(0xDE9052);
+        bytes memory transferCall = abi.encodeWithSignature("transfer(address,uint256)", deposit, p.amount - p.executorTip);
+        T.Execution memory x = _sign(escrow, p.orderId, ORDER_KEY, address(tok), 0, transferCall, uint64(block.timestamp + 20 minutes));
+        vm.prank(relayer);
+        swapFactory.deployAndExecute(p, x);
+        assertEq(tok.balanceOf(deposit), p.amount - p.executorTip, "the deposit address received the tokens");
+        assertEq(tok.balanceOf(relayer), p.executorTip, "the executor tip");
+    }
+
+    function test_NoReturnTokenOrder_RefundReShields() public {
+        (NoReturnToken tok, ERC20AssetVault v, T.OrderParams memory p, address escrow) = _noReturnOrder();
+        vm.warp(block.timestamp + 3 hours);
+        vm.prank(relayer);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(tok.balanceOf(escrow), 0, "nothing left in the escrow");
+        assertEq(tok.balanceOf(relayer), p.executorTip, "the executor tip");
+        assertEq(v.accountedDeposits(), 6e6 + p.amount - p.executorTip, "re-shielded into the token's vault");
+        assertTrue(v.isSolvent());
+    }
+
+    // ---- a provider pays back in another token (routes that swap first, then bridge) ----
+
+    /// An ETH order whose route swapped ETH into a token and bridged it: the bridge refunds the unfilled
+    /// deposit to the escrow in that token. refundToken re-shields it into the token's canonical vault,
+    /// created on demand in the same pool as the committed refund vault.
+    function _paidBackIn(address token, uint256 amount, uint256 n0, uint256 n1) internal returns (T.OrderParams memory p, SwapOrderEscrow e) {
+        provider.setSwappedRefund(token, amount);
+        provider.setMode(MockSwapProvider.Mode.RefundTokenToSender);
+        p = _ethParams();
+        p.orderId = keccak256(abi.encode("paid back in", token));
+        address escrow = _fund(p, address(nativeVault), n0, n1);
+        T.Execution memory x = _sign(escrow, p.orderId, ORDER_KEY, address(provider), AMOUNT - TIP, _calldata(address(0), AMOUNT - TIP, string(MEMO)), uint64(block.timestamp + 20 minutes));
+        vm.prank(relayer);
+        swapFactory.deployAndExecute(p, x);
+        e = SwapOrderEscrow(payable(escrow));
+    }
+
+    function test_ForeignTokenRefund_ReShieldsIntoItsCanonicalVault() public {
+        ERC20Mock usdc = new ERC20Mock();
+        usdc.mint(address(provider), 2_500e6);
+        (, SwapOrderEscrow e) = _paidBackIn(address(usdc), 2_500e6, 61, 62);
+        assertEq(usdc.balanceOf(address(e)), 2_500e6, "the bridge refunded the swapped token to the escrow");
+        assertEq(address(e).balance, 0, "no ETH left: refund() has nothing to re-shield");
+        assertEq(factory.vaultOf(address(usdc)), address(0), "no vault for that token yet");
+        vm.warp(block.timestamp + 3 hours);
+        uint256 leaves = core.nextLeafIndex();
+        vm.prank(relayer);
+        e.refundToken(address(usdc), _noteData(778));
+        address v = factory.vaultOf(address(usdc));
+        assertTrue(v != address(0) && factory.isCanonical(v), "the token's canonical vault, created on demand");
+        assertEq(ERC20AssetVault(v).accountedDeposits(), 2_500e6, "re-shielded in full");
+        assertEq(usdc.balanceOf(address(e)), 0, "nothing left in the escrow");
+        assertEq(core.nextLeafIndex(), leaves + 4, "one deposit group: the pre-committed note in that vault");
+        assertTrue(ERC20AssetVault(v).isSolvent());
+    }
+
+    function test_ForeignTokenRefund_USDTLike() public {
+        NoReturnToken usdt = new NoReturnToken();
+        usdt.mint(address(provider), 2_500e6);
+        (, SwapOrderEscrow e) = _paidBackIn(address(usdt), 2_500e6, 65, 66);
+        vm.warp(block.timestamp + 3 hours);
+        e.refundToken(address(usdt), _noteData(778));
+        assertEq(ERC20AssetVault(factory.vaultOf(address(usdt))).accountedDeposits(), 2_500e6, "a token returning nothing re-shields too");
+        assertEq(usdt.balanceOf(address(e)), 0);
+    }
+
+    function test_RefundToken_Guards() public {
+        ERC20Mock usdc = new ERC20Mock();
+        T.OrderParams memory p = _ethParams();
+        address escrow = _fund(p, address(nativeVault), 63, 64);
+        SwapOrderEscrow e = swapFactory.deploy(p);
+        usdc.mint(escrow, 1e6);
+        vm.expectRevert(T.TooEarlyToRefund.selector);
+        e.refundToken(address(usdc), _noteData(778));
+        vm.warp(block.timestamp + 3 hours);
+        vm.expectRevert(T.NoteDataMismatch.selector);
+        e.refundToken(address(usdc), _noteData(779));
+        vm.expectRevert(T.NotAForeignToken.selector);
+        e.refundToken(address(0), _noteData(778));
+        vm.expectRevert(T.NotAForeignToken.selector); // an ETH order's WETH unwraps through refund()
+        e.refundToken(address(weth), _noteData(778));
+        ERC20Mock other = new ERC20Mock();
+        vm.expectRevert(T.NothingToRefund.selector);
+        e.refundToken(address(other), _noteData(778));
+        e.refundToken(address(usdc), _noteData(778));
+        assertEq(usdc.balanceOf(escrow), 0, "the foreign token re-shielded");
+        assertEq(escrow.balance, AMOUNT, "the order's own ETH is untouched: it goes through refund()");
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(escrow.balance, 0);
+        // an ERC-20 order's own asset goes through refund() too
+        (NoReturnToken tok,, T.OrderParams memory q,) = _noReturnOrder();
+        SwapOrderEscrow f = swapFactory.deploy(q);
+        vm.warp(q.refundAfter);
+        vm.expectRevert(T.NotAForeignToken.selector);
+        f.refundToken(address(tok), _noteData(778));
     }
 
     // ---- provider compromise (plan §74): the damage bound ----

@@ -54,4 +54,6 @@ library SwapOrderTypes {
     error ProviderCallFailed();
     error NothingToRefund();
     error TipTransferFailed();
+    error TokenCallFailed();
+    error NotAForeignToken();
 }

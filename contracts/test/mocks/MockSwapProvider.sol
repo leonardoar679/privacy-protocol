@@ -17,7 +17,10 @@ contract MockSwapProvider {
         RefundToSender,
         Malicious,
         /// Across: an unfilled native deposit is refunded to its depositor in the wrapped input token
-        RefundWrappedToSender
+        RefundWrappedToSender,
+        /// a route that swapped first (LI.FI swap variant, Across swap API): an unfilled bridge deposit
+        /// is refunded to its depositor in the swapped token
+        RefundTokenToSender
     }
 
     Mode public mode;
@@ -28,6 +31,8 @@ contract MockSwapProvider {
     bytes public maliciousCalldata;
     bool public maliciousCallOk;
     address public wrappedNative;
+    address public swappedToken;
+    uint256 public swappedAmount;
 
     function setMode(Mode m) external {
         mode = m;
@@ -35,6 +40,13 @@ contract MockSwapProvider {
 
     function setWrappedNative(address w) external {
         wrappedNative = w;
+    }
+
+    /// what the RefundTokenToSender mode pays back (the mock must hold it); called through a low-level
+    /// transfer, so a USDT-like token that returns nothing works too
+    function setSwappedRefund(address token, uint256 amount) external {
+        swappedToken = token;
+        swappedAmount = amount;
     }
 
     function arm(address target, bytes calldata data) external {
@@ -61,6 +73,10 @@ contract MockSwapProvider {
             IWrappedNativeDeposit(wrappedNative).deposit{value: msg.value}();
             require(IERC20(wrappedNative).transfer(msg.sender, msg.value), "wrapped refund failed");
             receivedEth -= msg.value;
+        }
+        if (mode == Mode.RefundTokenToSender) {
+            (bool ok,) = swappedToken.call(abi.encodeWithSelector(IERC20.transfer.selector, msg.sender, swappedAmount));
+            require(ok, "token refund failed");
         }
         if (mode == Mode.Malicious) {
             // A compromised provider tries whatever it likes with our contracts; nothing it does may

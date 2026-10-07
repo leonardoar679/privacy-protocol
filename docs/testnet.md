@@ -9,7 +9,7 @@ production procedure: the testnet rehearsal uses the insecure dev verifier on pu
 | Order | Contract(s) | Script | Notes |
 |---|---|---|---|
 | 1 | `Groth16Verifier` (adapter) → `Poseidon2Hasher` → `PrivacyCore` (deploys its own `AssetVaultFactory`) → ETH vault (+ optional USDC/USDT vaults) | `contracts/script/Deploy.s.sol` | `SEPOLIA_DEV_VERIFIER=true` deploys the **insecure** dev verifier, hard-gated to chain id 11155111; the ceremony verifier (`INNER_VERIFIER`) is the only production path |
-| 2 | `SwapOrderFactory` (periphery; the core does not know it) | `contracts/script/DeploySwapPeriphery.s.sol` | takes the chain's wrapped native token (`WRAPPED_NATIVE`, default WETH on Sepolia `0xfFf9…6B14` and mainnet `0xC02a…6Cc2`; escrows unwrap a WETH refund of an ETH order before re-shielding); logs the factory address and the escrow creation-code hash; the hash must equal keccak256 of `contracts/abi/periphery/SwapOrderEscrow.json` `bytecode` (dry run: `0xc04cc680…51ef`, matched) |
+| 2 | `SwapOrderFactory` (periphery; the core does not know it) | `contracts/script/DeploySwapPeriphery.s.sol` | takes the chain's wrapped native token (`WRAPPED_NATIVE`, default WETH on Sepolia `0xfFf9…6B14` and mainnet `0xC02a…6Cc2`; escrows unwrap a WETH refund of an ETH order before re-shielding); logs the factory address and the escrow creation-code hash; the hash must equal keccak256 of `contracts/abi/periphery/SwapOrderEscrow.json` `bytecode` (dry run: `0xf26118fc…1142`, matched) |
 
 Dry runs executed here (no network, chain id 31337):
 ```

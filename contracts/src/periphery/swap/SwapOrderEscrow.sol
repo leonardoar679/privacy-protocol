@@ -22,6 +22,19 @@ interface ISwapOrderFactoryConfig {
     function WRAPPED_NATIVE() external view returns (address);
 }
 
+/// The pool a refund vault belongs to, and that pool's permissionless vault factory (one canonical vault per token).
+interface IVaultCoreLink {
+    function core() external view returns (address);
+}
+
+interface ICoreVaultFactory {
+    function VAULT_FACTORY() external view returns (address);
+}
+
+interface IVaultFactory {
+    function getOrCreateERC20Vault(address token) external returns (address);
+}
+
 /// @title SwapOrderEscrow — one-time source endpoint for a private cross-chain swap (spec §6, §7, §11)
 /// @notice PERIPHERY, never core. A private withdrawal pays this counterfactual address; anyone (a
 /// relayer) then deploys it and runs `execute` with an execution signed by the order's one-time key,
@@ -30,7 +43,9 @@ interface ISwapOrderFactoryConfig {
 /// `refundAfter`, which re-shields the whole balance into our canonical vault as the pre-committed
 /// fresh note. The user's permanent address never appears, the user signs nothing with a public key
 /// that is ever reused, and a provider can never reach more than this one order's balance. An ETH
-/// order unwraps any wrapped native token it was paid back in before re-shielding.
+/// order unwraps any wrapped native token it was paid back in before re-shielding; any other token a
+/// provider pays back (a route that swapped first refunds in the swapped token) re-shields into that
+/// token's canonical vault through `refundToken`. Token calls accept tokens that return nothing (USDT).
 /// No owner, no setters, no upgrade.
 contract SwapOrderEscrow is ReentrancyGuard {
     bytes32 public immutable ORDER_ID;
@@ -107,7 +122,7 @@ contract SwapOrderEscrow is ReentrancyGuard {
         } else {
             if (x.value != 0) revert T.ValueTooLarge();
             // the provider pulls the tokens inside its call (standard router pattern)
-            ok = IERC20(ASSET).approve(x.provider, IERC20(ASSET).balanceOf(address(this)));
+            ok = _approve(ASSET, x.provider, IERC20(ASSET).balanceOf(address(this)));
             if (ok) (ok,) = x.provider.call(x.providerCalldata);
         }
         if (!ok) revert T.ProviderCallFailed();
@@ -128,10 +143,28 @@ contract SwapOrderEscrow is ReentrancyGuard {
         if (ASSET_TYPE == T.ASSET_ETH) {
             INativeVaultDeposit(REFUND_VAULT).deposit{value: amt}(REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
         } else {
-            IERC20(ASSET).approve(REFUND_VAULT, amt);
+            if (!_approve(ASSET, REFUND_VAULT, amt)) revert T.TokenCallFailed();
             IERC20VaultDeposit(REFUND_VAULT).deposit(amt, REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
         }
         emit Refunded(REFUND_VAULT, amt, tipRecipient);
+    }
+
+    /// @notice After `refundAfter`, re-shield a token a provider paid back that is not this order's
+    /// asset: a route that swaps first and bridges the result refunds an unfilled deposit in the
+    /// swapped token. It goes into that token's canonical vault in the same pool as the committed
+    /// refund vault (created on demand by the pool's permissionless factory), as a note with the
+    /// pre-committed owner and secret. The order's asset, and an ETH order's wrapped native token,
+    /// re-shield through `refund()`. No tip: it was paid with the order's asset.
+    function refundToken(address token, bytes calldata noteData) external nonReentrant {
+        if (block.timestamp < REFUND_AFTER) revert T.TooEarlyToRefund();
+        if (keccak256(noteData) != REFUND_NOTE_DATA_HASH) revert T.NoteDataMismatch();
+        if (token == address(0) || token == ASSET || (ASSET_TYPE == T.ASSET_ETH && token == WRAPPED_NATIVE)) revert T.NotAForeignToken();
+        uint256 amt = IERC20(token).balanceOf(address(this));
+        if (amt == 0) revert T.NothingToRefund();
+        address vault = IVaultFactory(ICoreVaultFactory(IVaultCoreLink(REFUND_VAULT).core()).VAULT_FACTORY()).getOrCreateERC20Vault(token);
+        if (!_approve(token, vault, amt)) revert T.TokenCallFailed();
+        IERC20VaultDeposit(vault).deposit(amt, REFUND_OWNER_COMMITMENT, REFUND_NOTE_SECRET, noteData);
+        emit Refunded(vault, amt, msg.sender);
     }
 
     /// @dev An ETH order may be paid back wrapped (an unfilled Across deposit is refunded to its depositor
@@ -155,8 +188,21 @@ contract SwapOrderEscrow is ReentrancyGuard {
             (bool ok,) = payable(to).call{value: EXECUTOR_TIP}("");
             if (!ok) revert T.TipTransferFailed();
         } else {
-            if (!IERC20(ASSET).transfer(to, EXECUTOR_TIP)) revert T.TipTransferFailed();
+            if (!_transfer(ASSET, to, EXECUTOR_TIP)) revert T.TipTransferFailed();
         }
+    }
+
+    /// @dev Token calls that accept an empty return (USDT-like tokens, which the pool's vaults support)
+    /// and refuse an explicit false (PP-S10: typed calls expecting a bool reverted on USDT, so such an
+    /// order could neither execute nor refund).
+    function _approve(address token, address spender, uint256 amount) private returns (bool) {
+        (bool ok, bytes memory ret) = token.call(abi.encodeWithSelector(IERC20.approve.selector, spender, amount));
+        return ok && (ret.length == 0 || (ret.length == 32 && abi.decode(ret, (bool))));
+    }
+
+    function _transfer(address token, address to, uint256 amount) private returns (bool) {
+        (bool ok, bytes memory ret) = token.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+        return ok && (ret.length == 0 || (ret.length == 32 && abi.decode(ret, (bool))));
     }
 
     function _recover(bytes32 digest, bytes calldata sig) private pure returns (address) {
