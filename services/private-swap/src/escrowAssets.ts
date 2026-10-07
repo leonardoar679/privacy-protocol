@@ -1,16 +1,30 @@
-// What an order's escrow can re-shield on the source chain (SwapOrderEscrow.refund, spec §7): its own
-// asset, and for an ETH order the wrapped native token, which refund() unwraps first. A route that can
-// pay anything else back to the escrow (an unfilled bridge deposit of a token a source swap produced,
-// a swap surplus swept to the refund address) would leave it there for good (PP-S08), so the adapters
-// refuse such routes.
+// What an order's escrow can re-shield on the source chain (SwapOrderEscrow, spec §7): through
+// refund(), its own asset (an ETH order also unwraps WETH); through refundToken(), any other token
+// into that token's canonical vault, which the wallet can only see and spend if the pool has it
+// configured (ERC20_VAULTS, the same setting as the engine's refund vaults). A route that can pay
+// anything else back to the escrow (an unfilled bridge deposit of a token a source swap produced, a
+// swap surplus swept to the refund address) would leave it where nobody re-shields it (PP-S08), so
+// the adapters refuse such routes, and report the foreign token of a route they accept so that the
+// executor re-shields it through refundToken.
 import { WETH } from "./adapters/across";
 import type { AssetRef } from "./types";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-/** Whether `token` (address(0) = native) paid back to the escrow of an order spending `from` would re-shield. */
-export function escrowCanReshield(from: AssetRef, token: string): boolean {
-  const t = token.toLowerCase();
-  if (from.asset === "native") return t === ZERO || t === (WETH[from.chain] ?? ZERO).toLowerCase();
-  return t === from.asset.toLowerCase();
+/** The tokens the pool has a configured canonical vault for (ERC20_VAULTS="0xtoken:0xvault,…"). */
+export function pooledTokens(setting = process.env.ERC20_VAULTS ?? ""): Set<string> {
+  return new Set(setting.split(",").map((e) => e.split(":")[0]?.trim().toLowerCase()).filter((t): t is string => !!t && /^0x[0-9a-f]{40}$/.test(t)));
 }
+
+/** Whether `token` re-shields through refund(): the order's asset, or for an ETH order the wrapped native token. */
+const ownAsset = (from: AssetRef, t: string) => (from.asset === "native" ? t === ZERO || t === (WETH[from.chain] ?? ZERO).toLowerCase() : t === from.asset.toLowerCase());
+
+/** Whether `token` (address(0) = native) paid back to the escrow of an order spending `from` would re-shield. */
+export function escrowCanReshield(from: AssetRef, token: string, pooled = pooledTokens()): boolean {
+  const t = token.toLowerCase();
+  return ownAsset(from, t) || (t !== ZERO && pooled.has(t));
+}
+
+/** The paid-back tokens that need refundToken (not the order's asset, not WETH for ETH): what the executor is told to watch. */
+export const foreignRefundTokens = (from: AssetRef, tokens: string[]): string[] =>
+  [...new Set(tokens.map((t) => t.toLowerCase()))].filter((t) => t !== ZERO && !ownAsset(from, t));

@@ -61,6 +61,8 @@ export interface Ingress {
   minOutEncoded: boolean;
   /** facts the adapter verified locally about provider-supplied calldata (spec §5); absent when the calldata was built locally */
   verified?: string[];
+  /** tokens other than the order's asset this route may pay back to the escrow (a source swap's output): re-shielded through refundToken */
+  refundTokens?: string[];
 }
 
 export type OrderState =

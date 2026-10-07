@@ -20,7 +20,7 @@
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
-import { escrowCanReshield } from "../escrowAssets";
+import { escrowCanReshield, foreignRefundTokens } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { categoryOf, isEvm } from "../types";
 
@@ -101,7 +101,7 @@ export function decodeLifiCall(calldata: string): DecodedLifiCall {
 }
 
 /** Everything checked locally about a LI.FI `transactionRequest` before it may be signed. Throws on the first mismatch; returns the list of verified facts. */
-export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; calldata: `0x${string}`; value: bigint; verified: string[] } {
+export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; calldata: `0x${string}`; value: bigint; verified: string[]; refundTokens: string[] } {
   const tr = q.transactionRequest;
   if (!tr?.to || !tr?.data) throw new Error("LI.FI quote has no transactionRequest");
   if (!req.source) throw new Error("LI.FI: the escrow address (req.source) is required as the sender");
@@ -185,9 +185,9 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
   }
   // what comes back to the escrow is the bridged token: an unfilled Across deposit refunds it, the Mayan facet
   // sweeps the swap surplus in it. A source swap into a token the escrow cannot re-shield would strand it (PP-S08)
-  if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI: the route swaps ${req.from.symbol} into ${bd.sendingAssetId} before bridging; an unfilled deposit or the swap surplus would come back to the escrow in that token, which the escrow cannot re-shield`);
+  if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI: the route swaps ${req.from.symbol} into ${bd.sendingAssetId} before bridging; an unfilled deposit or the swap surplus would come back to the escrow in that token, which the escrow cannot re-shield (the pool has no vault for it)`);
   verified.push("refunds re-shieldable");
-  return { to: diamond, calldata: tr.data as `0x${string}`, value, verified };
+  return { to: diamond, calldata: tr.data as `0x${string}`, value, verified, refundTokens: bd.hasSourceSwaps ? foreignRefundTokens(req.from, [bd.sendingAssetId]) : [] };
 }
 
 export class LifiAdapter implements ProviderAdapter {
@@ -214,7 +214,7 @@ export class LifiAdapter implements ProviderAdapter {
     if (!isAcrossV4Call(call) && !isMayanFacetCall(call)) throw new Error(`LI.FI routed via ${q.tool} (facet ${call.slice(0, 10)}), which this adapter cannot verify: not offered`);
     // ranked only if what can come back to the escrow re-shields (PP-S08; prepareIngress checks it again with the rest)
     const bd = decodeLifiCall(call).bridgeData;
-    if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI routed ${req.from.symbol} through a swap into ${bd.sendingAssetId} before bridging (${q.tool}): an unfilled deposit or the swap surplus would come back to the escrow in that token, which it cannot re-shield: not offered`);
+    if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI routed ${req.from.symbol} through a swap into ${bd.sendingAssetId} before bridging (${q.tool}): an unfilled deposit or the swap surplus would come back to the escrow in that token, which it cannot re-shield (the pool has no vault for it): not offered`);
     const est = q.estimate;
     const toAmount = BigInt(est.toAmount), toAmountMin = BigInt(est.toAmountMin);
     // the claimed minimum must be consistent with the slippage we asked for (a lowered min-out is a changed quote)
@@ -238,7 +238,7 @@ export class LifiAdapter implements ProviderAdapter {
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const v = verifyLifiTransaction(req, quote.raw);
-    return { kind: "contract-call", to: v.to, calldata: v.calldata, value: v.value, expiresAt: quote.expiresAt, minOutEncoded: true, verified: v.verified };
+    return { kind: "contract-call", to: v.to, calldata: v.calldata, value: v.value, expiresAt: quote.expiresAt, minOutEncoded: true, verified: v.verified, ...(v.refundTokens.length ? { refundTokens: v.refundTokens } : {}) };
   }
 
   async track(ref: { sourceTxHash?: string }): Promise<TrackStatus> {
