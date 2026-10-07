@@ -105,6 +105,15 @@ The circuit review found and fixed **PP-C01 (critical)** — anyone who knew a n
 spend it under any key — plus PP-C02/C03 and the privacy defects **PP-P01/P02** (no per-note secret;
 observable phantom inputs). All have executed regressions; see [`docs/circuit-audit.md`](docs/circuit-audit.md).
 
+The swap-path review (2026-10-07) found and fixed five defects, each with a regression test
+([`docs/security-invariants.md`](docs/security-invariants.md), periphery section):
+**PP-S01** LI.FI's Across facet recomputes the bridged output on chain from a multiplier the engine
+did not check, so a tampered API response could deliver about zero; **PP-S02** THORChain memos carried
+no refund address, so a refund would have paid the relayer instead of the escrow; **PP-S03** LI.FI's
+Mayan facet sweeps value to a recipient the engine did not check; **PP-S04** Across refunds an unfilled
+ETH deposit as WETH, which the escrow could not re-shield; **PP-S05** the wallet took the provider
+call's receiver and minimum on the swap service's word.
+
 ## Mobile / desktop
 The shared core is built (`core/rust`, `docs/mobile.md`) and now covers the whole key surface — keystore + recovery phrase + journal ([`docs/wallet-formats.md`](docs/wallet-formats.md): a backup made in the browser opens in the native wallet), BIP-44 / BIP-84 / SLIP-0010 chain keys — with a WASM package for the web; the React Native and Tauri shells need the platform toolchains (Xcode / Android Studio / MSVC) and are the next step on a workstation.
 
