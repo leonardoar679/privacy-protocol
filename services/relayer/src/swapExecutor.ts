@@ -74,6 +74,9 @@ export interface SwapJob { id: string; escrow: Address; factory: Address; params
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
+/** Whether an estimateGas failure is the call reverting (an answer), not the RPC failing (retried next tick). */
+const reverted = (e: unknown) => /revert/i.test(String((e as Error)?.message ?? e));
+const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).split("\n")[0].slice(0, n);
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed"];
 
@@ -294,8 +297,10 @@ export class SwapExecutor {
     try {
       gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.escrow, data });
     } catch (e) {
+      // an RPC failure says nothing about the token: kept, and retried next tick
+      if (!reverted(e)) { this.note(job, `could not estimate refundToken(${f.token}): ${firstLine(e, 160)}; retried next tick`); return false; }
       job.refundTokens = (job.refundTokens ?? []).filter((t) => t.toLowerCase() !== f.token.toLowerCase());
-      job.error = `${f.token} cannot be re-shielded: ${String((e as Error).message).split("\n")[0].slice(0, 160)}`;
+      job.error = `${f.token} cannot be re-shielded: ${firstLine(e, 160)}`;
       job.updatedAt = Date.now();
       this.persist();
       return true;
@@ -327,9 +332,10 @@ export class SwapExecutor {
     try {
       gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data });
     } catch (e) {
-      job.state = "refund-failed"; job.error = `would revert: ${String((e as Error).message).split("\n")[0].slice(0, 200)}`; job.updatedAt = Date.now();
-      this.persist();
-      return true;
+      // during the watch a failed estimate never ends the job (an RPC outage, a balance read racing a refund): retried
+      // next tick, and the watch still ends on time
+      this.note(job, `${reverted(e) ? "would revert" : "could not estimate"}: ${firstLine(e, 200)}; retried next tick`);
+      return false;
     }
     let floor = (BigInt(p.amount) * OWN_FLOOR_BPS) / 10000n;
     if (Number(p.assetType) === 0) { const g = await this.gasFloor(gas); if (g > floor) floor = g; }

@@ -2,7 +2,7 @@
 // ERC-20 escrows are watched through balanceOf, an ETH order paid back in WETH is still refunded, and
 // both journals survive a restart (a new executor / relayer instance resumes the open jobs and keeps
 // the in-flight nullifiers). Mock chain only.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +33,8 @@ let factoryWrappedNative: string | null = null; // null: the factory has no WRAP
 const tokenBalances: Record<string, bigint> = {}; // per-token escrow balances (foreign tokens a provider paid back in)
 let escrowCode = "0x"; // eth_getCode of the escrow
 let refusedToken: string | null = null; // estimateGas reverts for refundToken(this token): its vault refuses it
+let estimateOutage = false; // estimateGas fails like an overloaded RPC (no revert)
+afterEach(() => { estimateOutage = false; }); // a test failing midway must not leave the outage on for the rest
 const selRefundToken = toFunctionSelector("refundToken(address,bytes)");
 const selCore = toFunctionSelector("core()"), selVaultFactory = toFunctionSelector("VAULT_FACTORY()"), selVaultOf = toFunctionSelector("vaultOf(address)");
 const noVault = new Set<string>(); // tokens the refund vault's pool has no vault for
@@ -59,6 +61,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
       return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
     }
     case "eth_estimateGas": {
+      if (estimateOutage) return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "upstream request timeout" } };
       const d = String(req.params[0].data ?? "").toLowerCase();
       if (refusedToken && d.startsWith(selRefundToken) && d.slice(10, 74).endsWith(refusedToken.slice(2).toLowerCase())) return { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: UnsupportedTokenBehavior()" } };
       return res("0x7a120");
@@ -268,6 +271,36 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(String(d.args[0]).toLowerCase()).toBe(LISTED);
     expect(job.refundTokens, "the token with no vault stays listed: anyone may re-shield it").toEqual([LISTED, NOVAULT]);
     escrowCode = "0x"; noVault.clear(); delete tokenBalances[LISTED]; delete tokenBalances[NOVAULT]; receiptStatus = null; raws.length = 0;
+  });
+
+  it("an RPC failure while estimating a late re-shield neither ends the watch nor drops a listed token; it is retried next tick", async () => {
+    const LISTED = "0x00000000000000000000000000000000000000c3";
+    factoryWrappedNative = WETH;
+    const ex = executorWith(undefined, DAY);
+    const req = { ...makeRequest(("0x" + "2d".repeat(32)) as Hex, 1500), refundTokens: [LISTED] as any };
+    const job = await executed(ex, req);
+    escrowCode = "0x6080"; tokenBalances[LISTED] = 2_500_000_000n; wethBalance = 4n * 10n ** 17n; estimateOutage = true;
+    clock = Number(req.params.refundAfter);
+    await ex.tick();
+    expect(raws.length).toBe(0);
+    expect(job.state, "still watched").toBe("executed");
+    expect(job.refundTokens, "the token is kept").toEqual([LISTED]);
+    expect(job.error).toMatch(/retried next tick/);
+    estimateOutage = false;
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    expect(decodeFunctionData({ abi: escrowAbi, data: parseTransaction(raws[0]).data! }).functionName).toBe("refundToken");
+    receiptStatus = "0x1"; await ex.tick(); receiptStatus = null; delete tokenBalances[LISTED];
+    await ex.tick();
+    expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[1]).data! }).functionName, "then the late WETH refund").toBe("deployAndRefund");
+    // and an outage that lasts past the watch does not keep the order open
+    const ex2 = executorWith(undefined, DAY);
+    const job2 = await executed(ex2, makeRequest(("0x" + "2e".repeat(32)) as Hex, 1500));
+    wethBalance = 4n * 10n ** 17n; estimateOutage = true;
+    clock = Number(req.params.refundAfter) + DAY;
+    await ex2.tick();
+    expect(job2.state).toBe("completed");
+    estimateOutage = false; escrowCode = "0x"; wethBalance = 0n; factoryWrappedNative = null; receiptStatus = null; raws.length = 0;
   });
 
   it("refundFloors name listed tokens in base units; a later request only raises a floor; an order lists at most four tokens in all", () => {
