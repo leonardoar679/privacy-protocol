@@ -1,7 +1,8 @@
 // What an order's escrow can re-shield (src/escrowAssets.ts, spec §7, PP-S08): through refund() its own
-// asset (an ETH order also unwraps WETH), through refundToken() a token the pool has a vault for. A
-// route that can pay anything else back to the escrow is refused; the foreign token of a route that is
-// accepted is what the executor re-shields through refundToken. Offline.
+// asset (an ETH order also unwraps WETH), through refundToken() for an ERC-20 order ETH and WETH as ETH,
+// and a token the pool has a vault for. A route that can pay anything else back to the escrow is
+// refused; the foreign asset of a route that is accepted is what the executor re-shields through
+// refundToken. Offline.
 import { describe, it, expect } from "vitest";
 import { escrowCanReshield, foreignRefundTokens, pooledTokens } from "../src/escrowAssets";
 import type { AssetRef } from "../src/types";
@@ -17,16 +18,18 @@ describe("what an escrow can re-shield (spec §7, PP-S08)", () => {
   it("through refund(): the order's asset; an ETH order also its native form and WETH", () => {
     expect([ZERO, WETH, WETH.toLowerCase()].map((t) => escrowCanReshield(ETH, t, new Set()))).toEqual([true, true, true]);
     expect(escrowCanReshield(USDC, USDC.asset.toLowerCase(), new Set())).toBe(true);
-    expect(escrowCanReshield(USDC, WETH, new Set()), "a USDC order does not unwrap WETH").toBe(false);
   });
-  it("through refundToken(): a token the pool has a vault for, and nothing else", () => {
+  it("through refundToken(): for an ERC-20 order ETH and WETH, as ETH with no WETH vault; otherwise a token the pool has a vault for, and nothing else", () => {
+    expect([ZERO, WETH, WETH.toLowerCase()].map((t) => escrowCanReshield(USDC, t, new Set())), "a USDC order re-shields ETH, and WETH unwrapped, into the native vault").toEqual([true, true, true]);
     expect(escrowCanReshield(ETH, USDT, new Set())).toBe(false);
     expect(escrowCanReshield(ETH, USDT, pooled)).toBe(true);
-    expect(escrowCanReshield(USDC, ZERO, pooled), "native value is never a token").toBe(false);
+    expect(escrowCanReshield(USDC, USDT, new Set())).toBe(false);
+    expect(escrowCanReshield(USDC, USDT, pooled)).toBe(true);
   });
-  it("the foreign tokens of a route are those refund() does not take", () => {
+  it("the foreign assets of a route are those refund() does not take; address(0), the escrow's ETH, is listed for an ERC-20 order", () => {
     expect(foreignRefundTokens(ETH, [ZERO, WETH, USDT, USDT.toLowerCase()])).toEqual([USDT.toLowerCase()]);
     expect(foreignRefundTokens(USDC, [USDC.asset, WETH])).toEqual([WETH.toLowerCase()]);
+    expect(foreignRefundTokens(USDC, [ZERO, USDC.asset])).toEqual([ZERO]);
   });
   it("ERC20_VAULTS entries that are not token:vault addresses are ignored", () => {
     expect([...pooledTokens(` ${USDT}:0xv , nonsense, :0x12, 0x123:0x456`)]).toEqual([USDT.toLowerCase()]);

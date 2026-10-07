@@ -225,9 +225,9 @@ describe("Across adapter (live)", () => {
       expect(decodeSwapAndBridge(ing.calldata).depositData.outputAmount, "the minimum is the deposit's output amount").toBe(q.toAmountMin);
     });
   }, 60_000);
-  it("the Uniswap leg to native ETH: USDC (Ethereum) -> ETH (Base): the handler unwraps its WETH and sends the ETH to the fresh address; WETH is what an unfilled deposit comes back in", async () => {
+  it("the Uniswap leg to native ETH: USDC (Ethereum) -> ETH (Base): the handler unwraps its WETH and sends the ETH to the fresh address; an unfilled deposit comes back in WETH, which the escrow re-shields as ETH (no WETH vault)", async () => {
     const usdcToEth: QuoteRequest = { from: USDC_ETH, to: ETH_BASE, amount: 2_000_000_000n, destination: "0x1111111111111111111111111111111111111111", source: ESCROW, slippageBps: 50 };
-    await withVaults(`${USDC_ETH.asset}:0x00000000000000000000000000000000000ca5de,${WETH.ethereum}:0x00000000000000000000000000000000000ca5df`, async () => {
+    await withVaults(`${USDC_ETH.asset}:0x00000000000000000000000000000000000ca5de`, async () => {
       const q = await a.quote(usdcToEth);
       const ing = await a.prepareIngress(usdcToEth, q);
       expect(ing.to).toBe(ACROSS_PERIPHERY.ethereum);
