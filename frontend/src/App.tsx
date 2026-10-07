@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { PrivateBalance } from "./components/PrivateBalance";
 import { Shield } from "./components/Shield";
 import { Send } from "./components/Send";
@@ -10,6 +10,7 @@ import { PrivateAI } from "./components/PrivateAI";
 import { Lock, RecoveryPhrase } from "./components/Lock";
 import { Guest } from "./components/Guest";
 import { deploymentFromEnv } from "./sdk/chain";
+import { coreStatus, subscribeCore } from "./sdk/core";
 import { settings, useSettings } from "./wallet/settings";
 import { session, useSession } from "./wallet/session";
 
@@ -34,6 +35,8 @@ export function App() {
   const [deployment] = useState(() => deploymentFromEnv());
   const [guest, setGuest] = useState(false);
   const { submission, advanced } = useSettings();
+  const core = useSyncExternalStore(subscribeCore, coreStatus);
+  const coreLine = core === "wasm" ? "crypto core: Rust (WASM)" : core === "typescript" ? "crypto core: TypeScript (no WASM package served)" : "crypto core: loads on the first sync";
   const s = useSession();
 
   async function connect() {
@@ -76,7 +79,7 @@ export function App() {
         <div>
           {account ? `Connected: ${account.slice(0, 6)}…${account.slice(-4)}` : "Not connected"}
           <div className="muted" style={{ fontSize: 12 }}>
-            {deployment ? (advanced ? `Core ${deployment.core.slice(0, 8)}… · chain ${deployment.chainId} · ${deployment.rpcUrls.length} RPC endpoint${deployment.rpcUrls.length === 1 ? "" : "s"}` : `chain ${deployment.chainId}`) : "No deployment configured: set VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT (docs/testnet.md)"}
+            {deployment ? (advanced ? `Core ${deployment.core.slice(0, 8)}… · chain ${deployment.chainId} · ${deployment.rpcUrls.length} RPC endpoint${deployment.rpcUrls.length === 1 ? "" : "s"} · ${coreLine}` : `chain ${deployment.chainId}`) : "No deployment configured: set VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT (docs/testnet.md)"}
           </div>
         </div>
         <div className="tabs" style={{ margin: 0 }}>

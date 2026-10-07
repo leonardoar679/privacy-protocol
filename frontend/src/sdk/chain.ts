@@ -6,11 +6,12 @@
 // Env: VITE_RPC_URLS (comma-separated; or VITE_RPC_URL for one), VITE_CORE, VITE_ETH_VAULT,
 // VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36).
 import { createPublicClient, http, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
-import { GROUP_SIZE, MerkleTree, ZERO_LEAF } from "@ref/merkle";
+import { ZERO_LEAF, type MerkleLayers } from "@ref/merkle";
 import { TX_LEVELS } from "@ref/txInputs";
 import { txDomain } from "@ref/payload";
 import { coreAbi, type TxRequest } from "./privacyProtocol";
 import { parseErc20Vaults } from "./assets";
+import { treeLayers } from "./core";
 
 export interface Erc20VaultSpec { symbol: string; token: Address; vault: Address; decimals: number }
 export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[] }
@@ -37,7 +38,7 @@ export const txDomainOf = (d: Deployment): bigint => txDomain(BigInt(d.chainId),
 
 const noteInserted = parseAbiItem("event NoteInserted(uint32 indexed leafIndex, uint256 commitment, bytes noteData)");
 
-export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: number; /** NoteInserted events = notes in the pool (the anonymity set) */ notes: number }
+export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: number; /** NoteInserted events = notes in the pool (the anonymity set) */ notes: number; /** every layer over `leaves`: authentication paths are lookups */ layers: MerkleLayers }
 
 /**
  * Rebuild the tree the core holds: every NoteInserted commitment at its leaf index, ZERO_LEAF in the
@@ -54,23 +55,35 @@ export async function noteInsertedLogs(client: PublicClient, d: Deployment): Pro
   return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment!, noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
 }
 
-export async function syncTree(client: PublicClient, d: Deployment): Promise<TreeState> {
+/** One endpoint's view: the events, the core's leaf count and its current root — not yet hashed. */
+export interface RawView { logs: NoteInsertedLog[]; nextLeafIndex: number; onChainRoot: bigint }
+
+export async function readView(client: PublicClient, d: Deployment): Promise<RawView> {
   const [logs, next, onChainRoot] = await Promise.all([
     noteInsertedLogs(client, d),
     client.readContract({ address: d.core, abi: coreAbi, functionName: "nextLeafIndex" }),
     client.readContract({ address: d.core, abi: coreAbi, functionName: "currentRoot" }),
   ]);
-  const nextLeafIndex = Number(next);
+  return { logs, nextLeafIndex: Number(next), onChainRoot: BigInt(onChainRoot as Hex) };
+}
+
+/**
+ * Hash a view into the tree (every layer in one pass — the Rust core's WASM build when it is served,
+ * the TypeScript reference otherwise) and check it reproduces the core's current root.
+ */
+export async function buildTree(view: RawView): Promise<TreeState> {
+  const { logs, nextLeafIndex, onChainRoot } = view;
   const leaves: bigint[] = Array(nextLeafIndex).fill(ZERO_LEAF);
   for (const l of logs) {
     if (l.leafIndex >= nextLeafIndex) throw new Error(`NoteInserted at ${l.leafIndex} beyond nextLeafIndex ${nextLeafIndex}: stale view`);
     leaves[l.leafIndex] = l.commitment;
   }
-  const tree = new MerkleTree(TX_LEVELS);
-  for (let i = 0; i < nextLeafIndex; i += GROUP_SIZE) tree.insertGroup(leaves.slice(i, i + GROUP_SIZE));
-  if (tree.root !== BigInt(onChainRoot as Hex)) throw new Error("the rebuilt tree does not match the core's current root (missing events or a reorg) — retry");
-  return { leaves: tree.leaves, root: tree.root, nextLeafIndex, notes: logs.length };
+  const layers = await treeLayers(leaves, TX_LEVELS);
+  if (layers.root !== onChainRoot) throw new Error("the rebuilt tree does not match the core's current root (missing events or a reorg) — retry");
+  return { leaves, root: layers.root, nextLeafIndex, notes: logs.length, layers };
 }
+
+export const syncTree = async (client: PublicClient, d: Deployment): Promise<TreeState> => buildTree(await readView(client, d));
 
 /** A content digest of a log set: endpoints must agree on exactly these leaves and payloads. */
 export const logsDigest = (logs: NoteInsertedLog[]): Hex =>
@@ -90,12 +103,17 @@ export async function noteInsertedLogsQuorum(d: Deployment): Promise<NoteInserte
   return all[0];
 }
 
-/** The synced tree, read from every configured endpoint; roots and sizes must agree (plan §38). */
+/**
+ * The synced tree, read from every configured endpoint (plan §38): the views must agree on the leaf
+ * count, the root and every event byte for byte; the agreed view is hashed once.
+ */
 export async function syncTreeQuorum(d: Deployment): Promise<TreeState> {
-  const views = await Promise.all(clientsFor(d).map((c) => syncTree(c, d)));
-  const keys = views.map((v) => `${v.nextLeafIndex}/${v.root.toString(16).slice(0, 10)}`);
+  const views = await Promise.all(clientsFor(d).map((c) => readView(c, d)));
+  const keys = views.map((v) => `${v.nextLeafIndex}/${v.onChainRoot.toString(16).slice(0, 10)}`);
   if (new Set(keys).size !== 1) throw new RpcDisagreement("the tree", keys);
-  return views[0];
+  const digests = views.map((v) => logsDigest(v.logs));
+  if (new Set(digests).size !== 1) throw new RpcDisagreement("the note events", digests.map((x) => x.slice(0, 10)));
+  return buildTree(views[0]);
 }
 
 /** Submit through the injected wallet (public submission — a relayer / private channel is the L3 upgrade). */

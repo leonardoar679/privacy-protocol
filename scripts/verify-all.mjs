@@ -24,17 +24,17 @@ const cargo = process.env.CARGO ?? "cargo";
 const steps = [
   // the Rust core first when requested, so the reference suite's WASM-vs-TypeScript check finds a fresh package
   ...(rust ? [
-    { name: "core/rust (cargo test: 12 vector suites == circuit / contracts / TypeScript / web wallet)", cwd: "core/rust", cmd: cargo, args: ["test"] },
+    { name: "core/rust (cargo test: 14 vector suites == circuit / contracts / TypeScript / web wallet, incl. the layered tree + batch discovery)", cwd: "core/rust", cmd: cargo, args: ["test"] },
     { name: "core/rust (cargo build --target wasm32-unknown-unknown, whole workspace)", cwd: "core/rust", cmd: cargo, args: ["build", "--target", "wasm32-unknown-unknown"] },
     { name: "core/rust WASM package (release + wasm-bindgen → pkg/node, pkg/web)", cwd: "core/rust", cmd: process.execPath, args: ["scripts/build-wasm.mjs"] },
   ] : []),
-  { name: "reference/typescript (60 + 7 WASM-vs-TypeScript when core/rust/pkg exists: primitives, witness, prover vs real artifacts, envelope + address, reorg, chain keys, scorecard)", cwd: "reference/typescript", cmd: npx, args: ["vitest", "run"] },
+  { name: "reference/typescript (63 + 9 WASM-vs-TypeScript when core/rust/pkg exists: primitives, witness, layered tree, prover vs real artifacts, envelope + address, reorg, chain keys, scorecard, the sync batches)", cwd: "reference/typescript", cmd: npx, args: ["vitest", "run"] },
   { name: "services/private-swap typecheck (tsc --noEmit)", cwd: "services/private-swap", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
   { name: "services/private-swap offline (33: state machine, scoring, privacy score, endpoints == forge, restore, unit)", cwd: "services/private-swap", cmd: npx, args: ["vitest", "run", "test/engine-core.test.ts", "test/endpoints.test.ts", "test/restore.test.ts", "test/chainflip-unit.test.ts", "test/mayan-unit.test.ts"] },
   ...(live ? [{ name: "services/private-swap LIVE (66: adapters, adversarial, privacy flow, guest deposit)", cwd: "services/private-swap", cmd: npx, args: ["vitest", "run", "test/adapters-live.test.ts", "test/adversarial.test.ts", "test/privacy-flow.test.ts", "test/guest.test.ts"] }] : []),
   { name: "services/relayer typecheck (tsc --noEmit)", cwd: "services/relayer", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
   { name: "services/relayer (27: submission vs forge e2e tx, ERC-20 fee vaults, swap executor vs forge vector, journals, limits)", cwd: "services/relayer", cmd: npx, args: ["vitest", "run"] },
-  { name: "frontend tests (52: keystore + journal + at-rest vectors, ERC-20 assets + fee terms + relayer failover, fresh addresses, RPC quorum, first launch, scheduling, zkAPI policy + capability failures, planning, merges, relayer client)", cwd: "frontend", cmd: npx, args: ["vitest", "run"] },
+  { name: "frontend tests (57: the Rust core path and the TypeScript path through sync / discovery / planning, keystore + journal + at-rest vectors, ERC-20 assets + fee terms + relayer failover, fresh addresses, RPC quorum, first launch, scheduling, zkAPI policy + capability failures, planning, merges, relayer client)", cwd: "frontend", cmd: npx, args: ["vitest", "run"] },
   { name: "frontend build (tsc -b + vite build)", cwd: "frontend", cmd: npm, args: ["run", "build"] },
   ...(solc ? [{ name: "contracts (forge: 87 incl. real-proof e2e + swap periphery)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
 ];

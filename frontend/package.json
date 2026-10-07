@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "zkapi:assets": "node scripts/build-zkapi-assets.mjs",
     "zkapi:pins": "node scripts/check-zkapi-pins.mjs",
+    "core:assets": "node scripts/copy-core-assets.mjs",
     "test": "vitest run"
   },
   "dependencies": {

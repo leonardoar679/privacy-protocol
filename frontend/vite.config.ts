@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 
 /**
  * Serves the circuit artifacts the in-browser prover fetches (`/artifacts/*`) straight from
@@ -31,8 +31,33 @@ function circuitArtifacts(): Plugin {
   };
 }
 
+/**
+ * Serves the Rust core's WASM package (`/core/*`) straight from ../core/rust/pkg/web in dev (built by
+ * core/rust/scripts/build-wasm.mjs). A production build takes it from public/core (`npm run
+ * core:assets`); when neither exists the wallet runs the TypeScript reference instead (src/sdk/core.ts).
+ */
+function coreWasm(): Plugin {
+  const dir = fileURLToPath(new URL("../core/rust/pkg/web", import.meta.url));
+  const types: Record<string, string> = { ".js": "text/javascript", ".wasm": "application/wasm" };
+  return {
+    name: "core-wasm",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? "").split("?")[0];
+        if (!url.startsWith("/core/")) return next();
+        const name = url.slice("/core/".length);
+        if (!/^[\w.-]+$/.test(name) || !(extname(name) in types)) return next();
+        const p = join(dir, name);
+        if (!existsSync(p)) return next(); // then public/core, then 404 → the TypeScript path
+        res.setHeader("content-type", types[extname(name)]);
+        createReadStream(p).pipe(res);
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), circuitArtifacts()],
+  plugins: [react(), circuitArtifacts(), coreWasm()],
   resolve: {
     alias: {
       // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is

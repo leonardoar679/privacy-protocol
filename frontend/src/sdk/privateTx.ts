@@ -15,9 +15,11 @@ import { noteDataHash } from "@ref/payload";
 import { FIELD } from "@ref/field";
 import { selectInputs } from "@ref/wallet/amounts";
 import { buildTxInputs, type SpendNote, type TxSpec } from "@ref/txInputs";
-import { dummyNoteData, encryptNoteData, noteFromPayload, viewKeyPair } from "@ref/envelope";
+import { dummyNoteData, encryptNoteData, viewKeyPair } from "@ref/envelope";
 import { decodePrivacyAddress, encodePrivacyAddress } from "@ref/address";
 import { nullifier } from "@ref/nullifier";
+import { MerkleLayers } from "@ref/merkle";
+import { discoverNotes } from "./core";
 import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
@@ -44,6 +46,10 @@ const encryptForSelf = (keys: WalletKeys, note: Note): Hex => encryptTo(viewKeyP
 
 /** A dummy output (spec §5.5): random owner nobody holds, amount 0, random secret. */
 const dummy = (vaultId: bigint): Note => ({ vaultId, amount: 0n, ownerCommitment: randomField(), noteSecret: randomField() });
+
+/** A plan takes the synced tree (its layers: proofs are lookups) or bare leaves (the layers are then built while proving). */
+export type TreeArg = bigint[] | MerkleLayers;
+const treeSpec = (t: TreeArg): { leaves: bigint[]; tree?: MerkleLayers } => (t instanceof MerkleLayers ? { leaves: t.leaves, tree: t } : { leaves: t });
 
 export interface Progress { onStatus?: ProveStatus; submission?: Submission }
 
@@ -115,14 +121,14 @@ const feeNote = (vaultId: bigint, fee: FeeTerms): Note => ({ vaultId, amount: fe
  * Pick ≤ 2 of our notes, build the 2-in/3-out spec: withdrawal to `recipient`, change back to us
  * (encrypted to us), the relayer's fee note (encrypted to the relayer) when submitting privately, dummies.
  */
-export function planWithdrawal(masterSeed: Uint8Array, leaves: bigint[], vaultId: bigint, amount: bigint, recipient: bigint, domain: bigint, fee?: FeeTerms): WithdrawalPlan {
+export function planWithdrawal(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint, amount: bigint, recipient: bigint, domain: bigint, fee?: FeeTerms): WithdrawalPlan {
   const keys = deriveKeys(masterSeed);
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, amount + (fee?.amount ?? 0n));
   const change = changeNote(keys, vaultId, changeAmount);
   const feeOut: FeeOutput | undefined = fee ? { note: feeNote(vaultId, fee), outputIndex: 1 } : undefined;
   const outputs: [Note, Note, Note] = [change?.note ?? dummy(vaultId), feeOut?.note ?? dummy(vaultId), dummy(vaultId)];
   const noteData: [Hex, Hex, Hex] = [change?.noteData ?? placeholderNoteData(), feeOut ? encryptTo(fee!.viewPub, feeOut.note) : placeholderNoteData(), placeholderNoteData()];
-  const spec: TxSpec = { leaves, inputs, outputs, withdrawal: { vault: vaultId, amount, recipient }, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: domain };
+  const spec: TxSpec = { ...treeSpec(tree), inputs, outputs, withdrawal: { vault: vaultId, amount, recipient }, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: domain };
   return { spec, noteData, spent, change, fee: feeOut };
 }
 
@@ -204,7 +210,7 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   const tree = await syncTreeQuorum(o.deployment);
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
-  const plan = planWithdrawal(o.masterSeed, tree.leaves, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
+  const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
   return submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
 }
 
@@ -215,7 +221,7 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
 export interface MergePlan { spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; merged: { note: Note; noteData: Hex; counter: number }; fee?: FeeOutput }
 
 /** Merge two of our notes into one (minus the fee note when there is one). Pure. */
-export function planMerge(masterSeed: Uint8Array, leaves: bigint[], vaultId: bigint, a: OwnedNote, b: OwnedNote, domain: bigint, fee?: FeeTerms): MergePlan {
+export function planMerge(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint, a: OwnedNote, b: OwnedNote, domain: bigint, fee?: FeeTerms): MergePlan {
   const keys = deriveKeys(masterSeed);
   const total = a.note.amount + b.note.amount - (fee?.amount ?? 0n);
   if (total <= 0n) throw new Error("the notes do not even cover the relayer fee");
@@ -226,7 +232,7 @@ export function planMerge(masterSeed: Uint8Array, leaves: bigint[], vaultId: big
   const feeOut: FeeOutput | undefined = fee ? { note: feeNote(vaultId, fee), outputIndex: 1 } : undefined;
   const noteData: [Hex, Hex, Hex] = [merged.noteData, feeOut ? encryptTo(fee!.viewPub, feeOut.note) : placeholderNoteData(), placeholderNoteData()];
   const spec: TxSpec = {
-    leaves, inputs: [asSpend(a), asSpend(b)], outputs: [mergedNote, feeOut?.note ?? dummy(vaultId), dummy(vaultId)],
+    ...treeSpec(tree), inputs: [asSpend(a), asSpend(b)], outputs: [mergedNote, feeOut?.note ?? dummy(vaultId), dummy(vaultId)],
     withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: domain,
   };
   return { spec, noteData, spent: [a, b], merged, fee: feeOut };
@@ -260,7 +266,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   o.onStatus?.(`Merging two notes (${o.a.leafIndex} + ${o.b.leafIndex}) privately…`);
   const tree = await syncTreeQuorum(o.deployment);
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
-  const plan = planMerge(o.masterSeed, tree.leaves, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
+  const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
   noteStore.add(merged);
@@ -313,7 +319,7 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   const fee: FeeOutput | undefined = terms ? { note: feeNote(vaultId, terms.fee), outputIndex: 2 } : undefined;
   const noteData: [Hex, Hex, Hex] = [encryptTo(to.viewPub, recipientNote), change?.noteData ?? placeholderNoteData(), fee ? encryptTo(terms!.fee.viewPub, fee.note) : placeholderNoteData()];
   const spec: TxSpec = {
-    leaves: tree.leaves, inputs, outputs: [recipientNote, change?.note ?? dummy(vaultId), fee?.note ?? dummy(vaultId)],
+    leaves: tree.leaves, tree: tree.layers, inputs, outputs: [recipientNote, change?.note ?? dummy(vaultId), fee?.note ?? dummy(vaultId)],
     withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: txDomainOf(o.deployment),
   };
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec, noteData, spent, change, fee, extra: recipientNote });
@@ -327,25 +333,24 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
  */
 export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number }> {
   const keys = deriveKeys(o.masterSeed);
-  const view = viewKeyPair(keys.viewKey);
-  const oc = ownerCommitmentOf(keys.spendKey);
   const client = clientFor(o.deployment);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const logs = await noteInsertedLogsQuorum(o.deployment);
   poolStats.set({ notes: logs.length, leaves: logs.reduce((m, l) => Math.max(m, l.leafIndex + 1), 0) });
+  const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
+  const hits = await discoverNotes(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
   let found = 0, added = 0, spentCount = 0;
-  for (const l of logs) {
-    const note = noteFromPayload(view, oc, l.leafIndex, l.commitment, hexToBytes(l.noteData));
-    if (!note) continue;
+  for (const { leafIndex, note } of hits) {
+    const l = byLeaf.get(leafIndex)!;
     found++;
     const spent = (await client.readContract({ address: o.deployment.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nullifier(l.commitment, keys.spendKey)] })) as boolean;
     if (spent) spentCount++;
-    const known = noteStore.all().find((n) => n.leafIndex === l.leafIndex);
+    const known = noteStore.all().find((n) => n.leafIndex === leafIndex);
     if (known) {
-      if (spent && !known.spent) noteStore.markSpent([l.leafIndex]);
+      if (spent && !known.spent) noteStore.markSpent([leafIndex]);
       continue;
     }
-    noteStore.add({ note, leafIndex: l.leafIndex, noteData: l.noteData, spent, txHash: l.transactionHash, label: "discovered" });
+    noteStore.add({ note, leafIndex, noteData: l.noteData, spent, txHash: l.transactionHash, label: "discovered" });
     added++;
   }
   o.onStatus?.(`Scanned ${logs.length} payloads: ${found} ours (${added} new, ${spentCount} spent).`);

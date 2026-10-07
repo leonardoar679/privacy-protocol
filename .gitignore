@@ -18,6 +18,8 @@ __pycache__/
 *.pyc
 # generated zkAPI SDK assets (npm run zkapi:assets)
 frontend/public/zkapi/
+# the Rust core WASM package copied for a build (npm run core:assets)
+frontend/public/core/
 frontend/tsconfig.tsbuildinfo
 
 # Rust core build output
