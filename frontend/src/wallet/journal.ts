@@ -39,6 +39,8 @@ export interface JournalData {
   swaps: StoredSwap[];
   schedule: ScheduledAction[];
   settings?: Record<string, unknown>;
+  /** the light client's last verified store (plan §38), so the next sync resumes from it instead of trusting a beacon API again */
+  lightClient?: { chainId: string; snapshot: unknown };
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

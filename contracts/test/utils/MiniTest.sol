@@ -22,6 +22,7 @@ interface Vm {
     function toString(uint256) external pure returns (string memory);
     function toString(bytes32) external pure returns (string memory);
     function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
+    function load(address target, bytes32 slot) external view returns (bytes32);
 }
 
 abstract contract Test {

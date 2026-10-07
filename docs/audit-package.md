@@ -49,7 +49,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 | circuits | KAT 18, soundness 17 (negative witnesses), Groth16 harness 14 | `circuits/README.md` |
 | reference | TypeScript 72 (vitest, incl. 9 WASM-vs-TypeScript), Python 31 (vectors); five implementations agree on every primitive | `npm test` in `reference/typescript`, `python reference/python/test_vectors.py` |
 | Rust core + native prover + FFI | 11 Python tests over the generated UniFFI bindings (`core/rust/privacy-ffi`), 14 vector suites (`core/rust/privacy-core`), 12 prover tests (`core/rust/privacy-prover`: a witness proving another statement refused, the native witness == snarkjs' and the soundness manifest's verdicts, the zkey parses to the published key, native ⇄ snarkjs proofs verified both ways), wasm32 build | `cargo test` in `core/rust` (after `node core/rust/scripts/gen-prover-fixtures.mjs`), `node core/rust/scripts/ffi-bindings.mjs` |
-| wallet | 114 vitest (a refused or cancelled order returned by a refund-only job; the walletless deposit instruction checked in the browser; the Swap screen clicked through against the real engine; the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
+| wallet | 126 vitest + 6 live (the light client: sync committees, BLS, Gloas/Fulu formats, header by hash, storage proofs, the pool check before every transaction; a refused or cancelled order returned by a refund-only job; the walletless deposit instruction checked in the browser; the Swap screen clicked through against the real engine; the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
 | private-swap engine | 106 vitest: 39 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset), 20 live adapter quotes, **42 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping), 4 flow (§72, incl. USDC-sourced orders), 1 guest deposit — `docs/test-matrix.md` | `npm test` (network) |
 | privacy | lab (`benchmarks/privacy/results.json`), cross-chain lab (`benchmarks/privacy/crosschain.json`) | `docs/privacy-lab.md` |
 | relayer | 27 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector, journals, limits | `cd services/relayer && npm test` |
@@ -93,7 +93,11 @@ can be malicious without touching shielded funds, and the tests in §3 try to pr
 4. Engine and wallet: is anything the order key signs still taken on trust from a provider API or
    the swap service after the checks in `docs/test-matrix.md` (both §74 tables)? In particular the
    decoders in `frontend/src/sdk/providerCall.ts` against the deployed provider contracts.
-5. Key derivation: domain separation between spend / view / note / order keys and the refund note
+5. Light client (`frontend/src/sdk/lightclient/`): the update validation against consensus-specs
+   (participation threshold 2/3, period rules, generalized indices per format, the Gloas execution
+   block hash being the bid's parent hash), the trust-on-first-use bootstrap cross-check, and the
+   12-period limit on resuming a saved store.
+6. Key derivation: domain separation between spend / view / note / order keys and the refund note
    secrets (`reference/typescript/src/keys.ts`, `frontend/src/keys/swapKeys.ts`).
 
 ## 7. Deliverables expected from the engagement

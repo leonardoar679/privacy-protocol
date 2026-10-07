@@ -12,6 +12,8 @@ import { Guest } from "./components/Guest";
 import { deploymentFromEnv } from "./sdk/chain";
 import { coreStatus, subscribeCore } from "./sdk/core";
 import { settings, useSettings } from "./wallet/settings";
+import { specForChain } from "./sdk/lightclient/spec";
+import { useVerifyStatus } from "./sdk/verifiedReads";
 import { session, useSession } from "./wallet/session";
 
 // The wallet (plan §35, §76–§77): four everyday actions — Send, Receive, Swap, Pay — plus Shield and
@@ -34,8 +36,13 @@ export function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [deployment] = useState(() => deploymentFromEnv());
   const [guest, setGuest] = useState(false);
-  const { submission, advanced } = useSettings();
+  const { submission, advanced, verifyReads } = useSettings();
   const core = useSyncExternalStore(subscribeCore, coreStatus);
+  const vs = useVerifyStatus();
+  const readsLine = !verifyReads ? "Off: the pool is read from the RPC endpoints' agreement alone."
+    : !deployment || !specForChain(deployment.chainId) ? `No light client for chain ${deployment?.chainId ?? "?"} (a local devnet): reads rest on the RPC endpoints' agreement.`
+    : vs.kind === "verified" ? `Verified at finalized block ${vs.proof.blockNumber}: ${vs.proof.nextLeafIndex} of ${vs.leaves} leaves proven (newer ones rest on the RPC endpoints until finality).`
+    : "Checked before every transaction (beacon light client + storage proofs).";
   const coreLine = core === "wasm" ? "crypto core: Rust (WASM)" : core === "typescript" ? "crypto core: TypeScript (no WASM package served)" : "crypto core: loads on the first sync";
   const s = useSession();
 
@@ -98,6 +105,10 @@ export function App() {
 
       {advanced && (
         <div className="panel">
+          <label>
+            <input type="checkbox" checked={verifyReads} onChange={(e: any) => settings.set({ verifyReads: e.target.checked })} /> Verify the pool with the Ethereum light client before every transaction
+          </label>
+          <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>{readsLine}</p>
           <label>Submission of private transactions</label>
           <select value={submission.kind} onChange={(e: any) => settings.set({ submission: e.target.value === "relayer" ? { kind: "relayer", url: submission.kind === "relayer" ? submission.url : "http://127.0.0.1:8790" } : { kind: "wallet" } })}>
             <option value="relayer">Relayer (private: paid by a private fee note; your address never submits)</option>

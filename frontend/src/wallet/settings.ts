@@ -9,9 +9,11 @@ export interface Settings {
   submission: Submission;
   /** plan §76–§77: the default screens hide Merkle / nullifier / proof / relayer detail; advanced users switch it on */
   advanced: boolean;
+  /** plan §38: check every synced tree against the pool root an Ethereum light client proves (on chains it serves) */
+  verifyReads: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { submission: { kind: "relayer", url: DEFAULT_RELAYER_URL }, advanced: false };
+export const DEFAULT_SETTINGS: Settings = { submission: { kind: "relayer", url: DEFAULT_RELAYER_URL }, advanced: false, verifyReads: true };
 
 class SettingsStore {
   private state: Settings = DEFAULT_SETTINGS;

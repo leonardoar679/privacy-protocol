@@ -12,7 +12,7 @@ import { LightClient, LightClientError, beaconApi, type LightClientBootstrap, ty
 import { verifyAccount, verifyHeader, verifyStorage, type AccountProof, type VerifiedAccount, type VerifiedHeader } from "./execution";
 import { currentSlot, periodAtSlot, type BeaconChainSpec } from "./spec";
 
-export { LightClient, LightClientError } from "./beacon";
+export { LightClient, LightClientError, type StoreSnapshot } from "./beacon";
 export { ProofError, mappingSlot } from "./execution";
 export { MAINNET, SEPOLIA, specForChain, type BeaconChainSpec } from "./spec";
 

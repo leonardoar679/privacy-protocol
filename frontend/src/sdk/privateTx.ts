@@ -27,6 +27,7 @@ import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreA
 import { clientFor, noteInsertedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncTreeQuorum, txDomainOf, type Deployment } from "./chain";
 import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
+import { verifyTree } from "./verifiedReads";
 
 const toHex = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
 const randomField = (): bigint => { const b = new Uint8Array(32); crypto.getRandomValues(b); return BigInt(toHex(b)) % FIELD; };
@@ -209,6 +210,7 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   const tree = await syncTreeQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
   return submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
@@ -265,6 +267,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   const terms = await feeTerms(o.deployment, submission, vault);
   o.onStatus?.(`Merging two notes (${o.a.leafIndex} + ${o.b.leafIndex}) privately…`);
   const tree = await syncTreeQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
@@ -312,6 +315,7 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   const tree = await syncTreeQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, o.amount + (terms?.fee.amount ?? 0n));
   const recipientNote: Note = { vaultId, amount: o.amount, ownerCommitment: to.ownerCommitment, noteSecret: randomField() };
