@@ -29,7 +29,8 @@ const steps = [
   ...(rust ? [
     ...(circuitsBuilt ? [{ name: "native prover fixtures (snarkjs witnesses + proofs of the v1 fixtures → circuits/build/prover-fixtures)", cwd: ".", cmd: process.execPath, args: ["core/rust/scripts/gen-prover-fixtures.mjs"] }] : []),
     { name: `core/rust (cargo test: 14 vector suites == circuit / contracts / TypeScript / web wallet + ${circuitsBuilt ? "11 native witness + prover tests on the real circuit and key" : "the native prover SKIPPED: no circuits/build"})`, cwd: "core/rust", cmd: cargo, args: ["test"], env: circuitsBuilt ? { PRIVACY_PROVER_REQUIRE_ARTIFACTS: "1" } : {} },
-    { name: "core/rust (cargo build --target wasm32-unknown-unknown, whole workspace)", cwd: "core/rust", cmd: cargo, args: ["build", "--target", "wasm32-unknown-unknown"] },
+    { name: "core/rust FFI (UniFFI: Swift + Kotlin + Python generated from the compiled library; 11 Python tests over it incl. the EVM-verified native proof)", cwd: ".", cmd: process.execPath, args: ["core/rust/scripts/ffi-bindings.mjs"], env: circuitsBuilt ? { PRIVACY_PROVER_REQUIRE_ARTIFACTS: "1" } : {} },
+    { name: "core/rust (cargo build --target wasm32-unknown-unknown, the workspace minus the native-only FFI crates)", cwd: "core/rust", cmd: cargo, args: ["build", "--target", "wasm32-unknown-unknown", "--workspace", "--exclude", "privacy-ffi", "--exclude", "uniffi-bindgen"] },
     { name: "core/rust WASM package (release + wasm-bindgen → pkg/node, pkg/web)", cwd: "core/rust", cmd: process.execPath, args: ["scripts/build-wasm.mjs"] },
   ] : []),
   { name: "reference/typescript (63 + 9 WASM-vs-TypeScript when core/rust/pkg exists: primitives, witness, layered tree, prover vs real artifacts, envelope + address, reorg, chain keys, scorecard, the sync batches)", cwd: "reference/typescript", cmd: npx, args: ["vitest", "run"] },
@@ -53,7 +54,7 @@ for (const s of steps) {
   const cargoRuns = [...out.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
   const summary = cargoRuns.length > 1
     ? `cargo: ${cargoRuns.reduce((n, m) => n + Number(m[1]), 0)} passed, ${cargoRuns.reduce((n, m) => n + Number(m[2]), 0)} failed across ${cargoRuns.length} test binaries`
-    : out.match(/Tests\s+[^\n]*|Ran \d+ test suites[^\n]*|✓ built in [^\n]*|test result: [^\n]*|Finished `[^\n]*|pkg\/node \+ pkg\/web written[^\n]*|written to [^\n]*/g)?.slice(-1)[0]?.trim();
+    : out.match(/Tests\s+[^\n]*|Ran \d+ test suites[^\n]*|✓ built in [^\n]*|test result: [^\n]*|Finished `[^\n]*|pkg\/node \+ pkg\/web written[^\n]*|written to [^\n]*|bindings generated[^\n]*|Ran \d+ tests in [^\n]*/g)?.slice(-1)[0]?.trim();
   results.push({ ...s, ok: r.status === 0, ms: Date.now() - t0, note: summary ?? (r.status === 0 ? "ok" : out.split("\n").filter((l) => /error|FAIL|×/i.test(l)).slice(0, 3).join(" | ")) });
   console.log(`${r.status === 0 ? "PASS" : "FAIL"}  ${s.name}  (${((Date.now() - t0) / 1000).toFixed(0)} s)  ${summary ?? ""}`);
 }
