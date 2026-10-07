@@ -7,7 +7,8 @@
 import { describe, it, expect } from "vitest";
 import { withTamper, replaceHex, setWord, leHex32, padAddress } from "./helpers/tamper";
 import { ThorchainAdapter, THORNODE_URLS, THORNODE_QUORUM, inboundQuorum } from "../src/adapters/thorchain";
-import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall, isAcrossV4Call } from "../src/adapters/lifi";
+import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall, isAcrossV4Call, verifyLifiTransaction } from "../src/adapters/lifi";
+import { escrowCanReshield } from "../src/escrowAssets";
 import { ChainflipAdapter } from "../src/adapters/chainflip";
 import { MayanAdapter } from "../src/adapters/mayan";
 import { NearIntentsAdapter } from "../src/adapters/nearIntents";
@@ -162,27 +163,43 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 3 * 32, padAddress(ATTACKER)))).rejects.toThrow(/receivingAssetId/);
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 1 * 32, padAddress(ATTACKER)))).rejects.toThrow(/refundAddress/);
   }, 90_000);
-  it("Mayan facet (ETH → SOL): nonEVMReceiver rewritten → refused; unverifiable min-out → refused by the engine under best-privacy", async () => {
-    const reqSol: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 50 };
-    const q = await a.quote(reqSol);
-    if ((q.raw as any).tool !== "mayan") return;
-    let ing;
-    try { ing = await a.prepareIngress(reqSol, q); } catch (e) { if (/destination call/.test(String(e))) return; throw e; }
-    expect(ing.verified).toContain("receiver (mayan nonEVMReceiver)");
-    await expect(withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => { const b = structuredClone(q.raw) as any; b.transactionRequest.data = setWord(b.transactionRequest.data, 4 + facetOff(b.transactionRequest.data), "ab".repeat(32)); return b; } }], async () => a.prepareIngress(reqSol, await a.quote(reqSol)))).rejects.toThrow(/nonEVMReceiver/);
+  // one live ETH → SOL quote for both Mayan facet tests, read as LI.FI answered it (quote() may refuse it: PP-S08)
+  const reqSol: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 50 };
+  let solRaw: Promise<any> | undefined;
+  const rawSol = () => (solRaw ??= a.rawQuote(reqSol));
+  const mayanWord = (raw: any, word: number, v: bigint | string) => { const b = structuredClone(raw); b.transactionRequest.data = setWord(b.transactionRequest.data, 4 + facetOff(b.transactionRequest.data) + word * 32, v); return b; };
+  it("Mayan facet (ETH → SOL): nonEVMReceiver rewritten → refused; a swap into a token the escrow cannot re-shield → not offered; unverifiable min-out → refused by the engine under best-privacy", async () => {
+    const raw = await rawSol();
+    if (raw.tool !== "mayan") { console.info(`LI.FI routed ETH -> SOL via ${raw.tool}, not the Mayan facet: nothing to check here`); return; }
+    expect(() => verifyLifiTransaction(reqSol, mayanWord(raw, 0, "ab".repeat(32)))).toThrow(/nonEVMReceiver/);
+    const bd = decodeLifiCall(raw.transactionRequest.data).bridgeData;
+    const asQuoted = () => withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => structuredClone(raw) }], () => a.quote(reqSol));
+    if (bd.hasSourceSwaps && !escrowCanReshield(ETH, bd.sendingAssetId)) {
+      // LI.FI swaps ETH into another token before Mayan: the facet sweeps the surplus to the escrow in it (PP-S08)
+      console.info(`LI.FI's ETH -> SOL Mayan route swaps into ${bd.sendingAssetId} first: not offered (PP-S08)`);
+      expect(() => verifyLifiTransaction(reqSol, raw)).toThrow(/cannot re-shield/);
+      await expect(asQuoted()).rejects.toThrow(/cannot re-shield/);
+      return;
+    }
+    let verified: string[];
+    try { verified = verifyLifiTransaction(reqSol, raw).verified; } catch (e) { if (/destination call/.test(String(e))) return; throw e; }
+    expect(verified).toContain("receiver (mayan nonEVMReceiver)");
+    const q = await asQuoted();
     expect(q.minOutVerified).toBe(false);
     const engine = defaultEngine();
     const order = engine.buildOrder(reqSol, "best-privacy", q, KEYS);
     await expect(engine.prepareExecution(order, a)).rejects.toThrow(/cannot be verified locally/);
   }, 90_000);
   it("Mayan facet: refundRecipient swapped or mayanAmountIn lowered (the facet sweeps the rest there) → refused", async () => {
-    const reqSol: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 50 };
-    const q = await a.quote(reqSol);
-    if ((q.raw as any).tool !== "mayan") return;
-    const mut = (word: number, v: bigint | string) => withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => { const b = structuredClone(q.raw) as any; b.transactionRequest.data = setWord(b.transactionRequest.data, 4 + facetOff(b.transactionRequest.data) + word * 32, v); return b; } }], async () => a.prepareIngress(reqSol, await a.quote(reqSol)));
-    await expect(mut(7, padAddress(ATTACKER))).rejects.toThrow(/refundRecipient/);
-    await expect(mut(8, 1n)).rejects.toThrow(/mayanAmountIn/);
+    const raw = await rawSol();
+    if (raw.tool !== "mayan") return;
+    expect(() => verifyLifiTransaction(reqSol, mayanWord(raw, 7, padAddress(ATTACKER)))).toThrow(/refundRecipient/);
+    expect(() => verifyLifiTransaction(reqSol, mayanWord(raw, 8, 1n))).toThrow(/mayanAmountIn/);
   }, 90_000);
+  it("a source swap into a token the escrow cannot re-shield (here USDT) → not offered: an unfilled deposit would refund it into the ETH escrow (PP-S08)", async () => {
+    const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"; // what LI.FI swapped ETH into for ETH → USDC (Base) on 2026-10-07
+    await expect(mutData((d) => setWord(setWord(d, 4 + bdOff(d) + 4 * 32, padAddress(USDT)), 4 + facetOff(d) + 2 * 32, padAddress(USDT)))).rejects.toThrow(/cannot re-shield/);
+  }, 60_000);
   it("a facet this adapter cannot read is not offered, under any policy", async () => {
     const { req, q } = await verifiablePair();
     await expect(withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => { const b = structuredClone(q.raw) as any; b.transactionRequest.data = "0xdeadbeef" + b.transactionRequest.data.slice(10); return b; } }], () => a.quote(req))).rejects.toThrow(/cannot verify/);

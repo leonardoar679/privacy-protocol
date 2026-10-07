@@ -20,6 +20,7 @@
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
+import { escrowCanReshield } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { categoryOf, isEvm } from "../types";
 
@@ -182,6 +183,10 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
     }
     verified.push("refund=escrow", "receiving asset", "min-out");
   }
+  // what comes back to the escrow is the bridged token: an unfilled Across deposit refunds it, the Mayan facet
+  // sweeps the swap surplus in it. A source swap into a token the escrow cannot re-shield would strand it (PP-S08)
+  if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI: the route swaps ${req.from.symbol} into ${bd.sendingAssetId} before bridging; an unfilled deposit or the swap surplus would come back to the escrow in that token, which the escrow cannot re-shield`);
+  verified.push("refunds re-shieldable");
   return { to: diamond, calldata: tr.data as `0x${string}`, value, verified };
 }
 
@@ -193,15 +198,23 @@ export class LifiAdapter implements ProviderAdapter {
     return { routes: ["B", "C", "D", "E"], ingress: ["contract-call"], nativeAssets: false, atomic: false, chains: ["ethereum", "base", "arbitrum", "bsc", "avalanche", "optimism", "polygon", "solana", "bitcoin"], destinationLinkPublic: true, linkEvidence: "the bridge call carries the receiver (bridgeData.receiver, decoded locally before signing)" };
   }
 
-  async quote(req: QuoteRequest): Promise<Quote> {
+  /** LI.FI's quote as it answered, unchecked: what quote() ranks and prepareIngress verifies. */
+  async rawQuote(req: QuoteRequest): Promise<any> {
     const fromChain = CHAIN_ID[req.from.chain], toChain = CHAIN_ID[req.to.chain];
     if (!fromChain || !toChain) throw new Error(`LI.FI does not support ${req.from.chain} -> ${req.to.chain}`);
     // fromAddress = the one-time escrow (the diamond's msg.sender); the SDK needs an address to quote
     const fromAddress = req.source ?? "0x000000000000000000000000000000000000dEaD";
     const qs = new URLSearchParams({ fromChain, toChain, fromToken: lifiToken(req.from), toToken: lifiToken(req.to), fromAmount: req.amount.toString(), fromAddress, toAddress: req.destination, slippage: (req.slippageBps / 10000).toString(), allowBridges: LIFI_READABLE_BRIDGES.join(",") });
-    const { data: q } = await lifi<any>(`/quote?${qs}`);
+    return (await lifi<any>(`/quote?${qs}`)).data;
+  }
+
+  async quote(req: QuoteRequest): Promise<Quote> {
+    const q = await this.rawQuote(req);
     const call = String(q.transactionRequest?.data ?? "");
     if (!isAcrossV4Call(call) && !isMayanFacetCall(call)) throw new Error(`LI.FI routed via ${q.tool} (facet ${call.slice(0, 10)}), which this adapter cannot verify: not offered`);
+    // ranked only if what can come back to the escrow re-shields (PP-S08; prepareIngress checks it again with the rest)
+    const bd = decodeLifiCall(call).bridgeData;
+    if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI routed ${req.from.symbol} through a swap into ${bd.sendingAssetId} before bridging (${q.tool}): an unfilled deposit or the swap surplus would come back to the escrow in that token, which it cannot re-shield: not offered`);
     const est = q.estimate;
     const toAmount = BigInt(est.toAmount), toAmountMin = BigInt(est.toAmountMin);
     // the claimed minimum must be consistent with the slippage we asked for (a lowered min-out is a changed quote)

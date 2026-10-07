@@ -2,7 +2,8 @@
 // They depend on the network and on the providers' current API shapes; a failure here is information.
 import { describe, it, expect } from "vitest";
 import { ThorchainAdapter, buildMemo, encodeDepositWithExpiry, thorAsset } from "../src/adapters/thorchain";
-import { LifiAdapter } from "../src/adapters/lifi";
+import { LifiAdapter, decodeLifiCall } from "../src/adapters/lifi";
+import { escrowCanReshield } from "../src/escrowAssets";
 import { ChainflipAdapter, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, base58Decode, decodeVaultSwapCalldata, minOutFromPrice } from "../src/adapters/chainflip";
 import { MayanAdapter, MAYAN_FORWARDER, SEL_CREATE_ORDER, SEL_SWAP_AND_FORWARD_ETH } from "../src/adapters/mayan";
 import { decodeParams, hexBuf } from "../src/abi";
@@ -13,6 +14,7 @@ import type { AssetRef, QuoteRequest } from "../src/types";
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
 const USDC_BASE: AssetRef = { chain: "base", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" };
+const ETH_BASE: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
 const ESCROW = "0x2b8Dc27605bF11214247aE11a013fcADf2c1Cb65"; // a predicted escrow (forge vector)
 
 describe("THORChain adapter (live)", () => {
@@ -57,8 +59,15 @@ describe("LI.FI adapter (live)", () => {
     const h = await a.health();
     expect(h.reachable).toBe(true);
   }, 60_000);
-  it("quotes ETH (Ethereum) -> USDC (Base) with toAmountMin and a transactionRequest ingress", async () => {
+  it("ETH (Ethereum) -> USDC (Base): a route that swaps ETH into USDC before bridging is not offered (PP-S08: an unfilled deposit would refund USDC into the ETH escrow)", async () => {
     const req: QuoteRequest = { from: ETH, to: USDC_BASE, amount: 10n ** 18n, destination: "0x000000000000000000000000000000000000dEaD", source: ESCROW, slippageBps: 50 };
+    const r = await a.quote(req).then((q) => q, (e: Error) => e);
+    // LI.FI's routing changes by the minute: whatever it returns, a route that is offered bridges something the escrow re-shields
+    if (r instanceof Error) expect(r.message).toMatch(/cannot re-shield|cannot verify/);
+    else expect(escrowCanReshield(ETH, decodeLifiCall((r.raw as any).transactionRequest.data).bridgeData.sendingAssetId)).toBe(true);
+  }, 60_000);
+  it("quotes ETH (Ethereum) -> ETH (Base) with toAmountMin and a verified transactionRequest ingress", async () => {
+    const req: QuoteRequest = { from: ETH, to: ETH_BASE, amount: 10n ** 18n, destination: "0x000000000000000000000000000000000000dEaD", source: ESCROW, slippageBps: 50 };
     const q = await a.quote(req);
     expect(q.provider).toBe("lifi");
     expect(q.category).toBe("C");
@@ -68,6 +77,7 @@ describe("LI.FI adapter (live)", () => {
     expect(ing.kind).toBe("contract-call");
     expect(ing.value).toBe(10n ** 18n);
     expect(ing.calldata.length).toBeGreaterThan(10);
+    expect(ing.verified).toContain("refunds re-shieldable");
   }, 60_000);
   it("status endpoint answers for an unknown tx", async () => {
     const s = await a.track({ sourceTxHash: "0x" + "00".repeat(32) });
