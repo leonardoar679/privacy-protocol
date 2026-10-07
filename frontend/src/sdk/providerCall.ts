@@ -346,6 +346,9 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
   const order = decode(P, FAST_MCTP_ABI, protocolData);
   const [tokenIn, amountIn, , destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
   must(same(tokenIn, USDC_ETHEREUM), P, "order", "the order is not funded in USDC");
+  // MayanForwarder (verified source, Sourcify): swapAndForwardEth overwrites the order's amountIn with the
+  // USDC its whitelisted router produced (replaceMiddleAmount); forwardERC20 passes the order through as
+  // is after pulling amountIn, so there the two must match or the difference stays in the forwarder
   if (e.from.asset !== "native") must(amountIn === e.net, P, "order", `orders ${amountIn}, not ${e.net}`);
   must(CCTP_DOMAIN[e.to.chain] !== undefined && destDomain === CCTP_DOMAIN[e.to.chain], P, "chain", `delivers to CCTP domain ${destDomain}, not ${e.to.chain}`);
   must(payload.payloadType === 3, P, "order", `payload type ${payload.payloadType}`);

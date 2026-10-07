@@ -60,6 +60,8 @@ gate `swapSign.ts`), independently of the adapters' decoders.
 | the two decoders disagree on a real call | live: every call the engine prepares from real quotes passes the wallet's check with the same receiver, minimum and refund target | `services/private-swap/test/wallet-check.test.ts` (4, live) |
 
 Residual, documented: Mayan's source-chain ETH→USDC leg uses router calldata from Mayan's API bounded
-only by `minMiddleAmount` (also from the API, enforced on-chain by the forwarder) — a fully malicious
+only by `minMiddleAmount` (also from the API, enforced on-chain by the forwarder, which also accepts
+only routers and Mayan protocols on its own on-chain whitelists and writes the USDC actually produced
+into the order: `MayanForwarder.sol`, verified source on Sourcify) — a fully malicious
 Mayan API can degrade that leg within the §74 damage bound; the price guard against other providers
 is the mitigation. NEAR Intents' deposit address cannot be verified independently of the service.
