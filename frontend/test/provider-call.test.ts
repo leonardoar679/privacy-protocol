@@ -310,6 +310,20 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     await refused(checkProviderCall(acrossCall(undefined, feeSwap({ fromAmount: NET / 2n })), e), /amount/);
     await refused(checkProviderCall(acrossCall(undefined, undefined, undefined, NET * 2n), e), /value/);
   });
+  it("a source swap into a token the escrow cannot re-shield is refused by both: an unfilled deposit would strand it there (PP-S08)", async () => {
+    // ETH -> USDC on Base the LI.FI way: swap ETH into USDC on Ethereum, bridge USDC. Across refunds an unfilled deposit
+    // to its depositor (the escrow) in USDC, and an ETH order's escrow re-shields only ETH (and unwrapped WETH)
+    const intoUsdc = acrossCall(bridgeData({ sendingAssetId: USDC.asset }), feeSwap({ receivingAssetId: USDC.asset }), acrossData({ sendingAssetId: bytes32Of("ethereum", USDC.asset), receivingAssetId: bytes32Of("base", USDC_BASE.asset) }));
+    await refused(checkProviderCall(intoUsdc, expectation({ to: USDC_BASE, destination: DEST_EVM })), /refund/);
+    expect(() => verifyLifiTransaction(
+      { from: ETH as any, to: USDC_BASE as any, amount: NET, destination: DEST_EVM, source: ESCROW, slippageBps: 50 },
+      { tool: "across", transactionRequest: { to: LIFI_DIAMOND.ethereum, data: intoUsdc.calldata, value: "0x" + NET.toString(16), chainId: 1 }, action: { fromAddress: ESCROW, toAddress: DEST_EVM, fromChainId: 1, toChainId: 8453 }, estimate: { toAmountMin: "1" } },
+    )).toThrow(/cannot re-shield/);
+    // into WETH it passes: refund() unwraps it before re-shielding
+    const intoWeth = acrossCall(bridgeData({ sendingAssetId: ENGINE_WETH.ethereum }), feeSwap({ receivingAssetId: ENGINE_WETH.ethereum }));
+    await expect(checkProviderCall(intoWeth, e)).resolves.toMatchObject({ refundTo: "escrow", minOut: FLOOR });
+    expect(serviceVerify(intoWeth.calldata, FLOOR).verified).toContain("refunds re-shieldable");
+  });
 
   const SOL32 = bytes32Of("solana", DEST_SOL);
   const mayanData = (o: Record<string, unknown> = {}) => ({ nonEVMReceiver: SOL32, mayanProtocol: "0x40ffe85a28dc9993541449464d7529a922142960" as Address, protocolData: "0x1234" as Hex, swapProtocol: "0x529863940bf6065d8c122a550c2ff37c1cfefa16" as Address, swapData: "0x" as Hex, middleToken: ENGINE_WETH.ethereum as Address, minMiddleAmount: 1n, refundRecipient: ESCROW, mayanAmountIn: MIN_AMOUNT, ...o });

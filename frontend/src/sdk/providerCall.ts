@@ -36,6 +36,8 @@ const WETH: Record<string, Address> = {
   ethereum: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", base: "0x4200000000000000000000000000000000000006",
   optimism: "0x4200000000000000000000000000000000000006", arbitrum: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
 };
+/** Tokens the escrow re-shields on the source chain (SwapOrderEscrow.refund): the order's asset; an ETH order also unwraps WETH. */
+const reshieldable = (e: CallExpectation, token: Address) => (e.from.asset === "native" ? same(token, ZERO) || same(token, WETH.ethereum) : same(token, e.from.asset));
 /** USDC on Ethereum: Mayan Fast-MCTP's input token (Circle CCTP). */
 const USDC_ETHEREUM: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const LIFI_CHAIN_ID: Record<string, bigint> = { ...Object.fromEntries(Object.entries(EVM_CHAIN_ID).map(([k, v]) => [k, BigInt(v)])), solana: 1151111081099710n, bitcoin: 20000000000001n };
@@ -390,6 +392,9 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
   if (bd.hasSourceSwaps) must(swaps.length > 0 && same(swaps[0].sendingAssetId, ours) && swaps[0].fromAmount === e.net, P, "amount", `the first swap spends ${swaps[0]?.fromAmount} of ${swaps[0]?.sendingAssetId}, not ${e.net} ${e.from.symbol}`);
   else must(same(bd.sendingAssetId, ours) && bd.minAmount > 0n && bd.minAmount <= e.net, P, "amount", `bridges ${bd.minAmount} of ${bd.sendingAssetId}, not up to ${e.net} ${e.from.symbol}`);
   must(call.value === (e.from.asset === "native" ? e.net : 0n), P, "value", `${call.value} forwarded`);
+  // what comes back to the escrow is the bridged token: an unfilled Across deposit refunds it, the Mayan facet sweeps
+  // the swap surplus in it; a source swap into a token the escrow cannot re-shield would strand it there (PP-S08)
+  if (bd.hasSourceSwaps) must(reshieldable(e, bd.sendingAssetId), P, "refund", `swaps into ${bd.sendingAssetId} before bridging: an unfilled deposit or the swap surplus would come back to the escrow in a token it cannot re-shield`);
   const evmDest = EVM_CHAIN_ID[e.to.chain] !== undefined;
   if (evmDest) must(same(bd.receiver, e.destination), P, "receiver", `pays ${bd.receiver}, not your fresh address`);
   else must(same(bd.receiver, LIFI_NON_EVM_RECEIVER), P, "receiver", "a non-EVM destination without LI.FI's non-EVM marker");
