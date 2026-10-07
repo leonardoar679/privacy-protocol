@@ -21,6 +21,10 @@ export const POOL_SLOTS = { nextLeafIndex: "0x0" as Hex, currentRoot: "0x1" as H
 /** A saved store older than this (sync-committee periods of ~27 h) is not walked forward but replaced:
  *  keys of long-retired committees are the light client's weak-subjectivity risk. */
 export const MAX_SNAPSHOT_AGE_PERIODS = 12;
+/** A light client synced this recently is reused as is: beacon APIs see a sync per ~20 minutes, not one right
+ *  before each transaction (a request moments before a relayer's transaction is a timing hint). Its
+ *  finalized root stays well inside the core's root history. */
+export const LC_REUSE_MS = 20 * 60_000;
 
 const env: Record<string, string | undefined> = (import.meta as any).env ?? {};
 const list = (v?: string) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -45,7 +49,7 @@ class StatusStore {
 export const verifyStatus = new StatusStore();
 export const useVerifyStatus = (): VerifyStatus => useSyncExternalStore((l) => verifyStatus.subscribe(l), () => verifyStatus.get());
 
-let live: { chainId: bigint; lc: LightClient } | null = null;
+let live: { chainId: bigint; lc: LightClient; syncedAt: number } | null = null;
 /** Forget the in-memory light client (tests; a lock). */
 export const resetLightClient = () => { live = null; };
 
@@ -60,9 +64,13 @@ async function provenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Pr
   if (snapshot && periodAtSlot(currentSlot(spec)) - periodAtSlot(Number(snapshot.finalized.beacon.slot)) > MAX_SNAPSHOT_AGE_PERIODS) snapshot = undefined;
   // the light client (BLS pairing, SSZ, trie walking) is its own chunk, loaded on the first verification
   const lcm = o.sync && o.prover ? null : await import("./lightclient");
-  const lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: BEACON_URLS, checkpoint: LC_CHECKPOINT, snapshot, fetchFn: o.fetchFn });
-  live = { chainId: spec.chainId, lc };
-  if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: lc.snapshot() }; });
+  let lc: LightClient;
+  if (live?.chainId === spec.chainId && Date.now() - live.syncedAt < LC_REUSE_MS) lc = live.lc;
+  else {
+    lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: BEACON_URLS, checkpoint: LC_CHECKPOINT, snapshot, fetchFn: o.fetchFn });
+    live = { chainId: spec.chainId, lc, syncedAt: Date.now() };
+    if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: lc.snapshot() }; });
+  }
   const p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, slots, o.fetchFn);
   return { blockNumber: p.header.number, slot: lc.finalizedSlot, values: p.values };
 }

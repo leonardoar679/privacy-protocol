@@ -64,6 +64,13 @@ describe("verifyTree in the spend flows", () => {
     settings.set({ verifyReads: false });
     await expect(provenSpent(dep(1), [nf])).resolves.toBeNull();
   });
+  it("reuses a light client synced in the last 20 minutes: beacon APIs are not asked right before each transaction", async () => {
+    let syncs = 0;
+    const sync = (async (...a: any[]) => { syncs++; return stubSync(15_000_000)(...a); }) as any;
+    const t = await tree(12);
+    for (let i = 0; i < 3; i++) await verifyTree(dep(1), t, undefined, { sync, prover: stubProver(12n, await rootOf(12)) });
+    expect(syncs).toBe(1);
+  });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);
   });
