@@ -6,9 +6,9 @@ import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
 import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
 import { checkBeforeSigning, type JournaledOrder } from "../sdk/swapSign";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
-import { privateWithdrawal } from "../sdk/privateTx";
+import { privateWithdrawal, recoverSwapRefunds } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
-import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
+import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
 import { relayerSwapExecute, relayerSwapRefund, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
@@ -66,6 +66,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   const [checked, setChecked] = useState<CheckedCall | null>(null);
   const [moved, setMoved] = useState<MinimumMoved | null>(null);
   const [job, setJob] = useState<SwapJob | null>(null);
+  const [refundLine, setRefundLine] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -95,7 +96,23 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     return () => clearInterval(t);
   }, [job, submission]);
 
-  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setShowRoute(false); }
+  // the executor re-shielded the order: its refund note goes into the wallet now, not at the next rescan (PP-S09)
+  useEffect(() => {
+    if (job?.state !== "refunded" || !deployment || !stored) return;
+    let live = true;
+    const orderId = stored.orderId.toLowerCase();
+    recoverSwapRefunds({ masterSeed, deployment })
+      .then((rs) => {
+        if (!live) return;
+        const mine = rs.filter((r) => r.orderId.toLowerCase() === orderId);
+        const amount = (r: (typeof rs)[number]) => { const a = assetByVault(deployment, r.note.vaultId); return a ? `${formatAmount(a, r.note.amount)} ${a.symbol}` : `${r.note.amount} base units`; };
+        setRefundLine(mine.length ? `Refunded: ${mine.map(amount).join(" + ")} back in your private balance.` : "Refunded on chain; the refund is not in the pool view yet. Rescan under Private balance shortly.");
+      })
+      .catch((e) => live && setRefundLine(`Refunded on chain; recording the note failed (${e?.message ?? e}). Rescan under Private balance.`));
+    return () => { live = false; };
+  }, [job?.state, stored?.orderId, deployment]);
+
+  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setShowRoute(false); setRefundLine(""); }
   function patchStored(orderId: string, patch: Partial<StoredSwap>) {
     session.update((j) => { const s = j.swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase()); if (s) Object.assign(s, patch); });
     setStored((s) => (s && s.orderId.toLowerCase() === orderId.toLowerCase() ? { ...s, ...patch } : s));
@@ -375,7 +392,8 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
           {job
             ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>
             : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote, or return it to your private balance." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked." : "fund the swap, then confirm it."}</p>}
-          {job?.state === "refund-only" && <p className="muted" style={{ fontSize: 12 }}>Returning to your private balance: the escrow re-shields as your pre-committed note after {new Date(order.params.refundAfter * 1000).toLocaleString()}; the next rescan shows it.</p>}
+          {job?.state === "refund-only" && <p className="muted" style={{ fontSize: 12 }}>Returning to your private balance: the escrow re-shields as your pre-committed note after {new Date(order.params.refundAfter * 1000).toLocaleString()}; it is added to your private balance when the executor reports it (a rescan finds it too).</p>}
+          {refundLine && <p className="muted" style={{ fontSize: 12 }}>{refundLine}</p>}
         </div>
       )}
     </div>

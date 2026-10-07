@@ -21,6 +21,13 @@ import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, Quo
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+// the refund note recovery itself runs against a mock RPC in test/refunds.test.ts; here only the screen's use of it
+const refundHook = vi.hoisted(() => ({ calls: 0, result: [] as unknown[] }));
+vi.mock("../src/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/sdk/privateTx")>()),
+  recoverSwapRefunds: async () => { refundHook.calls++; return refundHook.result; },
+}));
+
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const FACTORY = getAddress("0x00000000000000000000000000000000000000f1");
 const ETH_VAULT = getAddress("0x00000000000000000000000000000000000000e7");
@@ -165,6 +172,20 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     expect(sent.refundNoteData).toMatch(/^0x[0-9a-f]{338}$/);
     expect(calls).not.toContain("127.0.0.1:8787/finalize");
     expect(session.journal().swaps.find((s) => s.orderId === orderId)?.state).toBe("refund-only");
+  });
+  it("when the executor reports the refund, the refund note is recorded at once and its amount shown (PP-S09)", async () => {
+    const container = document.createElement("div");
+    const orderId = await committedAndFunded(container);
+    await act(async () => { button(container, "Return to my private balance")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toContain("Returning to your private balance"), { timeout: 20_000 });
+    refundHook.result = [{ orderId, leafIndex: 4, note: { vaultId: BigInt(ETH_VAULT), amount: 99n * 10n ** 16n, ownerCommitment: 1n, noteSecret: 2n }, counter: 0, commitment: 0n, noteData: "0x", txHash: "0x" }];
+    jobs.set(orderId.toLowerCase(), "refunded"); // the escrow re-shielded once the window opened
+    await mount(container); // a reload: the order comes back from the journal, its job from the relayer
+    await act(async () => { button(container, "Open")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toContain("Refunded: 0.99 ETH back in your private balance."), { timeout: 20_000 });
+    expect(refundHook.calls).toBe(1);
+    refundHook.result = [];
+    refundHook.calls = 0;
   });
 
   it("a lower minimum is not signed until the user confirms exactly it; the consent is journaled", async () => {
