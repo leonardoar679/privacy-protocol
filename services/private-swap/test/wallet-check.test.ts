@@ -37,7 +37,8 @@ async function prepareAndCheck(route: string, req: QuoteRequest): Promise<{ chec
     let p;
     try { p = await engine.prepareExecution(order, adapter); } catch (e) { skipped[q.provider] = `engine: ${(e as Error).message}`; continue; }
     const call = { provider: p.provider as `0x${string}`, value: p.value, calldata: p.calldata };
-    const expectation = { escrow: order.endpoint as `0x${string}`, from: req.from, to: req.to, destination: req.destination, net: order.params.amount - order.params.executorTip, policy: "fastest" as const };
+    // the wallet's configured ERC-20 assets mirror the pool's vaults (ERC20_VAULTS above)
+    const expectation = { escrow: order.endpoint as `0x${string}`, from: req.from, to: req.to, destination: req.destination, net: order.params.amount - order.params.executorTip, policy: "fastest" as const, pooled: [USDC_ETH.asset] };
     // the wallet's check, with its own live THORNode quorum (no stub)
     const c = await checkProviderCall(call, expectation);
     checked.push({ route, provider: q.provider, quote: p.quote, checked: c, call, expectation });
@@ -73,6 +74,14 @@ describe("the wallet's provider-call check agrees with the engine on live provid
     const { checked } = await prepareAndCheck("ETH->ETH(Base)", { from: ETH, to: ETH_BASE, amount: 10n ** 18n, destination: DEST_EVM, slippageBps: 50 });
     for (const c of checked) agree(c);
     expect(checked.map((c) => c.provider)).toContain("uniswap-across");
+  }, 240_000);
+
+  it("ETH → USDC (Base): the Uniswap-Across leg (swap on Ethereum, bridge, the pinned handler drains to the fresh address); both decoders name USDC as the token to watch", async () => {
+    const { checked, skipped } = await prepareAndCheck("ETH->USDC(Base)", { from: ETH, to: USDC_BASE, amount: 10n ** 18n, destination: DEST_EVM, slippageBps: 50 });
+    for (const c of checked) agree(c);
+    const leg = checked.find((c) => c.provider === "uniswap-across");
+    expect(leg, `the swap leg was not checked: ${skipped["uniswap-across"]}`).toBeTruthy();
+    expect(leg!.checked.refundTokens?.map((t) => t.toLowerCase()), "an unfilled deposit comes back in USDC: the executor must watch it").toEqual([USDC_ETH.asset.toLowerCase()]);
   }, 240_000);
 
   it("ETH → SOL: Mayan direct and LI.FI → Mayan; the wallet refuses an unreadable minimum unless the policy is Fastest", async () => {

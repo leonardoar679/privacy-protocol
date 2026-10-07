@@ -13,6 +13,7 @@ import { ChainflipAdapter } from "../src/adapters/chainflip";
 import { MayanAdapter } from "../src/adapters/mayan";
 import { NearIntentsAdapter } from "../src/adapters/nearIntents";
 import { AcrossAdapter } from "../src/adapters/across";
+import { ACROSS_EVENT_EMITTER } from "../src/adapters/acrossSwap";
 import { defaultEngine } from "../src/config";
 import { priceGuard } from "../src/scoring";
 import { nextState, recoverState } from "../src/order";
@@ -319,6 +320,54 @@ describe("§74 Across / 1Click API malicious (live, tampered)", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------
+describe("§74 Across Swap API malicious — the periphery call and the handler message are read (live, tampered)", () => {
+  const a = new AcrossAdapter();
+  const USDC_ETH = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+  const req: QuoteRequest = { from: ETH, to: USDC_BASE, amount: 10n ** 18n, destination: DEST_EVM, source: ESCROW, slippageBps: 50 };
+  const withPool = async <T>(f: () => Promise<T>) => {
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDC_ETH}:0x00000000000000000000000000000000000ca5de`;
+    try { return await f(); } finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
+  };
+  let live: Promise<any> | undefined; // one live Swap API answer for the whole group
+  const raw = () => (live ??= withPool(() => a.quote(req)).then((q) => q.raw));
+  // byte offsets inside swapAndBridge calldata: the tuple, its BaseDepositData, the handler message's Instructions
+  const w = (d: string, at: number) => BigInt("0x" + d.slice(2 + 2 * at, 2 + 2 * at + 64));
+  const layout = (d: string) => { const t = 4 + Number(w(d, 4)); const dd = t + Number(w(d, t + 64)); const msg = dd + Number(w(d, dd + 320)); return { t, dd, ins: msg + 32 + Number(w(d, msg + 32)) }; };
+  const bent = (mut: (b: any) => any, prepare = true) => withPool(async () => {
+    const b = mut(structuredClone(await raw()));
+    return withTamper([{ match: "/swap/approval", offline: true, json: () => b }], async () => { const q = await a.quote(req); return prepare ? a.prepareIngress(req, q) : q; });
+  });
+  const data = (f: (d: string) => string) => (b: any) => { b.swapTx.data = f(b.swapTx.data); return b; };
+
+  it("untampered: the swap leg verifies (the pinned handler drains to the fresh address)", async () => {
+    const ing: any = await bent((b) => b);
+    expect(ing.verified).toEqual(expect.arrayContaining(["spokePool pinned", "depositor=escrow", "receiver (pinned handler drains to it)"]));
+  }, 60_000);
+  it("SpokePool swapped (the periphery would approve it for the swapped tokens) → refused", async () => {
+    await expect(bent(data((d) => setWord(d, layout(d).t + 10 * 32, padAddress(ATTACKER))))).rejects.toThrow(/pinned SpokePool/);
+  }, 60_000);
+  it("depositor rewritten (an unfilled deposit is refunded to it) → refused", async () => {
+    await expect(bent(data((d) => setWord(d, layout(d).dd + 3 * 32, padAddress(ATTACKER))))).rejects.toThrow(/depositor is not the escrow/);
+  }, 60_000);
+  it("the handler drains to another address → refused", async () => {
+    await expect(bent(data((d) => replaceHex(d, padAddress(DEST_EVM), padAddress(ATTACKER))))).rejects.toThrow(/drain/);
+  }, 60_000);
+  it("another contract called on the destination (the emitter swapped) → refused", async () => {
+    await expect(bent(data((d) => replaceHex(d, padAddress(ACROSS_EVENT_EMITTER.base), padAddress(ATTACKER))))).rejects.toThrow(/does not accept/);
+  }, 60_000);
+  it("a fallback recipient that is not the fresh address → refused", async () => {
+    await expect(bent(data((d) => setWord(d, layout(d).ins + 32, padAddress(ATTACKER))))).rejects.toThrow(/fallback recipient/);
+  }, 60_000);
+  it("outputAmount lowered → refused at quote time (a changed quote)", async () => {
+    await expect(bent(data((d) => setWord(d, layout(d).dd + 2 * 32, w(d, layout(d).dd + 2 * 32) / 2n)), false)).rejects.toThrow(/bps below/);
+  }, 60_000);
+  it("a destination-swap route (bridgeableToAny) or another target than the periphery → not offered", async () => {
+    await expect(bent((b) => ({ ...b, crossSwapType: "bridgeableToAny" }), false)).rejects.toThrow(/bridgeableToAny/);
+    await expect(bent((b) => { b.swapTx.to = ATTACKER; return b; }, false)).rejects.toThrow(/pinned SpokePoolPeriphery/);
+  }, 60_000);
+});
+
 describe("§71 timeout / partial / refund / reorg / destination congestion — status mapping (live, tampered) + state machine", () => {
   const chain = (from: OrderState, evs: Parameters<typeof nextState>[1][]) => evs.reduce((s, e) => nextState(s, e), from);
   const order = { orderId: "0x01", state: "PROVIDER_EXECUTING", history: [], params: { amount: 100n, executeDeadline: 1000, refundAfter: 2000 }, quote: { expiresAt: 900 } } as unknown as Order;

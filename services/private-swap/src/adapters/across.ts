@@ -1,7 +1,7 @@
-// Across adapter (plan §15, step 12 "Uniswap-Across"): EVM→EVM bridging of the same asset through
-// Across's optimistic relayer network. The Uniswap leg (asset change on the origin or destination
-// chain) needs Across's swap API / Uniswap's keyed trading API and is not part of this adapter yet;
-// this adapter covers the bridge: ETH→ETH and USDC→USDC between the supported EVM chains.
+// Across adapter (plan §15, step 12 "Uniswap-Across"): EVM→EVM bridging through Across's optimistic
+// relayer network. The same asset (ETH→ETH, USDC→USDC) is bridged with a deposit built here; an asset
+// change takes the Uniswap leg: Across's Swap API quotes a swap on the origin chain followed by the
+// bridge, as one SpokePoolPeriphery.swapAndBridge call, which acrossSwap.ts decodes and checks in full.
 //
 // Ingress: `SpokePool.depositV3(depositor, recipient, inputToken, outputToken, inputAmount,
 // outputAmount, destinationChainId, exclusiveRelayer, quoteTimestamp, fillDeadline,
@@ -10,6 +10,7 @@
 // output is enforced on-chain; an unfilled deposit is refunded to `depositor` — our escrow — on the
 // origin chain (`refundTarget: "escrow"`). Native ETH deposits send `msg.value` with WETH as the token.
 import { encodeCall } from "../abi";
+import { acrossSwapIngress, acrossSwapQuote } from "./acrossSwap";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { categoryOf } from "../types";
 
@@ -31,6 +32,12 @@ export interface AcrossQuote {
   exclusiveRelayer: string; exclusivityDeadline: number; timestamp: string; spokePoolAddress: string; destinationSpokePoolAddress?: string; fillDeadline: string;
   isAmountTooLow: boolean; estimatedFillTimeSec: number; limits?: { minDeposit: string; maxDeposit: string; maxDepositInstant: string };
   inputToken: { address: string; symbol: string; decimals: number; chainId: number }; outputToken: { address: string; symbol: string; decimals: number; chainId: number };
+}
+
+/** Whether the request keeps the asset (the bridge alone) rather than changing it (the swap leg). */
+function sameAsset(req: QuoteRequest): boolean {
+  if (req.from.asset === "native" && req.to.asset === "native") return true;
+  return req.from.asset !== "native" && req.to.asset !== "native" && req.from.symbol.toUpperCase() === req.to.symbol.toUpperCase();
 }
 
 function bridgeTokens(req: QuoteRequest): { inputToken: string; outputToken: string } {
@@ -69,6 +76,7 @@ export class AcrossAdapter implements ProviderAdapter {
   }
 
   async quote(req: QuoteRequest): Promise<Quote> {
+    if (!sameAsset(req)) return acrossSwapQuote(req, ACROSS_API, { spokePool: SPOKE_POOL, weth: WETH, chainId: CHAIN_ID });
     const { inputToken, outputToken } = bridgeTokens(req);
     const qs = new URLSearchParams({ inputToken, outputToken, originChainId: String(CHAIN_ID[req.from.chain]), destinationChainId: String(CHAIN_ID[req.to.chain]), amount: req.amount.toString(), recipient: req.destination, ...(req.source ? { depositor: req.source } : {}) });
     const { data, status } = await getJson<AcrossQuote | { message?: string }>(`${ACROSS_API}/suggested-fees?${qs}`);
@@ -90,6 +98,7 @@ export class AcrossAdapter implements ProviderAdapter {
   }
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
+    if ((quote.raw as { swapTx?: unknown })?.swapTx) return acrossSwapIngress(req, quote, { spokePool: SPOKE_POOL, weth: WETH, chainId: CHAIN_ID });
     const q = quote.raw as AcrossQuote & { inputToken: string; outputToken: string };
     if (!req.source) throw new Error("Across: the escrow address (req.source) is required as the depositor (refund target)");
     const calldata = encodeDepositV3({

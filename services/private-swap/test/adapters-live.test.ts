@@ -9,6 +9,7 @@ import { MayanAdapter, MAYAN_FORWARDER, SEL_CREATE_ORDER, SEL_SWAP_AND_FORWARD_E
 import { decodeParams, hexBuf } from "../src/abi";
 import { NearIntentsAdapter, oneClickAssetId } from "../src/adapters/nearIntents";
 import { AcrossAdapter, SPOKE_POOL, WETH } from "../src/adapters/across";
+import { ACROSS_PERIPHERY, decodeSwapAndBridge } from "../src/adapters/acrossSwap";
 import type { AssetRef, QuoteRequest } from "../src/types";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
@@ -204,6 +205,31 @@ describe("Across adapter (live)", () => {
   const a = new AcrossAdapter();
   const ETH_BASE: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
   const USDC_ETH: AssetRef = { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" };
+  const swapReq: QuoteRequest = { from: ETH, to: USDC_BASE, amount: 10n ** 18n, destination: "0x1111111111111111111111111111111111111111", source: ESCROW, slippageBps: 50 };
+  const withVaults = async <T>(setting: string | undefined, f: () => Promise<T>) => {
+    const saved = process.env.ERC20_VAULTS;
+    if (setting === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = setting;
+    try { return await f(); } finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
+  };
+  it("the Uniswap leg: ETH (Ethereum) -> USDC (Base) through Across's Swap API: swapAndBridge on the pinned periphery, decoded and checked in full; USDC is what an unfilled deposit comes back in", async () => {
+    await withVaults(`${USDC_ETH.asset}:0x00000000000000000000000000000000000ca5de`, async () => {
+      const q = await a.quote(swapReq);
+      expect(q.provider).toBe("uniswap-across");
+      expect(q.minOutVerified).toBe(true);
+      expect(q.toAmountMin > 0n && q.toAmountMin <= q.toAmount).toBe(true);
+      const ing = await a.prepareIngress(swapReq, q);
+      expect(ing.to).toBe(ACROSS_PERIPHERY.ethereum);
+      expect(ing.value).toBe(swapReq.amount);
+      expect(ing.verified).toEqual(expect.arrayContaining(["target=periphery", "spokePool pinned", "depositor=escrow", "min-out", "refunds re-shieldable"]));
+      expect(ing.refundTokens).toEqual([USDC_ETH.asset.toLowerCase()]);
+      expect(decodeSwapAndBridge(ing.calldata).depositData.outputAmount, "the minimum is the deposit's output amount").toBe(q.toAmountMin);
+    });
+  }, 60_000);
+  it("the Uniswap leg is not offered when the pool has no vault for the token it swaps into (PP-S08)", async () => {
+    await withVaults(undefined, async () => {
+      await expect(a.quote(swapReq)).rejects.toThrow(/cannot re-shield/);
+    });
+  }, 60_000);
   it("health: native ETH route Ethereum -> Base available", async () => {
     const h = await a.health();
     expect(h.reachable).toBe(true);
