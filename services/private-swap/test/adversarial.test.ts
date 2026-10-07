@@ -61,6 +61,11 @@ describe("§71 insufficient liquidity / quote refused — surfaced as a per-prov
     const a = new ThorchainAdapter();
     await expect(withTamper([{ offline: true, match: "/thorchain/quote/swap", json: () => ({ error: "not enough liquidity in pool" }) }], () => a.quote({ from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 50 }))).rejects.toThrow(/liquidity/);
   }, 60_000);
+  it("THORChain refusal (HTTP 400 with THORNode's reason) is reported as THORChain's reason, not as an unreachable gateway", async () => {
+    const a = new ThorchainAdapter();
+    const halted = { code: 3, message: "failed to simulate swap: failed to simulate handler: trading is halted, can't process swap: invalid request", details: [] };
+    await expect(withTamper([{ offline: true, match: "/thorchain/quote/swap", status: 400, json: () => halted }], () => a.quote({ from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 50 }))).rejects.toThrow(/^THORChain refused: trading is halted, can't process swap$/);
+  }, 60_000);
   it("Chainflip HTTP 400", async () => {
     const a = new ChainflipAdapter();
     await expect(withTamper([{ offline: true, match: "/v2/quote", status: 400, json: () => ({ message: "Insufficient liquidity" }) }], () => a.quote({ from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 100 }))).rejects.toThrow(/HTTP 400.*Insufficient/);

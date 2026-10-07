@@ -40,13 +40,23 @@ export const THORCHAIN_ROUTER_ETHEREUM = (process.env.THORCHAIN_ROUTER ?? "0xd37
 /** Distinct gateways that must agree on the inbound vault/router before an ingress is produced (plan §74). */
 export const THORNODE_QUORUM = Number(process.env.THORNODE_QUORUM ?? "2");
 
+/** A gateway answered but refused the request (HTTP 4xx with THORNode's reason): the request is the problem, not the gateway. */
+class ThornodeRefusal extends Error {}
+/** THORNode's reason without the simulation wrapper ("failed to simulate swap: failed to simulate handler: X: invalid request" → "X"). */
+const refusalReason = (m: string) => m.replace(/^(failed to simulate (swap|handler): )+/, "").replace(/: invalid request$/, "");
+
 async function fetchFrom<T>(base: string, path: string, timeoutMs: number): Promise<{ data: T; url: string; ms: number }> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) { // public gateways drop connections now and then; one retry per endpoint
     const t0 = Date.now();
     try {
       const r = await fetch(base + path, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
-      if (!r.ok) throw new Error(`HTTP ${r.status} from ${base}`);
+      if (!r.ok) {
+        let message = "";
+        try { message = String(((await r.json()) as any)?.message ?? ""); } catch { /* not JSON */ }
+        if (r.status >= 400 && r.status < 500 && message) throw new ThornodeRefusal(refusalReason(message));
+        throw new Error(`HTTP ${r.status} from ${base}`);
+      }
       return { data: (await r.json()) as T, url: base, ms: Date.now() - t0 };
     } catch (e) {
       lastErr = e;
@@ -58,8 +68,14 @@ async function fetchFrom<T>(base: string, path: string, timeoutMs: number): Prom
 
 export async function thornode<T>(path: string, timeoutMs = 20000): Promise<{ data: T; url: string; ms: number }> {
   let lastErr: unknown;
+  const refusals: string[] = [];
   for (const base of THORNODE_URLS) {
-    try { return await fetchFrom<T>(base, path, timeoutMs); } catch (e) { lastErr = e; }
+    try { return await fetchFrom<T>(base, path, timeoutMs); } catch (e) { if (e instanceof ThornodeRefusal) refusals.push(e.message); lastErr = e; }
+  }
+  // gateways that answered with a reason (a halted chain, a limit the route cannot meet) say more than "unreachable"
+  if (refusals.length) {
+    const distinct = [...new Set(refusals)];
+    throw new Error(`THORChain refused: ${distinct[0]}${distinct.length > 1 ? ` (gateways differ: ${distinct.join(" | ")})` : ""}`);
   }
   throw new Error(`no THORNode endpoint reachable: ${String(lastErr)}`);
 }
