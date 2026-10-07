@@ -7,7 +7,20 @@ import { createServer } from "http";
 import { randomBytes } from "crypto";
 import { defaultEngine } from "./config";
 import { userStatus } from "./order";
-import type { AssetRef, Order, Policy, ProviderId, QuoteRequest } from "./types";
+import type { TrackStatus, UserStatus } from "./types";
+
+/** What a guest sees for a provider's tracking state (plan §33: never "atomic", always one of these). */
+export function guestStatus(s: TrackStatus["state"]): UserStatus {
+  switch (s) {
+    case "completed": return "Completed";
+    case "partial": return "Partial";
+    case "refunded": return "Refunded";
+    case "failed": return "Failed";
+    case "executing": case "destination-submitted": case "destination-final": return "Executing";
+    default: return "Pending";
+  }
+}
+import type { AssetRef, Order, OrderParams, Policy, ProviderId, QuoteRequest } from "./types";
 import type { PreparedExecution } from "./engine";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -43,6 +56,21 @@ async function route(method: string, path: string, body: any): Promise<{ status:
     orders.set(order.orderId, { order });
     return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state) } };
   }
+  if (method === "POST" && path === "/order/resume") {
+    // the wallet persisted the order (encrypted journal) and the service forgot it (restart): rebuild it from the on-chain params
+    const req = request(body), policy = body.policy as Policy, provider = body.provider as ProviderId;
+    const p = body.params;
+    const params: OrderParams = {
+      orderId: p.orderId, assetType: Number(p.assetType) as 0 | 1, asset: p.asset, amount: BigInt(p.amount), orderSigner: p.orderSigner, executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter),
+      refundVault: p.refundVault, refundOwnerCommitment: BigInt(p.refundOwnerCommitment), refundNoteSecret: BigInt(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: BigInt(p.executorTip),
+    };
+    const set = await engine.quoteAll(req, policy);
+    const quote = set.quotes.find((q) => q.provider === provider);
+    if (!quote) return { status: 400, body: { error: `no quote from ${provider} right now; retry later`, errors: set.errors } };
+    const order = engine.restoreOrder(req, policy, quote, params);
+    orders.set(order.orderId, { order });
+    return { status: 200, body: { order, status: userStatus(order.state) } };
+  }
   if (method === "POST" && path === "/prepare") {
     const entry = orders.get(body.orderId);
     if (!entry) return { status: 404, body: { error: "unknown order" } };
@@ -56,6 +84,30 @@ async function route(method: string, path: string, body: any): Promise<{ status:
     if (!entry?.prepared) return { status: 404, body: { error: "order not prepared" } };
     const execution = engine.attachSignature(entry.order, entry.prepared, body.signature);
     return { status: 200, body: { execution, order: entry.order } };
+  }
+  // ---- walletless / guest mode (plan §49): no pool, no escrow, no keys — a quote and a one-time deposit instruction
+  if (method === "POST" && path === "/guest/quote") {
+    const set = await engine.quoteAll(request(body), (body.policy as Policy) ?? "best-price");
+    return { status: 200, body: set };
+  }
+  if (method === "POST" && path === "/guest/ingress") {
+    // only providers whose deposit address + memo we verify locally against an independent gateway quorum (THORChain);
+    // deposit-address providers that create an order at the provider (1Click, LI.FI smart deposit) are quoted, not instructed
+    const req = request(body);
+    const adapter = engine.cfg.adapters.find((a) => a.id === "thorchain");
+    if (!adapter) return { status: 503, body: { error: "THORChain adapter unavailable" } };
+    if (!["bitcoin", "litecoin", "doge"].includes(req.from.chain)) return { status: 400, body: { error: "guest deposits are for native-chain sources (BTC, LTC, DOGE); use the wallet for EVM sources" } };
+    const quote = await adapter.quote(req);
+    const ingress = await adapter.prepareIngress(req, quote);
+    if (ingress.kind !== "plain-address") return { status: 400, body: { error: "no plain deposit address for this route" } };
+    return { status: 200, body: { provider: adapter.id, quote, ingress: { to: ingress.to, memo: ingress.memo, amount: req.amount, expiresAt: ingress.expiresAt, verified: ingress.verified ?? [] }, status: "Pending" } };
+  }
+  if (method === "GET" && path.startsWith("/guest/track/")) {
+    const [provider, txid] = path.slice("/guest/track/".length).split("/");
+    const adapter = engine.cfg.adapters.find((a) => a.id === provider);
+    if (!adapter || !txid) return { status: 404, body: { error: "unknown provider or missing txid" } };
+    const t = await adapter.track({ sourceTxHash: txid });
+    return { status: 200, body: { track: t, status: guestStatus(t.state) } };
   }
   if (method === "GET" && path.startsWith("/order/")) {
     const entry = orders.get(path.slice("/order/".length));
