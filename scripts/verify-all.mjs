@@ -33,8 +33,8 @@ const steps = [
   { name: "services/private-swap offline (33: state machine, scoring, privacy score, endpoints == forge, restore, unit)", cwd: "services/private-swap", cmd: npx, args: ["vitest", "run", "test/engine-core.test.ts", "test/endpoints.test.ts", "test/restore.test.ts", "test/chainflip-unit.test.ts", "test/mayan-unit.test.ts"] },
   ...(live ? [{ name: "services/private-swap LIVE (66: adapters, adversarial, privacy flow, guest deposit)", cwd: "services/private-swap", cmd: npx, args: ["vitest", "run", "test/adapters-live.test.ts", "test/adversarial.test.ts", "test/privacy-flow.test.ts", "test/guest.test.ts"] }] : []),
   { name: "services/relayer typecheck (tsc --noEmit)", cwd: "services/relayer", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
-  { name: "services/relayer (23: submission vs forge e2e tx, swap executor vs forge vector, journals, limits)", cwd: "services/relayer", cmd: npx, args: ["vitest", "run"] },
-  { name: "frontend tests (43: keystore + journal + at-rest vectors, fresh addresses, RPC quorum, first launch, scheduling, zkAPI policy, planning, merges, relayer client)", cwd: "frontend", cmd: npx, args: ["vitest", "run"] },
+  { name: "services/relayer (27: submission vs forge e2e tx, ERC-20 fee vaults, swap executor vs forge vector, journals, limits)", cwd: "services/relayer", cmd: npx, args: ["vitest", "run"] },
+  { name: "frontend tests (52: keystore + journal + at-rest vectors, ERC-20 assets + fee terms + relayer failover, fresh addresses, RPC quorum, first launch, scheduling, zkAPI policy + capability failures, planning, merges, relayer client)", cwd: "frontend", cmd: npx, args: ["vitest", "run"] },
   { name: "frontend build (tsc -b + vite build)", cwd: "frontend", cmd: npm, args: ["run", "build"] },
   ...(solc ? [{ name: "contracts (forge: 87 incl. real-proof e2e + swap periphery)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
 ];

@@ -39,6 +39,25 @@ describe("pin gate", () => {
   });
 });
 
+describe("capability failures at the wallet (plan §73)", () => {
+  const access: InferenceAccess = { mode: "ephemeral-key", apiKey: "k", baseUrl: "https://openrouter.ai/api/v1", spendingLimitUsd: 1, headers: { authorization: "Bearer k", "content-type": "application/json" }, release: () => {} };
+  const drain = async (g: AsyncGenerator<string>) => { for await (const _ of g) { /* drain */ } };
+  it("an expired capability, an over-cap request or a throttled provider is ONE failed call with the status, never a retry loop", async () => {
+    for (const status of [401, 402, 403, 429]) {
+      let calls = 0;
+      const f = (async () => { calls++; return new Response("no", { status }); }) as unknown as typeof fetch;
+      await expect(drain(chatStream(access, "m", [{ role: "user", content: "hi" }], undefined, f))).rejects.toThrow(new RegExp(`HTTP ${status}`));
+      expect(calls).toBe(1);
+    }
+  });
+  it("never sends the capability anywhere but the lease's base URL, and never with credentials", async () => {
+    const urls: string[] = [];
+    const f = (async (url: string, init: RequestInit) => { urls.push(url); expect(init.credentials).toBe("omit"); expect(init.redirect).toBe("error"); return new Response("x", { status: 500 }); }) as unknown as typeof fetch;
+    await expect(drain(chatStream(access, "m", [], undefined, f))).rejects.toThrow(/HTTP 500/);
+    expect(urls).toEqual(["https://openrouter.ai/api/v1/chat/completions"]);
+  });
+});
+
 describe("provider stream", () => {
   const enc = new TextEncoder();
   const stream = (parts: string[]) => new ReadableStream<Uint8Array>({ start(c) { for (const p of parts) c.enqueue(enc.encode(p)); c.close(); } });

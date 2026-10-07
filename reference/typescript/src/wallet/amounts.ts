@@ -15,6 +15,21 @@ export const MIN_BUCKET = BUCKETS[0];
 
 export const isBucket = (x: bigint): boolean => BUCKETS.includes(x);
 
+/**
+ * The bucket alphabet of an asset with `decimals` (plan §31, §36): the same 1-2-5 series, from one
+ * thousandth of a unit for 18-decimal assets (ETH: 0.001 … 500) and from one whole unit for
+ * stablecoins and other low-decimal tokens (USDC: 1 … 500,000), so public amounts stay in a small
+ * shared set whatever the asset. 18 decimals returns BUCKETS itself.
+ */
+export function bucketsFor(decimals: number): readonly bigint[] {
+  if (decimals === 18) return BUCKETS;
+  const start = decimals >= 12 ? decimals - 3 : decimals; // sub-unit buckets only for high-precision assets
+  const out: bigint[] = [];
+  for (let k = start; k <= start + 5; k++) for (const m of [1n, 2n, 5n]) out.push(m * 10n ** BigInt(k));
+  return out.sort((a, b) => (a < b ? -1 : 1));
+}
+export const isBucketOf = (x: bigint, decimals: number): boolean => bucketsFor(decimals).includes(x);
+
 export type PrivacyMode = "standard" | "high";
 
 export interface PolicyParams {

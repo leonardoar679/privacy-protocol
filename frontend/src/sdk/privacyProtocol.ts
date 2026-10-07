@@ -63,6 +63,13 @@ export function buildShieldNative(vault: Address, ownerCommitment: bigint, noteS
   };
 }
 
+export const erc20Abi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function allowance(address owner, address spender) view returns (uint256)", "function balanceOf(address owner) view returns (uint256)"]);
+
+/** The approval the ERC-20 vault's deposit pulls from (plan §36); exact amount, never unlimited. */
+export function buildApprove(token: Address, vault: Address, amount: bigint): TxRequest {
+  return { to: token, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [vault, amount] }) };
+}
+
 /** Build an ERC-20 shield (requires a prior approve to the vault). */
 export function buildShieldERC20(vault: Address, amount: bigint, ownerCommitment: bigint, noteSecret: bigint, noteData: Hex): TxRequest {
   requireNoteData(noteData);

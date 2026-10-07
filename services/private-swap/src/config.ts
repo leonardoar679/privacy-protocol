@@ -10,6 +10,18 @@ import { MayanAdapter } from "./adapters/mayan";
 import { NearIntentsAdapter } from "./adapters/nearIntents";
 import { AcrossAdapter } from "./adapters/across";
 
+/** ERC20_VAULTS="0xtoken:0xvault,0xtoken:0xvault" → the canonical vault a failed ERC-20 swap re-shields into (plan §36). */
+function erc20RefundVaults(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of (process.env.ERC20_VAULTS ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const [token, vault] = entry.split(":").map((s) => s.trim());
+    if (!/^0x[0-9a-fA-F]{40}$/.test(token ?? "") || !/^0x[0-9a-fA-F]{40}$/.test(vault ?? "")) throw new Error(`ERC20_VAULTS entry "${entry}" must be 0xtoken:0xvault`);
+    out[token.toLowerCase()] = vault;
+    out[token] = vault;
+  }
+  return out;
+}
+
 export function defaultEngine(): PrivateSwapEngine {
   const escrowArtifact = JSON.parse(readFileSync(fileURLToPath(new URL("../../../contracts/abi/periphery/SwapOrderEscrow.json", import.meta.url)), "utf8"));
   return new PrivateSwapEngine({
@@ -17,7 +29,7 @@ export function defaultEngine(): PrivateSwapEngine {
     factory: process.env.SWAP_FACTORY ?? "0x0000000000000000000000000000000000000001", // placeholder until deployed; only affects the predicted address
     escrowCreationCode: escrowArtifact.bytecode,
     chainId: BigInt(process.env.CHAIN_ID ?? "1"),
-    refundVaults: { native: process.env.NATIVE_VAULT ?? "0x0000000000000000000000000000000000000002" },
+    refundVaults: { native: process.env.NATIVE_VAULT ?? "0x0000000000000000000000000000000000000002", ...erc20RefundVaults() },
     tipBps: Number(process.env.TIP_BPS ?? "25"),
     refundWindowSeconds: Number(process.env.REFUND_WINDOW_SECONDS ?? String(2 * 3600)),
   });

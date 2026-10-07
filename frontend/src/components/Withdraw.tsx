@@ -1,24 +1,28 @@
 import { useState } from "react";
-import { formatEther, isAddress, parseEther, type Address } from "viem";
-import { BUCKETS, isBucket } from "@ref/wallet/amounts";
+import { isAddress, type Address } from "viem";
 import type { Deployment } from "../sdk/chain";
 import { privateWithdrawal } from "../sdk/privateTx";
+import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount } from "../sdk/assets";
 import { consumeFreshAddress } from "../keys/chainKeys";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
+import { AssetSelect } from "./AssetSelect";
 import { Scorecard } from "./Scorecard";
 
 // Public exit (spec §34): reveals vault/amount/recipient on settlement. The default recipient is a
-// fresh address of this wallet (plan §28, §45); the proof is generated locally in a Web Worker.
+// fresh address of this wallet (plan §28, §45); the proof is generated locally in a Web Worker. Works
+// in every private asset (plan §36): the asset's own vault releases the funds.
 export function Withdraw({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {
   const { submission, advanced } = useSettings();
+  const assets = assetsOf(deployment);
+  const [asset, setAsset] = useState(assets[0]);
   const [recipient, setRecipient] = useState("");
   const [fresh, setFresh] = useState(false);
   const [amount, setAmount] = useState("1.0");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
-  const wei = (() => { try { return parseEther(amount || "0"); } catch { return 0n; } })();
-  const bucket = [...BUCKETS].reverse().find((b) => b <= wei);
+  const units = parseAmount(asset, amount);
+  const bucket = bucketBelowFor(asset, units);
 
   function useFresh() {
     const a = consumeFreshAddress(masterSeed, "evm");
@@ -29,13 +33,13 @@ export function Withdraw({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   async function withdraw() {
     if (!deployment) { setStatus("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT)."); return; }
     if (!isAddress(recipient)) { setStatus("Enter a fresh 0x recipient address, or use one of this wallet's."); return; }
-    if (noteStore.balance(BigInt(deployment.ethVault)) < wei) { setStatus("Not enough in your private balance."); return; }
+    if (noteStore.balance(BigInt(asset.vault)) < units) { setStatus(`Not enough ${asset.symbol} in your private balance.`); return; }
     setBusy(true);
     try {
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: wei, recipient: recipient as Address, onStatus: setStatus });
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: units, recipient: recipient as Address, vault: asset.vault, onStatus: setStatus });
       setStatus(advanced
-        ? `Withdrawn ${amount} ETH to ${recipient.slice(0, 8)}… (tx ${r.txHash.slice(0, 10)}…); proof ${(r.proofMs / 1000).toFixed(1)} s${r.verifiedLocally ? ", verified locally" : ""}; spent leaves ${r.spent.join(", ")}${r.change ? `; change note at leaf ${r.change.leafIndex}` : ""}.`
-        : `Withdrawn ${amount} ETH to ${recipient.slice(0, 8)}….`);
+        ? `Withdrawn ${amount} ${asset.symbol} to ${recipient.slice(0, 8)}… (tx ${r.txHash.slice(0, 10)}…); proof ${(r.proofMs / 1000).toFixed(1)} s${r.verifiedLocally ? ", verified locally" : ""}; spent leaves ${r.spent.join(", ")}${r.change ? `; change note at leaf ${r.change.leafIndex}` : ""}.`
+        : `Withdrawn ${amount} ${asset.symbol} to ${recipient.slice(0, 8)}….`);
     } catch (e: any) {
       setStatus(e.message ?? String(e));
     } finally {
@@ -46,22 +50,23 @@ export function Withdraw({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   return (
     <div className="panel">
       <h3>Withdraw to a public address</h3>
+      <AssetSelect assets={assets} value={asset} onChange={(a) => { setAsset(a); setAmount(a.decimals === 18 ? "1.0" : "100"); }} />
       <label>Recipient {fresh ? "(a fresh address of this wallet)" : ""}</label>
       <input value={recipient} onChange={(e: any) => { setRecipient(e.target.value); setFresh(false); }} placeholder="0x… (never your public wallet address)" />
       {!fresh && <p className="muted" style={{ fontSize: 12, marginTop: -6 }}><button className="tab" onClick={useFresh}>Use a fresh address of this wallet</button></p>}
-      <label>Amount</label>
+      <label>Amount ({asset.symbol})</label>
       <input value={amount} onChange={(e: any) => setAmount(e.target.value)} />
-      {wei > 0n && !isBucket(wei) && (
+      {units > 0n && !isBucketFor(asset, units) && (
         <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
           An exact amount is a fingerprint on the public side.{" "}
-          {bucket ? <button className="tab" onClick={() => setAmount(formatEther(bucket))}>Use {formatEther(bucket)} ETH (the rest stays private)</button> : "Choose at least 0.001 ETH."}
+          {bucket ? <button className="tab" onClick={() => setAmount(formatAmount(asset, bucket))}>Use {formatAmount(asset, bucket)} {asset.symbol} (the rest stays private)</button> : "Choose a larger amount."}
         </p>
       )}
-      <button className="primary" onClick={withdraw} disabled={busy || wei <= 0n}>
+      <button className="primary" onClick={withdraw} disabled={busy || units <= 0n}>
         Withdraw
       </button>
       {status && <p className="muted">{status}</p>}
-      <Scorecard action="withdraw" facts={{ delaySeconds: 0, amountIsBucket: isBucket(wei), privateSubmission: submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fresh }} />
+      <Scorecard action="withdraw" facts={{ delaySeconds: 0, amountIsBucket: isBucketFor(asset, units), privateSubmission: submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fresh }} />
     </div>
   );
 }

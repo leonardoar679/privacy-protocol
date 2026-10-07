@@ -23,14 +23,14 @@ Note the five core addresses, the ETH vault and the `SwapOrderFactory` from the 
 cd services/private-swap && cp .env.example .env    # CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT from step 1
 npm install && npm run serve                        # http://127.0.0.1:8787 (live provider quotes)
 
-cd services/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED
+cd services/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (+ FEE_VAULTS for ERC-20 fee notes)
 npm install && npm run serve                        # http://127.0.0.1:8790 (private submission + swap executor)
 curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's pp1… address
 ```
 
 ## 3. Wallet
 ```
-cd frontend && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT from step 1
+cd frontend && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
 ZKAPI_NETWORK=sepolia npm run zkapi:assets && npm run zkapi:pins   # only for the Private AI tab (Sepolia zkAPI)
 npm install && npm run dev                          # http://localhost:5173
 ```
@@ -38,6 +38,7 @@ Then, in the browser, in this order — each step is one of the flows the node t
 suites already cover, so what is being checked is the glue in a real browser on a real chain:
 0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **Backup** downloads the keystore + journal; on a second browser **Restore from phrase** and rescan.
 1. **Shield** 1 ETH with the injected wallet → "Added 1 ETH to your private balance" (leaf index under *Advanced*).
+1b. With a test token in `VITE_ERC20_VAULTS`: **Shield** 100 USDC → the approve, then the deposit; **Send / Withdraw** in USDC pay the relayer in USDC (its `FEE_VAULTS`).
 2. **Rescan the chain for my notes** → the same note is rediscovered from its encrypted payload.
 3. **Withdraw** 0.4 ETH to a fresh address with submission = *Relayer* → the proof is produced in the
    Web Worker (≈ 1–3 s on a laptop), the relayer submits from its own key, the change note and the
