@@ -6,7 +6,10 @@ the money core's trust model** (plan V1.1 §13–§34, §85 Rules 2–4, 10). `P
 are unchanged by this document; everything here is periphery (replaceable) or wallet (replaceable).
 
 Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `contracts/src/periphery/swap/`,
-`services/private-swap/`.
+`services/private-swap/`. Extended by `docs/whale-execution-spec-v1.0.md` (V2: value tiers, execution
+plans, the RFQ lifecycle, the lint, the wallet screens), which restates nothing here it does not change.
+Errata of 2026-10-07 (the text conformed to the code): §2 Order fields, §4 adapter signature and
+`Capabilities`, §5 the signed deadline, §8 the delay windows per policy, §9 reliability, §11 test count.
 
 ---
 
@@ -27,18 +30,22 @@ construction (the escrow is just a withdrawal recipient) and tested (`contracts/
 ```
 Order {
   orderId        bytes32   uniformly random, unique per order (also the CREATE2 salt)
-  source         { chain: "ethereum", asset: address|0 (ETH), amount: uint256 }
-  destination    { chain, asset, address: fresh (§6) }
-  policy         "best-privacy" | "best-price" | "fastest"
-  quote          Quote (§4) chosen by the engine; quote.expiresAt is the hard execute deadline
-  minOut         uint256   in destination units; MUST be ≤ quote.toAmountMin and carried in the
-                           provider ingress where the provider supports a limit (§5)
-  privacyBudget  { delaySeconds: [min, max] (§8), amountNormalized: bool (§8) }
-  endpoint       SourceEndpoint (§6): the escrow parameters, predicted address
-  refund         { vault, ownerCommitment, noteSecret, noteData (169 B) } — a FRESH note (§7)
-  state          OrderState (§3)
+  request        QuoteRequest (§4): from { chain, asset, decimals, symbol }, to { … }, amount (gross, in `from` units),
+                 destination (fresh, §6), source? (the escrow once known), slippageBps
+  policy         "best-privacy" | "best-price" | "fastest"   (V2 adds "balanced" and "privacy-execution")
+  quote          Quote (§4) chosen by the engine; re-quoted at prepare (§5)
+  ingress        Ingress (§4): the escrow's one call, once prepared
+  params         OrderParams (§6): the committed escrow parameters, incl. the FRESH refund note (§7)
+  endpoint       address: the predicted escrow
+  execution?     Execution (§6): signed once the final ingress is known
+  privacy        { delaySeconds: [min, max] (§8), amountNormalized: bool (§8), score (§10), destinationLinkPublic (§10) }
+  state          OrderState (§3);  history [{ state, at, note? }]
 }
 ```
+The minimum output the user approved at commit (`approvedMin`, in destination units) is journaled
+by the wallet (`frontend/src/wallet/journal.ts`); a provider call guaranteeing less is signed only
+after consent (below). It MUST be ≤ the quote's `toAmountMin` and is carried in the provider ingress
+where the provider supports a limit (§5). V2 §1 carries it in the order server-side too.
 `orderId` MUST NOT be derived from user identity. The wallet persists the order in its journal
 before any on-chain action (recovery, §3).
 
@@ -97,24 +104,34 @@ events, adapter status) — the same pattern as the reorg-aware indexer (`refere
 interface ProviderAdapter {
   id: "thorchain" | "chainflip" | "mayan" | "near-intents" | "lifi" | "uniswap-across";
   implemented: boolean;                          // false = interface-conformant stub (one at a time, §66)
-  capabilities(): { routes: RouteCategory[]; ingress: IngressKind[]; nativeAssets: boolean; atomic: false };
+  capabilities(): Capabilities;
   quote(req: QuoteRequest): Promise<Quote>;        // live; MUST include toAmountMin, expiresAt, fees, eta
-  prepareIngress(order, quote): Promise<Ingress>;  // what the escrow must do
-  track(ref: ProviderRef): Promise<TrackStatus>;   // maps to §3 states
-  refundPath(order): RefundPath;                   // provider-level refund (e.g. THORChain refund memo) or none
+  prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress>;   // builds AND verifies the escrow's one call
+  track(ref: { sourceTxHash?: string; providerRef?: string }): Promise<TrackStatus>;   // maps to §3 states
   health(): Promise<Health>;                       // §9
 }
+Capabilities = { routes: RouteCategory[]; ingress: IngressKind[]; nativeAssets: boolean; atomic: false; chains: Chain[];
+                 contractSender?: boolean;        // false: a contract-sent ingress is unconfirmed → quoted, never chosen (§6)
+                 destinationLinkPublic: boolean; linkEvidence: string }   // §10
+QuoteRequest = { from: AssetRef, to: AssetRef, amount (net of the tip), destination, source?, slippageBps }
 Ingress = { kind: "plain-address" | "contract-call", to: address, calldata: hex, value: bigint,
-            memo?: string, expiresAt: number, minOutEncoded: boolean }
-Quote  = { provider, toAmount, toAmountMin, fees[], etaSeconds, expiresAt, route: hops[], raw }
+            memo?: string, expiresAt: number, minOutEncoded: boolean, verified?: string[], refundTokens?: string[] }
+Quote  = { provider, category, toAmount, toAmountMin, fees[], etaSeconds, expiresAt, nativeAssets, minOutEncoded,
+           minOutVerified?, refundTarget?: "escrow" | "destination", hops[], raw, obtainedAt }
+TrackStatus = { state: "pending" | "executing" | "destination-submitted" | "destination-final" | "completed" | "partial" | "refunded" | "failed" | "unknown",
+                destinationTxHash?, deliveredAmount?, deliveredAsset?, raw? }
+Health = { provider, reachable, apiLatencyMs, halted, haltedChains: string[], checkedAt, note? }
 RouteCategory = "A native↔native" | "B evm→solana" | "C evm→evm" | "D solana→evm" | "E bitcoin→evm"
 ```
+The provider-level refund path of an order is `Quote.refundTarget` (§7), not a separate method;
+the full type definitions, with the V2 additions, are in `docs/whale-execution-spec-v1.0.md` §5.
 Category → preferred providers (plan §32): A THORChain/Chainflip/NEAR; B Mayan/NEAR/LI.FI;
 C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
 
 ## 5. Quote expiration and minimum-output protection
-- The signed `Execution.deadline` MUST equal the quote's `expiresAt` and MUST NOT exceed the
-  escrow's committed `executeDeadline`; `execute()` is refused after it.
+- The signed `Execution.deadline` MUST be `min(quote.expiresAt, executeDeadline)`: never past the
+  hard quote's expiry, never past the escrow's committed `executeDeadline`; `execute()` is refused
+  after it.
 - The signed provider calldata/memo MUST carry the limit where the provider supports one: THORChain
   memo `=:ASSET:dest/ESCROW:LIMIT`, LI.FI `toAmountMin` (inside its `transactionRequest`), Chainflip
   `cfParameters.min_price` + refund address of a vault swap (`Vault.xSwapNative`), Mayan `minAmountOut`.
@@ -140,7 +157,8 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
 - A quote whose claimed minimum is inconsistent with the requested slippage (more than slippage +
   0.5–2 % below the expected output, per adapter) MUST be refused as a changed quote; at signing
   time the re-quote MUST pass the **price guard** (`scoring.ts::priceGuard`: not more than
-  `maxGapBps` below the best live alternative).
+  `maxGapBps` below the best live alternative). *Implemented* in the engine and its tests; wired into
+  the service's `/prepare` by V2 §14 (Stage 3).
 - Where the minimum output cannot be confirmed inside the calldata that will be signed, the quote
   MUST carry `minOutVerified: false`; such routes are quoted for information and refused under
   `best-privacy` / `best-price` (LI.FI's Mayan facet; NEAR Intents, whose minimum is
@@ -258,10 +276,11 @@ otherwise the route is quoted for information and filtered from selection.
   A signed execution handed over later still replaces a refund-only job while it is open.
 
 ## 8. Privacy budget (plan §29–§31)
-- **Delay**: under `best-privacy` the wallet schedules SOURCE_SUBMITTED uniformly at random within
-  `[min, max]` after COMMIT (the study found uniform-like delays beat immediate/exponential ones);
-  default `[1 h, 24 h]`, high-privacy `[6 h, 72 h]`. `executeDeadline` MUST be re-quoted if the
-  scheduled time passes the quote's expiry.
+- **Delay**: the wallet schedules SOURCE_SUBMITTED uniformly at random within the policy's
+  `[min, max]` after COMMIT (the study found uniform-like delays beat immediate/exponential ones):
+  `best-privacy` `[6 h, 72 h]`, `best-price` `[1 h, 24 h]`, `fastest` `[0, 0]` (`engine.ts::DELAY_BUDGET`;
+  V2 §4 adds `balanced` and `privacy-execution` at `[1 h, 24 h]`). `executeDeadline` MUST be re-quoted
+  if the scheduled time passes the quote's expiry.
 - **Amount normalization**: the withdrawn amount SHOULD be a bucket (`reference/typescript/src/wallet/amounts.ts`)
   with the odd remainder kept private; the swap amount is then the bucket minus tip. This MUST stay
   within the user's minimum-output requirement (re-quote the bucketed amount).
@@ -279,11 +298,13 @@ best-price:   w = {price .45, security .20, reliability .15, privacy .10, latenc
 fastest:      w = {latency .40, reliability .25, security .15, price .10, privacy .10, liquidity 0}
 ```
 `price` = toAmountMin relative to the best quote; `security` = static provider score adjusted by the
-**incident feed** (plan §25: THORChain 2026-05-15 GG20/TSS exploit lowers its security score and
-raises its reliability penalty for a decaying window); `latency` from eta; `liquidity` from quote
-depth / slippage; `reliability` from health (API latency, quote freshness, recent failures, halts,
-maintenance). Routes with `health.halted`, expired quotes, or `minOutEncoded: false` under a strict
-policy are filtered before scoring. **The best price MUST NOT win automatically** (§24).
+**incident feed** (plan §25: THORChain 2026-05-15 GG20/TSS exploit lowers its security score for a
+decaying window); `latency` from eta; `liquidity` from the quote's liquidity fee (V2 §4: from the
+provider's own impact figure where it states one); `reliability` from health (reachable, halted, API
+latency; V2 §16 adds the failure history, the order's chains and a circuit breaker). Routes with
+`health.halted`, an unreachable provider, expired quotes, an unconfirmed contract-sent ingress, or
+`minOutEncoded: false` / `minOutVerified: false` under a strict policy are filtered before scoring.
+**The best price MUST NOT win automatically** (§24).
 
 ## 10. Cross-chain privacy score (plan §51)
 Eight factors, each a penalty in [0, 1]; `score = round(100 · Π_k (1 − p_k · w_k))` with weights
@@ -320,7 +341,7 @@ No core code, ABI or invariant changes; `contracts/abi/SHA256SUMS` stays valid.
 event `OrderEscrowDeployed(orderId, escrow)`). Errors: `TipTooLarge`, `BadDeadlines`, `ZeroSigner`,
 `NotFunded`, `DeadlinePassed`, `DeadlineTooLate`, `TooEarlyToRefund`, `BadSignature`, `ValueTooLarge`,
 `NoteDataMismatch`, `AlreadyExecuted`, `ProviderCallFailed`, `NothingToRefund`, `TipTransferFailed`.
-Executed test matrix (`contracts/test/periphery/SwapOrderEscrow.t.sol`, 18 tests): funding before
+Executed test matrix (`contracts/test/periphery/SwapOrderEscrow.t.sol`, 32 tests, the first 18 listed): funding before
 deployment, predict == deploy, happy execution, **re-route to a fallback provider**, expiry →
 refund-to-pool → re-spend, provider revert, provider refund → re-shield, forged signature, tampered
 calldata / provider / value, deadline above the committed cap, replay on another escrow, tampered
@@ -339,5 +360,6 @@ spends it. The wallet side predicts the escrow with the CREATE2 formula over `ab
 but a withdrawal recipient.
 
 ## 12. Out of scope here
-Provider execution with real funds; wallet UI; mobile; zkAPI-authorized private quotes (plan §52,
-§65) — the quote gateway is a service that sits in front of the same adapters.
+Provider execution with real funds; mobile shells. The wallet screens, the value tiers, the execution
+plans and the zkAPI-authorized quote gateway (plan §52, §65: a service that sits in front of the same
+adapters) are specified by `docs/whale-execution-spec-v1.0.md`.

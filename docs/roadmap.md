@@ -51,6 +51,23 @@ From the spec (§103–§120) and the Core Protocol Specification Plan (§91). L
 | Native Groth16 prover (plan §40 "native proving") | `core/rust/privacy-prover`: reads the snarkjs `.zkey` and `.wtns` natively, proves with arkworks Groth16 + the snarkjs QAP reduction (rayon on native hosts, single-threaded and std-free for wasm32), exports snarkjs JSON and the `transact` calldata; **the witness computed natively** (the circuit's WASM under wasmi, no JIT: iOS-safe) so circuit inputs → witness → proof is all Rust; 12 tests on the dev key + four v1 fixtures (incl. a forged statement refused) (key == `verification_key.json`, **native witness == snarkjs `.wtns`**, the soundness manifest's 4 honest / 10 attack verdicts reproduced, native proofs verify and bind every public input, snarkjs proofs verify natively, calldata == snarkjs export, unsatisfying witness rejected); **native proofs verified by the on-chain verifier** (`contracts/test/verifier/NativeRustProof.t.sol`, 5); witness ≈ 340 ms + proof ≈ 235 ms here vs ≈ 1.1 s for snarkjs (`examples/prove-bench.rs`); fixtures: `core/rust/scripts/gen-prover-fixtures.mjs` | ✅ native witness + prover; UniFFI + device benchmarks ⏳ |
 | 20 independent audits | `docs/audit-package.md`: scope, pinning, invariants/test inventory, known gaps, auditor questions; engagement itself external | 🔶 package ready |
 
+## V2 — whale execution layer (plan "Privacy Wallet & Private Settlement Platform V2" §1–§137)
+Spec first: `docs/whale-execution-spec-v1.0.md` (the 25 sections of plan §137), then the stages in order; each stage tested, run through `scripts/verify-all.mjs` and committed. Nothing in `PrivacyCore`, the vaults, the circuits or the escrow bytecode changes. UniswapX (§29) is deferred (spec §11: an escrow EIP-1271 change).
+
+| Stage | Deliverable | Status |
+|-------|-------------|--------|
+| 0 | the spec + V1.1 errata (§2 Order, §4 adapter signature / `Capabilities`, §5 deadline, §8 delay windows, §9 reliability, §11 test count) + the audit package's spec file name | ✅ 2026-10-07 |
+| 1 | whale labs, read-only: `benchmarks/whale/` research (largest public swaps), execution lab ($1M–$25M quotes across providers, single vs streamed), privacy per execution mode (`sim/crossChainLab.ts`) → the lab-calibrated constants of spec §4, §12 | ⏳ |
+| 2 | valuation (Chainlink through the RPC quorum) + tiers (spec §13), settings (tiers, preference, housekeeping, second factor) | ⏳ |
+| 3 | engine: `balanced` / `privacy-execution`, `preferNative`, impact in scoring, THORChain streaming + Chainflip DCA plans, competition record, failure history + breaker, the price guard in `/prepare`, placeholder destinations at phase 1, `GET /track/:provider`, relayer `executionTx`, `isBucketOf` / `destinationFresh` fixes (spec §2–§4, §12, §14, §16, §17, §19) | ⏳ |
+| 4 | the four-tab wallet: Home, Activity, Privacy Center, preference in Settings, the scheduler at App level (abandoned-order bug, serialized runner), data-safety fixes, light-first tokens + dark mode + PWA metas (spec §23, §25) | ⏳ |
+| 5 | destinations (parser, wrong-chain refusal, card), pre-trade simulation, privacy lint, the wallet's streaming / DCA decoders (spec §15, §18, §21, §24) | ⏳ |
+| 6 | the high-value Review: hold-to-confirm, WebAuthn second factor, institutional review hold + export, issuer line, route details drawer (spec §24) | ⏳ |
+| 7 | settlement tracking in the wallet: the state machine on journal + relayer + escrow + tracker, the §61 labels, the four-step line, Activity rows (spec §19) | ⏳ |
+| 8 | note management for large balances: housekeeping planner (split / merge / rebalance), scheduled with a fee cap and an opt-out; the whale bucket alphabet if the lab supports it | ⏳ |
+| 9 | "Check this trade" on Private AI (sanitized summary, AI signs nothing) + the zkAPI quote-gateway interface, blocked upstream (spec §22) | ⏳ |
+| 10 | docs, counts, memory | ⏳ |
+
 ## Decisions still open (owner needed)
 - **Gas vs §79 targets** — `transact` 1.79M / `deposit` 1.52M vs 650k / 150k. At today's gas that is
   under a dollar per operation; the levers (direct library calls, Yul body hash, deposit queue,

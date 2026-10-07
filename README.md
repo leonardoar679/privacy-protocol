@@ -16,7 +16,7 @@ stablecoin issuer's freeze can only ever touch its own vault.
 ## Layout
 ```
 privacy-protocol/
-├─ docs/        protocol-spec-v1.0 (normative) · crypto · vault · threat-model · security-invariants · circuit-audit · privacy-lab · roadmap
+├─ docs/        protocol-spec-v1.0 (normative) · private-swap-spec-v1.1 (normative) · **whale-execution-spec-v1.0 (normative, V2)** · zkapi-integration-spec · wallet-formats · crypto · vault · threat-model · security-invariants · circuit-audit · privacy-lab · test-matrix · audit-package · roadmap
 ├─ contracts/   Foundry — immutable PrivacyCore + vaults + factory + Poseidon2 + verifier + deploy script   [107/107 tests ✅ incl. e2e + native-prover proofs]
 ├─ circuits/    circom — 2-in/3-out transaction, Poseidon2, KAT, soundness harness, dev setup             [compiled + proven ✅]
 ├─ reference/   typescript (vectors, witness builder, prover, envelope, chain keys, scorecard, reorg indexer, WASM cross-check) · python (differential) [72/72 ✅ · 31/31 ✅]

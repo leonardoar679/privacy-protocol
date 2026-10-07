@@ -39,7 +39,7 @@ own contracts, the UI shell (`frontend`), gas optimisation.
 - Circuit: `circuits/README.md` (circom 2.2.2, `--O2`), constraint count 23,343 / 14 public inputs;
   the dev setup (`circuits/scripts/dev-setup.sh`) is **insecure by design** (single-party, power 15)
   and only exists to exercise real proofs in tests — the production ceremony is still owed.
-- Specifications the code claims to implement: `docs/spec-v1.0.md` (core), `docs/vault-spec.md`,
+- Specifications the code claims to implement: `docs/protocol-spec-v1.0.md` (core), `docs/vault-spec.md`,
   `docs/private-swap-spec-v1.1.md` (periphery + engine), `docs/zkapi-integration-spec.md`.
 
 ## 3. Invariants and the tests that execute them
@@ -87,7 +87,7 @@ can be malicious without touching shielded funds, and the tests in §3 try to pr
 ## 6. Questions for the auditors
 1. Circuit: any public-input or constraint that lets a prover reuse a nullifier, spend a note it
    does not own, or create value — especially around the two-input / three-output boundary and the
-   root freshness assumption (`docs/spec-v1.0.md` §9).
+   root freshness assumption (`docs/protocol-spec-v1.0.md` §9).
 2. Contracts: any sequence of external calls (vault release, escrow execute/refund, token hooks in
    the "token zoo") that re-enters or desynchronises vault accounting from the tree.
 3. Periphery: can a relayer, provider or factory caller ever make an escrow forward funds to an
