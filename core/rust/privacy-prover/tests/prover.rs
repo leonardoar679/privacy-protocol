@@ -395,3 +395,22 @@ fn the_calculator_refuses_malformed_inputs_and_modules() {
     assert_eq!(fnv("a"), (0xaf63dc4cu32 as i32, 0x8601ec8cu32 as i32));
     assert_eq!(fnv("foobar"), (0x85944171u32 as i32, 0xf73967e8u32 as i32));
 }
+
+#[test]
+fn a_witness_that_proves_another_statement_is_refused() {
+    let Some(a) = artifacts() else { return };
+    let mut calc = WitnessCalculator::new(&a.circuit_wasm).unwrap();
+    let inputs = inputs_from_json(&circuit_input("ok-withdraw")).unwrap();
+    let w = calc.calculate(&inputs).unwrap();
+    assert_eq!(check_statement(&inputs, &w), Ok(()), "an honest witness states what the inputs declare");
+    assert_eq!(declared_public_inputs(&inputs).unwrap().as_slice(), public_inputs(&a.zkey, &w));
+    // what a tampered witness program could hand back: the same spend, another recipient / another output
+    for (k, name) in [(9usize, "withdrawalRecipient"), (3, "outputBody"), (13, "txDomain"), (0, "root")] {
+        let mut forged = w.clone();
+        forged[1 + k] += Fr::from(1u64);
+        assert_eq!(check_statement(&inputs, &forged), Err(WitnessError::StatementMismatch { index: k, signal: name }));
+    }
+    let without: Vec<_> = inputs.iter().filter(|(n, _)| n != "txDomain").cloned().collect();
+    assert_eq!(check_statement(&without, &w), Err(WitnessError::MissingPublic("txDomain")));
+    assert_eq!(TRANSACTION_PUBLIC_SIGNALS.iter().map(|(_, n)| n).sum::<usize>(), a.zkey.n_public);
+}

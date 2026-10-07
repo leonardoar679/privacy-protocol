@@ -361,7 +361,9 @@ impl Prover {
     }
 
     /// Circuit inputs (the JSON reference/typescript/src/txInputs.ts builds) → witness → proof, verified
-    /// before it is returned. `r` and `s`: 32 fresh CSPRNG bytes each (the proof's blinding).
+    /// before it is returned. The witness's public inputs must be exactly the ones the inputs declare
+    /// (a tampered witness program could otherwise prove another statement with the same spending key).
+    /// `r` and `s`: 32 fresh CSPRNG bytes each (the proof's blinding).
     pub fn prove(&self, inputs_json: String, r: Vec<u8>, s: Vec<u8>) -> Result<TransactProof, CoreError> {
         let v: serde_json::Value = serde_json::from_str(&inputs_json).map_err(|e| invalid(format!("inputs JSON: {e}")))?;
         let inputs = privacy_prover::inputs_from_json(&v).map_err(|e| invalid(format!("inputs: {e:?}")))?;
@@ -369,6 +371,7 @@ impl Prover {
             let mut calc = self.witness.lock().map_err(|_| CoreError::Witness { reason: "the witness calculator was poisoned by an earlier panic".into() })?;
             calc.calculate(&inputs).map_err(|e| CoreError::Witness { reason: format!("{e:?}") })?
         };
+        privacy_prover::check_statement(&inputs, &w).map_err(|e| CoreError::Witness { reason: format!("{e:?}") })?;
         let (r, s) = (privacy_prover::fr_from_bytes(&fixed::<32>(&r, "r")?), privacy_prover::fr_from_bytes(&fixed::<32>(&s, "s")?));
         let proof = privacy_prover::prove(&self.zkey, &w, r, s).map_err(|e| CoreError::Proving { reason: format!("{e:?}") })?;
         let public = privacy_prover::public_inputs(&self.zkey, &w);

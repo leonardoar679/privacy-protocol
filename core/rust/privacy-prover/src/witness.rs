@@ -25,6 +25,11 @@ pub enum WitnessError {
     WrongLength { signal: String, expected: usize, got: usize },
     MissingInputs { set: usize, expected: usize },
     BadValue(String),
+    /// the witness's public inputs differ from the ones the inputs declare (at this public index): the
+    /// witness program proved a different statement than the wallet built — never submit it
+    StatementMismatch { index: usize, signal: &'static str },
+    /// the inputs lack a public signal of the Transaction circuit
+    MissingPublic(&'static str),
 }
 
 fn reason(code: i32) -> &'static str {
@@ -272,4 +277,52 @@ pub fn inputs_from_json(v: &serde_json::Value) -> Result<Vec<(String, Vec<Fr>)>,
             Ok((k.clone(), vals))
         })
         .collect()
+}
+
+/// The Transaction circuit's public signals in `PrivacyCore.encodePublicInputs` order, with their sizes
+/// (reference/typescript/src/prover.ts PUBLIC_SIGNALS): 14 field elements.
+pub const TRANSACTION_PUBLIC_SIGNALS: [(&str, usize); 9] = [
+    ("root", 1),
+    ("nullifier", 2),
+    ("outputBody", 3),
+    ("mode", 1),
+    ("withdrawalVault", 1),
+    ("withdrawalAmount", 1),
+    ("withdrawalRecipient", 1),
+    ("outDataHash", 3),
+    ("txDomain", 1),
+];
+
+/// The public inputs the circuit inputs DECLARE, in order — what the wallet built and means to submit.
+pub fn declared_public_inputs(inputs: &[(String, Vec<Fr>)]) -> Result<Vec<Fr>, WitnessError> {
+    let mut out = Vec::with_capacity(14);
+    for (name, size) in TRANSACTION_PUBLIC_SIGNALS {
+        let values = &inputs.iter().find(|(n, _)| n == name).ok_or(WitnessError::MissingPublic(name))?.1;
+        if values.len() != size {
+            return Err(WitnessError::WrongLength { signal: name.to_string(), expected: size, got: values.len() });
+        }
+        out.extend_from_slice(values);
+    }
+    Ok(out)
+}
+
+/// Refuse a witness whose public inputs (elements 1..=14) are not exactly the declared ones. The witness
+/// program holds the spending key while it runs; a tampered one could otherwise produce a valid proof of
+/// a different statement (another withdrawal recipient, another output) that the chain would accept.
+/// The web wallet makes the same check on snarkjs' output (reference/typescript/src/prover.ts proveInputs).
+pub fn check_statement(inputs: &[(String, Vec<Fr>)], witness: &[Fr]) -> Result<(), WitnessError> {
+    let declared = declared_public_inputs(inputs)?;
+    if witness.len() <= declared.len() {
+        return Err(WitnessError::Interface("the witness is shorter than the public inputs"));
+    }
+    let mut k = 0;
+    for (name, size) in TRANSACTION_PUBLIC_SIGNALS {
+        for _ in 0..size {
+            if witness[1 + k] != declared[k] {
+                return Err(WitnessError::StatementMismatch { index: k, signal: name });
+            }
+            k += 1;
+        }
+    }
+    Ok(())
 }
