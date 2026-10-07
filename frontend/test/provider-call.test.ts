@@ -328,7 +328,7 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     // into a token the pool has a vault for, it passes too: the escrow's refundToken re-shields it there, and both
     // sides name it as the token the executor must watch
     const eu = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [USDC.asset] });
-    await expect(checkProviderCall(intoUsdc, eu)).resolves.toMatchObject({ refundTo: "escrow", refundTokens: [getAddress(USDC.asset)] });
+    await expect(checkProviderCall(intoUsdc, eu)).resolves.toMatchObject({ refundTo: "escrow", refundTokens: [getAddress(USDC.asset)], refundFloors: { [USDC.asset.toLowerCase()]: (MIN_AMOUNT / 100n).toString() } });
     const saved = process.env.ERC20_VAULTS;
     process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
     try {
@@ -409,6 +409,7 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
     const honest = call();
     const c = await checkProviderCall(honest, e);
     expect(c).toMatchObject({ provider: "across", receiver: DEST_EVM, minOut: OUT, refundTo: "escrow", refundTokens: [getAddress(USDC.asset)] });
+    expect(c.refundFloors, "PP-S12: 1% of the least an unfilled deposit returns").toEqual({ [USDC.asset.toLowerCase()]: (2_593_233_999n / 100n).toString() });
     const v = serviceVerify(honest.calldata);
     expect(v.minOut).toBe(OUT);
     expect(v.refundTokens).toEqual([USDC.asset.toLowerCase()]);

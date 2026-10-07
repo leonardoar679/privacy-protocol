@@ -28,6 +28,8 @@ export interface SwapExecuteRequest {
   refundNoteData: Hex;
   /** tokens other than the order's asset the provider call may pay back to the escrow: the executor re-shields them through refundToken */
   refundTokens?: Address[];
+  /** per listed token (lowercase), the least balance worth a re-shield after execution, in base units (PP-S12) */
+  refundFloors?: Record<string, string>;
 }
 /** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
 export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;

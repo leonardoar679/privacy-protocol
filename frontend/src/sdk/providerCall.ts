@@ -50,6 +50,9 @@ const ownAsset = (e: CallExpectation, token: Address) => (e.from.asset === "nati
 const asEth = (e: CallExpectation, token: Address) => e.from.asset !== "native" && (same(token, ZERO) || same(token, WETH.ethereum));
 /** ...and any token the pool has a vault for (one this wallet can see the note in). */
 const reshieldable = (e: CallExpectation, token: Address) => ownAsset(e, token) || asEth(e, token) || (!same(token, ZERO) && (e.pooled ?? []).some((t) => same(t, token)));
+/** The floor the executor is told for a listed token: `least` / `divisor` (PP-S12: dust below it is not worth an unpaid re-shield). */
+const floorOf = (tokens: Address[] | undefined, least: bigint, divisor: bigint): Record<string, string> | undefined =>
+  tokens ? { [tokens[0].toLowerCase()]: (least / divisor).toString() } : undefined;
 /** What the facts say about an unfilled deposit coming back to the escrow. */
 const refundFact = (e: CallExpectation, tokens: Address[] | undefined) =>
   tokens ? `an unfilled deposit refunds the escrow in ${tokens[0]}, which re-shields ${asEth(e, tokens[0]) ? "as ETH" : "into its vault"}` : "an unfilled deposit refunds the escrow";
@@ -99,6 +102,8 @@ export interface CheckedCall {
   refundTo: "escrow" | "destination" | "provider";
   /** tokens other than the order's asset the call may pay back to the escrow (a source swap's output): the executor re-shields them through refundToken */
   refundTokens?: Address[];
+  /** per listed token (lowercase): the least balance worth a re-shield nothing pays for, a share of the least the route moves in it (PP-S12) */
+  refundFloors?: Record<string, string>;
   /** what this wallet confirmed, in plain words */
   facts: string[];
 }
@@ -416,8 +421,9 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
     must(drained, P, "receiver", nativeOut ? "no drain of native ETH to your fresh address after the unwrap (the handler would keep it)" : "nothing hands the output token to your fresh address (the handler would keep it)");
   }
   const refundTokens = ownAsset(e, d.inputToken) ? undefined : [getAddress(d.inputToken)];
+  const refundFloors = floorOf(refundTokens, s.minExpectedInputTokenAmount, 100n); // an unfilled deposit returns at least this
   return {
-    provider: P, receiver: e.destination, minOut: d.outputAmount, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}),
+    provider: P, receiver: e.destination, minOut: d.outputAmount, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors } : {}),
     facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : nativeOut ? "pays the pinned Across handler, which unwraps the WETH and sends the ETH to your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount", refundFact(e, refundTokens)],
   };
 }
@@ -491,6 +497,8 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
   // the swap surplus in it; a source swap into a token the escrow cannot re-shield would strand it there (PP-S08)
   if (bd.hasSourceSwaps) must(reshieldable(e, bd.sendingAssetId), P, "refund", `swaps into ${bd.sendingAssetId} before bridging: an unfilled deposit or the swap surplus would come back to the escrow in a token it cannot re-shield`);
   const refundTokens = bd.hasSourceSwaps && !ownAsset(e, bd.sendingAssetId) ? [getAddress(bd.sendingAssetId)] : undefined;
+  // Across returns an unfilled deposit whole (at least minAmount); the Mayan facet sweeps only the swap surplus above it
+  const refundFloors = floorOf(refundTokens, bd.minAmount, functionName.endsWith("AcrossV4") ? 100n : 1000n);
   const evmDest = EVM_CHAIN_ID[e.to.chain] !== undefined;
   if (evmDest) must(same(bd.receiver, e.destination), P, "receiver", `pays ${bd.receiver}, not your fresh address`);
   else must(same(bd.receiver, LIFI_NON_EVM_RECEIVER), P, "receiver", "a non-EVM destination without LI.FI's non-EVM marker");
@@ -507,7 +515,7 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
     // the swap variant overwrites outputAmount on chain: (swap result, >= minAmount) × multiplier / 1e18
     const minOut = bd.hasSourceSwaps ? (bd.minAmount * a.outputAmountMultiplier) / ACROSS_MULTIPLIER_BASE : a.outputAmount;
     if (bd.hasSourceSwaps) must(a.outputAmount === minOut, P, "minimum", "outputAmount disagrees with minAmount × outputAmountMultiplier");
-    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundFact(e, refundTokens), bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across)" : "exact fill amount"] };
+    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundFact(e, refundTokens), bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across)" : "exact fill amount"] };
   }
   // MayanFacet: the facet checks the receiver against Mayan's order on chain; it sweeps excess value
   // and, in the swap variant, everything above mayanAmountIn to refundRecipient
@@ -515,5 +523,5 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
   if (!evmDest) must(same(m.nonEVMReceiver, destination32), P, "receiver", "Mayan would pay another address than your fresh one");
   must(same(m.refundRecipient, e.escrow), P, "refund", `excess value and swap surplus would go to ${m.refundRecipient}, not the escrow`);
   if (bd.hasSourceSwaps) must(m.mayanAmountIn === bd.minAmount, P, "amount", `hands Mayan ${m.mayanAmountIn} of the ${bd.minAmount} bridged; the rest would be swept away`);
-  return { provider: P, receiver: e.destination, minOut: null, refundTo: "provider", ...(refundTokens ? { refundTokens } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", "a failed Mayan order refunds by Mayan's rules"] };
+  return { provider: P, receiver: e.destination, minOut: null, refundTo: "provider", ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", "a failed Mayan order refunds by Mayan's rules"] };
 }

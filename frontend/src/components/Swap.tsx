@@ -211,7 +211,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     if (!order || !stored || !refundNoteData) return;
     if (submission.kind !== "relayer") { setError(`Switch to relayer submission (advanced), or call deployAndRefund on the factory yourself after ${new Date(order.params.refundAfter * 1000).toLocaleString()}.`); return; }
     const url = submission.url;
-    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactory(), params: stored.params as any, refundNoteData, ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[] } : {}) }));
+    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactory(), params: stored.params as any, refundNoteData, ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}) }));
     if (!j) return;
     setMoved(null); setJob(j);
     patchStored(order.orderId, { jobId: j.id, state: j.state });
@@ -241,9 +241,9 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       const health: ServiceHealth = await swapService.health();
       const factory = swapFactory();
       if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
-      const refundTokens = gate.call.refundTokens;
-      if (refundTokens?.length) patchStored(order.orderId, { refundTokens });
-      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens } : {}) });
+      const { refundTokens, refundFloors } = gate.call;
+      if (refundTokens?.length) patchStored(order.orderId, { refundTokens, refundFloors });
+      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
       patchStored(order.orderId, { jobId: j.id, state: j.state });
       return { label, job: j, call };
     });

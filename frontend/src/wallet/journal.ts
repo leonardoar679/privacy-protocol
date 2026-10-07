@@ -28,6 +28,8 @@ export interface StoredSwap {
   jobId?: string;
   /** tokens other than the order's asset the signed provider call may pay back to the escrow (handed to the executor) */
   refundTokens?: string[];
+  /** with them, the least balance of each worth a re-shield after execution (PP-S12) */
+  refundFloors?: Record<string, string>;
   /** refund notes found in the pool for this order (PP-S09): refund() may re-shield more than once */
   refunds?: { leafIndex: number; vault: string; amount: string }[];
   state: string;
