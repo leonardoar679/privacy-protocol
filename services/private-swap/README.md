@@ -21,7 +21,7 @@ npx tsx src/cli.ts 1 USDC_BASE best-price
 | `src/endpoints.ts` | `abi.encode(OrderParams)`, CREATE2 prediction (== `SwapOrderFactory.predict`, forge vector), execution digest (== `SwapOrderEscrow.executionDigest`), low-s signing |
 | `src/engine.ts` | quote all → filter → score → choose; build order (net of the executor tip); authorize (re-quote with the escrow as sender, sign) |
 | `src/adapters/thorchain.ts` | **implemented**: THORNode quote (endpoint list), memo with limit, router `depositWithExpiry` calldata, tx status, per-chain halts |
-| `src/adapters/lifi.ts` | **implemented**: `/v1/quote` → `transactionRequest` ingress with `toAmountMin`, `/v1/status`, chains |
+| `src/adapters/lifi.ts` | **implemented**: `/v1/quote` (bridges limited to the facets it reads: Across, Mayan) → `transactionRequest` ingress **decoded and verified locally** (pinned diamond, facets by selector, `BridgeData`, AcrossFacetV4's output from `minAmount × outputAmountMultiplier`, MayanFacet's sweep recipient = escrow), `/v1/status`, chains |
 | `src/adapters/chainflip.ts` | **implemented**: `/v2/quote` vault-swap quotes, `POST /api/encodeVaultSwapData` → `Vault.xSwapNative/xSwapToken` calldata **decoded and verified locally** (pinned Vault address, destination chain/asset/address, refund = escrow, min price, no broker/boost/DCA), `/v2/swaps/{tx}` status, `cf_safe_mode_statuses` halts |
 | `src/adapters/mayan.ts` | **implemented**: `/v3/quote` (Fast MCTP, CCTP-settled), order payload (destination, `amountOutMin`, deadline, fees) **built locally** exactly as the SDK does and wrapped in `MayanForwarder.swapAndForwardEth` / `forwardERC20`; the only API bytes are the source-chain router calldata, bounded on-chain by `minMiddleAmount`; explorer status; `refundTarget: destination` |
 | `src/adapters/nearIntents.ts` | **implemented (quotes + status)**: 1Click API dry quotes (signed by the service, `minAmountOut`, `refundTo` = escrow on the origin chain), token list, `/v0/status`. `prepareIngress` **refuses an escrow source** until 1Click confirms that deposits sent by a contract (internal transactions) are credited (`ONECLICK_CONTRACT_DEPOSITS_CONFIRMED=1`); the engine ranks it but never chooses it (`contractSender: false` → filtered) |
@@ -34,8 +34,9 @@ The engine never holds money keys. The order key is derived per order by the wal
 ## Adversarial and privacy tests (plan §71 / §72 / §74 — steps 17–18)
 `test/adversarial.test.ts` runs the §71 matrix and the §74 compromise cases against the real APIs
 with responses rewritten by `test/helpers/tamper.ts` (outage, status, body): every field the order
-key would sign is checked locally (LI.FI diamond + `BridgeData` + Across facet; Chainflip vault +
-decoded `xSwapNative`; THORNode inbound vault/router confirmed by a gateway quorum; Mayan Fast-MCTP
+key would sign is checked locally (LI.FI diamond + facet selector + `BridgeData` + Across / Mayan
+facet data; Chainflip vault + decoded `xSwapNative`; THORNode inbound vault/router confirmed by a
+gateway quorum, memo refunds to the escrow; Mayan Fast-MCTP
 pin + min-out consistency; 1Click min-out consistency; `priceGuard` against a changed re-quote), and
 every failure row degrades or refunds. `test/privacy-flow.test.ts` records every request and asserts
 the permanent wallet never appears anywhere. `src/sim/crossChainLab.ts` is the §72 observer lab

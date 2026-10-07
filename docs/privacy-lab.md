@@ -109,7 +109,7 @@ is the execution noise plus the rate drift over the ETA. Seeded, 6000 swaps per 
 
 **What the escrow architecture makes of this (correction, 2026-10-07).** The question above —
 which arrival belongs to which ingress — is answered on-chain for every adapter we run: THORChain's
-deposit memo names the destination (`=:ASSET:DEST:LIMIT`) and its outbound carries `OUT:<inbound tx>`;
+deposit memo names the destination (`=:ASSET:DEST/ESCROW:LIMIT`) and its outbound carries `OUT:<inbound tx>`;
 Across' deposit event names the recipient; Mayan's order payload carries `destAddr`; Chainflip's
 vault-swap calldata encodes the destination; LI.FI's bridge call carries the receiver; NEAR Intents
 pays out on the NEAR intents contract (unverified, so treated as public). The adapters declare this

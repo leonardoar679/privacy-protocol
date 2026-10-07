@@ -49,7 +49,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 | circuits | KAT 18, soundness 17 (negative witnesses), Groth16 harness 14 | `circuits/README.md` |
 | reference | TypeScript 72 (vitest, incl. 9 WASM-vs-TypeScript), Python 31 (vectors); five implementations agree on every primitive | `npm test` in `reference/typescript`, `python reference/python/test_vectors.py` |
 | Rust core + native prover + FFI | 11 Python tests over the generated UniFFI bindings (`core/rust/privacy-ffi`), 14 vector suites (`core/rust/privacy-core`), 12 prover tests (`core/rust/privacy-prover`: a witness proving another statement refused, the native witness == snarkjs' and the soundness manifest's verdicts, the zkey parses to the published key, native ⇄ snarkjs proofs verified both ways), wasm32 build | `cargo test` in `core/rust` (after `node core/rust/scripts/gen-prover-fixtures.mjs`), `node core/rust/scripts/ffi-bindings.mjs` |
-| wallet | 72 vitest (the swap-service guard: escrow recomputation == forge vector, order and signature checks; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
+| wallet | 101 vitest (the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
 | private-swap engine | 106 vitest: 39 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset), 20 live adapter quotes, **42 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping), 4 flow (§72, incl. USDC-sourced orders), 1 guest deposit — `docs/test-matrix.md` | `npm test` (network) |
 | privacy | lab (`benchmarks/privacy/results.json`), cross-chain lab (`benchmarks/privacy/crosschain.json`) | `docs/privacy-lab.md` |
 | relayer | 27 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector, journals, limits | `cd services/relayer && npm test` |
@@ -66,7 +66,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
    forge). Both use the INSECURE dev key until the ceremony (item 1).
 6. **Provider adapters are mainnet-pinned**; NEAR Intents' ingress is withheld (contract-sent
    deposits unconfirmed); Mayan's source-chain swap leg trusts Mayan's router calldata within the
-   §74 damage bound; THORChain's gateway quorum (2 of 3) runs over three independent public gateways (Liquify, cosmos.directory, THORWallet; Nine Realms' host stopped resolving in 2026-10 and was replaced).
+   §74 damage bound; THORChain's gateway quorum (2 of 3) runs over three independent public gateways (Liquify, cosmos.directory, THORWallet; Nine Realms' host stopped resolving in 2026-10 and was replaced). The wallet re-checks every provider call itself before signing (`frontend/src/sdk/providerCall.ts`) with pinned contracts — a provider upgrade (e.g. a new THORChain router, `VITE_THORCHAIN_ROUTER`) makes the wallet refuse until its pins are updated. Found and fixed on 2026-10-07: THORChain memos had no refund address (a refund would have paid the relayer), LI.FI's AcrossFacetV4 output was read from a word the facet overwrites from `outputAmountMultiplier`, and LI.FI's MayanFacet sweep recipient was unchecked.
 7. **Cross-chain privacy** (`docs/privacy-lab.md`, cross-chain section): every adapter publishes the
    escrow → destination link; it reaches only the privately funded escrow, so a swap is as private as
    its pool withdrawal. The score multiplies the pool-side and cross-chain links (corrected 2026-10-07
@@ -90,8 +90,9 @@ can be malicious without touching shielded funds, and the tests in §3 try to pr
    the "token zoo") that re-enters or desynchronises vault accounting from the tree.
 3. Periphery: can a relayer, provider or factory caller ever make an escrow forward funds to an
    address or with calldata the order key did not sign? Can `refund` be front-run to a different note?
-4. Engine: is anything the order key signs still taken on trust from a provider API after the
-   checks in `docs/test-matrix.md` (§74 table)?
+4. Engine and wallet: is anything the order key signs still taken on trust from a provider API or
+   the swap service after the checks in `docs/test-matrix.md` (both §74 tables)? In particular the
+   decoders in `frontend/src/sdk/providerCall.ts` against the deployed provider contracts.
 5. Key derivation: domain separation between spend / view / note / order keys and the refund note
    secrets (`reference/typescript/src/keys.ts`, `frontend/src/keys/swapKeys.ts`).
 

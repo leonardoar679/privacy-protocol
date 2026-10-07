@@ -49,8 +49,14 @@ note, the amount and asset it asked for, that asset's canonical vault for refund
 1 % cap and a refund horizon of at most a week — before the order is journaled and again before the
 withdrawal funds the escrow. Before the order key signs, the wallet recomputes the execution digest
 from the provider, value, calldata and deadline it is shown, and checks the deadline against the
-order's and the value against what the escrow may forward. The provider call's receiver and minimum
-remain the engine's checks (§5); a wallet that does not run its own engine trusts it for those.
+order's and the value against what the escrow may forward. It then reads the provider call itself
+(`frontend/src/sdk/providerCall.ts`, gate `swapSign.ts`), against its own journal: the target MUST be a
+pinned provider contract, the receiver the wallet's fresh destination, provider refunds the escrow (or,
+where the provider can only refund at the destination, that address, §7), the amount exactly what the
+escrow forwards, and the minimum the call guarantees MUST be at least the minimum the user approved
+at commit (journaled). A lower minimum is signed only after the user consents to that exact value; a
+call the wallet cannot read is not signed; a minimum it cannot read is accepted only under `fastest`
+(§9). THORChain's inbound vault is confirmed by the wallet's own quorum of public THORNode gateways.
 
 ## 3. Route state machine (plan §34) — non-atomic by construction
 ```
@@ -110,13 +116,16 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
 - The signed `Execution.deadline` MUST equal the quote's `expiresAt` and MUST NOT exceed the
   escrow's committed `executeDeadline`; `execute()` is refused after it.
 - The signed provider calldata/memo MUST carry the limit where the provider supports one: THORChain
-  memo `=:ASSET:dest:LIMIT`, LI.FI `toAmountMin` (inside its `transactionRequest`), Chainflip
+  memo `=:ASSET:dest/ESCROW:LIMIT`, LI.FI `toAmountMin` (inside its `transactionRequest`), Chainflip
   `cfParameters.min_price` + refund address of a vault swap (`Vault.xSwapNative`), Mayan `minAmountOut`.
   Calldata obtained from a provider API MUST be decoded and checked locally before signing (the
   Chainflip adapter pins the Vault address and verifies destination, refund address and min price;
   the LI.FI adapter pins the diamond and verifies chain id, value, the quote's from/to, the
-  `BridgeData` receiver / destination chain / no-destination-call / spent asset, and for the Across
-  facet the refund address and exact output amount; the THORChain adapter takes the inbound vault and
+  `BridgeData` receiver / destination chain / no-destination-call / spent asset, reads facets by
+  selector only (AcrossFacetV4, MayanFacet; any other facet is refused under every policy), for
+  AcrossFacetV4 the refund address, the assets and the output the facet hands Across — in the swap
+  variant `minAmount × outputAmountMultiplier / 1e18`, because the facet recomputes it on chain — and
+  for MayanFacet the sweep recipient (the escrow) and `mayanAmountIn`; the THORChain adapter takes the inbound vault and
   router only from a quorum of independent gateways; Mayan's Fast-MCTP contract is pinned). The executor therefore cannot lower the limit:
   a different calldata has a different signature.
 - A quote whose claimed minimum is inconsistent with the requested slippage (more than slippage +
@@ -125,7 +134,7 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   `maxGapBps` below the best live alternative).
 - Where the minimum output cannot be confirmed inside the calldata that will be signed, the quote
   MUST carry `minOutVerified: false`; such routes are quoted for information and refused under
-  `best-privacy` / `best-price` (LI.FI facets other than Across; NEAR Intents, whose minimum is
+  `best-privacy` / `best-price` (LI.FI's Mayan facet; NEAR Intents, whose minimum is
   held and signed by the service). The ingress lists what was verified (`Ingress.verified`).
 - Where a provider offers no limit, the engine MUST mark the route `minOutEncoded: false` and the
   wallet MUST either refuse it under `best-privacy`/`best-price` or show an explicit warning.
