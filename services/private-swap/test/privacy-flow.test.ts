@@ -24,6 +24,10 @@ const FORBIDDEN = [PERMANENT.toLowerCase(), PERMANENT.toLowerCase().slice(2), Bu
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const ETH_BASE: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
+const USDC_ETH: AssetRef = { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" };
+const USDC_BASE: AssetRef = { chain: "base", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" };
+const USDC_VAULT = "0x00000000000000000000000000000000000ca5de"; // the canonical USDC vault a failed order re-shields into (plan §36)
+process.env.ERC20_VAULTS = `${USDC_ETH.asset}:${USDC_VAULT}`;
 const DEST_BTC = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const DEST_EVM = "0x1111111111111111111111111111111111111111";
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
@@ -111,6 +115,36 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
       }
     }
   }, 240_000);
+
+  it("USDC (Ethereum) → BTC and → USDC (Base): an ERC-20 order forwards no value, the provider pulls the tokens from the escrow, the refund re-shields into the USDC vault", async () => {
+    for (const [label, req] of [
+      ["USDC->BTC", { from: USDC_ETH, to: BTC, amount: 1_000_000_000n, destination: DEST_BTC, slippageBps: 100 } as QuoteRequest],
+      ["USDC->USDC(Base)", { from: USDC_ETH, to: USDC_BASE, amount: 1_000_000_000n, destination: DEST_EVM, slippageBps: 50 } as QuoteRequest],
+    ] as const) {
+      const { calls, prepared, skipped } = await runRoute(req);
+      scanCalls(calls, label);
+      expect(prepared.length, `${label}: prepared none; skipped: ${json(skipped)}`).toBeGreaterThan(0);
+      for (const p of prepared) {
+        const escrow = p.order.endpoint.toLowerCase();
+        expect(p.order.params.assetType, `${label}/${p.provider}`).toBe(1);
+        expect(p.order.params.asset.toLowerCase()).toBe(USDC_ETH.asset.toLowerCase());
+        expect(p.order.params.refundVault.toLowerCase()).toBe(USDC_VAULT);
+        expect(p.order.ingress.value, `${label}/${p.provider}: an ERC-20 order forwards no ETH`).toBe(0n);
+        const hay = (p.calldata + " " + json(p.order) + " " + p.digest).toLowerCase();
+        for (const f of FORBIDDEN) expect(hay, `${label}/${p.provider}: signed material carries forbidden content`).not.toContain(f);
+        // the token the provider pulls (approved by the escrow inside execute) is named in the calldata or the memo-less transfer,
+        // never a wrapped stand-in; the escrow is the sender the provider was quoted for
+        if (p.order.ingress.kind === "contract-call") expect(hay, `${label}/${p.provider}: calldata does not name USDC`).toContain(USDC_ETH.asset.toLowerCase().slice(2));
+        // providers that quote per sender were quoted for the escrow (THORChain / Chainflip quotes carry no sender)
+        if (p.provider === "lifi") {
+          expect(decodeLifiCall(p.calldata).bridgeData.receiver).toBe(DEST_EVM);
+          expect(calls.some((c) => c.url.toLowerCase().includes(`fromaddress=${escrow}`)), `${label}/lifi: not quoted for the escrow`).toBe(true);
+        }
+        if (p.provider === "uniswap-across") expect(calls.some((c) => c.url.toLowerCase().includes(`depositor=${escrow}`)), `${label}/across: not quoted for the escrow`).toBe(true);
+      }
+      console.log(`${label}: prepared ${prepared.map((p) => p.provider).join(", ")}; skipped ${json(skipped)}`);
+    }
+  }, 300_000);
 
   it("one-time endpoints: the same quote committed twice gives two different escrows, and the order holds no private key", async () => {
     const engine = defaultEngine();

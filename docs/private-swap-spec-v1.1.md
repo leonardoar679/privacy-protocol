@@ -161,7 +161,10 @@ default destination.
 **Plain-address ingress** (Chainflip deposit channels, LI.FI smart deposit addresses, 1Click deposit
 addresses, THORChain for non-EVM source chains) MAY be used directly as the withdrawal recipient only
 when no refund-to-pool path is required; the default is the escrow so that §7 always holds. An escrow
-pays a plain address by an *internal* transaction; a provider MUST have confirmed that its deposit
+pays a plain address by an *internal* transaction — for an ETH order a bare value transfer of
+`amount − executorTip`; for an ERC-20 order a call to the **token contract itself**,
+`transfer(depositAddress, amount − executorTip)`, which is the provider call the order key signs (the
+engine's `escrowCall`; executed on the escrow by `test_ERC20Order_PlainDepositAddress_PaidWithTokenTransfer`); a provider MUST have confirmed that its deposit
 watcher credits contract-sent deposits before such a route is executable (`Capabilities.contractSender`),
 otherwise the route is quoted for information and filtered from selection.
 

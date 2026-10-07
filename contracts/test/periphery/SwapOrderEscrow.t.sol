@@ -324,6 +324,33 @@ contract SwapOrderEscrowTest is PPTestBase {
         assertTrue(v.isSolvent());
     }
 
+    /// A deposit-address provider for a token (a 1Click / inbound-address style route): the order key
+    /// signs a call to the TOKEN itself, transfer(depositAddress, amount - tip) - what the engine's
+    /// escrowCall builds (services/private-swap/src/engine.ts). The escrow's approval of the token
+    /// contract it calls is harmless; the tokens land at the deposit address and nowhere else.
+    function test_ERC20Order_PlainDepositAddress_PaidWithTokenTransfer() public {
+        ERC20Mock tok = new ERC20Mock();
+        ERC20AssetVault v = ERC20AssetVault(factory.getOrCreateERC20Vault(address(tok)));
+        tok.mint(alice, 100e18);
+        vm.prank(alice);
+        tok.approve(address(v), type(uint256).max);
+        _depositERC20(v, alice, 10e18, 5);
+
+        uint256 amount = 4e18;
+        uint256 tip = 1e16;
+        T.OrderParams memory p = _params(T.ASSET_ERC20, address(tok), address(v), amount, tip);
+        address escrow = _fund(p, address(v), 31, 32);
+        address deposit = address(0xDE9051);
+        bytes memory transferCall = abi.encodeWithSignature("transfer(address,uint256)", deposit, amount - tip);
+        T.Execution memory x = _sign(escrow, p.orderId, ORDER_KEY, address(tok), 0, transferCall, uint64(block.timestamp + 20 minutes));
+        vm.prank(relayer);
+        swapFactory.deployAndExecute(p, x);
+        assertEq(tok.balanceOf(deposit), amount - tip, "the deposit address received the tokens");
+        assertEq(tok.balanceOf(relayer), tip, "the executor tip");
+        assertEq(tok.balanceOf(escrow), 0, "nothing left in the escrow");
+        assertEq(v.accountedDeposits(), 6e18, "the vault released exactly the order");
+    }
+
     // ---- provider compromise (plan §74): the damage bound ----
     function test_MaliciousProvider_CanOnlyTakeTheEscrowBalance() public {
         T.OrderParams memory p = _ethParams();
