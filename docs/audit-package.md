@@ -19,6 +19,15 @@ firm, scheduling, fix rounds, report publication) is outside this repository.
 Out of scope: zkAPI (third party; our assessment is `docs/zkapi/security.md`), the six providers'
 own contracts, the UI shell (`frontend`), gas optimisation.
 
+### 1.1 Added in the plan-gap pass (V1.1 wallet + core)
+| Component | What to audit |
+|---|---|
+| `frontend/src/wallet/{keystore,journal,session,storage}.ts`, `docs/wallet-formats.md` | the at-rest formats: scrypt parameters and their floor, XChaCha20-Poly1305 use (nonce handling, AAD), the seed-derived journal key, what a backup file reveals (nothing in the clear), TC-01 (no raw secret in dapp-origin storage), the recovery phrase = seed entropy |
+| `reference/typescript/src/wallet/chainKeys.ts`, `core/rust/privacy-core/src/chainkeys.rs` | BIP-32 / BIP-44 / BIP-84 / SLIP-0010 correctness beyond the pinned vectors; per-dApp index derivation (§37); address encoders (bech32 v0, base58, EIP-55) |
+| `frontend/src/sdk/chain.ts` (RPC quorum) | can a single endpoint still mislead the wallet (reads compared: root, size, event digest); what one endpoint learns (fetch-all reads only) |
+| `core/rust/privacy-core` + `privacy-core-wasm` | equivalence with the circuit / contracts / TypeScript beyond the vectors (differential fuzzing is the suggested method); constant-time properties of the scalar / field code paths that touch secrets; the WASM surface takes caller randomness only |
+| `services/private-swap` `/guest/*`, `frontend/src/components/Guest.tsx` | the walletless path: the deposit address comes only from the THORNode gateway quorum; the memo limit is built locally; nothing identifying leaves the client except the destination |
+
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
   tree. Core ABIs are frozen and checksummed: `sha256sum -c contracts/abi/SHA256SUMS`.

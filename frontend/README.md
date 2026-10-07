@@ -90,3 +90,20 @@ public fallback); no live-chain run has happened here; the dev proving key is in
 Real proof generation (Web Worker + wasm), UTXO selection / note scanning, private submission
 transport (L3), and private RPC (L4). These are later stages; the SDK/types are shaped so they can
 be added without changing the immutable contracts.
+
+## Added in the plan-gap pass (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79)
+- **Keystore + recovery** (`src/wallet/keystore.ts`, `session.ts`, `journal.ts`, `storage.ts`, `components/Lock.tsx`): create / unlock / lock / restore
+  from the 24-word phrase or a backup file; the seed at rest is scrypt + XChaCha20-Poly1305 ciphertext, the note journal (notes, counters,
+  fresh-address indexes, swap orders, schedule, settings) is encrypted under a seed-derived key; nothing in storage is ever in the clear.
+- **Chain Key Abstraction + Receive** (`src/keys/chainKeys.ts` over `@ref/wallet/chainKeys`, `components/Receive.tsx`): fresh BIP-84 Bitcoin,
+  SLIP-0010 Solana and BIP-44 EVM addresses with QR codes, reserved through the journal so none is reused; swaps and withdrawals default to them.
+- **Private read layer** (`VITE_RPC_URLS`): every tree view / event set is read from all endpoints and must agree (`syncTreeQuorum`); the public
+  balance is read through the injected wallet's own provider.
+- **No network at first launch**: `test/first-launch.test.tsx` mounts the app in happy-dom, creates a wallet, opens every tab and asserts zero
+  requests (the Pay tab loads only same-origin build files).
+- **Scorecard + advanced mode**: six privacy scores on every action (`components/Scorecard.tsx`), plain-words screens by default, "Advanced"
+  for leaf indexes, escrows, order keys, proof timings and the submission choice.
+- **Swap**: one route in plain words with *View route*, bucket suggestions, a random funding time inside the policy window kept in the journal
+  (`src/wallet/schedule.ts`, fires while unlocked; *Fund now* override), open orders resumed through the service's `/order/resume`.
+- **Guest mode** (`components/Guest.tsx`): swap without a wallet — a one-time deposit instruction from the service's `/guest/*` routes.
+- **At-rest format vectors** (`test/wallet-vectors.test.ts` → `reference/typescript/test/vectors/wallet.json`, spec `docs/wallet-formats.md`): the keystore, journal and phrase this wallet writes are pinned so the Rust core (and any other wallet) opens the same backup file.

@@ -7,11 +7,11 @@ Tornado Nova's worst adversaries are removed from scope entirely (§114).
 | # | Adversary | V1 status / defense |
 |---|-----------|----------------------|
 | A1 | Blockchain observer | ZK at L2 + minimal events (`NoteInserted`, `ShieldedTransaction`); amount/timing hardening in the wallet |
-| A2 | RPC provider | wallet should use a light client / private RPC (L4); live "RPC exposure" indicator |
+| A2 | RPC provider | the wallet reads every proved view from ALL configured endpoints and refuses a disagreement (`frontend/src/sdk/chain.ts::syncTreeQuorum`, plan §38); reads are fetch-all, never address-specific; light client / private RPC remain the native upgrade; the scorecard shows the exposure |
 | A3 | Honest-but-curious relayer | shielded fee note; recipient is in the proof, not disclosed to the relayer (L3) |
 | A4 | Malicious relayer | proof-bound recipient/amount/vault — a relayer can't redirect or over-charge (tests in `adversarial/`) |
 | A5–A7 | MEV searcher / builder / validator | private submission (L3) denies the pre-inclusion signal |
-| A8 | Malicious frontend | frontend-independent client; raw secret never persisted (TC-01 guard in `frontend/src/keys`) |
+| A8 | Malicious frontend | frontend-independent client; the seed is at rest only as scrypt + XChaCha20-Poly1305 ciphertext and the journal is encrypted under a seed-derived key (`frontend/src/wallet/{keystore,journal}.ts`); raw secrets never persisted (TC-01 guard); recovery by the 24-word phrase needs no site (`test/keystore.test.ts` scans storage) |
 | A9 | Compromised device | OS/hardware keystore for keys (wallet responsibility) |
 | **A10** | **Governance** | **REMOVED from the core TCB** — the core is immutable; no owner/upgrade/pause (fixes TC-02) |
 | **A11** | **Bridge** | **REMOVED from V1** — Ethereum L1 only; no AMB/omnibridge (fixes TC-03/12/18) |

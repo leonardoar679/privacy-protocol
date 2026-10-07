@@ -9,8 +9,8 @@ stablecoin issuer's freeze can only ever touch its own vault.
 > Pre-production. The exact specification is [`docs/protocol-spec-v1.0.md`](docs/protocol-spec-v1.0.md);
 > contracts, circuit, two crypto references and the wallet shell are **built and tested to it**, and
 > real Groth16 proofs drive a shield → private withdrawal → relayer fee spend **end to end on the EVM**
-> with nothing mocked. The trusted setup is a dev setup (insecure by design), in-browser proving is
-> still a stub, and nothing is externally audited. Not for production. See
+> with nothing mocked. The trusted setup is a dev setup (insecure by design), the wallet proves in the
+> browser but has not been clicked through on a live chain here, and nothing is externally audited. Not for production. See
 > [`docs/roadmap.md`](docs/roadmap.md) and [`docs/circuit-audit.md`](docs/circuit-audit.md).
 
 ## Layout
@@ -19,8 +19,9 @@ privacy-protocol/
 ├─ docs/        protocol-spec-v1.0 (normative) · crypto · vault · threat-model · security-invariants · circuit-audit · privacy-lab · roadmap
 ├─ contracts/   Foundry — immutable PrivacyCore + vaults + factory + Poseidon2 + verifier + deploy script   [87/87 tests ✅ incl. e2e]
 ├─ circuits/    circom — 2-in/3-out transaction, Poseidon2, KAT, soundness harness, dev setup             [compiled + proven ✅]
-├─ reference/   typescript (vectors, witness builder, wallet policy, reorg indexer) · python (differential) [35/35 ✅ · 31/31 ✅]
-├─ frontend/    Vite+React+viem wallet (shield/send/withdraw/**swap privately**/**Private AI** + privacy score), proofs in a Web Worker, relayer or wallet submission [builds ✅]
+├─ reference/   typescript (vectors, witness builder, prover, envelope, chain keys, scorecard, reorg indexer, WASM cross-check) · python (differential) [67/67 ✅ · 31/31 ✅]
+├─ frontend/    Vite+React+viem wallet: encrypted keystore + recovery phrase + journal, shield/send/**receive**/withdraw/**swap privately**/**Private AI**, fresh per-chain addresses, RPC quorum, scorecard on every action, guest mode; proofs in a Web Worker [42 tests ✅ · builds ✅]
+├─ core/rust/   privacy-core — the shared native crypto core (Poseidon2, notes, Merkle, envelope, address, keystore + BIP-39 + chain keys) for mobile / desktop / WASM, pinned to the same vectors; privacy-core-wasm — its wasm-bindgen package, checked against the TypeScript from node   [12 suites ✅ · wasm32 ✅ · WASM == TS 7/7 ✅]
 ├─ services/relayer/  private submission (proven transact from its own key, paid by a private fee note) + swap-order executor (deploy/execute/refund escrows for the tip) — 23 tests vs forge fixtures, durable journals, abuse limits   [tests ✅]
 ├─ services/    private-swap (engine + THORChain/LI.FI adapters, live-tested) · zkapi-lab (mainnet pin verifier)  [V1.1]
 └─ benchmarks/  gas (live cost tool) · privacy (the study's adversary vs this design) · proof · mobile
@@ -46,12 +47,12 @@ two new layers sit beside it and can fail without touching it (plan §85):
 |------|----------|
 | contracts | **87/87 forge**: 45 mock-based (5 fuzz invariants, token zoo, issuer isolation, reentrancy matrix, no-privilege bytecode scan incl. periphery) + Poseidon2 KAT 5 + real verifier 8 + **end-to-end 10** (four real proofs: withdrawal with a private fee note, the relayer spending it, **a note exiting to a swap-order escrow, and the order's refund note being spent**) + swap periphery 19 |
 | circuits | compiled (23,343 constraints, 14 public inputs); KAT **18/18**; soundness **17/17**; Groth16 harness **14/14** |
-| reference | TypeScript **45/45** vitest (incl. reorg indexer, amount engine, **wallet-side prover against the real artifacts**, the **payload envelope + privacy address** with pinned vectors); Python **31/31** vectors; four implementations agree on every primitive |
-| frontend | `tsc -b` clean + `vite build` → `dist/` (main + proving worker); **27/27 vitest** (zkAPI policy, fresh funding provider signing vs a mock RPC, tree sync vs the reference tree, **note discovery from encrypted payloads**, withdrawal planning incl. the **relayer fee note** and **multi-note merges**, relayer client); **client-side proving**: the normative prover (`reference/typescript/src/prover.ts`) reproduces the forge-verified e2e public inputs and proves a fresh withdrawal in ~1 s (`test/prover.test.ts`); shield / send / withdraw / fund-escrow are wired end to end through the Web Worker and the injected wallet (type-checked; not clicked here — no browser or chain on this machine) |
+| reference | TypeScript **60/60** vitest (incl. reorg indexer, amount engine, **wallet-side prover against the real artifacts**, the **payload envelope + privacy address** with pinned vectors, the **Chain Key Abstraction** against the BIP-84 / SLIP-0010 / Phantom vectors, the **privacy scorecard**); Python **31/31** vectors; **Rust core 12/12 suites** (`core/rust`: the same vectors plus the web wallet's keystore / journal / BIP-39 / chain-key vectors), and its **WASM package reproduces the TypeScript reference 7/7 from node** (Poseidon2 ≈ 7× faster than BigInt); five implementations agree on every primitive |
+| frontend | `tsc -b` clean + `vite build` → `dist/` (main + proving worker); **42/42 vitest** (**keystore / phrase / encrypted journal / backup**, **fresh per-chain addresses** incl. a viem cross-check, **RPC endpoint quorum** vs a stale endpoint, **first launch without a network request** (happy-dom), **randomized scheduling**, zkAPI policy, fresh funding provider signing vs a mock RPC, tree sync vs the reference tree, **note discovery from encrypted payloads**, withdrawal planning incl. the **relayer fee note** and **multi-note merges**, relayer client); **client-side proving**: the normative prover (`reference/typescript/src/prover.ts`) reproduces the forge-verified e2e public inputs and proves a fresh withdrawal in ~1 s (`test/prover.test.ts`); shield / send / withdraw / fund-escrow are wired end to end through the Web Worker and the injected wallet (type-checked; not clicked here — no browser or chain on this machine) |
 | privacy lab | amount unique-link **0.00 %** (Nova-like 11.5 %); joint effective anonymity **10 → 349 / 1,073**; **cross-chain lab**: the swap leg is only as private as the provider's cover traffic (bucketed, native-chain class: joint set 5.9 at 100 swaps/h, 1.2 at 5/h; arbitrary amounts ≈ linked) — the score says so now ([`docs/privacy-lab.md`](docs/privacy-lab.md)) |
 | gas | `transact` 1.79M, `deposit` 1.52M; **live cost**: `node benchmarks/gas/cost.mjs` (≈ $0.75 / $0.64 at 0.15 gwei) |
 | periphery (swap exit) | **19** forge (`contracts/test/periphery`) + no-privilege scan + **2 real-proof e2e tests** (pool → escrow → provider; pool → escrow → refund note → pool, spent with a real proof); TS endpoint/digest == forge vector |
-| private-swap engine | **96/96** vitest: live THORChain, LI.FI, Chainflip, Mayan, NEAR Intents and Across quotes (provider calldata decoded/verified or built locally), **42 adversarial** (plan §71 matrix + §74 compromise with tampered provider responses) and **3 cross-chain privacy-flow** tests (plan §72) — [`docs/test-matrix.md`](docs/test-matrix.md); `npx tsx src/cli.ts 1 SOL best-privacy` |
+| private-swap engine | **99/99** vitest: live THORChain, LI.FI, Chainflip, Mayan, NEAR Intents and Across quotes (provider calldata decoded/verified or built locally), **42 adversarial** (plan §71 matrix + §74 compromise with tampered provider responses), **3 cross-chain privacy-flow** tests (plan §72), order **restore** after a service restart, and the **walletless guest deposit** (plan §49: THORChain deposit address confirmed by the gateway quorum, memo with destination + locally built limit) — [`docs/test-matrix.md`](docs/test-matrix.md); `npx tsx src/cli.ts 1 SOL best-privacy` |
 | relayer (private submission + swap executor) | `services/relayer`: **23/23** vitest — the forge-verified e2e transaction (0.05 ETH private fee note to the relayer) is validated (domain, payload hashes, fee note opening, live minimum fee, in-flight nullifiers), simulated, signed from the relayer's own key and broadcast on a mock chain; the swap executor predicts the escrow exactly like forge, admits only an execution signed by the order key with the committed refund payload, sends `deployAndExecute` once funded and `deployAndRefund` after the window, marks expiry, accepts a re-signed execution for an expired order, watches ERC-20 escrows, and resumes from its file journal after a restart; reverting calls never spend gas ([`services/relayer/README.md`](services/relayer/README.md)) |
 | Private AI (zkAPI) | the wallet's Private AI tab on the pinned zkAPI SDK, runtime-key mode, fresh funding address from the pool; assets built + verified, pin check **12 + 23 lab checks, 0 fail** on Sepolia; funded browser flow pending ([`docs/private-ai.md`](docs/private-ai.md)) |
 | testnet / audits | deploy scripts dry-run (core + swap periphery; creation-code hash == artifact), runbook [`docs/testnet.md`](docs/testnet.md); audit package [`docs/audit-package.md`](docs/audit-package.md); broadcast + engagement pending |
@@ -69,8 +70,8 @@ cd reference/python && python test_vectors.py
 # circuit — needs a circom 2.x binary; full pipeline in circuits/README.md
 cd circuits && npm install
 
-# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts): 8/8 here
-node scripts/verify-all.mjs --forge $SOLC
+# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts, --rust for the core): 10/10 here
+node scripts/verify-all.mjs --forge $SOLC --rust    # CARGO / WASM_BINDGEN env point at the offline toolchain (docs/mobile.md)
 # run order for a workstation with a browser and a chain: docs/local-run.md (.env.example in frontend/, services/relayer/, services/private-swap/)
 
 # frontend (+ the local swap service the Swap tab talks to)
@@ -103,6 +104,9 @@ cd services/zkapi-lab && npm install && node verify-mainnet.mjs mainnet
 The circuit review found and fixed **PP-C01 (critical)** — anyone who knew a note's opening could
 spend it under any key — plus PP-C02/C03 and the privacy defects **PP-P01/P02** (no per-note secret;
 observable phantom inputs). All have executed regressions; see [`docs/circuit-audit.md`](docs/circuit-audit.md).
+
+## Mobile / desktop
+The shared core is built (`core/rust`, `docs/mobile.md`) and now covers the whole key surface — keystore + recovery phrase + journal ([`docs/wallet-formats.md`](docs/wallet-formats.md): a backup made in the browser opens in the native wallet), BIP-44 / BIP-84 / SLIP-0010 chain keys — with a WASM package for the web; the React Native and Tauri shells need the platform toolchains (Xcode / Android Studio / MSVC) and are the next step on a workstation.
 
 ## Non-goals (V1)
 No bridge, governance, DAO, proxy/upgrade, AMM/lending, NFTs, arbitrary private calls, cross-chain,
