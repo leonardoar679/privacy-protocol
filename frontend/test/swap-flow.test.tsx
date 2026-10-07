@@ -188,6 +188,18 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     refundHook.calls = 0;
   });
 
+  it("after execution the screen says where a provider refund would land and that the executor watches for it (PP-S11, PP-S12)", async () => {
+    const container = document.createElement("div");
+    const orderId = await committedAndFunded(container);
+    await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
+    await vi.waitFor(() => expect(calls).toContain("127.0.0.1:8790/swap/execute"), { timeout: 20_000 });
+    jobs.set(orderId.toLowerCase(), "executed"); // the provider call went through
+    await mount(container); // a reload: the order from the journal, its job from the relayer
+    await act(async () => { button(container, "Open")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toContain("If it cannot deliver, it refunds the escrow, and the executor re-shields that into your private balance"), { timeout: 20_000 });
+    expect(container.textContent).toContain("An amount too small to be worth a re-shield is left in the escrow, where anyone can re-shield it.");
+  });
+
   it("a lower minimum is not signed until the user confirms exactly it; the consent is journaled", async () => {
     const container = document.createElement("div");
     const orderId = await committedAndFunded(container);

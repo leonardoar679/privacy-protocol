@@ -394,6 +394,9 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
           {job
             ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>
             : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote, or return it to your private balance." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked." : "fund the swap, then confirm it."}</p>}
+          {job?.state === "executed" && <p className="muted" style={{ fontSize: 12 }}>{(checked?.refundTo ?? (stored?.quote as { refundTarget?: string } | undefined)?.refundTarget) === "destination"
+            ? "Handed to the provider. If it cannot deliver, it refunds at your fresh address on the destination chain, not to the pool."
+            : `Handed to the provider. If it cannot deliver, it refunds the escrow, and the executor re-shields that into your private balance when it arrives within its watch (by default a day after ${new Date(order.params.refundAfter * 1000).toLocaleString()}). An amount too small to be worth a re-shield is left in the escrow, where anyone can re-shield it.`}</p>}
           {job?.state === "refund-only" && <p className="muted" style={{ fontSize: 12 }}>Returning to your private balance: the escrow re-shields as your pre-committed note after {new Date(order.params.refundAfter * 1000).toLocaleString()}; it is added to your private balance when the executor reports it (a rescan finds it too).</p>}
           {refundLine && <p className="muted" style={{ fontSize: 12 }}>{refundLine}</p>}
         </div>
