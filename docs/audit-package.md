@@ -54,7 +54,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 | wallet | 149 vitest + 6 live (the light client: sync committees, BLS, Gloas/Fulu formats, header by hash, storage proofs, the pool check before every transaction; a refused or cancelled order returned by a refund-only job; the walletless deposit instruction checked in the browser; the Swap screen clicked through against the real engine; the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd frontend && npm test && npm run build` |
 | private-swap engine | 134 vitest: 43 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset, what an escrow can re-shield), 91 live: 24 adapter quotes (incl. the Uniswap-Across leg to USDC and to native ETH), **56 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping, a source swap into a token the escrow cannot re-shield, the Across Swap API bent eight ways), 4 flow (§72, incl. USDC-sourced orders), 2 guest deposit, 5 wallet-check (the wallet's own decoder on every call the engine prepares, incl. the swap leg) — `docs/test-matrix.md` | `npm test` (network) |
 | privacy | lab (`benchmarks/privacy/results.json`), cross-chain lab (`benchmarks/privacy/crosschain.json`) | `docs/privacy-lab.md` |
-| relayer | 34 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector (incl. refund-only jobs, WETH and foreign-token refunds, ETH at an ERC-20 order's escrow, the late-refund watch), journals, limits | `cd services/relayer && npm test` |
+| relayer | 37 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector (incl. refund-only jobs, WETH and foreign-token refunds, ETH at an ERC-20 order's escrow, the late-refund watch and its budget and floors), journals, limits | `cd services/relayer && npm test` |
 | **everything** | `node scripts/verify-all.mjs --forge <solc-0.8.24> --rust` (add `--live` for the provider suites) — 13/13 steps here, incl. `tsc --noEmit` for the swap engine and the relayer, the Rust core, the native prover, the UniFFI bindings and the WASM package | |
 
 ## 4. Known gaps and open decisions (please do not re-discover these)
@@ -96,6 +96,9 @@ can be malicious without touching shielded funds, and the tests in §3 try to pr
    turned against the escrow by a token's own code (it runs inside approve and the vault's pull)?
    For an order in a token it unwraps WETH and deposits the escrow's whole ETH balance into the pool's
    native vault: can that ETH reach anything but the committed note?
+   Executor economics (PP-S12): after execution no tip pays for a re-shield. Is there still a way to make
+   the executor spend gas beyond its budget of three per order, or below an asset's floor (dust, a token
+   with no vault, a later request lowering a floor)?
 4. Engine and wallet: is anything the order key signs still taken on trust from a provider API or
    the swap service after the checks in `docs/test-matrix.md` (both §74 tables)? In particular the
    decoders in `frontend/src/sdk/providerCall.ts` against the deployed provider contracts, and

@@ -235,7 +235,12 @@ otherwise the route is quoted for information and filtered from selection.
 - A provider can pay back after `refundAfter`: Across sets the fill deadline 2 h after the quote and
   refunds an unfilled deposit with the next settlement bundle. The executor therefore watches an
   executed order for `LATE_REFUND_WATCH_SECONDS` (24 h) past the window and re-shields whatever arrives;
-  only an escrow still empty when the watch ends is reported completed (PP-S11).
+  only an escrow still empty when the watch ends is reported completed (PP-S11). After execution no tip
+  pays for a re-shield, and anyone can send value to an escrow, so the executor bounds them (PP-S12): at
+  most `MAX_UNPAID_REFUNDS` (3) per order, each moving at least its floor (ETH and WETH: twice its gas;
+  the order's own token: 1% of the order; a listed token: the floor the wallet states, `refundFloors`,
+  1% of the least the route bridges in it, 0.1% for LI.FI's Mayan surplus sweep), and a token only into
+  a vault its pool already has. What it leaves stays re-shieldable by anyone.
   Where a provider can only
   refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`), the quote
   MUST say so (`refundTarget: "destination"`); the destination is the user's fresh address, so nothing

@@ -44,8 +44,10 @@ rescan without the journal regenerates it), `provider`,
 before signing), `params` (the on-chain OrderParams, from which the escrow address is recomputed),
 `endpoint`, `approvedMin` (the least the user agreed to receive, destination base units; a call
 guaranteeing less is signed only after fresh consent), `quote`, `createdAt`, `dueAt`, `fundedTx`,
-`jobId`, `refunds` (the refund notes found for the order: `leafIndex`, `vault`, `amount`; `refund()` can
-re-shield more than once), `state`.
+`jobId`, `refundTokens` (tokens other than the order's asset the signed call may pay back to the
+escrow; `address(0)` is ETH for an order in a token) with `refundFloors` (per token, the least balance
+worth a re-shield after execution, base units; PP-S12), `refunds` (the refund notes found for the order:
+`leafIndex`, `vault`, `amount`; `refund()` can re-shield more than once), `state`.
 
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
