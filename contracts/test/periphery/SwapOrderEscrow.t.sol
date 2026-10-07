@@ -193,6 +193,19 @@ contract SwapOrderEscrowTest is PPTestBase {
         assertEq(nativeVault.accountedDeposits(), 1 ether - AMOUNT + AMOUNT - TIP);
     }
 
+    /// Provider refunds reach the escrow with a gas stipend: THORChain's router refunds ETH with `send`
+    /// (2300 gas) and Chainflip's Vault forwards 8,000 gas (`_GAS_TO_FORWARD`, verified source). Both
+    /// silently keep the ETH when the call fails, so the escrow's receive() must stay this cheap or a
+    /// provider refund would never reach refund().
+    function test_ProviderRefund_FitsTheGasStipendsProvidersForward() public {
+        SwapOrderEscrow e = swapFactory.deploy(_ethParams());
+        vm.deal(address(this), 1 ether);
+        assertTrue(payable(address(e)).send(0.1 ether), "THORChain router: send with the 2300-gas stipend");
+        (bool ok,) = address(e).call{gas: 8_000, value: 0.1 ether}("");
+        assertTrue(ok, "Chainflip Vault: call with 8,000 gas");
+        assertEq(address(e).balance, 0.2 ether);
+    }
+
     function test_ProviderRefundsToEscrow_ThenReShield() public {
         T.OrderParams memory p = _ethParams();
         address escrow = _fund(p, address(nativeVault), 11, 12);

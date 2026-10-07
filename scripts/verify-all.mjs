@@ -41,7 +41,7 @@ const steps = [
   { name: "services/relayer (27: submission vs forge e2e tx, ERC-20 fee vaults, swap executor vs forge vector, journals, limits)", cwd: "services/relayer", cmd: npx, args: ["vitest", "run"] },
   { name: "frontend tests (104: the Swap screen clicked through against the real engine, the swap-service guard (escrow recomputed, orders and signatures checked), the provider call read before signing (pinned contracts, receiver, refunds, approved minimum), the Rust core path and the TypeScript path through sync / discovery / planning, keystore + journal + at-rest vectors, ERC-20 assets + fee terms + relayer failover, fresh addresses, RPC quorum, first launch, scheduling, zkAPI policy + capability failures, planning, merges, relayer client)", cwd: "frontend", cmd: npx, args: ["vitest", "run"] },
   { name: "frontend build (tsc -b + vite build)", cwd: "frontend", cmd: npm, args: ["run", "build"] },
-  ...(solc ? [{ name: "contracts (forge: 93 incl. real-proof e2e, swap periphery, native-prover proofs on the verifier)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
+  ...(solc ? [{ name: "contracts (forge: 94 incl. real-proof e2e, swap periphery, native-prover proofs on the verifier)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
 ];
 
 const results = [];
