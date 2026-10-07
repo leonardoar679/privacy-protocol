@@ -10,6 +10,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       include: ["test/**/*.test.{ts,tsx}"],
+      exclude: ["test/live/**", "node_modules/**"], // network suites: vitest.live.config.ts (verify-all --live)
       environment: "node",
       testTimeout: 60_000,
       env: { VITE_KDF_LOG2N: "12" }, // fast scrypt for the session under test; production ignores this
