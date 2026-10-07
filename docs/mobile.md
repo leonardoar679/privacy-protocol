@@ -31,7 +31,7 @@ React Native UI (iOS / Android)        Tauri shell (Windows / macOS)        Vite
 | Crypto core, TypeScript | `reference/typescript/src` | 45 + chain-key + scorecard tests; the web wallet imports it as `@ref` |
 | Transaction model | `reference/typescript/src/txInputs.ts` (witness), `prover.ts` (proof → calldata) | real-artifact proving tests, forge e2e fixtures |
 | Keys and addresses | `wallet/chainKeys.ts` (BIP-44 / BIP-84 / SLIP-0010), `address.ts` (bech32m `pp1…`) | BIP-84, SLIP-0010 and Phantom vectors; viem cross-check |
-| Wallet engine | `frontend/src/wallet/*`, `frontend/src/sdk/*` (no DOM dependency except `localStorage`, behind `KeyValueStorage`) | 57 node tests incl. keystore / journal / schedule / quorum / first launch / the core path both ways |
+| Wallet engine | `frontend/src/wallet/*`, `frontend/src/sdk/*` (no DOM dependency except `localStorage`, behind `KeyValueStorage`) | 72 node tests incl. keystore / journal / schedule / quorum / first launch / the core path both ways / the swap-service guard |
 | Privacy model | `reference/typescript/src/wallet/{amounts,scorecard}.ts`, `services/private-swap/src/privacyScore.ts` | lab-calibrated tests |
 
 ## Platform work that needs the toolchains (not done on this machine)

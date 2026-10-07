@@ -30,7 +30,7 @@ curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's p
 
 ## 3. Wallet
 ```
-cd frontend && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
+cd frontend && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT / VITE_SWAP_FACTORY from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
 ZKAPI_NETWORK=sepolia npm run zkapi:assets && npm run zkapi:pins   # only for the Private AI tab (Sepolia zkAPI)
 npm install && npm run dev                          # http://localhost:5173
 (cd ../core/rust && node scripts/build-wasm.mjs)   # optional: the Rust core as WASM; dev serves it at /core/, a build needs `npm run core:assets` (docs/mobile.md); without it the wallet runs the TypeScript reference

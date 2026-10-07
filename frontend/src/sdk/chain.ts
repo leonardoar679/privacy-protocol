@@ -4,7 +4,8 @@
 // submission through the injected wallet.
 //
 // Env: VITE_RPC_URLS (comma-separated; or VITE_RPC_URL for one), VITE_CORE, VITE_ETH_VAULT,
-// VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36).
+// VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36),
+// VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
 import { createPublicClient, http, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@ref/merkle";
 import { TX_LEVELS } from "@ref/txInputs";
@@ -14,12 +15,13 @@ import { parseErc20Vaults } from "./assets";
 import { treeLayers } from "./core";
 
 export interface Erc20VaultSpec { symbol: string; token: Address; vault: Address; decimals: number }
-export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[] }
+export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[]; /** SwapOrderFactory: the wallet recomputes every escrow address from it (VITE_SWAP_FACTORY) */ swapFactory?: Address }
 
 export function deploymentFromEnv(env: Record<string, string | undefined> = (import.meta as any).env ?? {}): Deployment | null {
   const urls = String(env.VITE_RPC_URLS ?? env.VITE_RPC_URL ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
   if (!urls.length || !env.VITE_CORE || !env.VITE_ETH_VAULT) return null;
-  return { chainId: Number(env.VITE_CHAIN_ID ?? 31337), core: env.VITE_CORE as Address, ethVault: env.VITE_ETH_VAULT as Address, rpcUrl: urls[0], rpcUrls: urls, fromBlock: BigInt(env.VITE_FROM_BLOCK ?? 0), erc20Vaults: parseErc20Vaults(env.VITE_ERC20_VAULTS) };
+  const swapFactory = env.VITE_SWAP_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_SWAP_FACTORY) ? (env.VITE_SWAP_FACTORY as Address) : undefined;
+  return { chainId: Number(env.VITE_CHAIN_ID ?? 31337), core: env.VITE_CORE as Address, ethVault: env.VITE_ETH_VAULT as Address, rpcUrl: urls[0], rpcUrls: urls, fromBlock: BigInt(env.VITE_FROM_BLOCK ?? 0), erc20Vaults: parseErc20Vaults(env.VITE_ERC20_VAULTS), swapFactory };
 }
 
 /**

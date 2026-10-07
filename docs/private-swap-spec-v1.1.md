@@ -42,6 +42,16 @@ Order {
 `orderId` MUST NOT be derived from user identity. The wallet persists the order in its journal
 before any on-chain action (recovery, §3).
 
+The wallet MUST NOT take the service's word for anything it funds or signs
+(`frontend/src/sdk/swapGuard.ts`): it recomputes the escrow address (§6) from its OWN factory
+address and the returned params, and checks that the params carry its one-time signer and refund
+note, the amount and asset it asked for, that asset's canonical vault for refunds, a tip within the
+1 % cap and a refund horizon of at most a week — before the order is journaled and again before the
+withdrawal funds the escrow. Before the order key signs, the wallet recomputes the execution digest
+from the provider, value, calldata and deadline it is shown, and checks the deadline against the
+order's and the value against what the escrow may forward. The provider call's receiver and minimum
+remain the engine's checks (§5); a wallet that does not run its own engine trusts it for those.
+
 ## 3. Route state machine (plan §34) — non-atomic by construction
 ```
 QUOTED ─▶ COMMITTED ─▶ SOURCE_SUBMITTED ─▶ SOURCE_FINAL ─▶ PROVIDER_EXECUTING ─▶ DESTINATION_SUBMITTED ─▶ DESTINATION_FINAL ─▶ COMPLETED

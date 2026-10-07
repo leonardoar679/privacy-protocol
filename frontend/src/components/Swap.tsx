@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 import { feeSummary, swapService, type AssetRef, type Policy, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
+import { checkOrder, checkPrepared, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { privateWithdrawal } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
@@ -98,17 +99,29 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     if (set) setQuotes(set);
   }
 
+  /** The factory every escrow is recomputed from: the wallet's own configuration, never the service's word. */
+  function swapFactory(): Address {
+    if (!deployment?.swapFactory) throw new Error("No escrow factory configured (VITE_SWAP_FACTORY): this wallet cannot check the escrow address a swap service returns, so it does not commit or fund swap orders.");
+    return deployment.swapFactory;
+  }
+
   async function commit(provider?: string) {
     // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time
     // key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
+    let factory: Address;
+    try { factory = swapFactory(); } catch (e: any) { setError(e.message); return; }
     const attemptId = ("0x" + Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
     const key = deriveOrderKey(masterSeed, attemptId);
     const refundCounter = noteStore.allocateCounter();
     const refund = deriveRefundNote(masterSeed, refundCounter);
     const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address; // reserve the fresh address now
     const req = { ...request(), destination: dest };
-    const res = await run("Committing the order…", () =>
-      swapService.order({ ...req, provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash }));
+    const res = await run("Committing the order…", async () => {
+      const r = await swapService.order({ ...req, provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash });
+      // the escrow is recomputed here from OUR factory and the params; every field we chose is checked
+      checkOrder(r.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: fromAsset });
+      return r;
+    });
     if (!res) return;
     reset();
     const dueAt = policy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[policy]);
@@ -124,7 +137,12 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
 
   /** Resume an order from the journal after a reload: the service rebuilds it from the same params (same escrow). */
   async function resume(s: StoredSwap) {
-    const r = await run("Resuming the order…", () => swapService.resume({ request: s.request as any, policy: s.policy as Policy, provider: s.provider, params: s.params as any }));
+    const r = await run("Resuming the order…", async () => {
+      const out = await swapService.resume({ request: s.request as any, policy: s.policy as Policy, provider: s.provider, params: s.params as any });
+      const predicted = predictEscrow(swapFactory(), s.params as any);
+      if (out.order.endpoint.toLowerCase() !== predicted.toLowerCase() || out.order.orderId.toLowerCase() !== s.orderId.toLowerCase()) throw new OrderMismatch("endpoint", "the resumed order is not the one this wallet committed");
+      return out;
+    });
     if (!r) return;
     reset();
     setOrder(r.order); setStored(s); setOrderKey(deriveOrderKey(masterSeed, s.attemptId as Hex)); setRefundNoteData((s.refundNoteData as Hex | undefined) ?? null);
@@ -136,7 +154,10 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     const a = assetOfStored(s);
     const gross = BigInt((s.params as any).amount); // the withdrawal funds the whole order; the escrow pays the executor tip
     if (noteStore.balance(BigInt(a.vault)) < gross) throw new Error(`Not enough ${a.symbol} in your private balance for this order.`);
-    const w = await privateWithdrawal({ masterSeed, deployment, amount: gross, recipient: s.endpoint as Hex, vault: a.vault, onStatus: setBusy });
+    // the money goes only to the escrow these params create under our factory (recomputed again here)
+    const predicted = predictEscrow(swapFactory(), s.params as any);
+    if (predicted.toLowerCase() !== String(s.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${s.endpoint} is not the escrow these params create (${predicted})`);
+    const w = await privateWithdrawal({ masterSeed, deployment, amount: gross, recipient: predicted, vault: a.vault, onStatus: setBusy });
     patchStored(s.orderId, { fundedTx: w.txHash, state: "funded" });
     return w;
   }, [deployment, masterSeed, assets]);
@@ -160,13 +181,16 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     const a = stored ? assetOfStored(stored) : fromAsset;
     const r = await run("Re-quoting with the escrow as sender, then signing locally…", async () => {
       const prepared = await swapService.prepare(order.orderId);
+      checkPrepared(prepared, order, BigInt(deployment!.chainId)); // sign only the digest of the call shown, within the order's limits
       const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab
       const fin = await swapService.finalize(order.orderId, signature);
       const label = `${a.token ? "" : fmt(fin.execution.value, 18) + " ETH · "}valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()}`;
       if (submission.kind !== "relayer") return { label, job: undefined };
       setBusy("Handing the signed order to the relayer's executor…");
       const health: ServiceHealth = await swapService.health();
-      const j = await relayerSwapExecute(submission.url, { factory: health.deployment.factory, params: order.params, execution: fin.execution, refundNoteData });
+      const factory = swapFactory();
+      if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
+      const j = await relayerSwapExecute(submission.url, { factory, params: order.params, execution: fin.execution, refundNoteData });
       patchStored(order.orderId, { jobId: j.id, state: j.state });
       return { label, job: j };
     });
