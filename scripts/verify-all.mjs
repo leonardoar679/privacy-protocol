@@ -28,7 +28,7 @@ const steps = [
   // the Rust core first when requested, so the reference suite's WASM-vs-TypeScript check finds a fresh package
   ...(rust ? [
     ...(circuitsBuilt ? [{ name: "native prover fixtures (snarkjs witnesses + proofs of the v1 fixtures → circuits/build/prover-fixtures)", cwd: ".", cmd: process.execPath, args: ["core/rust/scripts/gen-prover-fixtures.mjs"] }] : []),
-    { name: `core/rust (cargo test: 14 vector suites == circuit / contracts / TypeScript / web wallet + ${circuitsBuilt ? "7 native-prover tests on the real key" : "the native prover SKIPPED: no circuits/build"})`, cwd: "core/rust", cmd: cargo, args: ["test"], env: circuitsBuilt ? { PRIVACY_PROVER_REQUIRE_ARTIFACTS: "1" } : {} },
+    { name: `core/rust (cargo test: 14 vector suites == circuit / contracts / TypeScript / web wallet + ${circuitsBuilt ? "11 native witness + prover tests on the real circuit and key" : "the native prover SKIPPED: no circuits/build"})`, cwd: "core/rust", cmd: cargo, args: ["test"], env: circuitsBuilt ? { PRIVACY_PROVER_REQUIRE_ARTIFACTS: "1" } : {} },
     { name: "core/rust (cargo build --target wasm32-unknown-unknown, whole workspace)", cwd: "core/rust", cmd: cargo, args: ["build", "--target", "wasm32-unknown-unknown"] },
     { name: "core/rust WASM package (release + wasm-bindgen → pkg/node, pkg/web)", cwd: "core/rust", cmd: process.execPath, args: ["scripts/build-wasm.mjs"] },
   ] : []),
