@@ -1,7 +1,7 @@
-// Session note store: the notes THIS wallet created (shields, change, refund notes) with the leaf
-// index the chain assigned to each. In memory only — nothing is persisted to dapp-origin storage
-// (TC-01). Recovery from chain (decrypting payloads with the view key) needs the envelope cipher,
-// which is still an open decision (docs/roadmap.md), so until then the wallet is the record.
+// The wallet's notes: those this wallet created (shields, change, merged and refund notes) and those
+// discovered on chain (payloads encrypted to the view key, spec §12), each with the leaf index the
+// chain assigned. Held in memory while the wallet is unlocked and persisted through the encrypted
+// journal (wallet/journal.ts) — never in the clear (TC-01). A rescan of the chain rebuilds it.
 import { useSyncExternalStore } from "react";
 import type { Hex } from "viem";
 import type { Note } from "@ref/note";
@@ -16,9 +16,12 @@ export interface OwnedNote {
   label?: string;
 }
 
+/** JSON form of a note for the encrypted journal (bigints as decimal strings). */
+export interface SerializedNote { vaultId: string; amount: string; ownerCommitment: string; noteSecret: string; leafIndex: number; noteData: Hex; counter?: number; spent: boolean; txHash?: Hex; label?: string }
+
 type Listener = () => void;
 
-class NoteStore {
+export class NoteStore {
   private notes: OwnedNote[] = [];
   private snapshot: OwnedNote[] = [];
   private listeners = new Set<Listener>();
@@ -43,7 +46,28 @@ class NoteStore {
   }
   /** Next noteSecret counter for a note of ours (spec §5.5: never reused). */
   allocateCounter(): number {
-    return this.counter++;
+    const c = this.counter++;
+    this.emit();
+    return c;
+  }
+  /** Everything the journal keeps. */
+  serialize(): { notes: SerializedNote[]; noteCounter: number } {
+    return {
+      notes: this.notes.map((n) => ({ vaultId: n.note.vaultId.toString(), amount: n.note.amount.toString(), ownerCommitment: n.note.ownerCommitment.toString(), noteSecret: n.note.noteSecret.toString(), leafIndex: n.leafIndex, noteData: n.noteData, counter: n.counter, spent: n.spent, txHash: n.txHash, label: n.label })),
+      noteCounter: this.counter,
+    };
+  }
+  /** Replace the contents with a journal's (on unlock). The counter never goes backwards. */
+  load(data: { notes: SerializedNote[]; noteCounter: number }): void {
+    this.notes = data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label }));
+    this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
+    this.emit();
+  }
+  /** Forget everything (on lock). */
+  clear(): void {
+    this.notes = [];
+    this.counter = 0;
+    this.emit();
   }
   subscribe(l: Listener): () => void {
     this.listeners.add(l);
