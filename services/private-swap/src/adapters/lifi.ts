@@ -10,9 +10,13 @@
 // bridge-specific data is decoded too (receiver, refund address = our escrow, assets, and the output
 // the facet will hand Across — in the swap variant that is re-derived ON CHAIN as swap result ×
 // outputAmountMultiplier / 1e18, so the guaranteed minimum is minAmount × multiplier, not the
-// outputAmount word), so the minimum output is verified in the signed calldata; for other facets the
-// API's `toAmountMin` is a claim and the quote says so (`minOutVerified: false` → filtered under
-// strict policies, spec §9).
+// outputAmount word), so the minimum output is verified in the signed calldata. For MayanFacet the
+// receiver is checked (the facet itself matches it against the Mayan order on chain) and so is where
+// the facet sweeps money: excess value and any source-swap surplus above `mayanAmountIn` go to
+// `refundRecipient`, which must be the escrow, and `mayanAmountIn` must be the bridged amount; the
+// minimum sits inside Mayan's opaque order, so `toAmountMin` stays a claim (`minOutVerified: false`
+// → filtered under strict policies, spec §9). Any other facet is refused under every policy: its data
+// can name recipients and amounts this adapter cannot read.
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
@@ -43,6 +47,8 @@ export const isAcrossV4Call = (data: string) => MIN_OUT_VERIFIABLE_SELECTORS.inc
 export const isMayanFacetCall = (data: string) => [SEL_MAYAN, SEL_MAYAN_SWAP].includes(String(data).slice(0, 10).toLowerCase());
 /** AcrossFacetV4.MULTIPLIER_BASE: the swap variant hands Across (swap result) × outputAmountMultiplier / 1e18 as the output. */
 export const ACROSS_MULTIPLIER_BASE = 10n ** 18n;
+/** Asked of the API (`allowBridges`) so it routes only through facets this adapter can read; the call is still checked by selector. */
+export const LIFI_READABLE_BRIDGES = ["across", "mayan"];
 
 export function lifiToken(a: AssetRef): string {
   if (a.asset === "native") return NATIVE[a.chain] ?? ZERO;
@@ -116,6 +122,8 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
   verified.push("quote from/to");
   const d = decodeLifiCall(tr.data);
   const bd = d.bridgeData;
+  const acrossV4 = isAcrossV4Call(tr.data), mayan = isMayanFacetCall(tr.data);
+  if (!acrossV4 && !mayan) throw new Error(`LI.FI: the route runs facet ${String(tr.data).slice(0, 10)} (${q.tool}), which this adapter cannot read: where it refunds and how much it bridges cannot be checked`);
   if (bd.destinationChainId !== BigInt(CHAIN_ID[req.to.chain])) throw new Error(`LI.FI calldata: destinationChainId ${bd.destinationChainId} != ${CHAIN_ID[req.to.chain]}`);
   if (bd.hasDestinationCall) throw new Error("LI.FI calldata: routes with a destination call are not accepted (the bridge receiver would not be the fresh address)");
   const ourAsset = req.from.asset === "native" ? ZERO : req.from.asset.toLowerCase();
@@ -133,7 +141,7 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
     verified.push("receiver");
   } else {
     if (bd.receiver !== NON_EVM_RECEIVER) throw new Error("LI.FI calldata: non-EVM destination but BridgeData.receiver is not the NON_EVM sentinel");
-    if (isMayanFacetCall(tr.data)) {
+    if (mayan) {
       // MayanData.nonEVMReceiver is the first word of the facet data (the facet checks it against the order's destAddr on chain)
       const want = req.to.chain === "solana" ? base58Decode(req.destination) : null;
       if (!want || want.length !== 32) throw new Error(`LI.FI/Mayan: cannot encode a ${req.to.chain} destination for verification`);
@@ -143,13 +151,22 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
       throw new Error(`LI.FI: non-EVM receiver inside the ${q.tool} facet data (selector ${String(tr.data).slice(0, 10)}) cannot be verified by this adapter`);
     }
   }
-  if (isAcrossV4Call(tr.data)) {
+  if (mayan) {
+    // MayanData { nonEVMReceiver, mayanProtocol, protocolData, swapProtocol, swapData, middleToken, minMiddleAmount, refundRecipient, mayanAmountIn }:
+    // the facet sends excess native value, and in the swap variant every unit above mayanAmountIn, to refundRecipient
+    const M = (i: number) => d.facetData.subarray(i * 32, i * 32 + 32);
+    if (addr(M(7)) !== req.source.toLowerCase()) throw new Error(`LI.FI/Mayan calldata: refundRecipient ${addr(M(7))} is not the escrow (the facet sweeps excess value and swap surplus there)`);
+    if (bd.hasSourceSwaps && u(M(8)) !== bd.minAmount) throw new Error(`LI.FI/Mayan calldata: mayanAmountIn ${u(M(8))} is not the bridged amount ${bd.minAmount} (the facet hands Mayan only mayanAmountIn and sweeps the rest to refundRecipient)`);
+    verified.push("refund recipient=escrow", "bridged amount");
+  }
+  if (acrossV4) {
     // AcrossV4Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId (bytes32 each), outputAmount, outputAmountMultiplier, exclusiveRelayer, quoteTimestamp, fillDeadline, exclusivityParameter, message }
     const F = (i: number) => d.facetData.subarray(i * 32, i * 32 + 32);
     const asAddress = (w: Buffer) => (w.subarray(0, 12).every((b) => b === 0) ? addr(w) : "0x" + w.toString("hex")); // a bytes32 that is not a left-padded address never equals one
     if (asAddress(F(0)) !== req.destination.toLowerCase()) throw new Error("LI.FI/Across calldata: receiverAddress is not the fresh destination");
     if (asAddress(F(1)) !== req.source.toLowerCase()) throw new Error("LI.FI/Across calldata: refundAddress is not the escrow");
-    if (req.from.asset !== "native" && asAddress(F(2)) !== bd.sendingAssetId) throw new Error(`LI.FI/Across calldata: sendingAssetId ${asAddress(F(2))} is not the bridged token ${bd.sendingAssetId}`);
+    // an ERC-20 bridged token (our source, or what a source swap produced) is handed to the SpokePool as acrossData.sendingAssetId
+    if (bd.sendingAssetId !== ZERO && asAddress(F(2)) !== bd.sendingAssetId) throw new Error(`LI.FI/Across calldata: sendingAssetId ${asAddress(F(2))} is not the bridged token ${bd.sendingAssetId}`);
     const wantReceiving = req.to.asset === "native" ? ACROSS_WETH[req.to.chain] : req.to.asset;
     if (!wantReceiving || asAddress(F(3)) !== wantReceiving.toLowerCase()) throw new Error(`LI.FI/Across calldata: receivingAssetId ${asAddress(F(3))} is not the destination asset`);
     const outputAmount = u(F(4)), multiplier = u(F(5));
@@ -181,8 +198,10 @@ export class LifiAdapter implements ProviderAdapter {
     if (!fromChain || !toChain) throw new Error(`LI.FI does not support ${req.from.chain} -> ${req.to.chain}`);
     // fromAddress = the one-time escrow (the diamond's msg.sender); the SDK needs an address to quote
     const fromAddress = req.source ?? "0x000000000000000000000000000000000000dEaD";
-    const qs = new URLSearchParams({ fromChain, toChain, fromToken: lifiToken(req.from), toToken: lifiToken(req.to), fromAmount: req.amount.toString(), fromAddress, toAddress: req.destination, slippage: (req.slippageBps / 10000).toString() });
+    const qs = new URLSearchParams({ fromChain, toChain, fromToken: lifiToken(req.from), toToken: lifiToken(req.to), fromAmount: req.amount.toString(), fromAddress, toAddress: req.destination, slippage: (req.slippageBps / 10000).toString(), allowBridges: LIFI_READABLE_BRIDGES.join(",") });
     const { data: q } = await lifi<any>(`/quote?${qs}`);
+    const call = String(q.transactionRequest?.data ?? "");
+    if (!isAcrossV4Call(call) && !isMayanFacetCall(call)) throw new Error(`LI.FI routed via ${q.tool} (facet ${call.slice(0, 10)}), which this adapter cannot verify: not offered`);
     const est = q.estimate;
     const toAmount = BigInt(est.toAmount), toAmountMin = BigInt(est.toAmountMin);
     // the claimed minimum must be consistent with the slippage we asked for (a lowered min-out is a changed quote)

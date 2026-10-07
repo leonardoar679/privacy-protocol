@@ -170,6 +170,18 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     const order = engine.buildOrder(reqSol, "best-privacy", q, KEYS);
     await expect(engine.prepareExecution(order, a)).rejects.toThrow(/cannot be verified locally/);
   }, 90_000);
+  it("Mayan facet: refundRecipient swapped or mayanAmountIn lowered (the facet sweeps the rest there) → refused", async () => {
+    const reqSol: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 50 };
+    const q = await a.quote(reqSol);
+    if ((q.raw as any).tool !== "mayan") return;
+    const mut = (word: number, v: bigint | string) => withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => { const b = structuredClone(q.raw) as any; b.transactionRequest.data = setWord(b.transactionRequest.data, 4 + facetOff(b.transactionRequest.data) + word * 32, v); return b; } }], async () => a.prepareIngress(reqSol, await a.quote(reqSol)));
+    await expect(mut(7, padAddress(ATTACKER))).rejects.toThrow(/refundRecipient/);
+    await expect(mut(8, 1n)).rejects.toThrow(/mayanAmountIn/);
+  }, 90_000);
+  it("a facet this adapter cannot read is not offered, under any policy", async () => {
+    const { req, q } = await verifiablePair();
+    await expect(withTamper([{ match: "li.quest/v1/quote", offline: true, json: () => { const b = structuredClone(q.raw) as any; b.transactionRequest.data = "0xdeadbeef" + b.transactionRequest.data.slice(10); return b; } }], () => a.quote(req))).rejects.toThrow(/cannot verify/);
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------------------------------
