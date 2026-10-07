@@ -10,7 +10,8 @@ import { ThorchainAdapter, THORNODE_URLS, THORNODE_QUORUM, inboundQuorum } from 
 import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall, isAcrossV4Call, verifyLifiTransaction } from "../src/adapters/lifi";
 import { escrowCanReshield } from "../src/escrowAssets";
 import { ChainflipAdapter } from "../src/adapters/chainflip";
-import { MayanAdapter } from "../src/adapters/mayan";
+import { MayanAdapter, MAYAN_ETH_WRAPPER } from "../src/adapters/mayan";
+import { decodeParams, hexBuf } from "../src/abi";
 import { NearIntentsAdapter } from "../src/adapters/nearIntents";
 import { AcrossAdapter } from "../src/adapters/across";
 import { ACROSS_EVENT_EMITTER } from "../src/adapters/acrossSwap";
@@ -283,7 +284,7 @@ describe("§74 Chainflip backend malicious — vault pinned, calldata decoded an
 
 // ---------------------------------------------------------------------------------------------------
 describe("§74 Mayan API malicious — payload built locally, contracts pinned, claimed minimum checked (live, tampered)", () => {
-  const a = new MayanAdapter();
+  const a = new MayanAdapter({ orderTypes: ["FAST_MCTP"] });
   const req: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
   const tamperQuote = (mut: (q: any) => any) => withTamper([{ match: "mayan.finance/v3/quote", json: (b) => ({ ...b, quotes: (b.quotes ?? []).map(mut) }) }], () => a.quote(req));
   it("minAmountOut lowered → refused", async () => {
@@ -294,6 +295,34 @@ describe("§74 Mayan API malicious — payload built locally, contracts pinned, 
   }, 60_000);
   it("amountIn changed → refused", async () => {
     await expect(tamperQuote((q) => ({ ...q, effectiveAmountIn64: "1" }))).rejects.toThrow(/differs from the requested amount/);
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe("§74 Mayan SWIFT API malicious — the order built locally, Swift V2 and the wrapper pinned, fees and deadline bounded (live, tampered)", () => {
+  const a = new MayanAdapter({ orderTypes: ["SWIFT"] });
+  const req: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
+  const tamperQuote = (mut: (q: any) => any) => withTamper([{ match: "mayan.finance/v3/quote", json: (b) => ({ ...b, quotes: (b.quotes ?? []).map((q: any) => (q.type === "SWIFT" ? mut(q) : q)) }) }], () => a.quote(req));
+  const now = () => Math.floor(Date.now() / 1000);
+  const cases: [string, (q: any) => any, RegExp][] = [
+    ["the Swift contract swapped", (q) => ({ ...q, swiftMayanContract: ATTACKER }), /pinned/],
+    ["Swift V1 (no wrap & lock, another contract)", (q) => ({ ...q, swiftVersion: "V1" }), /V2 only/],
+    ["an ETH order through a swap into USDC", (q) => ({ ...q, swiftInputContract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }), /wrap & lock/],
+    ["an ETH order locked as WETH (refunded as WETH)", (q) => ({ ...q, swiftWrapAndLock: false }), /wrap & lock/],
+    ["the refund fee raised above 1%", (q) => ({ ...q, refundRelayerFee64: String(10n ** 8n / 100n + 1n) }), /fees/],
+    ["the deadline 7 h ahead", (q) => ({ ...q, deadline64: String(now() + 7 * 3600) }), /deadline/],
+    ["the deadline too close to fill", (q) => ({ ...q, deadline64: String(now() + 300) }), /deadline/],
+    ["minAmountOut halved", (q) => ({ ...q, minAmountOut: q.minAmountOut * 0.5, minAmountOutBaseUnits: undefined }), /bps below/],
+    ["another token out", (q) => ({ ...q, toToken: { ...q.toToken, contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } }), /delivers/],
+    ["a gas drop", (q) => ({ ...q, gasDrop: 0.1 }), /gas drop/],
+    ["amountIn changed", (q) => ({ ...q, effectiveAmountIn64: "1" }), /differs from the requested amount/],
+  ];
+  for (const [name, mut, why] of cases) it(`${name} → refused`, async () => { await expect(tamperQuote(mut)).rejects.toThrow(why); }, 60_000);
+  it("the API's router calldata is not used: a tampered get-swap answer changes nothing (the pinned wrapper's wrap())", async () => {
+    const q = await a.quote(req);
+    const ing = await withTamper([{ match: "get-swap/evm", offline: true, status: 200, json: () => ({ swapRouterAddress: ATTACKER, swapRouterCalldata: "0xdeadbeef" }) }], () => a.prepareIngress(req, q));
+    const outer = decodeParams(hexBuf(ing.calldata).subarray(4), ["uint", "address", "bytes", "address", "uint", "address", "bytes"]);
+    expect([outer[1], (outer[2] as Buffer).toString("hex"), outer[4]]).toEqual([MAYAN_ETH_WRAPPER, "d46eb119", 10n ** 18n]);
   }, 60_000);
 });
 

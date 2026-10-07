@@ -15,6 +15,17 @@
 // Refunds: an unfulfilled order is refunded in USDC on the DESTINATION chain to `destAddr` (the user's
 // fresh address), not to the escrow — flagged as `refundTarget: "destination"` so the wallet and the
 // state machine treat it correctly (spec §7).
+//
+// SWIFT (Swift V2 auction orders): the order (`createOrderWithToken(tokenIn, amountIn, OrderParams,
+// customPayload)`) is also BUILT HERE from the quote, the way the SDK builds it (`getEvmSwiftParams`),
+// with the escrow as `trader`: an order no solver fills is cancelled after its deadline and refunded on
+// Ethereum to the trader (SwiftSource.refundOrder, verified source), so it comes back to the escrow and
+// re-shields. An ETH order is locked "wrap & lock" (tokenIn = 0): the pinned EthWrapper turns the ETH
+// into WETH 1:1 (`wrap()`, no router calldata from the API) and the refund pays ETH. An ERC-20 order
+// locks its own token. Referrer and protocol fees are taken on the source side from what the solver is
+// released, not from what the user receives; the cancel and refund fees (charged only on a refund) are
+// bounded here. With both order types allowed, the higher guaranteed minimum wins, SWIFT on a tie.
+import { randomBytes } from "node:crypto";
 import { encodeCall, hexBuf, padLeft32, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
@@ -27,6 +38,25 @@ export const MAYAN_FORWARDER = "0x337685fdab40d39bd02028545a4ffa7d287cc3e2"; // 
 export const MAYAN_SOLANA_PROGRAM = "FC4eXxkyrMPTjiYUpp4EAnkmwMbQyZ6NDCh1kfLn6vsf";
 /** Fast-MCTP contract the forwarder may hand the order to (pinned from the price API on 2026-10-06; MAYAN_FAST_MCTP overrides). A quote naming another contract is refused. */
 export const MAYAN_FAST_MCTP = (process.env.MAYAN_FAST_MCTP ?? "0xc1062b7c5dc8e4b1df9f200fe360cdc0ed6e7741").toLowerCase();
+/** Swift V2 on Ethereum (pinned: Sourcify exact match, on the forwarder's whitelist; MAYAN_SWIFT_V2 overrides). A quote naming another contract is refused. */
+export const MAYAN_SWIFT_V2 = (process.env.MAYAN_SWIFT_V2 ?? "0x40ffe85a28dc9993541449464d7529a922142960").toLowerCase();
+/** Mayan's EthWrapper (pinned: Sourcify exact match, on the forwarder's whitelist): `wrap()` deposits the ETH sent into WETH and returns it 1:1. */
+export const MAYAN_ETH_WRAPPER = "0x529863940bf6065d8c122a550c2ff37c1cfefa16";
+export const WETH_ETHEREUM = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+export const SEL_WRAP = "0xd46eb119"; // wrap()
+export const SWIFT_CREATE_ORDER_SIG = "createOrderWithToken(address,uint256,(uint8,bytes32,bytes32,uint16,bytes32,bytes32,uint64,uint64,uint64,uint64,uint64,uint8,uint8,bytes32),bytes)";
+export const SEL_SWIFT_CREATE_ORDER = selectorHex(SWIFT_CREATE_ORDER_SIG);
+/** The cancel + refund relayer fees, taken from an unfilled order's refund, may be at most this share of the order (bps). */
+export const SWIFT_MAX_REFUND_FEES_BPS = 100;
+/** Execution stops this long before the order deadline, so solvers still have time to fill (Mayan quotes ~25 min orders). */
+export const SWIFT_FILL_MARGIN_SECONDS = 600;
+/** The order deadline must lie this far ahead at quote time, and no further than the max: after it an unfilled order is cancelled and refunded inside the executor's watch. */
+export const SWIFT_MIN_DEADLINE_SECONDS = 900;
+export const SWIFT_MAX_DEADLINE_SECONDS = 6 * 3600;
+const SWIFT_PAYLOAD_TYPE_DEFAULT = 1;
+export type MayanOrderType = "FAST_MCTP" | "SWIFT";
+/** The order types quoted by default (MAYAN_ORDER_TYPES="FAST_MCTP,SWIFT"). */
+export const MAYAN_ORDER_TYPES: MayanOrderType[] = (process.env.MAYAN_ORDER_TYPES ?? "FAST_MCTP,SWIFT").split(",").map((s) => s.trim().toUpperCase()).filter((s): s is MayanOrderType => s === "FAST_MCTP" || s === "SWIFT");
 const ZERO = "0x0000000000000000000000000000000000000000";
 const FAST_MCTP_PAYLOAD_TYPE_ORDER = 3;
 const CCTP_TOKEN_DECIMALS = 6;
@@ -66,6 +96,9 @@ export interface MayanQuote {
   circleMaxFee64?: string; fastMctpMinFinality?: string | number; fastMctpMayanContract?: string; fastMctpInputContract?: string;
   hasAuction?: boolean; slippageBps: number; referrerBps?: number; protocolBps?: number; bridgeFee?: number; priceImpact?: number;
   clientRelayerFeeSuccess?: number; clientRelayerFeeRefund?: number; onlyBridging?: boolean;
+  // SWIFT
+  swiftVersion?: string; swiftMayanContract?: string; swiftInputContract?: string; swiftInputDecimals?: number; swiftAuctionMode?: number;
+  swiftWrapAndLock?: boolean; cancelRelayerFee64?: string; quoteId?: string; memoHex?: string;
 }
 
 async function getJson<T>(url: string, timeoutMs = 25000): Promise<{ data: T; status: number; ms: number }> {
@@ -112,6 +145,75 @@ export function orderPayloadFromQuote(q: MayanQuote, destination: string): { pay
   return { payload, destDomain, minFinality: Number(q.fastMctpMinFinality ?? 0), circleMaxFee: BigInt(q.circleMaxFee64), tokenIn: q.fastMctpInputContract };
 }
 
+export interface SwiftOrder { payloadType: number; trader: Buffer; destAddr: Buffer; destChainId: number; referrerAddr: Buffer; tokenOut: Buffer; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number; random: Buffer }
+
+/**
+ * What a SWIFT quote must say before it is ranked: the pinned Swift V2 contract, an order from Ethereum to the asked chain
+ * and asset, an ETH order as wrap & lock (refunded as ETH) or an ERC-20 order locking its own token, a deadline that leaves
+ * solvers time and still refunds inside the watch, and cancel + refund fees within SWIFT_MAX_REFUND_FEES_BPS.
+ */
+export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): { tokenIn: string; wrap: boolean } {
+  if (q.type !== "SWIFT") throw new Error(`Mayan: quote type ${q.type} is not SWIFT`);
+  if (q.swiftVersion !== "V2") throw new Error(`Mayan: Swift ${q.swiftVersion ?? "(no version)"} is not supported (V2 only)`);
+  if (String(q.swiftMayanContract ?? "").toLowerCase() !== MAYAN_SWIFT_V2) throw new Error(`Mayan: quote names Swift contract ${q.swiftMayanContract}, not the pinned ${MAYAN_SWIFT_V2}`);
+  if (q.fromChain !== "ethereum") throw new Error("Mayan SWIFT: only orders from Ethereum, the escrow's chain");
+  const destChainId = WORMHOLE_CHAIN[q.toChain];
+  if (destChainId === undefined || q.toChain !== req.to.chain || (q.toToken.wChainId !== undefined && Number(q.toToken.wChainId) !== destChainId)) throw new Error(`Mayan SWIFT: delivers on ${q.toChain}, not ${req.to.chain}`);
+  if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase())) throw new Error(`Mayan SWIFT: delivers ${q.toToken.contract}, not ${req.to.symbol}`);
+  const input = String(q.swiftInputContract ?? "").toLowerCase();
+  let tokenIn: string, wrap: boolean;
+  if (req.from.asset === "native") {
+    if (input !== WETH_ETHEREUM || !q.swiftWrapAndLock) throw new Error("Mayan SWIFT: an ETH order is taken only as wrap & lock (wrapped 1:1 by the pinned wrapper, refunded as ETH)");
+    tokenIn = ZERO; wrap = true;
+  } else {
+    if (input !== req.from.asset.toLowerCase() || q.swiftWrapAndLock) throw new Error(`Mayan SWIFT: an ERC-20 order must lock ${req.from.symbol} itself (a source swap is not read)`);
+    tokenIn = input; wrap = false;
+  }
+  const deadline = Number(q.deadline64);
+  if (!(deadline >= now + SWIFT_MIN_DEADLINE_SECONDS && deadline <= now + SWIFT_MAX_DEADLINE_SECONDS)) throw new Error(`Mayan SWIFT: order deadline ${q.deadline64} is not within ${SWIFT_MIN_DEADLINE_SECONDS} s .. ${SWIFT_MAX_DEADLINE_SECONDS} s from now`);
+  if (!q.swiftAuctionMode) throw new Error("Mayan SWIFT: no auction mode in the quote");
+  if (!q.cancelRelayerFee64 || !q.refundRelayerFee64) throw new Error("Mayan SWIFT: cancel / refund fees missing from the quote");
+  const inDecimals = req.from.asset === "native" ? 18 : req.from.decimals;
+  const normalizedIn = inDecimals > 8 ? req.amount / 10n ** BigInt(inDecimals - 8) : req.amount; // Swift's 8-decimal amounts
+  const fees = BigInt(q.cancelRelayerFee64) + BigInt(q.refundRelayerFee64);
+  if (fees * 10000n > normalizedIn * BigInt(SWIFT_MAX_REFUND_FEES_BPS)) throw new Error(`Mayan SWIFT: cancel + refund fees (${fees}) above ${SWIFT_MAX_REFUND_FEES_BPS} bps of the order`);
+  if (Number(q.gasDrop ?? 0) !== 0) throw new Error("Mayan SWIFT: a gas drop was not asked for");
+  return { tokenIn, wrap };
+}
+
+/** The SDK's `createSwiftRandomKey`: the quote id (16 bytes, left-padded) then the memo or 16 random bytes; 32 random bytes without a usable id. */
+export function swiftRandom(q: Pick<MayanQuote, "quoteId" | "memoHex">, tail: Buffer = randomBytes(16)): Buffer {
+  const pad16 = (h: string) => { const b = hexBuf(h); return b.length <= 16 ? Buffer.concat([Buffer.alloc(16 - b.length), b]) : null; };
+  const id = q.quoteId ? pad16(q.quoteId) : null;
+  if (!id) return randomBytes(32);
+  const memo = q.memoHex ? pad16(q.memoHex) : null;
+  return Buffer.concat([id, memo ?? tail]);
+}
+
+/** Build the Swift V2 order from a quote the way the SDK does (`getEvmSwiftParams`), with the escrow as trader: where an unfilled order is refunded. */
+export function swiftOrderFromQuote(q: MayanQuote, req: QuoteRequest, now = Math.floor(Date.now() / 1000), tail?: Buffer): { tokenIn: string; wrap: boolean; order: SwiftOrder } {
+  if (!req.source) throw new Error("Mayan SWIFT: the escrow address (req.source) is required: it is the trader an unfilled order is refunded to");
+  const { tokenIn, wrap } = checkSwiftQuote(q, req, now);
+  const order: SwiftOrder = {
+    payloadType: SWIFT_PAYLOAD_TYPE_DEFAULT, trader: addressHex32("ethereum", req.source), destAddr: addressHex32(q.toChain, req.destination),
+    destChainId: WORMHOLE_CHAIN[q.toChain], referrerAddr: Buffer.alloc(32), tokenOut: q.toToken.contract === ZERO ? Buffer.alloc(32) /* SystemProgram id */ : addressHex32(q.toChain, q.toToken.contract),
+    minAmountOut: fractionalToUnits(q.minAmountOut, Math.min(8, q.toToken.decimals)), gasDrop: 0n,
+    cancelFee: BigInt(q.cancelRelayerFee64!), refundFee: BigInt(q.refundRelayerFee64!), deadline: BigInt(q.deadline64), referrerBps: 0, auctionMode: Number(q.swiftAuctionMode), random: swiftRandom(q, tail),
+  };
+  return { tokenIn, wrap, order };
+}
+
+/** `SwiftSource.createOrderWithToken(tokenIn, amountIn, OrderParams, customPayload)`: the static struct inline, an empty custom payload. */
+export function encodeSwiftCreateOrder(tokenIn: string, amountIn: bigint, o: SwiftOrder): `0x${string}` {
+  return encodeCall(SWIFT_CREATE_ORDER_SIG, [
+    { t: "address", v: tokenIn }, { t: "uint", v: amountIn },
+    { t: "uint", v: o.payloadType }, { t: "bytes32", v: o.trader }, { t: "bytes32", v: o.destAddr }, { t: "uint", v: o.destChainId }, { t: "bytes32", v: o.referrerAddr }, { t: "bytes32", v: o.tokenOut },
+    { t: "uint", v: o.minAmountOut }, { t: "uint", v: o.gasDrop }, { t: "uint", v: o.cancelFee }, { t: "uint", v: o.refundFee }, { t: "uint", v: o.deadline },
+    { t: "uint", v: o.referrerBps }, { t: "uint", v: o.auctionMode }, { t: "bytes32", v: o.random },
+    { t: "bytes", v: "0x" },
+  ]);
+}
+
 /** Min output in destination base units implied by the on-chain `amountOutMin` (which has min(8, decimals) decimals). */
 export function minOutBaseUnits(q: MayanQuote): bigint {
   const dec = q.toToken.decimals;
@@ -122,6 +224,10 @@ export function minOutBaseUnits(q: MayanQuote): bigint {
 export class MayanAdapter implements ProviderAdapter {
   readonly id = "mayan" as const;
   readonly implemented = true;
+  readonly orderTypes: MayanOrderType[];
+  constructor(opts: { orderTypes?: MayanOrderType[] } = {}) {
+    this.orderTypes = opts.orderTypes ?? MAYAN_ORDER_TYPES;
+  }
 
   capabilities(): Capabilities {
     return { routes: ["B", "C", "D"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "solana", "base", "arbitrum", "optimism", "polygon", "avalanche", "bsc"], destinationLinkPublic: true, linkEvidence: "the order payload carries destAddr (decoded locally before signing)" };
@@ -130,14 +236,43 @@ export class MayanAdapter implements ProviderAdapter {
   async quote(req: QuoteRequest): Promise<Quote> {
     const from = mayanToken(req.from), to = mayanToken(req.to);
     const qs = new URLSearchParams({
-      wormhole: "false", swift: "false", mctp: "false", shuttle: "false", fastMctp: "true", gasless: "false", onlyDirect: "false", fullList: "false", guaranteedOutput: "true", monoChain: "true",
+      wormhole: "false", swift: String(this.orderTypes.includes("SWIFT")), mctp: "false", shuttle: "false", fastMctp: String(this.orderTypes.includes("FAST_MCTP")), gasless: "false", onlyDirect: "false", fullList: "false", guaranteedOutput: "true", monoChain: "true",
       solanaProgram: MAYAN_SOLANA_PROGRAM, forwarderAddress: MAYAN_FORWARDER, amountIn64: req.amount.toString(), fromToken: from.contract, fromChain: from.chain,
       toToken: to.contract, toChain: to.chain, slippageBps: String(req.slippageBps), gasDrop: "0", destinationAddress: req.destination, sdkVersion: MAYAN_SDK_VERSION,
     });
     const { data, status } = await getJson<{ quotes?: MayanQuote[]; code?: string; msg?: string }>(`${MAYAN_PRICE_API}/quote?${qs}`);
     if (status !== 200) throw new Error(`Mayan quote: HTTP ${status} ${JSON.stringify(data).slice(0, 200)}`);
-    const q = (data.quotes ?? []).find((x) => x.type === "FAST_MCTP");
-    if (!q) throw new Error(`Mayan: no FAST_MCTP quote (${(data.quotes ?? []).map((x) => x.type).join(",") || "none"})`);
+    const offered = (data.quotes ?? []).filter((x) => this.orderTypes.includes(x.type as MayanOrderType));
+    const built: Quote[] = [], refused: string[] = [];
+    for (const q of offered) {
+      try { built.push(q.type === "SWIFT" ? this.swiftQuote(req, q) : this.fastQuote(req, q)); } catch (e) { refused.push(`${q.type}: ${(e as Error).message}`); }
+    }
+    if (!built.length) throw new Error(refused.length ? refused.join("; ") : `Mayan: no ${this.orderTypes.join("/")} quote (${(data.quotes ?? []).map((x) => x.type).join(",") || "none"})`);
+    // the higher guaranteed minimum; on a tie SWIFT, whose unfilled order is refunded to the escrow
+    const swift = (x: Quote) => ((x.raw as MayanQuote).type === "SWIFT" ? 1 : 0);
+    built.sort((a, b) => (a.toAmountMin === b.toAmountMin ? swift(b) - swift(a) : a.toAmountMin > b.toAmountMin ? -1 : 1));
+    return built[0];
+  }
+
+  private swiftQuote(req: QuoteRequest, q: MayanQuote): Quote {
+    if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
+    const now = Math.floor(Date.now() / 1000);
+    checkSwiftQuote(q, req, now);
+    const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
+    const toAmountMin = minOutBaseUnits(q);
+    if (toAmountMin * 10000n < toAmount * BigInt(10000 - req.slippageBps - 200)) throw new Error(`Mayan: minAmountOut ${toAmountMin} is more than ${req.slippageBps + 200} bps below expectedAmountOut ${toAmount}`);
+    if (toAmountMin > toAmount) throw new Error("Mayan: minAmountOut exceeds expectedAmountOut");
+    return {
+      provider: "mayan", category: categoryOf(req.from, req.to), toAmount, toAmountMin, fees: [], etaSeconds: q.etaSeconds,
+      expiresAt: Math.min(Number(q.deadline64) - SWIFT_FILL_MARGIN_SECONDS, now + 600), // execute while solvers still have time to fill
+      nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow",
+      hops: [`${req.from.chain}:${req.from.symbol} -> Swift V2 auction (${req.from.asset === "native" ? "ETH locked as WETH" : `${req.from.symbol} locked`}) -> ${req.to.chain}:${req.to.symbol}; unfilled: cancelled after the deadline, refunded to the escrow`],
+      raw: q, obtainedAt: Date.now(),
+    };
+  }
+
+  private fastQuote(req: QuoteRequest, q: MayanQuote): Quote {
+    const to = mayanToken(req.to), from = mayanToken(req.from);
     if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
     const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
     const toAmountMin = minOutBaseUnits(q);
@@ -161,6 +296,24 @@ export class MayanAdapter implements ProviderAdapter {
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as MayanQuote;
+    if (q.type === "SWIFT") {
+      const { tokenIn, wrap, order } = swiftOrderFromQuote(q, req);
+      const createOrder = encodeSwiftCreateOrder(tokenIn, req.amount, order);
+      if (wrap) {
+        // ETH: the pinned wrapper wraps it 1:1, so the forwarder hands Swift exactly the order's amount (no router calldata from the API)
+        const calldata = encodeCall("swapAndForwardEth(uint256,address,bytes,address,uint256,address,bytes)", [
+          { t: "uint", v: req.amount }, { t: "address", v: MAYAN_ETH_WRAPPER }, { t: "bytes", v: SEL_WRAP },
+          { t: "address", v: WETH_ETHEREUM }, { t: "uint", v: req.amount }, { t: "address", v: MAYAN_SWIFT_V2 }, { t: "bytes", v: createOrder },
+        ]);
+        return { kind: "contract-call", to: MAYAN_FORWARDER, calldata, value: req.amount, expiresAt: quote.expiresAt, minOutEncoded: true };
+      }
+      const calldata = encodeCall("forwardERC20(address,uint256,(uint256,uint256,uint8,bytes32,bytes32),address,bytes)", [
+        { t: "address", v: tokenIn }, { t: "uint", v: req.amount },
+        { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "bytes32", v: Buffer.alloc(32) }, { t: "bytes32", v: Buffer.alloc(32) }, // zero permit: the escrow approves instead
+        { t: "address", v: MAYAN_SWIFT_V2 }, { t: "bytes", v: createOrder },
+      ]);
+      return { kind: "contract-call", to: MAYAN_FORWARDER, calldata, value: 0n, expiresAt: quote.expiresAt, minOutEncoded: true };
+    }
     const { payload, destDomain, minFinality, circleMaxFee, tokenIn } = orderPayloadFromQuote(q, req.destination);
     const createOrder = encodeCreateOrder(tokenIn, req.amount, circleMaxFee, destDomain, minFinality, payload);
     const fastMctp = q.fastMctpMayanContract!;

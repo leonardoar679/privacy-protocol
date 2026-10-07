@@ -5,7 +5,7 @@ import { ThorchainAdapter, buildMemo, encodeDepositWithExpiry, thorAsset } from 
 import { LifiAdapter, decodeLifiCall } from "../src/adapters/lifi";
 import { escrowCanReshield } from "../src/escrowAssets";
 import { ChainflipAdapter, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, base58Decode, decodeVaultSwapCalldata, minOutFromPrice } from "../src/adapters/chainflip";
-import { MayanAdapter, MAYAN_FORWARDER, SEL_CREATE_ORDER, SEL_SWAP_AND_FORWARD_ETH } from "../src/adapters/mayan";
+import { MayanAdapter, MAYAN_ETH_WRAPPER, MAYAN_FORWARDER, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, SEL_SWIFT_CREATE_ORDER, WETH_ETHEREUM, addressHex32 } from "../src/adapters/mayan";
 import { decodeParams, hexBuf } from "../src/abi";
 import { NearIntentsAdapter, oneClickAssetId } from "../src/adapters/nearIntents";
 import { AcrossAdapter, SPOKE_POOL, WETH } from "../src/adapters/across";
@@ -132,7 +132,7 @@ describe("Chainflip adapter (live)", () => {
 });
 
 describe("Mayan adapter (live)", () => {
-  const a = new MayanAdapter();
+  const a = new MayanAdapter({ orderTypes: ["FAST_MCTP"] });
   const SOL: AssetRef = { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" };
   it("health: token list reachable", async () => {
     const h = await a.health();
@@ -198,6 +198,74 @@ describe("NEAR Intents / 1Click adapter (live, dry quotes only)", () => {
   it("status endpoint → unknown for an unknown deposit address", async () => {
     const s = await a.track({ providerRef: "0x000000000000000000000000000000000000dEaD" });
     expect(["unknown", "pending"]).toContain(s.state);
+  }, 60_000);
+});
+
+describe("Mayan SWIFT (live): Swift V2 auction orders built here, the escrow as trader", () => {
+  const a = new MayanAdapter({ orderTypes: ["SWIFT"] });
+  const SOL: AssetRef = { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" };
+  const ETH_B: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
+  const USDC_E: AssetRef = { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" };
+  const DEST_SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", DEST_EVM = "0x1111111111111111111111111111111111111111";
+  const hex32 = (b: Buffer) => "0x" + b.toString("hex");
+  /** createOrderWithToken(tokenIn, amountIn, OrderParams{14 static fields}, customPayload) */
+  const swiftFields = (inner: Buffer) => {
+    expect("0x" + inner.subarray(0, 4).toString("hex")).toBe(SEL_SWIFT_CREATE_ORDER);
+    const f = decodeParams(inner.subarray(4), ["address", "uint", "uint", "bytes32", "bytes32", "uint", "bytes32", "bytes32", "uint", "uint", "uint", "uint", "uint", "uint", "uint", "bytes32", "bytes"]);
+    return { tokenIn: f[0], amountIn: f[1], payloadType: f[2], trader: f[3], destAddr: f[4], destChainId: f[5], referrerAddr: f[6], tokenOut: f[7], minAmountOut: f[8] as bigint, gasDrop: f[9], cancelFee: f[10] as bigint, refundFee: f[11] as bigint, deadline: f[12] as bigint, referrerBps: f[13], auctionMode: f[14] as bigint, payload: f[16] as Buffer };
+  };
+  const common = (o: ReturnType<typeof swiftFields>, amount: bigint) => {
+    expect(o.amountIn).toBe(amount);
+    expect(o.payloadType).toBe(1n);
+    expect(o.trader, "the trader, where an unfilled order is refunded, is the escrow").toBe(hex32(addressHex32("ethereum", ESCROW)));
+    expect(o.referrerAddr).toBe("0x" + "00".repeat(32));
+    expect(o.referrerBps).toBe(0n);
+    expect(o.gasDrop).toBe(0n);
+    expect(o.payload.length).toBe(0);
+    expect(o.auctionMode > 0n).toBe(true);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    expect(o.deadline > now + 600n && o.deadline <= now + 6n * 3600n, "an order deadline solvers can meet, refunded inside the watch").toBe(true);
+  };
+  it("ETH -> SOL: wrap & lock through the pinned wrapper, no router calldata from the API; refunds the escrow in ETH", async () => {
+    const req: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
+    const q = await a.quote(req);
+    expect((q.raw as any).type).toBe("SWIFT");
+    expect(q.refundTarget).toBe("escrow");
+    expect(q.toAmountMin > 0n && q.toAmountMin <= q.toAmount).toBe(true);
+    const ing = await a.prepareIngress(req, q);
+    expect(ing.to).toBe(MAYAN_FORWARDER);
+    expect(ing.value).toBe(10n ** 18n);
+    expect(ing.calldata.startsWith(SEL_SWAP_AND_FORWARD_ETH)).toBe(true);
+    const outer = decodeParams(hexBuf(ing.calldata).subarray(4), ["uint", "address", "bytes", "address", "uint", "address", "bytes"]);
+    expect([outer[0], outer[1], (outer[2] as Buffer).toString("hex"), outer[3], outer[4], outer[5]]).toEqual([10n ** 18n, MAYAN_ETH_WRAPPER, "d46eb119", WETH_ETHEREUM, 10n ** 18n, MAYAN_SWIFT_V2]);
+    const o = swiftFields(outer[6] as Buffer);
+    expect(o.tokenIn, "wrap & lock: Swift refunds ETH").toBe("0x0000000000000000000000000000000000000000");
+    common(o, 10n ** 18n);
+    expect(o.destAddr).toBe(hex32(addressHex32("solana", DEST_SOL)));
+    expect(o.destChainId).toBe(1n); // Wormhole: Solana
+    expect(o.tokenOut).toBe("0x" + "00".repeat(32)); // SOL
+    expect(o.minAmountOut * 10n, "8 decimals on chain, 9 for SOL").toBe(q.toAmountMin);
+    expect((o.cancelFee + o.refundFee) * 10000n <= (10n ** 8n) * 100n, "cancel + refund fees within 1%").toBe(true);
+  }, 60_000);
+  it("ETH -> ETH (Base) and USDC (Ethereum) -> SOL: the order pays the fresh address; USDC is locked as is through forwardERC20", async () => {
+    const req: QuoteRequest = { from: ETH, to: ETH_B, amount: 10n ** 18n, destination: DEST_EVM, source: ESCROW, slippageBps: 100 };
+    const q = await a.quote(req);
+    const ing = await a.prepareIngress(req, q);
+    const outer = decodeParams(hexBuf(ing.calldata).subarray(4), ["uint", "address", "bytes", "address", "uint", "address", "bytes"]);
+    const o = swiftFields(outer[6] as Buffer);
+    common(o, 10n ** 18n);
+    expect([o.destAddr, o.destChainId, o.tokenOut]).toEqual([hex32(addressHex32("base", DEST_EVM)), 30n, "0x" + "00".repeat(32)]);
+    expect(o.minAmountOut * 10n ** 10n).toBe(q.toAmountMin);
+    const ru: QuoteRequest = { from: USDC_E, to: SOL, amount: 2_000_000_000n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
+    const qu = await a.quote(ru);
+    const iu = await a.prepareIngress(ru, qu);
+    expect(iu.value).toBe(0n);
+    expect(iu.calldata.startsWith(SEL_FORWARD_ERC20)).toBe(true);
+    const ou = decodeParams(hexBuf(iu.calldata).subarray(4), ["address", "uint", "uint", "uint", "uint", "bytes32", "bytes32", "address", "bytes"]);
+    expect([ou[0], ou[1], ou[2], ou[7]]).toEqual([USDC_E.asset.toLowerCase(), 2_000_000_000n, 0n, MAYAN_SWIFT_V2]);
+    const u = swiftFields(ou[8] as Buffer);
+    expect(u.tokenIn).toBe(USDC_E.asset.toLowerCase());
+    common(u, 2_000_000_000n);
   }, 60_000);
 });
 

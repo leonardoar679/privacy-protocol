@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { sha256 } from "@noble/hashes/sha256";
 import { defaultEngine } from "../src/config";
+import { MayanAdapter } from "../src/adapters/mayan";
 import { orderSignerAddress } from "../src/endpoints";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
 import { checkProviderCall, ProviderCallMismatch, type CheckedCall } from "../../../frontend/src/sdk/providerCall";
@@ -56,7 +57,8 @@ function agree(c: Checked) {
   expect(c.checked.minOut, `${c.route}/${c.provider}: minimum`).not.toBeNull();
   if (c.provider === "lifi") expect(c.checked.minOut! >= c.quote.toAmountMin, `${c.route}/lifi: the facet floor ${c.checked.minOut} is below the quoted ${c.quote.toAmountMin}`).toBe(true);
   else expect(c.checked.minOut, `${c.route}/${c.provider}: the wallet reads another minimum than the engine quoted`).toBe(c.quote.toAmountMin);
-  const refund = c.provider === "mayan" ? "destination" : "escrow";
+  // Mayan: Fast-MCTP refunds USDC at the destination; SWIFT refunds its trader, the escrow
+  const refund = c.provider === "mayan" && (c.quote.raw as { type?: string }).type !== "SWIFT" ? "destination" : "escrow";
   expect(c.checked.refundTo, `${c.route}/${c.provider}: refund target`).toBe(refund);
   expect(c.quote.refundTarget ?? "escrow", `${c.route}/${c.provider}: the engine and the wallet disagree on where a refund lands`).toBe(refund);
 }
@@ -93,6 +95,18 @@ describe("the wallet's provider-call check agrees with the engine on live provid
     }
   }, 240_000);
 
+  it("Mayan SWIFT: ETH → SOL and USDC → SOL, built by the adapter, read the same by the wallet: the minimum, the fresh address, a refund to the escrow", async () => {
+    const a = new MayanAdapter({ orderTypes: ["SWIFT"] });
+    const escrow = "0x2b8Dc27605bF11214247aE11a013fcADf2c1Cb65" as `0x${string}`;
+    for (const [from, net] of [[ETH, 10n ** 18n], [USDC_ETH, 2_000_000_000n]] as const) {
+      const req: QuoteRequest = { from, to: SOL, amount: net, destination: DEST_SOL, source: escrow, slippageBps: 100 };
+      const q = await a.quote(req);
+      const ing = await a.prepareIngress(req, q);
+      const c = await checkProviderCall({ provider: ing.to as `0x${string}`, value: ing.value, calldata: ing.calldata }, { escrow, from, to: SOL, destination: DEST_SOL, net, policy: "fastest", pooled: [USDC_ETH.asset] });
+      expect(c, `${from.symbol} -> SOL`).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: q.toAmountMin, refundTo: "escrow" });
+      expect(q.refundTarget).toBe("escrow");
+    }
+  }, 120_000);
   it("USDC → BTC and → USDC (Base): ERC-20 calls forward no ETH and spend exactly the net amount", async () => {
     for (const [route, req] of [
       ["USDC->BTC", { from: USDC_ETH, to: BTC, amount: 1_000_000_000n, destination: DEST_BTC, slippageBps: 100 }],
