@@ -5,12 +5,15 @@
 // The API is a convenience, not a trust anchor (spec §5, plan §74 "LI.FI API malicious"): before an
 // ingress is returned, the transaction is checked locally — pinned diamond address, chain id, value,
 // the quote's from/to addresses, and the `BridgeData` struct every bridge facet takes first
-// (receiver, destination chain, no destination call, sending asset / amount). For the Across facet
-// the bridge-specific data is decoded too (receiver, refund address = our escrow, exact output
-// amount), so the minimum output is verified in the signed calldata; for other facets the API's
-// `toAmountMin` is a claim and the quote says so (`minOutVerified: false` → filtered under strict
-// policies, spec §9).
-import { hexBuf } from "../abi";
+// (receiver, destination chain, no destination call, sending asset / amount). Facets are recognised
+// by the SELECTOR the diamond dispatches on, never by the API's `tool` field. For AcrossFacetV4 the
+// bridge-specific data is decoded too (receiver, refund address = our escrow, assets, and the output
+// the facet will hand Across — in the swap variant that is re-derived ON CHAIN as swap result ×
+// outputAmountMultiplier / 1e18, so the guaranteed minimum is minAmount × multiplier, not the
+// outputAmount word), so the minimum output is verified in the signed calldata; for other facets the
+// API's `toAmountMin` is a claim and the quote says so (`minOutVerified: false` → filtered under
+// strict policies, spec §9).
+import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
@@ -24,8 +27,22 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 export const LIFI_DIAMOND: Record<string, string> = Object.fromEntries(["ethereum", "base", "arbitrum", "bsc", "avalanche", "optimism", "polygon"].map((c) => [c, "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae"]));
 /** LI.FI's `NON_EVM_ADDRESS` sentinel: `BridgeData.receiver` for non-EVM destinations; the real receiver is in the facet data. */
 export const NON_EVM_RECEIVER = "0x11f111f111f111f111f111f111f111f111f111f1";
-/** Facets whose bridge-specific data this adapter decodes to confirm the minimum output in the calldata. */
-export const MIN_OUT_VERIFIABLE_TOOLS = ["across"];
+// The diamond runs the facet its selector names, so facet data is decoded by selector (lifinance/contracts
+// src/Facets/AcrossFacetV4.sol and MayanFacet.sol as deployed, 2026-10).
+const BRIDGE_DATA = "(bytes32,string,string,address,address,address,uint256,uint256,bool,bool)";
+const SWAP_DATA = "(address,address,address,address,uint256,bytes,bool)[]";
+const ACROSS_V4_DATA = "(bytes32,bytes32,bytes32,bytes32,uint256,uint128,bytes32,uint32,uint32,uint32,bytes)";
+const MAYAN_DATA = "(bytes32,address,bytes,address,bytes,address,uint256,address,uint256)";
+export const SEL_ACROSS_V4 = selectorHex(`startBridgeTokensViaAcrossV4(${BRIDGE_DATA},${ACROSS_V4_DATA})`);
+export const SEL_ACROSS_V4_SWAP = selectorHex(`swapAndStartBridgeTokensViaAcrossV4(${BRIDGE_DATA},${SWAP_DATA},${ACROSS_V4_DATA})`);
+export const SEL_MAYAN = selectorHex(`startBridgeTokensViaMayan(${BRIDGE_DATA},${MAYAN_DATA})`);
+export const SEL_MAYAN_SWAP = selectorHex(`swapAndStartBridgeTokensViaMayan(${BRIDGE_DATA},${SWAP_DATA},${MAYAN_DATA})`);
+/** Facet entry points whose data this adapter decodes to confirm the minimum output in the calldata (AcrossFacetV4). */
+export const MIN_OUT_VERIFIABLE_SELECTORS = [SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP];
+export const isAcrossV4Call = (data: string) => MIN_OUT_VERIFIABLE_SELECTORS.includes(String(data).slice(0, 10).toLowerCase());
+export const isMayanFacetCall = (data: string) => [SEL_MAYAN, SEL_MAYAN_SWAP].includes(String(data).slice(0, 10).toLowerCase());
+/** AcrossFacetV4.MULTIPLIER_BASE: the swap variant hands Across (swap result) × outputAmountMultiplier / 1e18 as the output. */
+export const ACROSS_MULTIPLIER_BASE = 10n ** 18n;
 
 export function lifiToken(a: AssetRef): string {
   if (a.asset === "native") return NATIVE[a.chain] ?? ZERO;
@@ -116,24 +133,36 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
     verified.push("receiver");
   } else {
     if (bd.receiver !== NON_EVM_RECEIVER) throw new Error("LI.FI calldata: non-EVM destination but BridgeData.receiver is not the NON_EVM sentinel");
-    if (q.tool === "mayan") {
-      // MayanData.nonEVMReceiver is the first word of the facet data
+    if (isMayanFacetCall(tr.data)) {
+      // MayanData.nonEVMReceiver is the first word of the facet data (the facet checks it against the order's destAddr on chain)
       const want = req.to.chain === "solana" ? base58Decode(req.destination) : null;
       if (!want || want.length !== 32) throw new Error(`LI.FI/Mayan: cannot encode a ${req.to.chain} destination for verification`);
       if (!d.facetData.subarray(0, 32).equals(want)) throw new Error("LI.FI/Mayan calldata: nonEVMReceiver is not the fresh destination");
       verified.push("receiver (mayan nonEVMReceiver)");
     } else {
-      throw new Error(`LI.FI: non-EVM receiver inside the ${q.tool} facet data cannot be verified by this adapter`);
+      throw new Error(`LI.FI: non-EVM receiver inside the ${q.tool} facet data (selector ${String(tr.data).slice(0, 10)}) cannot be verified by this adapter`);
     }
   }
-  if (q.tool === "across") {
-    // AcrossV3Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId, outputAmount, ... } (live layout, 2026-10)
+  if (isAcrossV4Call(tr.data)) {
+    // AcrossV4Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId (bytes32 each), outputAmount, outputAmountMultiplier, exclusiveRelayer, quoteTimestamp, fillDeadline, exclusivityParameter, message }
     const F = (i: number) => d.facetData.subarray(i * 32, i * 32 + 32);
-    if (addr(F(0)) !== req.destination.toLowerCase()) throw new Error("LI.FI/Across calldata: receiverAddress is not the fresh destination");
-    if (addr(F(1)) !== req.source.toLowerCase()) throw new Error("LI.FI/Across calldata: refundAddress is not the escrow");
+    const asAddress = (w: Buffer) => (w.subarray(0, 12).every((b) => b === 0) ? addr(w) : "0x" + w.toString("hex")); // a bytes32 that is not a left-padded address never equals one
+    if (asAddress(F(0)) !== req.destination.toLowerCase()) throw new Error("LI.FI/Across calldata: receiverAddress is not the fresh destination");
+    if (asAddress(F(1)) !== req.source.toLowerCase()) throw new Error("LI.FI/Across calldata: refundAddress is not the escrow");
+    if (req.from.asset !== "native" && asAddress(F(2)) !== bd.sendingAssetId) throw new Error(`LI.FI/Across calldata: sendingAssetId ${asAddress(F(2))} is not the bridged token ${bd.sendingAssetId}`);
     const wantReceiving = req.to.asset === "native" ? ACROSS_WETH[req.to.chain] : req.to.asset;
-    if (!wantReceiving || addr(F(3)) !== wantReceiving.toLowerCase()) throw new Error(`LI.FI/Across calldata: receivingAssetId ${addr(F(3))} is not the destination asset`);
-    if (u(F(4)) !== BigInt(q.estimate?.toAmountMin ?? -1)) throw new Error("LI.FI/Across calldata: outputAmount differs from the quoted minimum");
+    if (!wantReceiving || asAddress(F(3)) !== wantReceiving.toLowerCase()) throw new Error(`LI.FI/Across calldata: receivingAssetId ${asAddress(F(3))} is not the destination asset`);
+    const outputAmount = u(F(4)), multiplier = u(F(5));
+    const claimed = BigInt(q.estimate?.toAmountMin ?? -1);
+    if (bd.hasSourceSwaps) {
+      // swapAndStartBridgeTokensViaAcrossV4 overwrites outputAmount on chain with (swap result, >= minAmount) × outputAmountMultiplier / 1e18
+      // and, by LI.FI's own note, checks it no further: the minimum this call guarantees is minAmount × multiplier, whatever the word says
+      const floor = (bd.minAmount * multiplier) / ACROSS_MULTIPLIER_BASE;
+      if (floor < claimed) throw new Error(`LI.FI/Across calldata: minAmount × outputAmountMultiplier / 1e18 = ${floor} is below the quoted minimum ${claimed} (the swap variant re-derives the output from the multiplier on chain)`);
+      if (outputAmount !== floor) throw new Error("LI.FI/Across calldata: outputAmount differs from minAmount × outputAmountMultiplier / 1e18");
+    } else if (outputAmount < claimed) {
+      throw new Error(`LI.FI/Across calldata: outputAmount ${outputAmount} is below the quoted minimum ${claimed}`);
+    }
     verified.push("refund=escrow", "receiving asset", "min-out");
   }
   return { to: diamond, calldata: tr.data as `0x${string}`, value, verified };
@@ -169,8 +198,8 @@ export class LifiAdapter implements ProviderAdapter {
       provider: "lifi", category: categoryOf(req.from, req.to),
       toAmount, toAmountMin, fees,
       etaSeconds: Number(est.executionDuration ?? 0), expiresAt: Math.floor(Date.now() / 1000) + 60, // LI.FI quotes are short-lived; re-quote at commit
-      nativeAssets: !bridged, minOutEncoded: true, minOutVerified: MIN_OUT_VERIFIABLE_TOOLS.includes(String(q.tool)),
-      refundTarget: q.tool === "across" ? "escrow" : undefined,
+      nativeAssets: !bridged, minOutEncoded: true, minOutVerified: isAcrossV4Call(q.transactionRequest?.data ?? ""),
+      refundTarget: isAcrossV4Call(q.transactionRequest?.data ?? "") ? "escrow" : undefined,
       hops: [`${q.tool}`, ...hops], raw: q, obtainedAt: Date.now(),
     };
   }

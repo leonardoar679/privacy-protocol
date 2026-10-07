@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { withTamper, replaceHex, setWord, leHex32, padAddress } from "./helpers/tamper";
 import { ThorchainAdapter, THORNODE_URLS, THORNODE_QUORUM, inboundQuorum } from "../src/adapters/thorchain";
-import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall } from "../src/adapters/lifi";
+import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall, isAcrossV4Call } from "../src/adapters/lifi";
 import { ChainflipAdapter } from "../src/adapters/chainflip";
 import { MayanAdapter } from "../src/adapters/mayan";
 import { NearIntentsAdapter } from "../src/adapters/nearIntents";
@@ -117,7 +117,7 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     expect(d.bridgeData.destinationChainId).toBe(EVM_CHAIN_ID[req.to.chain]);
     expect(d.bridgeData.hasDestinationCall).toBe(false);
     expect(ing.verified).toEqual(expect.arrayContaining(["target=diamond", "value", "quote from/to", "destination chain", "no destination call", "spent asset/amount", "receiver"]));
-    if ((q.raw as any).tool === "across") {
+    if (isAcrossV4Call((q.raw as any).transactionRequest.data)) {
       expect(q.minOutVerified).toBe(true);
       expect(ing.verified).toContain("min-out");
     } else {
@@ -145,10 +145,15 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
   it("toAmountMin lowered (changed quote) → refused at quote time", async () => {
     await expect(tampered((q) => { q.estimate.toAmountMin = (BigInt(q.estimate.toAmountMin) / 2n).toString(); return q; })).rejects.toThrow(/bps below/);
   }, 60_000);
-  it("Across facet: outputAmount lowered or refundAddress changed → refused", async () => {
+  it("Across facet: outputAmount lowered, outputAmountMultiplier lowered or refundAddress changed → refused", async () => {
     const { q } = await verifiablePair();
-    if ((q.raw as any).tool !== "across") return; // LI.FI chose another bridge for this pair right now; the facet checks above still apply
+    if (!isAcrossV4Call((q.raw as any).transactionRequest.data)) return; // LI.FI chose another bridge for this pair right now; the facet checks above still apply
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 4 * 32, BigInt(q.toAmountMin) / 2n))).rejects.toThrow(/outputAmount/);
+    // the swap variant hands Across (swap result) × multiplier / 1e18 on chain: a multiplier of 1 under an untouched
+    // outputAmount word would deliver ~0 and let a relayer keep the rest — the word alone proves nothing
+    if (decodeLifiCall((q.raw as any).transactionRequest.data).bridgeData.hasSourceSwaps) {
+      await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 5 * 32, 1n))).rejects.toThrow(/outputAmountMultiplier/);
+    }
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 3 * 32, padAddress(ATTACKER)))).rejects.toThrow(/receivingAssetId/);
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 1 * 32, padAddress(ATTACKER)))).rejects.toThrow(/refundAddress/);
   }, 90_000);
