@@ -31,6 +31,9 @@ export const ACROSS_MULTICALL_HANDLER: Record<string, string> = { optimism: HAND
 export const ACROSS_EVENT_EMITTER: Record<string, string> = { optimism: EMITTER, base: EMITTER, arbitrum: EMITTER };
 export const SEL_DRAIN_LEFTOVER = "0xef8738d3"; // drainLeftoverTokens(address,address)
 export const SEL_EMIT_DATA = "0xd836083e"; // emitData(bytes)
+/** makeCallWithBalance(address,bytes,uint256,(address,uint256)[]): for a native destination, the handler unwraps its WETH with it */
+export const SEL_MAKE_CALL_WITH_BALANCE = "0xc41e8295";
+const SEL_WETH_WITHDRAW = "0x2e1a7d4d"; // withdraw(uint256)
 
 export interface SwapAndBridge {
   submissionFee: bigint; submissionFeeRecipient: string;
@@ -89,8 +92,8 @@ const b32 = (a: string) => Buffer.concat([Buffer.alloc(12), hexBuf(a)]);
  */
 export function verifyAcrossSwapCall(
   req: QuoteRequest,
-  tx: { to: string; data: string; value: string | bigint; chainId?: number | string },
-  pins: { periphery: string; spokePool: string; weth: string; chainId: Record<string, number>; outputToken: string; handler?: string; emitter?: string },
+  tx: { to: string; data: string; value?: string | bigint; chainId?: number | string },
+  pins: { periphery: string; spokePool: string; weth: string; chainId: Record<string, number>; outputToken: string; handler?: string; emitter?: string; nativeOut?: boolean },
   /** at quote time the escrow may not be known yet; prepareIngress always checks the depositor */
   opts: { requireDepositor?: boolean } = { requireDepositor: true },
 ): { minOut: bigint; refundTokens: string[]; verified: string[]; call: SwapAndBridge } {
@@ -100,7 +103,7 @@ export function verifyAcrossSwapCall(
   const c = decodeSwapAndBridge(tx.data);
   const verified = ["target=periphery"];
   const native = req.from.asset === "native";
-  const value = BigInt(tx.value);
+  const value = BigInt(tx.value ?? 0);
   if (value !== (native ? req.amount : 0n)) throw new Error(`Across swap: transaction value ${value} != ${native ? req.amount : 0n}`);
   if (c.swapToken !== (native ? pins.weth : req.from.asset.toLowerCase())) throw new Error(`Across swap: swaps ${c.swapToken}, not ${req.from.symbol}`);
   if (c.swapTokenAmount !== req.amount) throw new Error(`Across swap: swaps ${c.swapTokenAmount}, not the order's ${req.amount}`);
@@ -118,19 +121,34 @@ export function verifyAcrossSwapCall(
     if (!pins.handler || !c.depositData.recipient.equals(b32(pins.handler))) throw new Error("Across swap: the deposit pays neither the fresh destination nor the pinned MulticallHandler");
     const m = decodeHandlerMessage(c.depositData.message);
     if (m.fallbackRecipient !== ZERO && m.fallbackRecipient !== dest) throw new Error("Across swap: the handler's fallback recipient is not the fresh destination");
-    let drained = m.fallbackRecipient === dest; // a fallback recipient also receives whatever the calls leave
+    // ERC-20 out: something drains the output token to the fresh address (or the fallback is it). Native out: the
+    // handler unwraps its WETH (only WETH.withdraw of its own WETH balance), and a drain of native ETH to the fresh
+    // address follows the unwrap (ETH left in the handler could be taken by anyone).
+    let drained = !pins.nativeOut && m.fallbackRecipient === dest;
+    let unwrapped = false;
     for (const call of m.calls) {
       if (call.value !== 0n) throw new Error("Across swap: a destination call forwards value");
       const sel = "0x" + call.callData.subarray(0, 4).toString("hex");
       if (call.target === pins.handler && sel === SEL_DRAIN_LEFTOVER) {
         const a = call.callData.subarray(4);
-        if (a.length !== 64 || addr(word(a, 0)) !== output || addr(word(a, 1)) !== dest) throw new Error("Across swap: the handler would drain another token, or to another address than the fresh destination");
-        drained = true;
+        const token = a.length === 64 ? addr(word(a, 0)) : "";
+        const okToken = token === output || (pins.nativeOut && token === ZERO);
+        if (!okToken || addr(word(a, 1)) !== dest) throw new Error("Across swap: the handler would drain another token, or to another address than the fresh destination");
+        if (pins.nativeOut ? token === ZERO && unwrapped : true) drained = true;
+      } else if (pins.nativeOut && call.target === pins.handler && sel === SEL_MAKE_CALL_WITH_BALANCE) {
+        // makeCallWithBalance(target, callData, value, Replacement[] { token, offset }): exactly WETH.withdraw(<its WETH balance>)
+        const a = call.callData.subarray(4);
+        const inner = bytes(a, u(word(a, 1)));
+        const reps = at(a, u(word(a, 3)));
+        const nRep = Number(u(word(reps, 0)));
+        const innerOk = inner.length === 36 && "0x" + inner.subarray(0, 4).toString("hex") === SEL_WETH_WITHDRAW && inner.subarray(4).every((x) => x === 0);
+        if (addr(word(a, 0)) !== output || u(word(a, 2)) !== 0n || !innerOk || nRep !== 1 || addr(word(reps, 1)) !== output || u(word(reps, 2)) !== 4n) throw new Error("Across swap: a balance call on the destination that is not the handler unwrapping its own WETH");
+        unwrapped = true;
       } else if (!(pins.emitter && call.target === pins.emitter && sel === SEL_EMIT_DATA)) {
         throw new Error(`Across swap: the destination message calls ${call.target} (${sel}), which this adapter does not accept`);
       }
     }
-    if (!drained) throw new Error("Across swap: nothing hands the output token to the fresh destination (the handler would keep it)");
+    if (!drained) throw new Error(pins.nativeOut ? "Across swap: no drain of native ETH to the fresh destination after the unwrap (the handler would keep it)" : "Across swap: nothing hands the output token to the fresh destination (the handler would keep it)");
     verified.push("receiver (pinned handler drains to it)");
   }
   if (c.submissionFee !== 0n) throw new Error("Across swap: a submission fee is set");
@@ -151,8 +169,10 @@ export function acrossSwapPins(req: QuoteRequest, base: { spokePool: Record<stri
   const periphery = ACROSS_PERIPHERY[req.from.chain], spokePool = base.spokePool[req.from.chain], weth = base.weth[req.from.chain];
   if (!periphery || !spokePool || !weth) throw new Error(`Across swap: no pinned periphery / SpokePool on ${req.from.chain}`);
   if (base.chainId[req.to.chain] === undefined) throw new Error(`Across swap: ${req.to.chain} is not a destination this adapter knows`);
-  if (req.to.asset === "native") throw new Error("Across swap: a native destination asset needs an unwrap on the destination chain this adapter does not read; not offered");
-  return { periphery, spokePool: spokePool.toLowerCase(), weth: weth.toLowerCase(), chainId: base.chainId, outputToken: req.to.asset.toLowerCase(), handler: ACROSS_MULTICALL_HANDLER[req.to.chain], emitter: ACROSS_EVENT_EMITTER[req.to.chain] };
+  const nativeOut = req.to.asset === "native";
+  const outputToken = nativeOut ? base.weth[req.to.chain] : req.to.asset;
+  if (!outputToken) throw new Error(`Across swap: no WETH pinned on ${req.to.chain} for a native destination`);
+  return { periphery, spokePool: spokePool.toLowerCase(), weth: weth.toLowerCase(), chainId: base.chainId, outputToken: outputToken.toLowerCase(), handler: ACROSS_MULTICALL_HANDLER[req.to.chain], emitter: ACROSS_EVENT_EMITTER[req.to.chain], nativeOut };
 }
 
 /** Across's Swap API: an origin-chain swap, then the bridge, as one swapAndBridge call; checked before it is ranked. */
@@ -160,7 +180,7 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
   const pins = acrossSwapPins(req, base);
   const qs = new URLSearchParams({
     tradeType: "exactInput", amount: req.amount.toString(), inputToken: req.from.asset === "native" ? ZERO : req.from.asset, originChainId: String(base.chainId[req.from.chain]),
-    outputToken: req.to.asset, destinationChainId: String(base.chainId[req.to.chain]), depositor: req.source ?? DEAD, recipient: req.destination, slippage: (req.slippageBps / 10000).toString(),
+    outputToken: req.to.asset === "native" ? ZERO : req.to.asset, destinationChainId: String(base.chainId[req.to.chain]), depositor: req.source ?? DEAD, recipient: req.destination, slippage: (req.slippageBps / 10000).toString(),
   });
   const r = await fetch(`${api}/swap/approval?${qs}`, { signal: AbortSignal.timeout(25000), headers: { accept: "application/json" } });
   const text = await r.text();
@@ -188,5 +208,5 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
 export function acrossSwapIngress(req: QuoteRequest, quote: Quote, base: { spokePool: Record<string, string>; weth: Record<string, string>; chainId: Record<string, number> }): Ingress {
   const tx = (quote.raw as any).swapTx;
   const v = verifyAcrossSwapCall(req, tx, acrossSwapPins(req, base));
-  return { kind: "contract-call", to: String(tx.to).toLowerCase(), calldata: tx.data, value: BigInt(tx.value), expiresAt: quote.expiresAt, minOutEncoded: true, verified: v.verified, ...(v.refundTokens.length ? { refundTokens: v.refundTokens } : {}) };
+  return { kind: "contract-call", to: String(tx.to).toLowerCase(), calldata: tx.data, value: BigInt(tx.value ?? 0), expiresAt: quote.expiresAt, minOutEncoded: true, verified: v.verified, ...(v.refundTokens.length ? { refundTokens: v.refundTokens } : {}) };
 }
