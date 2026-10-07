@@ -6,7 +6,7 @@
 // the bootstrap, a finality branch, a signer bit, a header field, a proof node.
 import { describe, it, expect } from "vitest";
 import { bytesToHex, encodeFunctionData, parseAbi, type Hex } from "viem";
-import { LightClient, LightClientError, MAINNET, SEPOLIA, ProofError, agreedFinalizedRoot, provenStorage, syncLightClient, type BeaconChainSpec } from "../../src/sdk/lightclient";
+import { LightClient, LightClientError, MAINNET, SEPOLIA, ProofError, agreedFinalizedRoot, mappingSlot, provenStorage, syncLightClient, type BeaconChainSpec } from "../../src/sdk/lightclient";
 import { beaconApi, type LightClientBootstrap, type LightClientUpdate } from "../../src/sdk/lightclient/beacon";
 import { verifyHeader, verifyStorage } from "../../src/sdk/lightclient/execution";
 import { currentSlot, periodAtSlot } from "../../src/sdk/lightclient/spec";
@@ -33,13 +33,15 @@ for (const c of CHAINS) {
       const synced = Date.now() - t0;
       expect(lc.period).toBe(periodAtSlot(currentSlot(c.spec)));
       expect(currentSlot(c.spec) - lc.finalizedSlot, "finalized within the last ~4 epochs").toBeLessThan(4 * 32);
-      const decimalsSlot = "0x2" as Hex; // WETH9: name, symbol, decimals
+      const decimalsSlot = "0x2" as Hex; // WETH9: name, symbol, decimals, balanceOf (mapping, slot 3)
       const emptySlot = "0x63" as Hex;
+      const holderSlot = mappingSlot(BigInt(c.weth), 3); // WETH held by the WETH contract itself: a mapping entry, shaped like the core's nullifier flags
       const t1 = Date.now();
-      const p = await provenStorage(lc, c.rpc, c.weth, [decimalsSlot, emptySlot]);
+      const p = await provenStorage(lc, c.rpc, c.weth, [decimalsSlot, emptySlot, holderSlot]);
       const proved = Date.now() - t1;
       expect(p.values[0]).toBe(18n);
       expect(p.values[1], "an empty slot is proven absent").toBe(0n);
+      expect(p.values[2], "a mapping entry proven = balanceOf at that block").toBe(await ethCall(c.rpc[0], c.weth, encodeFunctionData({ abi: parseAbi(["function balanceOf(address) view returns (uint256)"]), functionName: "balanceOf", args: [c.weth] }), p.header.number));
       expect(p.account.codeHash).not.toBe("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"); // a contract
       // the proven word equals what the contract itself returns at that block
       expect(await ethCall(c.rpc[0], c.weth, encodeFunctionData({ abi: parseAbi(["function decimals() view returns (uint8)"]), functionName: "decimals" }), p.header.number)).toBe(18n);
