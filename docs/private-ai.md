@@ -85,5 +85,6 @@ The live zkAPI deployments lease **OpenRouter keys only** (`upstreams: ["openrou
 authorize. What the wallet does today (`frontend/src/sdk/chain.ts::clientFor`): no permanent API key anywhere
 (public RPC URL from env), JSON-RPC **batching** (a tree sync is a handful of round trips), no
 cookies and no cross-host redirects on the RPC transport, and the same `privateTransport` policy
-hook. Light-client verification (Helios-style) and the metered upstream remain to do once a zkAPI
-RPC upstream exists.
+hook. The pool reads are also checked by the wallet's own light client on mainnet and Sepolia
+(`frontend/src/sdk/lightclient/`, plan §38); the metered upstream remains to do once a zkAPI RPC
+upstream exists.

@@ -41,8 +41,8 @@ React Native UI (iOS / Android)        Tauri shell (Windows / macOS)        Vite
    the crypto and the prover → the generated UniFFI bindings over `core/rust/privacy-ffi` (Swift / Kotlin
    sources come out of `node core/rust/scripts/ffi-bindings.mjs`; link the staticlib on iOS — an
    `aarch64-apple-ios` build — and the cdylib per ABI on Android via `cargo-ndk`). Requires Xcode / Android Studio.
-2. **Tauri desktop shell** (Windows / macOS): wraps the Vite build; adds a local light client / local RPC
-   option and a SOCKS5 proxy setting (`additional_browser_args = "--proxy-server=socks5://127.0.0.1:9050"`)
+2. **Tauri desktop shell** (Windows / macOS): wraps the Vite build (which already carries the light client,
+   `frontend/src/sdk/lightclient/`); adds a local RPC option and a SOCKS5 proxy setting (`additional_browser_args = "--proxy-server=socks5://127.0.0.1:9050"`)
    as the plan §7 transport. Requires the MSVC toolchain on Windows (this machine has only GNU).
 3. **Native proving on devices**: the prover and the native witness are built and verified
    (`core/rust/privacy-prover`, above: circuit inputs → witness → proof, all Rust); both are exposed through

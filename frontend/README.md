@@ -87,10 +87,11 @@ recipient's `pp1…` privacy address; submission goes to a relayer by default (t
 public fallback); no live-chain run has happened here; the dev proving key is insecure.
 
 ## Out of scope for this build
-A light client (the read layer is an RPC quorum, `VITE_RPC_URLS`), a Tor / mixnet transport, and
-the native shells (React Native / Tauri: `docs/mobile.md`). Proof generation, note scanning,
-UTXO selection and merges, and private submission through a relayer — once listed here — are built
-(see above).
+A Tor / mixnet transport and the native shells (React Native / Tauri: `docs/mobile.md`). Proof
+generation, note scanning, UTXO selection and merges, private submission through a relayer and a
+light client — once listed here — are built: reads come from an RPC quorum (`VITE_RPC_URLS`) and, on
+mainnet and Sepolia, are checked against the pool an Ethereum light client proves at the latest
+finalized block before every spend and rescan (`src/sdk/lightclient/`, `src/sdk/verifiedReads.ts`).
 
 ## Added in the plan-gap pass (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79)
 - **Keystore + recovery** (`src/wallet/keystore.ts`, `session.ts`, `journal.ts`, `storage.ts`, `components/Lock.tsx`): create / unlock / lock / restore
