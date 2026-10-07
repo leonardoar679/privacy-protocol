@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { feeSummary, swapService, type AssetRef, type Policy, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
-import { checkOrder, checkPrepared, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
+import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
+import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
+import { checkBeforeSigning, type JournaledOrder } from "../sdk/swapSign";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { privateWithdrawal } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
@@ -24,7 +26,9 @@ import { Scorecard } from "./Scorecard";
 // re-quote with the escrow as sender, sign the provider call with the one-time key and hand it to a
 // relayer's executor, which deploys + executes for its tip and refunds to the pre-committed note after
 // the window. If the signed quote expires before execution, sign again. The permanent address never
-// touches a provider.
+// touches a provider. Before the order key signs, the wallet reads the provider call itself
+// (sdk/providerCall.ts): pinned contract, your fresh address as receiver, refunds to the escrow, and a
+// minimum no lower than the one you approved — a lower one needs your fresh consent.
 const TARGETS: Record<string, { ref: AssetRef; network: string }> = {
   BTC: { ref: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, network: "Bitcoin" },
   SOL: { ref: { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" }, network: "Solana" },
@@ -57,6 +61,8 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   const [orderKey, setOrderKey] = useState<{ privateKey: Hex; address: Hex } | null>(null);
   const [refundNoteData, setRefundNoteData] = useState<Hex | null>(null);
   const [signed, setSigned] = useState<string | null>(null);
+  const [checked, setChecked] = useState<CheckedCall | null>(null);
+  const [moved, setMoved] = useState<MinimumMoved | null>(null);
   const [job, setJob] = useState<SwapJob | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -87,7 +93,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     return () => clearInterval(t);
   }, [job, submission]);
 
-  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setJob(null); setShowRoute(false); }
+  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setShowRoute(false); }
   function patchStored(orderId: string, patch: Partial<StoredSwap>) {
     session.update((j) => { const s = j.swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase()); if (s) Object.assign(s, patch); });
     setStored((s) => (s && s.orderId.toLowerCase() === orderId.toLowerCase() ? { ...s, ...patch } : s));
@@ -114,6 +120,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     const key = deriveOrderKey(masterSeed, attemptId);
     const refundCounter = noteStore.allocateCounter();
     const refund = deriveRefundNote(masterSeed, refundCounter);
+    const shown = quotes?.quotes.find((q) => q.provider === (provider ?? quotes.chosen?.provider)); // the minimum the user saw and approved
     const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address; // reserve the fresh address now
     const req = { ...request(), destination: dest };
     const res = await run("Committing the order…", async () => {
@@ -127,7 +134,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     const dueAt = policy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[policy]);
     const entry: StoredSwap = {
       orderId: res.order.orderId, attemptId, refundCounter, provider: res.order.quote.provider, policy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
-      params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
+      params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, approvedMin: (shown ?? res.order.quote).toAmountMin, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
     };
     session.update((j) => { j.swaps = [...j.swaps.filter((s) => s.orderId !== entry.orderId), entry]; });
     if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: entry.orderId, dueAt });
@@ -175,26 +182,39 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     if (w) completeAction(`fund-escrow:${stored.orderId}`);
   }
 
-  /** Re-quote with the escrow as sender, sign the provider call locally, hand it to the executor. Repeatable while the job is open. */
-  async function signAndHand() {
+  /**
+   * Re-quote with the escrow as sender, check the provider call, sign it locally, hand it to the executor.
+   * Repeatable while the job is open. `acceptMin`: the user consented to a lower minimum than approved.
+   */
+  async function signAndHand(acceptMin?: bigint) {
     if (!order || !orderKey || !refundNoteData) return;
-    const a = stored ? assetOfStored(stored) : fromAsset;
-    const r = await run("Re-quoting with the escrow as sender, then signing locally…", async () => {
+    if (!stored) { setError("This order is not in this wallet's journal, so its provider call cannot be checked; it is not signed."); return; }
+    const a = assetOfStored(stored);
+    const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
+    const r = await run("Re-quoting with the escrow as sender, then checking the call…", async () => {
       const prepared = await swapService.prepare(order.orderId);
-      checkPrepared(prepared, order, BigInt(deployment!.chainId)); // sign only the digest of the call shown, within the order's limits
+      // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
+      const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactory(), chainId: BigInt(deployment!.chainId), acceptMin });
+      if (!gate.ok) return { moved: gate.moved };
+      const { params, call } = gate;
+      setBusy("Signing locally…");
       const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab
       const fin = await swapService.finalize(order.orderId, signature);
       const label = `${a.token ? "" : fmt(fin.execution.value, 18) + " ETH · "}valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()}`;
-      if (submission.kind !== "relayer") return { label, job: undefined };
+      if (submission.kind !== "relayer") return { label, job: undefined, call };
       setBusy("Handing the signed order to the relayer's executor…");
       const health: ServiceHealth = await swapService.health();
       const factory = swapFactory();
       if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
-      const j = await relayerSwapExecute(submission.url, { factory, params: order.params, execution: fin.execution, refundNoteData });
+      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData });
       patchStored(order.orderId, { jobId: j.id, state: j.state });
-      return { label, job: j };
+      return { label, job: j, call };
     });
-    if (r) { setSigned(r.label); if (r.job) setJob(r.job); }
+    if (!r) return;
+    if ("moved" in r) { setMoved(r.moved ?? null); return; }
+    setMoved(null);
+    if (acceptMin !== undefined) patchStored(order.orderId, { approvedMin: acceptMin.toString() });
+    setSigned(r.label); setChecked(r.call); if (r.job) setJob(r.job);
   }
 
   const chosen = quotes?.chosen;
@@ -309,10 +329,28 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
           )}
           <div className="tabs" style={{ marginTop: 10 }}>
             <button className="primary" onClick={fundNow} disabled={!!busy || funded} title={dueAt ? "Funding now shortens the random delay and weakens timing privacy" : undefined}>{dueAt && !funded ? "1 · Fund now (less timing privacy)" : "1 · Fund the swap from your private balance"}</button>
-            <button className="primary" onClick={signAndHand} disabled={!!busy || !funded || (!!job && !OPEN_FOR_RESIGN.includes(job.state))}>
+            <button className="primary" onClick={() => signAndHand()} disabled={!!busy || !funded || (!!job && !OPEN_FOR_RESIGN.includes(job.state))}>
               {job && OPEN_FOR_RESIGN.includes(job.state) ? "2 · Confirm again with a fresh quote" : "2 · Confirm the swap"}
             </button>
           </div>
+          {moved && (() => {
+            const t = (stored?.request as any)?.to as AssetRef | undefined;
+            const dec = t?.decimals ?? to.ref.decimals, sym = t?.symbol ?? to.ref.symbol;
+            const drop = moved.approved > 0n ? Number(((moved.approved - moved.minOut) * 10000n) / moved.approved) / 100 : 0;
+            return (
+              <div style={{ marginTop: 8, padding: 8, border: "1px solid var(--warn)", borderRadius: 6 }}>
+                <p style={{ fontSize: 13, margin: 0 }}>The price moved. This route now guarantees at least <b>{fmt(moved.minOut.toString(), dec)} {sym}</b>; you approved {fmt(moved.approved.toString(), dec)} {sym} (−{drop} %). Nothing has been signed.</p>
+                <p className="muted" style={{ fontSize: 12 }}>Confirm at the new minimum, or wait and confirm later against a fresh quote. An order that is never confirmed returns to your private balance after {new Date(order.params.refundAfter * 1000).toLocaleString()}.</p>
+                <button className="tab" onClick={() => signAndHand(moved.minOut)} disabled={!!busy}>Confirm at the new minimum</button>
+              </div>
+            );
+          })()}
+          {checked && (
+            <p className="muted" style={{ fontSize: 12 }}>
+              Checked by this wallet before signing: pays your fresh address{checked.minOut !== null ? `, at least ${fmt(checked.minOut.toString(), ((stored?.request as any)?.to as AssetRef | undefined)?.decimals ?? to.ref.decimals)} ${((stored?.request as any)?.to as AssetRef | undefined)?.symbol ?? to.ref.symbol}` : ", minimum not readable (Fastest)"}; {checked.refundTo === "escrow" ? "a provider refund returns to your private balance" : checked.refundTo === "destination" ? "a failed order refunds at your fresh address, not to your private balance" : "a failed order refunds by the provider's rules"}.
+              {advanced ? ` (${checked.provider}: ${checked.facts.join("; ")})` : ""}
+            </p>
+          )}
           {signed && <p className="muted" style={{ fontSize: 12 }}>Confirmed: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission (advanced)." : ""}</p>}
           {job
             ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>

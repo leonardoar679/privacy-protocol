@@ -20,6 +20,8 @@ export interface StoredSwap {
   params: unknown; // the on-chain OrderParams as the service serialises them
   endpoint: string;
   quote?: unknown;
+  /** the minimum output the user approved (destination base units); a provider call guaranteeing less is signed only with fresh consent */
+  approvedMin?: string;
   createdAt: number;
   dueAt?: number; // scheduled funding time (plan §30), unix ms
   fundedTx?: string;
