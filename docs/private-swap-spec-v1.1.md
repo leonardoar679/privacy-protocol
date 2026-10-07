@@ -133,7 +133,9 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   pinned AcrossEventEmitter, with something draining the output token to the fresh address (for native
   ETH: `makeCallWithBalance(WETH, withdraw(0), 0, [{WETH, 4}])`, the handler unwrapping its own WETH, then
   a drain of native ETH to the fresh address after it); the THORChain adapter takes the inbound vault and
-  router only from a quorum of independent gateways; Mayan's Fast-MCTP contract is pinned). The executor therefore cannot lower the limit:
+  router only from a quorum of independent gateways; Mayan's Fast-MCTP and Swift V2 contracts are pinned,
+  and a SWIFT order is built locally with the escrow as trader, ETH wrapped 1:1 by the pinned EthWrapper,
+  no gas drop, no referrer, cancel + refund fees within 1% and a deadline 15 min .. 6 h ahead). The executor therefore cannot lower the limit:
   a different calldata has a different signature.
 - A quote whose claimed minimum is inconsistent with the requested slippage (more than slippage +
   0.5–2 % below the expected output, per adapter) MUST be refused as a changed quote; at signing
@@ -242,7 +244,8 @@ otherwise the route is quoted for information and filtered from selection.
   1% of the least the route bridges in it, 0.1% for LI.FI's Mayan surplus sweep), and a token only into
   a vault its pool already has. What it leaves stays re-shieldable by anyone.
   Where a provider can only
-  refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`), the quote
+  refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`; a Mayan SWIFT
+  order instead refunds its trader, the escrow, after cancellation: ETH for an ETH order), the quote
   MUST say so (`refundTarget: "destination"`); the destination is the user's fresh address, so nothing
   is lost, but the wallet MUST show that a failure ends in USDC on the destination chain, not in the pool.
 - Partial delivery (§3 PARTIAL) is reported, never silently accepted; the remainder in escrow is
