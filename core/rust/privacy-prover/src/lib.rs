@@ -1,8 +1,8 @@
-//! Native Groth16 prover for the Transaction circuit (plan V1.1 §40 "native proving", the follow-up
-//! named in docs/mobile.md): the same proving key snarkjs uses (`circuits/build/setup/*.zkey`), the
-//! same witness layout (`.wtns`, or any witness vector), arkworks' Groth16 with the snarkjs QAP
-//! reduction, and a proof exported exactly as `PrivacyCore.transact` consumes it — so a proof made
-//! here verifies on the deployed verifier, and a snarkjs proof verifies here.
+//! Native Groth16 prover for the Transaction circuit (plan V1.1 §40 "native proving"; docs/mobile.md):
+//! the same proving key snarkjs uses (`circuits/build/setup/*.zkey`), the same witness layout
+//! (`.wtns`, or any witness vector), arkworks' Groth16 with the snarkjs QAP reduction, and a proof
+//! exported exactly as `PrivacyCore.transact` consumes it — so a proof made here verifies on the
+//! deployed verifier, and a snarkjs proof verifies here.
 //!
 //! No randomness is drawn inside: the two blinding scalars come from the caller (its CSPRNG), like
 //! every other secret input of the core. The witness is computed natively too (`witness`: the circuit's

@@ -70,7 +70,7 @@ cd reference/python && python test_vectors.py
 # circuit — needs a circom 2.x binary; full pipeline in circuits/README.md
 cd circuits && npm install
 
-# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts, --rust for the core): 10/10 here
+# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts, --rust for the core, the native prover and the FFI): 13/13 here, 14/14 with --live
 node scripts/verify-all.mjs --forge $SOLC --rust    # CARGO / WASM_BINDGEN env point at the offline toolchain (docs/mobile.md)
 # run order for a workstation with a browser and a chain: docs/local-run.md (.env.example in frontend/, services/relayer/, services/private-swap/)
 

@@ -86,10 +86,11 @@ notes are recovered from chain by rescanning ("Rescan the chain for my notes"), 
 recipient's `pp1…` privacy address; submission goes to a relayer by default (the connected wallet is the
 public fallback); no live-chain run has happened here; the dev proving key is insecure.
 
-## Deliberately out of scope for the scaffold
-Real proof generation (Web Worker + wasm), UTXO selection / note scanning, private submission
-transport (L3), and private RPC (L4). These are later stages; the SDK/types are shaped so they can
-be added without changing the immutable contracts.
+## Out of scope for this build
+A light client (the read layer is an RPC quorum, `VITE_RPC_URLS`), a Tor / mixnet transport, and
+the native shells (React Native / Tauri: `docs/mobile.md`). Proof generation, note scanning,
+UTXO selection and merges, and private submission through a relayer — once listed here — are built
+(see above).
 
 ## Added in the plan-gap pass (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79)
 - **Keystore + recovery** (`src/wallet/keystore.ts`, `session.ts`, `journal.ts`, `storage.ts`, `components/Lock.tsx`): create / unlock / lock / restore
