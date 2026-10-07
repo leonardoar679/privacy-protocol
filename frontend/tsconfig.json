@@ -12,7 +12,9 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@ref/*": ["../reference/typescript/src/*"] }
   },
-  "include": ["src"]
+  "include": ["src", "../reference/typescript/src/keys.ts", "../reference/typescript/src/note.ts", "../reference/typescript/src/prover.ts", "../reference/typescript/src/txInputs.ts", "../reference/typescript/src/merkle.ts", "../reference/typescript/src/payload.ts", "../reference/typescript/src/wallet/amounts.ts"]
 }

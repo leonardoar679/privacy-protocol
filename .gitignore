@@ -16,3 +16,6 @@ reference/typescript/stress-*.log
 # python
 __pycache__/
 *.pyc
+# generated zkAPI SDK assets (npm run zkapi:assets)
+frontend/public/zkapi/
+frontend/tsconfig.tsbuildinfo

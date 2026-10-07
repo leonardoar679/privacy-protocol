@@ -1,8 +1,8 @@
 // Thin SDK over the immutable contracts (ABI frozen in docs/protocol-spec-v1.0.md §14). Deposits
-// (public shields) are built fully; the private `transact` builder is intentionally STUBBED —
-// client-side proof generation is a later stage and must run locally (Web Worker), never by
-// shipping the secret to a server.
+// (public shields) and the private `transact` call are built here; the proof behind `transact` is
+// generated locally in a Web Worker (src/prover) — never by shipping a secret to a server.
 import { type Address, type Hex, encodeFunctionData, parseAbi } from "viem";
+import type { PublicInputs } from "@ref/prover";
 
 /** Fixed-size encrypted output payload (spec §12). */
 export const NOTE_DATA_BYTES = 169;
@@ -73,15 +73,25 @@ export function buildShieldERC20(vault: Address, amount: bigint, ownerCommitment
 }
 
 /**
- * Private transfer / withdrawal. NOT IMPLEMENTED in this shell: it requires a Groth16 proof generated
- * locally from circuits/transaction.circom (witness = reference/typescript/src/txInputs.ts) and
- * submitted over a private channel (L3). Wiring: pick UTXOs -> build witness -> prove in a Web
- * Worker -> submit. The secret never leaves the device.
+ * Private transfer / withdrawal: the calldata of `PrivacyCore.transact` for a proof produced LOCALLY
+ * (src/prover: Web Worker over the normative reference/typescript prover) — the spending key and the
+ * note secrets never leave the device. `proof` is abi.encode(a, b, c); `publicInputs` are the 14
+ * public signals in the struct's order; each noteData is the fixed-size output payload.
  */
-export function buildTransact(): never {
-  throw new Error(
-    "buildTransact: client-side proving is not part of the V1 shell. Build the witness with " +
-      "reference/typescript txInputs.ts, prove locally (Web Worker) with circuits/build, then submit " +
-      "via a private relay/mempool. The spending key and note secrets never leave the device."
-  );
+export function buildTransact(core: Address, call: { proof: Hex; publicInputs: PublicInputs }, noteData: [Hex, Hex, Hex]): TxRequest {
+  noteData.forEach(requireNoteData);
+  if ((call.proof.length - 2) / 2 !== 256) throw new Error("proof must be abi.encode(a, b, c): 256 bytes");
+  const pi = call.publicInputs;
+  return {
+    to: core,
+    data: encodeFunctionData({
+      abi: coreAbi,
+      functionName: "transact",
+      args: [call.proof, {
+        root: pi.root, nullifier0: pi.nullifier0, nullifier1: pi.nullifier1, outputBody0: pi.outputBody0, outputBody1: pi.outputBody1, outputBody2: pi.outputBody2,
+        mode: pi.mode, withdrawalVault: pi.withdrawalVault, withdrawalAmount: pi.withdrawalAmount, withdrawalRecipient: pi.withdrawalRecipient,
+        noteData0Hash: pi.noteData0Hash, noteData1Hash: pi.noteData1Hash, noteData2Hash: pi.noteData2Hash, txDomain: pi.txDomain,
+      }, noteData[0], noteData[1], noteData[2]],
+    }),
+  };
 }
