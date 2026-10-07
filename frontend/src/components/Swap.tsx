@@ -211,7 +211,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     if (!order || !stored || !refundNoteData) return;
     if (submission.kind !== "relayer") { setError(`Switch to relayer submission (advanced), or call deployAndRefund on the factory yourself after ${new Date(order.params.refundAfter * 1000).toLocaleString()}.`); return; }
     const url = submission.url;
-    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactory(), params: stored.params as any, refundNoteData }));
+    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactory(), params: stored.params as any, refundNoteData, ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[] } : {}) }));
     if (!j) return;
     setMoved(null); setJob(j);
     patchStored(order.orderId, { jobId: j.id, state: j.state });
@@ -229,7 +229,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     const r = await run("Re-quoting with the escrow as sender, then checking the call…", async () => {
       const prepared = await swapService.prepare(order.orderId);
       // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
-      const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactory(), chainId: BigInt(deployment!.chainId), acceptMin });
+      const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactory(), chainId: BigInt(deployment!.chainId), acceptMin, pooled: (deployment?.erc20Vaults ?? []).map((v) => v.token) });
       if (!gate.ok) return { moved: gate.moved };
       const { params, call } = gate;
       setBusy("Signing locally…");
@@ -241,7 +241,9 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       const health: ServiceHealth = await swapService.health();
       const factory = swapFactory();
       if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
-      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData });
+      const refundTokens = gate.call.refundTokens;
+      if (refundTokens?.length) patchStored(order.orderId, { refundTokens });
+      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens } : {}) });
       patchStored(order.orderId, { jobId: j.id, state: j.state });
       return { label, job: j, call };
     });

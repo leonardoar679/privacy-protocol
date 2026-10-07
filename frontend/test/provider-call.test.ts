@@ -322,7 +322,23 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     // into WETH it passes: refund() unwraps it before re-shielding
     const intoWeth = acrossCall(bridgeData({ sendingAssetId: ENGINE_WETH.ethereum }), feeSwap({ receivingAssetId: ENGINE_WETH.ethereum }));
     await expect(checkProviderCall(intoWeth, e)).resolves.toMatchObject({ refundTo: "escrow", minOut: FLOOR });
+    expect((await checkProviderCall(intoWeth, e)).refundTokens, "WETH needs no refundToken").toBeUndefined();
     expect(serviceVerify(intoWeth.calldata, FLOOR).verified).toContain("refunds re-shieldable");
+    // into a token the pool has a vault for, it passes too: the escrow's refundToken re-shields it there, and both
+    // sides name it as the token the executor must watch
+    const eu = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [USDC.asset] });
+    await expect(checkProviderCall(intoUsdc, eu)).resolves.toMatchObject({ refundTo: "escrow", refundTokens: [getAddress(USDC.asset)] });
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
+    try {
+      const v = verifyLifiTransaction(
+        { from: ETH as any, to: USDC_BASE as any, amount: NET, destination: DEST_EVM, source: ESCROW, slippageBps: 50 },
+        { tool: "across", transactionRequest: { to: LIFI_DIAMOND.ethereum, data: intoUsdc.calldata, value: "0x" + NET.toString(16), chainId: 1 }, action: { fromAddress: ESCROW, toAddress: DEST_EVM, fromChainId: 1, toChainId: 8453 }, estimate: { toAmountMin: "1" } },
+      );
+      expect(v.refundTokens).toEqual([USDC.asset.toLowerCase()]);
+    } finally {
+      if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved;
+    }
   });
 
   const SOL32 = bytes32Of("solana", DEST_SOL);

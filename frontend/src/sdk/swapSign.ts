@@ -25,13 +25,15 @@ export async function checkBeforeSigning(a: {
   prepared: Prepared; order: ServiceOrder; journaled: JournaledOrder; factory: Address; chainId: bigint;
   /** the user consented to this lower minimum after a MinimumMoved */
   acceptMin?: bigint; inbound?: InboundLookup; now?: number;
+  /** tokens the pool has a vault for (the wallet's configured ERC-20 assets) */
+  pooled?: string[];
 }): Promise<SignCheck> {
   const { params, request, policy } = a.journaled;
   const escrow = predictEscrow(a.factory, params);
   checkPrepared(a.prepared, { ...a.order, orderId: params.orderId, endpoint: escrow, params }, a.chainId, a.now);
   const call = await checkProviderCall(
     { provider: a.prepared.provider, value: BigInt(a.prepared.value), calldata: a.prepared.calldata },
-    { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, chainId: a.chainId, now: a.now },
+    { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, chainId: a.chainId, now: a.now, pooled: a.pooled },
     { inbound: a.inbound },
   );
   const approved = a.acceptMin ?? BigInt(a.journaled.approvedMin ?? a.journaled.quote?.toAmountMin ?? "0");

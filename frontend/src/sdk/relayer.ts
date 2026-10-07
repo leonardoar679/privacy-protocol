@@ -26,6 +26,8 @@ export interface SwapExecuteRequest {
   params: { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string };
   execution: { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex };
   refundNoteData: Hex;
+  /** tokens other than the order's asset the provider call may pay back to the escrow: the executor re-shields them through refundToken */
+  refundTokens?: Address[];
 }
 /** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
 export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;
