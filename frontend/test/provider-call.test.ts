@@ -469,17 +469,19 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
   });
   const NET_USDC = 2_000_000_000n;
   const nativeCall = (calls: Call[]) => ({ provider: PINNED.acrossPeriphery, value: 0n, calldata: encodeFunctionData({ abi: PERIPHERY_ABI, functionName: "swapAndBridge", args: [data({ swapToken: USDC.asset, swapTokenAmount: NET_USDC }, { inputToken: ENGINE_WETH.ethereum, outputToken: bytes32Of("base", WETH_B), message: message(calls) }) as any] }) });
-  const en = expectation({ from: USDC, to: ETH_BASE, destination: DEST_EVM, net: NET_USDC, pooled: [ENGINE_WETH.ethereum] });
+  const en = expectation({ from: USDC, to: ETH_BASE, destination: DEST_EVM, net: NET_USDC, pooled: [] }); // no WETH vault: the escrow re-shields WETH as ETH
   const reqN = { from: USDC, to: ETH_BASE, amount: NET_USDC, destination: DEST_EVM, source: ESCROW, slippageBps: 50 } as any;
   const serviceNative = (calldata: Hex) => {
     const saved = process.env.ERC20_VAULTS;
-    process.env.ERC20_VAULTS = `${ENGINE_WETH.ethereum}:0x0000000000000000000000000000000000000a12`;
+    process.env.ERC20_VAULTS = "";
     try { return verifyAcrossSwapCall(reqN, { to: PINNED.acrossPeriphery, data: calldata, value: 0n }, acrossSwapPins(reqN, { spokePool: SPOKE_POOL, weth: ENGINE_WETH, chainId: { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10 } })); }
     finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
   };
-  it("a native destination: the API's shape (unwrap, drain ETH, drain WETH) passes both decoders; WETH is the token an unfilled deposit comes back in", async () => {
+  it("a native destination: the API's shape (unwrap, drain ETH, drain WETH) passes both decoders; WETH is the token an unfilled deposit comes back in, re-shielded as ETH with no WETH vault", async () => {
     const honest = nativeCall([unwrap(), drain(ZERO), drain(WETH_B), emit(), emit()]);
-    await expect(checkProviderCall(honest, en)).resolves.toMatchObject({ provider: "across", receiver: DEST_EVM, minOut: OUT, refundTokens: [getAddress(ENGINE_WETH.ethereum)] });
+    const checked = await checkProviderCall(honest, en);
+    expect(checked).toMatchObject({ provider: "across", receiver: DEST_EVM, minOut: OUT, refundTokens: [getAddress(ENGINE_WETH.ethereum)] });
+    expect(checked.facts.join(" | ")).toMatch(/re-shields as ETH/);
     expect(serviceNative(honest.calldata).refundTokens).toEqual([ENGINE_WETH.ethereum.toLowerCase()]);
   });
   it("a native destination: refuses ETH drained before the unwrap, an unwrap of anything but the handler's own WETH, and no ETH drain at all", async () => {

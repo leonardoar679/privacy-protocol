@@ -46,8 +46,13 @@ const WETH: Record<string, Address> = {
 };
 /** Tokens the escrow re-shields through refund(): the order's asset; an ETH order also unwraps WETH. */
 const ownAsset = (e: CallExpectation, token: Address) => (e.from.asset === "native" ? same(token, ZERO) || same(token, WETH.ethereum) : same(token, e.from.asset));
-/** ...and through refundToken(), any token the pool has a vault for (one this wallet can see the note in). */
-const reshieldable = (e: CallExpectation, token: Address) => ownAsset(e, token) || (!same(token, ZERO) && (e.pooled ?? []).some((t) => same(t, token)));
+/** ...through refundToken(), for an ERC-20 order ETH and WETH, as ETH into the native vault (the escrow unwraps the WETH)... */
+const asEth = (e: CallExpectation, token: Address) => e.from.asset !== "native" && (same(token, ZERO) || same(token, WETH.ethereum));
+/** ...and any token the pool has a vault for (one this wallet can see the note in). */
+const reshieldable = (e: CallExpectation, token: Address) => ownAsset(e, token) || asEth(e, token) || (!same(token, ZERO) && (e.pooled ?? []).some((t) => same(t, token)));
+/** What the facts say about an unfilled deposit coming back to the escrow. */
+const refundFact = (e: CallExpectation, tokens: Address[] | undefined) =>
+  tokens ? `an unfilled deposit refunds the escrow in ${tokens[0]}, which re-shields ${asEth(e, tokens[0]) ? "as ETH" : "into its vault"}` : "an unfilled deposit refunds the escrow";
 /** USDC on Ethereum: Mayan Fast-MCTP's input token (Circle CCTP). */
 const USDC_ETHEREUM: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const LIFI_CHAIN_ID: Record<string, bigint> = { ...Object.fromEntries(Object.entries(EVM_CHAIN_ID).map(([k, v]) => [k, BigInt(v)])), solana: 1151111081099710n, bitcoin: 20000000000001n };
@@ -413,7 +418,7 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
   const refundTokens = ownAsset(e, d.inputToken) ? undefined : [getAddress(d.inputToken)];
   return {
     provider: P, receiver: e.destination, minOut: d.outputAmount, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}),
-    facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : nativeOut ? "pays the pinned Across handler, which unwraps the WETH and sends the ETH to your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount", refundTokens ? `an unfilled deposit refunds the escrow in ${refundTokens[0]}, which re-shields into its vault` : "an unfilled deposit refunds the escrow"],
+    facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : nativeOut ? "pays the pinned Across handler, which unwraps the WETH and sends the ETH to your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount", refundFact(e, refundTokens)],
   };
 }
 
@@ -502,7 +507,7 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
     // the swap variant overwrites outputAmount on chain: (swap result, >= minAmount) × multiplier / 1e18
     const minOut = bd.hasSourceSwaps ? (bd.minAmount * a.outputAmountMultiplier) / ACROSS_MULTIPLIER_BASE : a.outputAmount;
     if (bd.hasSourceSwaps) must(a.outputAmount === minOut, P, "minimum", "outputAmount disagrees with minAmount × outputAmountMultiplier");
-    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundTokens ? `an unfilled deposit refunds the escrow in ${refundTokens[0]}, which re-shields into its vault` : "an unfilled deposit refunds the escrow", bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across)" : "exact fill amount"] };
+    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundFact(e, refundTokens), bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across)" : "exact fill amount"] };
   }
   // MayanFacet: the facet checks the receiver against Mayan's order on chain; it sweeps excess value
   // and, in the swap variant, everything above mayanAmountIn to refundRecipient
