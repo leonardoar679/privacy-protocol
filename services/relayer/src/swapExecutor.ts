@@ -17,7 +17,8 @@
 // depositor in the input token); the escrow unwraps it in refund(), so that balance counts for the
 // refund decision — never for execution, which needs native ETH. A route that swapped first is paid
 // back in the swapped token: the wallet lists it (`refundTokens`) and the executor re-shields it through
-// the escrow's refundToken(), before the order's asset.
+// the escrow's refundToken(), before the order's asset. An ERC-20 order's escrow re-shields WETH and ETH
+// as ETH there; address(0) in the list stands for the escrow's ETH balance.
 // A provider can pay back long after `refundAfter` (Across refunds an unfilled deposit with the bundle
 // after its fill deadline): an executed order stays watched for `lateRefundWatchSeconds` after the
 // window opens, and only an escrow still empty then is "completed" (PP-S11).
@@ -47,7 +48,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export interface SwapParamsJson { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
 export interface SwapExecutionJson { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex }
-/** `refundTokens`: tokens other than the order's asset a provider may pay back (the token a route swapped into before bridging). */
+/** `refundTokens`: tokens other than the order's asset a provider may pay back (the token a route swapped into before bridging); address(0) = ETH, for an ERC-20 order. */
 export interface SwapJobRequest { factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[] }
 /** Return a funded order to the pool after its window, without executing it. */
 export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; refundNoteData: Hex; refundTokens?: Address[] }
@@ -104,8 +105,10 @@ export class SwapExecutor {
     if (!(Number(p.executeDeadline) < Number(p.refundAfter))) throw new SwapJobError("bad_deadlines", "executeDeadline must precede refundAfter");
     const t = (req as { refundTokens?: unknown }).refundTokens;
     if (t !== undefined) {
-      if (!Array.isArray(t) || t.length > MAX_REFUND_TOKENS || !t.every((x) => isHex(x, 20) && BigInt(x as string) !== 0n)) throw new SwapJobError("bad_refund_tokens", `refundTokens must be at most ${MAX_REFUND_TOKENS} token addresses`);
-      if (t.some((x) => String(x).toLowerCase() === String(p.asset).toLowerCase())) throw new SwapJobError("bad_refund_tokens", "the order's own asset re-shields through refund(), not refundToken");
+      if (!Array.isArray(t) || t.length > MAX_REFUND_TOKENS || !t.every((x) => isHex(x, 20))) throw new SwapJobError("bad_refund_tokens", `refundTokens must be at most ${MAX_REFUND_TOKENS} token addresses (address(0): the escrow's ETH)`);
+      // an ETH order's ETH (address(0)) and an ERC-20 order's token go through refund(); an ERC-20 order's ETH through refundToken
+      const own = Number(p.assetType) === 0 ? ZERO_ADDRESS : String(p.asset).toLowerCase();
+      if (t.some((x) => String(x).toLowerCase() === own)) throw new SwapJobError("bad_refund_tokens", "the order's own asset re-shields through refund(), not refundToken");
     }
   }
 
@@ -195,11 +198,13 @@ export class SwapExecutor {
     return { spendable: eth, refundable: eth + wrapped };
   }
 
-  /** The listed foreign tokens the escrow holds now. */
+  /** The listed foreign assets the escrow holds now; address(0) is its ETH (an ERC-20 order paid back in ETH). */
   private async foreignHeld(job: SwapJob): Promise<Address[]> {
     const held: Address[] = [];
     for (const t of job.refundTokens ?? []) {
-      const b = (await this.cfg.publicClient.readContract({ address: t, abi: erc20Abi, functionName: "balanceOf", args: [job.escrow] }).catch(() => 0n)) as bigint;
+      const b = t.toLowerCase() === ZERO_ADDRESS
+        ? await this.cfg.publicClient.getBalance({ address: job.escrow }).catch(() => 0n)
+        : ((await this.cfg.publicClient.readContract({ address: t, abi: erc20Abi, functionName: "balanceOf", args: [job.escrow] }).catch(() => 0n)) as bigint);
       if (b > 0n) held.push(t);
     }
     return held;

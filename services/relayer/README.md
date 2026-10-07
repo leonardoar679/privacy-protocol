@@ -55,8 +55,9 @@ A provider can pay back after `refundAfter` (Across refunds an unfilled deposit 
 bundle after its fill deadline, 2 h after the quote): an **executed order stays watched** for
 `LATE_REFUND_WATCH_SECONDS` (24 h) past the window, everything that arrives re-shields, and only an
 escrow still empty then is `completed` (PP-S11). A route that swapped first pays back in the swapped
-token: the wallet lists it (`refundTokens`, at most four, never the order's asset) and the executor calls
-the escrow's **`refundToken`** for each one held, before the order's asset; a token its vault refuses is
+token: the wallet lists it (`refundTokens`, at most four, never the order's asset; `address(0)` is an
+ERC-20 order's escrow ETH) and the executor calls the escrow's **`refundToken`** for each one held, before
+the order's asset (an ERC-20 order's WETH and ETH re-shield as ETH); a token its vault refuses is
 dropped with the reason, never blocking the rest.
 `SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
 late refunds and foreign tokens.

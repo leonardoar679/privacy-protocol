@@ -172,13 +172,43 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     escrowCode = "0x"; delete tokenBalances[USDT]; delete tokenBalances[ODD]; refusedToken = null; ethBalance = 0n; receiptStatus = null;
   });
 
-  it("refundTokens: at most four token addresses, never the order's own asset", () => {
+  it("refundTokens: at most four addresses, never the order's own asset; address(0), the escrow's ETH, only for an ERC-20 order", () => {
     const ex = executorWith();
+    const ZERO = "0x" + "00".repeat(20);
     const base = makeRequest(("0x" + "1d".repeat(32)) as Hex, 1500, 1);
     expect(() => ex.add({ ...base, refundTokens: [TOKEN] as any })).toThrow(/own asset/);
-    expect(() => ex.add({ ...base, refundTokens: ["0x" + "00".repeat(20)] as any })).toThrow(/at most/);
+    expect(() => ex.add({ ...makeRequest(("0x" + "1f".repeat(32)) as Hex, 1500), refundTokens: [ZERO] as any }), "an ETH order's ETH goes through refund()").toThrow(/own asset/);
     expect(() => ex.add({ ...base, refundTokens: Array.from({ length: 5 }, (_, i) => "0x" + (i + 1).toString(16).padStart(40, "0")) as any })).toThrow(/at most/);
     expect(() => ex.addRefund({ factory: base.factory, params: base.params, refundNoteData: base.refundNoteData, refundTokens: ["0xnope"] as any })).toThrow(/at most/);
+    expect(ex.add({ ...base, refundTokens: [ZERO] as any }).refundTokens, "an ERC-20 order's escrow re-shields ETH, as ETH").toEqual([ZERO]);
+  });
+
+  it("an ERC-20 order paid back in ETH: address(0) watches the escrow's ETH, and refundToken(address(0)) re-shields it as ETH", async () => {
+    const ZERO = "0x" + "00".repeat(20);
+    const ex = executorWith(undefined, DAY);
+    const req = { ...makeRequest(("0x" + "1e".repeat(32)) as Hex, 1500, 1), refundTokens: [ZERO] as any };
+    clock = 1000; tokenBalance = BigInt(req.params.amount); ethBalance = 0n; receiptStatus = null; raws.length = 0;
+    const job = ex.add(req);
+    await ex.tick();
+    expect(job.state).toBe("executing");
+    receiptStatus = "0x1";
+    await ex.tick();
+    expect(job.state).toBe("executed");
+    receiptStatus = null; tokenBalance = 0n; raws.length = 0;
+    clock = Number(req.params.refundAfter);
+    await ex.tick();
+    expect(raws.length, "nothing came back yet").toBe(0);
+    escrowCode = "0x6080"; ethBalance = 25n * 10n ** 16n; // a bridge refunded the ETH the route swapped into
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    expect(sentTo(0), "refundToken is called on the escrow itself").toBe(job.escrow.toLowerCase());
+    const d = decodeFunctionData({ abi: escrowAbi, data: parseTransaction(raws[0]).data! });
+    expect(d.functionName).toBe("refundToken");
+    expect(d.args).toEqual([ZERO, req.refundNoteData]);
+    receiptStatus = "0x1";
+    await ex.tick();
+    expect(job.state).toBe("refunded");
+    escrowCode = "0x"; ethBalance = 0n; receiptStatus = null; raws.length = 0;
   });
 });
 
