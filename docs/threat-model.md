@@ -27,3 +27,19 @@ to that asset's vault (see `vault-spec.md`); it is disclosed, not eliminated (§
 Protocol admin, governance, bridge validators, any official relayer, any official frontend, a single
 RPC, or a single company. The same immutable contracts are usable from any client (direct fix for
 TC-01's "mutable frontend = full break").
+
+## V1.1 — three layers, independent failure (plan §60, §74–§75, §85)
+```
+PRIVATE MONEY (PrivacyCore + vaults, immutable)   PRIVATE SERVICES (zkAPI)        PRIVATE SWAPS (engine + providers)
+        │ withdrawal to a one-time escrow                 │ expiring credit                 │ replaceable adapters
+        ▼                                                ▼                                ▼
+ holds the users' money                     OA server / OpenRouter            THORChain · Chainflip · Mayan · NEAR · LI.FI · Across
+```
+| If this is compromised… | …the most it can take | …and it cannot |
+|---|---|---|
+| a swap provider / solver / aggregator API (A5–A7 analogues) | the balance of the one escrow that order funded (`SwapOrderEscrow.t.sol::test_MaliciousProvider_CanOnlyTakeTheEscrowBalance`) — and only if the engine signs, which it refuses for a redirected target, a changed receiver / chain / asset / minimum, a vault not confirmed by the gateway quorum, or a re-quote below the market (`services/private-swap/test/adversarial.test.ts`, `docs/test-matrix.md`) | release anything from a vault, change the tree, re-enter an executed escrow, learn the permanent wallet (`test/privacy-flow.test.ts`) |
+| a relayer executing swap orders | nothing: it can only submit executions signed by the order key, or refund to the pool; it earns the committed tip | change provider, value, calldata (limit/destination) or deadline |
+| a relayer submitting private transactions (`services/relayer`) | nothing: the proof binds every public input incl. the payload hashes; it earns the fee note the wallet chose; it learns the submitter's IP and sees a transaction that is public anyway | change any field, redirect funds, take a fee without mining the transaction, or stop a user who self-submits or uses another relayer |
+| the zkAPI server / operator | the service credit a user chose to deposit there (capped per note), by over-charging ≤ `request_charge_cap` per request or by pause + 30-day expiry | touch `PrivacyCore`, our vaults, our verifier or our notes; learn which pool user holds which credit |
+| the order key of one swap | that one order (keys are one-time, wallet-derived) | any other order or the pool |
+Rules 1–13 of the plan hold by construction: the core has no import of, call to, or configuration from any of these systems (`NoPrivilege.t.sol`, frozen ABIs).

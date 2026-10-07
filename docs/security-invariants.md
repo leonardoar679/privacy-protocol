@@ -77,11 +77,29 @@ own constraint line*. Details and findings are in `docs/circuit-audit.md`.
 | On-chain depth-32 root (4-aligned groups) == the wallet's root, before and after each `transact` | `e2e/RealProofE2E.t.sol` |
 | A real proof moves funds; the core still holds 0; vault stays solvent | `e2e/…::test_E2E_RealProofWithdraws` |
 | Relayer recovers its fee from a private note (plan §76) | `e2e/…::test_E2E_RelayerSpendsPrivateFeeNote` |
+| Private note → swap-order escrow → provider / refund note → spent again, all with real proofs (V1.1 step 14) | `e2e/…::test_E2E_PrivateNoteExitsToSwapOrder_RealProof`, `test_E2E_SwapOrderRefund_ReShieldsAndIsSpendableWithRealProof` |
 | Replay / redirected recipient / swapped payload / premature spend rejected | `e2e/…` (4 tests) |
+
+## Periphery — private-swap exit (spec v1.1 §11, plan §74)
+| Invariant | Test |
+|-----------|------|
+| D1: a provider can reach only the funded escrow's balance; core balance 0; vault accounting unchanged; no re-entry | `periphery/SwapOrderEscrow.t.sol::test_MaliciousProvider_CanOnlyTakeTheEscrowBalance` |
+| Only the one-time order key authorizes provider / value / calldata / deadline; no replay across escrows; deadline ≤ committed cap | `…::test_ExecutionNotSignedByOrderKey_Rejected`, `test_TamperedCalldata_Rejected`, `test_ReplayOnAnotherEscrow_Rejected`, `test_SignedDeadline_CannotExceedCommittedDeadline` |
+| A failed / expired order returns to the pool as the committed fresh note and is spendable | `…::test_QuoteExpires_RefundReShieldsAsFreshNote_ThenSpendable`, `test_ProviderRevert_FundsStayAndRefundLater`, `test_ProviderRefundsToEscrow_ThenReShield` |
+| A funded order can be re-routed to a fallback provider without on-chain change | `…::test_FundedOrder_CanBeReRoutedToFallbackProvider` |
+| Counterfactual address == TypeScript prediction; digest == TypeScript digest; signature recovers to the signer | `services/private-swap/test/endpoints.test.ts` (forge vector) |
+| Periphery has no privileged path; the core is unchanged (frozen ABI checksums) | `invariants/NoPrivilege.t.sol::test_SwapPeripheryHasNoPrivilegedPath`, `contracts/abi/SHA256SUMS` |
+| With the real circuit + verifier: a note exits to the escrow and the provider is paid; the refund branch re-shields exactly the pre-committed note and that note is spent with a real proof | `e2e/RealProofE2E.t.sol::test_E2E_PrivateNoteExitsToSwapOrder_RealProof`, `test_E2E_SwapOrderRefund_ReShieldsAndIsSpendableWithRealProof` |
+| Engine (plan §74): nothing the order key signs is taken on trust from a provider API — pinned targets, decoded calldata, quorum-confirmed vaults, consistent minimums, price guard; every §71 failure row degrades or refunds, never loses | `services/private-swap/test/adversarial.test.ts` (42, live with tampered responses) — `docs/test-matrix.md` |
+| Privacy (plan §72): the permanent wallet never appears in any provider request, signed calldata or order; the escrow is the only sender, the fresh address the only receiver; endpoints are one-time | `services/private-swap/test/privacy-flow.test.ts` (live) |
+| Relayer: never spends gas on a transaction that is not bound to this chain/core, whose payloads do not hash to the proven values, that does not pay it the fee note it is told, that is below the live minimum, that is already in flight, or that would revert; submits from its own key (the user's address never appears) | `services/relayer/test/relayer.test.ts` (forge-verified e2e tx on a mock chain) |
 
 ## Privacy (plan §65–§68) — `docs/privacy-lab.md`
 Amount unique-link 0.00 % under the default wallet policy (Nova-like: 11.5 %); joint effective
-anonymity set 10 → 349 (default) / 1,073 (high); guess-hit 24 % → 0.7 % / 0.2 %.
+anonymity set 10 → 349 (default) / 1,073 (high); guess-hit 24 % → 0.7 % / 0.2 %. Cross-chain leg
+(`benchmarks/privacy/crosschain.json`): bucketed amounts through a native-chain provider at
+100 swaps/h give a joint effective set of 5.9 (0.3 % uniquely linked), at 5/h 1.2 (66 %); arbitrary
+amounts are linked almost always — the privacy score carries this term.
 
 Still owed: a production ceremony (the dev setup is insecure by design) and an external audit of
 the circuit and the contracts.
