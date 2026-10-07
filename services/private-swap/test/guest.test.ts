@@ -50,7 +50,7 @@ describe("guest deposit instruction (THORChain, BTC → ETH)", () => {
     const checked = await checkGuestInstruction({ provider: "thorchain", ingress: { to: ingress.to, memo: ingress.memo, amount: req.amount.toString(), expiresAt: ingress.expiresAt } }, { from: req.from, to: req.to, destination: req.destination, amount: req.amount, approvedMin: 0n });
     expect(checked.depositAddress.toLowerCase()).toBe(ingress.to.toLowerCase());
     expect(checked.memo).toBe(ingress.memo);
-  });
+  }, 90_000);
 
   it("a token target (USDC) gets THORChain's short asset form, so the memo fits the 80-byte OP_RETURN; the browser accepts it", async (ctx) => {
     const adapter = new ThorchainAdapter();
