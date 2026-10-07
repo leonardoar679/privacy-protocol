@@ -24,7 +24,9 @@ import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
 import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreAbi } from "./privacyProtocol";
-import { clientFor, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment } from "./chain";
+import { clientFor, depositedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { hasRefundCandidates, matchRefunds, refundClaims, type RecoveredRefund, type RefundClaim } from "./refunds";
+import { session } from "../wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
@@ -339,33 +341,81 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
  * note's spent status is also proven at that block: an endpoint that calls a spent note unspent is
  * refused; a spend after that block still counts.
  */
-export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number }> {
+interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
+
+/** Found notes into the store, each with its spent status: the RPC quorum's answer and, where a light client applies, the proven one. */
+async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]): Promise<{ found: number; added: number; spent: number }> {
+  const client = clientFor(d);
+  const nullifiers = found.map((f) => nullifier(f.commitment, keys.spendKey));
+  const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
+  const proven = await provenSpent(d, nullifiers);
+  let added = 0, spentCount = 0;
+  for (const [i, f] of found.entries()) {
+    if (proven?.spent[i] && !rpcSpent[i]) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven.blockNumber}`);
+    const spent = rpcSpent[i] || !!proven?.spent[i];
+    if (spent) spentCount++;
+    const known = noteStore.all().find((n) => n.leafIndex === f.leafIndex);
+    if (known) {
+      if (spent && !known.spent) noteStore.markSpent([f.leafIndex]);
+      continue;
+    }
+    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}) });
+    added++;
+  }
+  return { found: found.length, added, spent: spentCount };
+}
+
+/** The refund claims of the journaled orders (none while locked). */
+const journaledRefundClaims = (): RefundClaim[] => (session.isUnlocked() ? refundClaims(session.journal().swaps) : []);
+
+/** Refund notes of this wallet's orders (PP-S09); the vault deposits are read only when an insert carries a claimed payload. */
+async function findRefunds(d: Deployment, keys: WalletKeys, logs: NoteInsertedLog[], claims: RefundClaim[]): Promise<RecoveredRefund[]> {
+  if (!hasRefundCandidates(logs, claims)) return [];
+  return matchRefunds(keys, logs, await depositedLogsQuorum(d), claims);
+}
+
+const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: "swap refund", counter: r.counter });
+
+/** Each order a refund came back for: its refund notes and the refunded state (a completed order keeps its state). */
+function journalRefunds(refunds: RecoveredRefund[]): void {
+  if (!refunds.length || !session.isUnlocked()) return;
+  session.update((j) => {
+    for (const r of refunds) {
+      const s = j.swaps.find((x) => x.orderId.toLowerCase() === r.orderId.toLowerCase());
+      if (!s) continue;
+      const list = (s.refunds ??= []);
+      if (!list.some((x) => x.leafIndex === r.leafIndex)) list.push({ leafIndex: r.leafIndex, vault: "0x" + r.note.vaultId.toString(16).padStart(40, "0"), amount: r.note.amount.toString() });
+      if (s.state !== "completed") s.state = "refunded";
+    }
+  });
+}
+
+export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number }> {
   const keys = deriveKeys(o.masterSeed);
-  const client = clientFor(o.deployment);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs } = await syncPoolQuorum(o.deployment);
   await verifyTree(o.deployment, tree, o.onStatus);
   poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
   const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
   const hits = await discoverNotes(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
-  const nullifiers = hits.map(({ leafIndex }) => nullifier(byLeaf.get(leafIndex)!.commitment, keys.spendKey));
-  const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: o.deployment.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
-  const proven = await provenSpent(o.deployment, nullifiers);
-  let found = 0, added = 0, spentCount = 0;
-  for (const [i, { leafIndex, note }] of hits.entries()) {
-    const l = byLeaf.get(leafIndex)!;
-    found++;
-    if (proven?.spent[i] && !rpcSpent[i]) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${leafIndex} is unspent; it was spent by finalized block ${proven.blockNumber}`);
-    const spent = rpcSpent[i] || !!proven?.spent[i];
-    if (spent) spentCount++;
-    const known = noteStore.all().find((n) => n.leafIndex === leafIndex);
-    if (known) {
-      if (spent && !known.spent) noteStore.markSpent([leafIndex]);
-      continue;
-    }
-    noteStore.add({ note, leafIndex, noteData: l.noteData, spent, txHash: l.transactionHash, label: "discovered" });
-    added++;
-  }
-  o.onStatus?.(`Scanned ${logs.length} payloads: ${found} ours (${added} new, ${spentCount} spent).`);
-  return { scanned: logs.length, found, added, spent: spentCount };
+  const found: FoundNote[] = hits.map(({ leafIndex, note }) => { const l = byLeaf.get(leafIndex)!; return { leafIndex, note, commitment: l.commitment, noteData: l.noteData, txHash: l.transactionHash, label: "discovered" }; });
+  // swap refunds carry the order's random payload, not an envelope: discovery cannot see them (PP-S09)
+  const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
+  for (const r of refunds) if (!found.some((f) => f.leafIndex === r.leafIndex)) found.push(refundFound(r));
+  const r = await recordFound(o.deployment, keys, found);
+  journalRefunds(refunds);
+  o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
+  return { scanned: logs.length, ...r, refunds: refunds.length };
+}
+
+/** Record the refund notes of this wallet's orders without a payload scan: right after the executor reports a refund (PP-S09). */
+export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<RecoveredRefund[]> {
+  const keys = deriveKeys(o.masterSeed);
+  o.onStatus?.("Looking for the refund in the pool…");
+  const { tree, logs } = await syncPoolQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus);
+  const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
+  await recordFound(o.deployment, keys, refunds.map(refundFound));
+  journalRefunds(refunds);
+  return refunds;
 }

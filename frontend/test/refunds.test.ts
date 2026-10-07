@@ -1,0 +1,177 @@
+// Swap refunds back into the wallet (PP-S09, src/sdk/refunds.ts + scanNotes / recoverSwapRefunds): an
+// escrow's refund() re-shields with the order's committed payload, which is random, so discovery cannot
+// see it. The journal keeps that payload; an insert carrying it becomes a note only if its commitment
+// recomputes from the vault's Deposited amount, this wallet's owner commitment and the refund secret.
+// Against a local mock JSON-RPC server: our refund, a second refund of the same order, someone's
+// transaction that copied the public payload, someone else's deposit, and endpoints that disagree.
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { createServer, type Server } from "node:http";
+import { encodeAbiParameters, encodeEventTopics, getAddress, parseAbi, toFunctionSelector, toHex, type Address, type Hex } from "viem";
+import { utf8ToBytes } from "@noble/hashes/utils";
+import { sha256 } from "@noble/hashes/sha2";
+import { MerkleTree, ZERO_LEAF } from "@ref/merkle";
+import { TX_LEVELS } from "@ref/txInputs";
+import { deriveKeys, deriveNoteSecret } from "@ref/keys";
+import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
+import { dummyNoteData } from "@ref/envelope";
+import { coreAbi } from "../src/sdk/privacyProtocol";
+import { hasRefundCandidates, matchRefunds, refundClaims } from "../src/sdk/refunds";
+import { recoverSwapRefunds, scanNotes } from "../src/sdk/privateTx";
+import type { DepositedLog, Deployment, NoteInsertedLog } from "../src/sdk/chain";
+import { noteStore } from "../src/wallet/notes";
+import { session } from "../src/wallet/session";
+import type { StoredSwap } from "../src/wallet/journal";
+
+const CORE = getAddress("0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9");
+const ETH_VAULT = getAddress("0x36ffa23fd38ae93e2b01aa5fa1570845ada89469");
+const USDC_VAULT = getAddress("0x00000000000000000000000000000000000c0de1");
+const seed = sha256(utf8ToBytes("refund-recovery-test-seed")); // 32 bytes: the keystore holds it
+const keys = deriveKeys(seed);
+const oc = ownerCommitmentOf(keys.spendKey);
+const OTHER_OC = 0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad0badn;
+const hex = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
+const COUNTER = 7;
+const PAYLOAD = hex(dummyNoteData()); // the order's committed refund payload (random bytes, as deriveRefundNote makes it)
+const ORDER = "0x" + "0d".repeat(32);
+const claim = { orderId: ORDER, noteData: PAYLOAD, counter: COUNTER };
+const refundNote = (vault: Address, amount: bigint, counter = COUNTER): Note => ({ vaultId: BigInt(vault), amount, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, counter) });
+const cm = (n: Note, leaf: number) => noteCommitment(noteBody(n), BigInt(leaf));
+const tx = (leaf: number): Hex => ("0x" + "33".repeat(31) + leaf.toString(16).padStart(2, "0")) as Hex;
+const ins = (leafIndex: number, commitment: bigint, noteData: Hex = hex(dummyNoteData())): NoteInsertedLog => ({ leafIndex, commitment, noteData, transactionHash: tx(leafIndex), blockNumber: 5n });
+const dep = (vault: Address, leafIndex: number, amount: bigint, owner = oc): DepositedLog => ({ vault, ownerCommitment: owner, amount, leafIndex, transactionHash: tx(leafIndex) });
+
+describe("matching refunds: the payload makes a candidate, the commitment makes a note", () => {
+  const AMOUNT = 997_000_000_000_000_000n;
+  const first = refundNote(ETH_VAULT, AMOUNT);
+  const later = refundNote(ETH_VAULT, 3_000_000n); // a provider refund that arrived after the first refund()
+  const logs = [ins(0, 0x1111n), ins(4, cm(first, 4), PAYLOAD), ins(8, 0x8888n, PAYLOAD), ins(12, cm(later, 12), PAYLOAD)];
+  const deposits = [dep(ETH_VAULT, 0, 5n, OTHER_OC), dep(ETH_VAULT, 4, AMOUNT), dep(ETH_VAULT, 12, 3_000_000n)];
+
+  it("recovers every refund of the order, with the vault's amount; a copied payload in a transaction output is not ours", () => {
+    const r = matchRefunds(keys, logs, deposits, [claim]);
+    expect(r.map((x) => [x.leafIndex, x.note.amount])).toEqual([[4, AMOUNT], [12, 3_000_000n]]);
+    expect(r[0]).toMatchObject({ orderId: ORDER, counter: COUNTER, note: first, txHash: tx(4) });
+  });
+  it("an endpoint that lies about the amount, the vault or the owner gets nothing accepted; neither does another secret", () => {
+    expect(matchRefunds(keys, logs, [dep(ETH_VAULT, 4, AMOUNT + 1n)], [claim])).toEqual([]);
+    expect(matchRefunds(keys, logs, [dep(USDC_VAULT, 4, AMOUNT)], [claim])).toEqual([]);
+    expect(matchRefunds(keys, logs, [dep(ETH_VAULT, 4, AMOUNT, OTHER_OC)], [claim])).toEqual([]);
+    expect(matchRefunds(keys, logs, deposits, [{ ...claim, counter: COUNTER + 1 }])).toEqual([]);
+    expect(matchRefunds(deriveKeys(utf8ToBytes("someone else")), logs, deposits, [claim])).toEqual([]);
+  });
+  it("a refund into another vault (an ERC-20 order) is recovered in that vault", () => {
+    const usdc = refundNote(USDC_VAULT, 1_000_000_000n);
+    expect(matchRefunds(keys, [ins(4, cm(usdc, 4), PAYLOAD)], [dep(USDC_VAULT, 4, 1_000_000_000n)], [claim])[0].note.vaultId).toBe(BigInt(USDC_VAULT));
+  });
+  it("the deposits are read only when an insert carries a journaled payload", () => {
+    expect(hasRefundCandidates(logs, [claim])).toBe(true);
+    expect(hasRefundCandidates([ins(0, 1n)], [claim])).toBe(false);
+    expect(hasRefundCandidates(logs, [])).toBe(false);
+  });
+  it("claims come from the journaled orders that kept their payload", () => {
+    const s = (o: Partial<StoredSwap>) => ({ orderId: ORDER, attemptId: "0x01", refundCounter: COUNTER, provider: "thorchain", policy: "best-privacy", request: {}, params: {}, endpoint: "0x", createdAt: 0, state: "funded", ...o }) as StoredSwap;
+    expect(refundClaims([s({ refundNoteData: PAYLOAD }), s({ orderId: "0x02" })])).toEqual([claim]);
+  });
+});
+
+// ---- the scan, end to end against a mock JSON-RPC server -----------------------------------------
+const AMOUNT = 990_000_000_000_000_000n;
+const ours = refundNote(ETH_VAULT, AMOUNT);
+// leaf 0: someone's deposit; leaf 4: our order's refund; leaves 8..10: a transaction whose first output copied our public payload
+const inserts: NoteInsertedLog[] = [ins(0, 0x1111n), ins(4, cm(ours, 4), PAYLOAD), ins(8, 0x8888n, PAYLOAD), ins(9, 0x9999n), ins(10, 0xaaaan)];
+const deposits: DepositedLog[] = [dep(ETH_VAULT, 0, 5n, OTHER_OC), dep(ETH_VAULT, 4, AMOUNT)];
+const tree = new MerkleTree(TX_LEVELS);
+tree.insertGroup([0x1111n, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
+tree.insertGroup([cm(ours, 4), ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
+tree.insertGroup([0x8888n, 0x9999n, 0xaaaan, ZERO_LEAF]);
+
+const EVENTS = parseAbi(["event Deposited(bytes32 indexed ownerCommitment, uint256 amount, uint32 leafIndex)"]);
+const [NOTE_TOPIC] = encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted" });
+const [DEPOSIT_TOPIC] = encodeEventTopics({ abi: EVENTS, eventName: "Deposited" });
+const pad32 = (v: bigint) => ("0x" + v.toString(16).padStart(64, "0")) as Hex;
+const rpcLog = (address: Address, topics: Hex[], data: Hex, leaf: number) => ({ address: address.toLowerCase(), topics, data, blockNumber: "0x5", blockHash: "0x" + "22".repeat(32), transactionHash: tx(leaf), transactionIndex: "0x0", logIndex: toHex(leaf), removed: false });
+const noteLog = (l: NoteInsertedLog) => rpcLog(CORE, encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex: l.leafIndex } }) as Hex[], encodeAbiParameters([{ type: "uint256" }, { type: "bytes" }], [l.commitment, l.noteData]), l.leafIndex);
+const depositLog = (d: DepositedLog) => rpcLog(d.vault, [DEPOSIT_TOPIC as Hex, pad32(d.ownerCommitment)], encodeAbiParameters([{ type: "uint256" }, { type: "uint32" }], [d.amount, d.leafIndex]), d.leafIndex);
+
+function mockRpc(deps: () => DepositedLog[], seen: { depositReads: number }) {
+  const handle = (req: { id: number; method: string; params: any[] }) => {
+    const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
+    switch (req.method) {
+      case "eth_chainId": return res("0x7a69");
+      case "eth_blockNumber": return res("0x10");
+      case "eth_getLogs": {
+        const topic = req.params[0].topics?.[0];
+        if (topic === NOTE_TOPIC) return res(inserts.map(noteLog));
+        if (topic === DEPOSIT_TOPIC) { seen.depositReads++; const vaults = [req.params[0].address].flat().map((a: string) => a.toLowerCase()); return res(deps().filter((d) => vaults.includes(d.vault.toLowerCase())).map(depositLog)); }
+        return res([]);
+      }
+      case "eth_call": {
+        const data: string = req.params[0].data;
+        if (data.startsWith(toFunctionSelector("nextLeafIndex()"))) return res(pad32(12n));
+        if (data.startsWith(toFunctionSelector("currentRoot()"))) return res(pad32(tree.root));
+        if (data.startsWith(toFunctionSelector("isNullifierSpent(uint256)"))) return res(pad32(0n));
+        return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
+      }
+      default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };
+    }
+  };
+  return createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handle) : handle(j))); });
+  });
+}
+
+const seen = { depositReads: 0 };
+const lying = { depositReads: 0 };
+let honest: Server, liar: Server, deployment: Deployment, liarUrl = "";
+const listen = async (s: Server) => { await new Promise<void>((r) => s.listen(0, "127.0.0.1", r)); return `http://127.0.0.1:${(s.address() as { port: number }).port}`; };
+beforeAll(async () => {
+  honest = mockRpc(() => deposits, seen);
+  liar = mockRpc(() => deposits.map((d) => (d.leafIndex === 4 ? { ...d, amount: d.amount * 2n } : d)), lying);
+  const url = await listen(honest);
+  liarUrl = await listen(liar);
+  deployment = { chainId: 31337, core: CORE, ethVault: ETH_VAULT, rpcUrl: url, rpcUrls: [url], fromBlock: 0n, erc20Vaults: [] };
+});
+afterAll(async () => { await new Promise<void>((r) => honest.close(() => r())); await new Promise<void>((r) => liar.close(() => r())); });
+afterEach(() => { session.forget(); noteStore.clear(); seen.depositReads = 0; });
+
+async function walletWithOrder(state = "funded") {
+  await session.create("a strong password", seed);
+  session.acknowledgePhrase();
+  session.update((j) => { j.swaps.push({ orderId: ORDER, attemptId: "0x01", refundCounter: COUNTER, refundNoteData: PAYLOAD, provider: "thorchain", policy: "best-privacy", request: {}, params: {}, endpoint: "0x", createdAt: 0, state }); });
+}
+
+describe("a refunded order reaches the wallet (PP-S09)", () => {
+  it("a rescan records the refund note with the vault's amount and marks the order refunded; again, nothing new", async () => {
+    await walletWithOrder();
+    const r = await scanNotes({ masterSeed: seed, deployment });
+    expect(r).toEqual({ scanned: 5, found: 1, added: 1, spent: 0, refunds: 1 });
+    const note = noteStore.all().find((n) => n.leafIndex === 4)!;
+    expect(note).toMatchObject({ label: "swap refund", counter: COUNTER, spent: false, note: ours });
+    expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(AMOUNT);
+    const s = session.journal().swaps[0];
+    expect(s.state).toBe("refunded");
+    expect(s.refunds).toEqual([{ leafIndex: 4, vault: ETH_VAULT.toLowerCase(), amount: AMOUNT.toString() }]);
+    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 1, added: 0, spent: 0, refunds: 1 });
+    expect(session.journal().swaps[0].refunds!.length).toBe(1);
+  });
+  it("without a journaled order the vault deposits are never read (no extra request, nothing found)", async () => {
+    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 0, added: 0, spent: 0, refunds: 0 });
+    expect(seen.depositReads).toBe(0);
+  });
+  it("right after the executor reports a refund, recoverSwapRefunds records it without a payload scan; a completed order keeps its state", async () => {
+    await walletWithOrder("completed");
+    const r = await recoverSwapRefunds({ masterSeed: seed, deployment });
+    expect(r.map((x) => [x.orderId, x.leafIndex, x.note.amount])).toEqual([[ORDER, 4, AMOUNT]]);
+    expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(AMOUNT);
+    expect(session.journal().swaps[0]).toMatchObject({ state: "completed", refunds: [{ leafIndex: 4 }] });
+  });
+  it("endpoints that disagree on the vault deposits are refused, not averaged; one lying endpoint alone gets no note accepted", async () => {
+    await walletWithOrder();
+    await expect(scanNotes({ masterSeed: seed, deployment: { ...deployment, rpcUrls: [deployment.rpcUrl, liarUrl] } })).rejects.toThrow(/disagree on the vault deposits/);
+    const alone = await scanNotes({ masterSeed: seed, deployment: { ...deployment, rpcUrl: liarUrl, rpcUrls: [liarUrl] } });
+    expect(alone.refunds).toBe(0);
+    expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(0n);
+  });
+});

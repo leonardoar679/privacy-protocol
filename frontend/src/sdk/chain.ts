@@ -6,7 +6,7 @@
 // Env: VITE_RPC_URLS (comma-separated; or VITE_RPC_URL for one), VITE_CORE, VITE_ETH_VAULT,
 // VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36),
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
-import { createPublicClient, http, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, getAddress, http, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@ref/merkle";
 import { TX_LEVELS } from "@ref/txInputs";
 import { txDomain } from "@ref/payload";
@@ -102,6 +102,28 @@ export async function noteInsertedLogsQuorum(d: Deployment): Promise<NoteInserte
   const all = await Promise.all(clientsFor(d).map((c) => noteInsertedLogs(c, d)));
   const digests = all.map(logsDigest);
   if (new Set(digests).size !== 1) throw new RpcDisagreement("the note events", digests.map((x) => x.slice(0, 10)));
+  return all[0];
+}
+
+const deposited = parseAbiItem("event Deposited(bytes32 indexed ownerCommitment, uint256 amount, uint32 leafIndex)");
+
+/** A vault deposit: the vault, the owner commitment it was made out to, the amount and the leaf it took. */
+export interface DepositedLog { vault: Address; ownerCommitment: bigint; amount: bigint; leafIndex: number; transactionHash: Hex }
+
+/** The pool's vaults this wallet knows: ETH and every configured ERC-20. */
+export const poolVaults = (d: Deployment): Address[] => [d.ethVault, ...(d.erc20Vaults ?? []).map((v) => v.vault)];
+
+/** Every Deposited event of the pool's vaults: fetch-all like the note events, never filtered by owner. */
+export async function depositedLogs(client: PublicClient, d: Deployment): Promise<DepositedLog[]> {
+  const logs = await client.getLogs({ address: poolVaults(d), event: deposited, fromBlock: d.fromBlock, toBlock: "latest" });
+  return logs.map((l) => ({ vault: getAddress(l.address), ownerCommitment: BigInt(l.args.ownerCommitment!), amount: l.args.amount!, leafIndex: Number(l.args.leafIndex), transactionHash: l.transactionHash }));
+}
+
+/** The vaults' Deposited events from every configured endpoint; they must agree. */
+export async function depositedLogsQuorum(d: Deployment): Promise<DepositedLog[]> {
+  const all = await Promise.all(clientsFor(d).map((c) => depositedLogs(c, d)));
+  const digests = all.map((ls) => keccak256(toHex(ls.map((l) => `${l.vault.toLowerCase()}:${l.leafIndex}:${l.amount}:${l.ownerCommitment.toString(16)}`).join("|"))));
+  if (new Set(digests).size !== 1) throw new RpcDisagreement("the vault deposits", digests.map((x) => x.slice(0, 10)));
   return all[0];
 }
 

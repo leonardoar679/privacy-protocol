@@ -26,6 +26,8 @@ export interface StoredSwap {
   dueAt?: number; // scheduled funding time (plan §30), unix ms
   fundedTx?: string;
   jobId?: string;
+  /** refund notes found in the pool for this order (PP-S09): refund() may re-shield more than once */
+  refunds?: { leafIndex: number; vault: string; amount: string }[];
   state: string;
 }
 
