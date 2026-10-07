@@ -6,13 +6,14 @@
 // against what the user approved. Chainflip's honest call is the one its public backend emitted
 // (services/private-swap/test/chainflip-unit.test.ts). Offline: THORNode answers are stubbed.
 import { describe, it, expect } from "vitest";
-import { encodeFunctionData, getAddress, padHex, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
-import { PINNED, ProviderCallMismatch, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeInbound, type CallExpectation, type InboundLookup } from "../src/sdk/providerCall";
+import { encodeAbiParameters, encodeFunctionData, getAddress, padHex, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
+import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeInbound, type CallExpectation, type InboundLookup } from "../src/sdk/providerCall";
 import { buildMemo, encodeDepositWithExpiry, thorAsset as engineThorAsset } from "../../services/private-swap/src/adapters/thorchain";
 import { CF_ASSET_ID, CF_CHAIN_ID, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, SEL_X_SWAP_TOKEN, decodeVaultSwapCalldata, minOutFromPrice } from "../../services/private-swap/src/adapters/chainflip";
 import { SPOKE_POOL, WETH as ENGINE_WETH, encodeDepositV3 } from "../../services/private-swap/src/adapters/across";
 import { MAYAN_FAST_MCTP, MAYAN_FORWARDER, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, addressHex32, encodeCreateOrder } from "../../services/private-swap/src/adapters/mayan";
 import { LIFI_DIAMOND, SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP, SEL_MAYAN, SEL_MAYAN_SWAP, verifyLifiTransaction } from "../../services/private-swap/src/adapters/lifi";
+import { ACROSS_EVENT_EMITTER, ACROSS_MULTICALL_HANDLER, ACROSS_PERIPHERY, SEL_SWAP_AND_BRIDGE, acrossSwapPins, verifyAcrossSwapCall } from "../../services/private-swap/src/adapters/acrossSwap";
 import { encodeCall } from "../../services/private-swap/src/abi";
 import type { AssetRef } from "../src/sdk/swapService";
 
@@ -360,6 +361,102 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
   it("any other facet is a call this wallet cannot read", async () => {
     const other = acrossCall();
     await refused(checkProviderCall({ ...other, calldata: ("0x4c279d6b" + other.calldata.slice(10)) as Hex }, e), /not an entry point this wallet can read/);
+  });
+});
+
+describe("Across swap leg: periphery and SpokePool pinned; the pinned handler hands the output token to the fresh address", () => {
+  const PERIPHERY_ABI = parseAbi([
+    "struct Fees { uint256 amount; address recipient; }",
+    "struct BaseDepositData { address inputToken; bytes32 outputToken; uint256 outputAmount; address depositor; bytes32 recipient; uint256 destinationChainId; bytes32 exclusiveRelayer; uint32 quoteTimestamp; uint32 fillDeadline; uint32 exclusivityParameter; bytes message; }",
+    "struct SwapAndDepositData { Fees submissionFees; BaseDepositData depositData; address swapToken; address exchange; uint8 transferType; uint256 swapTokenAmount; uint256 minExpectedInputTokenAmount; bytes routerCalldata; bool enableProportionalAdjustment; address spokePool; uint256 nonce; }",
+    "function swapAndBridge(SwapAndDepositData swapAndDepositData) payable",
+  ]);
+  const HANDLER_MESSAGE = [{ type: "tuple", components: [{ name: "calls", type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "callData", type: "bytes" }, { name: "value", type: "uint256" }] }, { name: "fallbackRecipient", type: "address" }] }] as const;
+  const handlerAbi = parseAbi(["function drainLeftoverTokens(address token, address destination)", "function emitData(bytes data)"]);
+  const HANDLER = ACROSS_DESTINATION.handler.base, EMITTER = ACROSS_DESTINATION.emitter.base;
+  type Call = { target: Address; callData: Hex; value: bigint };
+  const drain = (token: string = USDC_BASE.asset, to: string = DEST_EVM, target: Address = HANDLER): Call => ({ target, callData: encodeFunctionData({ abi: handlerAbi, functionName: "drainLeftoverTokens", args: [token as Address, to as Address] }), value: 0n });
+  const emit = (target: Address = EMITTER): Call => ({ target, callData: encodeFunctionData({ abi: handlerAbi, functionName: "emitData", args: ["0x1234"] }), value: 0n });
+  // what the Swap API sends (2026-10): drain twice, emit twice, no fallback recipient
+  const message = (calls: Call[] = [drain(), drain(), emit(), emit()], fallbackRecipient: Address = ZERO) => encodeAbiParameters(HANDLER_MESSAGE, [{ calls, fallbackRecipient }]);
+  const OUT = 2_573_849_471n;
+  const data = (o: Record<string, unknown> = {}, dd: Record<string, unknown> = {}) => ({
+    submissionFees: { amount: 0n, recipient: ZERO },
+    depositData: { inputToken: USDC.asset as Address, outputToken: bytes32Of("base", USDC_BASE.asset), outputAmount: OUT, depositor: ESCROW, recipient: bytes32Of("base", HANDLER), destinationChainId: 8453n, exclusiveRelayer: padHex("0x", { size: 32 }), quoteTimestamp: NOW - 10, fillDeadline: NOW + 7200, exclusivityParameter: 0, message: message(), ...dd },
+    swapToken: ENGINE_WETH.ethereum as Address, exchange: PINNED.lifiDiamond, transferType: 0, swapTokenAmount: NET, minExpectedInputTokenAmount: 2_593_233_999n, routerCalldata: "0xabcd" as Hex, enableProportionalAdjustment: true, spokePool: PINNED.acrossSpokePool, nonce: 0n, ...o,
+  });
+  const call = (o?: Record<string, unknown>, dd?: Record<string, unknown>, value = NET) => ({ provider: PINNED.acrossPeriphery, value, calldata: encodeFunctionData({ abi: PERIPHERY_ABI, functionName: "swapAndBridge", args: [data(o, dd) as any] }) });
+  const e = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [USDC.asset] });
+  // the swap service's own decoder (acrossSwap.ts) on the same calldata: both must agree
+  const req = { from: ETH, to: USDC_BASE, amount: NET, destination: DEST_EVM, source: ESCROW, slippageBps: 50 } as any;
+  const pins = () => acrossSwapPins(req, { spokePool: SPOKE_POOL, weth: ENGINE_WETH, chainId: { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10 } });
+  const serviceVerify = (calldata: Hex, value = NET) => {
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
+    try { return verifyAcrossSwapCall(req, { to: PINNED.acrossPeriphery, data: calldata, value }, pins()); }
+    finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
+  };
+
+  it("the pins equal the swap service's", () => {
+    expect(PINNED.acrossPeriphery.toLowerCase()).toBe(ACROSS_PERIPHERY.ethereum);
+    expect(toFunctionSelector(PERIPHERY_ABI.find((x: any) => x.name === "swapAndBridge") as any)).toBe(SEL_SWAP_AND_BRIDGE);
+    for (const chain of ["optimism", "base", "arbitrum"]) {
+      expect(ACROSS_DESTINATION.handler[chain].toLowerCase()).toBe(ACROSS_MULTICALL_HANDLER[chain]);
+      expect(ACROSS_DESTINATION.emitter[chain].toLowerCase()).toBe(ACROSS_EVENT_EMITTER[chain]);
+    }
+  });
+  it("the API's shape passes both: the handler drains USDC to the fresh address, minimum = the deposit's output, USDC is the token to watch", async () => {
+    const honest = call();
+    const c = await checkProviderCall(honest, e);
+    expect(c).toMatchObject({ provider: "across", receiver: DEST_EVM, minOut: OUT, refundTo: "escrow", refundTokens: [getAddress(USDC.asset)] });
+    const v = serviceVerify(honest.calldata);
+    expect(v.minOut).toBe(OUT);
+    expect(v.refundTokens).toEqual([USDC.asset.toLowerCase()]);
+    // a fill straight to the fresh address, without a message, passes too
+    const direct = call(undefined, { recipient: bytes32Of("base", DEST_EVM), message: "0x" });
+    await expect(checkProviderCall(direct, e)).resolves.toMatchObject({ minOut: OUT });
+    expect(serviceVerify(direct.calldata).verified).toContain("receiver");
+  });
+  it("refuses another SpokePool, depositor, swap token or amount, value, output token or chain; a fee; a nonce", async () => {
+    const bent: [Record<string, unknown> | undefined, Record<string, unknown> | undefined, bigint | undefined, RegExp][] = [
+      [{ spokePool: ATTACKER }, undefined, undefined, /contract/],
+      [undefined, { depositor: ATTACKER }, undefined, /refund/],
+      [{ swapToken: USDC.asset }, undefined, undefined, /amount/],
+      [{ swapTokenAmount: NET / 2n }, undefined, undefined, /amount/],
+      [undefined, undefined, NET * 2n, /amount/],
+      [undefined, { outputToken: bytes32Of("base", ENGINE_WETH.base) }, undefined, /asset/],
+      [undefined, { destinationChainId: 42161n }, undefined, /chain/],
+      [{ submissionFees: { amount: 1n, recipient: ATTACKER } }, undefined, undefined, /fee/],
+      [{ nonce: 7n }, undefined, undefined, /fee/],
+    ];
+    for (const [o, dd, value, field] of bent) {
+      const x = call(o, dd, value);
+      await refused(checkProviderCall(x, e), field);
+      expect(() => serviceVerify(x.calldata, value ?? NET), `the service too: ${field}`).toThrow();
+    }
+  });
+  it("refuses a message that drains elsewhere or another token, calls anything else, forwards value, names another fallback, or drains nothing", async () => {
+    const msgs: [Hex, RegExp][] = [
+      [message([drain(USDC_BASE.asset, ATTACKER), emit()]), /receiver/],
+      [message([drain(ENGINE_WETH.base), emit()]), /receiver/],
+      [message([drain(), { target: ATTACKER, callData: "0x12345678", value: 0n }]), /message/],
+      [message([drain(), emit(ATTACKER)]), /message/],
+      [message([{ ...drain(), value: 1n }]), /message/],
+      [message([drain()], ATTACKER), /receiver/],
+      [message([emit(), emit()]), /receiver/],
+    ];
+    for (const [m, field] of msgs) {
+      const x = call(undefined, { message: m });
+      await refused(checkProviderCall(x, e), field);
+      expect(() => serviceVerify(x.calldata), `the service too: ${field}`).toThrow();
+    }
+    // a fallback recipient that is the fresh address hands over what the calls leave: no drain call needed
+    await expect(checkProviderCall(call(undefined, { message: message([emit()], DEST_EVM) }), e)).resolves.toMatchObject({ receiver: DEST_EVM });
+  });
+  it("refuses a swap into a token the pool has no vault for (PP-S08), and a native destination it cannot read the unwrap of", async () => {
+    await refused(checkProviderCall(call(), { ...e, pooled: [] }), /refund/);
+    expect(() => verifyAcrossSwapCall(req, { to: PINNED.acrossPeriphery, data: call().calldata, value: NET }, pins())).toThrow(/cannot re-shield/);
+    await refused(checkProviderCall(call(), { ...e, to: ETH_BASE }), /destination/);
   });
 });
 

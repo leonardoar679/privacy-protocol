@@ -13,7 +13,7 @@
 // Written independently of services/private-swap's adapters; the tests check both decoders agree on
 // real provider calls.
 import { base58 } from "@scure/base";
-import { bytesToHex, decodeFunctionData, getAddress, hexToBytes, isAddress, padHex, parseAbi, type Address, type Hex } from "viem";
+import { bytesToHex, decodeAbiParameters, decodeFunctionData, getAddress, hexToBytes, isAddress, padHex, parseAbi, type Address, type Hex } from "viem";
 import type { AssetRef, Policy } from "./swapService";
 
 const ZERO: Address = "0x0000000000000000000000000000000000000000";
@@ -29,7 +29,15 @@ export const PINNED = {
   mayanForwarder: getAddress("0x337685fdab40d39bd02028545a4ffa7d287cc3e2"),
   mayanFastMctp: getAddress("0xc1062b7c5dc8e4b1df9f200fe360cdc0ed6e7741"),
   acrossSpokePool: getAddress("0x5c7bcd6e7de5423a257d81b442095a1a6ced35c5"),
+  /** Across SpokePoolPeriphery: swapAndBridge, a swap on Ethereum and then the bridge (Sourcify exact match) */
+  acrossPeriphery: getAddress("0x97ccdbea4632140639ad5ea9b944aa034eb15fd4"),
 } as const;
+
+/** On the destination chains: Across's MulticallHandler (a fill with a message lands here) and AcrossEventEmitter (Sourcify exact match, the same addresses on each chain). */
+export const ACROSS_DESTINATION = {
+  handler: { optimism: getAddress("0x0f7ae28de1c8532170ad4ee566b5801485c13a0e"), base: getAddress("0x0f7ae28de1c8532170ad4ee566b5801485c13a0e"), arbitrum: getAddress("0x0f7ae28de1c8532170ad4ee566b5801485c13a0e") } as Record<string, Address>,
+  emitter: { optimism: getAddress("0xbf75133b48b0a42ab9374027902e83c5e2949034"), base: getAddress("0xbf75133b48b0a42ab9374027902e83c5e2949034"), arbitrum: getAddress("0xbf75133b48b0a42ab9374027902e83c5e2949034") } as Record<string, Address>,
+};
 
 const EVM_CHAIN_ID: Record<string, number> = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, bsc: 56, avalanche: 43114 };
 const WETH: Record<string, Address> = {
@@ -181,6 +189,17 @@ const CHAINFLIP_ABI = parseAbi([
   "function xSwapNative(uint32 dstChain, bytes dstAddress, uint32 dstToken, bytes cfParameters) payable",
   "function xSwapToken(uint32 dstChain, bytes dstAddress, uint32 dstToken, address srcToken, uint256 amount, bytes cfParameters)",
 ]);
+/** SpokePoolPeriphery.swapAndBridge (contracts/interfaces/SpokePoolPeripheryInterface.sol as deployed 2026-10) */
+const PERIPHERY_ABI = parseAbi([
+  "struct Fees { uint256 amount; address recipient; }",
+  "struct BaseDepositData { address inputToken; bytes32 outputToken; uint256 outputAmount; address depositor; bytes32 recipient; uint256 destinationChainId; bytes32 exclusiveRelayer; uint32 quoteTimestamp; uint32 fillDeadline; uint32 exclusivityParameter; bytes message; }",
+  "struct SwapAndDepositData { Fees submissionFees; BaseDepositData depositData; address swapToken; address exchange; uint8 transferType; uint256 swapTokenAmount; uint256 minExpectedInputTokenAmount; bytes routerCalldata; bool enableProportionalAdjustment; address spokePool; uint256 nonce; }",
+  "function swapAndBridge(SwapAndDepositData swapAndDepositData) payable",
+]);
+/** MulticallHandler's message: Instructions { Call[] calls; address fallbackRecipient } */
+const HANDLER_MESSAGE = [{ type: "tuple", components: [{ name: "calls", type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "callData", type: "bytes" }, { name: "value", type: "uint256" }] }, { name: "fallbackRecipient", type: "address" }] }] as const;
+const HANDLER_ABI = parseAbi(["function drainLeftoverTokens(address token, address destination)", "function emitData(bytes data)"]);
+
 const ACROSS_ABI = parseAbi(["function depositV3(address depositor, address recipient, address inputToken, address outputToken, uint256 inputAmount, uint256 outputAmount, uint256 destinationChainId, address exclusiveRelayer, uint32 quoteTimestamp, uint32 fillDeadline, uint32 exclusivityDeadline, bytes message) payable"]);
 const MAYAN_FORWARDER_ABI = parseAbi([
   "struct PermitParams { uint256 value; uint256 deadline; uint8 v; bytes32 r; bytes32 s; }",
@@ -231,6 +250,7 @@ export async function checkProviderCall(call: ProviderCall, e: CallExpectation, 
   if (same(call.provider, PINNED.thorchainRouter)) checked = await guarded("thorchain", () => thorchain(call, e, now, deps.inbound ?? ((chain) => thornodeInbound(chain))));
   else if (same(call.provider, PINNED.chainflipVault)) checked = await guarded("chainflip", () => chainflip(call, e));
   else if (same(call.provider, PINNED.acrossSpokePool)) checked = await guarded("across", () => across(call, e, now));
+  else if (same(call.provider, PINNED.acrossPeriphery)) checked = await guarded("across", () => acrossSwap(call, e, now));
   else if (same(call.provider, PINNED.mayanForwarder)) checked = await guarded("mayan", () => mayan(call, e, now));
   else if (same(call.provider, PINNED.lifiDiamond)) checked = await guarded("lifi", () => lifi(call, e));
   else if (e.from.asset !== "native" && same(call.provider, e.from.asset)) {
@@ -331,6 +351,58 @@ export function decodeCfParameters(b: Uint8Array): CfParameters {
   need(1); if (b[i++] !== 0) fail("affiliate fees present");
   if (i !== b.length) fail(`${b.length - i} trailing bytes`);
   return { refundAddress, retryDuration, minPriceX128, boostFee, brokerBps, dca };
+}
+
+/**
+ * Across's swap leg: SpokePoolPeriphery.swapAndBridge swaps on Ethereum and deposits the result into the SpokePool
+ * it is told (any address: so it must be the pinned one). The guaranteed output is the deposit's outputAmount
+ * (proportional adjustment only raises it); an unfilled deposit refunds the depositor in the swapped token. The
+ * fill pays the fresh address directly, or the pinned MulticallHandler whose message must hand the output token
+ * to it (anything a message leaves in the handler can be taken by anyone).
+ */
+function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
+  const P: ProviderName = "across";
+  const { args } = decode(P, PERIPHERY_ABI, call.calldata);
+  const s = args[0] as { submissionFees: { amount: bigint }; depositData: { inputToken: Address; outputToken: Hex; outputAmount: bigint; depositor: Address; recipient: Hex; destinationChainId: bigint; fillDeadline: number; message: Hex }; swapToken: Address; swapTokenAmount: bigint; minExpectedInputTokenAmount: bigint; spokePool: Address; nonce: bigint };
+  const d = s.depositData;
+  must(EVM_CHAIN_ID[e.to.chain] !== undefined && e.to.asset !== "native", P, "destination", `the swap leg pays an ERC-20 on an EVM chain, not ${e.to.symbol} on ${e.to.chain}`);
+  must(d.destinationChainId === BigInt(EVM_CHAIN_ID[e.to.chain]), P, "chain", `bridges to chain ${d.destinationChainId}, not ${e.to.chain}`);
+  const native = e.from.asset === "native";
+  must(same(s.swapToken, native ? WETH.ethereum : e.from.asset) && s.swapTokenAmount === e.net && call.value === (native ? e.net : 0n), P, "amount", `swaps ${s.swapTokenAmount} of ${s.swapToken} (value ${call.value}), not ${e.net} ${e.from.symbol}`);
+  must(same(s.spokePool, PINNED.acrossSpokePool), P, "contract", `deposits into ${s.spokePool}, not the pinned SpokePool (the periphery would approve it for the swapped tokens)`);
+  must(same(d.depositor, e.escrow), P, "refund", `an unfilled deposit would refund ${d.depositor}, not the escrow`);
+  must(same(d.outputToken, bytes32Of(e.to.chain, e.to.asset)), P, "asset", `delivers ${d.outputToken}, not ${e.to.symbol}`);
+  must(s.submissionFees.amount === 0n && s.nonce === 0n, P, "fee", "a submission fee or a signed-deposit nonce is set");
+  must(s.minExpectedInputTokenAmount > 0n && d.outputAmount > 0n, P, "minimum", "a zero minimum");
+  must(d.fillDeadline > now, P, "deadline", "the fill deadline has passed");
+  must(reshieldable(e, d.inputToken), P, "refund", `swaps into ${d.inputToken} before bridging: an unfilled deposit would come back to the escrow in a token it cannot re-shield`);
+  if (d.message === "0x") {
+    must(same(d.recipient, bytes32Of(e.to.chain, e.destination)), P, "receiver", "the deposit pays another address than your fresh one");
+  } else {
+    const handler = ACROSS_DESTINATION.handler[e.to.chain], emitter = ACROSS_DESTINATION.emitter[e.to.chain];
+    must(!!handler && same(d.recipient, bytes32Of(e.to.chain, handler)), P, "receiver", "the deposit pays neither your fresh address nor the pinned Across handler");
+    let ins: { calls: readonly { target: Address; callData: Hex; value: bigint }[]; fallbackRecipient: Address };
+    try { [ins] = decodeAbiParameters(HANDLER_MESSAGE, d.message) as any; } catch { throw new ProviderCallMismatch(P, "message", "the handler message is unreadable"); }
+    must(same(ins.fallbackRecipient, ZERO) || same(ins.fallbackRecipient, e.destination), P, "receiver", `the handler's fallback recipient ${ins.fallbackRecipient} is not your fresh address`);
+    let drained = same(ins.fallbackRecipient, e.destination);
+    for (const c of ins.calls) {
+      must(c.value === 0n, P, "message", "a destination call forwards value");
+      let fn: { functionName: string; args: readonly any[] } | null = null;
+      try { fn = decodeFunctionData({ abi: HANDLER_ABI, data: c.callData }) as any; } catch { fn = null; }
+      if (fn?.functionName === "drainLeftoverTokens" && same(c.target, handler)) {
+        must(same(fn.args[0], e.to.asset) && same(fn.args[1], e.destination), P, "receiver", "the handler would drain another token, or to another address than your fresh one");
+        drained = true;
+      } else {
+        must(!!emitter && fn?.functionName === "emitData" && same(c.target, emitter), P, "message", `the destination message calls ${c.target} (${c.callData.slice(0, 10)})`);
+      }
+    }
+    must(drained, P, "receiver", "nothing hands the output token to your fresh address (the handler would keep it)");
+  }
+  const refundTokens = ownAsset(e, d.inputToken) ? undefined : [getAddress(d.inputToken)];
+  return {
+    provider: P, receiver: e.destination, minOut: d.outputAmount, refundTo: "escrow", ...(refundTokens ? { refundTokens } : {}),
+    facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount", refundTokens ? `an unfilled deposit refunds the escrow in ${refundTokens[0]}, which re-shields into its vault` : "an unfilled deposit refunds the escrow"],
+  };
 }
 
 function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
