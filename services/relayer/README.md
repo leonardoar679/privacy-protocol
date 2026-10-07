@@ -58,7 +58,11 @@ escrow still empty then is `completed` (PP-S11). A route that swapped first pays
 token: the wallet lists it (`refundTokens`, at most four, never the order's asset; `address(0)` is an
 ERC-20 order's escrow ETH) and the executor calls the escrow's **`refundToken`** for each one held, before
 the order's asset (an ERC-20 order's WETH and ETH re-shield as ETH); a token its vault refuses is
-dropped with the reason, never blocking the rest.
+dropped with the reason, never blocking the rest. After execution no tip pays for a re-shield, so they
+are bounded (PP-S12): at most `MAX_UNPAID_REFUNDS` (3) per order, each moving at least its floor (twice its
+gas for ETH and WETH, 1% of the order for its own token, the wallet's `refundFloors` for a listed token,
+which a later request can only raise), and a token only into a vault its pool already has; dust and
+anything past the budget stay in the escrow, where anyone can re-shield them.
 `SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
 late refunds and foreign tokens.
 

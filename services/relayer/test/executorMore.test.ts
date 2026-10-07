@@ -34,6 +34,9 @@ const tokenBalances: Record<string, bigint> = {}; // per-token escrow balances (
 let escrowCode = "0x"; // eth_getCode of the escrow
 let refusedToken: string | null = null; // estimateGas reverts for refundToken(this token): its vault refuses it
 const selRefundToken = toFunctionSelector("refundToken(address,bytes)");
+const selCore = toFunctionSelector("core()"), selVaultFactory = toFunctionSelector("VAULT_FACTORY()"), selVaultOf = toFunctionSelector("vaultOf(address)");
+const noVault = new Set<string>(); // tokens the refund vault's pool has no vault for
+const word = (a: string) => "0x" + a.slice(2).toLowerCase().padStart(64, "0");
 let receiptStatus: "0x1" | "0x0" | null = null;
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
 function handle(req: { id: number; method: string; params: any[] }) {
@@ -49,6 +52,9 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_call": {
       const { to, data } = req.params[0];
       if (String(data).startsWith(selWrappedNative) && factoryWrappedNative) return res("0x" + factoryWrappedNative.slice(2).toLowerCase().padStart(64, "0"));
+      if (String(data).startsWith(selCore)) return res(word("0x00000000000000000000000000000000000c0be0"));
+      if (String(data).startsWith(selVaultFactory)) return res(word("0x00000000000000000000000000000000000fac70"));
+      if (String(data).startsWith(selVaultOf)) return res(word(noVault.has("0x" + String(data).slice(34, 74).toLowerCase()) ? "0x" + "00".repeat(20) : "0x00000000000000000000000000000000000ba017"));
       if (String(data).startsWith(selBalanceOf)) return res("0x" + (tokenBalances[String(to).toLowerCase()] ?? (String(to).toLowerCase() === WETH.toLowerCase() ? wethBalance : tokenBalance)).toString(16).padStart(64, "0"));
       return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
     }
@@ -122,7 +128,11 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     await ex.tick();
     expect(job.state).toBe("refunded");
     receiptStatus = null; wethBalance = 0n;
-    ethBalance = 7n; // more arrives inside the window: re-shielded too
+    ethBalance = 7n; // dust inside the window: nothing pays for re-shielding it, so it is left (PP-S12)
+    await ex.tick();
+    expect(job.state).toBe("refunded");
+    expect(raws.length).toBe(1);
+    ethBalance = 5n * 10n ** 16n; // more arrives inside the window: re-shielded too
     await ex.tick();
     expect(job.state).toBe("refunding");
     receiptStatus = "0x1";
@@ -150,7 +160,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     const req = { ...makeRequest(("0x" + "1c".repeat(32)) as Hex, 1500), refundTokens: [USDT, ODD] as any };
     const job = await executed(ex, req);
     expect(job.refundTokens).toEqual([USDT, ODD]);
-    escrowCode = "0x6080"; tokenBalances[USDT] = 2_500_000_000n; tokenBalances[ODD] = 1n; refusedToken = ODD; ethBalance = 3n;
+    escrowCode = "0x6080"; tokenBalances[USDT] = 2_500_000_000n; tokenBalances[ODD] = 1n; refusedToken = ODD; ethBalance = 3n * 10n ** 16n;
     clock = Number(req.params.refundAfter);
     await ex.tick();
     expect(job.state).toBe("refunding");
@@ -198,7 +208,10 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     clock = Number(req.params.refundAfter);
     await ex.tick();
     expect(raws.length, "nothing came back yet").toBe(0);
-    escrowCode = "0x6080"; ethBalance = 25n * 10n ** 16n; // a bridge refunded the ETH the route swapped into
+    escrowCode = "0x6080"; ethBalance = 10n ** 15n - 1n; // dust: less than twice the gas of re-shielding it (2 × 500k gas × 1 gwei)
+    await ex.tick();
+    expect(raws.length, "below twice its gas: left (PP-S12)").toBe(0);
+    ethBalance = 25n * 10n ** 16n; // a bridge refunded the ETH the route swapped into
     await ex.tick();
     expect(job.state).toBe("refunding");
     expect(sentTo(0), "refundToken is called on the escrow itself").toBe(job.escrow.toLowerCase());
@@ -209,6 +222,67 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     await ex.tick();
     expect(job.state).toBe("refunded");
     escrowCode = "0x"; ethBalance = 0n; receiptStatus = null; raws.length = 0;
+  });
+
+  // PP-S12: anyone can send value to a watched escrow, and the order's owner gets it back as a private note, while each
+  // re-shield costs the executor a vault deposit (~1.5M gas) that no tip pays for once the order has executed
+  it("PP-S12: after execution, dust below its floor is left (ETH: 1% of the order or twice the gas), and at most three re-shields are sent", async () => {
+    factoryWrappedNative = WETH;
+    const ex = executorWith(undefined, DAY);
+    const req = makeRequest(("0x" + "2a".repeat(32)) as Hex, 1500);
+    const job = await executed(ex, req);
+    clock = Number(req.params.refundAfter);
+    const floor = BigInt(req.params.amount) / 100n; // 0.005 ETH, above twice the gas here (2 × 500k gas × 1 gwei)
+    ethBalance = floor - 1n; // dust sent to make the executor pay
+    await ex.tick();
+    expect(raws.length, "below the floor: left in the escrow").toBe(0);
+    expect(job.state).toBe("executed");
+    for (let i = 1; i <= 3; i++) {
+      ethBalance = floor;
+      await ex.tick();
+      expect(job.state).toBe("refunding");
+      expect(job.unpaidRefunds).toBe(i);
+      receiptStatus = "0x1"; await ex.tick(); receiptStatus = null;
+    }
+    ethBalance = 10n ** 18n; // even a large amount: the budget is used, so it waits for anyone to re-shield it
+    await ex.tick();
+    expect(raws.length).toBe(3);
+    expect(job.state).toBe("refunded");
+    expect(job.error).toMatch(/3 re-shields after execution that no tip pays for are used/);
+    ethBalance = 0n; factoryWrappedNative = null; raws.length = 0;
+  });
+
+  it("PP-S12: a listed token re-shields only into a vault its pool already has, and only above the floor the wallet stated", async () => {
+    const LISTED = "0x00000000000000000000000000000000000000c1", NOVAULT = "0x00000000000000000000000000000000000000c2";
+    const ex = executorWith(undefined, DAY);
+    const req = { ...makeRequest(("0x" + "2b".repeat(32)) as Hex, 1500), refundTokens: [LISTED, NOVAULT] as any, refundFloors: { [LISTED]: "1000000" } };
+    const job = await executed(ex, req);
+    escrowCode = "0x6080"; noVault.add(NOVAULT); tokenBalances[NOVAULT] = 5_000_000n; tokenBalances[LISTED] = 999_999n;
+    clock = Number(req.params.refundAfter);
+    await ex.tick();
+    expect(raws.length, "no vault for one token (the executor would pay for deploying it), the other below its floor").toBe(0);
+    tokenBalances[LISTED] = 2_500_000_000n; // the unfilled deposit comes back
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    const d = decodeFunctionData({ abi: escrowAbi, data: parseTransaction(raws[0]).data! });
+    expect(String(d.args[0]).toLowerCase()).toBe(LISTED);
+    expect(job.refundTokens, "the token with no vault stays listed: anyone may re-shield it").toEqual([LISTED, NOVAULT]);
+    escrowCode = "0x"; noVault.clear(); delete tokenBalances[LISTED]; delete tokenBalances[NOVAULT]; receiptStatus = null; raws.length = 0;
+  });
+
+  it("refundFloors name listed tokens in base units; a later request only raises a floor; an order lists at most four tokens in all", () => {
+    const ex = executorWith();
+    const [A, B, C, D, E] = ["a1", "b1", "c1", "d1", "e1"].map((x) => "0x" + x.padStart(40, "0"));
+    const base = makeRequest(("0x" + "2c".repeat(32)) as Hex, 1500);
+    expect(() => ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [B]: "1" } })).toThrow(/refundFloors/);
+    expect(() => ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "1.5" } })).toThrow(/refundFloors/);
+    const job = ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "100" } });
+    ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "1" } });
+    expect(job.refundFloors, "a lower floor does not replace a higher one").toEqual({ [A]: "100" });
+    ex.add({ ...base, refundTokens: [B, C, D] as any });
+    expect(job.refundTokens).toHaveLength(4);
+    expect(() => ex.add({ ...base, refundTokens: [E] as any })).toThrow(/at most 4 refund tokens per order/);
+    expect(job.refundTokens, "a refused request changes nothing").toHaveLength(4);
   });
 });
 
@@ -305,12 +379,12 @@ describe("journals", () => {
     receiptStatus = "0x1";
     await ex.tick();
     expect(job.state).toBe("executed");
-    ethBalance = 0n; wethBalance = 123_456n; // the provider refunded in WETH
+    ethBalance = 0n; wethBalance = 4n * 10n ** 17n; // the provider refunded in WETH
     clock = Number(req.params.refundAfter);
     raws.length = 0;
     await ex.tick();
     expect(job.state, "WETH alone triggers the refund").toBe("refunding");
-    expect(job.balance).toBe("123456");
+    expect(job.balance).toBe("400000000000000000");
     const sent = decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[0]).data! });
     expect(sent.functionName).toBe("deployAndRefund");
     // and WETH never counts as funding: execution needs native ETH

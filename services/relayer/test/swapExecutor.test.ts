@@ -123,7 +123,7 @@ describe("execution", () => {
     receiptStatus = null;
   });
   it("a provider refund that lands in the escrow is re-shielded after refundAfter with the committed payload; then completed", async () => {
-    escrowBalance = 123_000_000_000_000n; // leftover / provider refund
+    escrowBalance = 123_000_000_000_000_000n; // a provider refund (above the 1% floor of an unpaid re-shield, PP-S12)
     clock = 7200; // before refundAfter: nothing
     await executor.tick();
     expect(raws.length).toBe(1);
