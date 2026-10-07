@@ -42,7 +42,8 @@ A swap record holds what the wallet needs to finish or refund an order without t
 before signing), `params` (the on-chain OrderParams, from which the escrow address is recomputed),
 `endpoint`, `approvedMin` (the least the user agreed to receive, destination base units; a call
 guaranteeing less is signed only after fresh consent), `quote`, `createdAt`, `dueAt`, `fundedTx`,
-`jobId`, `state`.
+`jobId`, `refunds` (the refund notes found for the order: `leafIndex`, `vault`, `amount`; `refund()` can
+re-shield more than once), `state`.
 
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which

@@ -193,7 +193,12 @@ otherwise the route is quoted for information and filtered from selection.
   `refundNoteDataHash`; the escrow pays the tip and **re-shields the whole remaining balance** by
   calling `vault.deposit` (ETH: `deposit{value}(oc, secret, noteData)`; ERC-20: `approve` + `deposit`).
   The funds return to private state as the pre-committed note with no user action; the wallet already
-  holds the note's secret and can spend it.
+  holds the note's secret and can spend it. The payload is the order's random one, not a §12 envelope,
+  so discovery cannot open it: the wallet finds each insert carrying a journaled payload and accepts it
+  as a note only if its commitment recomputes from the vault's `Deposited` amount, the wallet's owner
+  commitment and the refund secret (PP-S09). `refund()` re-shields whatever arrives, so an order may
+  have more than one refund note. A wallet restored from its phrase alone, without the journal, does not
+  know the payloads; the backup file carries them.
 - Provider-level refunds (THORChain refund memo, Chainflip refund address) MUST point at the escrow
   address, so a provider refund lands where `refund()` can re-shield it. A THORChain memo without a
   refund address refunds to the transaction's originator, which for an escrow deposit is the relayer
