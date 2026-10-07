@@ -30,6 +30,18 @@ export function thorAsset(a: AssetRef): string {
   return `${chain}.${a.symbol.toUpperCase()}-${a.asset.toUpperCase()}`;
 }
 
+/**
+ * The short asset form THORChain's own quote API writes into memos for UTXO sources (`ETH.USDC` for
+ * ETH.USDC-0XA0B8…): a token is matched to the whitelisted pool with that ticker. Used only when the
+ * full form would not fit a UTXO chain's 80-byte OP_RETURN; native assets keep their full form.
+ */
+export function thorAssetShort(a: AssetRef): string {
+  const full = thorAsset(a);
+  return a.asset === "native" ? full : full.slice(0, full.indexOf("-"));
+}
+/** A UTXO chain carries the memo in OP_RETURN: at most 80 bytes (THORChain memo docs). */
+export const UTXO_MEMO_BYTES = 80;
+
 /** THORChain amounts are 1e8-based regardless of the asset's decimals. */
 export const to1e8 = (amount: bigint, decimals: number) => (amount * 10n ** 8n) / 10n ** BigInt(decimals);
 export const from1e8 = (amount1e8: bigint, decimals: number) => (amount1e8 * 10n ** BigInt(decimals)) / 10n ** 8n;
@@ -153,7 +165,12 @@ export class ThorchainAdapter implements ProviderAdapter {
     const evmSource = ["ethereum", "base", "avalanche", "bsc"].includes(req.from.chain);
     if (evmSource && !req.source) throw new Error("THORChain: the escrow address (req.source) is required as the refund address (a router deposit otherwise refunds to the transaction sender, the relayer)");
     // limit from OUR min-out, not the API memo; a refund goes to the escrow (spec §7), never to the relayer that sends the transaction
-    const memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8), evmSource ? req.source : undefined);
+    let memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8), evmSource ? req.source : undefined);
+    if (!evmSource && Buffer.byteLength(memo) > UTXO_MEMO_BYTES) {
+      // a UTXO deposit's OP_RETURN holds 80 bytes: use the short asset form THORChain's own quote API emits
+      memo = buildMemo(thorAssetShort(req.to), req.destination, BigInt(q.min1e8));
+      if (Buffer.byteLength(memo) > UTXO_MEMO_BYTES) throw new Error(`THORChain: the memo (${Buffer.byteLength(memo)} bytes) does not fit a ${req.from.chain} OP_RETURN (80 bytes)`);
+    }
     // the deposit target must be confirmed by independent gateways, never taken from one quote response
     const inbound = await inboundQuorum(CHAIN[req.from.chain]);
     if (inbound.halted) throw new Error(`THORChain: ${CHAIN[req.from.chain]} inbound is halted`);

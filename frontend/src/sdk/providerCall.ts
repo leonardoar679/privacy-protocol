@@ -42,7 +42,7 @@ const LIFI_CHAIN_ID: Record<string, bigint> = { ...Object.fromEntries(Object.ent
 /** LI.FI's NON_EVM_ADDRESS: BridgeData.receiver for a non-EVM destination (the real receiver is in the facet data). */
 const LIFI_NON_EVM_RECEIVER = "0x11f111f111f111f111f111f111f111f111f111f1";
 const CCTP_DOMAIN: Record<string, number> = { ethereum: 0, avalanche: 1, optimism: 2, arbitrum: 3, solana: 5, base: 6, polygon: 7 };
-const THOR_CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };
+export const THOR_CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };
 const CF_CHAIN: Record<string, [string, number]> = { ethereum: ["Ethereum", 1], bitcoin: ["Bitcoin", 3], arbitrum: ["Arbitrum", 4], solana: ["Solana", 5], tron: ["Tron", 7] };
 const CF_ASSET: Record<string, number> = {
   "Ethereum.ETH": 1, "Ethereum.FLIP": 2, "Ethereum.USDC": 3, "Bitcoin.BTC": 5, "Arbitrum.ETH": 6, "Arbitrum.USDC": 7, "Ethereum.USDT": 8,
@@ -93,7 +93,10 @@ export class MinimumMoved extends Error {
   }
 }
 
-export interface InboundVault { address: string; router: string; halted: boolean; agreeing: string[] }
+/** `router` is set for EVM chains only (UTXO chains are paid at the vault address directly). */
+export interface InboundVault { address: string; router?: string; halted: boolean; agreeing: string[] }
+/** THORChain's EVM chains: their inbound entries carry a router contract. */
+const THOR_EVM_CHAINS = ["ETH", "BASE", "AVAX", "BSC"];
 export type InboundLookup = (chain: string) => Promise<InboundVault>;
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -113,6 +116,12 @@ export function bytes32Of(chain: string, address: string): Hex {
   throw new Error(`no 32-byte address form for ${chain}`);
 }
 
+/** THORChain's short form for a UTXO memo that must fit 80 bytes (`ETH.USDC`, as its own quote API writes it); native assets stay full. */
+export function thorAssetShort(a: AssetRef): string {
+  const full = thorAsset(a);
+  return a.asset === "native" ? full : full.slice(0, full.indexOf("-"));
+}
+
 /** THORChain asset notation, as the engine writes it into the memo: CHAIN.SYMBOL or CHAIN.SYMBOL-0XTOKEN. */
 export function thorAsset(a: AssetRef): string {
   const chain = THOR_CHAIN[a.chain];
@@ -121,7 +130,7 @@ export function thorAsset(a: AssetRef): string {
 }
 
 /** THORChain limits are in 1e8 units whatever the asset's decimals. */
-const from1e8 = (v: bigint, decimals: number) => (v * 10n ** BigInt(decimals)) / 10n ** 8n;
+export const from1e8 = (v: bigint, decimals: number) => (v * 10n ** BigInt(decimals)) / 10n ** 8n;
 
 // ---- THORNode gateways: the inbound vault, confirmed from this wallet -----------------------------
 
@@ -142,15 +151,17 @@ export async function thornodeInbound(chain: string, opts: { gateways?: string[]
       if (!r.ok) return { base };
       const list = (await r.json()) as any[];
       const e = Array.isArray(list) ? list.find((c) => c?.chain === chain) : undefined;
-      return e && isAddress(String(e.address)) && isAddress(String(e.router)) ? { base, entry: e } : { base };
+      const ok = !!e && (THOR_EVM_CHAINS.includes(chain) ? isAddress(String(e.address)) && isAddress(String(e.router)) : typeof e.address === "string" && /^[a-zA-Z0-9:]{20,100}$/.test(e.address));
+      return ok ? { base, entry: e } : { base };
     } catch { return { base }; }
   }));
   const reachable = answers.filter((a) => a.entry);
   if (reachable.length < quorum) throw new ProviderCallMismatch("thorchain", "vault", `only ${reachable.length} of ${gateways.length} THORNode gateways answered for ${chain}; ${quorum} must agree`);
-  const key = (e: any) => `${String(e.address).toLowerCase()}|${String(e.router).toLowerCase()}`;
+  const key = (e: any) => `${String(e.address).toLowerCase()}|${String(e.router ?? "").toLowerCase()}`;
   if (reachable.some((a) => key(a.entry) !== key(reachable[0].entry))) throw new ProviderCallMismatch("thorchain", "vault", `THORNode gateways disagree on the ${chain} inbound vault/router`);
   const e: any = reachable[0].entry;
-  return { address: getAddress(e.address), router: getAddress(e.router), halted: !!(e.halted || e.global_trading_paused || e.chain_trading_paused), agreeing: reachable.map((a) => a.base) };
+  const evm = THOR_EVM_CHAINS.includes(chain);
+  return { address: evm ? getAddress(e.address) : String(e.address), router: evm ? getAddress(e.router) : undefined, halted: !!(e.halted || e.global_trading_paused || e.chain_trading_paused), agreeing: reachable.map((a) => a.base) };
 }
 
 // ---- ABIs (the provider contracts' entry points the engine's adapters produce) --------------------
@@ -237,7 +248,7 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   const [vault, asset, amount, memo, expiry] = args as [Address, Address, bigint, string, bigint];
   const v = await inbound("ETH");
   must(!v.halted, P, "inbound", "THORChain has halted Ethereum inbound");
-  must(same(v.router, call.provider), P, "router", `the gateways report router ${v.router}, the call targets ${call.provider}`);
+  must(!!v.router && same(v.router, call.provider), P, "router", `the gateways report router ${v.router}, the call targets ${call.provider}`);
   must(same(vault, v.address), P, "vault", `${vault} is not the inbound vault ${v.agreeing.length} gateways report (${v.address})`);
   must(same(asset, e.from.asset === "native" ? ZERO : e.from.asset), P, "asset", `deposits ${asset}, not ${e.from.symbol}`);
   must(amount === e.net, P, "amount", `${amount} != ${e.net}`);
