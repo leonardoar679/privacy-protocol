@@ -25,3 +25,10 @@ label { font-size: 13px; color: var(--muted); }
 .bar > span { display: block; height: 100%; background: var(--accent); }
 .row { display: flex; justify-content: space-between; gap: 12px; }
 code { color: var(--warn); }
+@media (max-width: 480px) {
+  .app { padding: 12px 12px 48px; }
+  .row { flex-direction: column; gap: 4px; }
+  .tabs { gap: 6px; }
+  .tab, button.primary { width: 100%; }
+  h1 { font-size: 20px; }
+}

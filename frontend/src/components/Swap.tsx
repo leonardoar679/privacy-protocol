@@ -1,49 +1,78 @@
-import { useEffect, useState } from "react";
-import type { Hex } from "viem";
-import { swapService, type AssetRef, type Policy, type QuoteSet, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
+import { useCallback, useEffect, useState } from "react";
+import { formatEther, parseEther, type Hex } from "viem";
+import { BUCKETS, isBucket } from "@ref/wallet/amounts";
+import { feeSummary, swapService, type AssetRef, type Policy, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
+import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { privateWithdrawal } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
 import { relayerSwapExecute, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
+import { session, useSession } from "../wallet/session";
+import type { StoredSwap } from "../wallet/journal";
+import { completeAction, sampleDueAt, scheduleAction, useScheduler } from "../wallet/schedule";
+import { Scorecard } from "./Scorecard";
 
-// Private swap (spec v1.1): quote every provider through the local service, pick by policy, commit an
-// order whose source is a one-time escrow, FUND the escrow with a private withdrawal proved in this
-// tab, and only then (spec §5/§8: quotes are short-lived, the delay budget is long) re-quote with the
-// escrow as sender, sign the provider call with the one-time key and hand (params, signed execution,
-// refund payload) to a relayer's swap executor, which deploys + executes for its tip and refunds to
-// your pre-committed note after the window. If the signed quote expires before execution, sign again.
-// The permanent address never touches a provider; the relayer cannot change anything it was given.
+// Private swap (spec v1.1, plan §22, §26–§31, §47, §79): quote every provider through the local
+// service, show ONE route in plain words (providers behind "View route"), commit an order whose source
+// is a one-time escrow and whose destination is a fresh address of this wallet, FUND the escrow with a
+// private withdrawal at a random time inside the policy's delay window (the order and its schedule
+// live in the encrypted journal, so this survives a reload), then re-quote with the escrow as sender,
+// sign the provider call with the one-time key and hand it to a relayer's executor, which deploys +
+// executes for its tip and refunds to the pre-committed note after the window. If the signed quote
+// expires before execution, sign again. The permanent address never touches a provider.
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
-const TARGETS: Record<string, { ref: AssetRef; placeholder: string }> = {
-  BTC: { ref: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, placeholder: "bc1q… (fresh)" },
-  SOL: { ref: { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" }, placeholder: "fresh Solana address" },
-  "USDC on Base": { ref: { chain: "base", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" }, placeholder: "0x… (fresh)" },
-  "ETH on Base": { ref: { chain: "base", asset: "native", decimals: 18, symbol: "ETH" }, placeholder: "0x… (fresh)" },
+const TARGETS: Record<string, { ref: AssetRef; network: string }> = {
+  BTC: { ref: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, network: "Bitcoin" },
+  SOL: { ref: { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" }, network: "Solana" },
+  "USDC on Base": { ref: { chain: "base", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" }, network: "Base" },
+  "ETH on Base": { ref: { chain: "base", asset: "native", decimals: 18, symbol: "ETH" }, network: "Base" },
 };
 const fmt = (units: string, decimals: number) => (Number(units) / 10 ** decimals).toFixed(Math.min(decimals, 6));
-const hours = (s: number) => (s >= 3600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 60)} min`);
+const hours = (s: number) => (s >= 3600 ? `${Math.round(s / 3600)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
 const OPEN_FOR_RESIGN = ["expired", "execute-failed"];
+const risk = (security: number) => (security >= 85 ? "Low" : security >= 70 ? "Medium" : "High");
+const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "native deposit address" : p === "near-intents" ? "solver network" : p === "mayan" ? "signed intent (drivers compete)" : "aggregator / bridge");
+const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
+const DELAY_WINDOW: Record<Policy, [number, number]> = { "best-privacy": [6 * 3600, 72 * 3600], "best-price": [3600, 24 * 3600], fastest: [0, 0] };
+
+/** The largest public bucket not above `wei` (plan §31): the swap amount; the remainder stays private. */
+export function bucketBelow(wei: bigint): bigint | null {
+  let best: bigint | null = null;
+  for (const b of BUCKETS) if (b <= wei && (best === null || b > best)) best = b;
+  return best;
+}
 
 export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {
-  const { submission } = useSettings();
+  const { submission, advanced } = useSettings();
+  useSession(); // re-render when the journal-backed session changes
   const [target, setTarget] = useState("BTC");
   const [amount, setAmount] = useState("0.5");
-  const [destination, setDestination] = useState("");
+  const [destination, setDestination] = useState(() => peekFreshAddress(masterSeed, "bitcoin").address);
+  const [destinationEdited, setDestinationEdited] = useState(false);
   const [policy, setPolicy] = useState<Policy>("best-privacy");
   const [quotes, setQuotes] = useState<QuoteSet | null>(null);
+  const [showRoute, setShowRoute] = useState(false);
   const [order, setOrder] = useState<ServiceOrder | null>(null);
+  const [stored, setStored] = useState<StoredSwap | null>(null);
   const [orderKey, setOrderKey] = useState<{ privateKey: Hex; address: Hex } | null>(null);
   const [refundNoteData, setRefundNoteData] = useState<Hex | null>(null);
-  const [funded, setFunded] = useState<string | null>(null);
   const [signed, setSigned] = useState<string | null>(null);
   const [job, setJob] = useState<SwapJob | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
   const to = TARGETS[target];
-  const request = () => ({ from: ETH, to: to.ref, amount: (BigInt(Math.round(Number(amount) * 1e6)) * 10n ** 12n).toString(), destination, slippageBps: 50, policy });
+  const wei = (() => { try { return parseEther(amount || "0"); } catch { return 0n; } })();
+  const bucket = bucketBelow(wei);
+  const request = () => ({ from: ETH, to: to.ref, amount: wei.toString(), destination, slippageBps: 50, policy });
+  const openSwaps = session.isUnlocked() ? session.journal().swaps.filter((s) => !["completed", "refunded", "abandoned"].includes(s.state)) : [];
+
+  function chooseTarget(t: string) {
+    setTarget(t); setQuotes(null); reset();
+    if (!destinationEdited) setDestination(peekFreshAddress(masterSeed, chainKindOf(TARGETS[t].ref.chain)).address);
+  }
 
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError("");
@@ -54,15 +83,19 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   useEffect(() => {
     if (!job || submission.kind !== "relayer" || ["completed", "refunded", "refund-failed"].includes(job.state)) return;
     const url = submission.url;
-    const t = setInterval(() => relayerSwapStatus(url, job.id).then(setJob).catch(() => {}), 15_000);
+    const t = setInterval(() => relayerSwapStatus(url, job.id).then((j) => { setJob(j); patchStored(job.id, { state: j.state }); }).catch(() => {}), 15_000);
     return () => clearInterval(t);
   }, [job, submission]);
 
-  function reset() { setOrder(null); setOrderKey(null); setRefundNoteData(null); setFunded(null); setSigned(null); setJob(null); }
+  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setJob(null); setShowRoute(false); }
+  function patchStored(orderId: string, patch: Partial<StoredSwap>) {
+    session.update((j) => { const s = j.swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase()); if (s) Object.assign(s, patch); });
+    setStored((s) => (s && s.orderId.toLowerCase() === orderId.toLowerCase() ? { ...s, ...patch } : s));
+  }
 
   async function getQuotes() {
     reset();
-    const set = await run("Quoting all providers…", () => swapService.quote(request()));
+    const set = await run("Finding the best route…", () => swapService.quote(request()));
     if (set) setQuotes(set);
   }
 
@@ -71,19 +104,54 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
     // key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
     const attemptId = ("0x" + Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
     const key = deriveOrderKey(masterSeed, attemptId);
-    const refund = deriveRefundNote(masterSeed, Number(attemptId.slice(2, 10)) >>> 0);
-    const res = await run("Building the order…", () =>
-      swapService.order({ ...request(), provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash }));
-    if (res) { reset(); setOrder(res.order); setOrderKey(key); setRefundNoteData(refund.noteData); }
+    const refundCounter = noteStore.allocateCounter();
+    const refund = deriveRefundNote(masterSeed, refundCounter);
+    const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address; // reserve the fresh address now
+    const req = { ...request(), destination: dest };
+    const res = await run("Committing the order…", () =>
+      swapService.order({ ...req, provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash }));
+    if (!res) return;
+    reset();
+    const dueAt = policy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[policy]);
+    const entry: StoredSwap = {
+      orderId: res.order.orderId, attemptId, refundCounter, provider: res.order.quote.provider, policy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
+      params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
+    };
+    session.update((j) => { j.swaps = [...j.swaps.filter((s) => s.orderId !== entry.orderId), entry]; });
+    if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: entry.orderId, dueAt });
+    setOrder(res.order); setStored(entry); setOrderKey(key); setRefundNoteData(refund.noteData);
+    if (!destinationEdited) setDestination(dest);
   }
 
-  async function fundEscrow() {
-    if (!order) return;
-    if (!deployment) { setError("No deployment configured (VITE_RPC_URL / VITE_CORE / VITE_ETH_VAULT)."); return; }
-    const gross = BigInt(order.params.amount); // the withdrawal funds the whole order; the escrow pays the executor tip
-    if (noteStore.balance(BigInt(deployment.ethVault)) < gross) { setError("Not enough shielded ETH in this session's notes for this order."); return; }
-    const w = await run("Private withdrawal to the one-time escrow…", () => privateWithdrawal({ masterSeed, deployment, amount: gross, recipient: order.endpoint, onStatus: setBusy }));
-    if (w) setFunded(`Escrow funded in tx ${w.txHash.slice(0, 10)}… (proof ${(w.proofMs / 1000).toFixed(1)} s${w.verifiedLocally ? ", verified locally" : ""}, submitted by ${w.submittedBy}${w.feeWei ? `, fee ${fmt(w.feeWei.toString(), 18)} ETH` : ""}).`);
+  /** Resume an order from the journal after a reload: the service rebuilds it from the same params (same escrow). */
+  async function resume(s: StoredSwap) {
+    const r = await run("Resuming the order…", () => swapService.resume({ request: s.request as any, policy: s.policy as Policy, provider: s.provider, params: s.params as any }));
+    if (!r) return;
+    reset();
+    setOrder(r.order); setStored(s); setOrderKey(deriveOrderKey(masterSeed, s.attemptId as Hex)); setRefundNoteData((s.refundNoteData as Hex | undefined) ?? null);
+    if (s.jobId && submission.kind === "relayer") relayerSwapStatus(submission.url, s.jobId).then(setJob).catch(() => {});
+  }
+
+  const fund = useCallback(async (s: StoredSwap) => {
+    if (!deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
+    const gross = BigInt((s.params as any).amount); // the withdrawal funds the whole order; the escrow pays the executor tip
+    if (noteStore.balance(BigInt(deployment.ethVault)) < gross) throw new Error("Not enough shielded ETH for this order.");
+    const w = await privateWithdrawal({ masterSeed, deployment, amount: gross, recipient: s.endpoint as Hex, onStatus: setBusy });
+    patchStored(s.orderId, { fundedTx: w.txHash, state: "funded" });
+    return w;
+  }, [deployment, masterSeed]);
+
+  // the scheduler fires the private withdrawal at the drawn time while the wallet is unlocked
+  useScheduler(useCallback(async (a) => {
+    const s = session.journal().swaps.find((x) => x.orderId === a.orderId);
+    if (!s || s.fundedTx) return;
+    await fund(s);
+  }, [fund]));
+
+  async function fundNow() {
+    if (!stored) return;
+    const w = await run("Private withdrawal to the one-time escrow…", () => fund(stored));
+    if (w) completeAction(`fund-escrow:${stored.orderId}`);
   }
 
   /** Re-quote with the escrow as sender, sign the provider call locally, hand it to the executor. Repeatable while the job is open. */
@@ -93,89 +161,131 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       const prepared = await swapService.prepare(order.orderId);
       const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab
       const fin = await swapService.finalize(order.orderId, signature);
-      const label = `${fin.execution.provider} · ${fmt(fin.execution.value, 18)} ETH · valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()} · sig ${fin.execution.signature.slice(0, 12)}…`;
+      const label = `${fmt(fin.execution.value, 18)} ETH · valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()}`;
       if (submission.kind !== "relayer") return { label, job: undefined };
       setBusy("Handing the signed order to the relayer's executor…");
       const health: ServiceHealth = await swapService.health();
       const j = await relayerSwapExecute(submission.url, { factory: health.deployment.factory, params: order.params, execution: fin.execution, refundNoteData });
+      patchStored(order.orderId, { jobId: j.id, state: j.state });
       return { label, job: j };
     });
     if (r) { setSigned(r.label); if (r.job) setJob(r.job); }
   }
 
+  const chosen = quotes?.chosen;
+  const chosenQuote = chosen ? quotes!.quotes.find((q) => q.provider === chosen.provider) : undefined;
+  const scoreOf = (p: string): RouteScore | undefined => quotes?.scores.find((s) => s.provider === p);
+  const funded = !!stored?.fundedTx;
+  const dueAt = stored?.dueAt;
+
   return (
     <div className="panel">
       <h3>Swap privately</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        The pool pays a one-time escrow; a relayer executes the provider call you sign here; a failed swap returns to the pool as a fresh note.
+        Your private balance pays a one-time address; the best route delivers to a fresh address of this wallet. A failed swap returns to your private balance by itself.
       </p>
-      <label>From</label>
-      <input value={`${amount} ETH (private balance)`} onChange={(e: any) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+      <label>From your private balance (ETH)</label>
+      <input value={amount} onChange={(e: any) => { setAmount(e.target.value.replace(/[^0-9.]/g, "")); setQuotes(null); reset(); }} />
+      {wei > 0n && !isBucket(wei) && (
+        <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
+          An exact amount is a fingerprint on the public side.{" "}
+          {bucket ? <button className="tab" onClick={() => { setAmount(formatEther(bucket)); setQuotes(null); reset(); }}>Use {formatEther(bucket)} ETH (a public bucket; the rest stays private)</button> : "Choose an amount of at least 0.001 ETH."}
+        </p>
+      )}
       <label>To</label>
-      <select value={target} onChange={(e: any) => { setTarget(e.target.value); setQuotes(null); reset(); }}>
+      <select value={target} onChange={(e: any) => chooseTarget(e.target.value)}>
         {Object.keys(TARGETS).map((k) => <option key={k} value={k}>{k}</option>)}
       </select>
-      <label>Fresh destination address (never your public address)</label>
-      <input value={destination} onChange={(e: any) => setDestination(e.target.value)} placeholder={to.placeholder} />
-      <label>Policy</label>
-      <select value={policy} onChange={(e: any) => setPolicy(e.target.value)}>
-        <option value="best-privacy">Best privacy (6–72 h delay budget)</option>
+      <label>Receive at {destinationEdited ? "(your own address)" : "(a fresh address of this wallet, reserved when you confirm)"}</label>
+      <input value={destination} onChange={(e: any) => { setDestination(e.target.value); setDestinationEdited(e.target.value.trim() !== ""); }} placeholder="fresh address" />
+      {destinationEdited && <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Never use your public wallet address here. <button className="tab" onClick={() => { setDestinationEdited(false); setDestination(peekFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address); }}>Use a fresh address</button></p>}
+      <label>Priority</label>
+      <select value={policy} onChange={(e: any) => { setPolicy(e.target.value); setQuotes(null); reset(); }}>
+        <option value="best-privacy">Best privacy (funded at a random time within 6–72 h)</option>
         <option value="best-price">Best price (1–24 h)</option>
         <option value="fastest">Fastest (no delay; public submission)</option>
       </select>
-      <button className="primary" onClick={getQuotes} disabled={!!busy || !destination}>Get quotes</button>
+      <button className="primary" onClick={getQuotes} disabled={!!busy || !destination || wei <= 0n}>Get a quote</button>
       {busy && <p className="muted">{busy}</p>}
       {error && <p style={{ color: "var(--warn)" }}>{error}</p>}
 
-      {quotes && (
+      {quotes && !order && (
         <div style={{ marginTop: 14 }}>
-          {quotes.scores.map((s) => {
+          {chosen && chosenQuote ? (
+            <>
+              <div className="row"><span className="muted">Receive approximately</span><b>{fmt(chosenQuote.toAmount, to.ref.decimals)} {to.ref.symbol}</b></div>
+              <div className="row"><span className="muted">At least</span><b>{fmt(chosenQuote.toAmountMin, to.ref.decimals)} {to.ref.symbol}</b></div>
+              <div className="row"><span className="muted">Network</span><b>{to.network}</b></div>
+              <div className="row"><span className="muted">Fee</span><b>{feeSummary(chosenQuote)}</b></div>
+              <div className="row"><span className="muted">Estimated</span><b>~{hours(chosenQuote.etaSeconds)}{policy !== "fastest" ? " after the scheduled funding" : ""}</b></div>
+              <div className="row"><span className="muted">Privacy</span><b>{chosen.components.privacy}/100</b></div>
+              <div className="tabs" style={{ marginTop: 8 }}>
+                <button className="primary" onClick={() => commit(chosen.provider)} disabled={!!busy}>Swap</button>
+                <button className="tab" onClick={() => setShowRoute((v) => !v)}>{showRoute ? "Hide route" : "View route"}</button>
+              </div>
+            </>
+          ) : (
+            <p className="muted">No route available right now{Object.keys(quotes.errors).length ? ` (${Object.values(quotes.errors).join("; ")})` : ""}.</p>
+          )}
+          {showRoute && quotes.scores.map((s) => {
             const q = quotes.quotes.find((x) => x.provider === s.provider)!;
-            const chosen = quotes.chosen?.provider === s.provider;
             return (
-              <div key={s.provider} className="row" style={{ padding: "6px 0", borderTop: "1px solid var(--border)", opacity: s.filtered ? 0.55 : 1 }}>
-                <div>
-                  <b>{s.provider}</b>{chosen && <span className="muted"> · chosen</span>}
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    min {fmt(q.toAmountMin, to.ref.decimals)} {to.ref.symbol} · ~{hours(q.etaSeconds)} · {q.nativeAssets ? "native" : "wrapped leg"}
-                    {q.refundTarget === "destination" ? " · refunds land at the destination" : ""}
-                    {s.filtered ? ` · ${s.filtered}` : ""}
-                  </div>
+              <div key={s.provider} style={{ padding: "8px 0", borderTop: "1px solid var(--border)", opacity: s.filtered ? 0.55 : 1 }}>
+                <div className="row"><b>{s.provider}{chosen?.provider === s.provider ? " · best route" : ""}</b><b>{fmt(q.toAmount, to.ref.decimals)} {to.ref.symbol}</b></div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Output at least {fmt(q.toAmountMin, to.ref.decimals)} · ~{hours(q.etaSeconds)} · Provider risk: {risk(s.components.security)} · Bridge: {q.nativeAssets ? "none (native assets)" : "wrapped leg"} · Settlement: {settlement(s.provider)} · Privacy {s.components.privacy}
+                  {q.refundTarget === "destination" ? " · a failure refunds at the destination, not to the pool" : ""}
+                  {s.filtered ? ` · not selectable: ${s.filtered}` : ""}
+                  {advanced ? ` · score ${s.total} (price ${s.components.price}, security ${s.components.security}, latency ${s.components.latency}, reliability ${s.components.reliability})` : ""}
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <b>{fmt(q.toAmount, to.ref.decimals)} {to.ref.symbol}</b>
-                  <div className="muted" style={{ fontSize: 12 }}>score {s.total} · privacy {s.components.privacy} · security {s.components.security}</div>
-                  {!s.filtered && <button className="tab" style={{ marginTop: 4 }} onClick={() => commit(s.provider)} disabled={!!busy}>Use</button>}
-                </div>
+                {!s.filtered && chosen?.provider !== s.provider && <button className="tab" style={{ marginTop: 4 }} onClick={() => commit(s.provider)} disabled={!!busy}>Use this route</button>}
               </div>
             );
           })}
-          {Object.entries(quotes.errors).map(([p, e]) => (
-            <div key={p} className="muted" style={{ fontSize: 12, padding: "4px 0" }}>{p}: {e}</div>
+          {showRoute && Object.entries(quotes.errors).map(([p, e]) => <div key={p} className="muted" style={{ fontSize: 12, padding: "4px 0" }}>{p}: {e}</div>)}
+          <Scorecard action="swap" facts={{ delaySeconds: DELAY_WINDOW[policy][0], amountIsBucket: isBucket(wei), privateSubmission: submission.kind === "relayer" && policy !== "fastest", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: !destinationEdited, provider: chosen && chosenQuote ? { crossChainScore: chosen.components.privacy, nativeAssets: chosenQuote.nativeAssets, kind: providerKind(chosen.provider) } : undefined }} />
+        </div>
+      )}
+
+      {!order && openSwaps.length > 0 && (
+        <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+          <label>Your open swaps</label>
+          {openSwaps.map((s) => (
+            <div key={s.orderId} className="row" style={{ fontSize: 13, padding: "4px 0" }}>
+              <span>{fmt((s.params as any).amount, 18)} ETH → {(s.request as any).to.symbol} · {s.state}{s.dueAt && !s.fundedTx ? ` · funding ${new Date(s.dueAt).toLocaleString()}` : ""}</span>
+              <span className="tabs" style={{ margin: 0 }}>
+                <button className="tab" onClick={() => resume(s)} disabled={!!busy}>Open</button>
+                {!s.fundedTx && <button className="tab" onClick={() => { session.update((j) => { const x = j.swaps.find((y) => y.orderId === s.orderId); if (x) x.state = "abandoned"; }); completeAction(`fund-escrow:${s.orderId}`, "abandoned"); }}>Abandon</button>}
+              </span>
+            </div>
           ))}
         </div>
       )}
 
       {order && (
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-          <div className="row"><span className="muted">Route</span><b>{order.quote.provider}</b></div>
-          <div className="row"><span className="muted">One-time escrow (withdrawal recipient)</span><code>{order.endpoint}</code></div>
-          <div className="row"><span className="muted">Executor tip</span><b>{fmt(order.params.executorTip, 18)} ETH</b></div>
-          <div className="row"><span className="muted">Delay budget</span><b>{hours(order.privacy.delaySeconds[0])} – {hours(order.privacy.delaySeconds[1])}</b></div>
-          <div className="row"><span className="muted">Cross-chain privacy score</span><b>{order.privacy.score}</b></div>
-          <div className="row"><span className="muted">Refund after</span><b>{new Date(order.params.refundAfter * 1000).toLocaleString()}</b></div>
-          <div className="row"><span className="muted">Order key (one-time)</span><code>{orderKey?.address}</code></div>
+          <div className="row"><span className="muted">Receive at</span><code style={{ fontSize: 11 }}>{(stored?.request as any)?.destination ?? destination}</code></div>
+          <div className="row"><span className="muted">Privacy</span><b>{order.privacy.score}/100</b></div>
+          <div className="row"><span className="muted">{funded ? "Funded" : dueAt ? "Funding scheduled" : "Funding"}</span><b>{funded ? `tx ${stored!.fundedTx!.slice(0, 10)}…` : dueAt ? `${new Date(dueAt).toLocaleString()} (random within ${hours(order.privacy.delaySeconds[0])}–${hours(order.privacy.delaySeconds[1])}; keep the wallet unlocked)` : "now"}</b></div>
+          <div className="row"><span className="muted">Returns to your private balance if not executed by</span><b>{new Date(order.params.refundAfter * 1000).toLocaleString()}</b></div>
+          {advanced && (
+            <>
+              <div className="row"><span className="muted">Route</span><b>{order.quote.provider}</b></div>
+              <div className="row"><span className="muted">One-time escrow (withdrawal recipient)</span><code>{order.endpoint}</code></div>
+              <div className="row"><span className="muted">Executor tip</span><b>{fmt(order.params.executorTip, 18)} ETH</b></div>
+              <div className="row"><span className="muted">Order key (one-time)</span><code>{orderKey?.address}</code></div>
+            </>
+          )}
           <div className="tabs" style={{ marginTop: 10 }}>
-            <button className="primary" onClick={fundEscrow} disabled={!!busy || !!funded}>1 · Withdraw privately to the escrow</button>
+            <button className="primary" onClick={fundNow} disabled={!!busy || funded} title={dueAt ? "Funding now shortens the random delay and weakens timing privacy" : undefined}>{dueAt && !funded ? "1 · Fund now (less timing privacy)" : "1 · Fund the swap from your private balance"}</button>
             <button className="primary" onClick={signAndHand} disabled={!!busy || !funded || (!!job && !OPEN_FOR_RESIGN.includes(job.state))}>
-              {job && OPEN_FOR_RESIGN.includes(job.state) ? "2 · Re-sign with a fresh quote" : submission.kind === "relayer" ? "2 · Sign provider call & hand to relayer" : "2 · Sign provider call"}
+              {job && OPEN_FOR_RESIGN.includes(job.state) ? "2 · Confirm again with a fresh quote" : "2 · Confirm the swap"}
             </button>
           </div>
-          {funded && <p className="muted" style={{ fontSize: 12 }}>{funded}</p>}
-          {signed && <p className="muted" style={{ fontSize: 12 }}>Signed execution: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission." : ""}</p>}
+          {signed && <p className="muted" style={{ fontSize: 12 }}>Confirmed: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission (advanced)." : ""}</p>}
           {job
-            ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b> ({job.state}{job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}{job.error ? `, ${job.error}` : ""}) — refreshed every 15 s from the executor{OPEN_FOR_RESIGN.includes(job.state) ? "; the signed quote is no longer valid: re-sign with a fresh one" : ""}.</p>
-            : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — fund the escrow first (proved in this tab, submitted {submission.kind === "relayer" ? "by the relayer" : "through the connected wallet"}), then sign the provider call against a fresh quote.</p>}
+            ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>
+            : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked." : "fund the swap, then confirm it."}</p>}
         </div>
       )}
     </div>

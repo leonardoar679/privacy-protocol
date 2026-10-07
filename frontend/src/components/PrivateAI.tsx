@@ -3,6 +3,7 @@ import { formatEther, parseEther } from "viem";
 import type { Deployment } from "../sdk/chain";
 import { privateWithdrawal } from "../sdk/privateTx";
 import { noteStore } from "../wallet/notes";
+import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
@@ -232,6 +233,7 @@ export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; 
         </>
       )}
 
+      <Scorecard action="credit" facts={{ delaySeconds: 0, amountIsBucket: true, privateSubmission: true, rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fundingMode === "fresh", credit: { runtimeKey: true, freshFunding: fundingMode === "fresh" } }} />
       {status && <p className="muted">{status}</p>}
       {snapshot && (
         <>

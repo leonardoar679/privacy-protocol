@@ -111,6 +111,28 @@ export class PrivateSwapEngine {
     };
   }
 
+  /**
+   * Rebuild an order the wallet persisted (spec §3 recovery, plan §30): the same on-chain params give
+   * the same escrow, so a wallet that funded its escrow hours ago can prepare / sign after a service
+   * restart. `quote` is a fresh quote from the same provider (it is re-quoted again at prepare time).
+   */
+  restoreOrder(req: QuoteRequest, policy: Policy, quote: Quote, params: OrderParams): Order {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(params.orderSigner)) throw new Error("restoreOrder: params.orderSigner is not an address");
+    if (params.executeDeadline >= params.refundAfter) throw new Error("restoreOrder: executeDeadline must precede refundAfter");
+    const endpoint = predictEscrow(this.cfg.factory, this.cfg.escrowCreationCode, params);
+    const [dMin, dMax] = DELAY_BUDGET[policy];
+    const score = privacyScore({
+      sourceIsPool: true, destinationFresh: true, amountIsBucket: isBucket(params.amount), amountUniqueness: 0.5, delaySeconds: dMin,
+      providerKind: quote.provider === "thorchain" || quote.provider === "chainflip" || quote.provider === "near-intents" ? "deposit-address" : quote.provider === "mayan" ? "signed-intent" : "aggregator-api",
+      nativeAssets: quote.nativeAssets, oneTimeEndpoints: true, privateSubmission: policy !== "fastest",
+      crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds },
+    });
+    return {
+      orderId: params.orderId, request: req, policy, quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
+      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(params.amount), score }, state: "COMMITTED", history: [{ state: "COMMITTED", at: Date.now(), note: "restored by the wallet" }],
+    };
+  }
+
   /** Once the escrow address is known: re-quote with the escrow as sender, obtain the final ingress and the digest the order key must sign. */
   async prepareExecution(order: Order, adapter: ProviderAdapter, guard?: { alternatives: Quote[]; maxGapBps: number }): Promise<PreparedExecution> {
     const req = { ...this.net(order.request), source: order.endpoint }; // net of the tip, escrow as sender
