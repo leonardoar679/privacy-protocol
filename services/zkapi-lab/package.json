@@ -1,0 +1,14 @@
+{
+  "name": "zkapi-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only verification of the zkAPI mainnet/Sepolia deployment pins against the chain, the SDK's trusted configuration, the repository's setup artifacts and the live manifest (plan V1.1 §62).",
+  "scripts": {
+    "verify:mainnet": "node verify-mainnet.mjs mainnet",
+    "verify:sepolia": "node verify-mainnet.mjs sepolia"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.4.0"
+  }
+}
