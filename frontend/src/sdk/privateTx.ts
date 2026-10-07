@@ -22,8 +22,9 @@ import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
 import { buildShieldNative, buildTransact, coreAbi } from "./privacyProtocol";
-import { clientFor, noteInsertedLogs, noteInsertions, sendViaInjectedWallet, syncTree, txDomainOf, type Deployment } from "./chain";
+import { clientFor, noteInsertedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncTreeQuorum, txDomainOf, type Deployment } from "./chain";
 import { feeForRelayer, relayerInfo, relayerSubmit, type RelayerInfo } from "./relayer";
+import { poolStats } from "../wallet/poolStats";
 
 const toHex = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
 const randomField = (): bigint => { const b = new Uint8Array(32); crypto.getRandomValues(b); return BigInt(toHex(b)) % FIELD; };
@@ -159,7 +160,8 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   const terms = await feeTerms(o.deployment, submission);
   await ensureSpendable({ ...o, submission, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
-  const tree = await syncTree(clientFor(o.deployment), o.deployment);
+  const tree = await syncTreeQuorum(o.deployment);
+  poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planWithdrawal(o.masterSeed, tree.leaves, BigInt(o.deployment.ethVault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
   return submitAndRecord({ ...o, submission, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
 }
@@ -211,7 +213,8 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   const submission = o.submission ?? settings.get().submission;
   const terms = await feeTerms(o.deployment, submission);
   o.onStatus?.(`Merging two notes (${o.a.leafIndex} + ${o.b.leafIndex}) privately…`);
-  const tree = await syncTree(clientFor(o.deployment), o.deployment);
+  const tree = await syncTreeQuorum(o.deployment);
+  poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planMerge(o.masterSeed, tree.leaves, BigInt(o.deployment.ethVault), o.a, o.b, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
@@ -255,7 +258,8 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   const keys = deriveKeys(o.masterSeed);
   await ensureSpendable({ ...o, submission, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
-  const tree = await syncTree(clientFor(o.deployment), o.deployment);
+  const tree = await syncTreeQuorum(o.deployment);
+  poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, o.amount + (terms?.fee.amount ?? 0n));
   const recipientNote: Note = { vaultId, amount: o.amount, ownerCommitment: to.ownerCommitment, noteSecret: randomField() };
   const change = changeNote(keys, vaultId, changeAmount);
@@ -280,7 +284,8 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   const oc = ownerCommitmentOf(keys.spendKey);
   const client = clientFor(o.deployment);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
-  const logs = await noteInsertedLogs(client, o.deployment);
+  const logs = await noteInsertedLogsQuorum(o.deployment);
+  poolStats.set({ notes: logs.length, leaves: logs.reduce((m, l) => Math.max(m, l.leafIndex + 1), 0) });
   let found = 0, added = 0, spentCount = 0;
   for (const l of logs) {
     const note = noteFromPayload(view, oc, l.leafIndex, l.commitment, hexToBytes(l.noteData));

@@ -14,7 +14,7 @@ import { deriveKeys, deriveNoteSecret } from "@ref/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@ref/envelope";
 import { coreAbi } from "../src/sdk/privacyProtocol";
-import { clientFor, syncTree, txDomainOf, type Deployment } from "../src/sdk/chain";
+import { clientFor, deploymentFromEnv, noteInsertedLogsQuorum, syncTree, syncTreeQuorum, txDomainOf, type Deployment } from "../src/sdk/chain";
 import { scanNotes } from "../src/sdk/privateTx";
 import { noteStore } from "../src/wallet/notes";
 
@@ -78,7 +78,7 @@ beforeAll(async () => {
     req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handle) : handle(j))); });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  deployment = { chainId: 31337, core: CORE, ethVault: VAULT, rpcUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`, fromBlock: 0n };
+  deployment = { chainId: 31337, core: CORE, ethVault: VAULT, rpcUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`, rpcUrls: [`http://127.0.0.1:${(server.address() as { port: number }).port}`], fromBlock: 0n };
 });
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
@@ -102,6 +102,54 @@ describe("shielded tree sync", () => {
   it("binds transactions to the chain and core (txDomain) exactly like the reference", () => {
     expect(txDomainOf(deployment)).toBe(txDomain(31337n, BigInt(CORE)));
     expect(txDomainOf({ ...deployment, chainId: 1 })).not.toBe(txDomainOf(deployment));
+  });
+});
+
+describe("private read layer: endpoint quorum (plan §38, Rule 6)", () => {
+  // a second endpoint with a self-consistent but STALE view: only the first group, nextLeafIndex 4,
+  // a root that matches that view — a single-endpoint wallet would accept it
+  const staleTree = new MerkleTree(TX_LEVELS);
+  staleTree.insertGroup([leaves[0].commitment, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
+  function handleStale(req: { id: number; method: string; params: any[] }) {
+    const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
+    if (req.method === "eth_getLogs") return res([logFor(0, leaves[0])]);
+    if (req.method === "eth_call") {
+      const data: string = req.params[0].data;
+      if (data.startsWith(selNext)) return res(pad32(4n));
+      if (data.startsWith(selRoot)) return res(pad32(staleTree.root));
+    }
+    return handle(req);
+  }
+  let stale: Server;
+  let staleUrl = "";
+  beforeAll(async () => {
+    stale = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handleStale) : handleStale(j))); });
+    });
+    await new Promise<void>((r) => stale.listen(0, "127.0.0.1", r));
+    staleUrl = `http://127.0.0.1:${(stale.address() as { port: number }).port}`;
+  });
+  afterAll(() => new Promise<void>((r) => stale.close(() => r())));
+
+  it("agreeing endpoints give the tree; a stale endpoint is detected instead of trusted", async () => {
+    const twoGood = { ...deployment, rpcUrls: [deployment.rpcUrl, deployment.rpcUrl] };
+    const state = await syncTreeQuorum(twoGood);
+    expect(state.root).toBe(tree.root);
+    expect((await noteInsertedLogsQuorum(twoGood)).length).toBe(4);
+
+    const mixed = { ...deployment, rpcUrls: [deployment.rpcUrl, staleUrl] };
+    await expect(syncTreeQuorum(mixed)).rejects.toThrow(/RPC endpoints disagree on the tree/);
+    await expect(noteInsertedLogsQuorum(mixed)).rejects.toThrow(/RPC endpoints disagree on the note events/);
+    // alone, the stale endpoint passes its own root check: that is exactly why one endpoint is not enough
+    const staleOnly = { ...deployment, rpcUrl: staleUrl, rpcUrls: [staleUrl] };
+    expect((await syncTreeQuorum(staleOnly)).nextLeafIndex).toBe(4);
+  });
+  it("reads the endpoint list from the environment (comma-separated), falling back to the single URL", () => {
+    expect(deploymentFromEnv({ VITE_RPC_URLS: " http://a.test , http://b.test", VITE_CORE: CORE, VITE_ETH_VAULT: VAULT })?.rpcUrls).toEqual(["http://a.test", "http://b.test"]);
+    expect(deploymentFromEnv({ VITE_RPC_URL: "http://c.test", VITE_CORE: CORE, VITE_ETH_VAULT: VAULT })?.rpcUrls).toEqual(["http://c.test"]);
+    expect(deploymentFromEnv({ VITE_CORE: CORE, VITE_ETH_VAULT: VAULT })).toBeNull();
   });
 });
 
