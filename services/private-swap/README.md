@@ -7,7 +7,7 @@ scoring with a live incident feed, the cross-chain privacy score, and the one-ti
 
 ```
 npm install
-npm test                                   # 24 tests; the adapter tests are LIVE (real quote APIs, read-only, no funds)
+npm test                                   # 118 tests: 39 offline + 79 LIVE (real quote APIs, read-only, no funds)
 npx tsx src/cli.ts 1 BTC best-privacy       # quote all providers, choose, derive the endpoint, sign the execution
 npx tsx src/cli.ts 1 USDC_BASE best-price
 ```
@@ -21,7 +21,7 @@ npx tsx src/cli.ts 1 USDC_BASE best-price
 | `src/endpoints.ts` | `abi.encode(OrderParams)`, CREATE2 prediction (== `SwapOrderFactory.predict`, forge vector), execution digest (== `SwapOrderEscrow.executionDigest`), low-s signing |
 | `src/engine.ts` | quote all → filter → score → choose; build order (net of the executor tip); authorize (re-quote with the escrow as sender, sign) |
 | `src/adapters/thorchain.ts` | **implemented**: THORNode quote (endpoint list; a gateway's 4xx is reported as THORChain's reason), memo with limit and the escrow as refund address (`=:ASSET:DEST/ESCROW:LIMIT`; guest deposits from UTXO chains refund the sender and use THORChain's short asset form when the 80-byte OP_RETURN requires it), pinned Ethereum router + `depositWithExpiry` calldata, inbound vault from a gateway quorum, tx status, per-chain halts |
-| `src/adapters/lifi.ts` | **implemented**: `/v1/quote` (bridges limited to the facets it reads: Across, Mayan) → `transactionRequest` ingress **decoded and verified locally** (pinned diamond, facets by selector, `BridgeData`, AcrossFacetV4's output from `minAmount × outputAmountMultiplier`, MayanFacet's sweep recipient = escrow), `/v1/status`, chains |
+| `src/adapters/lifi.ts` | **implemented**: `/v1/quote` (bridges limited to the facets it reads: Across, Mayan) → `transactionRequest` ingress **decoded and verified locally** (pinned diamond, facets by selector, `BridgeData`, AcrossFacetV4's output from `minAmount × outputAmountMultiplier`, MayanFacet's sweep recipient = escrow, a source swap only into a token the escrow re-shields: `src/escrowAssets.ts`, PP-S08), `/v1/status`, chains |
 | `src/adapters/chainflip.ts` | **implemented**: `/v2/quote` vault-swap quotes, `POST /api/encodeVaultSwapData` → `Vault.xSwapNative/xSwapToken` calldata **decoded and verified locally** (pinned Vault address, destination chain/asset/address, refund = escrow, min price, no broker/boost/DCA), `/v2/swaps/{tx}` status, `cf_safe_mode_statuses` halts |
 | `src/adapters/mayan.ts` | **implemented**: `/v3/quote` (Fast MCTP, CCTP-settled), order payload (destination, `amountOutMin`, deadline, fees) **built locally** exactly as the SDK does and wrapped in `MayanForwarder.swapAndForwardEth` / `forwardERC20`; the only API bytes are the source-chain router calldata, bounded on-chain by `minMiddleAmount`; explorer status; `refundTarget: destination` |
 | `src/adapters/nearIntents.ts` | **implemented (quotes + status)**: 1Click API dry quotes (signed by the service, `minAmountOut`, `refundTo` = escrow on the origin chain), token list, `/v0/status`. `prepareIngress` **refuses an escrow source** until 1Click confirms that deposits sent by a contract (internal transactions) are credited (`ONECLICK_CONTRACT_DEPOSITS_CONFIRMED=1`); the engine ranks it but never chooses it (`contractSender: false` → filtered) |

@@ -204,6 +204,12 @@ otherwise the route is quoted for information and filtered from selection.
   start of `refund()`, so that value re-shields as ETH too; a wrapped token that misbehaves is skipped,
   never allowed to block the ETH. Provider refunds arrive with a gas stipend (THORChain's router: `send`,
   2300; Chainflip's Vault: 8,000; WETH9's `withdraw`: 2300), so the escrow's `receive()` MUST stay empty.
+  A route MUST NOT be able to pay back to the escrow, on the source chain, anything `refund()` cannot
+  re-shield: the order's asset, and for an ETH order the wrapped native token. A route that swaps first
+  and bridges the result pays an unfilled deposit back in the swapped token (Across refunds the deposit's
+  input token to its depositor), and LI.FI's Mayan facet sweeps its swap surplus in it; such a route is
+  refused unless that token is the order's asset or, for ETH, WETH (PP-S08: LI.FI routed ETH → USDC on
+  Base through USDT). The check runs at quote time, so the engine never ranks such a route.
   Where a provider can only
   refund at the destination (Mayan Fast-MCTP: unfulfilled orders pay USDC to `destAddr`), the quote
   MUST say so (`refundTarget: "destination"`); the destination is the user's fresh address, so nothing
