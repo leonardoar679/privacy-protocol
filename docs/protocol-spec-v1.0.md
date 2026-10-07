@@ -380,7 +380,8 @@ offset  size  field
 153     16    Poly1305 tag
 ```
 Encryption to the recipient's `viewKey`-derived X25519 public key is a wallet concern; the core never
-parses it. Dummy outputs carry 169 uniformly random bytes. Binding (§5 of the plan, "OUTPUT_DOMAIN"):
+parses it (the reference binding and the `pp1…` privacy address are in `crypto-spec.md`, "Output
+payload envelope"). Dummy outputs carry 169 uniformly random bytes. Binding (§5 of the plan, "OUTPUT_DOMAIN"):
 ```
 noteDataHash_k = uint256(keccak256("privacy-protocol/v1/domain/OUTPUT_BINDING" ‖ noteData_k)) mod p
 ```

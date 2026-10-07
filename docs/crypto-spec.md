@@ -42,6 +42,23 @@ storage (the TC-01 fix; `frontend/src/keys/wallet.ts`).
 is public input 13; `noteDataHash_k = keccak256("…/OUTPUT_BINDING" ‖ noteData_k) mod p` binds each
 169-byte payload to the proof.
 
+## Output payload envelope and privacy address (spec §12) — PROPOSAL implemented in the reference, owner to confirm
+Spec §12 pins the 169-byte layout (`0x01 ‖ ephPub(32) ‖ nonce(24) ‖ ct(96) ‖ tag(16)`, X25519 +
+XChaCha20-Poly1305) but not how the view key becomes an X25519 key. The reference now fixes that
+(`reference/typescript/src/envelope.ts`, vectors `test/vectors/envelope.json`); the core never parses
+payloads, so a different choice only needs a new version byte:
+```
+viewSecret = clamp(sha256("privacy-protocol/v1/view-x25519" ‖ be32(viewKey)))        viewPub = X25519(viewSecret)
+key        = sha256("privacy-protocol/v1/envelope-key" ‖ x25519(ephSecret, viewPub) ‖ ephPub ‖ viewPub)
+noteData   = 0x01 ‖ ephPub ‖ nonce ‖ XChaCha20-Poly1305(key, nonce, aad = 0x01 ‖ ephPub)(amount ‖ noteSecret ‖ vaultId)
+```
+A discovered note is accepted only if the decrypted opening reproduces the leaf's commitment with the
+wallet's own `ownerCommitment` (`noteFromPayload`): authenticity does not rest on the AEAD. Dummy
+outputs are 169 bytes of the same shape (version byte, random key/nonce/ciphertext). Fresh ephemeral
+key and nonce per payload; no sender identity is encoded (the recipient learns nothing about who paid).
+**Privacy address** (wallet convention, `reference/typescript/src/address.ts`): bech32m, hrp `pp`,
+data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)` → `pp1…` (113 characters, typo-detecting, case-insensitive).
+
 ## Proof system (spec §11; §41–42 of the plan still open)
 Groth16/BN254 is the measured V1 baseline (~0.9 s proving, ~285k gas verify, 23,343 constraints);
 the verifier is immutable behind `IProofVerifier`, so a universal/transparent system can replace it
