@@ -9,7 +9,8 @@ export const THORNODE_URLS = [
   process.env.THORNODE_URL,
   "https://gateway.liquify.com/chain/thorchain_api",
   "https://rest.cosmos.directory/thorchain",
-  "https://thornode.ninerealms.com",
+  // THORWallet's public load balancer: a third, independent operator (thornode.ninerealms.com stopped resolving in 2026-10)
+  "https://thorchain-thornode-lb-1.thorwallet.org",
 ].filter(Boolean) as string[];
 
 const CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };

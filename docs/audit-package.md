@@ -66,7 +66,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
    forge). Both use the INSECURE dev key until the ceremony (item 1).
 6. **Provider adapters are mainnet-pinned**; NEAR Intents' ingress is withheld (contract-sent
    deposits unconfirmed); Mayan's source-chain swap leg trusts Mayan's router calldata within the
-   §74 damage bound; THORChain's gateway quorum is limited to the two public gateways reachable.
+   §74 damage bound; THORChain's gateway quorum (2 of 3) runs over three independent public gateways (Liquify, cosmos.directory, THORWallet; Nine Realms' host stopped resolving in 2026-10 and was replaced).
 7. **Cross-chain privacy** (`docs/privacy-lab.md`, cross-chain section): every adapter publishes the
    escrow → destination link; it reaches only the privately funded escrow, so a swap is as private as
    its pool withdrawal. The score multiplies the pool-side and cross-chain links (corrected 2026-10-07

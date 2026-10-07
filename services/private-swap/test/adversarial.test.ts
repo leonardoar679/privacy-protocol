@@ -30,7 +30,7 @@ const DEST_EVM = "0x1111111111111111111111111111111111111111";
 const DEST_BTC = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const DEST_SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 const ATTACKER = "0xbad0000000000000000000000000000000000bad";
-const ALL_HOSTS = ["gateway.liquify.com", "rest.cosmos.directory", "thornode.ninerealms.com", "li.quest", "chainflip.io", "mayan.finance", "chaindefuser.com", "across.to"];
+const ALL_HOSTS = ["gateway.liquify.com", "rest.cosmos.directory", "thorwallet.org", "li.quest", "chainflip.io", "mayan.finance", "chaindefuser.com", "across.to"];
 const KEYS = { orderSigner: orderSignerAddress(new Uint8Array(32).fill(7)), refundOwnerCommitment: 1n, refundNoteSecret: 2n, refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}` };
 
 // ---------------------------------------------------------------------------------------------------
