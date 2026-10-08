@@ -76,7 +76,9 @@ against zkAPI's local stack on a clean machine.
   sanitized summary of `frontend/src/zkapi/tradeCheck.ts` — assets, amounts rounded to three
   significant digits, the value tier, the preference, the chosen route's plan and score components,
   the competition record (address-like reasons masked), the privacy-check items by id / level /
-  category — and it is refused before sending if any string looks like an address, a hash or a
+  category, and (V3, spec §16) for a large order the protection plan — risk class, custody, tranche
+  band, exposure cap, steps, settlement gate, ELPF rounded, concentration in words — and it is refused
+  before sending if any string looks like an address, a hash or a
   privacy address. The answer shows as best route / alternative / estimated savings / privacy /
   execution / risk. The assistant recommends and warns; it signs nothing, withdraws nothing, changes
   no destination and overrides no check (plan §78): `frontend/test/trade-check.test.ts` pins that the

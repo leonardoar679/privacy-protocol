@@ -30,6 +30,8 @@ own contracts, the UI shell (`frontend`), gas optimisation.
 | `frontend/src/sdk/providerCall.ts`, `swapGuard.ts`, `swapSign.ts` | the wallet's own reading of the provider call before the one-time key signs: the pinned contracts, each decoder against the deployed provider contracts (THORChain router, Chainflip Vault, Across SpokePool, Mayan forwarder + Fast-MCTP, LI.FI AcrossFacetV4 / MayanFacet), the minimum and the consent flow |
 | **V2** `reference/typescript/src/wallet/{valuation,privacyLint,destinations,noteStrategy,privacyCenter}.ts`, `frontend/src/sdk/{prices,simulate,tiers,secondFactor,orderTracker,poolDeposits}.ts`, `frontend/src/wallet/{housekeeping,lintFacts}.ts`, `frontend/src/zkapi/tradeCheck.ts` | the whale execution layer (`docs/whale-execution-spec-v1.0.md`): the Chainlink reads through the RPC quorum and the fail-safe (can a lying endpoint or feed lower a tier?), the pre-trade simulation's revert decoding and the second call from the escrow, the WebAuthn gate (it verifies the user, not a signature — is that enough for its role?), the lint's categories against the privacy factors, the destination parsers (bech32 / bech32m / base58check / EIP-55 / base58), the tracker's state derivation, the housekeeping planner (fee accounting, note-count bounds, the observer's clustering caveat in `docs/privacy-lab.md`), the trade-check sanitizer (address shapes) |
 | **V2** `services/private-swap/src/{scoring,health,engine,valuation,placeholders,gateway}.ts`, `adapters/{thorchain,chainflip,mayan}.ts` | the five policies and the tier override, the impact / limit / stream filters, the competition record and the per-adapter budget, the breaker, the price guard at `/prepare`, the placeholders at phase 1, the streaming memo (`LIMIT` per sub-swap), Chainflip `dcaParams` equality, Mayan swap & lock (the USDC vault requirement), the gateway's key handling |
+| **V3** `reference/typescript/src/wallet/{campaign,riskClasses,addressBook}.ts`, `frontend/src/wallet/{campaigns,campaignRunner,addressBook,alerts,notifications}.ts`, `frontend/src/sdk/{swapExecute,allowances}.ts`, `frontend/src/components/protection/*` | the high-value protection layer (`docs/high-value-protection-spec-v1.0.md`): the tranche splitter and the exposure invariants I1–I5, the settlement gate with the elapsed-time margin (no explorer), the reducer's one action per tick, the runner's reconcile before every money movement (never a second funding or hand-over), the bounds one confirmation binds, the address book's verification methods and the Immediate override, the separate cross-platform device with no password fallback, what the trade check sends |
+| **V3** `services/private-swap/src/risk/{riskDb,security,protection}.ts`, `services/private-swap/risk/`, `services/private-swap/src/health.ts`, `services/relayer/src/admin.ts` | the risk database's validation, the security breakdown's adjustments and the incident decay, the breaker's new triggers and the half-open probe, the recommendation's band / cap / gate / ELPF / concentration (advice the wallet re-derives), the execution window clamp, the job list's token |
 | `frontend/src/sdk/lightclient/`, `frontend/src/sdk/verifiedReads.ts` | the Ethereum light client: SSZ roots and generalized indices per data format (Electra/Fulu, Gloas), update validation and committee rotation against consensus-specs, the BLS ciphersuite, the trust-on-first-use bootstrap and the snapshot age limit, the execution header field list, the Merkle-Patricia walk (inclusion and exclusion), and the pool check (prefix root, nullifier slots) |
 
 ## 2. Pinning and reproducing
@@ -87,6 +89,29 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 12. **V2 — the whale labs are upper bounds** (`docs/privacy-lab.md`): a per-piece observer, no
     clustering of a whale's pieces, one amount shared by the whales; the housekeeping planner's
     pieces inherit those limits.
+13. **V3 — UniswapX RFQ (R2) and OTC (R6) are interfaces only** (`docs/high-value-protection-spec-v1.0.md`
+    §19): UniswapX needs the escrow to answer EIP-1271 (a bytecode change); an OTC leg has no adapter.
+14. **V3 — multi-device 2-of-3 approval is out of scope**: the institutional control is a second factor on a
+    separate device (a cross-platform WebAuthn credential asked after the platform factor, no password
+    fallback), not threshold signing across devices; the wallet still holds every key.
+15. **V3 — no push notifications and no background execution**: a campaign runs while the web wallet is
+    unlocked on any tab and resumes at unlock; in-app alerts always, the browser's Notification API only when
+    enabled and the tab is hidden (generic text by default).
+16. **V3 — destination finality is an elapsed-time margin** after the provider's delivered state (Bitcoin
+    60 min, Solana 1 min, EVM 15 min, lab-calibrated), never a third-party explorer query (it would leak the
+    destination); a provider lying about delivery can at most delay the next release (I3 fails closed) until
+    the journaled facts disagree. Please judge the margins.
+17. **V3 — the escrow approves the provider for its whole post-tip balance at execute** (bytecode, unchanged):
+    a provider that pulls less keeps an allowance over that one escrow; D1 bounds it to the tranche.
+18. **V3 — a campaign is a visible pattern**: N fundings of one-time escrows on a random cadence (and, with an
+    entered destination, N payments to one address) are public; the lint says so and the privacy lab
+    quantifies the burst share. Maximum Privacy widens the cadence; it does not hide the pattern.
+19. **V3 — the risk database and the ELPF priors are assumptions**: the provider records (class, custody,
+    upgradeability, incidents) are maintained by hand (audits deliberately not recorded until taken from
+    the published reports), the route records are generated by the lab from measured quotes, and the
+    failure priors (2 % TSS / MPC, 1.5 % relayer bridge / CCTP, 3 % intent) stand in until settlement
+    history exists. The security score's adjustments (`services/private-swap/src/risk/security.ts`) are a
+    judgement, not a measurement.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

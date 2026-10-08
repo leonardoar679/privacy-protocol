@@ -40,12 +40,15 @@ cd services/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, F
 npm install && npm run serve                        # http://127.0.0.1:8790 (private submission + swap executor)
 curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's pp1… address
 ```
+V3 (`docs/high-value-protection-spec-v1.0.md`): the service reads its risk database from `services/private-swap/risk/`
+(`RISK_DB_DIR` to point elsewhere; `INCIDENTS_FILE` for an operator's incident list, re-read every minute) and answers
+`GET /risk/:provider`; the relayer's `GET /swap` (the whole job list) opens only to `RELAYER_ADMIN_TOKEN`.
 
 ## 3. Wallet
 ```
 cd frontend && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT / VITE_SWAP_FACTORY from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
 ZKAPI_NETWORK=sepolia npm run zkapi:assets && npm run zkapi:pins   # only for the Private AI tab (Sepolia zkAPI)
-npm install && npm run dev                          # http://localhost:5173
+npm install && npm run dev                          # http://localhost:5173  (VITE_REVIEW_HOLD_MINUTES=1 shortens the institutional review hold for a local run)
 (cd ../core/rust && node scripts/build-wasm.mjs)   # optional: the Rust core as WASM; dev serves it at /core/, a build needs `npm run core:assets` (docs/mobile.md); without it the wallet runs the TypeScript reference
 ```
 Then, in the browser, in this order — each step is one of the flows the node tests and the forge
