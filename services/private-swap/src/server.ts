@@ -15,6 +15,7 @@ import { maxGapBpsFor } from "./scoring";
 import { isPolicy, isPreference, type AssetRef, type Order, type OrderParams, type Policy, type Preference, type ProviderId, type QuoteRequest, type Tier, type TrackStatus, type UserStatus } from "./types";
 import type { PreparedExecution } from "./engine";
 import { isTier } from "./valuation";
+import { gatewayConfigFromEnv, gatewayHealth, gatewayQuote } from "./gateway";
 import { atLeast } from "../../../reference/typescript/src/wallet/valuation";
 
 /** What a guest sees for a provider's tracking state (plan §33: never "atomic", always one of these). */
@@ -46,6 +47,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",");
 const engine = defaultEngine();
 const orders = new Map<string, { order: Order; prepared?: PreparedExecution }>();
+const gatewayCfg = gatewayConfigFromEnv(); // the zkAPI quote gateway (whale spec §22): blocked upstream until ZKAPI_UPSTREAM names a deployment
 
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 const asset = (a: any): AssetRef => ({ chain: a.chain, asset: a.asset, decimals: Number(a.decimals), symbol: a.symbol });
@@ -55,7 +57,10 @@ const request = (b: any): QuoteRequest => ({
 });
 const assessmentOf = (set: { value?: unknown; tier?: Tier }) => ({ value: (set.value as any) ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? ("high-value" as Tier), failSafe: !set.value || "unavailable" in (set.value as object) });
 
-async function route(method: string, path: string, query: URLSearchParams, body: any): Promise<{ status: number; body: unknown }> {
+async function route(method: string, path: string, query: URLSearchParams, body: any, headers: Record<string, string | string[] | undefined> = {}): Promise<{ status: number; body: unknown }> {
+  // the metered zkAPI gateway (whale spec §22): runtime-key auth, a fresh request id, 503 with the reason while no upstream exists
+  if (method === "GET" && path === "/gateway/health") return { status: 200, body: gatewayHealth(gatewayCfg) };
+  if (method === "POST" && path === "/gateway/quote") return gatewayQuote(gatewayCfg, headers, body, async (b: any) => engine.quoteAll(request(b), policyOf(b), { tier: tierHint(b), preference: preferenceOf(b) }));
   if (method === "GET" && path === "/health") {
     const providers = Object.fromEntries(await Promise.all(engine.cfg.adapters.map(async (a) => [a.id, await a.health()])));
     // the deployment every order is built for: the wallet hands (factory, params, execution) to a relayer's swap executor
@@ -162,14 +167,14 @@ async function route(method: string, path: string, query: URLSearchParams, body:
 
 createServer(async (req, res) => {
   const origin = req.headers.origin;
-  const cors: Record<string, string> = origin && ALLOWED_ORIGINS.includes(origin) ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type", "access-control-allow-methods": "GET,POST,OPTIONS" } : {};
+  const cors: Record<string, string> = origin && ALLOWED_ORIGINS.includes(origin) ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type,authorization", "access-control-allow-methods": "GET,POST,OPTIONS" } : {};
   if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
   let raw = "";
   for await (const chunk of req) raw += chunk;
   try {
     const body = raw ? JSON.parse(raw) : {};
     const url = new URL(req.url ?? "/", "http://service");
-    const out = await route(req.method ?? "GET", url.pathname, url.searchParams, body);
+    const out = await route(req.method ?? "GET", url.pathname, url.searchParams, body, req.headers as Record<string, string | string[] | undefined>);
     res.writeHead(out.status, { ...cors, "content-type": "application/json" });
     res.end(json(out.body));
   } catch (e) {

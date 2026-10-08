@@ -673,7 +673,18 @@ and says why.
   health, route health, non-sensitive execution state and zkAPI operational state; never a
   permanent identity → wallet map, a portfolio or an address list.
 
-*Implemented:* Private AI, runtime-key mode, pins (`docs/private-ai.md`). *Stage 9.*
+*Implemented:* Private AI, runtime-key mode, pins (`docs/private-ai.md`); *(Stage 9)* the gateway
+interface `services/private-swap/src/gateway.ts` (`GET /gateway/health`: capability `zkapi`, auth
+`runtime-key`, `available: false` with the reason while `ZKAPI_UPSTREAM` is unset; `POST /gateway/quote`:
+`Authorization: zkapi <runtime key>` parsed strictly, a random 16-byte request id per request, 401
+without a key, 503 "not available upstream" with the request id, the engine's indicative competition
+once an upstream exists, the key never echoed), and "Check this trade" — `frontend/src/zkapi/tradeCheck.ts`
+builds the sanitized summary (assets, amounts to three significant digits, the tier, the preference,
+the chosen route's plan and components, the competition record with any address-like reason masked,
+the lint items by id / level / category) and refuses any address-, hash- or identity-shaped string
+before it leaves; the Review's button sends it to the private session the user opened under Private
+AI (`zkapi/aiSession.ts`) and shows the six lines; the module's imports are pinned by a test to nothing
+that signs or submits, and Private AI's funding index is journaled (`JournalData.aiFunding`).
 
 ## 23. Mobile order screen (plan V2 §39–§45, §90–§95, §137.23)
 

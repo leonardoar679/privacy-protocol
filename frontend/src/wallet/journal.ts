@@ -96,6 +96,8 @@ export interface JournalData {
   activity?: ActivityRecord[];
   /** V2 (Stage 8): what private balance maintenance spent on relayer fees today (the daily cap of settings.housekeeping) */
   housekeeping?: { day: string; feeWei: string; steps: number };
+  /** V2 (Stage 9): the next fresh funding address index of Private AI (a credit note withdrawn moves to the next) */
+  aiFunding?: { index: number };
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

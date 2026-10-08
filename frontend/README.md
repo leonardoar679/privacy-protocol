@@ -48,6 +48,10 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
   one private self-transfer at a time inside the policy window, within the daily fee cap of Settings;
   `sdk/privateTx.ts splitNote` is the split beside the merges; Home says what is planned; a spend spread
   over too many notes offers "Consolidate my notes now" instead of "insufficient balance".
+  **"Check this trade" (V2 Stage 9, whale spec §22):** `src/zkapi/tradeCheck.ts` sends a sanitized
+  summary of a reviewed trade (no address, hash or identity: refused before it leaves) to the private AI
+  session opened under Private AI (`src/zkapi/aiSession.ts`) and the Review shows the six lines; the module
+  imports nothing that signs or submits (pinned by a test).
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

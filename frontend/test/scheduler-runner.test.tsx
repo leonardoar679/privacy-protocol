@@ -61,6 +61,7 @@ describe("the scheduler runner", () => {
     // the backoff elapsed (the journal is the clock): it runs again
     await act(async () => { completeAction("fund-escrow:0xbad", "relayer unreachable", session, Date.now() - 2 * BACKOFF_MAX_MS); });
     await vi.waitFor(() => expect(ran.filter((x) => x === "0xbad")).toHaveLength(2), { timeout: 5_000 });
-    expect(session.journal().schedule.find((a) => a.orderId === "0xbad")!.attempts).toBe(3);
+    await vi.waitFor(() => expect(session.journal().schedule.find((a) => a.orderId === "0xbad")!.attempts).toBe(3), { timeout: 5_000 }); // the failure is recorded once the run rejects
+    expect(ran.filter((x) => x === "0xbad")).toHaveLength(2);
   });
 });

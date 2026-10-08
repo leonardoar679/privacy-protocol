@@ -4,6 +4,7 @@ import { unacknowledgedBlocks, type LintId, type LintItem } from "@ref/wallet/pr
 import { tierLabel, type Tier } from "@ref/wallet/valuation";
 import { assertSecondFactor, verifyPassword, webauthnAvailable } from "../sdk/secondFactor";
 import { REVIEW_HOLD_MINUTES, type Controls } from "../sdk/tiers";
+import type { TradeCheck } from "../zkapi/tradeCheck";
 import { DestinationCard } from "./DestinationCard";
 import { HoldToConfirm } from "./HoldToConfirm";
 import { PrivacyLint } from "./PrivacyLint";
@@ -40,6 +41,8 @@ export interface ReviewProps {
   reviewHold?: { minutes: number } | null;
   onExport?: () => void;
   secondFactor?: { credentialId?: string } | null;
+  /** "Check this trade" on Private AI (spec §22): available only with an open private session; the summary is sanitized by the caller */
+  tradeCheck?: { available: boolean; reason?: string; run: () => Promise<TradeCheck> } | null;
   busy?: string;
   error?: string;
   onConfirm: () => void | Promise<void>;
@@ -58,6 +61,12 @@ export function Review(p: ReviewProps) {
   const [factor, setFactor] = useState<"idle" | "asking" | "password" | "passed">("idle");
   const [password, setPassword] = useState("");
   const [factorError, setFactorError] = useState("");
+  const [check, setCheck] = useState<{ busy?: boolean; result?: TradeCheck; error?: string }>({});
+  async function runCheck() {
+    if (!p.tradeCheck?.available) return;
+    setCheck({ busy: true });
+    try { setCheck({ result: await p.tradeCheck.run() }); } catch (e: any) { setCheck({ error: e?.message ?? String(e) }); }
+  }
   const m = MOMENT[p.moment];
   const blocks = unacknowledgedBlocks(p.lint);
   const pendingLines = p.lines.filter((l) => !l.ok);
@@ -134,6 +143,21 @@ export function Review(p: ReviewProps) {
         </>
       )}
 
+      {p.tradeCheck && (
+        <div style={{ marginTop: 8 }} data-testid="trade-check">
+          <div className="tabs" style={{ margin: "6px 0" }}>
+            <button className="tab" onClick={runCheck} disabled={!p.tradeCheck.available || !!check.busy} title={p.tradeCheck.available ? "A sanitized summary goes to your private AI session: assets, rounded amounts, the route, the competition, the privacy check — no address" : p.tradeCheck.reason}>{check.busy ? "Checking…" : "Check this trade (Private AI)"}</button>
+            {!p.tradeCheck.available && <span className="muted small">{p.tradeCheck.reason}</span>}
+          </div>
+          {check.error && <p className="error small">{check.error}</p>}
+          {check.result && (
+            <div className="panel" style={{ margin: "6px 0", padding: 12 }} data-testid="trade-check-result">
+              <div className="muted small" style={{ marginBottom: 4 }}>Private AI (it recommends and warns; it signs nothing and changes nothing)</div>
+              {(["bestRoute", "alternative", "estimatedSavings", "privacy", "execution", "risk"] as const).map((k) => check.result![k] ? <div key={k} className="row small"><span className="muted">{{ bestRoute: "Best route", alternative: "Alternative", estimatedSavings: "Estimated savings", privacy: "Privacy", execution: "Execution", risk: "Risk" }[k]}</span><span style={{ textAlign: "right", maxWidth: 440 }}>{check.result![k]}</span></div> : null)}
+            </div>
+          )}
+        </div>
+      )}
       {p.reviewHold && <p className="notice" style={{ marginTop: 10 }}>Review hold: after you confirm, the funding waits at least {p.reviewHold.minutes} minutes and the order can be cancelled meanwhile (Swap → open swaps → Abandon).</p>}
       {p.onExport && <div className="tabs" style={{ margin: "6px 0" }}><button className="tab" onClick={p.onExport}>Export for review (JSON)</button></div>}
 

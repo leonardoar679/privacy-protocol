@@ -5,6 +5,8 @@ import { privateWithdrawal } from "../sdk/privateTx";
 import { noteStore } from "../wallet/notes";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
+import { aiSession } from "../zkapi/aiSession";
+import { session } from "../wallet/session";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
 // Private AI (plan §4, §63): one private credit account (zkAPI, native ETH, expiring service credit)
@@ -22,7 +24,8 @@ export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; 
   const [cfg, setCfg] = useState<BrowserConfig | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [snapshot, setSnapshot] = useState<any>(null);
-  const [fundingIndex, setFundingIndex] = useState(0);
+  // the fresh funding address index lives in the encrypted journal (V2 Stage 9): a withdrawn credit note moves to the next, across reloads
+  const [fundingIndex, setFundingIndex] = useState(() => (session.isUnlocked() ? session.journal().aiFunding?.index ?? 0 : 0));
   const [fundingMode, setFundingMode] = useState<"fresh" | "connected">("fresh");
   const [bucket, setBucket] = useState(CREDIT_BUCKETS_ETH[1]);
   const [models, setModels] = useState<{ id: string; name: string }[]>(DEFAULT_MODELS.map((id) => ({ id, name: id })));
@@ -115,6 +118,7 @@ export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; 
     await run("Proving the credit and requesting a short-lived provider key…", async () => {
       const a: InferenceAccess = await zkapiClient.acquireInferenceAccess(newSessionId(), { spendingLimitUsd: tier, onProgress: (p: any) => setStatus(String(p?.message ?? p?.phase ?? "")) });
       setAccess(a);
+      aiSession.set(a, model); // the Review screen's "Check this trade" uses this session (it signs nothing)
       setMessages([]);
       setStatus(`Private chat ready: cap $${a.spendingLimitUsd}, key for ${new URL(a.baseUrl).host} only.`);
     });
@@ -124,6 +128,7 @@ export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; 
     abortRef.current?.abort();
     access?.release();
     setAccess(null);
+    aiSession.set(null);
     setStatus("Session ended; the key retires and only actual usage is settled.");
   }
 
@@ -152,7 +157,7 @@ export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; 
     await run("Closing the credit note (mutual close)…", async () => {
       await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), { destination: fresh.address });
       setStatus(`Credit withdrawn to the fresh address ${fresh.address.slice(0, 10)}…; shield it back into the pool from there.`);
-      setFundingIndex((i) => i + 1); // the next credit note gets a new fresh address
+      setFundingIndex((i) => { session.update((j) => { j.aiFunding = { index: i + 1 }; }); return i + 1; }); // the next credit note gets a new fresh address, journaled
     });
   }
 

@@ -7,6 +7,7 @@ export * from "./endpoints";
 export * from "./engine";
 export * from "./valuation";
 export * from "./placeholders";
+export * from "./gateway";
 export { ThorchainAdapter, thorAsset, buildMemo, encodeDepositWithExpiry, inboundQuorum, THORNODE_QUORUM, THORNODE_URLS } from "./adapters/thorchain";
 export { LifiAdapter, lifiToken, LIFI_DIAMOND, NON_EVM_RECEIVER, decodeLifiCall, verifyLifiTransaction } from "./adapters/lifi";
 export { AcrossAdapter, SPOKE_POOL, WETH, encodeDepositV3 } from "./adapters/across";

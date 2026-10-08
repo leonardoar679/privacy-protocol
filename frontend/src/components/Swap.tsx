@@ -12,6 +12,9 @@ import { feedsConfigured } from "../sdk/prices";
 import { Review, type ReviewLine } from "./Review";
 import { trackOrder, type Tracked } from "../sdk/orderTracker";
 import { SettlementLine } from "./SettlementLine";
+import { useAiSession } from "../zkapi/aiSession";
+import { checkTrade, tradeSummary } from "../zkapi/tradeCheck";
+import type { LintItem } from "@ref/wallet/privacyLint";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
 import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
 import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
@@ -355,6 +358,13 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: stored.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;
   const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
   const ack = (id: LintId) => setAcknowledged((x) => [...x, id]);
+  // "Check this trade" (whale spec §22): a sanitized summary to the private AI session the user opened; nothing else leaves
+  const ai = useAiSession();
+  const tradeCheckFor = (chosenProvider: string | undefined, quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string } | undefined, score: RouteScore | undefined, linkPublic: boolean | undefined, lintList: LintItem[] | null, amountUnits: bigint, t: AssetRef) => ({
+    available: !!ai.access,
+    reason: ai.access ? undefined : "Start a private chat under Home → Details → Private AI to check this trade there.",
+    run: async () => checkTrade(ai.access!, ai.model, tradeSummary({ from: { chain: "ethereum", symbol: fromAsset.symbol, decimals: fromAsset.decimals }, to: { chain: t.chain, symbol: t.symbol, decimals: t.decimals }, amountUnits, usd, tier, preference, chosen: chosenProvider && quote ? { provider: chosenProvider, score, quote, linkPublic } : null, competition: quotes?.competition ?? (stored?.competition as never) ?? null, lint: lintList })),
+  });
 
   /** The Review before commit (spec §24): the five lines of plan §4 computed from the quote set and the lint. */
   function commitReview(provider?: string) {
@@ -380,6 +390,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
         issuer={issuerLine(fromAsset.symbol) ?? issuerLine(sym)} routeKind={routeKind(refOf(fromAsset), to.ref, quote.nativeAssets)}
         details={{ provider: prov, mode: quote.plan?.mode ?? "single", parts: quote.plan?.parts, fees: feeSummary(quote), expectedOutput: `${fmt(quote.toAmount, dec)} ${sym}`, settlement: settlement(prov), alternatives: (q.competition ?? []).filter((c) => c.provider !== prov).map((c) => ({ provider: c.provider, outcome: c.outcome, reason: c.reason })), score: advanced ? `${score.total} (price ${score.components.price}, security ${score.components.security}, privacy ${score.components.privacy}, latency ${score.components.latency}, reliability ${score.components.reliability}, liquidity ${score.components.liquidity})` : undefined, linkEvidence: q.links?.[prov]?.evidence }}
         advanced={advanced} reviewHold={controls.reviewHold ? { minutes: REVIEW_HOLD_MINUTES } : null} onExport={controls.export ? exportNow : undefined} secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+        tradeCheck={tradeCheckFor(prov, quote, score, q.links?.[prov]?.public, lintItems, units, to.ref)}
         busy={busy} error={error} onConfirm={() => commit(prov)} onCancel={() => setReview(null)} />
     );
   }
@@ -409,6 +420,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
         issuer={issuerLine(orderAsset.symbol) ?? issuerLine(sym)} routeKind={routeKind(refOf(orderAsset), t, quote.nativeAssets)}
         details={{ provider: s.call.provider, mode: s.prepared.plan?.mode ?? "single", parts: s.prepared.plan?.parts, fees: "as quoted at commit", expectedOutput: quote.toAmount ? `${fmt(quote.toAmount, dec)} ${sym}` : "as quoted", settlement: settlement(s.call.provider), alternatives: ((stored?.competition ?? []) as { provider: string; outcome: string; reason?: string }[]).filter((c) => c.provider !== s.call.provider), linkEvidence: undefined, score: advanced ? s.call.facts.join("; ") : undefined }}
         advanced={advanced} onExport={executeControls.export ? exportNow : undefined} secondFactor={executeControls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+        tradeCheck={tradeCheckFor(s.call.provider, quote.toAmount ? { plan: s.prepared.plan, etaSeconds: quote.etaSeconds ?? 0, impactBps: quote.impactBps, nativeAssets: quote.nativeAssets ?? true, toAmountMin: stored?.approvedMin ?? "0" } : undefined, undefined, undefined, signLint, BigInt((stored?.params as { amount?: string })?.amount ?? "0"), t)}
         busy={busy} error={error} onConfirm={() => handOver(s)} onCancel={() => setReview(null)} />
     );
   }

@@ -70,6 +70,25 @@ disables the tab), the transport refuses proxying, and the fresh-address provide
 anything but a transaction for its own address. Still owed: an integration test that drives the SDK
 against zkAPI's local stack on a clean machine.
 
+## "Check this trade" and the quote gateway (V2 Stage 9, whale spec §22)
+- **Check this trade** (plan V2 §77–§79): with a private chat open here, the Review screen of a large
+  swap, send or withdrawal offers "Check this trade (Private AI)". What leaves the wallet is the
+  sanitized summary of `frontend/src/zkapi/tradeCheck.ts` — assets, amounts rounded to three
+  significant digits, the value tier, the preference, the chosen route's plan and score components,
+  the competition record (address-like reasons masked), the privacy-check items by id / level /
+  category — and it is refused before sending if any string looks like an address, a hash or a
+  privacy address. The answer shows as best route / alternative / estimated savings / privacy /
+  execution / risk. The assistant recommends and warns; it signs nothing, withdraws nothing, changes
+  no destination and overrides no check (plan §78): `frontend/test/trade-check.test.ts` pins that the
+  module imports only the transport policy and types. The fresh funding index of this screen is kept
+  in the encrypted journal (`aiFunding`).
+- **The quote gateway** (`services/private-swap/src/gateway.ts`; `GET /gateway/health`,
+  `POST /gateway/quote`): the same engine behind a zkAPI capability — `Authorization: zkapi <runtime
+  key>`, a random 16-byte request id per request, no account, no cookie. **Blocked upstream:** the live
+  zkAPI deployments lease OpenRouter keys only; until a deployment registers an upstream of this
+  service's kind (`ZKAPI_UPSTREAM`), health says "not available upstream" and every quote answers 503
+  with the reason and a request id. Nothing pretends otherwise.
+
 ## Open points
 - A browser run with Sepolia ETH. The Sepolia server's shared password dialog is wired
   (`requestTestnetPassword` → an in-tab form that stays open on rejection, resolves after the
