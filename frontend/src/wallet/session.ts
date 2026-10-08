@@ -1,16 +1,26 @@
 // The wallet session (plan §44): create / unlock / lock / restore, and the encrypted journal that
 // follows the unlocked seed. Recovery never depends on this site: the 24-word phrase alone restores
 // the seed (then a chain rescan rebuilds the notes), and the backup file restores seed + journal.
+// V2 (Stage 4): every journal write notifies the screens (the scheduler patches orders from any tab),
+// and a journal that fails to decrypt is kept, never overwritten — the wallet opens read-only on an
+// empty journal and says so until the user restores a backup or sets the unreadable one aside.
 import { useSyncExternalStore } from "react";
 import { generateMasterSeed } from "../keys/wallet";
 import { createKeystore, KDF_DEFAULT, phraseToSeed, seedToPhrase, unlockKeystore, type KdfParams, type Keystore } from "./keystore";
 import { decryptJournal, emptyJournal, encryptJournal, journalKey, type EncryptedJournal, type JournalData } from "./journal";
-import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, type KeyValueStorage } from "./storage";
+import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "./storage";
 import { noteStore } from "./notes";
 import { settings, type Settings } from "./settings";
 
 export type SessionStatus = "none" | "locked" | "unlocked";
-export interface SessionState { status: SessionStatus; seed: Uint8Array | null; /** set right after create(): the 24 words the user must acknowledge before the wallet screens appear */ pendingPhrase: string | null }
+export interface SessionState {
+  status: SessionStatus;
+  seed: Uint8Array | null;
+  /** set right after create(): the 24 words the user must acknowledge before the wallet screens appear */
+  pendingPhrase: string | null;
+  /** the stored journal did not decrypt under this seed: the session runs on an empty journal and writes nothing (see discardUnreadableJournal) */
+  journalUnreadable: boolean;
+}
 
 export interface Backup { v: 1; keystore: Keystore; journal: EncryptedJournal | null }
 
@@ -20,10 +30,11 @@ export class WalletSession {
   private data: JournalData | null = null;
   private listeners = new Set<() => void>();
   private pendingPhrase: string | null = null;
+  private unreadable = false;
   private snapshot: SessionState;
 
   constructor(private readonly storage: KeyValueStorage = browserStorage(), private readonly kdf: KdfParams = KDF_DEFAULT) {
-    this.snapshot = { status: this.hasKeystore() ? "locked" : "none", seed: null, pendingPhrase: null };
+    this.snapshot = { status: this.hasKeystore() ? "locked" : "none", seed: null, pendingPhrase: null, journalUnreadable: false };
     // mirror the in-memory stores into the journal while unlocked
     noteStore.subscribe(() => this.update((j) => { const s = noteStore.serialize(); j.notes = s.notes; j.noteCounter = s.noteCounter; }));
     settings.subscribe(() => this.update((j) => { j.settings = { ...settings.get() }; }));
@@ -34,7 +45,7 @@ export class WalletSession {
   isUnlocked(): boolean { return this.seed !== null; }
   subscribe(l: () => void): () => void { this.listeners.add(l); return () => this.listeners.delete(l); }
   private emit(): void {
-    this.snapshot = { status: this.seed ? "unlocked" : this.hasKeystore() ? "locked" : "none", seed: this.seed, pendingPhrase: this.pendingPhrase };
+    this.snapshot = { status: this.seed ? "unlocked" : this.hasKeystore() ? "locked" : "none", seed: this.seed, pendingPhrase: this.pendingPhrase, journalUnreadable: this.unreadable };
     for (const l of this.listeners) l();
   }
 
@@ -44,6 +55,7 @@ export class WalletSession {
     const ks = await createKeystore(own, password, this.kdf);
     this.storage.set(KEYSTORE_KEY, JSON.stringify(ks));
     this.storage.remove(JOURNAL_KEY);
+    this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
     this.open(own, emptyJournal());
     return this.pendingPhrase;
@@ -62,9 +74,26 @@ export class WalletSession {
     if (!seed) return false;
     const key = journalKey(seed);
     const blob = this.storage.get(JOURNAL_KEY);
-    const journal = blob ? decryptJournal(key, JSON.parse(blob) as EncryptedJournal) : null;
+    let journal: JournalData | null = null;
+    if (blob) {
+      try { journal = decryptJournal(key, JSON.parse(blob) as EncryptedJournal); } catch { journal = null; }
+    }
+    this.unreadable = !!blob && journal === null; // kept as it is: nothing overwrites it
     this.open(seed, journal ?? emptyJournal());
     return true;
+  }
+
+  /**
+   * The stored journal did not decrypt: set it aside under its own key (still encrypted, never deleted) and
+   * continue with the journal in memory, which is persisted from now on. The user's choice, never automatic.
+   */
+  discardUnreadableJournal(): void {
+    if (!this.unreadable || !this.data || !this.key) return;
+    const blob = this.storage.get(JOURNAL_KEY);
+    if (blob) this.storage.set(UNREADABLE_JOURNAL_KEY, blob);
+    this.unreadable = false;
+    this.storage.set(JOURNAL_KEY, JSON.stringify(encryptJournal(this.key, this.data)));
+    this.emit();
   }
 
   /** Restore from the 24 words: the same seed under a new password; notes come back with a chain rescan. */
@@ -106,6 +135,7 @@ export class WalletSession {
     this.seed?.fill(0);
     this.key?.fill(0);
     this.seed = null; this.key = null; this.data = null;
+    this.unreadable = false;
     noteStore.clear();
     this.emit();
   }
@@ -123,11 +153,15 @@ export class WalletSession {
     return this.data;
   }
 
-  /** Mutate the journal and persist it encrypted. No-op while locked. */
+  /**
+   * Mutate the journal, persist it encrypted and notify the screens. No-op while locked. While the stored
+   * journal is unreadable the change stays in memory (the blob on disk is not touched).
+   */
   update(fn: (j: JournalData) => void): void {
     if (!this.data || !this.key) return;
     fn(this.data);
-    this.storage.set(JOURNAL_KEY, JSON.stringify(encryptJournal(this.key, this.data)));
+    if (!this.unreadable) this.storage.set(JOURNAL_KEY, JSON.stringify(encryptJournal(this.key, this.data)));
+    this.emit();
   }
 
   private open(seed: Uint8Array, journal: JournalData): void {

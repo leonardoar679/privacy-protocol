@@ -41,7 +41,7 @@ export const TIMING_FACTOR = (delaySeconds: number): number => (delaySeconds < 6
 export const AMOUNT_FACTOR = (bucket: boolean): number => (bucket ? 2.9 : 19.4);
 const clamp = (x: number) => Math.max(0, Math.min(100, Math.round(x)));
 /** 0 at an effective set of 1, 100 at 1000+ (log scale: every ×10 of cover is worth the same). */
-const setScore = (effective: number) => clamp((100 * Math.log10(Math.max(1, effective))) / 3);
+export const setScore = (effective: number): number => clamp((100 * Math.log10(Math.max(1, effective))) / 3);
 
 export function effectiveAnonymity(f: Pick<ScorecardFacts, "poolSize" | "delaySeconds" | "amountIsBucket">): number {
   return Math.max(1, f.poolSize / (TIMING_FACTOR(f.delaySeconds) * AMOUNT_FACTOR(f.amountIsBucket)));

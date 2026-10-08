@@ -39,8 +39,9 @@ export function Shield({ masterSeed, deployment }: { masterSeed: Uint8Array; dep
   }
 
   return (
-    <div className="panel">
-      <h3>Add to your private balance</h3>
+    <div className="panel" data-testid="shield">
+      <h3>Add funds</h3>
+      <p className="muted small">Your connected wallet pays into your private balance. The deposit is public; everything after it is private.</p>
       <AssetSelect assets={assets} value={asset} onChange={(a) => { setAsset(a); setAmount(a.decimals === 18 ? "1.0" : "100"); }} />
       <label>Amount ({asset.symbol})</label>
       <input value={amount} onChange={(e: any) => setAmount(e.target.value)} />

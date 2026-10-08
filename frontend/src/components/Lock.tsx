@@ -27,6 +27,7 @@ export function Lock({ hasKeystore, onGuest }: { hasKeystore: boolean; onGuest?:
   const [confirm, setConfirm] = useState("");
   const [phrase, setPhrase] = useState("");
   const [file, setFile] = useState("");
+  const [replace, setReplace] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +36,10 @@ export function Lock({ hasKeystore, onGuest }: { hasKeystore: boolean; onGuest?:
     try { await fn(); } catch (e: any) { setError(e?.message ?? String(e)); setBusy(false); }
   }
 
-  const passwordOk = password.length >= 8 && password === confirm;
+  // creating or restoring over an existing wallet replaces its keystore and journal on this device: a typed confirmation, never one click
+  const replacing = hasKeystore && mode !== "unlock";
+  const confirmed = !replacing || replace === "REPLACE";
+  const passwordOk = password.length >= 8 && password === confirm && confirmed;
 
   const create = () => run(async () => { await session.create(password); });
   const unlock = () => run(async () => { if (!(await session.unlock(password))) throw new Error("wrong password"); });
@@ -82,6 +86,12 @@ export function Lock({ hasKeystore, onGuest }: { hasKeystore: boolean; onGuest?:
           <input type="password" value={password} onChange={(e: any) => setPassword(e.target.value)} />
           <button className="primary" onClick={restoreFile} disabled={busy || !password || !file.trim()}>Restore</button>
         </>
+      )}
+      {replacing && (
+        <div className="notice" style={{ marginTop: 6 }}>
+          This replaces the wallet on this device: its keystore and encrypted journal are removed. Its phrase or a backup file is then the only way back. Type REPLACE to confirm.
+          <input value={replace} onChange={(e: any) => setReplace(e.target.value)} placeholder="REPLACE" autoComplete="off" data-testid="replace-confirm" style={{ marginBottom: 0 }} />
+        </div>
       )}
       {error && <p style={{ color: "var(--warn)" }}>{error}</p>}
       <div className="tabs" style={{ marginTop: 10 }}>

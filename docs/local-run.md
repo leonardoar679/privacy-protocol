@@ -49,10 +49,10 @@ suites already cover, so what is being checked is the glue in a real browser on 
    note and the relayer's fee note are on chain; the relayer's `GET /jobs` shows the submission mined.
    A note shielded in the last ~13 minutes is newer than finality: it is spendable, but proven only once
    its block is final.
-4. **Send privately** to a second wallet's `pp1…` address (its **Receive** tab shows it with a QR) → the recipient rescans and finds the note.
-4b. **Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
-5. **Swap privately**: Get a quote (one route in plain words; *View route* lists the providers) → Swap →
-   under *Best privacy* the funding is scheduled at a random time in the window (reload the page, unlock:
+4. **Send → Privately** to a second wallet's `pp1…` address (its **Home → Receive** sheet shows it with a QR) → the recipient rescans (Home → Details) and finds the note.
+4b. **Home → Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
+5. **Swap**: Get a quote (one route in plain words; *Route details* lists the providers; the trade preference lives under Settings) → Swap →
+   with the *Best privacy* preference (Settings) the funding is scheduled at a random time in the window (reload the page, unlock:
    the order is still there under "Your open swaps"; *Fund now* skips the wait) → 2 · Confirm the swap →
    the wallet reads the provider call before signing and states what it checked; the executor's state
    goes Pending → Executing (`deployAndExecute` from the relayer key). On a testnet the wallet refuses to

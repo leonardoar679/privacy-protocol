@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from "react";
 import type { Hex, PublicClient } from "viem";
 import {
-  SELECTOR, agreePrices, assess, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, FEED_REGISTRY, parsePrices, serializePrices,
+  SELECTOR, agreePrices, assess, availablePrice, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, FEED_REGISTRY, parsePrices, serializePrices, usdOf,
   type Assessment, type FeedSpec, type PriceRead, type Prices, type TierThresholds,
 } from "@ref/wallet/valuation";
 import { clientsFor, type Deployment } from "./chain";
@@ -116,3 +116,15 @@ export class PriceStore {
 
 export const priceStore = new PriceStore();
 export const usePrices = (): PriceState => useSyncExternalStore((l) => priceStore.subscribe(l), () => priceStore.state());
+
+/** The USD value of balances under a price state: the total of what could be valued, how many assets that is, and the symbols left unpriced. */
+export function valueOfBalances(st: PriceState, lines: { symbol: string; decimals: number; units: bigint }[]): { usd: number; valued: number; unpriced: string[] } {
+  let usd = 0, valued = 0;
+  const unpriced: string[] = [];
+  for (const l of lines) {
+    if (l.units === 0n) continue;
+    const p = availablePrice(st.prices, l.symbol);
+    if (p) { usd += usdOf(l.units, l.decimals, p.usd1e8); valued++; } else unpriced.push(l.symbol);
+  }
+  return { usd, valued, unpriced };
+}

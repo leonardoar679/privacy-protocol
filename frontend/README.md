@@ -16,7 +16,17 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
 > fix is a breaking Vite 8 bump, deferred for V1.
 
 ## What's here
-- `src/App.tsx` + `src/components/*` — Shield / Send privately / Withdraw / PrivateBalance / PrivacyScore.
+- `src/App.tsx` + `src/components/*` — **V2 (plan V2 §39–§45): four tabs — Home, Swap, Send, Activity** — and
+  nothing else in the main navigation (a side column from 1024 px adds Private assets, Privacy Center,
+  Advanced). `Home` (the private balance as one USD numeral from `sdk/prices.ts`, Send / Swap, Add funds
+  and Receive as sheets, the 🛡 badge opening `PrivacyCenter` — six categories with word levels from
+  `reference/typescript/src/wallet/privacyCenter.ts` — Details for the per-asset lines (`PrivateBalance`)
+  and the private services, `Settings` behind one gear: trade preference, value tiers, housekeeping, light
+  client, submission, Advanced, backup, lock, forget). `Send` = `Send` (privately) or `Withdraw` (to a
+  public address). `Activity` lists the journal's `activity[]` (`src/wallet/activity.ts`). The scheduler
+  (`src/wallet/schedule.ts`) runs at the App level on any tab, one action at a time, with backoff;
+  `sdk/swapFunding.ts` is the funding path shared with "Fund now". Light-first tokens with dark mode
+  (`styles.css`), safe areas and `public/manifest.webmanifest` so iPhone Safari can install it.
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

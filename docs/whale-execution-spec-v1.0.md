@@ -675,7 +675,18 @@ Normative content of the Swap screen (plan §44) and of the app around it:
   warning colour; rounded cards, large numerals, no provider logos, no jargon, light and dark.
 - Trade preference (plan §97) lives in Settings, never on the Swap screen and never on chain.
 
-*Stage 4* (shell, Home, Privacy Center, preference, style) and *Stage 6* (Review).
+*Implemented (Stage 4):* `frontend/src/App.tsx` (the four tabs; from 1024 px the side column adds Private
+assets, Privacy Center and Advanced; Add funds, Receive, the Privacy Center, Settings and Private AI are
+sheets over Home; the scheduler runs at this level from any tab), `components/Home.tsx` (the USD numeral
+from `sdk/prices.ts`, "Details" for the per-asset lines, the 🛡 badge with the overall level),
+`components/PrivacyCenter.tsx` on `reference/typescript/src/wallet/privacyCenter.ts` (the six categories
+with Excellent ≥ 85 / Good ≥ 60 / Reduced, the explanations, the plan §69 limits; the overall is the
+weakest known level), `components/Settings.tsx` (preference, tiers, housekeeping, light client,
+submission, Advanced, backup, lock, forget with a typed confirmation), `components/Swap.tsx` ("Best
+route: Automatic", Privacy / Price levels from the score components, Time, "Route details" with the
+competition record, the USD line and the tier notice; no preference control), `sdk/policy.ts` (the delay
+windows), `styles.css` + `index.html` + `public/manifest.webmanifest` (light-first tokens, dark mode,
+safe areas, installable). *Stage 6* (Review).
 
 ## 24. Large-transfer confirmation (plan V2 §4–§5, §11–§13, §46–§48, §100, §137.24)
 
@@ -747,8 +758,15 @@ JournalData += { activity?: ActivityRecord[], prices?: { pair: { usd, at } } }
   NOT hold a user id, a portfolio, an address list or a permanent identity → order map; the
   service's order map is a session cache.
 
-*Implemented:* `StoredSwap` without the new fields; no activity list. *Stage 2* (`prices`), *Stage 4*
-(`activity`), *Stage 5* (`lint`, `simulation`), *Stage 7* (`track`, `history`, `executionTx`).
+*Implemented (Stages 2 and 4):* `prices` (`sdk/prices.ts`); `activity[]` (`wallet/activity.ts`: records
+carry `decimals` beside `asset` so a row renders without the deployment; written by `sdk/privateTx.ts`
+for shields, transfers, withdrawals and merges, by the Swap screen at commit and on every state change,
+and for refunds the executor reports; `components/Activity.tsx` lists them newest first, with the
+scheduler's failures and their next attempt, and removes finished rows on request); `StoredSwap.preference`,
+`tier`, `value`, `plan` at commit; `ScheduledAction.attempts` / `nextAttemptAt` (the runner's backoff).
+A journal that fails to decrypt at unlock is kept as it is: the session reports `journalUnreadable`,
+persists nothing, and sets the blob aside under `pp.journal.unreadable` only when the user asks
+(`wallet/session.ts`). *Stage 5* (`lint`, `simulation`), *Stage 7* (`track`, `history`, `executionTx`).
 
 ## 26. Out of scope here
 

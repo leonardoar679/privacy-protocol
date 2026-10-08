@@ -33,9 +33,34 @@ export interface StoredSwap {
   /** refund notes found in the pool for this order (PP-S09): refund() may re-shield more than once */
   refunds?: { leafIndex: number; vault: string; amount: string }[];
   state: string;
+  /** V2 (whale spec §25): the saved preference the order was quoted under, the service's tier and valuation, the execution plan — all optional */
+  preference?: string;
+  tier?: string;
+  value?: unknown;
+  plan?: unknown;
 }
 
-export interface ScheduledAction { id: string; kind: "fund-escrow"; orderId: string; dueAt: number; done?: boolean; error?: string }
+/**
+ * A scheduled action (plan §30; V2 Stage 4): `attempts` and `nextAttemptAt` are the runner's backoff after a
+ * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried.
+ */
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
+
+/** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
+export interface ActivityRecord {
+  id: string;
+  kind: "shield" | "transfer" | "withdraw" | "swap" | "refund" | "housekeeping";
+  at: number;
+  /** the asset's symbol and decimals, so the row renders without the deployment */
+  asset: string;
+  decimals: number;
+  /** base units, decimal string */
+  amount: string;
+  status: string;
+  /** the private reference: order id, transaction hash or leaf index */
+  ref: string;
+  note?: string;
+}
 
 export interface JournalData {
   v: 1;
@@ -52,6 +77,8 @@ export interface JournalData {
    * Optional and never written by emptyJournal(): the pinned at-rest vectors and older journals stay valid.
    */
   prices?: unknown;
+  /** V2 (whale spec §25, Stage 4): the Activity list. Optional, never written by emptyJournal(); readers default it to []. */
+  activity?: ActivityRecord[];
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

@@ -30,6 +30,14 @@ import { session } from "../wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
+import { activityId, recordActivity, type ActivityRecord } from "../wallet/activity";
+import { assetByVault } from "./assets";
+
+/** The Activity line's asset fields for a vault (symbol + decimals; a vault the deployment does not name is shown by its address). */
+const activityAsset = (d: Deployment, vault: Address | bigint): { asset: string; decimals: number } => {
+  const a = assetByVault(d, vault);
+  return a ? { asset: a.symbol, decimals: a.decimals } : { asset: `vault ${String(vault).slice(0, 10)}…`, decimals: 0 };
+};
 
 const toHex = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
 const randomField = (): bigint => { const b = new Uint8Array(32); crypto.getRandomValues(b); return BigInt(toHex(b)) % FIELD; };
@@ -54,7 +62,8 @@ const dummy = (vaultId: bigint): Note => ({ vaultId, amount: 0n, ownerCommitment
 export type TreeArg = bigint[] | MerkleLayers;
 const treeSpec = (t: TreeArg): { leaves: bigint[]; tree?: MerkleLayers } => (t instanceof MerkleLayers ? { leaves: t.leaves, tree: t } : { leaves: t });
 
-export interface Progress { onStatus?: ProveStatus; submission?: Submission }
+/** `record`: the Activity line this flow writes (whale spec §25) — fields to override, or `false` when the caller keeps its own line (a swap's funding). */
+export interface Progress { onStatus?: ProveStatus; submission?: Submission; record?: false | Partial<ActivityRecord> }
 
 /** Public shield of `amount` wei into the canonical ETH vault; the payload is encrypted to ourselves; records the note once mined. */
 export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
@@ -69,6 +78,7 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
+  if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.deployment.ethVault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
   return { txHash, leafIndex: mine.leafIndex };
 }
 
@@ -94,6 +104,7 @@ export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deplo
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
+  if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.vault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
   return { approveTx, txHash, leafIndex: mine.leafIndex };
 }
 
@@ -215,7 +226,9 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
-  return submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
+  if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
+  return r;
 }
 
 // ---- merges: the 2-input circuit spends at most two notes; a spend that needs more first merges
@@ -275,6 +288,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
   noteStore.add(merged);
+  recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: merged.note.amount.toString(), status: "completed", ref: r.txHash, note: "two notes merged privately before a spend" });
   return { ...r, merged };
 }
 
@@ -329,6 +343,7 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
     withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: txDomainOf(o.deployment),
   };
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec, noteData, spent, change, fee, extra: recipientNote });
+  if (o.record !== false) recordActivity({ id: activityId("transfer", r.txHash), kind: "transfer", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient.slice(0, 14)}…`, ...(o.record ?? {}) });
   return { ...r, recipientNote: { note: recipientNote, leafIndex: r.extraLeaf!, record: noteRecordHex(recipientNote, r.extraLeaf!) } };
 }
 

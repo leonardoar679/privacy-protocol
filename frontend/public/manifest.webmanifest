@@ -1,0 +1,11 @@
+{
+  "name": "Privacy Wallet",
+  "short_name": "Privacy",
+  "description": "A private wallet and settlement platform: your financial history is not broadcast to everyone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#2457d6",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

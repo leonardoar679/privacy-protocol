@@ -3,6 +3,7 @@ import qrcode from "qrcode-generator";
 import { SWAP_SERVICE, type AssetRef, type QuoteSet } from "../sdk/swapService";
 import { checkGuestInstruction, type CheckedGuest } from "../sdk/guestGuard";
 import { MinimumMoved } from "../sdk/providerCall";
+import { fmtUnits, parseUnitsSafe } from "../sdk/format";
 
 // Walletless mode (plan §49): no seed, no pool, no keys. The user says what they sell and where the
 // result should go; the service returns a ONE-TIME deposit instruction (THORChain's walletless flow:
@@ -15,7 +16,7 @@ import { MinimumMoved } from "../sdk/providerCall";
 const SOURCES: Record<string, AssetRef> = { BTC: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, LTC: { chain: "litecoin", asset: "native", decimals: 8, symbol: "LTC" }, DOGE: { chain: "doge", asset: "native", decimals: 8, symbol: "DOGE" } };
 const TARGETS: Record<string, AssetRef> = { ETH: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, "USDC on Ethereum": { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" } };
 interface Instruction { provider: string; quote: { toAmount: string; toAmountMin: string; etaSeconds: number }; ingress: { to: string; memo?: string; amount: string; expiresAt: number; verified: string[] }; status: string }
-const fmt = (units: string, decimals: number) => (Number(units) / 10 ** decimals).toFixed(Math.min(decimals, 6));
+const fmt = (units: string, decimals: number) => fmtUnits(units, decimals); // from base units, never through a float
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(SWAP_SERVICE + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -38,7 +39,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const from = SOURCES[source], to = TARGETS[target];
-  const units = () => BigInt(Math.round(Number(amount || "0") * 10 ** from.decimals)).toString();
+  const units = () => parseUnitsSafe(amount, from.decimals).toString();
   const request = () => ({ from, to, amount: units(), destination, slippageBps: 100, policy: "best-price" });
 
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {

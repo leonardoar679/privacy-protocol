@@ -1,7 +1,7 @@
 // Randomized scheduling (plan §30): due times are uniform inside the policy window, actions live in
 // the encrypted journal (survive lock/unlock), and completion / errors are recorded once.
 import { describe, it, expect, beforeEach } from "vitest";
-import { completeAction, isDue, pendingActions, sampleDueAt, scheduleAction } from "../src/wallet/schedule";
+import { cancelAction, completeAction, isDue, pendingActions, sampleDueAt, scheduleAction } from "../src/wallet/schedule";
 import { WalletSession } from "../src/wallet/session";
 import { memoryStorage } from "../src/wallet/storage";
 import { noteStore } from "../src/wallet/notes";
@@ -48,7 +48,14 @@ describe("scheduled actions in the journal", () => {
     completeAction("fund-escrow:0xbb", undefined, s);
     completeAction("fund-escrow:0xaa", "relayer unreachable", s);
     expect(pendingActions(s).map((a) => a.id)).toEqual(["fund-escrow:0xaa"]); // a failed action stays pending with its error
-    expect(s.journal().schedule.find((a) => a.orderId === "0xaa")?.error).toBe("relayer unreachable");
+    const failed = s.journal().schedule.find((a) => a.orderId === "0xaa")!;
+    expect(failed.error).toBe("relayer unreachable");
+    expect(failed.attempts).toBe(1);
+    expect(isDue(failed, failed.dueAt + 1), "not due again before its backoff").toBe(false);
+    expect(isDue(failed, failed.nextAttemptAt!)).toBe(true);
     expect(s.journal().schedule.find((a) => a.orderId === "0xbb")?.done).toBe(true);
+    cancelAction("fund-escrow:0xaa", s);
+    expect(pendingActions(s)).toEqual([]);
+    expect(s.journal().schedule.map((a) => a.orderId)).toEqual(["0xbb"]);
   });
 });
