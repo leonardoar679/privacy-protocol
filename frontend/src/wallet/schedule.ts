@@ -88,7 +88,8 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
       try {
         for (const a of pendingActions(s)) {
           if (!isDue(a) || !s.isUnlocked()) continue;
-          try { await run(a); if (pendingActions(s).some((x) => x.id === a.id)) completeAction(a.id, undefined, s); }
+          // done unless the run re-scheduled the same action for later (a campaign tick plans its own next tick under its id)
+          try { await run(a); const again = pendingActions(s).find((x) => x.id === a.id); if (again && again.dueAt === a.dueAt) completeAction(a.id, undefined, s); }
           catch (e: any) { const message = e?.message ?? String(e); completeAction(a.id, message, s); schedulerStatus.failed(a.id, message); }
         }
       } finally {

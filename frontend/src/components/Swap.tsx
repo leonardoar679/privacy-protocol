@@ -4,10 +4,10 @@ import { formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@ref/wallet/
 import { levelOf } from "@ref/wallet/privacyCenter";
 import { parseDestination } from "@ref/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
-import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type Prepared, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder, type ServiceOrderParams } from "../sdk/swapService";
+import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder } from "../sdk/swapService";
+import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../sdk/swapExecute";
 import { controlsFor, exportOrderReview, IMPACT_CAP_BPS, issuerLine, planWords, REVIEW_HOLD_MINUTES, routeKind } from "../sdk/tiers";
 import { downloadText } from "../sdk/download";
-import { simulateExecution, type Simulation } from "../sdk/simulate";
 import { feedsConfigured } from "../sdk/prices";
 import { Review, type ReviewLine } from "./Review";
 import { trackOrder, type Tracked } from "../sdk/orderTracker";
@@ -15,27 +15,24 @@ import { SettlementLine } from "./SettlementLine";
 import { useAiSession } from "../zkapi/aiSession";
 import { checkTrade, tradeSummary } from "../zkapi/tradeCheck";
 import type { LintItem } from "@ref/wallet/privacyLint";
-import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
-import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
+import { deriveOrderKey } from "../keys/swapKeys";
 import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
-import { checkBeforeSigning, type JournaledOrder } from "../sdk/swapSign";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { recoverSwapRefunds } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
 import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
-import { relayerInfo, relayerSwapExecute, relayerSwapRefund, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
+import { relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { fmtUnits } from "../sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "../sdk/policy";
 import { priceStore } from "../sdk/prices";
 import { holdersAbove } from "../sdk/poolDeposits";
 import { abandonSwap, assetOfStored, fundEscrow, isOpenSwap, patchSwap, swapFactoryOf } from "../sdk/swapFunding";
-import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
 import { session, useSession } from "../wallet/session";
 import type { StoredSwap } from "../wallet/journal";
 import { activityId, recordActivity } from "../wallet/activity";
 import { topBucket, walletLint } from "../wallet/lintFacts";
-import { completeAction, sampleDueAt, scheduleAction } from "../wallet/schedule";
+import { completeAction } from "../wallet/schedule";
 import { AssetSelect } from "./AssetSelect";
 import { DestinationCard } from "./DestinationCard";
 import { PrivacyLint } from "./PrivacyLint";
@@ -70,8 +67,7 @@ const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "nat
 const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
 const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
 const asTier = (t: unknown): Tier | null => (TIERS.includes(t as Tier) ? (t as Tier) : null);
-/** A provider call this wallet checked, signed and simulated — kept here until the user confirms (the Review at the execute moment) or handed over at once. */
-interface Signed { prepared: Prepared; params: ServiceOrderParams; call: CheckedCall; signature: Hex; sim: Simulation; label: string }
+/** A provider call this wallet checked, signed and simulated (sdk/swapExecute.ts Signed) — kept here until the user confirms (the Review at the execute moment) or handed over at once. */
 type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed };
 
 export function Swap({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null }) {
@@ -127,7 +123,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   /** the policy the service scored under (its tier override applied), or the preference's own before a quote */
   const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
   const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: units.toString(), destination, slippageBps: 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native" });
-  const openSwaps = session.isUnlocked() ? session.journal().swaps.filter(isOpenSwap) : [];
+  const openSwaps = session.isUnlocked() ? session.journal().swaps.filter((x) => isOpenSwap(x) && !x.campaign) : [];
   const assetOf = (s: StoredSwap): Asset => assetOfStored(deployment, s);
 
   function chooseTarget(t: string) {
@@ -194,58 +190,28 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   }
 
   async function commit(provider?: string) {
-    // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time
-    // key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
     let factory: Address;
     try { factory = swapFactoryOf(deployment); } catch (e: any) { setError(e.message); return; }
-    const attemptId = ("0x" + Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
-    const key = deriveOrderKey(masterSeed, attemptId);
-    const refundCounter = noteStore.allocateCounter();
-    const refund = deriveRefundNote(masterSeed, refundCounter);
+    void factory;
     const shown = quotes?.quotes.find((q) => q.provider === (provider ?? quotes.chosen?.provider)); // the minimum the user saw and approved
     const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address; // reserve the fresh address now
     const req = { ...request(), destination: dest };
-    const res = await run("Committing the order…", async () => {
-      const r = await swapService.order({ ...req, policy, provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash });
-      // the escrow is recomputed here from OUR factory and the params; every field we chose is checked
-      checkOrder(r.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: fromAsset });
-      return r;
-    });
-    if (!res) return;
     const committedLint = lintItems, competition = quotes?.competition;
-    // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
-    const serviceTier = asTier(res.order.tier ?? res.tier);
-    const journaledTier: Tier | undefined = serviceTier && assessment ? higherTier(serviceTier, tier) : serviceTier ?? (assessment ? tier : undefined);
-    reset();
-    const orderPolicy: Policy = res.order.policy ?? res.policy ?? policy;
     // institutional (spec §24): the funding is scheduled no earlier than the review hold, whatever the policy's window drew
     const reviewHoldUntil = controls.reviewHold ? Date.now() + REVIEW_HOLD_MINUTES * 60_000 : undefined;
-    const sampled = orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy]);
-    const dueAt = reviewHoldUntil !== undefined ? Math.max(sampled ?? 0, reviewHoldUntil) : sampled;
-    const entry: StoredSwap = {
-      orderId: res.order.orderId, attemptId, refundCounter, provider: res.order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
-      params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, approvedMin: (shown ?? res.order.quote).toAmountMin, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
-      preference, tier: journaledTier, value: res.order.value ?? res.value, plan: res.order.plan ?? shown?.plan, ...(competition ? { competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
-    };
-    if (committedLint) entry.lint = { items: committedLint, at: Date.now() };
-    session.update((j) => { j.swaps = [...j.swaps.filter((s) => s.orderId !== entry.orderId), entry]; });
-    recordActivity({ id: activityId("swap", entry.orderId), kind: "swap", asset: fromAsset.symbol, decimals: fromAsset.decimals, amount: req.amount, status: "committed", ref: entry.orderId, note: `→ ${to.ref.symbol}` });
-    if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: entry.orderId, dueAt });
-    setOrder(res.order); setStored(entry); setOrderKey(key); setRefundNoteData(refund.noteData);
+    const res = await run("Committing the order…", () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil } }));
+    if (!res) return;
+    reset();
+    setOrder(res.order); setStored(res.stored); setOrderKey(res.key); setRefundNoteData(res.refund.noteData);
     if (!destinationEdited) setDestination(dest);
   }
 
   /** Resume an order from the journal after a reload: the service rebuilds it from the same params (same escrow). */
   async function resume(s: StoredSwap) {
-    const r = await run("Resuming the order…", async () => {
-      const out = await swapService.resume({ request: s.request as any, policy: s.policy as Policy, provider: s.provider, params: s.params as any, ...(s.tier ? { tier: s.tier as any } : {}), ...(s.preference ? { preference: s.preference as any } : {}) });
-      const predicted = predictEscrow(swapFactoryOf(deployment), s.params as any);
-      if (out.order.endpoint.toLowerCase() !== predicted.toLowerCase() || out.order.orderId.toLowerCase() !== s.orderId.toLowerCase()) throw new OrderMismatch("endpoint", "the resumed order is not the one this wallet committed");
-      return out;
-    });
-    if (!r) return;
+    const order = await run("Resuming the order…", () => resumeOrder(deployment, s));
+    if (!order) return;
     reset();
-    setOrder(r.order); setStored(s); setOrderKey(deriveOrderKey(masterSeed, s.attemptId as Hex)); setRefundNoteData((s.refundNoteData as Hex | undefined) ?? null);
+    setOrder(order); setStored(s); setOrderKey(deriveOrderKey(masterSeed, s.attemptId as Hex)); setRefundNoteData((s.refundNoteData as Hex | undefined) ?? null);
     if (s.jobId && submission.kind === "relayer") relayerSwapStatus(submission.url, s.jobId).then(setJob).catch(() => {});
   }
 
@@ -273,12 +239,10 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
    */
   async function returnToBalance() {
     if (!order || !stored || !refundNoteData) return;
-    if (submission.kind !== "relayer") { setError(`Switch to relayer submission (Settings), or call deployAndRefund on the factory yourself after ${new Date(order.params.refundAfter * 1000).toLocaleString()}.`); return; }
-    const url = submission.url;
-    const j = await run("Handing the refund to the relayer's executor…", async () => relayerSwapRefund(url, { factory: swapFactoryOf(deployment), params: stored.params as any, refundNoteData, ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}) }));
+    const j = await run("Handing the refund to the relayer's executor…", () => returnOrderToBalance({ deployment, stored, submission }));
     if (!j) return;
     setMoved(null); setJob(j);
-    patchStored(order.orderId, { jobId: j.id, state: j.state });
+    setStored((x) => (x && x.orderId.toLowerCase() === order.orderId.toLowerCase() ? { ...x, jobId: j.id, state: j.state } : x));
   }
 
   /**
@@ -289,44 +253,21 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   async function prepareSigned(acceptMin?: bigint): Promise<Signed | { moved: MinimumMoved } | undefined> {
     if (!order || !orderKey || !refundNoteData) return;
     if (!stored) { setError("This order is not in this wallet's journal, so its provider call cannot be checked; it is not signed."); return; }
-    const a = assetOf(stored);
-    const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
-    return run("Re-quoting with the escrow as sender, then checking the call…", async () => {
-      const prepared = await swapService.prepare(order.orderId);
-      // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
-      const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment!.chainId), acceptMin, pooled: (deployment?.erc20Vaults ?? []).map((v) => v.token) });
-      if (!gate.ok) return { moved: gate.moved };
-      const { params, call } = gate;
-      setBusy("Signing locally…");
-      const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab
-      // the signed execution is simulated on every RPC endpoint before it leaves this wallet (whale spec §24): a revert keeps the signature here
-      setBusy("Simulating the execution through your RPC endpoints…");
-      const tipRecipient = submission.kind === "relayer" ? await relayerInfo(submission.url).then((i) => i.relayer).catch(() => undefined) : undefined;
-      const sim = await simulateExecution({ deployment: deployment!, factory: swapFactoryOf(deployment), params, execution: { provider: prepared.provider, value: BigInt(prepared.value), providerCalldata: prepared.calldata, deadline: prepared.deadline, signature }, account: tipRecipient });
-      patchStored(order.orderId, { simulation: { ok: sim.ok, at: Date.now(), ...(sim.ok ? { gas: sim.gas.toString() } : { error: sim.error, reason: sim.reason }) } });
-      setChecked(call);
-      const label = `${a.token ? "" : fmt(prepared.value, 18) + " ETH · "}valid until ${new Date(prepared.deadline * 1000).toLocaleTimeString()}`;
-      return { prepared, params, call, signature, sim, label };
-    });
+    const r = await run("Re-quoting with the escrow as sender, then checking the call…", () => prepareAndSign({ masterSeed, deployment, stored, order, submission, acceptMin, onStatus: setBusy }));
+    if (!r) return;
+    const current = session.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
+    if (current) setStored(current);
+    if (!("moved" in r)) setChecked(r.call);
+    return r;
   }
 
   /** Hand a checked, signed and simulated execution to the service (finalize) and the relayer's executor. */
   async function handOver(s: Signed) {
-    if (!order || !refundNoteData) return;
-    const r = await run("Handing the signed order to the relayer's executor…", async () => {
-      if (!s.sim.ok) throw new Error(`Not handed over: ${s.sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
-      const fin = await swapService.finalize(order.orderId, s.signature);
-      if (submission.kind !== "relayer") return { job: undefined };
-      const health: ServiceHealth = await swapService.health();
-      const factory = swapFactoryOf(deployment);
-      if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
-      const { refundTokens, refundFloors } = s.call;
-      if (refundTokens?.length) patchStored(order.orderId, { refundTokens, refundFloors });
-      const j = await relayerSwapExecute(submission.url, { factory, params: s.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
-      patchStored(order.orderId, { jobId: j.id, state: j.state, executionRef: s.prepared.provider }); // the provider's reference for tracking (NEAR Intents: the deposit address)
-      return { job: j };
-    });
+    if (!order || !refundNoteData || !stored) return;
+    const r = await run("Handing the signed order to the relayer's executor…", () => handOverSigned({ deployment, stored, order, signed: s, submission }));
     if (!r) return;
+    const current = session.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
+    if (current) setStored(current);
     setReview(null); setMoved(null); setSigned(s.label); if (r.job) setJob(r.job);
   }
 

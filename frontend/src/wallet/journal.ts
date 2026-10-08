@@ -7,6 +7,8 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha";
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, bytesToUtf8, concatBytes, hexToBytes, randomBytes, utf8ToBytes } from "@noble/hashes/utils";
 import type { SerializedNote } from "./notes";
+import type { Campaign } from "@ref/wallet/campaign";
+import type { AddressBookEntry } from "@ref/wallet/addressBook";
 
 export interface StoredSwap {
   orderId: string;
@@ -53,18 +55,20 @@ export interface StoredSwap {
   track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; at: number };
   /** every settlement transition with its time (spec §25) */
   history?: { state: string; at: number; note?: string }[];
+  /** V3 (High-Value Protection spec §7, §17): the campaign this order is a tranche of; such an order is funded and handed over by the campaign runner, never by a fund-escrow action */
+  campaign?: { id: string; index: number };
 }
 
 /**
  * A scheduled action (plan §30; V2 Stage 4): `attempts` and `nextAttemptAt` are the runner's backoff after a
  * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried.
  */
-export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
 
 /** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
 export interface ActivityRecord {
   id: string;
-  kind: "shield" | "transfer" | "withdraw" | "swap" | "refund" | "housekeeping";
+  kind: "shield" | "transfer" | "withdraw" | "swap" | "refund" | "housekeeping" | "campaign";
   at: number;
   /** the asset's symbol and decimals, so the row renders without the deployment */
   asset: string;
@@ -98,6 +102,9 @@ export interface JournalData {
   housekeeping?: { day: string; feeWei: string; steps: number };
   /** V2 (Stage 9): the next fresh funding address index of Private AI (a credit note withdrawn moves to the next) */
   aiFunding?: { index: number };
+  /** V3 (High-Value Protection spec §17): the campaigns (tranches under an in-flight cap) and the address book. Optional, never written by emptyJournal(): the pinned at-rest vectors and V2 journals stay valid. */
+  campaigns?: Campaign[];
+  addressBook?: AddressBookEntry[];
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

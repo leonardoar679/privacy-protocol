@@ -18,6 +18,8 @@ export interface SwapRequest {
   from: AssetRef; to: AssetRef; amount: string; destination: string; slippageBps: number;
   /** an explicit policy (V1.1), or the preference the service derives it from with the tier */
   policy?: Policy; preference?: Preference; tier?: Tier; destinationKind?: "fresh" | "entered"; preferNative?: boolean;
+  /** V3 (High-Value Protection spec §3, §14): the protection mode the recommendation is computed under, and a tranche's short execution window */
+  mode?: "balanced" | "max-privacy" | "max-safety"; executeWindowSeconds?: number;
 }
 
 export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; parts: number; intervalBlocks: number; expectedSeconds: number }
@@ -26,12 +28,28 @@ export interface ServiceFee { kind: string; /** base units of `asset` in the uni
 export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[]; plan?: ExecutionPlan; impactBps?: number; sizeSignals?: string[] }
 export interface CompetitionEntry { provider: string; outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped"; reason?: string; ms: number; plan?: ExecutionPlan }
 export type ServiceValuation = { usd: number; at: number; source: string } | { unavailable: true; reason: string };
+/** V3 (High-Value Protection spec §10): the service's recommendation for the chosen route — advice; the wallet keeps its own bounds and accounting (services/private-swap/src/risk/protection.ts). */
+export interface Protection {
+  provider: string; riskClass: string; flags: string[]; custody: string; bandBps: [number, number]; capBps: number; sizing: "bucket" | "varied";
+  concurrency: "sequential" | "parallel"; maxParallel: number; gate: "source" | "destination-submitted" | "destination-final"; cadenceSeconds: [number, number];
+  providerShareCapBps: number; executeWindowSeconds: number; estimatedTranches: number; estimatedSeconds: number;
+  trancheUsd: [number, number] | null; capUsd: number | null; trancheImpactBps: number | null; thinMarket: boolean; maxPieceUnits: string | null;
+  concentration: { providers: { id: string; shareBps: number }[]; singleVenue: boolean; capBps: number };
+  elpf: { prior: number; pFailure: number; perTrancheUsd: number | null; perCampaignUsd: number | null };
+  staged: boolean; reasons: string[];
+}
+export interface ServiceIncident { provider: string; date: string; title: string; lossUsd: number; class: string; halfLifeDays: number; source: string }
+export interface ProviderRiskView { model: { class: string; flags: string[]; custody: string; gate: string; pFailPrior: number; bandBps: [number, number] }; security: { total: number; baseline: number; incidents: number; incidentList: ServiceIncident[] }; incidents: ServiceIncident[]; reliability: number | null }
+/** GET /risk/:provider: the breakdown, the breaker's state and the record — stateless, nothing per user. */
+export interface RiskView { provider: string; model: ProviderRiskView["model"]; security: ProviderRiskView["security"]; breaker: { open: string | null; failures: { consecutive: number; windowCount: number }; stalls: number; divergences: number; probe: boolean; lastIncidentAt: number | null }; record: Record<string, unknown> | null; routes: unknown[] }
 export interface QuoteSet {
   quotes: ServiceQuote[]; scores: RouteScore[]; errors: Record<string, string>; chosen?: RouteScore;
   /** per provider: is the escrow -> destination link public, and where (spec §10) */
   links?: Record<string, { public: boolean; evidence: string }>;
   /** whale spec §1–§2: the service's valuation and tier, the policy it scored under, and what every provider answered */
   value?: ServiceValuation; tier?: Tier; policy?: Policy; competition?: CompetitionEntry[];
+  /** V3: the recommendation and the risk view per provider, from the enhanced tier */
+  protection?: Protection; risk?: Record<string, ProviderRiskView>;
 }
 /** The on-chain OrderParams (SwapOrderTypes.OrderParams) as the service serialises them (bigints as strings). */
 export interface ServiceOrderParams { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
@@ -62,13 +80,16 @@ export const swapService = {
   health: () => call<ServiceHealth>("/health"),
   quote: (req: SwapRequest) => call<QuoteSet>("/quote", req),
   order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string }) =>
-    call<{ order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[] }>("/order", req),
+    call<{ order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView> }>("/order", req),
   resume: (req: ResumeRequest) => call<{ order: ServiceOrder; status: string; tier?: Tier }>("/order/resume", { ...req.request, policy: req.policy, provider: req.provider, params: req.params, ...(req.tier ? { tier: req.tier } : {}), ...(req.preference ? { preference: req.preference } : {}) }),
   /** `approvedMin`: the minimum the user approved at commit (destination base units); a hard quote below it answers 409 → ServiceMinimumMoved */
   prepare: (orderId: string, approvedMin?: bigint) => call<Prepared>("/prepare", { orderId, ...(approvedMin !== undefined ? { approvedMin: approvedMin.toString() } : {}) }),
   finalize: (orderId: string, signature: string) => call<{ execution: ServiceExecution; order: ServiceOrder }>("/finalize", { orderId, signature }),
   /** the destination side of an executed order, by the execution transaction (NEAR Intents: the deposit address as ref) */
-  track: (provider: string, ref: { tx?: string; ref?: string }) => call<TrackResult>(`/track/${encodeURIComponent(provider)}?${new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}) })}`),
+  /** `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the service count a settlement stall (V3 §10) */
+  track: (provider: string, ref: { tx?: string; ref?: string; since?: number; expected?: number }) => call<TrackResult & { stalled?: boolean }>(`/track/${encodeURIComponent(provider)}?${new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}), ...(ref.since ? { since: String(ref.since) } : {}), ...(ref.expected ? { expected: String(ref.expected) } : {}) })}`),
+  /** V3 (High-Value Protection spec §10): a provider's risk view — its record, the security breakdown, the breaker's state */
+  risk: (provider: string) => call<RiskView>(`/risk/${encodeURIComponent(provider)}`),
 };
 
 /**

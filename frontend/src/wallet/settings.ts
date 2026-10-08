@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from "react";
 import { TIER_DEFAULTS, checkThresholds, type TierThresholds } from "@ref/wallet/valuation";
 import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
+import type { ProtectionMode, Sizing } from "@ref/wallet/campaign";
 
 /** Private by default: a relayer submits and is paid by a private fee note; the connected wallet is the public fallback. */
 export type Submission = { kind: "relayer"; url: string } | { kind: "wallet" };
@@ -23,11 +24,39 @@ export interface Settings {
   housekeeping: { enabled: boolean; dailyFeeCapWei: string };
   /** whale spec §24 / Stage 6: the WebAuthn second factor above the high-value-secondary threshold */
   secondFactor: { enabled: boolean; credentialId?: string };
+  /** High-Value Protection spec §14: how a large order is protected (tranches under an in-flight cap) */
+  protection: ProtectionSettings;
 }
+
+export type { ProtectionMode };
+export const PROTECTION_MODES: readonly ProtectionMode[] = ["balanced", "max-privacy", "max-safety"];
+export interface ProtectionSettings {
+  mode: ProtectionMode;
+  /** the in-flight cap the user chose, bps of the order, inside CAP_BPS_RANGE; absent: the mode's default (3 % only where the risk engine permits, §14) */
+  capBps?: number;
+  /** the global switch "Pause large operations" (plan V3 §59): every campaign's automation pauses; the protocol never does */
+  pauseLargeOperations: boolean;
+  /** a route change below the high-value-secondary tier is adopted without a new Review (§8) */
+  autoReroute: boolean;
+  /** in-app always; the browser Notification API only when enabled and the tab is hidden; generic text unless amounts are allowed (plan V3 §145–§146) */
+  notifications: { inApp: boolean; system: boolean; generic: boolean };
+  /** institutional: the second factor on a separate device (a WebAuthn cross-platform credential, §14) */
+  secondDevice: { enabled: boolean; credentialId?: string };
+}
+/** The exposure fraction the user may choose, bps (plan V3 §72, §74). */
+export const CAP_BPS_RANGE: [number, number] = [200, 300];
+/** What each mode means, lab-calibrated in Stage 2 (benchmarks/whale/campaign.md) and mirrored by the service's recommendation. */
+export const PROTECTION_DEFAULTS: Record<ProtectionMode, { capBps: number; sizing: Sizing; cadenceSeconds: [number, number]; label: string; words: string }> = {
+  balanced: { capBps: 250, sizing: "varied", cadenceSeconds: [600, 5400], label: "Balanced", words: "At most 2.5 % of the order is exposed at a time; pieces of varied common sizes, a random 10 min – 1.5 h between them; the recommended default." },
+  "max-privacy": { capBps: 250, sizing: "bucket", cadenceSeconds: [1800, 21600], label: "Maximum privacy", words: "Every piece the same common size, a random 30 min – 6 h between them: the slowest and the hardest to read." },
+  "max-safety": { capBps: 200, sizing: "varied", cadenceSeconds: [600, 3600], label: "Maximum safety", words: "At most 2 % exposed, one piece at a time, every piece final at the destination before the next starts." },
+};
+export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseLargeOperations: false, autoReroute: false, notifications: { inApp: true, system: false, generic: true }, secondDevice: { enabled: false } };
 
 export const DEFAULT_SETTINGS: Settings = {
   submission: { kind: "relayer", url: DEFAULT_RELAYER_URL }, advanced: false, verifyReads: true,
   tiers: { ...TIER_DEFAULTS }, preference: "balanced", housekeeping: { enabled: true, dailyFeeCapWei: (5n * 10n ** 15n).toString() }, secondFactor: { enabled: false },
+  protection: { ...DEFAULT_PROTECTION, notifications: { ...DEFAULT_PROTECTION.notifications }, secondDevice: { ...DEFAULT_PROTECTION.secondDevice } },
 };
 
 /** A journal written by an earlier wallet lacks the newer fields: fill them with the defaults (and refuse nonsense thresholds). */
@@ -38,7 +67,22 @@ export function healSettings(stored: Partial<Settings> | undefined): Settings {
   if (!PREFERENCES.includes(s.preference)) s.preference = "balanced";
   s.housekeeping = { ...DEFAULT_SETTINGS.housekeeping, ...(stored?.housekeeping ?? {}) };
   s.secondFactor = { ...DEFAULT_SETTINGS.secondFactor, ...(stored?.secondFactor ?? {}) };
+  s.protection = healProtection(stored?.protection);
   return s;
+}
+
+/** The protection settings of a V2 journal (none) or a tampered one: the mode must be one of the three, the cap inside its range, the switches booleans. */
+export function healProtection(p: Partial<ProtectionSettings> | undefined): ProtectionSettings {
+  const mode: ProtectionMode = PROTECTION_MODES.includes(p?.mode as ProtectionMode) ? (p!.mode as ProtectionMode) : "balanced";
+  const cap = p?.capBps !== undefined && Number.isInteger(p.capBps) && p.capBps >= CAP_BPS_RANGE[0] && p.capBps <= CAP_BPS_RANGE[1] ? p.capBps : undefined;
+  const n = { ...DEFAULT_PROTECTION.notifications, ...(p?.notifications ?? {}) };
+  const d = { ...DEFAULT_PROTECTION.secondDevice, ...(p?.secondDevice ?? {}) };
+  return {
+    mode, ...(cap !== undefined ? { capBps: cap } : {}),
+    pauseLargeOperations: p?.pauseLargeOperations === true, autoReroute: p?.autoReroute === true,
+    notifications: { inApp: n.inApp !== false, system: n.system === true, generic: n.generic !== false },
+    secondDevice: { enabled: d.enabled === true, ...(typeof d.credentialId === "string" ? { credentialId: d.credentialId } : {}) },
+  };
 }
 
 class SettingsStore {

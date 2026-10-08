@@ -237,7 +237,7 @@ tranche:  planned ─▶ ready ─▶ committed ─▶ funded ─▶ signed ─�
   tranche's pro-rata minimum: the refunded part returns to `remaining` and is re-planned; a delivered amount
   below the minimum is an anomaly (§8).
 
-*Implemented (Stage 1):* `nextAction`, `createCampaign`, `replan`, `withTrancheState`, `withCampaignState` (`campaign.ts`; every state walked in `test/campaign.test.ts`, incl. the continuation after a crash at each step: never a second funding or hand-over). *Stage 4* (the runner).
+*Implemented (Stage 1):* `nextAction`, `createCampaign`, `replan`, `withTrancheState`, `withCampaignState` (`campaign.ts`; every state walked in `test/campaign.test.ts`, incl. the continuation after a crash at each step: never a second funding or hand-over). *Implemented (Stage 4):* the runner `frontend/src/wallet/campaignRunner.ts` (`runCampaignTick`: reconcile every open tranche → track what is in flight → the pause facts → `nextAction` → one action → the next tick scheduled under the campaign's own `campaign-tick` action; the scheduler keeps a re-scheduled action pending), the wallet's campaign module `wallet/campaigns.ts` (`startCampaign` from the service's `protection` and the confirmation: the pieces from `planTranches` with the CSPRNG, the bounds, the reference rate, the risk snapshot, the first tick; `pauseCampaign`, `resumeCampaign`, `acceptReroute`, `cancelCampaign`, `replanRemainder`), and the three money-moving steps of an order extracted from the Swap screen into `sdk/swapExecute.ts` (`commitOrder`, `prepareAndSign`, `handOverSigned`, `returnOrderToBalance`, `resumeOrder`) so a tranche runs exactly a single order's machinery (the swap-flow and Review tests are unchanged and green). A tranche's child order carries `StoredSwap.campaign = { id, index }` and never gets a `fund-escrow` action. A partial fill whose remainder returned settles for the delivered part (source-unit equivalent at the tranche's expected rate) and the rest is re-planned. The reducer now holds a pause condition before the first commit too (`campaign.ts`). Tests: `frontend/test/campaign-runner.test.tsx` (9).
 
 ## 8. Pause, resume, reroute, cancel (plan V3 §22, §45, §76–§78)
 
@@ -271,7 +271,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
 - **Never automatically continue** after an unexplained anomaly (plan §45): the engine determines why
   before releasing the next tranche; "why" is the user's decision on the Review when the facts cannot settle it.
 
-*Implemented (Stage 1):* `detectPause` with `MAX_DEVIATION_BPS`, `CONGESTION_FACTOR`, `STALL_FACTOR` (`campaign.ts`; each reason in `test/campaign.test.ts`). *Stage 4* (the wallet), *Stage 5* (the screens).
+*Implemented (Stage 1):* `detectPause` with `MAX_DEVIATION_BPS`, `CONGESTION_FACTOR`, `STALL_FACTOR` (`campaign.ts`; each reason in `test/campaign.test.ts`). *Implemented (Stage 4):* the runner's facts — the global switch, the Chainlink cross-rate from the price store (`crossRateFromPrices`), the provider's incidents and breaker from `GET /risk/:provider`, the relayer's gas price against the one journaled at confirmation, the tracker's state and the executor's job of the lowest in-flight tranche, its age against its plan, the delivered amount of a tranche settled in this tick against its guaranteed minimum (facts a minute old are re-read on a resume); every pause journals its reason and tranche, raises the §15 alert (`wallet/alerts.ts`) and notifies (`wallet/notifications.ts`); a hard quote below the price bound at signing pauses `price-deviation` (never a per-tranche consent); resume → `reassessing` → `requoting` (a fresh competition for the remaining amount) → `running` when the provider holds, `rerouting` with `pendingReroute` otherwise (adopted without a Review only under `settings.protection.autoReroute` below high-value-secondary; `acceptReroute`); cancel → `winding-down`: planned tranches `skipped`, a funded one handed a refund-only job, in-flight ones tracked to the end. *Stage 5* (the screens).
 
 ## 9. Recovery and duplicate-send protection (plan V3 §84–§89)
 
@@ -297,7 +297,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
   private balance, a campaign id or a step index (none is sent to them). The relayer's job list
   (`GET /swap`) MUST require `RELAYER_ADMIN_TOKEN`: a campaign's N jobs are not listable by a third party.
 
-*Stage 4* (the runner), *Stage 3* (the relayer token).
+*Implemented (Stage 4):* before funding the runner reads the journal's `fundedTx` and the predicted escrow's balance; before a hand-over the journal's `jobId` and `GET /swap/:orderId`; a tranche whose signature left memory (a reload) is signed again, never handed over without one; a funding that failed after the submission started (the withdrawal's status line) pauses `reconcile`, a failure before it is thrown to the scheduler's backoff; a hand-over whose answer was lost pauses `reconcile` and the next tick finds the executor's job; the `campaign-tick` action survives a lock and the first tick after unlock reconciles every open tranche (`campaignRunner.ts`, pinned in `campaign-runner.test.tsx`). *Implemented (Stage 3):* the relayer token.
 
 ## 10. Provider risk (plan V3 §23–§25, §49–§50, §113–§118, §134, §155)
 
@@ -422,7 +422,7 @@ The V2 §13 tiers gain the protection columns (USD thresholds configurable as be
   at ≥ $10M; a compromised phone does not reach the institutional threshold alone; threshold signing across
   devices is out of scope (§19).
 
-*Stage 4* (settings), *Stage 5* (controls and screens).
+*Implemented (Stage 4):* `settings.protection` — `mode`, `capBps` (inside 200–300; above the recommendation only on an R1 / R2 route), `pauseLargeOperations`, `autoReroute`, `notifications { inApp, system, generic }`, `secondDevice { enabled, credentialId }` — healed from a V2 journal (`healProtection`), with `PROTECTION_DEFAULTS` per mode (cap, sizing, cadence, the words) mirroring the lab's constants (`frontend/src/wallet/settings.ts`). *Stage 5* (controls and screens).
 
 ## 15. Screens, alerts and notifications (plan V3 §43, §46–§47, §65–§67, §75–§77, §93–§94, §140–§146)
 
@@ -468,7 +468,7 @@ in V2 §22. *Stage 5.*
   V2 journal round-trips byte-identically (pinned).
 - `GET /swap` on the relayer requires `RELAYER_ADMIN_TOKEN` (§9).
 
-*Stage 4* (the journal). *Implemented (Stage 3):* the relayer's `GET /swap` answers 403 `admin_closed` without `RELAYER_ADMIN_TOKEN` and 401 `admin_token` without the exact bearer token (`services/relayer/src/admin.ts`, timing-safe; `test/admin.test.ts`); the local stack sets the token and its browser run sends it.
+*Implemented (Stage 4):* `campaigns?`, `addressBook?`, `StoredSwap.campaign?`, the two action kinds and the `campaign` activity kind (`frontend/src/wallet/journal.ts`, `activity.ts`; `docs/wallet-formats.md`); `emptyJournal()` is unchanged and a V2 journal round-trips byte for byte (pinned in `campaign-runner.test.tsx`); the shared `Campaign` gained optional `provider`, `policy`, `gasPriceAtConfirmationWei`, `pendingReroute`, `alerts`, `lint`, `value`, and a tranche `outcome.deliveredOut`, `quoteExpiresAt`, `jobId` (all optional). *Implemented (Stage 3):* the relayer's `GET /swap` answers 403 `admin_closed` without `RELAYER_ADMIN_TOKEN` and 401 `admin_token` without the exact bearer token (`services/relayer/src/admin.ts`, timing-safe; `test/admin.test.ts`); the local stack sets the token and its browser run sends it.
 
 ## 18. Labs and acceptance (plan V3 §131–§132, §151–§155)
 

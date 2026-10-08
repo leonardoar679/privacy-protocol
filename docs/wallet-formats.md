@@ -49,6 +49,14 @@ escrow; `address(0)` is ETH for an order in a token) with `refundFloors` (per to
 worth a re-shield after execution, base units; PP-S12), `refunds` (the refund notes found for the order:
 `leafIndex`, `vault`, `amount`; `refund()` can re-shield more than once), `state`.
 
+V3 (High-Value Protection spec §17) adds, all optional and never written by `emptyJournal()`: `campaigns` (one record per
+protected execution: `id`, `state`, `mode`, `tier`, `request`, `bounds` — the execution bounds one confirmation binds —,
+`plan`, `tranches` with their histories, `referenceRateE18`, `riskSnapshot`, `provider`, `policy`,
+`gasPriceAtConfirmationWei`, `pause`, `pendingReroute`, `confirmations`, `alerts`, `lint`, `value`, `history`; bigints as
+decimal strings), `addressBook` (the destination entries of spec §12), `StoredSwap.campaign = { id, index }` on a
+tranche's own order, the action kinds `campaign-tick` and `campaign-shape`, the activity kind `campaign`, and
+`settings.protection`. A V2 journal round-trips byte for byte.
+
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. Nothing in either file is ever stored in the clear; the only two

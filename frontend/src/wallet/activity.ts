@@ -38,14 +38,17 @@ const PLAIN_LABELS: Record<string, string> = { completed: "Completed", pending: 
 
 export function activityStatusLabel(rec: Pick<ActivityRecord, "kind" | "status">): string {
   if (rec.kind === "swap") return SWAP_LABELS[rec.status] ?? rec.status;
+  if (rec.kind === "campaign") return CAMPAIGN_LABELS[rec.status] ?? rec.status;
   return PLAIN_LABELS[rec.status] ?? rec.status;
 }
 
-export const KIND_LABELS: Record<ActivityRecord["kind"], string> = { shield: "Added funds", transfer: "Sent privately", withdraw: "Withdrawn", swap: "Swap", refund: "Refund", housekeeping: "Housekeeping" };
+export const KIND_LABELS: Record<ActivityRecord["kind"], string> = { shield: "Added funds", transfer: "Sent privately", withdraw: "Withdrawn", swap: "Swap", refund: "Refund", housekeeping: "Housekeeping", campaign: "Protected swap" };
+/** A campaign's journal state → its Activity label (V3 §15: Completed / In progress / Protected, never a bare failure). */
+const CAMPAIGN_LABELS: Record<string, string> = { "user-confirmed": "Starting", "preparing-notes": "Preparing", running: "In progress", paused: "Paused — review", reassessing: "Reassessing", requoting: "Requoting", rerouting: "Route changed — review", "winding-down": "Returning the rest", completed: "Completed", cancelled: "Cancelled" };
 
 /** A record the user may remove: nothing is still moving. */
 export const isFinished = (rec: Pick<ActivityRecord, "kind" | "status">): boolean =>
-  rec.kind === "swap" ? ["completed", "refunded", "abandoned"].includes(rec.status) : rec.status !== "pending";
+  rec.kind === "swap" ? ["completed", "refunded", "abandoned"].includes(rec.status) : rec.kind === "campaign" ? ["completed", "cancelled"].includes(rec.status) : rec.status !== "pending";
 
 /** The id convention: `${kind}:${ref}` so a flow that reports twice updates its own line. */
 export const activityId = (kind: ActivityRecord["kind"], ref: string): string => `${kind}:${ref.toLowerCase()}`;

@@ -15,6 +15,9 @@ export type Concurrency = "sequential" | "parallel";
 export type CampaignState = "user-confirmed" | "preparing-notes" | "running" | "paused" | "reassessing" | "requoting" | "rerouting" | "winding-down" | "completed" | "cancelled";
 export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed" | "destination-submitted" | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped";
 export type PauseReason = "price-deviation" | "provider-error" | "chain-congestion" | "route-degraded" | "unexpected-destination" | "security-incident" | "anomaly" | "reconcile" | "bounds" | "user" | "wallet-pause";
+/** The alert kinds of §15 (plan V3 §76), plus the campaign's own milestones. */
+export type AlertKind = "provider-degraded" | "price-changed" | "liquidity-dropped" | "destination-changed" | "route-changed" | "execution-delayed" | "chain-congested" | "security-incident" | "paused" | "resumed" | "step-settled" | "completed" | "cancelled";
+export interface CampaignAlert { kind: AlertKind; at: number; text: string; trancheIndex?: number }
 
 export interface AssetRefLike { chain: string; asset: string; decimals: number; symbol: string }
 export type DestinationPolicy = { kind: "fresh-per-tranche" } | { kind: "entered" | "book"; address: string; bookId?: string };
@@ -78,7 +81,11 @@ export interface Tranche {
   /** the cadence draw: not released before this (unix ms) */
   notBefore?: number;
   expected?: { minOut: string; rateE18: string; etaSeconds: number };
-  outcome?: { delivered?: string; refunded?: string; deviationBps?: number };
+  /** `delivered` in SOURCE base units (the destination amount converted at the expected rate, so the accounting of §5 adds like with like); `deliveredOut` as the tracker reported it, destination base units */
+  outcome?: { delivered?: string; deliveredOut?: string; refunded?: string; deviationBps?: number };
+  /** the hard quote's expiry (unix s) and the executor's job id, mirrored from the child order for the Review */
+  quoteExpiresAt?: number;
+  jobId?: string;
   handedOverAt?: number;
   /** when the tracker first reported the destination delivered (the finality margin counts from here) */
   deliveredSince?: number;
@@ -100,6 +107,19 @@ export interface Campaign {
   referenceRateE18: string;
   /** the service's recommendation and risk snapshot at confirmation, kept for the export */
   riskSnapshot?: unknown;
+  /** the provider every tranche is quoted from (the confirmation's choice, or the one adopted on a reroute, §8) */
+  provider?: string;
+  /** the policy the tranches are ordered under (the service derives it from the preference and the tier, V2 §4) */
+  policy?: string;
+  /** the relayer's gas price at confirmation (wei), the reference of the congestion pause (§8) */
+  gasPriceAtConfirmationWei?: string;
+  /** a reroute waiting for the user's Review (§8): the provider a fresh competition chose and its recommendation */
+  pendingReroute?: { provider: string; protection?: unknown; at: number };
+  /** the alerts of §15, newest last; the screens show the unread tail */
+  alerts?: CampaignAlert[];
+  /** the privacy lint at confirmation and the valuation, kept for the export */
+  lint?: unknown;
+  value?: unknown;
   pause?: { reason: PauseReason; detail: string; at: number; trancheIndex?: number };
   confirmations: { commit: number; secondFactor?: number; secondDevice?: number; destinationVerified?: number; emergencyOverride?: number };
   history: { state: CampaignState; at: number; note?: string }[];
@@ -407,8 +427,9 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
       if (funded) return { kind: "wind-down" }; // the runner hands the funded tranche a refund-only job (§8)
       return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: "winding down" };
     }
-    case "user-confirmed": return c.plan.shapeNotes && !f.notesShaped ? { kind: "shape-notes" } : { kind: "commit", index: 0 };
-    case "preparing-notes": return f.notesShaped ? { kind: "commit", index: 0 } : { kind: "shape-notes" };
+    // the first step is released under the same facts as every later one (§6, §8): a pause condition at the start holds
+    case "user-confirmed": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; return c.plan.shapeNotes && !f.notesShaped ? { kind: "shape-notes" } : { kind: "commit", index: 0 };
+    case "preparing-notes": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; return f.notesShaped ? { kind: "commit", index: 0 } : { kind: "shape-notes" };
     case "running": break;
   }
   // running
