@@ -513,3 +513,13 @@ in V2 §22. *Implemented (Stage 5):* `TradeSummary.protection` (`frontend/src/zk
   campaigns while unlocked and resumes at unlock; in-app alerts and local notifications only.
 - Third-party explorer queries for destination finality (§6); execution with real funds and the testnet
   broadcast; independent audits.
+
+**V4 — the implementation contract.** The High-Value Execution Engine plan (§1–§133) asked for the contract between
+the wallet, the protection engine and the swap engine: `docs/high-value-execution-contract-v1.0.md` freezes the twelve
+types (ExecutionEnvelope = the execution bounds, Quote, HardQuote, RiskAssessment, ExposureLedger, Tranche, Execution,
+Settlement, Recovery, ProviderHealth, PrivacyAssessment, DestinationRecord), the state machines with the plan's §70
+names, the §113–§115 invariant lists with their tests, and records what V4 adds to this specification: the policy table
+and the exposure tiers R0–R4 (§2 there, over §14 here), the per-provider invariant I6 and the ledger (§5), the
+`destination-confirmed` tranche state (§7), the `velocity` pause (§8), the reorg and outage rules (§9), the approval step
+and staleness of a destination (§12), the Best Execution mode and the scoring presets (§14), the EXECUTION verdict line
+and the §69 sentence (§15), the tests tree and the policy benchmark (§18).
