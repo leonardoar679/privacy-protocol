@@ -128,3 +128,66 @@ so it is not built; the design options above remain valid for such a provider.
 **Limits.** The observer knows the provider's fee and ETA law exactly; background amounts follow the
 study's law, not measured provider histograms; one pair per run; no provider-internal batching
 (Chainflip's batched egress or THORChain's outbound queue would add cover not modelled here).
+
+### Streamed settlement (plan V2 §22–§23, spec V2 §12) — added 2026-10-07
+
+The native-chain class now also runs as a stream of 1,200 s and 6,000 s (`STREAM_SECONDS`): the
+provider swaps in parts over that long and sends one outbound at the end, so the arrival is the ETA
+law shifted by the stream and the output carries the rate drift over the stream. The observer knows the
+stream length — a THORChain memo publishes `INTERVAL/QUANTITY`, Chainflip's calldata its DCA
+parameters — so on the timing side it is a shift, not uncertainty. Hypothetical private-link rows
+(the only case where this leg counts, see the correction above):
+
+| swaps/h | amounts | stream | median candidates | eff. amount | **eff. joint** | uniquely linked |
+|---|---|---|---|---|---|---|
+| 20 | arbitrary | 0 / 1,200 / 6,000 s | 42 / 49 / 74 | 1.3 / 1.5 / 2.0 | **1.1 / 1.1 / 1.1** | 88 / 86 / 84 % |
+| 20 | bucketed | 0 / 1,200 / 6,000 s | 42 / 47 / 74 | 6.6 / 6.8 / 11.5 | **2.0 / 1.9 / 2.0** | 19 / 20 / 17 % |
+| 100 | arbitrary | 0 / 1,200 / 6,000 s | 206 / 240 / 373 | 2.8 / 3.2 / 5.4 | **1.3 / 1.3 / 1.4** | 56 / 57 / 46 % |
+| 100 | bucketed | 0 / 1,200 / 6,000 s | 207 / 237 / 375 | 26.9 / 30.8 / 51.8 | **5.7 / 5.6 / 6.1** | 0.2 / 0.4 / 0.0 % |
+
+A 100-minute stream widens the amount channel (the drift over the stream blurs the predicted output)
+and admits more candidates, but the joint set barely moves, and with the link public — every adapter
+today — the set is 1 whatever the plan. **Streaming is execution, not privacy** (plan §23); the
+privacy score does not change with the plan (spec V2 §12, §17).
+
+### Whale UTXO strategy (plan V2 §73–§74, §120) — `benchmarks/whale/run-utxo.mjs`, added 2026-10-07
+
+**Question.** A wallet holding $1M–$10M wants to withdraw 1,330 ETH (≈ $3.4M at the probe's price).
+One withdrawal of the exact amount, one piece of an extended bucket alphabet (1,000 / 2,000 / 5,000 ETH),
+or many pieces of the alphabet that ships, each at its own random delay? `reference/typescript/src/sim/whaleUtxoLab.ts`:
+8,000 ordinary users at 10/h on the standard policy, 24 whales arriving uniformly, the privacy lab's
+oracle-strength observer (delay law + remaining balances), seed 4242.
+
+| strategy | pieces | piece sizes (ETH) | span | eff. timing | eff. amount | **eff. joint** | guess-hit | uniquely linked | burst share | gas |
+|---|---|---|---|---|---|---|---|---|---|---|
+| exact (one escrow, today) | 1 | 1,330 | — | 1.6 | 1.7 | **1.6** | 79 % | 42 % | 100 % | 1.8M |
+| bucket-ext | 1 | 1,000 | — | 1.7 | 1.8 | **1.7** | 79 % | 54 % | 100 % | 1.8M |
+| pieces-500 | 6 | 500 / 200 / 100 / 20 / 10 | 59 h | 18.4 | 23.7 | **18.4** | 41 % | 16 % | 2.3 % | 11M |
+| pieces-100 | 15 | 100 / 20 / 10 | 228 h | 12.7 | 17.2 | **12.7** | 24 % | 0.3 % | 6.2 % | 27M |
+| pieces-10 | 133 | 10 | 400 h | 74.0 | 95.7 | **74.0** | 1.6 % | 0.0 % | 3.9 % | 238M |
+
+**Reading.**
+- **A single large piece is "a whale among whales".** Only users who can still pay the piece are
+  candidates; for 1,000 ETH or 1,330 ETH those are the other whales, so the set is 1.6–1.7 and 42–54 %
+  of such withdrawals are uniquely linked. **An extended alphabet buys nothing by itself**: a
+  1,000 ETH bucket has no cover because nobody else withdraws 1,000 ETH. It is not adopted (Stage 8).
+- **Splitting into the shipped alphabet is what helps, and it costs time and gas.** Pieces of at most
+  100 ETH over about nine days reach a per-piece set of 12.7 and 0.3 % unique links; 133 pieces of
+  10 ETH over about 17 days reach 74 and no unique link, at 238M gas (the USD cost follows the live gas
+  price, `benchmarks/gas/cost.mjs`). The 500-ETH plan sits between because its two 500-ETH pieces are
+  again whale-only.
+- **The per-piece view misses the campaign.** The burst share (the whale's own pieces among all
+  withdrawals of that size inside its window) stays at 2–6 % because the window is long, but 133 equal
+  pieces over 17 days are a pattern this lab does not score. A real observer would cluster them; the
+  numbers above are upper bounds on what splitting earns.
+- **Consequence for the product** (spec V2 §12, §13, Stage 8): a large *swap* keeps one escrow — the
+  exact amount, the "fast" option — and the lint says what that means ("a whale among whales": the
+  pool side links it to the set of large holders, whose size the Privacy Center can state from the
+  pool's public deposit sizes). A large *balance* is kept as standard-bucket notes (≤ 100 ETH, ideally
+  10 ETH) by the housekeeping planner, so that a withdrawal to the user's own addresses can leave as
+  pieces over the policy window when privacy is preferred over speed; the number of concurrent large
+  holders bounds what any single large piece can hide behind.
+
+**Limits.** Whales share one amount here; the background law has no whales of its own (the pool's
+real deposit-size distribution is public and could replace it); the observer uses the piece's own delay
+law for every candidate; no clustering of a whale's pieces.

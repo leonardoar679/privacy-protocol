@@ -1,0 +1,93 @@
+{
+  "opts": {
+    "users": 8000,
+    "rate": 10,
+    "whales": 24,
+    "amountEth": 1330,
+    "seed": 4242,
+    "warmup": 0.2
+  },
+  "rows": [
+    {
+      "strategy": "exact",
+      "pieces": 1,
+      "pieceEth": [
+        1330
+      ],
+      "spanHours": 0,
+      "effTiming": 1.614389633561929,
+      "effAmount": 1.7083333333333333,
+      "effJoint": 1.614389633561929,
+      "guessHit": 0.7916666666666666,
+      "unique": 0.4166666666666667,
+      "burstShare": 1,
+      "gasUnits": 1790000
+    },
+    {
+      "strategy": "bucket-ext",
+      "pieces": 1,
+      "pieceEth": [
+        1000
+      ],
+      "spanHours": 0,
+      "effTiming": 1.6745394068898776,
+      "effAmount": 1.8333333333333333,
+      "effJoint": 1.6745394068898776,
+      "guessHit": 0.7916666666666666,
+      "unique": 0.5416666666666666,
+      "burstShare": 1,
+      "gasUnits": 1790000
+    },
+    {
+      "strategy": "pieces-500",
+      "pieces": 6,
+      "pieceEth": [
+        500,
+        200,
+        100,
+        20,
+        10
+      ],
+      "spanHours": 59.14985269764849,
+      "effTiming": 18.38079267730067,
+      "effAmount": 23.65277777777783,
+      "effJoint": 18.38079267730067,
+      "guessHit": 0.4097222222222222,
+      "unique": 0.1597222222222222,
+      "burstShare": 0.023057523718025698,
+      "gasUnits": 10740000
+    },
+    {
+      "strategy": "pieces-100",
+      "pieces": 15,
+      "pieceEth": [
+        100,
+        20,
+        10
+      ],
+      "spanHours": 228.2633506353615,
+      "effTiming": 12.74831743335737,
+      "effAmount": 17.205555555555566,
+      "effJoint": 12.74831743335737,
+      "guessHit": 0.2388888888888889,
+      "unique": 0.002777777777777778,
+      "burstShare": 0.062467655027550306,
+      "gasUnits": 26850000
+    },
+    {
+      "strategy": "pieces-10",
+      "pieces": 133,
+      "pieceEth": [
+        10
+      ],
+      "spanHours": 400.36216993763486,
+      "effTiming": 74.02944660303552,
+      "effAmount": 95.70488721804512,
+      "effJoint": 74.02944660303552,
+      "guessHit": 0.015977443609022556,
+      "unique": 0.0003132832080200501,
+      "burstShare": 0.03945270495754385,
+      "gasUnits": 238070000
+    }
+  ]
+}

@@ -139,9 +139,11 @@ privacy-execution     .30      .25        .20        .15      0       .10
   **Tier override:** at tier ≥ `high-value` a preference of `balanced`, `best-price` or `fastest`
   becomes `privacy-execution` (plan §110); `best-privacy` stays. The override is shown, not hidden.
 - **Filters before scoring** (V1.1 §9 plus): a quote above the provider's stated `limits`; under a
-  strict policy, `minOutVerified: false`; at tier ≥ `high-value`, a single-shot plan whose
-  `impactBps` exceeds `IMPACT_CAP_BPS` (*lab-calibrated*, default 50) when the same provider's
-  streamed plan quoted (§12); an open circuit breaker (§16).
+  strict policy, `minOutVerified: false`; at tier ≥ `high-value`, a plan whose `impactBps` exceeds
+  `IMPACT_CAP_BPS` = 50 (calibrated 2026-10-07: THORChain's native pairs stream at 19–20 bps at every
+  size, while its shallow BASE.USDC pool reports 100 / 191 / 473 bps at $5M / $10M / $25M where Mayan
+  quotes the same size at 20–45 bps) whenever another route quoted the size; an open circuit
+  breaker (§16). A route above the cap that is the only one is kept and shown with its impact.
 - **The best price MUST NOT win automatically** (V1.1 §9). At tier ≥ `high-value` the chosen route
   MUST have competed: at least two live quotes in the set, or the wallet shows "only one provider
   answered" and the user acknowledges it before commit (§24).
@@ -208,7 +210,7 @@ Health        { provider; reachable; apiLatencyMs; halted; haltedChains: string[
 | Size | `recommended_min_amount_in` → `limits.min`; `fees.slippage_bps` → `impactBps`; `max_streaming_quantity`, `streaming_swap_seconds` → the plan (§12); `warning` → `sizeSignals`. |
 | Halts | per-chain `halted` / `global_trading_paused` / `chain_trading_paused` from `inbound_addresses` → `haltedChains`; a 4xx with a reason is a refusal, not an outage. |
 | Track | `GET /thorchain/tx/status/{inbound tx}`: `stages` for progress; `out_txs` classified by memo prefix — `OUT:` delivered, `REFUND:` returned — summed per class (§12, §19). |
-| Plan | `single` and `streaming`. |
+| Plan | `single` and `streaming`. **Measured (Stage 1):** with `tolerance_bps` in the request THORNode simulates a single swap and refuses it from $100K up ("emit asset … less than price limit": a single 39 ETH → BTC swap would emit ≈ 4.7 % below the limit), while the streaming quote (interval 1, quantity 0) answers at ≈ 20 bps slippage at every size up to $25M. The adapter therefore MUST ask the streaming quote at every size, MUST NOT send `tolerance_bps` (the limit is computed locally, §14), and MAY ask the single quote as well for the comparison of §12. Midgard shows every THORChain swap ≥ $100K of 2026-10-05…07 streamed (`benchmarks/whale/whale-research.md`). |
 | Link | public: the memo names the destination and the refund escrow; the outbound carries `OUT:<inbound tx>`. |
 
 *Implemented:* everything but the streaming parameters, the `approvedMin` floor and the outbound
@@ -226,7 +228,7 @@ classification (`adapters/thorchain.ts`). *Stage 3.*
 | Size | HTTP 400 "insufficient liquidity for the requested amount" → `refused` with the reason (no `limits.max` is stated); `lowLiquidityWarning`, `recommendedSlippageTolerancePercent` → `sizeSignals` and `impactBps` (§2). |
 | Halts | `cf_safe_mode_statuses` (swaps, deposits, withdrawals, per-chain witnessing). |
 | Track | `GET /v2/swaps/{tx hash}`: `swapEgress` / `refundEgress`; both present → `partial` with `refundedAmount` (§19). |
-| Plan | `single` (REGULAR) and `dca`. The quote TTL is 600 s; the min price protects the fill itself. |
+| Plan | `single` (REGULAR) and `dca`. The quote TTL is 600 s; the min price protects the fill itself. **Measured (Stage 1):** at $100K both quotes come back with the same output (11 chunks); at $1M the backend returns the DCA quote only (≈ 100 chunks at a 1-block interval); from $5M it answers 400 "insufficient liquidity for the requested amount". A DCA-only answer is a valid quote whose plan is `dca`; a 400 is a `refused` competition entry (§2). |
 | Link | public: the vault-swap calldata encodes the destination. |
 
 *Implemented:* everything but `dcaEnabled`, keeping both quotes, `dcaParams`, the DCA equality check
@@ -241,11 +243,11 @@ and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` a
 | SWIFT (`auction`) | the order is built locally with the escrow as trader; ETH wrapped 1:1 by the pinned EthWrapper, tokens via `forwardERC20` with a zero permit (the escrow approves); Swift V2 pinned; cancel + refund fees ≤ 100 bps; deadline 15 min … 6 h; no gas drop; unfilled → cancelled after the deadline and refunded to the escrow (`refundTarget: "escrow"`). |
 | Fast-MCTP (`single`) | CCTP fast transfer; the order payload (destination, min-out, deadline) is built locally; the Fast-MCTP contract is pinned; for an ETH source the ETH → USDC router call comes from `get-swap/evm` and is bounded on-chain by the forwarder's `minMiddleAmount`; unfilled → USDC paid to the destination (`refundTarget: "destination"`: the wallet MUST say so). |
 | Minimum | `minAmountOut` within slippage + 200 bps of the expected output (a lower one is a changed quote); MUST be ≥ `approvedMin` at phase 3. |
-| Size | `priceImpact` → `impactBps`; no stated limits. |
+| Size | `priceImpact` → `impactBps`; no stated limits. **Measured (Stage 1):** the CCTP path quotes ETH → SOL and ETH → USDC (Base) from $2M to $10M (9–116 bps) and refuses $25M ("CCTPv2 does not have enough capacity, max per swap 10,000,000"); at $100K and $1M only a SWIFT quote came back and the adapter refused it ("an ETH order is taken only as wrap & lock"), so Mayan is absent below $2M on ETH sources until Stage 3 reads what Mayan's SWIFT quote offers at those sizes. |
 | Track | explorer `GET /swap/trx/{hash}`: `clientStatus` (REFUND…, COMPLETED / SETTLED / FULFILLED, INPROGRESS / PENDING). |
 | Link | public: the payload carries `destAddr`. |
 
-*Implemented* (`adapters/mayan.ts`). *Stage 3* adds the plan field, `impactBps` and the placeholder.
+*Implemented* (`adapters/mayan.ts`). *Stage 3* adds the plan field, `impactBps`, the placeholder and the SWIFT small-size reading.
 
 ## 9. NEAR Intents adapter (plan V2 §26–§27, §137.9)
 
@@ -257,10 +259,11 @@ and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` a
 | Ingress | plain-address. A contract-sent (internal-transaction) deposit is not confirmed credited by the provider → `contractSender: false`: never chosen until `ONECLICK_CONTRACT_DEPOSITS_CONFIRMED=1`. |
 | Plan | `intent` (solver competition; a 30-second target settlement). |
 | Track | `GET /v0/status?depositAddress=` — needs the deposit address (`providerRef`), not a tx hash (§19). |
+| Size | **Measured (Stage 1):** quotes ETH → BTC and USDC → BTC up to $1M (16–25 bps) and answers "No liquidity available" from $2M; the lab could not quote a BTC source (the adapter has no Bitcoin `refundTo` placeholder) and 1Click rejects the Solana system-program id as a recipient — both placeholders are fixed in Stage 3 (a Bitcoin address of the right format; a real-shaped Solana wallet address). |
 | Confidential Intents | research note only (plan §27): a TEE-based private shard would change the link evidence; not relied on. |
 | Link | unverified → treated as public. |
 
-*Implemented* (`adapters/nearIntents.ts`). *Stage 3* adds the plan field and the placeholder recipient.
+*Implemented* (`adapters/nearIntents.ts`). *Stage 3* adds the plan field and the placeholders.
 
 ## 10. LI.FI adapter (plan V2 §28, §137.10)
 
@@ -270,7 +273,7 @@ and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` a
 | Verified locally | the diamond is pinned; facets are recognised by selector only (AcrossFacetV4 `0xa1f1ce43` / swap `0x1794958f`; MayanFacet `0xb4875292` / swap `0x80c65808`), anything else refused under every policy; chain id, value, the quote's from / to, `BridgeData` receiver / chain / no destination call / spent asset; AcrossFacetV4: refund address = escrow, the output floor `minAmount × outputAmountMultiplier / 1e18` (PP-S01); MayanFacet: sweep recipient = escrow, `mayanAmountIn` (PP-S03); a source swap only into a token the escrow re-shields (PP-S08). |
 | Minimum | `toAmountMin` within slippage + 50 bps of `toAmount`; `minOutVerified` only for AcrossFacetV4; MUST be ≥ `approvedMin` at phase 3. |
 | Refund target | escrow for Across routes; the Mayan facet's unfilled order pays the destination (the quote carries no `refundTarget`; the wallet shows the warning). |
-| Size | none stated; `estimate` values → `impactBps` when present. |
+| Size | none stated; `estimate` values → `impactBps` when present. **Measured (Stage 1):** ETH → SOL answered 422 "none of the available routes could generate a tx" at $1M and 404 "no available quotes" at $5M; ETH → USDC (Base) at $1M routed through a USDC swap on Ethereum first, which the PP-S08 rule refuses unless the pool has a USDC vault (the lab ran without one). |
 | Track | `GET /status?txHash=`: `DONE` + substatus `PARTIAL` → `partial`, `REFUNDED` → `refunded`. |
 | Smart deposit addresses | the plain-address ingress of V1.1 §6 covers them; not used for an escrow source (no refund-to-pool path). |
 | Link | public: `bridgeData.receiver`. |
@@ -299,16 +302,25 @@ ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; par
 ```
 - **The plan is the engine's choice from live quotes** (plan §22). The user sees "Best execution"
   and, under Route details, "Streaming · N parts · ~T min". Streaming is an execution optimisation
-  — it is NOT privacy (plan §23): the privacy score (§17) does not change with the plan.
-- **When a streamed plan is asked for.** At tier ≥ `enhanced` the THORChain and Chainflip adapters
-  quote both plans (`QuoteRequest.plan: "stream"`): THORChain with `streaming_interval=1` and
-  `streaming_quantity=0` (the node picks the quantity, ≤ `max_streaming_quantity`), Chainflip with
-  `dcaEnabled=true` (the backend picks `numberOfChunks` / `chunkIntervalBlocks`). The adapter
-  returns the streamed quote when its net output is at least `STREAM_GAIN_BPS` (*lab-calibrated*,
-  default 10) above the single quote's, or when the single quote's `impactBps` exceeds
-  `IMPACT_CAP_BPS` (§4), provided `expectedSeconds ≤ STREAM_MAX_SECONDS` (*lab-calibrated*, default
-  7,200). Above that bound THORChain's quantity is capped to `floor(STREAM_MAX_SECONDS / (interval ×
-  6 s))` and re-quoted; a Chainflip DCA quote that does not fit is not used.
+  — it is NOT privacy (plan §23): the privacy score (§17) does not change with the plan. Measured
+  (`docs/privacy-lab.md`, streamed-settlement rows): even for a hypothetical provider that kept the
+  escrow → destination link private, a 100-minute stream moves the joint effective set from 5.7 to
+  6.1 at 100 swaps/h bucketed; with the public link of every adapter today — and a streaming memo
+  publishes its quantity and interval — the set is 1 whatever the plan.
+- **When a streamed plan is asked for.** The THORChain and Chainflip adapters always ask for the
+  streamed plan as well (THORChain with `streaming_interval=1` and `streaming_quantity=0`, the node
+  picking the quantity ≤ `max_streaming_quantity`; Chainflip with `dcaEnabled=true`, the backend
+  picking `numberOfChunks` / `chunkIntervalBlocks`) and the single plan where the provider still
+  answers it. **Calibrated 2026-10-07** (`benchmarks/whale/execution.md`): THORNode refuses the single
+  plan from $100K up and Chainflip answers DCA only from $1M, so `STREAM_GAIN_BPS` = 0 — the streamed
+  quote is used whenever its net output is at least the single quote's, and always when the single
+  plan is refused. `STREAM_MAX_SECONDS` = 14,400 (4 h) bounds automatic selection: THORChain streams
+  ETH → BTC in 205 / 411 / 1,031 / 2,063 / 5,160 parts taking ≈ 23 min / 44 min / 106 min / 3.5 h /
+  8.6 h at $1M / $2M / $5M / $10M / $25M, and USDC → BTC up to 10,216 parts (17 h), with its own cap
+  of 14,400 parts (24 h). A plan longer than the bound is still offered when it is the only route,
+  with its duration stated and acknowledged (§24), never silently; a Chainflip DCA quote that does
+  not fit is not used. A whale on THORChain chose a 6-hour stream for a $1M BTC swap on 2026-10-07
+  (`whale-research.md`), so long streams are a real preference, not a failure mode.
 - **Encoding.** THORChain: the memo's limit field becomes `LIMIT/INTERVAL/QUANTITY`
   (`=:ASSET:DEST/ESCROW:LIMIT/INTERVAL/QUANTITY`). Chainflip: `dcaParams` in the
   `encodeVaultSwapData` request, decoded back from `cf_parameters.dca` and compared (§7).
@@ -368,6 +380,22 @@ good price with its time (§25).
   tier implied by the last journaled price if it is less than 24 h old; the wallet says "Price
   unavailable — large-transfer checks applied". A small user loses nothing but a few checks; a
   large one is never under-protected.
+- **What the rails carry today** (measured 2026-10-07, read-only, `benchmarks/whale/execution.md`;
+  informative — the live competition decides, §4):
+
+| pair | $1M | $5M | $10M | $25M |
+|---|---|---|---|---|
+| ETH → BTC | THORChain stream 9 bps · Chainflip DCA −6 bps · NEAR 25 bps | THORChain 9 bps (106 min) only | THORChain 9 bps (3.5 h) only | THORChain 9 bps (8.6 h) only |
+| BTC → ETH | THORChain 58 bps · Chainflip DCA 36 bps | THORChain only | THORChain only | THORChain only |
+| USDC → BTC | Chainflip DCA 5 bps · THORChain 34 bps · NEAR 21 bps | Chainflip 4 bps (58 min) · THORChain 35 bps | Chainflip 4 bps (108 min) · THORChain 36 bps | THORChain 36 bps (17 h) only |
+| ETH → SOL | Chainflip DCA (−39 bps vs a stale SOL feed) | Mayan 26 bps | Mayan 116 bps | none (Mayan's CCTP cap: $10M per swap) |
+| ETH → USDC (Base) | THORChain 49 bps (24 h) | Mayan 20 bps · THORChain 169 bps | Mayan 45 bps · THORChain 345 bps | none |
+| ETH → ETH (Base) | Across 1 bps | none (Across max deposit ≈ 1,054 WETH) | none | none |
+
+  Costs are against the Chainlink rate at quote time (fees included; the SOL feed was 11 h old, so
+  the SOL rows' oracle comparison is unreliable). At $5M and above most pairs have one venue, so the
+  "two live quotes or acknowledged" rule of §4 fires routinely: the Review then says "only one
+  provider can take this size" rather than hiding it.
 - The service recomputes the tier from its own read; a disagreement raises the tier (§1).
 - Tiers apply to swaps, withdrawals and private transfers alike (the value of what leaves the
   wallet's control); shields are valued for display only.
@@ -472,6 +500,7 @@ journal and the scorecard facts, by one function shared by the wallet and the en
 | `amount-fingerprint` | the public amount is a bucket | warn | Amount fingerprint |
 | `minimum-protected` | `minOutVerified` and `approvedMin` encoded | block at tier ≥ `high-value`, warn below | Financial privacy |
 | `network` | relayer submission, ≥ 2 RPC endpoints, light-client reads on | warn | Network privacy |
+| `large-piece` | the public piece is within the shipped bucket alphabet, or at least 16 holders could still pay it (counted from the pool's public deposit sizes) | warn: "a whale among whales — only N holders could pay this piece; pieces over time widen the set (housekeeping, Stage 8)" | Amount fingerprint |
 
 - Levels: `ok`, `warn`, `block`. A `block` item at tier ≥ `high-value` MUST be acknowledged
   explicitly before the hold-to-confirm is enabled; below it, it is a warning with the same text.

@@ -24,7 +24,7 @@ privacy-protocol/
 ├─ core/rust/   privacy-core — the shared native crypto core (Poseidon2, notes, Merkle, envelope, address, keystore + BIP-39 + chain keys) for mobile / desktop / WASM, pinned to the same vectors; privacy-core-wasm — its wasm-bindgen package (incl. the two sync batches: every tree layer, note discovery over every payload), checked against the TypeScript from node; privacy-prover — the native witness (the circuit's WASM under a pure-Rust interpreter) + Groth16 prover over the same proving key, its proofs verified by the on-chain verifier; privacy-ffi — both behind UniFFI (Swift / Kotlin / Python generated)   [14 suites + prover 12 + Python bindings 11 ✅ · wasm32 ✅ · WASM == TS 9/9 ✅]
 ├─ services/relayer/  private submission (proven transact from its own key, paid by a private fee note) + swap-order executor (deploy/execute/refund escrows for the tip), ERC-20 fee vaults — 30 tests vs forge fixtures, durable journals, abuse limits   [tests ✅]
 ├─ services/    private-swap (engine + THORChain/LI.FI adapters, live-tested) · zkapi-lab (mainnet pin verifier)  [V1.1]
-└─ benchmarks/  gas (live cost tool) · privacy (the study's adversary vs this design) · proof · mobile
+└─ benchmarks/  gas (live cost tool) · privacy (the study's adversary vs this design, incl. the cross-chain and streamed-settlement rows) · whale (V2: public large-swap research, the live execution lab $100K–$25M per provider, the whale UTXO strategy lab) · proof · mobile
 ```
 
 **V1.1 (in progress — plan "zkAPI + Privacy Wallet + Cross-Chain Swap")**: the money core is frozen;

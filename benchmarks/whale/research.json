@@ -1,0 +1,578 @@
+{
+  "at": "2026-10-07T23:55:20.967Z",
+  "errors": [
+    "THORChain actions: Error: HTTP 403 from https://midgard.thorswap.net"
+  ],
+  "bestEffort": [
+    {
+      "name": "Mayan stats overview",
+      "url": "https://explorer-api.mayan.finance/v3/stats/overview",
+      "status": 200,
+      "keys": [
+        "last24h",
+        "allTime"
+      ],
+      "data": {
+        "last24h": {
+          "volume": 25315223,
+          "toSolCount": 4289,
+          "fromSolCount": 3203,
+          "swaps": 15017,
+          "activeTraders": 10599,
+          "asOf": 1791417300001,
+          "windowStart": 1791330900001,
+          "liveCount": 21
+        },
+        "allTime": {
+          "volume": 20965167562,
+          "toSolCount": 3611614,
+          "fromSolCount": 2480769,
+          "swaps": 10111961,
+          "activeTraders": 3564799,
+          "asOf": 1791417300892,
+          "liveCount": 21
+        }
+      }
+    },
+    {
+      "name": "Across deposits",
+      "url": "https://app.across.to/api/deposits?limit=50",
+      "status": 200,
+      "keys": [
+        "depositAddress",
+        "sweepTxnRef",
+        "bridgedInputToken",
+        "bridgedInputAmount",
+        "depositRefundAddress",
+        "actionsTargetRecipient",
+        "actionsTargetToken",
+        "actionsTargetAmount",
+        "actionsTargetTxnRef",
+        "actionsTargetBlockTimestamp",
+        "id",
+        "relayHash",
+        "depositId",
+        "originChainId",
+        "destinationChainId",
+        "depositor",
+        "recipient",
+        "inputToken",
+        "inputAmount",
+        "outputToken",
+        "swapOutputToken",
+        "swapOutputTokenAmount",
+        "outputAmount",
+        "message",
+        "messageHash",
+        "exclusiveRelayer",
+        "exclusivityDeadline",
+        "fillDeadline",
+        "quoteTimestamp",
+        "depositTxHash",
+        "depositBlockNumber",
+        "depositBlockTimestamp",
+        "status",
+        "depositRefundTxHash",
+        "swapTokenPriceUsd",
+        "swapFeeUsd",
+        "bridgeFeeUsd",
+        "inputPriceUsd",
+        "outputPriceUsd",
+        "fillGasFee"
+      ],
+      "items": 50,
+      "usd": {
+        "items": 50,
+        "p50": 1.500745440368117e-9,
+        "p90": 396.23065687654196,
+        "max": 99968.04992394453,
+        "statuses": [
+          "unfilled",
+          "filled"
+        ]
+      }
+    }
+  ],
+  "thorchain": [
+    {
+      "asset": "BTC.BTC",
+      "source": "https://gateway.liquify.com/chain/thorchain_midgard",
+      "actionsRead": 2000,
+      "swaps": 1996,
+      "from": "2026-10-05T01:24:52.431Z",
+      "to": "2026-10-07T23:53:00.914Z",
+      "usd": {
+        "p50": 9,
+        "p90": 2585,
+        "p99": 102100,
+        "max": 1000116,
+        "totalUsd": 7516575
+      },
+      "countsOver": {
+        "100K": 20,
+        "1M": 1
+      },
+      "streamedShare": {
+        "all": 0.872745490981964,
+        "over100K": 1,
+        "over1M": 1
+      },
+      "streamedOver1M": {
+        "medianQuantity": 5777,
+        "medianInterval": 0,
+        "medianDurationSeconds": 21510
+      },
+      "top": [
+        {
+          "date": "2026-10-07T12:51:18.729Z",
+          "height": 28141646,
+          "pair": "ETH.DAI-0X6B175474E89094C44DA98B954EEDEAC495271D0F → BTC.BTC",
+          "inUsd": 1000116,
+          "streamed": true,
+          "quantity": 5777,
+          "interval": 0,
+          "count": 5777,
+          "durationSeconds": 21510,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T10:07:02.972Z",
+          "height": 28140051,
+          "pair": "ETH.USDC-0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48 → THOR.RUNE",
+          "inUsd": 501989,
+          "streamed": true,
+          "quantity": 203,
+          "interval": 1,
+          "count": 203,
+          "durationSeconds": 1212,
+          "slipBps": 20,
+          "outs": 3
+        },
+        {
+          "date": "2026-10-07T02:46:51.097Z",
+          "height": 28135750,
+          "pair": "ETH.ETH → BTC.BTC",
+          "inUsd": 410408,
+          "streamed": true,
+          "quantity": 82,
+          "interval": 0,
+          "count": 82,
+          "durationSeconds": 234,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T02:46:15.950Z",
+          "height": 28135745,
+          "pair": "ETH.ETH → BTC.BTC",
+          "inUsd": 367166,
+          "streamed": true,
+          "quantity": 74,
+          "interval": 0,
+          "count": 74,
+          "durationSeconds": 294,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T20:06:26.704Z",
+          "height": 28131841,
+          "pair": "BTC.BTC → ETH.USDC-0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48",
+          "inUsd": 210054,
+          "streamed": true,
+          "quantity": 83,
+          "interval": 0,
+          "count": 83,
+          "durationSeconds": 204,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-05T12:43:15.926Z",
+          "height": 28113396,
+          "pair": "ETH.ETH → BTC.BTC",
+          "inUsd": 149832,
+          "streamed": true,
+          "quantity": 28,
+          "interval": 0,
+          "count": 28,
+          "durationSeconds": 66,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-05T10:23:36.437Z",
+          "height": 28112032,
+          "pair": "BTC.BTC → TRON.USDT-TR7NHQJEKQXGTCI8Q8ZY4PL8OTSZGJLJ6T",
+          "inUsd": 123185,
+          "streamed": true,
+          "quantity": 515,
+          "interval": 0,
+          "count": 515,
+          "durationSeconds": 2790,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-05T17:25:50.920Z",
+          "height": 28116158,
+          "pair": "ETH.USDT-0XDAC17F958D2EE523A2206206994597C13D831EC7 → BTC.BTC",
+          "inUsd": 115765,
+          "streamed": true,
+          "quantity": 89,
+          "interval": 0,
+          "count": 89,
+          "durationSeconds": 216,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T13:53:17.397Z",
+          "height": 28142247,
+          "pair": "ETH.DAI-0X6B175474E89094C44DA98B954EEDEAC495271D0F → BTC.BTC",
+          "inUsd": 110344,
+          "streamed": true,
+          "quantity": 637,
+          "interval": 0,
+          "count": 637,
+          "durationSeconds": 2040,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T13:03:05.252Z",
+          "height": 28141760,
+          "pair": "ETH.DAI-0X6B175474E89094C44DA98B954EEDEAC495271D0F → BTC.BTC",
+          "inUsd": 110116,
+          "streamed": true,
+          "quantity": 633,
+          "interval": 0,
+          "count": 633,
+          "durationSeconds": 2382,
+          "slipBps": 20,
+          "outs": 1
+        }
+      ]
+    },
+    {
+      "asset": "ETH.ETH",
+      "source": "https://gateway.liquify.com/chain/thorchain_midgard",
+      "actionsRead": 2000,
+      "swaps": 1992,
+      "from": "2026-10-06T01:59:55.080Z",
+      "to": "2026-10-07T23:52:54.566Z",
+      "usd": {
+        "p50": 3,
+        "p90": 335,
+        "p99": 41709,
+        "max": 410408,
+        "totalUsd": 4153002
+      },
+      "countsOver": {
+        "100K": 13,
+        "1M": 0
+      },
+      "streamedShare": {
+        "all": 0.9041164658634538,
+        "over100K": 1,
+        "over1M": 0
+      },
+      "streamedOver1M": {
+        "medianQuantity": 0,
+        "medianInterval": 0,
+        "medianDurationSeconds": 0
+      },
+      "top": [
+        {
+          "date": "2026-10-07T02:46:51.097Z",
+          "height": 28135750,
+          "pair": "ETH.ETH → BTC.BTC",
+          "inUsd": 410408,
+          "streamed": true,
+          "quantity": 82,
+          "interval": 0,
+          "count": 82,
+          "durationSeconds": 234,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T02:46:15.950Z",
+          "height": 28135745,
+          "pair": "ETH.ETH → BTC.BTC",
+          "inUsd": 367166,
+          "streamed": true,
+          "quantity": 74,
+          "interval": 0,
+          "count": 74,
+          "durationSeconds": 294,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-07T12:14:16.457Z",
+          "height": 28141288,
+          "pair": "ETH.DAI-0X6B175474E89094C44DA98B954EEDEAC495271D0F → ETH.ETH",
+          "inUsd": 297458,
+          "streamed": true,
+          "quantity": 1708,
+          "interval": 0,
+          "count": 1708,
+          "durationSeconds": 5574,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:59:18.977Z",
+          "height": 28130600,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 210372,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:38:46.258Z",
+          "height": 28130400,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 210181,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:48:54.308Z",
+          "height": 28130500,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 209953,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:48:54.308Z",
+          "height": 28130500,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 209913,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:48:54.308Z",
+          "height": 28130500,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 209861,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:48:54.308Z",
+          "height": 28130500,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 209766,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        },
+        {
+          "date": "2026-10-06T17:48:54.308Z",
+          "height": 28130500,
+          "pair": "ETH.ETH → BCH.BCH",
+          "inUsd": 209678,
+          "streamed": true,
+          "quantity": 132,
+          "interval": 100,
+          "count": 132,
+          "durationSeconds": 78600,
+          "slipBps": 20,
+          "outs": 1
+        }
+      ]
+    }
+  ],
+  "thorchainDaily": {
+    "source": "https://gateway.liquify.com/chain/thorchain_midgard",
+    "days": 30,
+    "totalCount": 5481836,
+    "totalVolumeUsd": 2801017717,
+    "intervals": [
+      {
+        "day": "2026-09-08",
+        "count": 130909,
+        "volumeUsd": 44068542
+      },
+      {
+        "day": "2026-09-09",
+        "count": 123006,
+        "volumeUsd": 50797737
+      },
+      {
+        "day": "2026-09-10",
+        "count": 285716,
+        "volumeUsd": 286108702
+      },
+      {
+        "day": "2026-09-11",
+        "count": 187299,
+        "volumeUsd": 76255820
+      },
+      {
+        "day": "2026-09-12",
+        "count": 150788,
+        "volumeUsd": 11946975
+      },
+      {
+        "day": "2026-09-13",
+        "count": 138271,
+        "volumeUsd": 63114121
+      },
+      {
+        "day": "2026-09-14",
+        "count": 135241,
+        "volumeUsd": 19166122
+      },
+      {
+        "day": "2026-09-15",
+        "count": 201312,
+        "volumeUsd": 15463692
+      },
+      {
+        "day": "2026-09-16",
+        "count": 104872,
+        "volumeUsd": 11260892
+      },
+      {
+        "day": "2026-09-17",
+        "count": 131542,
+        "volumeUsd": 35180667
+      },
+      {
+        "day": "2026-09-18",
+        "count": 99977,
+        "volumeUsd": 14765848
+      },
+      {
+        "day": "2026-09-19",
+        "count": 88751,
+        "volumeUsd": 27387394
+      },
+      {
+        "day": "2026-09-20",
+        "count": 103677,
+        "volumeUsd": 23526863
+      },
+      {
+        "day": "2026-09-21",
+        "count": 203099,
+        "volumeUsd": 61846617
+      },
+      {
+        "day": "2026-09-22",
+        "count": 187959,
+        "volumeUsd": 26442302
+      },
+      {
+        "day": "2026-09-23",
+        "count": 138905,
+        "volumeUsd": 20715781
+      },
+      {
+        "day": "2026-09-24",
+        "count": 196244,
+        "volumeUsd": 49544540
+      },
+      {
+        "day": "2026-09-25",
+        "count": 458925,
+        "volumeUsd": 216570893
+      },
+      {
+        "day": "2026-09-26",
+        "count": 583204,
+        "volumeUsd": 507903045
+      },
+      {
+        "day": "2026-09-27",
+        "count": 263843,
+        "volumeUsd": 181144756
+      },
+      {
+        "day": "2026-09-28",
+        "count": 194789,
+        "volumeUsd": 249642352
+      },
+      {
+        "day": "2026-09-29",
+        "count": 202855,
+        "volumeUsd": 255638364
+      },
+      {
+        "day": "2026-09-30",
+        "count": 167443,
+        "volumeUsd": 39038655
+      },
+      {
+        "day": "2026-10-01",
+        "count": 147130,
+        "volumeUsd": 31925218
+      },
+      {
+        "day": "2026-10-02",
+        "count": 81989,
+        "volumeUsd": 17862327
+      },
+      {
+        "day": "2026-10-03",
+        "count": 176167,
+        "volumeUsd": 20596018
+      },
+      {
+        "day": "2026-10-04",
+        "count": 175405,
+        "volumeUsd": 22440086
+      },
+      {
+        "day": "2026-10-05",
+        "count": 207670,
+        "volumeUsd": 19804025
+      },
+      {
+        "day": "2026-10-06",
+        "count": 214848,
+        "volumeUsd": 21577007
+      },
+      {
+        "day": "2026-10-07",
+        "count": 0,
+        "volumeUsd": 0
+      }
+    ]
+  }
+}

@@ -11,3 +11,8 @@ Policies: P0 naive (Nova-like), C classic (fixed denominations), P1 standard, P2
 withdrawal piece: effective anonymity set 2^H for the timing-only, amount-only and joint posteriors,
 guess-hit (probability the single best guess is right), and the unique-link rate. Seeded and
 dependency-free beyond `tsx`.
+
+```
+node run-crosschain.mjs              # the cross-chain observer lab (ingress ↔ arrival), incl. the streamed-settlement rows (V2); writes crosschain.json
+node ../whale/run-utxo.mjs           # the whale UTXO strategy lab (V2 §74): one large piece vs many bucketed pieces; writes ../whale/utxo.json
+```
