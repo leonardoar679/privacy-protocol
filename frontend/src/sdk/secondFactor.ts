@@ -12,8 +12,8 @@ const challenge = () => crypto.getRandomValues(new Uint8Array(32));
 
 export const webauthnAvailable = (): boolean => typeof navigator !== "undefined" && !!(navigator as any).credentials?.create && typeof (globalThis as any).PublicKeyCredential !== "undefined";
 
-/** Register a platform authenticator for this wallet; returns the credential id to keep in settings. */
-export async function registerSecondFactor(o: { rpId?: string; userName?: string } = {}): Promise<string> {
+/** Register an authenticator for this wallet (the platform one by default; `cross-platform` for the separate device of High-Value Protection spec §14); returns the credential id to keep in settings. */
+export async function registerSecondFactor(o: { rpId?: string; userName?: string; attachment?: "platform" | "cross-platform" } = {}): Promise<string> {
   if (!webauthnAvailable()) throw new Error("no platform authenticator is available in this browser");
   const userId = crypto.getRandomValues(new Uint8Array(16));
   const cred = (await (navigator as any).credentials.create({
@@ -22,7 +22,7 @@ export async function registerSecondFactor(o: { rpId?: string; userName?: string
       rp: { name: RP_NAME, ...(o.rpId ? { id: o.rpId } : {}) },
       user: { id: userId, name: o.userName ?? "privacy-wallet", displayName: o.userName ?? "Privacy Wallet" },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+      authenticatorSelection: { authenticatorAttachment: o.attachment ?? "platform", userVerification: "required", residentKey: "preferred" },
       timeout: 60_000,
       attestation: "none",
     },
@@ -31,6 +31,8 @@ export async function registerSecondFactor(o: { rpId?: string; userName?: string
   return b64url(cred.rawId);
 }
 
+/** The separate device of an institutional operation (spec §14): a security key or a phone over the cross-device flow, never this device's own authenticator. */
+export const registerSecondDevice = (o: { rpId?: string } = {}): Promise<string> => registerSecondFactor({ ...o, attachment: "cross-platform", userName: "privacy-wallet-second-device" });
 /** Ask the registered authenticator to verify the user now; true only when that credential answered. */
 export async function assertSecondFactor(credentialId: string, o: { rpId?: string } = {}): Promise<boolean> {
   if (!webauthnAvailable()) return false;

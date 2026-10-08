@@ -21,7 +21,9 @@ export function Activity({ deployment = null }: { deployment?: Deployment | null
   const [refreshing, setRefreshing] = useState("");
   const unlocked = session.isUnlocked();
   const j = unlocked ? session.journal() : null;
-  const rows = j ? [...activityOf(j)].sort((a, b) => b.at - a.at) : [];
+  // V3 (High-Value Protection spec §15): a protected execution is one row; its steps (orders with `campaign`) show under Advanced only
+  const stepIds = new Set((j?.swaps ?? []).filter((s) => s.campaign).map((s) => activityId("swap", s.orderId)));
+  const rows = j ? [...activityOf(j)].filter((r) => advanced || !stepIds.has(r.id)).sort((a, b) => b.at - a.at) : [];
   const failed = j ? j.schedule.filter((a) => !a.done && a.error) : [];
   const swaps = new Map<string, StoredSwap>((j?.swaps ?? []).map((s) => [activityId("swap", s.orderId), s]));
   const running = useSchedulerStatus();

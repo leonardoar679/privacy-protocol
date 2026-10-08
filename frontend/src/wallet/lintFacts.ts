@@ -35,6 +35,8 @@ export interface WalletLintInput {
   /** holders who could pay a piece above the common sizes (sdk/poolDeposits.ts), null when not read */
   holders?: number | null;
   acknowledged?: LintId[];
+  /** V3 (High-Value Protection spec §11): what a protected execution reveals, when the order is one */
+  campaign?: LintFacts["campaign"];
 }
 
 export const topBucket = (decimals: number): bigint => bucketsFor(decimals).reduce((m, b) => (b > m ? b : m), 0n);
@@ -58,6 +60,7 @@ export function walletLintFacts(i: WalletLintInput): LintFacts {
     lightClient: !!i.deployment && i.settings.verifyReads && !!specForChain(i.deployment.chainId),
     largePiece: i.action === "transfer" ? null : { inAlphabet, holders: inAlphabet ? null : (i.holders ?? null) },
     acknowledged: i.acknowledged,
+    ...(i.campaign ? { campaign: i.campaign } : {}),
   };
 }
 

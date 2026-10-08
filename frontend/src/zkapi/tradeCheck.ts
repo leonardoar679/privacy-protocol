@@ -7,7 +7,7 @@
 // compares and warns; it signs nothing, withdraws nothing, changes no destination and overrides no check
 // (plan §78): this module imports nothing that signs or submits, and a test pins that.
 import { chatStream, type ChatMessage, type InferenceAccess } from "./policy";
-import type { CompetitionEntry, ExecutionPlan, RouteScore } from "../sdk/swapService";
+import type { CompetitionEntry, ExecutionPlan, Protection, RouteScore } from "../sdk/swapService";
 import type { LintItem } from "@ref/wallet/privacyLint";
 import type { Tier } from "@ref/wallet/valuation";
 
@@ -24,6 +24,8 @@ export interface TradeSummary {
   chosen?: { provider: string; plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; linkPublic?: boolean; components?: RouteScore["components"]; total?: number; receiveMinRounded: string };
   competition: { provider: string; outcome: string; reason?: string; ms: number }[];
   lint: { id: string; level: string; category: string }[];
+  /** V3 (High-Value Protection spec §16): the protection plan — class, band, cap, steps, gate, ELPF, concentration; never an amount in base units, never an address */
+  protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: number; gate: string; concurrency: string; elpfUsd?: string; concentration: string; staged: boolean };
 }
 
 /** Round to `digits` significant digits, as a plain decimal string ("1360" → "1360", "1364.2" → "1360", "0.030012" → "0.03"). */
@@ -47,7 +49,7 @@ export function assertSanitized(x: unknown, path = "summary"): void {
 export function tradeSummary(i: {
   from: { chain: string; symbol: string; decimals: number }; to: { chain: string; symbol: string; decimals: number }; amountUnits: bigint; usd?: number | null; tier: Tier; preference?: string;
   chosen?: { provider: string; score?: RouteScore; quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string }; linkPublic?: boolean } | null;
-  competition?: CompetitionEntry[] | null; lint?: LintItem[] | null;
+  competition?: CompetitionEntry[] | null; lint?: LintItem[] | null; protection?: Protection | null;
 }): TradeSummary {
   const units = (u: bigint | string, d: number) => roundSignificant(Number(BigInt(u)) / 10 ** d);
   const s: TradeSummary = {
@@ -61,6 +63,7 @@ export function tradeSummary(i: {
     ...(i.chosen ? { chosen: { provider: i.chosen.provider, plan: i.chosen.quote.plan, etaSeconds: i.chosen.quote.etaSeconds, impactBps: i.chosen.quote.impactBps, nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { components: i.chosen.score.components, total: i.chosen.score.total } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
     competition: (i.competition ?? []).map((c) => ({ provider: c.provider, outcome: c.outcome, ...(c.reason ? { reason: c.reason.replace(ADDRESS_LIKE, "[address]") } : {}), ms: c.ms })),
     lint: (i.lint ?? []).map((l) => ({ id: l.id, level: l.level, category: l.category })),
+    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: i.protection.estimatedTranches, gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
   };
   assertSanitized(s);
   return s;
@@ -69,7 +72,7 @@ export function tradeSummary(i: {
 export interface TradeCheck { bestRoute: string; alternative: string; estimatedSavings: string; privacy: string; execution: string; risk: string }
 
 export const TRADE_CHECK_SYSTEM = [
-  "You are the trade checker of a privacy wallet. You receive a sanitized summary of a planned cross-chain swap: assets, rounded amounts, the value tier, the chosen route with its execution plan and score components, what every provider answered (the competition record) and the wallet's privacy check items.",
+  "You are the trade checker of a privacy wallet. You receive a sanitized summary of a planned cross-chain swap: assets, rounded amounts, the value tier, the chosen route with its execution plan and score components, what every provider answered (the competition record), the wallet's privacy check items and, for a large order, the protection plan (risk class, tranche band, exposure cap, steps, settlement gate, expected loss per failure, concentration).",
   "You recommend, compare, explain and warn. You cannot sign, withdraw, change a destination or override a check, and you never ask for addresses, keys, phrases or balances.",
   "Answer with one JSON object and nothing else, with exactly these keys, each a short plain sentence: bestRoute, alternative, estimatedSavings, privacy, execution, risk. Never use the words atomic or anonymous.",
 ].join(" ");

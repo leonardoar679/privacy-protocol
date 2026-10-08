@@ -407,6 +407,14 @@ export const PAUSED_TRACK_INTERVAL_MS = 60_000;
 
 const inFlightIndexes = (c: Campaign): number[] => c.tranches.filter((t) => IN_FLIGHT.includes(t.state) || t.state === "refunding").map((t) => t.index);
 
+/** The first commit waits for the first tranche's `notBefore` (an institutional review hold, §14) like any later release. */
+const firstStep = (c: Campaign, f: ReducerFacts): Action => {
+  const t = c.tranches.find((x) => x.state === "planned");
+  if (!t) return { kind: "complete" };
+  if (t.notBefore !== undefined && t.notBefore > f.now) return { kind: "wait", until: t.notBefore, why: "the review hold before the first step" };
+  return { kind: "commit", index: t.index };
+};
+
 /**
  * The one next action for the runner, from the journaled campaign and fresh facts. One action per tick; the
  * runner journals before and after it and re-reads the journal at the next tick (§7, §9).
@@ -428,8 +436,8 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
       return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: "winding down" };
     }
     // the first step is released under the same facts as every later one (§6, §8): a pause condition at the start holds
-    case "user-confirmed": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; return c.plan.shapeNotes && !f.notesShaped ? { kind: "shape-notes" } : { kind: "commit", index: 0 };
-    case "preparing-notes": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; return f.notesShaped ? { kind: "commit", index: 0 } : { kind: "shape-notes" };
+    case "user-confirmed": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; if (c.plan.shapeNotes && !f.notesShaped) return { kind: "shape-notes" }; return firstStep(c, f);
+    case "preparing-notes": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; if (!f.notesShaped) return { kind: "shape-notes" }; return firstStep(c, f);
     case "running": break;
   }
   // running

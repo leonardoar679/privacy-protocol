@@ -21,7 +21,7 @@ import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chai
 import { recoverSwapRefunds } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
 import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
-import { relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
+import { relayerInfo, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { fmtUnits } from "../sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "../sdk/policy";
 import { priceStore } from "../sdk/prices";
@@ -37,6 +37,12 @@ import { AssetSelect } from "./AssetSelect";
 import { DestinationCard } from "./DestinationCard";
 import { PrivacyLint } from "./PrivacyLint";
 import { Scorecard } from "./Scorecard";
+import { CampaignProgress } from "./protection/CampaignProgress";
+import { maximumLossModel, type DestinationPolicy } from "@ref/wallet/campaign";
+import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, progressLine, resumeCampaign, startCampaign } from "../wallet/campaigns";
+import { crossRateFromPrices } from "../wallet/campaignRunner";
+import type { Protection, ProviderRiskView } from "../sdk/swapService";
+import type { MaximumLoss, ProtectionDetails, Verdict } from "./Review";
 
 // Private swap (spec v1.1, plan §22, §26–§31, §36, §47, §79; whale spec §23): quote every provider through
 // the local service, show ONE route in plain words — "Best route: Automatic", the privacy, price and time
@@ -68,10 +74,12 @@ const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggrega
 const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
 const asTier = (t: unknown): Tier | null => (TIERS.includes(t as Tier) ? (t as Tier) : null);
 /** A provider call this wallet checked, signed and simulated (sdk/swapExecute.ts Signed) — kept here until the user confirms (the Review at the execute moment) or handed over at once. */
-type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed };
+type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed } | { moment: "campaign"; provider: string } | { moment: "reroute"; campaignId: string };
+const CUSTODY_WORDS: Record<string, string> = { "tss-vaults": "threshold-signed vaults", "mpc-vault": "an MPC vault", "relayer-bridge": "a relayer bridge", cctp: "Circle's CCTP attestation", solver: "solver execution", aggregator: "an aggregator over bridges", intent: "an intent network", contract: "an on-chain contract", counterparty: "a counterparty" };
+const GATE_WORDS: Record<string, string> = { source: "settled at the source", "destination-submitted": "settled once the destination transaction is sent", "destination-final": "settled once the destination is final" };
 
 export function Swap({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null }) {
-  const { submission, advanced, preference, verifyReads, secondFactor } = useSettings();
+  const { submission, advanced, preference, verifyReads, secondFactor, protection } = useSettings();
   useSession(); // re-render when the journal-backed session changes
   const assets = assetsOf(deployment);
   const [fromAsset, setFromAsset] = useState(assets[0]);
@@ -98,6 +106,10 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const [routeAck, setRouteAck] = useState(false);
   const [destAck, setDestAck] = useState(false);
   const [tracked, setTracked] = useState<Tracked | null>(null);
+  // V3 (High-Value Protection spec §15): the wizard before a protected execution, the campaign shown, the relayer's fee for the preparation line
+  const [wizard, setWizard] = useState<{ provider: string; step: 0 | 1 | 2 } | null>(null);
+  const [campaignView, setCampaignView] = useState<string | null>(null);
+  const [relayerFee, setRelayerFee] = useState<bigint | null>(null);
 
   const to = TARGETS[target];
   const units = parseAmount(fromAsset, amount);
@@ -122,7 +134,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]); // a read only with unspent notes (the store checks)
   /** the policy the service scored under (its tier override applied), or the preference's own before a quote */
   const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
-  const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: units.toString(), destination, slippageBps: 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native" });
+  const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: units.toString(), destination, slippageBps: 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native", mode: protection.mode });
   const openSwaps = session.isUnlocked() ? session.journal().swaps.filter((x) => isOpenSwap(x) && !x.campaign) : [];
   const assetOf = (s: StoredSwap): Asset => assetOfStored(deployment, s);
 
@@ -217,6 +229,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
 
   /** The commit moment: the Review from the enhanced tier (spec §24), one tap below it. */
   function startCommit(provider?: string) {
+    if (campaignMode && protectionPlan) { setRouteAck(false); setDestAck(false); setWizard({ provider: provider ?? protectionPlan.provider, step: 0 }); return; }
     if (controls.review) { setRouteAck(false); setDestAck(false); setReview({ moment: "commit", provider }); return; }
     void commit(provider);
   }
@@ -284,6 +297,14 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
 
   const chosen = quotes?.chosen;
   const chosenQuote = chosen ? quotes!.quotes.find((q) => q.provider === chosen.provider) : undefined;
+  /** V3 (High-Value Protection spec §14): a protected execution from high-value, or at enhanced when the service says `staged`; the service's recommendation is advice, the wallet keeps its own bounds */
+  const protectionPlan: Protection | null = quotes?.protection ?? null;
+  const campaignMode = !!protectionPlan && (controls.campaign || (tier === "enhanced" && protectionPlan.staged));
+  const usdPer = usd !== null && units > 0n ? usd / (Number(units) / 10 ** fromAsset.decimals) : null;
+  const usdOf = (x: bigint): string | null => (usdPer === null ? null : formatUsd(usdPer * (Number(x) / 10 ** fromAsset.decimals), { compact: true }));
+  const amountWords = (x: bigint): string => `${formatAmount(fromAsset, x)} ${fromAsset.symbol}${usdOf(x) ? ` (≈ ${usdOf(x)})` : ""}`;
+  const durationWords = (seconds: number): string => (seconds >= 2 * 86400 ? `${Math.round(seconds / 86400)} days` : seconds >= 3600 ? `${Math.round(seconds / 3600)} h` : `${Math.round(seconds / 60)} min`);
+  useEffect(() => { if (review?.moment === "campaign" && submission.kind === "relayer") relayerInfo(submission.url).then((i) => setRelayerFee(BigInt(i.minFeeWei))).catch(() => setRelayerFee(null)); }, [review?.moment, submission]);
   const funded = !!stored?.fundedTx;
   const dueAt = stored?.dueAt;
   const orderAsset = stored ? assetOf(stored) : fromAsset;
@@ -295,17 +316,159 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const quotedOnly = quotes?.competition ? quotes.competition.filter((c) => c.outcome === "quoted").length : undefined;
   const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, units), holders, acknowledged };
   // the privacy lint (whale spec §18) with the quote, and again with what the wallet read in the provider call
-  const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider }) : null;
+  const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider, ...(campaignMode && protectionPlan ? { campaign: { sizing: protectionPlan.sizing, consecutiveSameSize: false, destinationPerTranche: !destinationEdited, cadenceFixed: false, destinationCooling: false } } : {}) }) : null;
   const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: stored.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;
   const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
   const ack = (id: LintId) => setAcknowledged((x) => [...x, id]);
   // "Check this trade" (whale spec §22): a sanitized summary to the private AI session the user opened; nothing else leaves
   const ai = useAiSession();
-  const tradeCheckFor = (chosenProvider: string | undefined, quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string } | undefined, score: RouteScore | undefined, linkPublic: boolean | undefined, lintList: LintItem[] | null, amountUnits: bigint, t: AssetRef) => ({
+  const tradeCheckFor = (chosenProvider: string | undefined, quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string } | undefined, score: RouteScore | undefined, linkPublic: boolean | undefined, lintList: LintItem[] | null, amountUnits: bigint, t: AssetRef, plan: Protection | null = null) => ({
     available: !!ai.access,
     reason: ai.access ? undefined : "Start a private chat under Home → Details → Private AI to check this trade there.",
-    run: async () => checkTrade(ai.access!, ai.model, tradeSummary({ from: { chain: "ethereum", symbol: fromAsset.symbol, decimals: fromAsset.decimals }, to: { chain: t.chain, symbol: t.symbol, decimals: t.decimals }, amountUnits, usd, tier, preference, chosen: chosenProvider && quote ? { provider: chosenProvider, score, quote, linkPublic } : null, competition: quotes?.competition ?? (stored?.competition as never) ?? null, lint: lintList })),
+    run: async () => checkTrade(ai.access!, ai.model, tradeSummary({ from: { chain: "ethereum", symbol: fromAsset.symbol, decimals: fromAsset.decimals }, to: { chain: t.chain, symbol: t.symbol, decimals: t.decimals }, amountUnits, usd, tier, preference, chosen: chosenProvider && quote ? { provider: chosenProvider, score, quote, linkPublic } : null, competition: quotes?.competition ?? (stored?.competition as never) ?? null, lint: lintList, protection: plan })),
   });
+
+  // ---- V3: the protected execution (High-Value Protection spec §14–§16) — the wizard, its Review, the start, the reroute Review
+  /** The facts of the chosen route for the wizard and the Review (the service's risk view is advice; the wallet's own bounds come from buildCampaign). */
+  function campaignFacts(provider: string) {
+    const q = quotes!, p = protectionPlan!;
+    const quote = q.quotes.find((x) => x.provider === provider)!;
+    const score = q.scores.find((x) => x.provider === provider) ?? q.chosen!;
+    const risk: ProviderRiskView | undefined = q.risk?.[provider];
+    const destinationPolicy: DestinationPolicy = destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" };
+    const draft = buildCampaign({ quotes: q, provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationPolicy, usd, capBps: protection.capBps, now: Date.now(), rng: () => 0.5 });
+    const loss = maximumLossModel(draft);
+    const steps = draft.tranches.length;
+    const incidentDays = risk?.security.incidentList.map((i) => (Date.now() - Date.parse(i.date)) / 86_400_000).filter((d) => d >= 0) ?? [];
+    const recent = incidentDays.some((d) => d <= 30), within90 = incidentDays.some((d) => d <= 90);
+    const security = risk?.security.total ?? score.components.security;
+    const reliability = risk?.reliability ?? score.components.reliability;
+    const verdictSecurity: Verdict["security"] = security < 60 || reliability < 40 ? "Do not execute" : security < 70 || recent || reliability < 60 || p.thinMarket ? "Review" : "Safe to execute";
+    const why = [`security ${security}/100 (${risk ? `baseline ${risk.security.baseline}, incidents ${risk.security.incidents}` : "from the route score"})`, `reliability ${reliability}/100`, incidentDays.length ? `${incidentDays.length} incident${incidentDays.length === 1 ? "" : "s"} on record, the latest ${Math.round(Math.min(...incidentDays))} days ago` : "no incident on record", p.thinMarket ? "thin market: pieces halved for impact" : `impact per step ${p.trancheImpactBps ?? "n/a"} bps`, within90 && !recent ? "an incident within 90 days narrows the band" : ""].filter(Boolean).join(" · ");
+    const verdict: Verdict = { security: verdictSecurity, privacy: levelOf(score.components.privacy), why };
+    const cadence = `${durationWords(p.cadenceSeconds[0])}–${durationWords(p.cadenceSeconds[1])} between steps, drawn at random`;
+    const details: ProtectionDetails = { riskClass: p.riskClass + (p.flags.length ? ` + ${p.flags.join(", ")}` : ""), custody: CUSTODY_WORDS[p.custody] ?? p.custody, band: `${p.bandBps[0] / 100}–${p.bandBps[1] / 100} %`, cap: `${draft.plan.capBps / 100} %`, gate: GATE_WORDS[p.gate] ?? p.gate, steps: `${steps} (${p.concurrency === "sequential" ? "one at a time" : `up to ${p.maxParallel} at a time`})`, duration: `about ${durationWords(p.estimatedSeconds)}`, cadence, elpf: p.elpf.perCampaignUsd !== null ? `${formatUsd(p.elpf.perTrancheUsd ?? 0)} per step · ${formatUsd(p.elpf.perCampaignUsd)} per operation (prior ${(p.elpf.prior * 100).toFixed(1)} %)` : `prior ${(p.elpf.prior * 100).toFixed(1)} % per step`, concentration: p.concentration.singleVenue ? "single venue: only one provider quotes this size, so nothing is spread for appearance" : `${p.concentration.providers.length} venues; no provider above ${p.concentration.capBps / 100} % of the order`, alternative: (q.competition ?? []).find((c) => c.provider !== provider && c.outcome === "quoted")?.provider };
+    const prep = relayerFee !== null ? `${steps} private withdrawals ≈ ${fmt((relayerFee * BigInt(steps)).toString(), 18)} ETH in relayer fees` : `${steps} private withdrawals (one per step) at the relayer's live fee`;
+    const maximumLoss: MaximumLoss = { order: amountWords(loss.order), cap: amountWords(loss.cap), maxExposure: amountWords(loss.maxExposure), protected: amountWords(loss.protected), preparation: prep };
+    return { quote, score, risk, p, draft, steps, verdict, details, maximumLoss, destinationPolicy };
+  }
+
+  /** The wizard (plan V3 §44 screen states): risk analysis → privacy analysis → destination check, then the Review. Nothing is journaled here. */
+  function campaignWizard() {
+    const w = wizard!;
+    const f = campaignFacts(w.provider);
+    const next = () => (w.step < 2 ? setWizard({ ...w, step: (w.step + 1) as 0 | 1 | 2 }) : (setWizard(null), setReview({ moment: "campaign", provider: w.provider })));
+    const titles = ["Risk analysis", "Privacy analysis", "Destination check"];
+    return (
+      <div data-testid="campaign-wizard" data-step={w.step}>
+        <div className="muted small">Protected execution · {titles.map((t, i) => <span key={t} className={i === w.step ? "level-Good" : i < w.step ? "level-Excellent" : "muted"}>{i < w.step ? "✓ " : ""}{t}{i < 2 ? " → " : ""}</span>)}</div>
+        <h3 style={{ marginTop: 6 }}>{titles[w.step]}</h3>
+        {w.step === 0 && (
+          <div className="small" data-testid="wizard-risk">
+            <div className="row"><span className="muted">Route</span><b>{w.provider} · class {f.p.riskClass}{f.p.flags.length ? ` (+ ${f.p.flags.join(", ")})` : ""} · {CUSTODY_WORDS[f.p.custody] ?? f.p.custody}</b></div>
+            <div className="row"><span className="muted">Security</span><b>{f.verdict.security === "Safe to execute" ? "✓" : "⚠"} {f.verdict.security}</b></div>
+            <div className="muted">{f.verdict.why}</div>
+            <div className="row"><span className="muted">Steps</span><b>{f.steps} of {amountWords(BigInt(f.draft.tranches[0]?.amount ?? "0"))}{f.steps > 1 ? " or so" : ""}, {f.p.concurrency === "sequential" ? "one at a time" : `up to ${f.p.maxParallel} at a time`}, {GATE_WORDS[f.p.gate] ?? f.p.gate}</b></div>
+            <div className="row"><span className="muted">At most at risk</span><b>{amountWords(maximumLossModel(f.draft).cap)} ({f.draft.plan.capBps / 100} % of the order)</b></div>
+            <div className="row"><span className="muted">Expected loss per failure</span><b>{f.details.elpf}</b></div>
+            <div className="row"><span className="muted">Concentration</span><b>{f.details.concentration}</b></div>
+            {f.p.reasons.length > 0 && <ul className="muted" style={{ paddingLeft: 18, margin: "6px 0 0" }}>{f.p.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
+          </div>
+        )}
+        {w.step === 1 && (
+          <div className="small" data-testid="wizard-privacy">
+            <div className="row"><span className="muted">Privacy</span><b className={`level-${f.verdict.privacy}`}>{f.verdict.privacy}</b></div>
+            <p className="muted" style={{ margin: "4px 0" }}>What a protected execution reveals: {f.steps} fundings of one-time escrows over about {durationWords(f.p.estimatedSeconds)}, {f.details.cadence}; each step pays {destinationEdited ? "the address you entered" : "its own fresh address of this wallet"}. The pool side sees pieces of common sizes, never the whole.</p>
+            {lintItems && <PrivacyLint items={lintItems} onAcknowledge={ack} />}
+          </div>
+        )}
+        {w.step === 2 && (
+          <div className="small" data-testid="wizard-destination">
+            <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} kind={destinationEdited ? "entered" : "fresh"} title={destinationEdited ? "Every step pays" : "The first step pays"} />
+            <p className="muted" style={{ margin: "4px 0" }}>{destinationEdited ? "An entered address: every step pays this one address, which links the steps on the destination side. The format parses; check every group before you continue." : "Each step pays its own fresh address of this wallet, reserved when the step starts and never reused; the destinations do not link the steps."}</p>
+            {destinationEdited && !destAck && <button className="tab" onClick={() => setDestAck(true)}>I checked every group</button>}
+            {destinationEdited && destAck && <div className="level-Excellent">✓ checked</div>}
+          </div>
+        )}
+        <div className="tabs" style={{ marginTop: 10 }}>
+          <button className="primary" onClick={next} disabled={w.step === 2 && destinationEdited && !destAck} data-testid="wizard-next">{w.step < 2 ? "Continue" : "Continue to the review"}</button>
+          <button className="tab" onClick={() => setWizard(null)}>Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  /** The Review before a protected execution (spec §15): the five lines plus Exposure and Security, the maximum-loss model, the combined verdict. */
+  function campaignReview(provider: string) {
+    const q = quotes!;
+    const f = campaignFacts(provider);
+    const dec = to.ref.decimals, sym = to.ref.symbol;
+    const liveQuotes = q.competition ? q.competition.filter((c) => c.outcome === "quoted").length : q.quotes.length;
+    const lines: ReviewLine[] = [
+      { id: "price", label: "Price protected", ok: BigInt(f.quote.toAmountMin) > 0n, meaning: `every step must guarantee at least ${fmt(f.draft.bounds.minimumOutput, 18 + dec - fromAsset.decimals > 0 ? 18 : 18)} ${sym} per ${fromAsset.symbol} of the quote's minimum less ${0.5} %; a step below it pauses the operation` },
+      { id: "route", label: "Route checked", ok: !controls.twoQuotes || liveQuotes >= 2 || routeAck, meaning: liveQuotes >= 2 ? `${liveQuotes} providers quoted this size` : "only one provider answered for this size; the route cannot be compared with another live quote", ...(controls.twoQuotes && liveQuotes < 2 ? { ack: { text: "I accept the single quote", done: routeAck, onAck: () => setRouteAck(true) } } : {}) },
+      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck), meaning: destinationEdited ? "entered by hand: every step pays it; the format parses and you checked every group" : "a fresh address of this wallet per step, each used once" },
+      { id: "slippage", label: "Slippage checked", ok: f.quote.impactBps === undefined || (f.p.trancheImpactBps ?? 0) <= IMPACT_CAP_BPS, meaning: f.p.trancheImpactBps !== null ? `impact per step ${f.p.trancheImpactBps} bps against a cap of ${IMPACT_CAP_BPS}` : "the provider gave no impact figure; the minimum bounds every step" },
+      { id: "exposure", label: "Exposure bounded", ok: f.draft.plan.capBps <= 300, meaning: `at most ${amountWords(maximumLossModel(f.draft).cap)} outside your private balance and unsettled at once (${f.draft.plan.capBps / 100} %); ${f.p.concurrency === "sequential" ? "one step at a time" : `up to ${f.p.maxParallel} steps at a time`}; each step ${GATE_WORDS[f.p.gate] ?? f.p.gate}` },
+      { id: "security", label: "Security assessed", ok: f.verdict.security !== "Do not execute", meaning: f.verdict.why },
+      { id: "privacy", label: "Privacy reviewed", ok: !lintItems || unacknowledgedBlocks(lintItems).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
+    ];
+    const exportNow = () => downloadText(`privacy-wallet-protected-swap-review-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, JSON.stringify({ format: "privacy-protocol/protected-swap-review/v1", exportedAt: new Date().toISOString(), request: request(), tier, value: assessment?.value ?? null, plan: f.draft.plan, bounds: f.draft.bounds, pieces: f.draft.tranches.map((t) => t.amount), protection: f.p, risk: f.risk ?? null, quotes: q, lint: lintItems ?? null }, null, 2));
+    return (
+      <Review moment="campaign" tier={tier} controls={controls} usd={usd !== null ? formatUsd(usd) : null} amount={`${formatAmount(fromAsset, units)} ${fromAsset.symbol}`} from={`Private ${fromAsset.symbol}, in ${f.steps} steps`}
+        to={{ network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }} receiveMin={`${fmt(f.quote.toAmountMin, dec)} ${sym} at today's minimum, pro rata per step`}
+        execution={{ words: "Protected execution", detail: `${f.steps} steps · ${planWords(f.quote.plan).toLowerCase()} each`, eta: `about ${durationWords(f.p.estimatedSeconds)}` }}
+        privacy={{ level: f.verdict.privacy, score: f.score.components.privacy }} lint={lintItems ?? []} onAcknowledgeLint={ack} lines={lines}
+        issuer={issuerLine(fromAsset.symbol) ?? issuerLine(sym)} routeKind={routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets)}
+        maximumLoss={f.maximumLoss} verdict={f.verdict} protectionDetails={f.details}
+        details={{ provider, mode: f.quote.plan?.mode ?? "single", parts: f.quote.plan?.parts, fees: feeSummary(f.quote), expectedOutput: `${fmt(f.quote.toAmount, dec)} ${sym} for the whole order at today's rate`, settlement: settlement(provider), alternatives: (q.competition ?? []).filter((c) => c.provider !== provider).map((c) => ({ provider: c.provider, outcome: c.outcome, reason: c.reason })), score: advanced ? `${f.score.total} (price ${f.score.components.price}, security ${f.score.components.security}, privacy ${f.score.components.privacy}, latency ${f.score.components.latency}, reliability ${f.score.components.reliability}, liquidity ${f.score.components.liquidity})` : undefined, linkEvidence: q.links?.[provider]?.evidence }}
+        advanced={advanced} reviewHold={controls.reviewHold ? { minutes: REVIEW_HOLD_MINUTES } : null} onExport={controls.export ? exportNow : undefined}
+        secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null} secondDevice={controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null}
+        tradeCheck={tradeCheckFor(provider, f.quote, f.score, q.links?.[provider]?.public, lintItems, units, to.ref, f.p)}
+        busy={busy} error={error} onConfirm={() => startProtected(provider)} onCancel={() => setReview(null)} />
+    );
+  }
+
+  /** The confirmation (spec §7): the campaign is journaled with its bounds and the first tick; the runner does the rest from any screen. */
+  async function startProtected(provider: string) {
+    const f = campaignFacts(provider);
+    const now = Date.now();
+    let gasPriceWei: string | null = null;
+    if (submission.kind === "relayer") { try { gasPriceWei = (await relayerInfo(submission.url)).gasPriceWei; } catch { gasPriceWei = null; } }
+    const c = await run("Starting the protected execution…", async () => startCampaign({
+      quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps,
+      crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
+      confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
+      reviewHoldUntil: controls.reviewHold ? now + REVIEW_HOLD_MINUTES * 60_000 : undefined, now,
+    }));
+    if (!c) return;
+    reset(); setQuotes(null); setCampaignView(c.id);
+  }
+
+  /** The reroute Review (spec §8): a route change on a large operation is confirmed, never adopted quietly. */
+  function rerouteReview(campaignId: string) {
+    const c = campaignById(campaignId);
+    if (!c || !c.pendingReroute) { setReview(null); return null; }
+    const pr = c.pendingReroute;
+    const np = (pr.protection ?? null) as Protection | null;
+    const dec = c.request.from.decimals;
+    const fmtFrom = (u: string) => `${fmtUnits(u, dec, 4)} ${c.request.from.symbol}`;
+    const lines: ReviewLine[] = [
+      { id: "route", label: "Route checked", ok: true, meaning: `the fresh competition for the remaining amount chose ${pr.provider} (before: ${c.provider ?? "—"})` },
+      { id: "exposure", label: "Exposure bounded", ok: true, meaning: `the same bounds hold: at most ${fmtFrom(c.bounds.maxExternalExposure)} unsettled at once, the same minimum per unit, the same destination policy` },
+      { id: "security", label: "Security assessed", ok: !np || np.riskClass !== "R6", meaning: np ? `${pr.provider}: class ${np.riskClass}, ${CUSTODY_WORDS[np.custody] ?? np.custody}, ${GATE_WORDS[np.gate] ?? np.gate}${np.reasons.length ? `; ${np.reasons.join("; ")}` : ""}` : "the new route's recommendation is not available; the bounds still hold" },
+      { id: "privacy", label: "Privacy reviewed", ok: true, meaning: "the remaining steps keep their sizes and cadence; the provider changes" },
+    ];
+    return (
+      <Review moment="reroute" tier={c.tier} controls={controlsFor(c.tier)} usd={c.value && typeof c.value === "object" && "usd" in (c.value as object) ? formatUsd((c.value as { usd: number }).usd) : null} amount={`${fmtFrom(c.request.amount)} (the whole order)`} from={`Private ${c.request.from.symbol}, the remaining steps`}
+        to={{ network: to.network, asset: c.request.to.symbol, address: c.bounds.destination.kind === "fresh-per-tranche" ? "a fresh address per step" : c.bounds.destination.address, kind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered" }}
+        execution={{ words: "Protected execution", detail: `continues with ${pr.provider}`, eta: np ? `about ${durationWords(np.estimatedSeconds)} for the rest` : "as before" }}
+        privacy={{ level: levelOf(((c.riskSnapshot ?? {}) as { privacyScore?: number }).privacyScore ?? 0) }} lint={[]} onAcknowledgeLint={() => {}} lines={lines}
+        verdict={{ security: !np || np.riskClass !== "R6" ? "Review" : "Do not execute", privacy: levelOf(((c.riskSnapshot ?? {}) as { privacyScore?: number }).privacyScore ?? 0), why: `the route changed to ${pr.provider}; a route change on a large operation is reviewed by you` }}
+        advanced={advanced} secondFactor={controlsFor(c.tier).secondFactor ? { credentialId: secondFactor.credentialId } : null} secondDevice={controlsFor(c.tier).secondDevice ? { credentialId: protection.secondDevice.credentialId } : null}
+        busy={busy} error={error} onConfirm={() => { acceptReroute(c.id, true); setReview(null); }} onCancel={() => setReview(null)} />
+    );
+  }
 
   /** The Review before commit (spec §24): the five lines of plan §4 computed from the quote set and the lint. */
   function commitReview(provider?: string) {
@@ -370,7 +533,24 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     return (
       <div className="panel" data-testid="swap">
         <h3>Swap privately</h3>
-        {review.moment === "commit" && quotes ? commitReview(review.provider) : review.moment === "execute" ? executeReview(review.signed) : null}
+        {review.moment === "commit" && quotes ? commitReview(review.provider) : review.moment === "execute" ? executeReview(review.signed) : review.moment === "campaign" && quotes && protectionPlan ? campaignReview(review.provider) : review.moment === "reroute" ? rerouteReview(review.campaignId) : null}
+      </div>
+    );
+  }
+  if (wizard && quotes && protectionPlan) {
+    return (
+      <div className="panel" data-testid="swap">
+        <h3>Swap privately</h3>
+        {campaignWizard()}
+      </div>
+    );
+  }
+  const viewed = campaignView ? campaignById(campaignView) : null;
+  if (viewed) {
+    return (
+      <div className="panel" data-testid="swap">
+        <h3>Swap privately</h3>
+        <CampaignProgress campaign={viewed} advanced={advanced} onPause={() => pauseCampaign(viewed.id)} onResume={() => resumeCampaign(viewed.id)} onCancel={() => cancelCampaign(viewed.id)} onReviewReroute={() => setReview({ moment: "reroute", campaignId: viewed.id })} onBack={() => setCampaignView(null)} />
       </div>
     );
   }
@@ -421,6 +601,9 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
               <div className="row"><span className="muted">Price</span><b className={`level-${levelOf(chosen.components.price)}`}>{levelOf(chosen.components.price)}</b></div>
               <div className="row"><span className="muted">Time</span><b>~{hours(chosenQuote.etaSeconds)}{policy !== "fastest" ? " after the scheduled funding" : ""}</b></div>
               <div className="row"><span className="muted">Fee</span><b>{feeSummary(chosenQuote)}</b></div>
+              {campaignMode && protectionPlan && (() => { const cap = (units * BigInt(protectionPlan.capBps)) / 10000n; const piece = (units * BigInt(protectionPlan.bandBps[1])) / 10000n; return (
+                <p className="notice" data-testid="protection-line">Protected execution: about {protectionPlan.estimatedTranches} steps of ≈ {usdOf(piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`} · {protectionPlan.concurrency === "sequential" ? "one at a time" : `up to ${protectionPlan.maxParallel} at a time`} · at most {usdOf(cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`} at risk · about {durationWords(protectionPlan.estimatedSeconds)}.</p>
+              ); })()}
               {quotedOnly === 1 && <p className="notice">Only one provider answered for this size; the route cannot be compared with another live quote.</p>}
               <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmt(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />
               {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
@@ -456,6 +639,17 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
         </div>
       )}
 
+      {!order && activeCampaigns().length > 0 && (
+        <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }} data-testid="protected-swaps">
+          <label>Your protected swaps</label>
+          {activeCampaigns().map((c) => (
+            <div key={c.id} className="row" style={{ fontSize: 13, padding: "4px 0" }}>
+              <span>{c.request.from.symbol} → {c.request.to.symbol} · {progressLine(c)} · {c.state}</span>
+              <button className="tab" onClick={() => setCampaignView(c.id)}>Open</button>
+            </div>
+          ))}
+        </div>
+      )}
       {!order && openSwaps.length > 0 && (
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
           <label>Your open swaps</label>

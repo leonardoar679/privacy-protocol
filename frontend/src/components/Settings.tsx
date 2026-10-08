@@ -4,9 +4,10 @@ import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@ref/wallet
 import type { Deployment } from "../sdk/chain";
 import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
 import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "../sdk/policy";
-import { PREFERENCES, settings, useSettings, type Preference } from "../wallet/settings";
+import { CAP_BPS_RANGE, PREFERENCES, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, useSettings, type Preference, type ProtectionMode } from "../wallet/settings";
 import { session } from "../wallet/session";
-import { registerSecondFactor, webauthnAvailable } from "../sdk/secondFactor";
+import { registerSecondDevice, registerSecondFactor, webauthnAvailable } from "../sdk/secondFactor";
+import { requestSystemNotifications } from "../wallet/notifications";
 
 // Settings (plan V2 §43, §97, §108–§110; whale spec §13, §23): backup and lock, the trade preference
 // (never on the Swap screen), the value tiers, private balance maintenance, the privacy and network
@@ -35,6 +36,26 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
   const [cap, setCap] = useState(() => formatEther(BigInt(s.housekeeping.dailyFeeCapWei)));
   const [forget, setForget] = useState("");
   const [factorStatus, setFactorStatus] = useState("");
+  const [exposure, setExposure] = useState(() => ((s.protection.capBps ?? PROTECTION_DEFAULTS[s.protection.mode].capBps) / 100).toFixed(1));
+  const [exposureError, setExposureError] = useState("");
+  const [deviceStatus, setDeviceStatus] = useState("");
+  const p = s.protection;
+  function applyExposure() {
+    const bps = Math.round(Number(exposure) * 100);
+    if (!Number.isFinite(bps) || bps < CAP_BPS_RANGE[0] || bps > CAP_BPS_RANGE[1]) { setExposureError(`The exposure fraction stays between ${CAP_BPS_RANGE[0] / 100} % and ${CAP_BPS_RANGE[1] / 100} % of the order; 3 % only where the risk engine permits it.`); setExposure(((p.capBps ?? PROTECTION_DEFAULTS[p.mode].capBps) / 100).toFixed(1)); return; }
+    setExposureError("");
+    settings.set({ protection: { ...p, capBps: bps } });
+  }
+  async function registerDevice() {
+    setDeviceStatus("Registering a separate device (a security key, or a phone over the cross-device flow)…");
+    try { const credentialId = await registerSecondDevice(); settings.set({ protection: { ...p, secondDevice: { enabled: true, credentialId } } }); setDeviceStatus("Registered. Operations at the institutional size ask this device after the second confirmation; there is no password fallback for it."); }
+    catch (e: any) { setDeviceStatus(e?.message ?? String(e)); }
+  }
+  async function enableSystemNotifications(on: boolean) {
+    if (!on) { settings.set({ protection: { ...p, notifications: { ...p.notifications, system: false } } }); return; }
+    const granted = await requestSystemNotifications();
+    settings.set({ protection: { ...p, notifications: { ...p.notifications, system: granted } } });
+  }
 
   async function registerFactor() {
     setFactorStatus("Registering with the platform authenticator…");
@@ -105,6 +126,43 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
           {s.secondFactor.credentialId && <button className="tab" onClick={() => { settings.set({ secondFactor: { enabled: false } }); setFactorStatus("Removed; the password is asked instead."); }}>Remove</button>}
         </div>
         {factorStatus && <p className="muted small">{factorStatus}</p>}
+      </div>
+
+      <div className="panel" data-testid="protected-execution">
+        <h3>Protected execution</h3>
+        <p className="muted small">A large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your private balance and unsettled at any time. The mode sets the fraction, the sizes and the pace; the wallet chooses the pieces.</p>
+        {PROTECTION_MODES.map((m: ProtectionMode) => (
+          <label key={m} style={{ display: "block", padding: "6px 0", color: "var(--fg)" }}>
+            <input type="radio" name="protection-mode" checked={p.mode === m} onChange={() => { settings.set({ protection: { ...p, mode: m, capBps: undefined } }); setExposure((PROTECTION_DEFAULTS[m].capBps / 100).toFixed(1)); }} />
+            <b>{PROTECTION_DEFAULTS[m].label}</b> <span className="muted small">· at most {PROTECTION_DEFAULTS[m].capBps / 100} % exposed</span>
+            <div className="muted small" style={{ marginLeft: 22 }}>{PROTECTION_DEFAULTS[m].words}</div>
+          </label>
+        ))}
+        <label>Exposure fraction (% of the order outside your balance at once, {CAP_BPS_RANGE[0] / 100}–{CAP_BPS_RANGE[1] / 100})</label>
+        <input inputMode="decimal" value={exposure} onChange={(e: any) => setExposure(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyExposure} data-testid="exposure-input" />
+        {exposureError && <p className="error small">{exposureError}</p>}
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.pauseLargeOperations} onChange={(e: any) => settings.set({ protection: { ...p, pauseLargeOperations: e.target.checked } })} data-testid="pause-large-operations" /> Pause large operations (every protected swap stops releasing steps; steps already handed over finish; the protocol itself never pauses)
+        </label>
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.autoReroute} onChange={(e: any) => settings.set({ protection: { ...p, autoReroute: e.target.checked } })} /> Adopt a changed route without a new review below the second-confirmation size
+        </label>
+        <label style={{ display: "block", color: "var(--fg)", marginTop: 6 }}>
+          <input type="checkbox" checked={p.notifications.inApp} onChange={(e: any) => settings.set({ protection: { ...p, notifications: { ...p.notifications, inApp: e.target.checked } } })} /> In-app notifications about a protected swap (paused, step settled, route changed)
+        </label>
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.notifications.system} onChange={(e: any) => enableSystemNotifications(e.target.checked)} /> System notifications while this tab is in the background
+        </label>
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.notifications.generic} onChange={(e: any) => settings.set({ protection: { ...p, notifications: { ...p.notifications, generic: e.target.checked } } })} /> Keep system notifications generic ("Your private operation has updated"; no amounts)
+        </label>
+        <div className="row" style={{ marginTop: 8 }}><span className="muted">Second device (institutional size)</span><b>{p.secondDevice.credentialId ? "registered" : webauthnAvailable() ? "not registered" : "not available in this browser"}</b></div>
+        <div className="tabs" style={{ margin: "6px 0" }}>
+          {!p.secondDevice.credentialId && <button className="tab" onClick={registerDevice} disabled={!webauthnAvailable()} data-testid="register-second-device">Register a separate device</button>}
+          {p.secondDevice.credentialId && <button className="tab" onClick={() => { settings.set({ protection: { ...p, secondDevice: { enabled: false } } }); setDeviceStatus("Removed. Operations at the institutional size cannot be confirmed until a device is registered again."); }}>Remove</button>}
+        </div>
+        <p className="muted small">A security key or a phone confirms an operation at the institutional size after this device did; a compromised phone alone does not reach that size. There is no password fallback for the second device.</p>
+        {deviceStatus && <p className="muted small">{deviceStatus}</p>}
       </div>
 
       <div className="panel">

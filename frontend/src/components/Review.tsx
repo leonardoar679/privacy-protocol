@@ -16,11 +16,17 @@ import { PrivacyLint } from "./PrivacyLint";
 // lint, the five lines of plan §4 with their meaning, the issuer line, and the route details behind
 // "Advanced details". From high-value the confirmation is a hold; from high-value-secondary the second
 // factor comes first; at institutional the funding waits for the review hold and the order can be exported.
-export interface ReviewLine { id: "price" | "route" | "destination" | "slippage" | "privacy"; label: string; ok: boolean; meaning: string; /** the line is ok only once the user acknowledges this */ ack?: { text: string; done: boolean; onAck: () => void } }
+export interface ReviewLine { id: "price" | "route" | "destination" | "slippage" | "privacy" | "exposure" | "security"; label: string; ok: boolean; meaning: string; /** the line is ok only once the user acknowledges this */ ack?: { text: string; done: boolean; onAck: () => void } }
 export interface RouteDetails { provider: string; mode: string; parts?: number; fees: string; expectedOutput: string; settlement: string; alternatives: { provider: string; outcome: string; reason?: string }[]; score?: string; linkEvidence?: string }
+/** The maximum-loss model of a protected execution (High-Value Protection spec §15, plan V3 §46), every figure already formatted. */
+export interface MaximumLoss { order: string; cap: string; maxExposure: string; protected: string; preparation: string }
+/** The combined verdict (plan V3 §43): SECURITY and PRIVACY are one block — "Safe to execute" is never shown without the privacy level. */
+export interface Verdict { security: "Safe to execute" | "Review" | "Do not execute"; privacy: Level; why: string }
+/** Advanced (plan V3 §94): the protection plan in figures. */
+export interface ProtectionDetails { riskClass: string; custody: string; band: string; cap: string; gate: string; steps: string; duration: string; cadence: string; elpf: string; concentration: string; alternative?: string }
 
 export interface ReviewProps {
-  moment: "commit" | "execute" | "send" | "withdraw";
+  moment: "commit" | "execute" | "send" | "withdraw" | "campaign" | "reroute";
   tier: Tier;
   controls: Controls;
   usd: string | null;
@@ -41,6 +47,11 @@ export interface ReviewProps {
   reviewHold?: { minutes: number } | null;
   onExport?: () => void;
   secondFactor?: { credentialId?: string } | null;
+  /** institutional (spec §14): the separate device asked after the second factor; absent credential: the confirmation is refused, there is no password fallback */
+  secondDevice?: { credentialId?: string } | null;
+  maximumLoss?: MaximumLoss | null;
+  verdict?: Verdict | null;
+  protectionDetails?: ProtectionDetails | null;
   /** "Check this trade" on Private AI (spec §22): available only with an open private session; the summary is sanitized by the caller */
   tradeCheck?: { available: boolean; reason?: string; run: () => Promise<TradeCheck> } | null;
   busy?: string;
@@ -54,6 +65,8 @@ const MOMENT: Record<ReviewProps["moment"], { title: string; what: string; butto
   execute: { title: "Review the execution", what: "Confirming hands the signed provider call to the executor. This cannot be undone once it is mined.", button: "Confirm the execution" },
   send: { title: "Review the transfer", what: "Confirming proves and submits the private transfer. It cannot be undone.", button: "Confirm and send" },
   withdraw: { title: "Review the withdrawal", what: "Confirming proves and submits the withdrawal to the public address below. It cannot be undone.", button: "Confirm and withdraw" },
+  campaign: { title: "Review the protected swap", what: "Confirming starts the protected execution: the order runs as steps under the exposure cap, each funded from your private balance into its own one-time escrow and handed over only when the previous step settled. Steps already handed over cannot be recalled.", button: "Confirm and start" },
+  reroute: { title: "Review the new route", what: "The route changed while the operation was paused. Confirming continues the remaining steps on the new route under the same bounds you approved.", button: "Confirm the new route" },
 };
 
 export function Review(p: ReviewProps) {
@@ -61,6 +74,8 @@ export function Review(p: ReviewProps) {
   const [factor, setFactor] = useState<"idle" | "asking" | "password" | "passed">("idle");
   const [password, setPassword] = useState("");
   const [factorError, setFactorError] = useState("");
+  const [device, setDevice] = useState<"idle" | "asking" | "passed">("idle");
+  const [deviceError, setDeviceError] = useState("");
   const [check, setCheck] = useState<{ busy?: boolean; result?: TradeCheck; error?: string }>({});
   async function runCheck() {
     if (!p.tradeCheck?.available) return;
@@ -72,26 +87,40 @@ export function Review(p: ReviewProps) {
   const pendingLines = p.lines.filter((l) => !l.ok);
   const ready = blocks.length === 0 && pendingLines.length === 0 && !p.busy;
   const needsFactor = p.controls.secondFactor && factor !== "passed";
+  const needsDevice = !!p.secondDevice && device !== "passed";
 
+  /** After the second factor (or without one): the separate device at institutional, then the confirmation. */
+  async function afterFactor() {
+    if (needsDevice) {
+      setDeviceError("");
+      if (!p.secondDevice?.credentialId) { setDeviceError("Operations at this size need a confirmation from a separate device (a security key or a phone), and there is no password fallback for it. Register one under Settings → Protected execution."); return; }
+      if (!webauthnAvailable()) { setDeviceError("This browser cannot ask the separate device; the operation is not confirmed."); return; }
+      setDevice("asking");
+      const ok = await assertSecondFactor(p.secondDevice.credentialId);
+      if (!ok) { setDevice("idle"); setDeviceError("The separate device did not confirm. There is no password fallback at this size."); return; }
+      setDevice("passed");
+    }
+    await p.onConfirm();
+  }
   async function confirm() {
     if (!ready) return;
     if (needsFactor) {
       setFactorError("");
       if (p.secondFactor?.credentialId && webauthnAvailable()) {
         setFactor("asking");
-        if (await assertSecondFactor(p.secondFactor.credentialId)) { setFactor("passed"); await p.onConfirm(); return; }
+        if (await assertSecondFactor(p.secondFactor.credentialId)) { setFactor("passed"); await afterFactor(); return; }
         setFactorError("The authenticator did not confirm; enter your wallet password instead.");
       }
       setFactor("password");
       return;
     }
-    await p.onConfirm();
+    await afterFactor();
   }
   async function confirmWithPassword() {
     setFactorError("");
     if (!(await verifyPassword(password))) { setFactorError("Wrong password."); return; }
     setPassword(""); setFactor("passed");
-    await p.onConfirm();
+    await afterFactor();
   }
 
   return (
@@ -113,6 +142,23 @@ export function Review(p: ReviewProps) {
       {p.issuer && <div className="row"><span className="muted">Token</span><b className="small">{p.issuer}</b></div>}
       {p.routeKind && <div className="row"><span className="muted">Route</span><b>{p.routeKind}</b></div>}
       <PrivacyLint items={p.lint} onAcknowledge={p.onAcknowledgeLint} compact />
+      {p.maximumLoss && (
+        <div className="small" style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 12 }} data-testid="maximum-loss">
+          <div className="muted" style={{ marginBottom: 4 }}>Maximum-loss model</div>
+          <div className="row"><span className="muted">Order</span><b>{p.maximumLoss.order}</b></div>
+          <div className="row"><span className="muted">In-flight cap</span><b>{p.maximumLoss.cap}</b></div>
+          <div className="row"><span className="muted">Maximum external exposure</span><b>{p.maximumLoss.maxExposure}</b></div>
+          <div className="row"><span className="muted">Remaining protected</span><b>{p.maximumLoss.protected}</b></div>
+          <div className="row"><span className="muted">Preparation cost</span><b>{p.maximumLoss.preparation}</b></div>
+        </div>
+      )}
+      {p.verdict && (
+        <div className="small" style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 12 }} data-testid="verdict">
+          <div className="row"><span className="muted">Security</span><b className={p.verdict.security === "Safe to execute" ? "level-Excellent" : p.verdict.security === "Review" ? "level-Reduced" : "error"} data-testid="verdict-security">{p.verdict.security}</b></div>
+          <div className="row"><span className="muted">Privacy</span><b className={`level-${p.verdict.privacy}`} data-testid="verdict-privacy">{p.verdict.privacy}</b></div>
+          <div className="muted">{p.verdict.why}</div>
+        </div>
+      )}
 
       <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0" }} data-testid="review-lines">
         {p.lines.map((l) => (
@@ -138,6 +184,18 @@ export function Review(p: ReviewProps) {
               {p.details.linkEvidence && <div className="row"><span>Link evidence</span><b>{p.details.linkEvidence}</b></div>}
               {p.details.score && <div className="row"><span>Score</span><b>{p.details.score}</b></div>}
               {p.details.alternatives.length > 0 && <div style={{ marginTop: 4 }}>Alternatives: {p.details.alternatives.map((a) => `${a.provider} — ${a.outcome}${a.reason ? ` (${a.reason})` : ""}`).join("; ")}</div>}
+              {p.protectionDetails && (
+                <div style={{ marginTop: 6 }} data-testid="protection-details">
+                  <div className="row"><span>Risk class</span><b>{p.protectionDetails.riskClass} · {p.protectionDetails.custody}</b></div>
+                  <div className="row"><span>Tranche band · cap</span><b>{p.protectionDetails.band} · {p.protectionDetails.cap}</b></div>
+                  <div className="row"><span>Settlement gate</span><b>{p.protectionDetails.gate}</b></div>
+                  <div className="row"><span>Steps · duration</span><b>{p.protectionDetails.steps} · {p.protectionDetails.duration}</b></div>
+                  <div className="row"><span>Cadence</span><b>{p.protectionDetails.cadence}</b></div>
+                  <div className="row"><span>Expected loss per failure</span><b>{p.protectionDetails.elpf}</b></div>
+                  <div className="row"><span>Concentration</span><b>{p.protectionDetails.concentration}</b></div>
+                  {p.protectionDetails.alternative && <div className="row"><span>Alternative</span><b>{p.protectionDetails.alternative}</b></div>}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -169,13 +227,15 @@ export function Review(p: ReviewProps) {
         </div>
       )}
       {factorError && <p className="error small">{factorError}</p>}
+      {deviceError && <p className="error small" data-testid="second-device-error">{deviceError}</p>}
+      {device === "asking" && <p className="muted small">Confirm on your separate device…</p>}
       {p.error && <p className="error small">{p.error}</p>}
       {p.busy && <p className="muted small">{p.busy}</p>}
 
       <div className="tabs" style={{ marginTop: 10 }}>
         {factor !== "password" && (p.controls.hold
-          ? <HoldToConfirm label={needsFactor ? `${m.button} (second confirmation next)` : m.button} onConfirm={confirm} disabled={!ready || factor === "asking"} />
-          : <button className="primary" onClick={confirm} disabled={!ready || factor === "asking"} data-testid="confirm-tap">{m.button}</button>)}
+          ? <HoldToConfirm label={needsFactor ? `${m.button} (second confirmation next)` : needsDevice ? `${m.button} (separate device next)` : m.button} onConfirm={confirm} disabled={!ready || factor === "asking" || device === "asking"} />
+          : <button className="primary" onClick={confirm} disabled={!ready || factor === "asking" || device === "asking"} data-testid="confirm-tap">{m.button}</button>)}
         <button className="tab" onClick={p.onCancel} disabled={!!p.busy}>Back</button>
       </div>
       {!ready && !p.busy && <p className="muted small">{blocks.length ? "Acknowledge the privacy check to continue." : pendingLines.length ? `Waiting on: ${pendingLines.map((l) => l.label).join(", ")}.` : ""}</p>}

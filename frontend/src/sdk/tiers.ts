@@ -12,7 +12,15 @@ import type { Simulation } from "./simulate";
 const nodeEnv = ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}) as Record<string, string | undefined>;
 const env: Record<string, string | undefined> = { ...nodeEnv, ...((import.meta as any).env ?? {}) };
 
-export interface Controls { review: boolean; lint: boolean; simulation: boolean; hold: boolean; secondFactor: boolean; reviewHold: boolean; export: boolean; twoQuotes: boolean }
+export interface Controls {
+  review: boolean; lint: boolean; simulation: boolean; hold: boolean; secondFactor: boolean; reviewHold: boolean; export: boolean; twoQuotes: boolean;
+  /** High-Value Protection spec §14: a protected execution (tranches under the in-flight cap) from high-value; at enhanced only when the service says `staged` */
+  campaign: boolean;
+  /** the destination lock, the address book and its cooling-off from high-value (§12) */
+  destinationLock: boolean; coolingOff: boolean;
+  /** institutional: the second factor on a separate device (a cross-platform WebAuthn credential, no password fallback) */
+  secondDevice: boolean;
+}
 
 export const controlsFor = (tier: Tier): Controls => ({
   review: atLeast(tier, "enhanced"),
@@ -23,6 +31,10 @@ export const controlsFor = (tier: Tier): Controls => ({
   reviewHold: tier === "institutional",
   export: tier === "institutional",
   twoQuotes: atLeast(tier, "high-value"),
+  campaign: atLeast(tier, "high-value"),
+  destinationLock: atLeast(tier, "high-value"),
+  coolingOff: atLeast(tier, "high-value"),
+  secondDevice: tier === "institutional",
 });
 
 /** The impact cap of spec §4 (lab-calibrated, Stage 1): a single-shot plan above it is refused by the engine when a stream exists; the Review repeats the figure. */

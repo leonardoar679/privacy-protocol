@@ -14,6 +14,7 @@ import { Guest } from "./components/Guest";
 import { deploymentFromEnv } from "./sdk/chain";
 import { coreStatus, subscribeCore } from "./sdk/core";
 import { runScheduledAction } from "./sdk/swapFunding";
+import { runCampaignTick } from "./wallet/campaignRunner";
 import { useSettings } from "./wallet/settings";
 import { specForChain } from "./sdk/lightclient/spec";
 import { useVerifyStatus } from "./sdk/verifiedReads";
@@ -81,6 +82,8 @@ export function App() {
   useScheduler(useCallback(async (a) => {
     const seed = session.state().seed;
     if (!seed) return;
+    // V3 (High-Value Protection spec §7): one campaign action per tick; the tick plans the next one itself
+    if (a.kind === "campaign-tick" || a.kind === "campaign-shape") { await runCampaignTick(a, { masterSeed: seed, deployment }); return; }
     await runScheduledAction(a, { masterSeed: seed, deployment });
   }, [deployment]));
   useEffect(() => { if (s.status !== "unlocked") { setSheet(null); setTab("home"); } }, [s.status]);

@@ -422,7 +422,7 @@ The V2 §13 tiers gain the protection columns (USD thresholds configurable as be
   at ≥ $10M; a compromised phone does not reach the institutional threshold alone; threshold signing across
   devices is out of scope (§19).
 
-*Implemented (Stage 4):* `settings.protection` — `mode`, `capBps` (inside 200–300; above the recommendation only on an R1 / R2 route), `pauseLargeOperations`, `autoReroute`, `notifications { inApp, system, generic }`, `secondDevice { enabled, credentialId }` — healed from a V2 journal (`healProtection`), with `PROTECTION_DEFAULTS` per mode (cap, sizing, cadence, the words) mirroring the lab's constants (`frontend/src/wallet/settings.ts`). *Stage 5* (controls and screens).
+*Implemented (Stage 4):* `settings.protection` — `mode`, `capBps` (inside 200–300; above the recommendation only on an R1 / R2 route), `pauseLargeOperations`, `autoReroute`, `notifications { inApp, system, generic }`, `secondDevice { enabled, credentialId }` — healed from a V2 journal (`healProtection`), with `PROTECTION_DEFAULTS` per mode (cap, sizing, cadence, the words) mirroring the lab's constants (`frontend/src/wallet/settings.ts`). *Implemented (Stage 5):* the controls `campaign` (from high-value; at enhanced only when the service says `staged`), `destinationLock`, `coolingOff` (from high-value) and `secondDevice` (institutional) in `frontend/src/sdk/tiers.ts`; the separate device is a cross-platform WebAuthn credential registered under Settings → Protected execution (`registerSecondDevice`, `sdk/secondFactor.ts`) and asked by the Review after the second factor with no password fallback (an unregistered device refuses the confirmation); Settings → Protected execution offers the three modes with their words, the exposure fraction bounded to 2.0–3.0 %, the global switch, the notification choices and the device. Tests: `frontend/test/campaign-screens.test.tsx`, `campaign-flow.test.tsx`.
 
 ## 15. Screens, alerts and notifications (plan V3 §43, §46–§47, §65–§67, §75–§77, §93–§94, §140–§146)
 
@@ -448,7 +448,7 @@ The V2 §13 tiers gain the protection columns (USD thresholds configurable as be
 - **Wording**: "Best execution", never "<provider> is our official bridge" (plan §112); never "atomic",
   never "anonymous".
 
-*Stage 5* (the screens), *Stage 7* (the dashboard).
+*Implemented (Stage 5):* the Swap screen shows the protection line under the quote from high-value (`Protected execution: about N steps of ≈ $X · one at a time · at most $Y at risk · about T`), runs the wizard (risk analysis → privacy analysis → destination check; screen state only) and the Review at the `campaign` moment with the five lines plus **Exposure** and **Security**, the maximum-loss block (order, in-flight cap, maximum external exposure, remaining protected, preparation cost from the relayer's live fee), the combined verdict (SECURITY: Safe to execute / Review / Do not execute from the provider's security total, reliability, incidents and the thin-market flag; PRIVACY: the level word — one block, pinned: never one without the other) and, under Advanced, the class, band, cap, gate, steps, duration, cadence, ELPF, concentration and the alternative (`components/Swap.tsx`, `components/Review.tsx`); the confirmation journals the campaign and shows `protection/CampaignProgress.tsx` (Step k of ~N, the protection bar completed · in flight · prepared · protected, the four amounts always visible, the privacy level, the statuses ✓ Protected / ⚠ Review / ● Processing, the pause with its reason and Resume, the reroute with its Review, Pause and Return the rest, the per-step lines under Advanced, the last alerts, the one sentence about leaving the screen); the reroute Review at the `reroute` moment; Home shows the campaign line with the global switch while a campaign runs; Activity shows one row per campaign and its steps under Advanced only; the trade check carries the plan (§16). *Stage 7* (the dashboard).
 
 ## 16. zkAPI and the AI (plan V3 §90–§92)
 
@@ -456,7 +456,7 @@ The trade check of V2 §22 carries the protection plan (class, band, steps, gate
 in its sanitized summary — never an address, hash, balance or identity — and the private session may
 recommend, simulate, explain and warn about a campaign; it cannot sign, authorize, bypass a limit or
 change a destination (the module imports nothing that can, pinned). The metered quote gateway stays as
-in V2 §22. *Stage 5.*
+in V2 §22. *Implemented (Stage 5):* `TradeSummary.protection` (`frontend/src/zkapi/tradeCheck.ts`: class, custody, band, cap, steps, gate, concurrency, ELPF rounded, concentration in words, `staged`), sent from the campaign Review; the import pin of V2 holds.
 
 ## 17. The journal and the relayer's list (plan V3 §88)
 

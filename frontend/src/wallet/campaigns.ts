@@ -90,6 +90,8 @@ export interface StartCampaignInput {
   crossRateE18?: bigint | null;
   gasPriceWei?: string | null;
   confirmations?: Partial<Campaign["confirmations"]>;
+  /** institutional (V2 §24): the first step is not released before the review hold passes */
+  reviewHoldUntil?: number;
   now?: number;
   rng?: () => number;
   session?: WalletSession;
@@ -131,8 +133,9 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), i.amount);
   const c = createCampaign({
     id: bounds.orderId, now, mode: i.mode, tier: i.tier, request: { from: i.from, to: i.to, amount: i.amount.toString(), preference: i.preference }, bounds, plan, pieces: split.pieces, referenceRateE18,
-    riskSnapshot: { protection: p, risk: i.quotes.risk ?? null, competition: i.quotes.competition ?? null, quote, usd: i.usd }, confirmations: i.confirmations,
+    riskSnapshot: { protection: p, risk: i.quotes.risk ?? null, competition: i.quotes.competition ?? null, quote, usd: i.usd, privacyScore: i.quotes.scores.find((x) => x.provider === i.provider)?.components.privacy ?? null }, confirmations: i.confirmations,
   });
+  if (i.reviewHoldUntil !== undefined && c.tranches.length) c.tranches[0] = { ...c.tranches[0], notBefore: i.reviewHoldUntil };
   return { ...c, provider: i.provider, policy: i.policy, ...(i.gasPriceWei ? { gasPriceAtConfirmationWei: i.gasPriceWei } : {}), ...(i.lint ? { lint: { items: i.lint, at: now } } : {}), ...(i.usd !== null ? { value: { usd: i.usd, at: now } } : {}) };
 }
 

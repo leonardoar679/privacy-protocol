@@ -14,7 +14,6 @@ import type { ScheduledAction, StoredSwap } from "../wallet/journal";
 import { activityId, updateActivity } from "../wallet/activity";
 import { cancelAction, schedulerStatus } from "../wallet/schedule";
 import { runHousekeepingStep } from "../wallet/housekeeping";
-import { runCampaignTick } from "../wallet/campaignRunner";
 
 export const CLOSED_STATES = ["completed", "refunded", "abandoned"];
 export const isOpenSwap = (s: Pick<StoredSwap, "state">): boolean => !CLOSED_STATES.includes(s.state);
@@ -76,12 +75,7 @@ export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Ui
     finally { schedulerStatus.finish(); }
     return;
   }
-  if (a.kind === "campaign-tick" || a.kind === "campaign-shape") {
-    // V3 (High-Value Protection spec §7): one campaign action per tick; the tick schedules the next one itself
-    await runCampaignTick(a, { masterSeed: o.masterSeed, deployment: o.deployment, session: s });
-    return;
-  }
-  if (a.kind !== "fund-escrow") return;
+  if (a.kind !== "fund-escrow") return; // a campaign tick is dispatched by the App to wallet/campaignRunner.ts
   const stored = s.journal().swaps.find((x) => x.orderId === a.orderId);
   if (!stored || stored.fundedTx || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; } // a tranche is funded by its campaign, never here
   const asset = assetOfStored(o.deployment, stored);
