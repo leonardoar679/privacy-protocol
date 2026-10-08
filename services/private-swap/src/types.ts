@@ -48,8 +48,12 @@ export interface QuoteRequest {
 
 export interface Fee {
   kind: "network" | "liquidity" | "protocol" | "affiliate" | "gas";
+  /** in base units of `asset`, the unit given by `decimals` */
   amount: bigint;
+  /** the asset's symbol, for display */
   asset: string;
+  /** the unit of `amount` (whale spec §2); absent only when the adapter cannot state it, and then a wallet shows no number rather than base units */
+  decimals?: number;
   usd?: number;
 }
 

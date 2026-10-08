@@ -86,8 +86,8 @@ export class AcrossAdapter implements ProviderAdapter {
     if (q.spokePoolAddress.toLowerCase() !== SPOKE_POOL[req.from.chain]) throw new Error(`Across: unexpected SpokePool ${q.spokePoolAddress}`);
     const out = BigInt(q.outputAmount);
     const fees: Fee[] = [
-      { kind: "network", amount: BigInt(q.totalRelayFee.total), asset: req.from.symbol },
-      ...(q.lpFee ? [{ kind: "liquidity" as const, amount: BigInt(q.lpFee.total), asset: req.from.symbol }] : []),
+      { kind: "network", amount: BigInt(q.totalRelayFee.total), asset: req.from.symbol, decimals: req.from.decimals },
+      ...(q.lpFee ? [{ kind: "liquidity" as const, amount: BigInt(q.lpFee.total), asset: req.from.symbol, decimals: req.from.decimals }] : []),
     ];
     const ts = Number(q.timestamp), fill = Number(q.fillDeadline);
     // the provider's stated size limits (whale spec §2): above maxDepositInstant a fill waits for the next bundle, above maxDeposit it refuses

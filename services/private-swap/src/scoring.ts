@@ -108,9 +108,21 @@ export function priceGuard(q: Quote, alternatives: Quote[], maxGapBps: number, n
   const best = live.reduce((m, a) => (a.toAmountMin > m.toAmountMin ? a : m));
   if (q.toAmountMin * 10000n < best.toAmountMin * BigInt(10000 - maxGapBps)) {
     const gapBps = Number(((best.toAmountMin - q.toAmountMin) * 10000n) / best.toAmountMin);
-    throw new Error(`re-quote from ${q.provider} is ${gapBps} bps below the best alternative (${best.provider}); refusing to sign`);
+    throw new PriceGuardError(q.provider, best.provider, gapBps, maxGapBps);
   }
 }
 
 /** The price guard's tolerance by tier (whale spec §14): 100 bps, 50 from high-value. */
 export const maxGapBpsFor = (tier?: Tier): number => (tier && atLeast(tier, "high-value") ? 50 : 100);
+
+/**
+ * The price guard's refusal (whale spec §14): a typed error the service answers as 409 `price_guard` (never a server
+ * fault) so a wallet can show the gap and offer to confirm later against a fresh quote or return the order to the pool.
+ */
+export class PriceGuardError extends Error {
+  readonly code = "price_guard" as const;
+  constructor(readonly provider: string, readonly best: string, readonly gapBps: number, readonly maxGapBps: number) {
+    super(`re-quote from ${provider} is ${gapBps} bps below the best alternative (${best}); refusing to sign`);
+    this.name = "PriceGuardError";
+  }
+}

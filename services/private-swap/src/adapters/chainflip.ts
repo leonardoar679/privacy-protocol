@@ -178,7 +178,11 @@ export class ChainflipAdapter implements ProviderAdapter {
     const toAmount = BigInt(q.egressAmount);
     if (toAmountMin > toAmount) throw new Error("Chainflip min-out exceeds the quoted output (price inconsistency)");
     const feeKind: Record<string, Fee["kind"]> = { INGRESS: "gas", NETWORK: "protocol", EGRESS: "network", BOOST: "liquidity", BROKER: "affiliate", AFFILIATE: "affiliate" };
-    const fees: Fee[] = q.includedFees.map((f) => ({ kind: feeKind[f.type] ?? "protocol", amount: BigInt(f.amount), asset: `${f.chain}.${f.asset}` }));
+    // Chainflip states each fee in the asset's own base units (the ingress fee in the source asset, the network and broker
+    // fees in USDC, the egress fee in the destination asset): the unit travels with the fee (whale spec §2, `Fee.decimals`)
+    const CF_ASSET_DECIMALS: Record<string, number> = { "Ethereum.ETH": 18, "Ethereum.USDC": 6, "Ethereum.USDT": 6, "Ethereum.FLIP": 18, "Bitcoin.BTC": 8, "Solana.SOL": 9, "Solana.USDC": 6, "Arbitrum.ETH": 18, "Arbitrum.USDC": 6, "Polkadot.DOT": 10, "Assethub.DOT": 10, "Assethub.USDC": 6, "Assethub.USDT": 6 };
+    const feeDecimals = (chain: string, asset: string): number | undefined => CF_ASSET_DECIMALS[`${chain}.${asset}`] ?? (asset === req.from.symbol ? req.from.decimals : asset === req.to.symbol ? req.to.decimals : undefined);
+    const fees: Fee[] = q.includedFees.map((f) => ({ kind: feeKind[f.type] ?? "protocol", amount: BigInt(f.amount), asset: f.asset, decimals: feeDecimals(f.chain, f.asset) }));
     const now = Math.floor(Date.now() / 1000);
     const plan: ExecutionPlan = dca ? { mode: "dca", parts: dca.numberOfChunks, intervalBlocks: dca.chunkIntervalBlocks, expectedSeconds: q.estimatedDurationSeconds } : SINGLE_PLAN(q.estimatedDurationSeconds);
     const sizeSignals = [q.lowLiquidityWarning ? "low liquidity" : undefined, q.recommendedSlippageTolerancePercent !== undefined ? `recommended slippage ${q.recommendedSlippageTolerancePercent} %` : undefined].filter((x): x is string => !!x);

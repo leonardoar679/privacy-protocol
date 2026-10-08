@@ -91,8 +91,8 @@ export class NearIntentsAdapter implements ProviderAdapter {
     if (BigInt(q.quote.amountIn) !== req.amount) throw new Error("1Click: amountIn differs from the requested amount");
     if (BigInt(q.quote.minAmountOut) * 10000n < BigInt(q.quote.amountOut) * BigInt(10000 - req.slippageBps - 100)) throw new Error(`1Click: minAmountOut is more than ${req.slippageBps + 100} bps below amountOut`);
     const fees: Fee[] = [
-      { kind: "network", amount: BigInt(q.quote.withdrawFee ?? "0"), asset: req.to.symbol },
-      ...(q.quoteRequest.appFees ?? []).map((f) => ({ kind: "affiliate" as const, amount: (req.amount * BigInt(f.fee)) / 10000n, asset: req.from.symbol })),
+      { kind: "network", amount: BigInt(q.quote.withdrawFee ?? "0"), asset: req.to.symbol, decimals: req.to.decimals },
+      ...(q.quoteRequest.appFees ?? []).map((f) => ({ kind: "affiliate" as const, amount: (req.amount * BigInt(f.fee)) / 10000n, asset: req.from.symbol, decimals: req.from.decimals })),
     ];
     return {
       provider: "near-intents", category: categoryOf(req.from, req.to),

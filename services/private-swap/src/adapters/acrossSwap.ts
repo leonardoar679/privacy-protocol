@@ -192,7 +192,7 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
   // the minimum the call guarantees must be consistent with the slippage asked for (a lowered minimum is a changed quote)
   if (v.minOut * 10000n < toAmount * BigInt(10000 - req.slippageBps - 50)) throw new Error(`Across swap: the guaranteed ${v.minOut} is more than ${req.slippageBps + 50} bps below the expected ${toAmount}`);
   const total = data.fees?.total;
-  const fees: Fee[] = total ? [{ kind: "network", amount: BigInt(total.amount ?? 0), asset: total.token?.symbol ?? "?", usd: Number(total.amountUsd ?? 0) }] : [];
+  const fees: Fee[] = total ? [{ kind: "network", amount: BigInt(total.amount ?? 0), asset: total.token?.symbol ?? "?", decimals: typeof total.token?.decimals === "number" ? total.token.decimals : undefined, usd: Number(total.amountUsd ?? 0) }] : [];
   const fill = v.call.depositData.fillDeadline;
   const expiresAt = Math.min(Number(data.quoteExpiryTimestamp ?? fill - 600), fill - 600);
   const swap = data.steps?.originSwap;

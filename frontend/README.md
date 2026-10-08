@@ -109,7 +109,7 @@ npm run dev     # or: npm run build
   private self-transfers (`mergeSchedule` / `planMerge` / `ensureSpendable` in `src/sdk/privateTx.ts`),
   each paying the relayer fee; the schedule accounts for those fees and refuses honestly when they eat
   the balance. Withdrawals and transfers run the merges automatically before the final spend.
-- **`npm test` — 205 vitest tests** (node, with the screens under happy-dom; **V2** adds prices through the RPC quorum, the four-tab shell at first launch with zero requests, the Privacy Center, Activity, journal safety, the serialized scheduler, the pre-trade simulation on mock endpoints, destinations on the screens, the $3.4M review flow against the real engine, the hold control, settlement tracking, housekeeping and the sanitized trade check) of the non-UI glue (`test/`): zkAPI transport policy + pin gate + SSE
+- **`npm test` — 209 vitest tests** (node, with the screens under happy-dom; **V2** adds prices through the RPC quorum, the four-tab shell at first launch with zero requests, the Privacy Center, Activity, journal safety, the serialized scheduler, the pre-trade simulation on mock endpoints, destinations on the screens, the $3.4M review flow against the real engine, the hold control, settlement tracking, housekeeping and the sanitized trade check) of the non-UI glue (`test/`): zkAPI transport policy + pin gate + SSE
   parsing, the fresh funding provider signing against a local mock JSON-RPC server, tree sync vs the
   reference Merkle tree, note discovery from envelopes on a mock chain (ours found, others' not, spent
   state from the nullifier set), withdrawal planning (incl. the relayer fee note) and merge planning

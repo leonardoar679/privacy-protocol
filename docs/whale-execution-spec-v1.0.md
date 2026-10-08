@@ -68,6 +68,10 @@ Quote {
   limits?        { min?, max?, maxInstant? }   provider-stated size limits in `from` units, when it states any
   sizeSignals?   string[]        the provider's size warnings in words ("low liquidity", "recommended slippage 2.5 %", "above instant limit")
 }
+Fee {
+  kind, amount, asset, usd?                                                          (V1.1 §4, unchanged)
+  decimals?      number          the unit of `amount` (base units of `asset`); every adapter states it where it knows it
+}
 QuoteSet {
   quotes[], errors{}, health{}, scores[], chosen?, links{}                           (V1.1, unchanged)
   competition    CompetitionEntry[]   one per capable provider: { provider, outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped", reason?, ms, plan? }
@@ -449,6 +453,9 @@ higher tier always applies (§1).
 *Implemented (Stage 3):* the bounds, `priceGuard` wired into `/prepare` (`maxGapBpsFor(tier)`, a fresh
 competition from the enhanced tier), `approvedMin` checked server-side (`MinimumMovedError` → 409
 `minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `frontend/src/sdk/{swapService,swapSign}.ts`).
+The guard's refusal is a typed answer, 409 `price_guard` with `gapBps`, `maxGapBps`, `provider` and `best`
+(`scoring.ts::PriceGuardError`), never a server fault: the wallet shows the gap, signs nothing, and the order can be
+confirmed later against a fresh quote or returned to the pool (the local-stack browser run exercised it).
 
 ## 15. Minimum-output rules (plan V2 §15, §137.15)
 
@@ -697,7 +704,7 @@ Normative content of the Swap screen (plan §44) and of the app around it:
   Automatic", Privacy (word level), Price (word level from the price component), Time (~ETA), and
   Review. It MUST NOT show by default: provider names, scores, the escrow, the order key, proof
   timings, RFQ / TWAP / solver / MEV vocabulary (plan §4, §45).
-- "Route details" MAY show: the provider, the execution mode and parts, the fees, the expected
+- "Route details" MAY show: the provider, the execution mode and parts, the fees (each in its asset, formatted by its `decimals`; a fee whose unit the adapter did not state is "n/a", never a base-unit figure), the expected
   output, the settlement (finality), the alternatives from the competition record with the reason
   each lost, the link evidence; Advanced adds the score components.
 - Desktop (≥ 1024 px, plan §94–§95) adds Overview / Private Assets / Privacy Center / Advanced to

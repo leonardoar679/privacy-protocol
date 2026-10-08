@@ -11,7 +11,7 @@ import { randomBytes } from "crypto";
 import { defaultEngine } from "./config";
 import { MinimumMovedError } from "./engine";
 import { userStatus } from "./order";
-import { maxGapBpsFor } from "./scoring";
+import { maxGapBpsFor, PriceGuardError } from "./scoring";
 import { isPolicy, isPreference, type AssetRef, type Order, type OrderParams, type Policy, type Preference, type ProviderId, type QuoteRequest, type Tier, type TrackStatus, type UserStatus } from "./types";
 import type { PreparedExecution } from "./engine";
 import { isTier } from "./valuation";
@@ -115,6 +115,8 @@ async function route(method: string, path: string, query: URLSearchParams, body:
       return { status: 200, body: { digest: prepared.digest, provider: prepared.provider, value: prepared.value, calldata: prepared.calldata, deadline: prepared.deadline, ingress: prepared.ingress, quote: prepared.quote, plan: prepared.quote.plan } };
     } catch (e) {
       if (e instanceof MinimumMovedError) return { status: 409, body: { error: e.message, code: "minimum_moved", approvedMin: e.approvedMin, newMin: e.newMin } };
+      // the price guard's refusal (whale spec §14) is an expected answer, not a server fault: the wallet shows the gap and signs nothing
+      if (e instanceof PriceGuardError) return { status: 409, body: { error: e.message, code: "price_guard", provider: e.provider, best: e.best, gapBps: e.gapBps, maxGapBps: e.maxGapBps } };
       throw e;
     }
   }

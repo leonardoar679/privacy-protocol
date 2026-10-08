@@ -174,7 +174,7 @@ export class ThorchainAdapter implements ProviderAdapter {
     }
     const expected1e8 = BigInt(q.expected_amount_out);
     const min1e8 = (expected1e8 * BigInt(10000 - req.slippageBps)) / 10000n;
-    const fee = (kind: "liquidity" | "network" | "affiliate", v: string) => ({ kind, amount: from1e8(BigInt(v), req.to.decimals), asset: req.to.symbol });
+    const fee = (kind: "liquidity" | "network" | "affiliate", v: string) => ({ kind, amount: from1e8(BigInt(v), req.to.decimals), asset: req.to.symbol, decimals: req.to.decimals });
     const plan: ExecutionPlan = parts > 0 ? { mode: "streaming", parts, intervalBlocks: 1, expectedSeconds: q.total_swap_seconds ?? 0 } : SINGLE_PLAN(q.total_swap_seconds ?? 0);
     const sizeSignals = [q.warning, q.max_streaming_quantity ? `up to ${q.max_streaming_quantity} sub-swaps` : undefined].filter((x): x is string => !!x);
     return {

@@ -296,8 +296,8 @@ export class MayanAdapter implements ProviderAdapter {
     if (toAmountMin > toAmount) throw new Error("Mayan: minAmountOut exceeds expectedAmountOut");
     if (q.fastMctpMayanContract && q.fastMctpMayanContract.toLowerCase() !== MAYAN_FAST_MCTP) throw new Error(`Mayan: quote names Fast-MCTP contract ${q.fastMctpMayanContract}, not the pinned ${MAYAN_FAST_MCTP}`);
     const fees: Fee[] = [
-      { kind: "network", amount: fractionalToUnits(q.redeemRelayerFee, CCTP_TOKEN_DECIMALS), asset: "USDC(redeem relayer fee)" },
-      { kind: "protocol", amount: BigInt(q.circleMaxFee64 ?? "0"), asset: "USDC(circle max fee)" },
+      { kind: "network", amount: fractionalToUnits(q.redeemRelayerFee, CCTP_TOKEN_DECIMALS), asset: "USDC", decimals: CCTP_TOKEN_DECIMALS }, // the redeem relayer fee
+      { kind: "protocol", amount: BigInt(q.circleMaxFee64 ?? "0"), asset: "USDC", decimals: CCTP_TOKEN_DECIMALS }, // Circle's maximum fee
     ];
     const now = Math.floor(Date.now() / 1000);
     const deadline = Number(q.deadline64);

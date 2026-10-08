@@ -58,6 +58,9 @@ function coreWasm(): Plugin {
 
 export default defineConfig({
   plugins: [react(), circuitArtifacts(), coreWasm()],
+  // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
+  // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
+  optimizeDeps: { include: ["snarkjs"] },
   resolve: {
     alias: {
       // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is

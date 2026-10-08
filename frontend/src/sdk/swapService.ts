@@ -6,6 +6,7 @@
 // provider's impact figure and the competition record; /prepare keeps the approved minimum; /track
 // reads the destination side of an executed order.
 import type { Address, Hex } from "viem";
+import { fmtUnits } from "./format";
 
 export const SWAP_SERVICE = (import.meta as any).env?.VITE_SWAP_SERVICE ?? "http://127.0.0.1:8787";
 
@@ -21,7 +22,7 @@ export interface SwapRequest {
 
 export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; parts: number; intervalBlocks: number; expectedSeconds: number }
 export interface RouteScore { provider: string; total: number; filtered?: string; components: { price: number; security: number; privacy: number; latency: number; liquidity: number; reliability: number } }
-export interface ServiceFee { kind: string; amount: string; asset: string; usd?: number }
+export interface ServiceFee { kind: string; /** base units of `asset` in the unit `decimals` gives */ amount: string; asset: string; decimals?: number; usd?: number }
 export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[]; plan?: ExecutionPlan; impactBps?: number; sizeSignals?: string[] }
 export interface CompetitionEntry { provider: string; outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped"; reason?: string; ms: number; plan?: ExecutionPlan }
 export type ServiceValuation = { usd: number; at: number; source: string } | { unavailable: true; reason: string };
@@ -70,12 +71,18 @@ export const swapService = {
   track: (provider: string, ref: { tx?: string; ref?: string }) => call<TrackResult>(`/track/${encodeURIComponent(provider)}?${new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}) })}`),
 };
 
-/** Fee total of a quote for display: USD when every fee carries it, else "n/a". */
+/**
+ * Fee total of a quote for display (whale spec §2, §23): USD when every fee carries it; otherwise each non-zero fee in
+ * its own asset, formatted by the unit the adapter stated; a fee whose unit is unknown is "n/a", never a base-unit figure.
+ */
 export function feeSummary(q: ServiceQuote): string {
   const fees = q.fees ?? [];
   if (!fees.length) return "included in the rate";
   if (fees.every((f) => typeof f.usd === "number")) return `$${fees.reduce((s, f) => s + (f.usd ?? 0), 0).toFixed(2)}`;
-  return fees.map((f) => `${f.amount} ${f.asset}`).join(" + ");
+  const nonZero = fees.filter((f) => { try { return BigInt(f.amount) > 0n; } catch { return true; } });
+  if (nonZero.some((f) => typeof f.decimals !== "number")) return "n/a";
+  if (!nonZero.length) return "included in the rate";
+  return nonZero.map((f) => `${fmtUnits(f.amount, f.decimals as number, 8)} ${f.asset}`).join(" + ");
 }
 
 /** The plan in the user's words (whale spec §23): never the provider's vocabulary. */
