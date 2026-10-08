@@ -102,6 +102,7 @@ describe("execution", () => {
     await executor.tick();
     const job = executor.get(request.params.orderId)!;
     expect(job.state).toBe("executing");
+    expect(job.executionTx, "the execution transaction is recorded on its own (whale spec §19)").toBe(job.txHash);
     expect(raws.length).toBe(1);
     const tx = parseTransaction(raws[0]);
     expect(tx.to?.toLowerCase()).toBe(vector.factory.toLowerCase());

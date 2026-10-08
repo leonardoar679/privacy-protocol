@@ -87,8 +87,19 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ATTACKER) }), e, { inbound: inbound() }), /refund/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT) }), e, { inbound: inbound() }), /memo/); // no refund address: THORChain would refund the relayer
     await refused(checkProviderCall(call({ memo: buildMemo("ETH.ETH", DEST_BTC, LIMIT, ESCROW) }), e, { inbound: inbound() }), /memo asset/);
-    await refused(checkProviderCall(call({ memo: `${buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW)}/3/0:aff:50` }), e, { inbound: inbound() }), /memo/);
+    await refused(checkProviderCall(call({ memo: `${buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW)}/3/5:aff:50` }), e, { inbound: inbound() }), /memo/);
     await refused(checkProviderCall(call({ amount: NET / 2n }), e, { inbound: inbound() }), /amount/);
+  });
+  it("a streamed memo (whale spec §12) passes with an explicit, bounded plan and says what the limit means; quantity 0 and absurd plans are refused", async () => {
+    const e = expectation();
+    const c = await checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 1, quantity: 205 }) }), e, { inbound: inbound() });
+    expect(c.minOut).toBe(LIMIT);
+    expect(c.facts.join(" ")).toMatch(/streams 205 sub-swaps, one every 1 block/);
+    expect(c.facts.join(" ")).toMatch(/limit applies per sub-swap/);
+    await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 1, quantity: 0 }) }), e, { inbound: inbound() }), /streaming/);
+    await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 0, quantity: 5 }) }), e, { inbound: inbound() }), /streaming/);
+    await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 1, quantity: 14_401 }) }), e, { inbound: inbound() }), /streaming/);
+    await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 101, quantity: 5 }) }), e, { inbound: inbound() }), /streaming/);
     await refused(checkProviderCall(call({ value: NET / 2n }), e, { inbound: inbound() }), /value/);
     await refused(checkProviderCall(call({ expiry: BigInt(NOW - 1) }), e, { inbound: inbound() }), /expiry/);
   });
@@ -134,9 +145,9 @@ describe("Chainflip: vault pinned, the vault swap pays the fresh address, fill-o
   const BACKEND_CALLDATA = "0xdd68734500000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000002a62633171617230737272723778666b7679356c3634336c79646e77397265353967747a7a7766356d647100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006001640000002b8dc27605bf11214247ae11a013fcadf2c1cb6500000000e022ce2f9fc6600300000000000000000000000000000000000000000000000070d0cd75a367987344a3896a18e1510e5429ca5e88357b6c2a2e306b3877380d000000" as Hex;
   const CF_ABI = parseAbi(["function xSwapNative(uint32 dstChain, bytes dstAddress, uint32 dstToken, bytes cfParameters) payable", "function xSwapToken(uint32 dstChain, bytes dstAddress, uint32 dstToken, address srcToken, uint256 amount, bytes cfParameters)"]);
   const le = (v: bigint, n: number) => Array.from({ length: n }, (_, i) => Number((v >> BigInt(8 * i)) & 0xffn));
-  const cfParams = (o: { refund?: string; minPrice?: bigint; retry?: number; boost?: number; brokerBps?: number; dca?: boolean; affiliates?: number; trailing?: boolean } = {}): Hex => {
+  const cfParams = (o: { refund?: string; minPrice?: bigint; retry?: number; boost?: number; brokerBps?: number; dca?: boolean | { chunks: bigint; interval: bigint }; affiliates?: number; trailing?: boolean } = {}): Hex => {
     const b = [1, ...le(BigInt(o.retry ?? 100), 4), ...Array.from(Buffer.from((o.refund ?? ESCROW).slice(2), "hex")), ...le(o.minPrice ?? 1045449873187684626970181632n, 32), 0, 0,
-      ...(o.dca ? [1, ...le(4n, 4), ...le(2n, 4)] : [0]), o.boost ?? 0, ...new Array(32).fill(0x70), ...le(BigInt(o.brokerBps ?? 0), 2), o.affiliates ?? 0, ...(o.trailing ? [0] : [])];
+      ...(o.dca ? [1, ...le(typeof o.dca === "object" ? o.dca.chunks : 4n, 4), ...le(typeof o.dca === "object" ? o.dca.interval : 2n, 4)] : [0]), o.boost ?? 0, ...new Array(32).fill(0x70), ...le(BigInt(o.brokerBps ?? 0), 2), o.affiliates ?? 0, ...(o.trailing ? [0] : [])];
     return ("0x" + Buffer.from(b).toString("hex")) as Hex;
   };
   const native = (o: { chain?: number; dest?: string; token?: number; cf?: Hex; value?: bigint } = {}) => ({
@@ -167,7 +178,11 @@ describe("Chainflip: vault pinned, the vault swap pays the fresh address, fill-o
     await refused(checkProviderCall(native({ cf: cfParams({ refund: ATTACKER }) }), e), /refund/);
     await refused(checkProviderCall(native({ cf: cfParams({ brokerBps: 50 }) }), e), /fees/);
     await refused(checkProviderCall(native({ cf: cfParams({ boost: 5 }) }), e), /fees/);
-    await refused(checkProviderCall(native({ cf: cfParams({ dca: true }) }), e), /fees/);
+    // a DCA plan (whale spec §12) passes when it and the retry fit a day, and the facts say the min price applies per chunk
+    const dca = await checkProviderCall(native({ cf: cfParams({ dca: true }) }), e);
+    expect(dca.facts.join(" ")).toMatch(/DCA: 4 chunks, one every 2 block/);
+    await refused(checkProviderCall(native({ cf: cfParams({ dca: { chunks: 14_400n, interval: 2n } }) }), e), /dca/);
+    await refused(checkProviderCall(native({ cf: cfParams({ dca: { chunks: 0n, interval: 1n } }) }), e), /dca/);
     await refused(checkProviderCall(native({ cf: cfParams({ affiliates: 1 }) }), e), /affiliate/);
     await refused(checkProviderCall(native({ cf: cfParams({ trailing: true }) }), e), /trailing/);
     await refused(checkProviderCall(native({ cf: cfParams({ retry: 100_000 }) }), e), /retry/);
@@ -280,6 +295,21 @@ describe("Mayan SWIFT: Swift V2 and the ETH wrapper pinned, the order pays the f
     await refused(checkProviderCall(swiftEth({ middle: USDC.asset }), e), /swap/);
     await refused(checkProviderCall(swiftEth({ tokenIn: WETH_ETHEREUM }), e), /wrap & lock/);
     await refused(checkProviderCall(swiftEth({ amountIn: NET - 1n }), e), /order/);
+  });
+  it("swap & lock (Mayan's routing for a small ETH order): a router leg bounded in USDC, the USDC locked; needs a USDC vault for the refund", async () => {
+    const ROUTER = "0x0000000000000000000000000000000000000e77";
+    const MIN_MIDDLE = 2_500_000_000n;
+    const lock = (o: Parameters<typeof swiftEth>[0] = {}) => swiftEth({ wrapper: ROUTER, wrapData: "0x1234", middle: USDC.asset, minMiddle: MIN_MIDDLE, tokenIn: USDC.asset, amountIn: MIN_MIDDLE, ...o });
+    const pooled = { ...e, pooled: [USDC.asset] };
+    const c = await checkProviderCall(lock(), pooled);
+    expect(c).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN * 10n, refundTo: "escrow", refundTokens: [USDC.asset] });
+    expect(c.refundFloors?.[USDC.asset.toLowerCase()]).toBe((MIN_MIDDLE / 100n).toString());
+    expect(c.facts.join(" ")).toMatch(/swapped into USDC .* bounded on chain at 2500000000/);
+    await refused(checkProviderCall(lock(), e), /refund/); // no USDC vault: the refund could not be re-shielded
+    await refused(checkProviderCall(lock({ minMiddle: 0n }), pooled), /swap/);
+    await refused(checkProviderCall(lock({ middle: WETH_ETHEREUM }), pooled), /swap/);
+    await refused(checkProviderCall(lock({ tokenIn: ZERO }), pooled), /order/);
+    await refused(checkProviderCall(lock({ amountIn: MIN_MIDDLE - 1n }), pooled), /order/);
   });
   it("refuses a trader other than the escrow, another receiver, chain or token out, a gas drop, a referrer, fees above 1%, a custom payload, a deadline past or beyond 6 h", async () => {
     const onePercent = NET / 10n ** 10n / 100n; // of the order in Swift's 8 decimals

@@ -43,7 +43,7 @@ const CAN_RETURN = (job: SwapJob | null) => !job || ["waiting-funding", "expired
 const risk = (security: number) => (security >= 85 ? "Low" : security >= 70 ? "Medium" : "High");
 const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "native deposit address" : p === "near-intents" ? "solver network" : p === "mayan" ? "signed intent (drivers compete)" : "aggregator / bridge");
 const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
-const DELAY_WINDOW: Record<Policy, [number, number]> = { "best-privacy": [6 * 3600, 72 * 3600], "best-price": [3600, 24 * 3600], fastest: [0, 0] };
+const DELAY_WINDOW: Record<Policy, [number, number]> = { "best-privacy": [6 * 3600, 72 * 3600], "best-price": [3600, 24 * 3600], fastest: [0, 0], balanced: [3600, 24 * 3600], "privacy-execution": [3600, 24 * 3600] };
 const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
 
 export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {

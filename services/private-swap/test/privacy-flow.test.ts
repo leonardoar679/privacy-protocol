@@ -83,7 +83,8 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
         expect(calls.some((c) => (c.body ?? "").toLowerCase().includes(escrow))).toBe(true); // the escrow is the only sender the provider ever sees
       }
       if (p.provider === "thorchain") {
-        expect(p.memo).toBe(`=:BTC.BTC:${DEST_BTC}/${p.order.endpoint}:${(p.order.quote.raw as any).min1e8}`); // a THORChain refund lands in the escrow
+        // a THORChain refund lands in the escrow; a streamed plan adds its explicit interval and quantity (whale spec §12)
+        expect(p.memo).toMatch(new RegExp(`^=:BTC\\.BTC:${DEST_BTC}/${p.order.endpoint}:${(p.order.quote.raw as any).min1e8}(/1/\\d+)?$`));
         const [vault, asset, amount] = decodeParams(hexBuf(p.calldata).subarray(4), ["address", "address", "uint"]);
         expect(amount).toBe(net);
         expect(String(asset)).toBe("0x" + "00".repeat(20));
@@ -145,6 +146,14 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
       console.log(`${label}: prepared ${prepared.map((p) => p.provider).join(", ")}; skipped ${json(skipped)}`);
     }
   }, 300_000);
+
+  it("phase 1 (whale spec §5): the fresh destination reaches no provider while quotes are indicative; placeholders stand in", async () => {
+    const engine = defaultEngine();
+    const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 100 };
+    const calls = await recordFetch(async (calls) => { await engine.quoteAll(req, "fastest"); return calls; });
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect((c.url + " " + (c.body ?? "")).toLowerCase(), `${c.url} carries the fresh destination at phase 1`).not.toContain(DEST_BTC.toLowerCase());
+  }, 120_000);
 
   it("one-time endpoints: the same quote committed twice gives two different escrows, and the order holds no private key", async () => {
     const engine = defaultEngine();

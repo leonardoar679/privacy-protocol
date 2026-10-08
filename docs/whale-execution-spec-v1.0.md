@@ -86,9 +86,9 @@ QuoteSet {
 - The competition record is kept with the order (§25) and shown under "Route details" (§23) and
   on the desktop route table.
 
-*Implemented:* `Quote` and `QuoteSet` without `plan` / `impactBps` / `limits` / `sizeSignals` /
-`competition` (`types.ts:35`, `engine.ts:38`); the size fields are already fetched by the adapters
-and ignored. *Stage 3.*
+*Implemented (Stage 3):* `Quote.plan` / `impactBps` / `limits` / `sizeSignals`, `QuoteSet.competition`
+(`types.ts`, `engine.ts::quoteAll`); every adapter states its plan, THORChain its slippage, Mayan its
+price impact, Chainflip its low-liquidity flag, Across its deposit limits.
 
 ## 3. RFQ lifecycle (plan V2 §7–§8, §137.3)
 
@@ -113,9 +113,11 @@ quote, applied to the one-time escrow flow of V1.1. Phase 2 is the only one that
 - For tier ≥ `enhanced`, phase 3 MUST run a fresh competition for the price guard (§14) rather
   than reuse the phase 1 set.
 
-*Implemented:* the four calls and the wallet checks (`server.ts`, `engine.ts:prepareExecution`,
-`frontend/src/sdk/{swapGuard,swapSign,providerCall}.ts`); the guard in phase 3 is not wired
-(*Stage 3*), placeholder destinations in phase 1 are not used (*Stage 3*).
+*Implemented (Stage 3):* the four calls and the wallet checks (`server.ts`, `engine.ts::prepareExecution`,
+`frontend/src/sdk/{swapGuard,swapSign,providerCall}.ts`); `/prepare` takes `approvedMin`, answers 409
+`minimum_moved` below it and runs the price guard against a fresh competition from the enhanced tier;
+phase-1 quotes carry the placeholders of §5 (`placeholders.ts`; `privacy-flow.test.ts` pins that the
+fresh destination reaches no provider at phase 1).
 
 ## 4. Route selection (plan V2 §3, §6, §31–§32, §64–§66, §108–§110, §137.4)
 
@@ -151,8 +153,10 @@ privacy-execution     .30      .25        .20        .15      0       .10
   liquidity lowers `liquidity` through `impactBps`, an unstable chain lowers `reliability` through
   `haltedChains`, poor execution history lowers `reliability` through the failure history.
 
-*Implemented:* three policies and the six components (`scoring.ts`). *Stage 3* adds the two policies,
-`preferNative`, the impact term, the limit filter and the tier override.
+*Implemented (Stage 3):* the five policies, `policyFor` (the derivation and the tier override), the impact
+term, the limit, impact-cap, stream-length and halted-chain filters, `preferNative`
+(`scoring.ts`, `engine.ts`; `test/engine-v2.test.ts`). A V1.1 wallet may still send a policy; a V2 wallet
+sends its preference and the service derives the policy from the tier it computes.
 
 ## 5. Provider adapter interface (plan V2 §20, §106–§107, §137.5)
 
@@ -187,16 +191,18 @@ Health        { provider; reachable; apiLatencyMs; halted; haltedChains: string[
   provider's own refund path (`Quote.refundTarget`, V1.1 §7).
 - **Placeholder destination at phase 1.** When `req.source` is unset, the engine MUST pass each
   adapter a fixed, format-valid placeholder destination for the destination chain (EVM
-  `0x1111…1111`; Bitcoin the bech32 reference address `bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq`;
-  Solana the system program id `11111111111111111111111111111111`) — never the user's fresh address,
-  which goes only to the chosen provider at phase 3. THORChain's quote takes no destination at all.
+  `0x1111…1111`; Bitcoin the BIP-173 example address `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`;
+  Solana a wallet-shaped ed25519 key nobody holds, since 1Click refuses the system program id as a
+  recipient) — never the user's fresh address, which goes only to the chosen provider at phase 3.
+  THORChain's quote takes no destination at all (`placeholders.ts`).
   A provider whose indicative quote depends on the destination (gas drop, destination calldata)
   is re-quoted at phase 3 anyway.
 - No provider-specific logic reaches the UI (plan §106): the wallet names providers only under
   "Route details" (§23) and reads calls through its own decoders.
 
-*Implemented:* the interface and all six adapters (`types.ts:114`, `adapters/*`). *Stage 3* adds
-`plan` / `tier` / `preferNative`, `refundedAmount` / `progress`, `failures`, and the placeholders.
+*Implemented (Stage 3):* the interface and all six adapters with `plan` / `tier` / `preferNative` /
+`destinationKind` on the request, `refundedAmount` / `progress` on the status, `failures` on health,
+and the placeholders (`types.ts`, `placeholders.ts`, `adapters/*`).
 
 ## 6. THORChain adapter (plan V2 §21–§23, §137.6)
 
@@ -213,8 +219,10 @@ Health        { provider; reachable; apiLatencyMs; halted; haltedChains: string[
 | Plan | `single` and `streaming`. **Measured (Stage 1):** with `tolerance_bps` in the request THORNode simulates a single swap and refuses it from $100K up ("emit asset … less than price limit": a single 39 ETH → BTC swap would emit ≈ 4.7 % below the limit), while the streaming quote (interval 1, quantity 0) answers at ≈ 20 bps slippage at every size up to $25M. The adapter therefore MUST ask the streaming quote at every size, MUST NOT send `tolerance_bps` (the limit is computed locally, §14), and MAY ask the single quote as well for the comparison of §12. Midgard shows every THORChain swap ≥ $100K of 2026-10-05…07 streamed (`benchmarks/whale/whale-research.md`). |
 | Link | public: the memo names the destination and the refund escrow; the outbound carries `OUT:<inbound tx>`. |
 
-*Implemented:* everything but the streaming parameters, the `approvedMin` floor and the outbound
-classification (`adapters/thorchain.ts`). *Stage 3.*
+*Implemented (Stage 3):* the quote without `tolerance_bps` or a destination, THORNode's own plan quoted
+explicitly (`streaming_interval=1&streaming_quantity=<parts>`), the memo suffix, the outbound
+classification and the stream's progress (`adapters/thorchain.ts`); the `approvedMin` floor is the
+engine's at prepare (§14). The wallet reads the suffix with its own bounds (§15).
 
 ## 7. Chainflip adapter (plan V2 §24, §137.7)
 
@@ -231,9 +239,9 @@ classification (`adapters/thorchain.ts`). *Stage 3.*
 | Plan | `single` (REGULAR) and `dca`. The quote TTL is 600 s; the min price protects the fill itself. **Measured (Stage 1):** at $100K both quotes come back with the same output (11 chunks); at $1M the backend returns the DCA quote only (≈ 100 chunks at a 1-block interval); from $5M it answers 400 "insufficient liquidity for the requested amount". A DCA-only answer is a valid quote whose plan is `dca`; a 400 is a `refused` competition entry (§2). |
 | Link | public: the vault-swap calldata encodes the destination. |
 
-*Implemented:* everything but `dcaEnabled`, keeping both quotes, `dcaParams`, the DCA equality check
-and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` and `:201` refuses
-`dca`). *Stage 3.*
+*Implemented (Stage 3):* `dcaEnabled=true`, both quotes kept and the higher egress chosen (REGULAR on a
+tie), `dcaParams` sent and compared field by field, the partial mapping (`adapters/chainflip.ts`;
+`test/chainflip-unit.test.ts` decodes a DCA plan).
 
 ## 8. Mayan adapter (plan V2 §25, §137.8)
 
@@ -247,7 +255,13 @@ and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` a
 | Track | explorer `GET /swap/trx/{hash}`: `clientStatus` (REFUND…, COMPLETED / SETTLED / FULFILLED, INPROGRESS / PENDING). |
 | Link | public: the payload carries `destAddr`. |
 
-*Implemented* (`adapters/mayan.ts`). *Stage 3* adds the plan field, `impactBps`, the placeholder and the SWIFT small-size reading.
+*Implemented (Stage 3):* the plan field, `impactBps`, the placeholder, and the **swap & lock** reading of
+the SWIFT quote Mayan returns below $2M for an ETH order (`swiftInputContract` = USDC, no wrap &
+lock, a `minMiddleAmount`): the forwarder's ETH → USDC leg from `get-swap/evm`, bounded on chain by
+`minMiddleAmount`, then `createOrderWithToken(USDC, …)` whose `amountIn` the forwarder overwrites
+with the USDC produced (verified source); an unfilled order refunds USDC to the escrow, so the route
+is offered only when the pool has a USDC vault (PP-S08; `refundTokens: [USDC]`). The wallet reads the
+same call (`providerCall.ts::mayanSwift`).
 
 ## 9. NEAR Intents adapter (plan V2 §26–§27, §137.9)
 
@@ -263,7 +277,8 @@ and the partial mapping (`adapters/chainflip.ts`: today `:163` picks `REGULAR` a
 | Confidential Intents | research note only (plan §27): a TEE-based private shard would change the link evidence; not relied on. |
 | Link | unverified → treated as public. |
 
-*Implemented* (`adapters/nearIntents.ts`). *Stage 3* adds the plan field and the placeholders.
+*Implemented (Stage 3):* the plan field and the Bitcoin / Solana placeholders (`adapters/nearIntents.ts`,
+`placeholders.ts`: the Solana one is a wallet-shaped ed25519 key nobody holds).
 
 ## 10. LI.FI adapter (plan V2 §28, §137.10)
 
@@ -336,10 +351,11 @@ ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; par
   and `refundedAmount` (§19), never silently accepted and never shown as a failure. The returned
   remainder is re-shielded by the executor's late-refund watch (§20); a remainder below the unpaid
   re-shield floor (PP-S12) stays in the escrow, re-shieldable by anyone, and the wallet says so.
-- **Wallet bounds.** The wallet's decoders accept a streaming memo with `INTERVAL ≥ 1` and
-  `QUANTITY ≤ STREAM_MAX_QUANTITY` (2,000) and a DCA plan with `chunks × interval + retryDuration ≤
-  CF_MAX_RETRY_BLOCKS`; a plan the wallet cannot justify is not signed. Guest mode (UTXO sources) stays
-  single-swap.
+- **Wallet bounds.** The wallet's decoders accept a streaming memo with an explicit quantity (0 would
+  let the network choose), `1 ≤ INTERVAL ≤ 100` blocks and `1 ≤ QUANTITY ≤ 14,400` (THORNode's own day
+  of blocks; the policy bound of `STREAM_MAX_SECONDS` lives in scoring and the Review, not in the
+  decoder), and a DCA plan with `chunks × interval + retryDuration ≤ CF_MAX_RETRY_BLOCKS`; a plan the
+  wallet cannot justify is not signed. Guest mode (UTXO sources) stays single-swap.
 - **The escrow is unchanged**: one call, one `executed` flag. The streaming happens inside the provider.
 
 *Stage 3* (engine, adapters, service tests) and *Stage 5* (wallet decoders). The constants are
@@ -430,8 +446,9 @@ higher tier always applies (§1).
   the provider's recommended tolerance only when the provider states one (Chainflip).
 - For a stream the protected minimum is the pro-rata minimum of §12 and the wallet's wording follows it.
 
-*Implemented:* the bounds, `priceGuard`, consent (`adapters/*`, `scoring.ts`, `frontend/src/sdk/swapSign.ts`);
-the guard is not wired into `/prepare` and `approvedMin` is wallet-side only. *Stage 3.*
+*Implemented (Stage 3):* the bounds, `priceGuard` wired into `/prepare` (`maxGapBpsFor(tier)`, a fresh
+competition from the enhanced tier), `approvedMin` checked server-side (`MinimumMovedError` → 409
+`minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `frontend/src/sdk/{swapService,swapSign}.ts`).
 
 ## 15. Minimum-output rules (plan V2 §15, §137.15)
 
@@ -474,8 +491,10 @@ security(p)    = BASELINE_SECURITY[p] − Σ incidents penalty · max(0, 1 − a
   no state.
 - UI: "Route security: Good / Fair / Poor" at security ≥ 80 / ≥ 60 / below; the numbers under Advanced.
 
-*Implemented:* `securityScore`, `reliabilityScore`, `INCIDENTS` (`health.ts`). *Stage 3* adds the
-failure history, the breaker, the cache, the chain term and `INCIDENTS_FILE`.
+*Implemented (Stage 3):* `ProviderHealthTracker` (failures in a one-hour window, the breaker after three
+consecutive outage-like failures for five minutes, a 30-second health cache), the chain term,
+`INCIDENTS_FILE` (`health.ts`, `engine.ts`). A provider that answers "no" for the size (a 4xx with a
+reason) is a refusal, not a failure: the breaker ignores it.
 
 ## 17. Privacy scoring (plan V2 §67–§69, §137.17)
 
@@ -489,7 +508,8 @@ privacy (who owns what, the private history) and execution privacy (order size, 
 reported separately (plan §67): the first by this score and the scorecard, the second by the plan
 and the public-settlement warning (§18).
 
-*Stage 3.*
+*Implemented (Stage 3):* `isBucketOf(amount, decimals)` and `destinationKind` in `engine.ts`
+(`test/engine-v2.test.ts`).
 
 ## 18. Privacy lint (plan V2 §10, §48, §76, §137.18)
 
@@ -553,8 +573,10 @@ where it gets its facts.
   from the journal, the relayer job, the escrow balance and the tracker (`recoverState`).
 - "Atomic" MUST NOT appear anywhere (V1.1 §3).
 
-*Implemented:* the machine, `recoverState`, `userStatus` (`order.ts`); the wallet shows the relayer's
-job labels only. *Stage 3* (tracking endpoint, `executionTx`) and *Stage 7* (wallet tracker and labels).
+*Implemented:* the machine, `recoverState`, `userStatus` (`order.ts`); *Stage 3*: `GET /track/:provider`
+(`server.ts`), `SwapJob.executionTx` (`services/relayer/src/swapExecutor.ts`), `TrackStatus.refundedAmount`
+/ `progress` and the partial mappings of THORChain and Chainflip; the wallet shows the relayer's job
+labels until *Stage 7* (wallet tracker and labels).
 
 ## 20. Refund state machine (plan V2 §61, §105, §137.20)
 

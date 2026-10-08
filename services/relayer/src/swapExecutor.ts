@@ -70,7 +70,8 @@ export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; r
 export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
 /** `execution` is absent for a refund-only job. */
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
-export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number }
+/** `executionTx`: the deployAndExecute transaction, set once and never overwritten (whale spec §19: `txHash` is reused by refund transactions; the wallet tracks the destination side from this hash). */
+export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number }
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
@@ -367,6 +368,7 @@ export class SwapExecutor {
     try {
       job.txHash = await this.cfg.walletClient.sendTransaction({ account: this.cfg.account, chain: this.cfg.walletClient.chain, to: job.factory, data, gas: (gas * 12n) / 10n });
       job.state = next; job.error = undefined;
+      if (next === "executing") job.executionTx = job.txHash;
     } catch (e) {
       job.state = failed; job.error = String((e as Error).message).split("\n")[0].slice(0, 200);
     }

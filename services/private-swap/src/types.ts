@@ -1,15 +1,23 @@
-// PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10; V2: docs/whale-execution-spec-v1.0.md §1–§2.
+// PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10; V2: docs/whale-execution-spec-v1.0.md §1–§2, §5.
 import type { Tier, Valuation } from "../../../reference/typescript/src/wallet/valuation";
 export type { Tier, Valuation };
 
 export type Chain = "ethereum" | "bitcoin" | "solana" | "base" | "arbitrum" | "bsc" | "avalanche" | "optimism" | "polygon" | "tron" | "litecoin" | "doge";
 export type ProviderId = "thorchain" | "chainflip" | "mayan" | "near-intents" | "lifi" | "uniswap-across";
-export type Policy = "best-privacy" | "best-price" | "fastest";
+/** V1.1's three policies and the V2 pair (whale spec §4): `balanced` is the default; `privacy-execution` applies from the high-value tier. */
+export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution";
+export const POLICIES: readonly Policy[] = ["best-privacy", "best-price", "fastest", "balanced", "privacy-execution"];
+export const isPolicy = (x: unknown): x is Policy => typeof x === "string" && (POLICIES as readonly string[]).includes(x);
 /** The user's saved preference the policy is derived from (whale spec §4); never on chain. */
 export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
 export const isPreference = (x: unknown): x is Preference => x === "balanced" || x === "best-privacy" || x === "best-price" || x === "fastest" || x === "native";
 export type RouteCategory = "A" | "B" | "C" | "D" | "E"; // spec §4 / plan §32
 export type IngressKind = "plain-address" | "contract-call";
+
+/** How a provider executes an order (whale spec §2, §12): one swap, THORChain's stream, Chainflip's DCA, a solver auction or intent. */
+export type PlanMode = "single" | "streaming" | "dca" | "auction" | "intent";
+export interface ExecutionPlan { mode: PlanMode; parts: number; intervalBlocks: number; expectedSeconds: number }
+export const SINGLE_PLAN = (expectedSeconds: number, mode: PlanMode = "single"): ExecutionPlan => ({ mode, parts: 1, intervalBlocks: 0, expectedSeconds });
 
 export interface AssetRef {
   chain: Chain;
@@ -23,11 +31,19 @@ export interface QuoteRequest {
   from: AssetRef;
   to: AssetRef;
   amount: bigint; // in `from` base units
-  /** the fresh destination address (spec §6) */
+  /** the fresh destination address (spec §6); at phase 1 the engine substitutes a placeholder (whale spec §5) */
   destination: string;
   /** the one-time source endpoint when known (escrow address); providers that pull need it */
   source?: string;
   slippageBps: number;
+  /** whale spec §12: ask the provider's streamed plan as well ("stream") or a single swap only ("single", the guest path) */
+  plan?: "single" | "stream";
+  /** whale spec §13: the order's value tier, for the adapters that quote by size */
+  tier?: Tier;
+  /** whale spec §4: filter wrapped / bridged routes when a native one quoted */
+  preferNative?: boolean;
+  /** whale spec §21: a fresh wallet-derived address (the default) or one the user entered */
+  destinationKind?: "fresh" | "entered";
 }
 
 export interface Fee {
@@ -54,6 +70,14 @@ export interface Quote {
   hops: string[];
   raw: unknown;
   obtainedAt: number;
+  /** whale spec §2, §12: the plan this quote is for */
+  plan?: ExecutionPlan;
+  /** whale spec §2: the provider's own statement of the price impact / slippage of this size, in bps; absent when it states none */
+  impactBps?: number;
+  /** whale spec §2: provider-stated size limits in `from` base units, when it states any */
+  limits?: { min?: bigint; max?: bigint; maxInstant?: bigint };
+  /** whale spec §2: the provider's size warnings in words */
+  sizeSignals?: string[];
 }
 
 export interface Ingress {
@@ -83,6 +107,10 @@ export interface TrackStatus {
   destinationTxHash?: string;
   deliveredAmount?: bigint;
   deliveredAsset?: string;
+  /** whale spec §12, §19: what a stream or a fill-or-kill paid back to the escrow (source units) */
+  refundedAmount?: bigint;
+  /** whale spec §12: a stream's progress */
+  progress?: { parts: number; done: number };
   raw?: unknown;
 }
 
@@ -94,6 +122,8 @@ export interface Health {
   haltedChains: string[];
   checkedAt: number;
   note?: string;
+  /** whale spec §16: this service's recent quote failures and timeouts with the provider */
+  failures?: { consecutive: number; lastAt?: number; windowCount: number };
 }
 
 export interface Capabilities {
@@ -115,7 +145,7 @@ export interface Capabilities {
   linkEvidence: string;
 }
 
-/** Provider adapter interface — spec §4. */
+/** Provider adapter interface — spec §4; whale spec §5. */
 export interface ProviderAdapter {
   readonly id: ProviderId;
   readonly implemented: boolean;
@@ -124,6 +154,15 @@ export interface ProviderAdapter {
   prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress>;
   track(ref: { sourceTxHash?: string; providerRef?: string }): Promise<TrackStatus>;
   health(): Promise<Health>;
+}
+
+/** One line of the quote competition (whale spec §2): every capable provider, whatever it answered. */
+export interface CompetitionEntry {
+  provider: ProviderId;
+  outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped";
+  reason?: string;
+  ms: number;
+  plan?: ExecutionPlan;
 }
 
 /** On-chain OrderParams (SwapOrderTypes.OrderParams), spec §6. */
@@ -166,6 +205,10 @@ export interface Order {
   /** whale spec §1, §13: the source amount's USD value at commit (or why there is none) and the value tier — recomputed by the service; the higher of the wallet's and the service's applies */
   value?: Valuation;
   tier?: Tier;
+  /** whale spec §1, §21: the destination with its provenance */
+  destination?: { chain: Chain; asset: string; address: string; kind: "fresh" | "entered" };
+  /** whale spec §1, §12: the chosen quote's execution plan (refreshed at prepare) */
+  plan?: ExecutionPlan;
   state: OrderState;
   history: { state: OrderState; at: number; note?: string }[];
 }

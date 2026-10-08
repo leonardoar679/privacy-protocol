@@ -9,8 +9,8 @@
 // `refund_address`); a refund then lands in the escrow, whose `refund()` re-shields it. The router pays
 // ETH refunds with `send` (2300 gas), which the escrow's empty `receive()` accepts.
 import { keccak_256 } from "@noble/hashes/sha3";
-import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf } from "../types";
+import type { AssetRef, Capabilities, ExecutionPlan, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
+import { SINGLE_PLAN, categoryOf } from "../types";
 
 export const THORNODE_URLS = [
   process.env.THORNODE_URL,
@@ -117,11 +117,21 @@ export async function inboundQuorum(chain: string, timeoutMs = 20000): Promise<I
 interface ThorQuote {
   inbound_address: string; router?: string; memo: string; expected_amount_out: string; recommended_min_amount_in: string;
   expiry: number; total_swap_seconds?: number; fees: { asset: string; affiliate: string; outbound: string; liquidity: string; total: string; slippage_bps: number; total_bps: number };
+  /** the streaming plan THORNode assumed (whale spec §6, §12): blocks ≈ sub-swaps at interval 1; the most sub-swaps it allows */
+  streaming_swap_blocks?: number; streaming_swap_seconds?: number; max_streaming_quantity?: number; dust_threshold?: string;
   warning?: string; error?: string;
 }
 
-/** `=:ASSET:dest[/refund]:limit` — the limit is the minimum output in 1e8 units; the swap refunds below it, to `refund` when given (else to the originator). */
-export const buildMemo = (toAsset: string, destination: string, limit1e8: bigint, refund?: string) => `=:${toAsset}:${destination}${refund ? `/${refund}` : ""}:${limit1e8}`;
+/** THORChain's EVM source chains: the ingress is a router deposit with the escrow as refund address; everything else is a UTXO deposit (guest mode). */
+export const EVM_SOURCES = ["ethereum", "base", "avalanche", "bsc"];
+
+/**
+ * `=:ASSET:dest[/refund]:limit[/interval/quantity]` — the limit is the minimum output in 1e8 units; the swap refunds below it, to
+ * `refund` when given (else to the originator). A streamed swap (whale spec §12) adds the interval (blocks between sub-swaps) and the
+ * quantity (sub-swaps): THORChain applies the limit pro rata per sub-swap and refunds the unexecuted remainder to the refund address.
+ */
+export const buildMemo = (toAsset: string, destination: string, limit1e8: bigint, refund?: string, streaming?: { interval: number; quantity: number }) =>
+  `=:${toAsset}:${destination}${refund ? `/${refund}` : ""}:${limit1e8}${streaming ? `/${streaming.interval}/${streaming.quantity}` : ""}`;
 
 const SELECTOR_DEPOSIT_WITH_EXPIRY = Buffer.from(keccak_256(new TextEncoder().encode("depositWithExpiry(address,address,uint256,string,uint256)"))).subarray(0, 4);
 const w = (v: bigint) => { const b = Buffer.alloc(32); let x = v; for (let i = 31; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; };
@@ -143,29 +153,48 @@ export class ThorchainAdapter implements ProviderAdapter {
     return { routes: ["A", "B", "C", "E"], ingress: ["contract-call", "plain-address"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "base", "avalanche", "bsc", "litecoin", "doge", "tron"], destinationLinkPublic: true, linkEvidence: "the deposit memo names the destination and the refund escrow (=:ASSET:DEST/ESCROW:LIMIT) and the outbound carries OUT:<inbound tx>" };
   }
 
+  /**
+   * The quote carries no destination and no tolerance (whale spec §6): the memo is built locally and the limit is ours (spec §14); with
+   * `tolerance_bps` THORNode simulates a single swap and refuses it from $100K up (Stage 1). THORNode's default answer is its own plan
+   * for the size — it streams what a single swap would slip on — and `streaming_swap_blocks` is that plan's sub-swap count at interval 1;
+   * for an EVM source that plan is then quoted explicitly, so the expected output, the limit and the ETA are those of exactly the plan
+   * the memo will carry. A UTXO source (guest mode) stays single: one memo of at most 80 bytes.
+   */
   async quote(req: QuoteRequest): Promise<Quote> {
     const from = thorAsset(req.from), to = thorAsset(req.to);
     const amount1e8 = to1e8(req.amount, req.from.decimals);
-    const { data: q, url } = await thornode<ThorQuote>(`/thorchain/quote/swap?from_asset=${from}&to_asset=${to}&amount=${amount1e8}&destination=${req.destination}&tolerance_bps=${req.slippageBps}`);
+    const base = `/thorchain/quote/swap?from_asset=${from}&to_asset=${to}&amount=${amount1e8}`;
+    let { data: q, url } = await thornode<ThorQuote>(base);
     if (q.error) throw new Error(`THORChain quote: ${q.error}`);
+    const evmSource = EVM_SOURCES.includes(req.from.chain);
+    const parts = evmSource && req.plan !== "single" ? Math.max(0, Math.floor(Number(q.streaming_swap_blocks ?? 0))) : 0;
+    if (parts > 0) {
+      const explicit = await thornode<ThorQuote>(`${base}&streaming_interval=1&streaming_quantity=${parts}`).catch(() => null);
+      if (explicit && !explicit.data.error) { q = explicit.data; url = explicit.url; }
+    }
     const expected1e8 = BigInt(q.expected_amount_out);
     const min1e8 = (expected1e8 * BigInt(10000 - req.slippageBps)) / 10000n;
     const fee = (kind: "liquidity" | "network" | "affiliate", v: string) => ({ kind, amount: from1e8(BigInt(v), req.to.decimals), asset: req.to.symbol });
+    const plan: ExecutionPlan = parts > 0 ? { mode: "streaming", parts, intervalBlocks: 1, expectedSeconds: q.total_swap_seconds ?? 0 } : SINGLE_PLAN(q.total_swap_seconds ?? 0);
+    const sizeSignals = [q.warning, q.max_streaming_quantity ? `up to ${q.max_streaming_quantity} sub-swaps` : undefined].filter((x): x is string => !!x);
     return {
       provider: "thorchain", category: categoryOf(req.from, req.to),
       toAmount: from1e8(expected1e8, req.to.decimals), toAmountMin: from1e8(min1e8, req.to.decimals),
       fees: [fee("liquidity", q.fees.liquidity), fee("network", q.fees.outbound), fee("affiliate", q.fees.affiliate)],
       etaSeconds: q.total_swap_seconds ?? 0, expiresAt: q.expiry, nativeAssets: true, minOutEncoded: true, minOutVerified: true,
-      hops: [`${from} -> ${to} (${url})`], raw: { ...q, min1e8: min1e8.toString(), source: url }, obtainedAt: Date.now(),
+      plan, impactBps: q.fees.slippage_bps, limits: q.recommended_min_amount_in ? { min: from1e8(BigInt(q.recommended_min_amount_in), req.from.decimals) } : undefined, sizeSignals,
+      hops: [`${from} -> ${to} (${url})${parts > 0 ? `, streamed in ${parts} sub-swaps` : ""}`], raw: { ...q, min1e8: min1e8.toString(), source: url, plan }, obtainedAt: Date.now(),
     };
   }
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as ThorQuote & { min1e8: string };
-    const evmSource = ["ethereum", "base", "avalanche", "bsc"].includes(req.from.chain);
+    const evmSource = EVM_SOURCES.includes(req.from.chain);
     if (evmSource && !req.source) throw new Error("THORChain: the escrow address (req.source) is required as the refund address (a router deposit otherwise refunds to the transaction sender, the relayer)");
+    // a streamed plan is written into the memo explicitly (never quantity 0, which would let the network choose); a UTXO source is never streamed
+    const streaming = evmSource && quote.plan?.mode === "streaming" && quote.plan.parts > 0 ? { interval: Math.max(1, quote.plan.intervalBlocks), quantity: quote.plan.parts } : undefined;
     // limit from OUR min-out, not the API memo; a refund goes to the escrow (spec §7), never to the relayer that sends the transaction
-    let memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8), evmSource ? req.source : undefined);
+    let memo = buildMemo(thorAsset(req.to), req.destination, BigInt(q.min1e8), evmSource ? req.source : undefined, streaming);
     if (!evmSource && Buffer.byteLength(memo) > UTXO_MEMO_BYTES) {
       // a UTXO deposit's OP_RETURN holds 80 bytes: use the short asset form THORChain's own quote API emits
       memo = buildMemo(thorAssetShort(req.to), req.destination, BigInt(q.min1e8));
@@ -178,7 +207,10 @@ export class ThorchainAdapter implements ProviderAdapter {
     if (req.from.chain === "ethereum" && inbound.router !== THORCHAIN_ROUTER_ETHEREUM) throw new Error(`THORChain: the gateways report router ${inbound.router}, not the pinned Ethereum router ${THORCHAIN_ROUTER_ETHEREUM} (set THORCHAIN_ROUTER after a router upgrade)`);
     if (q.inbound_address.toLowerCase() !== inbound.address) throw new Error(`THORChain: the quote's inbound address ${q.inbound_address} is not confirmed by the gateway quorum (${inbound.address})`);
     if ((q.router ?? "").toLowerCase() !== (inbound.router ?? "")) throw new Error(`THORChain: the quote's router ${q.router} is not confirmed by the gateway quorum (${inbound.router})`);
-    const verified = [`inbound vault (${inbound.agreeing.length} gateways agree)`, req.from.chain === "ethereum" ? "router (quorum + pinned)" : "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`];
+    const verified = [
+      `inbound vault (${inbound.agreeing.length} gateways agree)`, req.from.chain === "ethereum" ? "router (quorum + pinned)" : "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`,
+      streaming ? `streaming: ${streaming.quantity} sub-swaps, one every ${streaming.interval} block(s); the limit applies per sub-swap, unexecuted sub-swaps refund the escrow` : "one swap",
+    ];
     if (!evmSource) {
       return { kind: "plain-address", to: q.inbound_address, calldata: "0x", value: req.amount, memo, expiresAt: q.expiry, minOutEncoded: true, verified };
     }
@@ -191,20 +223,31 @@ export class ThorchainAdapter implements ProviderAdapter {
     };
   }
 
+  /**
+   * Status from THORNode (whale spec §6, §19): the outbounds are classified by memo — `OUT:` delivered, `REFUND:` returned to the refund
+   * address (a missing memo counts as delivered) — so a stream whose remainder came back is `partial`, with both amounts; the stream's
+   * progress comes from `stages.swap_status.streaming`.
+   */
   async track(ref: { sourceTxHash?: string }): Promise<TrackStatus> {
     if (!ref.sourceTxHash) return { state: "unknown" };
     const id = ref.sourceTxHash.replace(/^0x/, "").toUpperCase();
     const { data } = await thornode<any>(`/thorchain/tx/status/${id}`);
     const st = data?.stages ?? {};
-    const outs = data?.out_txs ?? [];
+    const outs: any[] = data?.out_txs ?? [];
+    const isRefund = (o: any) => String(o?.memo ?? "").toUpperCase().startsWith("REFUND:");
+    const delivered = outs.filter((o) => !isRefund(o)), refunded = outs.filter(isRefund);
+    const sum = (xs: any[]) => xs.reduce((s: bigint, o: any) => s + BigInt(o?.coins?.[0]?.amount ?? 0), 0n);
+    const streaming = st.swap_status?.streaming;
+    const progress = streaming && Number(streaming.quantity) > 0 ? { parts: Number(streaming.quantity), done: Number(streaming.count ?? 0) } : undefined;
     if (outs.length && st.outbound_signed?.completed) {
-      const o = outs[0];
-      return { state: "destination-final", destinationTxHash: o.id, deliveredAmount: o.coins?.[0]?.amount ? BigInt(o.coins[0].amount) : undefined, deliveredAsset: o.coins?.[0]?.asset, raw: data };
+      if (delivered.length && refunded.length) return { state: "partial", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered), deliveredAsset: delivered[0].coins?.[0]?.asset, refundedAmount: sum(refunded), progress, raw: data };
+      if (!delivered.length) return { state: "refunded", refundedAmount: sum(refunded), progress, raw: data };
+      return { state: "destination-final", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered), deliveredAsset: delivered[0].coins?.[0]?.asset, progress, raw: data };
     }
-    if (st.swap_finalised?.completed) return { state: "destination-submitted", raw: data };
-    if (st.inbound_finalised?.completed) return { state: "executing", raw: data };
-    if (st.inbound_observed?.started) return { state: "executing", raw: data };
-    return { state: "pending", raw: data };
+    if (st.swap_finalised?.completed) return { state: "destination-submitted", progress, raw: data };
+    if (st.inbound_finalised?.completed) return { state: "executing", progress, raw: data };
+    if (st.inbound_observed?.started) return { state: "executing", progress, raw: data };
+    return { state: "pending", progress, raw: data };
   }
 
   async health(): Promise<Health> {

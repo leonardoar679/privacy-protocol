@@ -13,7 +13,8 @@
 // Without an API key (JWT) the service adds its unauthenticated fee (`appFees`, 0.2–0.25 %); it is
 // included in `amountOut`. We send no key: quotes are public, read-only requests.
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf } from "../types";
+import { SINGLE_PLAN, categoryOf } from "../types";
+import { PLACEHOLDER_BTC, PLACEHOLDER_EVM, PLACEHOLDER_SOL } from "../placeholders";
 
 export const ONECLICK_API = process.env.ONECLICK_API ?? "https://1click.chaindefuser.com";
 /** Set to "1" only after the provider has confirmed that internal-transaction deposits from a contract are credited. */
@@ -58,8 +59,11 @@ export async function oneClickQuote(body: Record<string, unknown>): Promise<{ st
   return { status: r.status, data };
 }
 
-/** `refundTo` must be an ORIGIN-chain address. Before the escrow exists (dry quotes) a fixed placeholder address stands in (the service rejects the 0xdEaD burn address); a binding quote requires the real escrow. */
-const DRY_REFUND_PLACEHOLDER: Record<string, string> = { ethereum: "0x1111111111111111111111111111111111111111", base: "0x1111111111111111111111111111111111111111", arbitrum: "0x1111111111111111111111111111111111111111", bsc: "0x1111111111111111111111111111111111111111", polygon: "0x1111111111111111111111111111111111111111", avalanche: "0x1111111111111111111111111111111111111111", optimism: "0x1111111111111111111111111111111111111111" };
+/** `refundTo` must be an ORIGIN-chain address. Before the escrow exists (dry quotes) a fixed placeholder address stands in (the service rejects the 0xdEaD burn address and the Solana system program id); a binding quote requires the real escrow. */
+const DRY_REFUND_PLACEHOLDER: Record<string, string> = {
+  ethereum: PLACEHOLDER_EVM, base: PLACEHOLDER_EVM, arbitrum: PLACEHOLDER_EVM, bsc: PLACEHOLDER_EVM, polygon: PLACEHOLDER_EVM, avalanche: PLACEHOLDER_EVM, optimism: PLACEHOLDER_EVM,
+  bitcoin: PLACEHOLDER_BTC, solana: PLACEHOLDER_SOL,
+};
 
 function quoteBody(req: QuoteRequest, originAsset: string, destinationAsset: string, dry: boolean) {
   const deadline = new Date(Date.now() + QUOTE_DEADLINE_MINUTES * 60_000).toISOString();
@@ -95,6 +99,7 @@ export class NearIntentsAdapter implements ProviderAdapter {
       toAmount: BigInt(q.quote.amountOut), toAmountMin: BigInt(q.quote.minAmountOut), fees, etaSeconds: q.quote.timeEstimate,
       expiresAt: Math.floor(Date.parse(q.quoteRequest.deadline) / 1000) - 120, // deposit must land before the deadline
       nativeAssets: true, minOutEncoded: true /* held and signed by the service, bound to the deposit address */, minOutVerified: false, refundTarget: "escrow",
+      plan: SINGLE_PLAN(q.quote.timeEstimate, "intent"),
       hops: [`${originAsset} -> intents -> ${destinationAsset}`], raw: { ...q, originAsset, destinationAsset }, obtainedAt: Date.now(),
     };
   }

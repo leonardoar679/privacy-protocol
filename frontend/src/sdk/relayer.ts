@@ -34,7 +34,8 @@ export interface SwapExecuteRequest {
 /** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
 export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;
 export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
-export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; error?: string; balance?: string; updatedAt: number }
+/** `executionTx`: the deployAndExecute transaction (whale spec §19), set once; `txHash` is reused by the executor's refund transactions. */
+export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; updatedAt: number }
 
 export class RelayerRefusal extends Error {
   constructor(message: string, public readonly code: string | undefined, public readonly status: number) { super(message); }

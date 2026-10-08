@@ -50,7 +50,8 @@ describe("§71 provider outage — the engine degrades, never fails (live)", () 
     expect(set.chosen!.provider).not.toBe("lifi");
   }, 90_000);
   it("every provider down: no quotes, every error listed, no route chosen, nothing thrown", async () => {
-    const set = await withTamper(ALL_HOSTS.map((h) => ({ match: h, fail: true })), () => engine.quoteAll(req, "best-privacy"));
+    // a fresh engine: the previous case left reachable health in the 30-second cache (whale spec §16), and this one is about the outage itself
+    const set = await withTamper(ALL_HOSTS.map((h) => ({ match: h, fail: true })), () => defaultEngine().quoteAll(req, "best-privacy"));
     expect(set.quotes).toEqual([]);
     expect(set.chosen).toBeUndefined();
     expect(Object.keys(set.errors).length).toBeGreaterThanOrEqual(4);
@@ -251,7 +252,8 @@ describe("§74 THORChain gateway malicious — inbound vault/router need a gatew
     await withTamper([{ match: "/thorchain/quote/swap", json: (b) => ({ ...b, memo: "=:BTC.BTC:bc1qattacker:1" }) }], async () => {
       const q = await a.quote(req);
       const ing = await a.prepareIngress(req, q);
-      expect(ing.memo).toBe(`=:BTC.BTC:${DEST_BTC}/${ESCROW}:${(q.raw as any).min1e8}`);
+      // a streamed plan (whale spec §12) adds its explicit interval and quantity; everything else comes from the request
+      expect(ing.memo).toMatch(new RegExp(`^=:BTC\\.BTC:${DEST_BTC}/${ESCROW}:${(q.raw as any).min1e8}(/1/\\d+)?$`));
       expect(Buffer.from(ing.calldata.slice(2), "hex").toString("latin1")).not.toContain("bc1qattacker");
     });
   }, 90_000);

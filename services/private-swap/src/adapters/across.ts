@@ -12,7 +12,7 @@
 import { encodeCall } from "../abi";
 import { acrossSwapIngress, acrossSwapQuote } from "./acrossSwap";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf } from "../types";
+import { SINGLE_PLAN, categoryOf } from "../types";
 
 export const ACROSS_API = process.env.ACROSS_API ?? "https://app.across.to/api";
 export const CHAIN_ID: Record<string, number> = { ethereum: 1, optimism: 10, polygon: 137, base: 8453, arbitrum: 42161, bsc: 56 };
@@ -90,9 +90,13 @@ export class AcrossAdapter implements ProviderAdapter {
       ...(q.lpFee ? [{ kind: "liquidity" as const, amount: BigInt(q.lpFee.total), asset: req.from.symbol }] : []),
     ];
     const ts = Number(q.timestamp), fill = Number(q.fillDeadline);
+    // the provider's stated size limits (whale spec §2): above maxDepositInstant a fill waits for the next bundle, above maxDeposit it refuses
+    const limits = q.limits ? { min: BigInt(q.limits.minDeposit), max: BigInt(q.limits.maxDeposit), maxInstant: BigInt(q.limits.maxDepositInstant) } : undefined;
+    const sizeSignals = limits && req.amount > limits.maxInstant! ? ["above the instant limit: the fill waits for relayer liquidity"] : [];
     return {
       provider: "uniswap-across", category: categoryOf(req.from, req.to), toAmount: out, toAmountMin: out, fees, etaSeconds: q.estimatedFillTimeSec,
       expiresAt: Math.min(ts + DEPOSIT_QUOTE_TIME_BUFFER, fill - 600), nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow",
+      plan: SINGLE_PLAN(q.estimatedFillTimeSec), impactBps: 0, limits, sizeSignals,
       hops: [`${req.from.chain}:${req.from.symbol} -> Across -> ${req.to.chain}:${req.to.symbol} (exact fill)`], raw: { ...q, inputToken, outputToken }, obtainedAt: Date.now(),
     };
   }

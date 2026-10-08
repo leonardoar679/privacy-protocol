@@ -39,7 +39,11 @@ describe("THORChain adapter (live)", () => {
     expect(ing.kind).toBe("contract-call");
     expect(ing.to.toLowerCase()).toMatch(/^0x[0-9a-f]{40}$/);
     expect(ing.value).toBe(10n ** 18n);
-    expect(ing.memo).toMatch(new RegExp(`^=:BTC\\.BTC:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh/${ESCROW}:\\d+$`)); // a refund goes to the escrow, not the relayer
+    // a refund goes to the escrow, not the relayer; a streamed plan (whale spec §12) adds an explicit interval and quantity
+    expect(ing.memo).toMatch(new RegExp(`^=:BTC\\.BTC:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh/${ESCROW}:\\d+(/1/\\d+)?$`));
+    expect(q.plan, "the quote carries its plan").toBeDefined();
+    if (q.plan!.mode === "streaming") expect(ing.memo!.endsWith(`/1/${q.plan!.parts}`), "the memo carries exactly the quoted plan").toBe(true);
+    expect(typeof q.impactBps, "THORChain states its slippage").toBe("number");
     expect(ing.calldata.startsWith("0x")).toBe(true);
     // the memo (destination + limit) is inside the calldata the order key signs
     expect(Buffer.from(ing.calldata.slice(2), "hex").toString("latin1")).toContain(ing.memo);

@@ -12,8 +12,8 @@
 // Vault address is pinned, and destination chain/asset/address, refund address and min price must
 // match. A compromised backend can therefore only make the call fail, not redirect funds.
 import { keccak_256 } from "@noble/hashes/sha3";
-import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf } from "../types";
+import type { AssetRef, Capabilities, ExecutionPlan, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
+import { SINGLE_PLAN, categoryOf } from "../types";
 
 export const CHAINFLIP_BACKEND = process.env.CHAINFLIP_BACKEND ?? "https://chainflip-swap.chainflip.io";
 export const CHAINFLIP_RPC = process.env.CHAINFLIP_RPC ?? "https://mainnet-rpc.chainflip.io";
@@ -70,7 +70,10 @@ interface CfQuote {
   recommendedRetryDurationMinutes?: number; lowLiquidityWarning: boolean;
   includedFees: { chain: string; asset: string; amount: string; type: "INGRESS" | "NETWORK" | "EGRESS" | "BOOST" | "BROKER" | "AFFILIATE" | string }[];
   srcAsset: CfAsset; destAsset: CfAsset;
+  /** a DCA quote's plan (whale spec §7, §12): the backend picks the chunks and their spacing */
+  dcaParams?: { numberOfChunks: number; chunkIntervalBlocks: number };
 }
+export interface CfDca { numberOfChunks: number; chunkIntervalBlocks: number }
 
 async function getJson<T>(url: string, init?: RequestInit, timeoutMs = 20000): Promise<{ data: T; ms: number; status: number }> {
   const t0 = Date.now();
@@ -154,14 +157,22 @@ export class ChainflipAdapter implements ProviderAdapter {
     return { routes: ["A", "B", "C", "E"], ingress: ["contract-call"], nativeAssets: true, atomic: false, chains: ["ethereum", "bitcoin", "solana", "arbitrum", "tron"], destinationLinkPublic: true, linkEvidence: "the vault-swap calldata encodes the destination address (decoded locally before signing)" };
   }
 
+  /**
+   * The quote asks for the DCA plan as well (whale spec §7, §12): the backend answers a REGULAR and, when it offers one, a DCA quote
+   * — from about $1M the DCA quote alone, above its depth a 400. The higher egress wins (REGULAR on a tie, fewer parts); a single-swap
+   * request (the guest path) takes REGULAR only. The chosen quote's `dcaParams` are what the vault swap will carry.
+   */
   async quote(req: QuoteRequest): Promise<Quote> {
     const src = cfAsset(req.from), dst = cfAsset(req.to);
     const isVault = req.from.chain === "ethereum" || req.from.chain === "arbitrum"; // our source is the EVM escrow
-    const qs = new URLSearchParams({ srcChain: src.chain, srcAsset: src.asset, destChain: dst.chain, destAsset: dst.asset, amount: req.amount.toString(), isVaultSwap: String(isVault) });
+    const qs = new URLSearchParams({ srcChain: src.chain, srcAsset: src.asset, destChain: dst.chain, destAsset: dst.asset, amount: req.amount.toString(), isVaultSwap: String(isVault), dcaEnabled: "true" });
     const { data, status } = await getJson<CfQuote[] | { message?: string }>(`${CHAINFLIP_BACKEND}/v2/quote?${qs}`);
     if (status !== 200 || !Array.isArray(data)) throw new Error(`Chainflip quote: HTTP ${status} ${JSON.stringify(data).slice(0, 200)}`);
-    const q = data.find((x) => x.type === "REGULAR") ?? data[0];
-    if (!q) throw new Error("Chainflip returned no quote");
+    const regular = data.find((x) => x.type === "REGULAR"), dcaQuote = data.find((x) => x.type === "DCA" && x.dcaParams);
+    const q = req.plan === "single" ? regular : regular && dcaQuote ? (BigInt(dcaQuote.egressAmount) > BigInt(regular.egressAmount) ? dcaQuote : regular) : dcaQuote ?? regular;
+    if (!q) throw new Error(req.plan === "single" && dcaQuote ? "Chainflip offers no single-swap quote at this size (DCA only)" : "Chainflip returned no quote");
+    const dca: CfDca | undefined = q.type === "DCA" && q.dcaParams ? { numberOfChunks: Number(q.dcaParams.numberOfChunks), chunkIntervalBlocks: Number(q.dcaParams.chunkIntervalBlocks) } : undefined;
+    if (dca && !(dca.numberOfChunks >= 1 && dca.chunkIntervalBlocks >= 1)) throw new Error("Chainflip DCA quote: no chunk count or interval");
     const priceX128 = minPriceX128(q.estimatedPrice, req.slippageBps, req.from.decimals, req.to.decimals);
     const toAmountMin = minOutFromPrice(req.amount, priceX128);
     const toAmount = BigInt(q.egressAmount);
@@ -169,23 +180,27 @@ export class ChainflipAdapter implements ProviderAdapter {
     const feeKind: Record<string, Fee["kind"]> = { INGRESS: "gas", NETWORK: "protocol", EGRESS: "network", BOOST: "liquidity", BROKER: "affiliate", AFFILIATE: "affiliate" };
     const fees: Fee[] = q.includedFees.map((f) => ({ kind: feeKind[f.type] ?? "protocol", amount: BigInt(f.amount), asset: `${f.chain}.${f.asset}` }));
     const now = Math.floor(Date.now() / 1000);
+    const plan: ExecutionPlan = dca ? { mode: "dca", parts: dca.numberOfChunks, intervalBlocks: dca.chunkIntervalBlocks, expectedSeconds: q.estimatedDurationSeconds } : SINGLE_PLAN(q.estimatedDurationSeconds);
+    const sizeSignals = [q.lowLiquidityWarning ? "low liquidity" : undefined, q.recommendedSlippageTolerancePercent !== undefined ? `recommended slippage ${q.recommendedSlippageTolerancePercent} %` : undefined].filter((x): x is string => !!x);
     return {
       provider: "chainflip", category: categoryOf(req.from, req.to),
       toAmount, toAmountMin, fees, etaSeconds: q.estimatedDurationSeconds, expiresAt: now + QUOTE_TTL_SECONDS,
-      nativeAssets: true, minOutEncoded: isVault, minOutVerified: isVault, hops: [`${src.chain}.${src.asset} -> USDC -> ${dst.chain}.${dst.asset} (vault swap: ${isVault})`],
-      raw: { ...q, minPriceX128: priceX128.toString(), isVault, retryDurationBlocks: Math.max(1, Math.ceil(((q.recommendedRetryDurationMinutes ?? 30) * 60) / CHAINFLIP_BLOCK_SECONDS)) },
+      nativeAssets: true, minOutEncoded: isVault, minOutVerified: isVault, plan, impactBps: q.lowLiquidityWarning ? Math.round((q.recommendedSlippageTolerancePercent ?? 0) * 100) : 0, sizeSignals,
+      hops: [`${src.chain}.${src.asset} -> USDC -> ${dst.chain}.${dst.asset} (vault swap: ${isVault}${dca ? `, DCA ${dca.numberOfChunks} chunks every ${dca.chunkIntervalBlocks} block(s)` : ""})`],
+      raw: { ...q, minPriceX128: priceX128.toString(), isVault, retryDurationBlocks: Math.max(1, Math.ceil(((q.recommendedRetryDurationMinutes ?? 30) * 60) / CHAINFLIP_BLOCK_SECONDS)), dca },
       obtainedAt: Date.now(),
     };
   }
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
-    const q = quote.raw as CfQuote & { minPriceX128: string; isVault: boolean; retryDurationBlocks: number };
+    const q = quote.raw as CfQuote & { minPriceX128: string; isVault: boolean; retryDurationBlocks: number; dca?: CfDca };
     if (!q.isVault) throw new Error("Chainflip: non-EVM sources need a broker-opened deposit channel (not used by V1.1; the source is always the EVM escrow)");
     if (!req.source) throw new Error("Chainflip: the escrow address (req.source) is required as the refund address");
     const src = cfAsset(req.from), dst = cfAsset(req.to);
     const body = {
       srcAsset: src, destAsset: dst, srcAddress: req.source, destAddress: req.destination, amount: req.amount.toString(),
       fillOrKillParams: { retryDurationBlocks: q.retryDurationBlocks, refundAddress: req.source, minPriceX128: q.minPriceX128 },
+      ...(q.dca ? { dcaParams: { numberOfChunks: q.dca.numberOfChunks, chunkIntervalBlocks: q.dca.chunkIntervalBlocks } } : {}),
     };
     const { data, status } = await getJson<{ chain: string; to: string; calldata: string; value: string; sourceTokenAddress?: string } | { message?: string }>(`${CHAINFLIP_BACKEND}/api/encodeVaultSwapData`, { method: "POST", body: JSON.stringify(body) });
     if (status !== 200 || !("calldata" in data)) throw new Error(`Chainflip encodeVaultSwapData: HTTP ${status} ${JSON.stringify(data).slice(0, 300)}`);
@@ -198,13 +213,17 @@ export class ChainflipAdapter implements ProviderAdapter {
     if (d.cf.refundAddress.toLowerCase() !== req.source.toLowerCase()) throw new Error("Chainflip calldata: refund address is not the escrow");
     if (d.cf.minPriceX128 !== BigInt(q.minPriceX128)) throw new Error("Chainflip calldata: min price mismatch");
     if (d.cf.retryDuration !== q.retryDurationBlocks) throw new Error("Chainflip calldata: retry duration mismatch");
-    if (d.cf.brokerBps !== 0 || d.cf.boostFee !== 0 || d.cf.dca) throw new Error("Chainflip calldata: unexpected broker fee / boost / DCA");
+    if (d.cf.brokerBps !== 0 || d.cf.boostFee !== 0) throw new Error("Chainflip calldata: unexpected broker fee / boost");
+    // the DCA plan in the calldata must be exactly the quoted one (whale spec §7); a single plan carries none
+    if (q.dca) { if (!d.cf.dca || d.cf.dca.chunks !== q.dca.numberOfChunks || d.cf.dca.interval !== q.dca.chunkIntervalBlocks) throw new Error("Chainflip calldata: DCA parameters differ from the quote's"); }
+    else if (d.cf.dca) throw new Error("Chainflip calldata: unexpected DCA parameters");
     if (req.from.asset === "native") {
       if (BigInt(data.value) !== req.amount || d.srcToken) throw new Error("Chainflip calldata: value/amount mismatch for a native swap");
     } else {
       if (BigInt(data.value) !== 0n || d.srcToken?.toLowerCase() !== req.from.asset.toLowerCase() || d.amount !== req.amount) throw new Error("Chainflip calldata: token/amount mismatch");
     }
-    return { kind: "contract-call", to: data.to, calldata: data.calldata as `0x${string}`, value: BigInt(data.value), expiresAt: quote.expiresAt, minOutEncoded: true };
+    const verified = ["vault pinned", "destination chain, asset and address, the refund address (the escrow), the min price and the retry duration decoded and compared", q.dca ? `DCA: ${q.dca.numberOfChunks} chunks, one every ${q.dca.chunkIntervalBlocks} block(s); the min price applies per chunk, unfilled chunks refund the escrow` : "one swap"];
+    return { kind: "contract-call", to: data.to, calldata: data.calldata as `0x${string}`, value: BigInt(data.value), expiresAt: quote.expiresAt, minOutEncoded: true, verified };
   }
 
   async track(ref: { sourceTxHash?: string }): Promise<TrackStatus> {
@@ -218,7 +237,9 @@ export class ChainflipAdapter implements ProviderAdapter {
       case "SWAPPING": return { state: "executing", raw: data };
       case "SENDING": return { state: "destination-submitted", destinationTxHash: egress?.txRef, raw: data };
       case "SENT": case "COMPLETED":
-        if (refund && !egress) return { state: "refunded", raw: data };
+        if (refund && !egress) return { state: "refunded", refundedAmount: refund.amount ? BigInt(refund.amount) : undefined, raw: data };
+        // a DCA whose later chunks could not meet the min price: some delivered, the rest refunded to the escrow (whale spec §12)
+        if (refund && egress) return { state: "partial", destinationTxHash: egress?.txRef, deliveredAmount: egress?.amount ? BigInt(egress.amount) : undefined, refundedAmount: refund.amount ? BigInt(refund.amount) : undefined, raw: data };
         return { state: data.state === "COMPLETED" ? "completed" : "destination-final", destinationTxHash: egress?.txRef, deliveredAmount: egress?.amount ? BigInt(egress.amount) : undefined, raw: data };
       case "FAILED": return { state: refund ? "refunded" : "failed", raw: data };
       default: return { state: "unknown", raw: data };

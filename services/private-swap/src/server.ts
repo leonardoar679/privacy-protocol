@@ -2,12 +2,20 @@
 // It never holds money keys: the wallet sends the one-time order SIGNER (an address) and the refund
 // note commitments, receives the digest to sign, and returns the signature. Quotes are live. No
 // order state is persisted here beyond an in-memory map for the session (the wallet owns the journal).
+// V2 (whale spec §1, §3, §13, §14, §19): the wallet's tier is a hint that can only raise the tier, the
+// policy may be derived from a preference, /prepare keeps the minimum approved at commit and runs the
+// price guard, and /track reads a provider's status for an executed order.
 //   npx tsx src/server.ts            # http://127.0.0.1:8787
 import { createServer } from "http";
 import { randomBytes } from "crypto";
 import { defaultEngine } from "./config";
+import { MinimumMovedError } from "./engine";
 import { userStatus } from "./order";
-import type { TrackStatus, UserStatus } from "./types";
+import { maxGapBpsFor } from "./scoring";
+import { isPolicy, isPreference, type AssetRef, type Order, type OrderParams, type Policy, type Preference, type ProviderId, type QuoteRequest, type Tier, type TrackStatus, type UserStatus } from "./types";
+import type { PreparedExecution } from "./engine";
+import { isTier } from "./valuation";
+import { atLeast } from "../../../reference/typescript/src/wallet/valuation";
 
 /** What a guest sees for a provider's tracking state (plan §33: never "atomic", always one of these). */
 export function guestStatus(s: TrackStatus["state"]): UserStatus {
@@ -20,12 +28,19 @@ export function guestStatus(s: TrackStatus["state"]): UserStatus {
     default: return "Pending";
   }
 }
-import { isPreference, type AssetRef, type Order, type OrderParams, type Policy, type ProviderId, type QuoteRequest, type Tier } from "./types";
-import type { PreparedExecution } from "./engine";
-import { isTier } from "./valuation";
 
 /** The wallet's own tier of the order (whale spec §1): a hint that can only raise the service's tier. */
 const tierHint = (b: any): Tier | undefined => (isTier(b?.tier) ? b.tier : undefined);
+const preferenceOf = (b: any): Preference | undefined => (isPreference(b?.preference) ? b.preference : undefined);
+/** A policy given explicitly (V1.1 wallets) must be one of the five; absent, it is derived from the preference and the tier (whale spec §4). */
+function policyOf(b: any): Policy | { preference: Preference } {
+  if (b?.policy !== undefined) {
+    if (!isPolicy(b.policy)) throw new BadRequest(`unknown policy ${JSON.stringify(b.policy)}`);
+    return b.policy;
+  }
+  return { preference: preferenceOf(b) ?? "balanced" };
+}
+class BadRequest extends Error {}
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",");
@@ -34,54 +49,69 @@ const orders = new Map<string, { order: Order; prepared?: PreparedExecution }>()
 
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 const asset = (a: any): AssetRef => ({ chain: a.chain, asset: a.asset, decimals: Number(a.decimals), symbol: a.symbol });
-const request = (b: any): QuoteRequest => ({ from: asset(b.from), to: asset(b.to), amount: BigInt(b.amount), destination: String(b.destination), slippageBps: Number(b.slippageBps ?? 50) });
+const request = (b: any): QuoteRequest => ({
+  from: asset(b.from), to: asset(b.to), amount: BigInt(b.amount), destination: String(b.destination), slippageBps: Number(b.slippageBps ?? 50),
+  ...(b.destinationKind === "entered" ? { destinationKind: "entered" as const } : {}), ...(b.preferNative === true ? { preferNative: true } : {}),
+});
+const assessmentOf = (set: { value?: unknown; tier?: Tier }) => ({ value: (set.value as any) ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? ("high-value" as Tier), failSafe: !set.value || "unavailable" in (set.value as object) });
 
-async function route(method: string, path: string, body: any): Promise<{ status: number; body: unknown }> {
+async function route(method: string, path: string, query: URLSearchParams, body: any): Promise<{ status: number; body: unknown }> {
   if (method === "GET" && path === "/health") {
     const providers = Object.fromEntries(await Promise.all(engine.cfg.adapters.map(async (a) => [a.id, await a.health()])));
     // the deployment every order is built for: the wallet hands (factory, params, execution) to a relayer's swap executor
     return { status: 200, body: { deployment: { chainId: engine.cfg.chainId, factory: engine.cfg.factory, nativeVault: engine.cfg.refundVaults.native }, providers } };
   }
   if (method === "POST" && path === "/quote") {
-    const set = await engine.quoteAll(request(body), body.policy as Policy, { tier: tierHint(body) });
+    const set = await engine.quoteAll(request(body), policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
     return { status: 200, body: set };
   }
   if (method === "POST" && path === "/order") {
     // the wallet chose a route; it supplies the one-time signer and the pre-generated refund note
-    const req = request(body), policy = body.policy as Policy;
-    const set = await engine.quoteAll(req, policy, { tier: tierHint(body) });
+    const req = request(body);
+    const set = await engine.quoteAll(req, policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
     const provider = (body.provider ?? set.chosen?.provider) as ProviderId | undefined;
     const quote = set.quotes.find((q) => q.provider === provider);
-    if (!quote) return { status: 400, body: { error: `no quote from ${provider ?? "any provider"}`, errors: set.errors } };
-    if (set.scores.find((s) => s.provider === provider)?.filtered) return { status: 400, body: { error: `route filtered: ${set.scores.find((s) => s.provider === provider)!.filtered}` } };
-    const order = engine.buildOrder(req, policy, quote, {
+    if (!quote) return { status: 400, body: { error: `no quote from ${provider ?? "any provider"}`, errors: set.errors, competition: set.competition } };
+    if (set.scores.find((s) => s.provider === provider)?.filtered) return { status: 400, body: { error: `route filtered: ${set.scores.find((s) => s.provider === provider)!.filtered}`, competition: set.competition } };
+    const order = engine.buildOrder(req, set.policy, quote, {
       orderSigner: String(body.orderSigner), refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash,
-    }, { value: set.value ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? "high-value", failSafe: !set.value || "unavailable" in set.value }, isPreference(body.preference) ? body.preference : undefined);
+    }, assessmentOf(set), preferenceOf(body));
     orders.set(order.orderId, { order });
-    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state), tier: order.tier, value: order.value } };
+    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state), tier: order.tier, value: order.value, policy: set.policy, competition: set.competition } };
   }
   if (method === "POST" && path === "/order/resume") {
     // the wallet persisted the order (encrypted journal) and the service forgot it (restart): rebuild it from the on-chain params
-    const req = request(body), policy = body.policy as Policy, provider = body.provider as ProviderId;
+    const req = request(body), provider = body.provider as ProviderId;
     const p = body.params;
     const params: OrderParams = {
       orderId: p.orderId, assetType: Number(p.assetType) as 0 | 1, asset: p.asset, amount: BigInt(p.amount), orderSigner: p.orderSigner, executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter),
       refundVault: p.refundVault, refundOwnerCommitment: BigInt(p.refundOwnerCommitment), refundNoteSecret: BigInt(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: BigInt(p.executorTip),
     };
-    const set = await engine.quoteAll(req, policy, { tier: tierHint(body) });
+    const set = await engine.quoteAll(req, policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
     const quote = set.quotes.find((q) => q.provider === provider);
-    if (!quote) return { status: 400, body: { error: `no quote from ${provider} right now; retry later`, errors: set.errors } };
-    const order = engine.restoreOrder(req, policy, quote, params, { value: set.value ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? "high-value", failSafe: !set.value || "unavailable" in set.value }, isPreference(body.preference) ? body.preference : undefined);
+    if (!quote) return { status: 400, body: { error: `no quote from ${provider} right now; retry later`, errors: set.errors, competition: set.competition } };
+    const order = engine.restoreOrder(req, set.policy, quote, params, assessmentOf(set), preferenceOf(body));
     orders.set(order.orderId, { order });
-    return { status: 200, body: { order, status: userStatus(order.state), tier: order.tier, value: order.value } };
+    return { status: 200, body: { order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: set.policy, competition: set.competition } };
   }
   if (method === "POST" && path === "/prepare") {
     const entry = orders.get(body.orderId);
     if (!entry) return { status: 404, body: { error: "unknown order" } };
     const adapter = engine.cfg.adapters.find((a) => a.id === entry.order.quote.provider)!;
-    const prepared = await engine.prepareExecution(entry.order, adapter);
-    entry.prepared = prepared;
-    return { status: 200, body: { digest: prepared.digest, provider: prepared.provider, value: prepared.value, calldata: prepared.calldata, deadline: prepared.deadline, ingress: prepared.ingress, quote: prepared.quote } };
+    const approvedMin = body.approvedMin !== undefined && /^\d+$/.test(String(body.approvedMin)) ? BigInt(body.approvedMin) : undefined;
+    // the price guard (whale spec §14): from the enhanced tier a fresh competition stands against the hard quote
+    const tier = entry.order.tier;
+    const guard = tier && atLeast(tier, "enhanced")
+      ? { alternatives: (await engine.quoteAll(entry.order.request, entry.order.policy, { tier }).catch(() => ({ quotes: [] as any[] }))).quotes, maxGapBps: maxGapBpsFor(tier) }
+      : undefined;
+    try {
+      const prepared = await engine.prepareExecution(entry.order, adapter, guard, approvedMin);
+      entry.prepared = prepared;
+      return { status: 200, body: { digest: prepared.digest, provider: prepared.provider, value: prepared.value, calldata: prepared.calldata, deadline: prepared.deadline, ingress: prepared.ingress, quote: prepared.quote, plan: prepared.quote.plan } };
+    } catch (e) {
+      if (e instanceof MinimumMovedError) return { status: 409, body: { error: e.message, code: "minimum_moved", approvedMin: e.approvedMin, newMin: e.newMin } };
+      throw e;
+    }
   }
   if (method === "POST" && path === "/finalize") {
     const entry = orders.get(body.orderId);
@@ -89,15 +119,25 @@ async function route(method: string, path: string, body: any): Promise<{ status:
     const execution = engine.attachSignature(entry.order, entry.prepared, body.signature);
     return { status: 200, body: { execution, order: entry.order } };
   }
+  // ---- destination-side tracking of an executed order (whale spec §19): stateless, from the execution tx hash (NEAR: the deposit address as ref)
+  if (method === "GET" && path.startsWith("/track/")) {
+    const provider = path.slice("/track/".length) as ProviderId;
+    const adapter = engine.cfg.adapters.find((a) => a.id === provider);
+    if (!adapter) return { status: 404, body: { error: "unknown provider" } };
+    const tx = query.get("tx") ?? undefined, ref = query.get("ref") ?? undefined;
+    if (!tx && !ref) return { status: 400, body: { error: "tx (the execution transaction) or ref (the provider's reference) is required" } };
+    const t = await adapter.track({ sourceTxHash: tx, providerRef: ref });
+    return { status: 200, body: { track: t, status: guestStatus(t.state) } };
+  }
   // ---- walletless / guest mode (plan §49): no pool, no escrow, no keys — a quote and a one-time deposit instruction
   if (method === "POST" && path === "/guest/quote") {
-    const set = await engine.quoteAll(request(body), (body.policy as Policy) ?? "best-price");
+    const set = await engine.quoteAll(request(body), body.policy === undefined ? "best-price" : policyOf(body), { tier: tierHint(body) });
     return { status: 200, body: set };
   }
   if (method === "POST" && path === "/guest/ingress") {
     // only providers whose deposit address + memo we verify locally against an independent gateway quorum (THORChain);
     // deposit-address providers that create an order at the provider (1Click, LI.FI smart deposit) are quoted, not instructed
-    const req = request(body);
+    const req = { ...request(body), plan: "single" as const }; // a UTXO deposit carries one memo of at most 80 bytes: never streamed
     const adapter = engine.cfg.adapters.find((a) => a.id === "thorchain");
     if (!adapter) return { status: 503, body: { error: "THORChain adapter unavailable" } };
     if (!["bitcoin", "litecoin", "doge"].includes(req.from.chain)) return { status: 400, body: { error: "guest deposits are for native-chain sources (BTC, LTC, DOGE); use the wallet for EVM sources" } };
@@ -128,11 +168,13 @@ createServer(async (req, res) => {
   for await (const chunk of req) raw += chunk;
   try {
     const body = raw ? JSON.parse(raw) : {};
-    const out = await route(req.method ?? "GET", (req.url ?? "/").split("?")[0], body);
+    const url = new URL(req.url ?? "/", "http://service");
+    const out = await route(req.method ?? "GET", url.pathname, url.searchParams, body);
     res.writeHead(out.status, { ...cors, "content-type": "application/json" });
     res.end(json(out.body));
   } catch (e) {
-    res.writeHead(500, { ...cors, "content-type": "application/json" });
+    const bad = e instanceof BadRequest;
+    res.writeHead(bad ? 400 : 500, { ...cors, "content-type": "application/json" });
     res.end(json({ error: String((e as Error).message ?? e) }));
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`private-swap service on http://127.0.0.1:${PORT} (session id ${randomBytes(4).toString("hex")}); origins: ${ALLOWED_ORIGINS.join(", ")}`));

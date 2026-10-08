@@ -22,7 +22,7 @@ import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
 import { escrowCanReshield, foreignRefundTokens } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf, isEvm } from "../types";
+import { SINGLE_PLAN, categoryOf, isEvm } from "../types";
 
 export const LIFI_URL = process.env.LIFI_URL ?? "https://li.quest/v1";
 const CHAIN_ID: Record<string, string> = { ethereum: "1", base: "8453", arbitrum: "42161", bsc: "56", avalanche: "43114", optimism: "10", polygon: "137", solana: "1151111081099710", bitcoin: "20000000000001" };
@@ -230,7 +230,7 @@ export class LifiAdapter implements ProviderAdapter {
       provider: "lifi", category: categoryOf(req.from, req.to),
       toAmount, toAmountMin, fees,
       etaSeconds: Number(est.executionDuration ?? 0), expiresAt: Math.floor(Date.now() / 1000) + 60, // LI.FI quotes are short-lived; re-quote at commit
-      nativeAssets: !bridged, minOutEncoded: true, minOutVerified: isAcrossV4Call(q.transactionRequest?.data ?? ""),
+      nativeAssets: !bridged, minOutEncoded: true, minOutVerified: isAcrossV4Call(q.transactionRequest?.data ?? ""), plan: SINGLE_PLAN(Number(est.executionDuration ?? 0)),
       refundTarget: isAcrossV4Call(q.transactionRequest?.data ?? "") ? "escrow" : undefined,
       hops: [`${q.tool}`, ...hops], raw: q, obtainedAt: Date.now(),
     };

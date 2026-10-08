@@ -77,8 +77,11 @@ const CF_ASSET: Record<string, number> = {
   "Ethereum.ETH": 1, "Ethereum.FLIP": 2, "Ethereum.USDC": 3, "Bitcoin.BTC": 5, "Arbitrum.ETH": 6, "Arbitrum.USDC": 7, "Ethereum.USDT": 8,
   "Solana.SOL": 9, "Solana.USDC": 10, "Arbitrum.USDT": 14, "Ethereum.WBTC": 15, "Solana.USDT": 16, "Tron.TRX": 17, "Tron.USDT": 18,
 };
-/** Chainflip's fill-or-kill retry is in 6-second blocks; a day is the most this wallet lets an order wait before its refund. */
+/** Chainflip's fill-or-kill retry is in 6-second blocks; a day is the most this wallet lets an order wait before its refund — a DCA's chunks and their spacing count towards it. */
 const CF_MAX_RETRY_BLOCKS = 14_400;
+/** A THORChain stream this wallet signs (whale spec §12): an explicit quantity (0 would let the network choose), at most THORNode's own day of 6-second blocks, at most 100 blocks apart. */
+const THOR_MAX_STREAM_PARTS = 14_400;
+const THOR_MAX_INTERVAL_BLOCKS = 100;
 
 export type ProviderName = "thorchain" | "chainflip" | "mayan" | "lifi" | "across";
 
@@ -312,17 +315,23 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   must(amount === e.net, P, "amount", `${amount} != ${e.net}`);
   must(call.value === (e.from.asset === "native" ? e.net : 0n), P, "value", `${call.value} forwarded`);
   must(expiry > BigInt(now), P, "expiry", "already passed");
-  // =:ASSET:DEST/REFUND:LIMIT — no streaming, no affiliate: exactly the swap this wallet asked for
-  const m = /^=:([^:]+):([^:/]+)\/([^:/]+):(\d+)$/.exec(memo);
-  must(!!m, P, "memo", `"${memo}" is not =:ASSET:DEST/REFUND:LIMIT`);
-  const [, memoAsset, memoDest, memoRefund, limit] = m!;
+  // =:ASSET:DEST/REFUND:LIMIT[/INTERVAL/QUANTITY] — no affiliate: exactly the swap this wallet asked for; a stream's plan is explicit and bounded (whale spec §12, §15)
+  const m = /^=:([^:]+):([^:/]+)\/([^:/]+):(\d+)(?:\/(\d+)\/(\d+))?$/.exec(memo);
+  must(!!m, P, "memo", `"${memo}" is not =:ASSET:DEST/REFUND:LIMIT[/INTERVAL/QUANTITY]`);
+  const [, memoAsset, memoDest, memoRefund, limit, interval, quantity] = m!;
   must(memoAsset === thorAsset(e.to), P, "memo asset", `${memoAsset} is not ${thorAsset(e.to)}`);
   must(memoDest === e.destination, P, "receiver", `the memo pays ${memoDest}, not your fresh address`);
   must(same(memoRefund, e.escrow), P, "refund", `a refund would go to ${memoRefund}, not the escrow`);
+  let planFact = "one swap";
+  if (interval !== undefined) {
+    const i = Number(interval), n = Number(quantity);
+    must(i >= 1 && i <= THOR_MAX_INTERVAL_BLOCKS && n >= 1 && n <= THOR_MAX_STREAM_PARTS, P, "streaming", `${n} sub-swaps every ${i} block(s) is outside what this wallet accepts (1–${THOR_MAX_STREAM_PARTS} sub-swaps, 1–${THOR_MAX_INTERVAL_BLOCKS} blocks apart; a quantity of 0 would let the network choose)`);
+    planFact = `streams ${n} sub-swaps, one every ${i} block(s): the limit applies per sub-swap; sub-swaps that do not execute refund the escrow`;
+  }
   const minOut = from1e8(BigInt(limit), e.to.decimals);
   return {
     provider: P, receiver: memoDest, minOut, refundTo: "escrow",
-    facts: [`router pinned; inbound vault confirmed by ${v.agreeing.length} THORNode gateways`, "memo pays your fresh address", "a THORChain refund goes to the escrow", `limit ${limit} (1e8 units)`],
+    facts: [`router pinned; inbound vault confirmed by ${v.agreeing.length} THORNode gateways`, "memo pays your fresh address", "a THORChain refund goes to the escrow", `limit ${limit} (1e8 units)`, planFact],
   };
 }
 
@@ -350,10 +359,12 @@ function chainflip(call: ProviderCall, e: CallExpectation): CheckedCall {
   }
   const cf = decodeCfParameters(hexToBytes(cfParameters));
   must(same(cf.refundAddress, e.escrow), P, "refund", `a fill-or-kill refund would go to ${cf.refundAddress}, not the escrow`);
-  must(cf.brokerBps === 0 && cf.boostFee === 0 && cf.dca === null, P, "fees", "carries a broker fee, boost or DCA");
+  must(cf.brokerBps === 0 && cf.boostFee === 0, P, "fees", "carries a broker fee or boost");
   must(cf.retryDuration <= CF_MAX_RETRY_BLOCKS, P, "retry", `${cf.retryDuration} blocks before a refund`);
+  // a DCA plan (whale spec §12, §15): the min price applies per chunk, unfilled chunks refund the escrow; the whole plan plus the retry fits a day
+  if (cf.dca) must(cf.dca.chunks >= 1 && cf.dca.interval >= 1 && cf.dca.chunks * cf.dca.interval + cf.retryDuration <= CF_MAX_RETRY_BLOCKS, P, "dca", `${cf.dca.chunks} chunks every ${cf.dca.interval} block(s) plus ${cf.retryDuration} retry blocks exceed a day`);
   const minOut = (srcAmount * cf.minPriceX128) >> 128n;
-  return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", facts: ["vault pinned", "pays your fresh address", "fill-or-kill refund to the escrow", "no broker fee, boost or DCA"] };
+  return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", facts: ["vault pinned", "pays your fresh address", "fill-or-kill refund to the escrow", "no broker fee or boost", cf.dca ? `DCA: ${cf.dca.chunks} chunks, one every ${cf.dca.interval} block(s); the min price applies per chunk, unfilled chunks refund the escrow` : "one swap"] };
 }
 
 interface CfParameters { refundAddress: Address; retryDuration: number; minPriceX128: bigint; boostFee: number; brokerBps: number; dca: { chunks: number; interval: number } | null }
@@ -469,14 +480,25 @@ function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCal
 function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; data: Hex; middleToken: Address; minMiddle: bigint } | null, data: Hex): CheckedCall {
   const P: ProviderName = "mayan";
   const native = e.from.asset === "native";
+  // an ETH order is wrapped 1:1 by the pinned wrapper (wrap & lock, refunded as ETH) or — Mayan's routing for a small order — swapped into
+  // USDC by a router Mayan names, bounded on chain by minMiddle, and the USDC locked (swap & lock, refunded as USDC to the escrow: the pool must
+  // have a USDC vault, PP-S08); the forwarder overwrites the order's amountIn with the USDC the router produced (verified source)
+  let swapAndLock = false;
   if (native) {
-    must(!!swap && same(swap.protocol, PINNED.mayanEthWrapper) && swap.data.toLowerCase() === SEL_WRAP, P, "swap", "the ETH is not wrapped by the pinned wrapper's wrap()");
-    must(same(swap!.middleToken, WETH.ethereum) && swap!.minMiddle === e.net, P, "swap", "the wrap is not bounded to the whole amount in WETH");
+    must(!!swap, P, "swap", "an ETH order is neither wrapped nor swapped first");
+    if (same(swap!.protocol, PINNED.mayanEthWrapper)) {
+      must(swap!.data.toLowerCase() === SEL_WRAP, P, "swap", "the ETH is not wrapped by the pinned wrapper's wrap()");
+      must(same(swap!.middleToken, WETH.ethereum) && swap!.minMiddle === e.net, P, "swap", "the wrap is not bounded to the whole amount in WETH");
+    } else {
+      must(same(swap!.middleToken, USDC_ETHEREUM) && swap!.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+      must(reshieldable(e, USDC_ETHEREUM), P, "refund", "swaps the ETH into USDC first: an unfilled order would refund USDC to the escrow, which cannot re-shield it (no USDC vault)");
+      swapAndLock = true;
+    }
   } else must(!swap, P, "swap", "an ERC-20 order swaps first");
   const { args } = decode(P, SWIFT_V2_ABI, data);
   const [tokenIn, amountIn, o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
-  must(native ? same(tokenIn, ZERO) : same(tokenIn, e.from.asset), P, "order", native ? "the ETH is not locked as wrap & lock: a refund would not pay ETH" : `locks ${tokenIn}, not ${e.from.symbol}`);
-  must(amountIn === e.net, P, "order", `orders ${amountIn}, not ${e.net}`);
+  must(native ? (swapAndLock ? same(tokenIn, USDC_ETHEREUM) : same(tokenIn, ZERO)) : same(tokenIn, e.from.asset), P, "order", native ? (swapAndLock ? "the swapped USDC is not what the order locks" : "the ETH is not locked as wrap & lock: a refund would not pay ETH") : `locks ${tokenIn}, not ${e.from.symbol}`);
+  must(swapAndLock ? amountIn === swap!.minMiddle : amountIn === e.net, P, "order", swapAndLock ? `orders ${amountIn} USDC, not the ${swap!.minMiddle} the leg is bounded at` : `orders ${amountIn}, not ${e.net}`);
   must(o.payloadType === 1 && customPayload === "0x", P, "order", "carries a custom payload");
   must(same(o.trader, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled order would be refunded to another address than the escrow");
   must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
@@ -485,15 +507,20 @@ function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; 
   must(same(o.tokenOut, wantTokenOut), P, "asset", `delivers ${o.tokenOut}, not ${e.to.symbol}`);
   must(o.gasDrop === 0n, P, "order", "asks for a gas drop");
   must(BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "carries a referrer fee");
-  // Swift amounts carry at most 8 decimals
-  const inDecimals = native ? 18 : e.from.decimals;
-  const normalizedIn = inDecimals > 8 ? e.net / 10n ** BigInt(inDecimals - 8) : e.net;
+  // Swift amounts carry at most 8 decimals; a swap & lock order is in USDC (6 decimals), at least the bounded minMiddle of it
+  const inDecimals = swapAndLock ? 6 : native ? 18 : e.from.decimals;
+  const orderIn = swapAndLock ? swap!.minMiddle : e.net;
+  const normalizedIn = inDecimals > 8 ? orderIn / 10n ** BigInt(inDecimals - 8) : orderIn;
   must((o.cancelFee + o.refundFee) * 10000n <= normalizedIn * SWIFT_MAX_REFUND_FEES_BPS, P, "fees", "the cancel and refund fees exceed 1% of the order");
   must(o.deadline > BigInt(now) && o.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", "the order deadline has passed or lies more than 6 h ahead");
   must(o.auctionMode > 0, P, "order", "no auction mode");
   const minOut = e.to.decimals > 8 ? o.minAmountOut * 10n ** BigInt(e.to.decimals - 8) : o.minAmountOut;
   must(minOut > 0n, P, "minimum", "a zero minimum");
-  return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", facts: ["forwarder and Swift V2 pinned; the order is decoded", native ? "the ETH is wrapped 1:1 by the pinned wrapper" : `${e.from.symbol} is locked as is`, "the order pays your fresh address", "an unfilled order is cancelled after its deadline and refunded to the escrow"] };
+  const refundTokens = swapAndLock ? [USDC_ETHEREUM] : undefined;
+  return {
+    provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors: floorOf(refundTokens, swap!.minMiddle, 100n) } : {}),
+    facts: ["forwarder and Swift V2 pinned; the order is decoded", native ? (swapAndLock ? `the ETH is swapped into USDC by a router Mayan names, bounded on chain at ${swap!.minMiddle} USDC base units` : "the ETH is wrapped 1:1 by the pinned wrapper") : `${e.from.symbol} is locked as is`, "the order pays your fresh address", swapAndLock ? "an unfilled order is cancelled after its deadline and refunds USDC to the escrow, re-shielded into its vault" : "an unfilled order is cancelled after its deadline and refunded to the escrow"],
+  };
 }
 
 function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {

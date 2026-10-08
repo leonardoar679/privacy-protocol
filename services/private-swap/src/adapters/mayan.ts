@@ -28,8 +28,9 @@
 import { randomBytes } from "node:crypto";
 import { encodeCall, hexBuf, padLeft32, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
+import { escrowCanReshield } from "../escrowAssets";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { categoryOf } from "../types";
+import { SINGLE_PLAN, categoryOf } from "../types";
 
 export const MAYAN_PRICE_API = process.env.MAYAN_PRICE_API ?? "https://price-api.mayan.finance/v3";
 export const MAYAN_EXPLORER_API = process.env.MAYAN_EXPLORER_API ?? "https://explorer-api.mayan.finance/v3";
@@ -43,6 +44,8 @@ export const MAYAN_SWIFT_V2 = (process.env.MAYAN_SWIFT_V2 ?? "0x40ffe85a28dc9993
 /** Mayan's EthWrapper (pinned: Sourcify exact match, on the forwarder's whitelist): `wrap()` deposits the ETH sent into WETH and returns it 1:1. */
 export const MAYAN_ETH_WRAPPER = "0x529863940bf6065d8c122a550c2ff37c1cfefa16";
 export const WETH_ETHEREUM = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+/** USDC on Ethereum: the middle token of a SWIFT "swap & lock" order (Mayan's own routing for a small ETH order) */
+export const USDC_ETHEREUM = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
 export const SEL_WRAP = "0xd46eb119"; // wrap()
 export const SWIFT_CREATE_ORDER_SIG = "createOrderWithToken(address,uint256,(uint8,bytes32,bytes32,uint16,bytes32,bytes32,uint64,uint64,uint64,uint64,uint64,uint8,uint8,bytes32),bytes)";
 export const SEL_SWIFT_CREATE_ORDER = selectorHex(SWIFT_CREATE_ORDER_SIG);
@@ -149,10 +152,13 @@ export interface SwiftOrder { payloadType: number; trader: Buffer; destAddr: Buf
 
 /**
  * What a SWIFT quote must say before it is ranked: the pinned Swift V2 contract, an order from Ethereum to the asked chain
- * and asset, an ETH order as wrap & lock (refunded as ETH) or an ERC-20 order locking its own token, a deadline that leaves
- * solvers time and still refunds inside the watch, and cancel + refund fees within SWIFT_MAX_REFUND_FEES_BPS.
+ * and asset, an ETH order as wrap & lock (refunded as ETH) or — Mayan's own routing for a small ETH order (Stage 1: the only
+ * quote below $2M) — as "swap & lock": ETH swapped into USDC by a router Mayan names, bounded on chain by the forwarder's
+ * minMiddleAmount, the USDC locked in Swift and refunded to the escrow if no solver fills (so the escrow must re-shield USDC,
+ * PP-S08); an ERC-20 order locks its own token. The deadline must leave solvers time and still refund inside the watch, and
+ * cancel + refund fees stay within SWIFT_MAX_REFUND_FEES_BPS.
  */
-export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): { tokenIn: string; wrap: boolean } {
+export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): { tokenIn: string; wrap: boolean; swapToMiddle: boolean } {
   if (q.type !== "SWIFT") throw new Error(`Mayan: quote type ${q.type} is not SWIFT`);
   if (q.swiftVersion !== "V2") throw new Error(`Mayan: Swift ${q.swiftVersion ?? "(no version)"} is not supported (V2 only)`);
   if (String(q.swiftMayanContract ?? "").toLowerCase() !== MAYAN_SWIFT_V2) throw new Error(`Mayan: quote names Swift contract ${q.swiftMayanContract}, not the pinned ${MAYAN_SWIFT_V2}`);
@@ -161,10 +167,13 @@ export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | 
   if (destChainId === undefined || q.toChain !== req.to.chain || (q.toToken.wChainId !== undefined && Number(q.toToken.wChainId) !== destChainId)) throw new Error(`Mayan SWIFT: delivers on ${q.toChain}, not ${req.to.chain}`);
   if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase())) throw new Error(`Mayan SWIFT: delivers ${q.toToken.contract}, not ${req.to.symbol}`);
   const input = String(q.swiftInputContract ?? "").toLowerCase();
-  let tokenIn: string, wrap: boolean;
+  let tokenIn: string, wrap: boolean, swapToMiddle = false;
   if (req.from.asset === "native") {
-    if (input !== WETH_ETHEREUM || !q.swiftWrapAndLock) throw new Error("Mayan SWIFT: an ETH order is taken only as wrap & lock (wrapped 1:1 by the pinned wrapper, refunded as ETH)");
-    tokenIn = ZERO; wrap = true;
+    if (input === WETH_ETHEREUM && q.swiftWrapAndLock) { tokenIn = ZERO; wrap = true; }
+    else if (input === USDC_ETHEREUM && !q.swiftWrapAndLock && q.minMiddleAmount !== undefined && Number(q.minMiddleAmount) > 0) {
+      if (!escrowCanReshield(req.from as AssetRef, USDC_ETHEREUM)) throw new Error("Mayan SWIFT: swaps the ETH into USDC first; an unfilled order would refund USDC to the escrow, which cannot re-shield it (the pool has no USDC vault): not offered");
+      tokenIn = USDC_ETHEREUM; wrap = false; swapToMiddle = true;
+    } else throw new Error("Mayan SWIFT: an ETH order is taken as wrap & lock (wrapped 1:1 by the pinned wrapper, refunded as ETH) or as swap & lock (into USDC, bounded by minMiddleAmount, refunded as USDC); this quote is neither");
   } else {
     if (input !== req.from.asset.toLowerCase() || q.swiftWrapAndLock) throw new Error(`Mayan SWIFT: an ERC-20 order must lock ${req.from.symbol} itself (a source swap is not read)`);
     tokenIn = input; wrap = false;
@@ -173,12 +182,14 @@ export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | 
   if (!(deadline >= now + SWIFT_MIN_DEADLINE_SECONDS && deadline <= now + SWIFT_MAX_DEADLINE_SECONDS)) throw new Error(`Mayan SWIFT: order deadline ${q.deadline64} is not within ${SWIFT_MIN_DEADLINE_SECONDS} s .. ${SWIFT_MAX_DEADLINE_SECONDS} s from now`);
   if (!q.swiftAuctionMode) throw new Error("Mayan SWIFT: no auction mode in the quote");
   if (!q.cancelRelayerFee64 || !q.refundRelayerFee64) throw new Error("Mayan SWIFT: cancel / refund fees missing from the quote");
-  const inDecimals = req.from.asset === "native" ? 18 : req.from.decimals;
-  const normalizedIn = inDecimals > 8 ? req.amount / 10n ** BigInt(inDecimals - 8) : req.amount; // Swift's 8-decimal amounts
+  // Swift's 8-decimal amounts; a swap & lock order is in USDC (6 decimals), at least minMiddleAmount of it
+  const inDecimals = swapToMiddle ? CCTP_TOKEN_DECIMALS : req.from.asset === "native" ? 18 : req.from.decimals;
+  const orderIn = swapToMiddle ? fractionalToUnits(q.minMiddleAmount!, CCTP_TOKEN_DECIMALS) : req.amount;
+  const normalizedIn = inDecimals > 8 ? orderIn / 10n ** BigInt(inDecimals - 8) : orderIn;
   const fees = BigInt(q.cancelRelayerFee64) + BigInt(q.refundRelayerFee64);
   if (fees * 10000n > normalizedIn * BigInt(SWIFT_MAX_REFUND_FEES_BPS)) throw new Error(`Mayan SWIFT: cancel + refund fees (${fees}) above ${SWIFT_MAX_REFUND_FEES_BPS} bps of the order`);
   if (Number(q.gasDrop ?? 0) !== 0) throw new Error("Mayan SWIFT: a gas drop was not asked for");
-  return { tokenIn, wrap };
+  return { tokenIn, wrap, swapToMiddle };
 }
 
 /** The SDK's `createSwiftRandomKey`: the quote id (16 bytes, left-padded) then the memo or 16 random bytes; 32 random bytes without a usable id. */
@@ -191,16 +202,16 @@ export function swiftRandom(q: Pick<MayanQuote, "quoteId" | "memoHex">, tail: Bu
 }
 
 /** Build the Swift V2 order from a quote the way the SDK does (`getEvmSwiftParams`), with the escrow as trader: where an unfilled order is refunded. */
-export function swiftOrderFromQuote(q: MayanQuote, req: QuoteRequest, now = Math.floor(Date.now() / 1000), tail?: Buffer): { tokenIn: string; wrap: boolean; order: SwiftOrder } {
+export function swiftOrderFromQuote(q: MayanQuote, req: QuoteRequest, now = Math.floor(Date.now() / 1000), tail?: Buffer): { tokenIn: string; wrap: boolean; swapToMiddle: boolean; order: SwiftOrder } {
   if (!req.source) throw new Error("Mayan SWIFT: the escrow address (req.source) is required: it is the trader an unfilled order is refunded to");
-  const { tokenIn, wrap } = checkSwiftQuote(q, req, now);
+  const { tokenIn, wrap, swapToMiddle } = checkSwiftQuote(q, req, now);
   const order: SwiftOrder = {
     payloadType: SWIFT_PAYLOAD_TYPE_DEFAULT, trader: addressHex32("ethereum", req.source), destAddr: addressHex32(q.toChain, req.destination),
     destChainId: WORMHOLE_CHAIN[q.toChain], referrerAddr: Buffer.alloc(32), tokenOut: q.toToken.contract === ZERO ? Buffer.alloc(32) /* SystemProgram id */ : addressHex32(q.toChain, q.toToken.contract),
     minAmountOut: fractionalToUnits(q.minAmountOut, Math.min(8, q.toToken.decimals)), gasDrop: 0n,
     cancelFee: BigInt(q.cancelRelayerFee64!), refundFee: BigInt(q.refundRelayerFee64!), deadline: BigInt(q.deadline64), referrerBps: 0, auctionMode: Number(q.swiftAuctionMode), random: swiftRandom(q, tail),
   };
-  return { tokenIn, wrap, order };
+  return { tokenIn, wrap, swapToMiddle, order };
 }
 
 /** `SwiftSource.createOrderWithToken(tokenIn, amountIn, OrderParams, customPayload)`: the static struct inline, an empty custom payload. */
@@ -213,6 +224,9 @@ export function encodeSwiftCreateOrder(tokenIn: string, amountIn: bigint, o: Swi
     { t: "bytes", v: "0x" },
   ]);
 }
+
+/** Mayan's own price impact, as it reports it (a percentage), in bps; absent when it reports none (whale spec §2, §8). */
+export const impactBpsOf = (q: MayanQuote): number | undefined => (q.priceImpact === undefined || q.priceImpact === null || !Number.isFinite(Number(q.priceImpact)) ? undefined : Math.max(0, Math.round(Number(q.priceImpact) * 100)));
 
 /** Min output in destination base units implied by the on-chain `amountOutMin` (which has min(8, decimals) decimals). */
 export function minOutBaseUnits(q: MayanQuote): bigint {
@@ -257,16 +271,17 @@ export class MayanAdapter implements ProviderAdapter {
   private swiftQuote(req: QuoteRequest, q: MayanQuote): Quote {
     if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
     const now = Math.floor(Date.now() / 1000);
-    checkSwiftQuote(q, req, now);
+    const { swapToMiddle } = checkSwiftQuote(q, req, now);
     const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
     const toAmountMin = minOutBaseUnits(q);
     if (toAmountMin * 10000n < toAmount * BigInt(10000 - req.slippageBps - 200)) throw new Error(`Mayan: minAmountOut ${toAmountMin} is more than ${req.slippageBps + 200} bps below expectedAmountOut ${toAmount}`);
     if (toAmountMin > toAmount) throw new Error("Mayan: minAmountOut exceeds expectedAmountOut");
+    const locked = req.from.asset !== "native" ? `${req.from.symbol} locked` : swapToMiddle ? "ETH swapped into USDC (bounded on chain) and the USDC locked" : "ETH locked as WETH";
     return {
       provider: "mayan", category: categoryOf(req.from, req.to), toAmount, toAmountMin, fees: [], etaSeconds: q.etaSeconds,
       expiresAt: Math.min(Number(q.deadline64) - SWIFT_FILL_MARGIN_SECONDS, now + 600), // execute while solvers still have time to fill
-      nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow",
-      hops: [`${req.from.chain}:${req.from.symbol} -> Swift V2 auction (${req.from.asset === "native" ? "ETH locked as WETH" : `${req.from.symbol} locked`}) -> ${req.to.chain}:${req.to.symbol}; unfilled: cancelled after the deadline, refunded to the escrow`],
+      nativeAssets: !swapToMiddle, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow", plan: SINGLE_PLAN(q.etaSeconds, "auction"), impactBps: impactBpsOf(q),
+      hops: [`${req.from.chain}:${req.from.symbol} -> Swift V2 auction (${locked}) -> ${req.to.chain}:${req.to.symbol}; unfilled: cancelled after the deadline, refunded to the escrow${swapToMiddle ? " in USDC" : ""}`],
       raw: q, obtainedAt: Date.now(),
     };
   }
@@ -289,7 +304,8 @@ export class MayanAdapter implements ProviderAdapter {
     return {
       provider: "mayan", category: categoryOf(req.from, req.to), toAmount, toAmountMin, fees, etaSeconds: q.etaSeconds,
       expiresAt: Math.min(deadline - 120, now + 600), // execute well before the order deadline
-      nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "destination", hops: [`${from.chain}:${req.from.symbol} -> USDC (CCTP fast) -> ${to.chain}:${req.to.symbol}`],
+      nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "destination", plan: SINGLE_PLAN(q.etaSeconds), impactBps: impactBpsOf(q),
+      hops: [`${from.chain}:${req.from.symbol} -> USDC (CCTP fast) -> ${to.chain}:${req.to.symbol}`],
       raw: q, obtainedAt: Date.now(),
     };
   }
@@ -297,7 +313,21 @@ export class MayanAdapter implements ProviderAdapter {
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as MayanQuote;
     if (q.type === "SWIFT") {
-      const { tokenIn, wrap, order } = swiftOrderFromQuote(q, req);
+      const { tokenIn, wrap, swapToMiddle, order } = swiftOrderFromQuote(q, req);
+      if (swapToMiddle) {
+        // swap & lock: the ETH → USDC router call from Mayan, bounded on chain by the forwarder's minMiddleAmount; the forwarder then
+        // overwrites the order's amountIn with the USDC the router produced (replaceMiddleAmount, verified source) and Swift locks it
+        const sq = new URLSearchParams({ forwarderAddress: MAYAN_FORWARDER, fromToken: ZERO, middleToken: USDC_ETHEREUM, slippageBps: String(q.slippageBps), amountIn64: req.amount.toString(), chainName: req.from.chain, sdkVersion: MAYAN_SDK_VERSION });
+        const { data: sw, status } = await getJson<{ swapRouterAddress: string; swapRouterCalldata: string }>(`${MAYAN_PRICE_API}/get-swap/evm?${sq}`);
+        if (status !== 200 || !sw.swapRouterCalldata) throw new Error(`Mayan get-swap/evm: HTTP ${status} ${JSON.stringify(sw).slice(0, 200)}`);
+        const minMiddle = fractionalToUnits(q.minMiddleAmount!, CCTP_TOKEN_DECIMALS);
+        const createOrder = encodeSwiftCreateOrder(USDC_ETHEREUM, minMiddle, order);
+        const calldata = encodeCall("swapAndForwardEth(uint256,address,bytes,address,uint256,address,bytes)", [
+          { t: "uint", v: req.amount }, { t: "address", v: sw.swapRouterAddress }, { t: "bytes", v: sw.swapRouterCalldata },
+          { t: "address", v: USDC_ETHEREUM }, { t: "uint", v: minMiddle }, { t: "address", v: MAYAN_SWIFT_V2 }, { t: "bytes", v: createOrder },
+        ]);
+        return { kind: "contract-call", to: MAYAN_FORWARDER, calldata, value: req.amount, expiresAt: quote.expiresAt, minOutEncoded: true, refundTokens: [USDC_ETHEREUM], verified: ["forwarder and Swift V2 pinned; the order built locally", `the ETH → USDC leg is bounded on chain at ${minMiddle} USDC base units`, "an unfilled order refunds USDC to the escrow, re-shielded into the pool's USDC vault"] };
+      }
       const createOrder = encodeSwiftCreateOrder(tokenIn, req.amount, order);
       if (wrap) {
         // ETH: the pinned wrapper wraps it 1:1, so the forwarder hands Swift exactly the order's amount (no router calldata from the API)

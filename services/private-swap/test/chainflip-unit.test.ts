@@ -38,6 +38,20 @@ describe("Chainflip helpers (offline)", () => {
     const tampered = flip(CALLDATA, CALLDATA.indexOf("2b8dc276") + 2);
     expect(decodeVaultSwapCalldata(tampered).cf.refundAddress).not.toBe(d0.cf.refundAddress);
   });
+  it("decodes a DCA plan in the v1 cfParameters (whale spec §7, §12) and refuses nothing else about it", async () => {
+    const { encodeCall } = await import("../src/abi");
+    const le = (v: bigint, n: number) => { const out: number[] = []; for (let i = 0; i < n; i++) out.push(Number((v >> BigInt(8 * i)) & 0xffn)); return out; };
+    const refund = Buffer.from("2b8dc27605bf11214247ae11a013fcadf2c1cb65", "hex");
+    const cf = Buffer.from([1, ...le(100n, 4), ...refund, ...le(1045449873187684626970181632n, 32), 0, 0, 1, ...le(101n, 4), ...le(1n, 4), 0, ...new Array(32).fill(0), 0, 0, 0]);
+    const dest = Buffer.from("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "utf8");
+    const calldata = encodeCall("xSwapNative(uint32,bytes,uint32,bytes)", [{ t: "uint", v: 3 }, { t: "bytes", v: "0x" + dest.toString("hex") }, { t: "uint", v: 5 }, { t: "bytes", v: "0x" + cf.toString("hex") }]);
+    expect(calldata.startsWith(SEL_X_SWAP_NATIVE)).toBe(true);
+    const d = decodeVaultSwapCalldata(calldata);
+    expect(d.cf.dca).toEqual({ chunks: 101, interval: 1 });
+    expect(d.cf.refundAddress).toBe("0x2b8dc27605bf11214247ae11a013fcadf2c1cb65");
+    expect(d.cf.minPriceX128).toBe(1045449873187684626970181632n);
+    expect(d.cf.brokerBps).toBe(0);
+  });
   it("encodes destinations per chain", () => {
     expect(encodeDestination("Bitcoin", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").toString("utf8")).toBe("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
     expect(encodeDestination("Ethereum", "0x2b8Dc27605bF11214247aE11a013fcADf2c1Cb65").length).toBe(20);

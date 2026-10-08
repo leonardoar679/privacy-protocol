@@ -19,7 +19,7 @@
 // unfilled deposit is refunded to the escrow); something must drain the output token to the fresh address.
 import { hexBuf } from "../abi";
 import { escrowCanReshield, foreignRefundTokens } from "../escrowAssets";
-import { categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
+import { SINGLE_PLAN, categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
 
 /** SpokePoolPeriphery on Ethereum (Across, `contracts/periphery/SpokePoolPeriphery.sol`, Sourcify exact match). */
 export const ACROSS_PERIPHERY: Record<string, string> = { ethereum: "0x97ccdbea4632140639ad5ea9b944aa034eb15fd4" };
@@ -198,7 +198,7 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
   const swap = data.steps?.originSwap;
   return {
     provider: "uniswap-across", category: categoryOf(req.from, req.to), toAmount: toAmount < v.minOut ? v.minOut : toAmount, toAmountMin: v.minOut, fees, etaSeconds: Number(data.expectedFillTime ?? 0),
-    expiresAt, nativeAssets: false, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow",
+    expiresAt, nativeAssets: false, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow", plan: SINGLE_PLAN(Number(data.expectedFillTime ?? 0)),
     hops: [`${req.from.chain}:${req.from.symbol} -> swap (${swap?.swapProvider?.name ?? "?"}) -> ${swap?.tokenOut?.symbol ?? v.call.depositData.inputToken} -> Across -> ${req.to.chain}:${req.to.symbol}`],
     raw: data, obtainedAt: Date.now(),
   };
