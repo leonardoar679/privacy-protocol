@@ -47,7 +47,8 @@ export interface CampaignIo {
   handOver(stored: StoredSwap, signed: Signed): Promise<{ job?: SwapJob }>;
   /** the executor's job for this order, if it has one (keyed by orderId) */
   job(stored: StoredSwap): Promise<SwapJob | null>;
-  track(stored: StoredSwap): Promise<{ tracked: Tracked; job: SwapJob | null }>;
+  /** `stall`: the hand-over time (unix s) and the plan's seconds, reported so the service counts a settlement stall (§10) */
+  track(stored: StoredSwap, stall?: { since: number; expected: number }): Promise<{ tracked: Tracked; job: SwapJob | null }>;
   refund(stored: StoredSwap): Promise<SwapJob>;
   quote(c: Campaign, amount: bigint): Promise<QuoteSet>;
   risk(provider: string): Promise<RiskView | null>;
@@ -120,7 +121,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
     sign: async (stored) => prepareAndSign({ masterSeed: d.masterSeed, deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), submission: d.submission, onStatus: (l) => schedulerStatus.progress(l) }),
     handOver: async (stored, signed) => handOverSigned({ deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), signed, submission: d.submission }),
     job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
-    track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session }),
+    track: (stored, stall) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session, stall }),
     refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission }),
     quote: (c, amount) => swapService.quote({ from: c.request.from, to: c.request.to, amount: amount.toString(), destination: c.bounds.destination.kind === "fresh-per-tranche" ? peekFreshAddress(d.masterSeed, chainKindOf(c.request.to.chain), d.session).address : c.bounds.destination.address, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
     risk: (provider) => swapService.risk(provider).catch(() => null),
@@ -207,7 +208,8 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       if (c.tranches[t.index].state !== "executing" && c.tranches[t.index].state !== "refunding") continue;
     }
     const current = c.tranches[t.index];
-    const r = await io.track(stored).catch(() => null);
+    const stall = current.handedOverAt && current.expected?.etaSeconds ? { since: Math.floor(current.handedOverAt / 1000), expected: current.expected.etaSeconds } : undefined;
+    const r = await io.track(stored, stall).catch(() => null);
     if (!r) continue; // an unreadable state keeps the tranche where it is (I3)
     const next = trancheStateOf(current, r.tracked, r.job, stored, current.gate ?? c.plan.gate, c.request.to.chain, now, margins);
     if (next) {

@@ -66,6 +66,8 @@ class World implements CampaignIo {
   gas: string | null = null;
   crossRate: bigint | null = null;
   shaped = true;
+  /** what the last tracker read reported for the service's stall count */
+  lastStall: { since: number; expected: number } | undefined;
   constructor(readonly s: WalletSession, readonly now: () => number) {}
   private stored(orderId: string): StoredSwap { return this.s.journal().swaps.find((x) => x.orderId === orderId)!; }
   async commit(c: Campaign, t: Tranche, destination: string) {
@@ -106,8 +108,9 @@ class World implements CampaignIo {
     return { job };
   }
   async job(stored: StoredSwap) { this.calls.push(`job:${stored.campaign!.index}`); return this.jobs.get(stored.orderId) ?? null; }
-  async track(stored: StoredSwap) {
+  async track(stored: StoredSwap, stall?: { since: number; expected: number }) {
     this.calls.push(`track:${stored.campaign!.index}`);
+    this.lastStall = stall;
     const job = this.jobs.get(stored.orderId) ?? null;
     const state = this.tracked.get(stored.orderId) ?? (job?.state === "refund-only" ? "REFUND_PENDING" : job ? "PROVIDER_EXECUTING" : "SOURCE_FINAL");
     if (this.refundsBack.has(stored.orderId)) this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }]; });
@@ -217,9 +220,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(session.journal().schedule.filter((a) => a.kind === "fund-escrow"), "a tranche is never funded by a fund-escrow action").toHaveLength(0);
     expect(world.calls.filter((x) => x.startsWith("commit:"))).toEqual(["commit:0:thorchain"]);
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
-    // in flight: tracked every tick, nothing else committed (sequential, the first tranche alone)
+    // in flight: tracked every tick, nothing else committed (sequential, the first tranche alone); the read reports the hand-over time and the plan's seconds so the service can count a stall (§10)
     let r = await tick(c);
     expect(r?.action.kind).toBe("track");
+    expect(world.lastStall).toEqual({ since: Math.floor(cur.tranches[0].handedOverAt! / 1000), expected: 1400 });
     expect(states(c).filter((x) => x !== "planned"), "the tracker says the provider is executing: source final").toEqual(["source-confirmed"]);
     expect(exposure(current(c))).toMatchObject({ inFlight: eth(50), prepared: 0n, completed: 0n, maxLoss: eth(50) });
     world.tracked.set(child.orderId, "DESTINATION_FINAL");

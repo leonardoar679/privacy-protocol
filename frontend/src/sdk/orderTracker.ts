@@ -121,6 +121,8 @@ export interface TrackDeps {
   session?: WalletSession;
   /** tests: replace the readers */
   readers?: { job?: (s: StoredSwap) => Promise<SwapJob | null>; balance?: (s: StoredSwap) => Promise<bigint | null>; track?: (s: StoredSwap, tx: string) => Promise<TrackResult["track"] | null> };
+  /** High-Value Protection spec §10: the hand-over time (unix s) and the plan's seconds, so the service counts a settlement stall on this read */
+  stall?: { since: number; expected: number };
 }
 
 /**
@@ -135,7 +137,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const executionTx = stored.executionTx ?? job?.executionTx;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const balance = await (r.balance ? r.balance(stored) : stored.fundedTx && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
-  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...(stored.executionRef ? { ref: stored.executionRef } : {}) }).then((x) => x.track, () => null)) : null;
+  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall ? { since: deps.stall.since, expected: deps.stall.expected } : {}) }).then((x) => x.track, () => null)) : null;
   const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
   // journal: executionTx once, the read, a transition when the state changed
   if (s.isUnlocked()) {

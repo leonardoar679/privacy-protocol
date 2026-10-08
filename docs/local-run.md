@@ -82,6 +82,16 @@ suites already cover, so what is being checked is the glue in a real browser on 
 6. **Private AI** (Sepolia zkAPI, needs Sepolia ETH and the server's shared password): fund the fresh
    address from the pool, deposit credit, start a private chat, end it, withdraw unused credit.
 
+## 4. A protected swap (V3, `docs/high-value-protection-spec-v1.0.md`)
+With a private balance worth $1M or more (on a devnet, the mock feeds set the price), **Swap** an amount from $1M up: the quote
+carries the protection line ("Protected execution: about N steps …"), **Review** opens the wizard (risk analysis → privacy
+analysis → destination check) and then the campaign Review with the maximum-loss model and the paired SECURITY + PRIVACY
+verdict; the hold confirms, the second factor from $5M, the separate device at $10M (register one under Settings → Protected
+execution first; WebAuthn needs the wallet opened at a hostname such as `localhost`, not an IP). The steps then run from any
+screen while the wallet is unlocked (Home shows the line and the "Pause large operations" switch; the Swap screen's
+"Your protected swaps" reopens the progress panel, the dashboard under Advanced). A route change at a step's size asks for
+the reroute Review. A devnet never delivers, so the first step stays "executing": Return the rest winds the campaign down.
+
 ## What to expect to break first
 - Provider quotes: live APIs rate-limit and change shapes; the adversarial suite is the reference.
 - The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call
