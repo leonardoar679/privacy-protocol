@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { TIER_DEFAULTS, checkThresholds, type TierThresholds } from "@ref/wallet/valuation";
 import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
 import type { ProtectionMode, Sizing } from "@ref/wallet/campaign";
+import { EXPOSURE_POLICY } from "@ref/wallet/exposurePolicy";
 
 /** Private by default: a relayer submits and is paid by a private fee note; the connected wallet is the public fallback. */
 export type Submission = { kind: "relayer"; url: string } | { kind: "wallet" };
@@ -42,17 +43,30 @@ export interface ProtectionSettings {
   notifications: { inApp: boolean; system: boolean; generic: boolean };
   /** institutional: the second factor on a separate device (a WebAuthn cross-platform credential, §14) */
   secondDevice: { enabled: boolean; credentialId?: string };
+  // V4 (contract §2; plan §62, §92, §127–§128)
+  /** the protection layer itself; turning it off is deliberate and warned (a large order then runs as one execution) */
+  enabled: boolean;
+  /** $100K–$1M: run every order as a protected execution (the plan's "Protected" row), not only a staged one */
+  protectFromEnhanced: boolean;
+  /** the share of the order one provider may carry when two or more venues quote the size, bps (the service recommends 30 %) */
+  providerShareCapBps?: number;
+  /** the velocity limit: hand-overs in any trailing 24 h, USD; absent: none */
+  velocity?: { maxUsdPer24h: number };
+  /** when the first-time explanation of protected execution was shown (plan §127) */
+  introSeenAt?: number;
 }
-/** The exposure fraction the user may choose, bps (plan V3 §72, §74). */
-export const CAP_BPS_RANGE: [number, number] = [200, 300];
+/** The exposure fraction the user may choose, bps (plan V3 §72, §74; V4 contract §2.1: 1–5 %, the band and the route set the ceiling at order time). */
+export const CAP_BPS_RANGE: [number, number] = [100, 500];
+/** The range the value band allows (contract §2.1): the enhanced row below $1M, the band's row above. */
+export const capRangeFor = (tier: "standard" | "enhanced" | "high-value" | "high-value-secondary" | "institutional"): [number, number] => EXPOSURE_POLICY[tier].range ?? EXPOSURE_POLICY.enhanced.range!;
 /** What each mode means, lab-calibrated in Stage 2 (benchmarks/whale/campaign.md) and mirrored by the service's recommendation. */
 export const PROTECTION_DEFAULTS: Record<ProtectionMode, { capBps: number; sizing: Sizing; cadenceSeconds: [number, number]; label: string; words: string }> = {
   balanced: { capBps: 250, sizing: "varied", cadenceSeconds: [600, 5400], label: "Balanced", words: "At most 2.5 % of the order is exposed at a time; pieces of varied common sizes, a random 10 min – 1.5 h between them; the recommended default." },
   "max-privacy": { capBps: 250, sizing: "bucket", cadenceSeconds: [1800, 21600], label: "Maximum privacy", words: "Every piece the same common size, a random 30 min – 6 h between them: the slowest and the hardest to read." },
-  "max-safety": { capBps: 200, sizing: "varied", cadenceSeconds: [600, 3600], label: "Maximum safety", words: "At most 2 % exposed, one piece at a time, every piece final at the destination before the next starts." },
+  "max-safety": { capBps: 100, sizing: "varied", cadenceSeconds: [600, 3600], label: "Maximum safety", words: "At most 1 % exposed, one piece at a time, every piece final at the destination before the next starts." },
   "best-execution": { capBps: 250, sizing: "varied", cadenceSeconds: [600, 3600], label: "Best execution", words: "The same exposure as Balanced; routes scored for net output first, pieces released in parallel where the route allows, the shortest pauses between them." },
 };
-export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseLargeOperations: false, autoReroute: false, notifications: { inApp: true, system: false, generic: true }, secondDevice: { enabled: false } };
+export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseLargeOperations: false, autoReroute: false, notifications: { inApp: true, system: false, generic: true }, secondDevice: { enabled: false }, enabled: true, protectFromEnhanced: false };
 
 export const DEFAULT_SETTINGS: Settings = {
   submission: { kind: "relayer", url: DEFAULT_RELAYER_URL }, advanced: false, verifyReads: true,
@@ -78,11 +92,16 @@ export function healProtection(p: Partial<ProtectionSettings> | undefined): Prot
   const cap = p?.capBps !== undefined && Number.isInteger(p.capBps) && p.capBps >= CAP_BPS_RANGE[0] && p.capBps <= CAP_BPS_RANGE[1] ? p.capBps : undefined;
   const n = { ...DEFAULT_PROTECTION.notifications, ...(p?.notifications ?? {}) };
   const d = { ...DEFAULT_PROTECTION.secondDevice, ...(p?.secondDevice ?? {}) };
+  const share = p?.providerShareCapBps !== undefined && Number.isInteger(p.providerShareCapBps) && p.providerShareCapBps >= 1000 && p.providerShareCapBps <= 10000 ? p.providerShareCapBps : undefined;
+  const velocity = p?.velocity && typeof p.velocity === "object" && Number.isFinite(p.velocity.maxUsdPer24h) && p.velocity.maxUsdPer24h > 0 ? { maxUsdPer24h: p.velocity.maxUsdPer24h } : undefined;
   return {
     mode, ...(cap !== undefined ? { capBps: cap } : {}),
     pauseLargeOperations: p?.pauseLargeOperations === true, autoReroute: p?.autoReroute === true,
     notifications: { inApp: n.inApp !== false, system: n.system === true, generic: n.generic !== false },
     secondDevice: { enabled: d.enabled === true, ...(typeof d.credentialId === "string" ? { credentialId: d.credentialId } : {}) },
+    enabled: p?.enabled !== false, protectFromEnhanced: p?.protectFromEnhanced === true,
+    ...(share !== undefined ? { providerShareCapBps: share } : {}), ...(velocity ? { velocity } : {}),
+    ...(typeof p?.introSeenAt === "number" && Number.isFinite(p.introSeenAt) ? { introSeenAt: p.introSeenAt } : {}),
   };
 }
 

@@ -266,13 +266,13 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     expect(radios[0].checked).toBe(true);
     await act(async () => { radios[2].click(); });
     expect(settings.get().protection.mode).toBe("max-safety");
-    expect((panel.querySelector('[data-testid="exposure-input"]') as HTMLInputElement).value).toBe("2.0");
+    expect((panel.querySelector('[data-testid="exposure-input"]') as HTMLInputElement).value, "V4: Maximum Safety is 1 %").toBe("1.0");
     const exposure = panel.querySelector('[data-testid="exposure-input"]') as HTMLInputElement;
     await act(async () => { setValue(exposure, "2.5"); exposure.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
     expect(settings.get().protection.capBps).toBe(250);
-    await act(async () => { setValue(exposure, "4"); exposure.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    await act(async () => { setValue(exposure, "6"); exposure.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
     expect(settings.get().protection.capBps, "outside the range: refused").toBe(250);
-    expect(panel.textContent).toContain("stays between 2 % and 3 %");
+    expect(panel.textContent).toContain("stays between 1 % and 5 %");
     const sw = panel.querySelector('[data-testid="pause-large-operations"]') as HTMLInputElement;
     await act(async () => { sw.click(); });
     expect(settings.get().protection.pauseLargeOperations).toBe(true);

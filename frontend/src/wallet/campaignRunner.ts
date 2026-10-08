@@ -13,6 +13,7 @@ import {
   FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@ref/wallet/campaign";
+import { velocityExceeded } from "@ref/wallet/exposurePolicy";
 import { availablePrice } from "@ref/wallet/valuation";
 import { atLeast } from "@ref/wallet/valuation";
 import type { Deployment } from "../sdk/chain";
@@ -175,13 +176,15 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   const deliveredSince = delivered ? (t.deliveredSince ?? now) : t.deliveredSince;
   const outcome = delivered && deliveredOut !== undefined ? { ...t.outcome, deliveredOut: deliveredOut.toString(), delivered: sourceEquivalent(deliveredOut, rate).toString() } : t.outcome;
   if (settledBy(gate, { state: s, deliveredSince, chain }, now, margins)) return { state: "settled", patch: { ...patch, deliveredSince, outcome: outcome ?? { delivered: t.amount }, settledAt: now }, note: `settled at the ${gate} gate` };
-  if (delivered || s === "DESTINATION_SUBMITTED") return t.state === "destination-submitted" && t.deliveredSince === deliveredSince && !(deliveredOut !== undefined && t.outcome?.deliveredOut === undefined) ? null : { state: "destination-submitted", patch: { ...patch, deliveredSince, outcome }, note: delivered ? "delivered; waiting for the finality margin" : tracked.detail };
+  // V4 (contract §4.2): delivered but not yet past the finality margin is DESTINATION_CONFIRMED, distinct from the destination transaction merely sent
+  if (delivered) return t.state === "destination-confirmed" && t.deliveredSince === deliveredSince && !(deliveredOut !== undefined && t.outcome?.deliveredOut === undefined) ? null : { state: "destination-confirmed", patch: { ...patch, deliveredSince, outcome }, note: "delivered; waiting for the finality margin" };
+  if (s === "DESTINATION_SUBMITTED") return t.state === "destination-submitted" ? null : { state: "destination-submitted", patch, note: tracked.detail };
   if (s === "SOURCE_FINAL" || s === "PROVIDER_EXECUTING") return t.state === "source-confirmed" ? null : { state: "source-confirmed", patch, note: tracked.detail };
   return Object.keys(patch).length ? { state: t.state, patch } : null;
 }
 const parseDelivered = (x: string): bigint => { try { return BigInt(x); } catch { return 0n; } };
 
-interface TrackPass { campaign: Campaign; active?: { trackState: string; jobState?: string; ageSeconds?: number; expectedSeconds?: number }; justSettled: { index: number; deliveredOut?: string; minOut?: string }[]; reconcileNeeded: boolean }
+interface TrackPass { campaign: Campaign; active?: { trackState: string; jobState?: string; ageSeconds?: number; expectedSeconds?: number }; justSettled: { index: number; deliveredOut?: string; minOut?: string }[]; reconcileNeeded: boolean; reconcileDetail?: string }
 
 /** Reconcile every open tranche and track the ones in flight (§9, §6). */
 async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession, now: number, margins: Record<string, number>, rng: () => number): Promise<TrackPass> {
@@ -189,6 +192,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
   const justSettled: TrackPass["justSettled"] = [];
   let active: TrackPass["active"];
   let reconcileNeeded = false;
+  let reconcileDetail: string | undefined;
   for (const t of c0.tranches) {
     if (!t.orderId || ["planned", "ready", "settled", "refunded", "skipped"].includes(t.state)) continue;
     const stored = childOrder(t, s);
@@ -205,12 +209,23 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
         const state = (job?.state ?? stored.state) === "refund-only" ? "refunding" : "executing";
         c = withTrancheState(c, t.index, state, now, { jobId: stored.jobId ?? job?.id, handedOverAt: t.handedOverAt ?? now }, `${state} (reconciled from the executor's job)`);
       }
-      if (c.tranches[t.index].state !== "executing" && c.tranches[t.index].state !== "refunding") continue;
+      if (c.tranches[t.index].state !== "executing" && c.tranches[t.index].state !== "refunding") {
+        // V4 (contract §8, plan §111): a funding seen in the escrow by the quorum and then gone is a possible reorganization — the local assumption is invalidated
+        // and the campaign pauses `reconcile`; the tranche keeps its fundedTx, so it is never funded twice
+        if (stored.fundedTx && (t.state === "funded" || t.state === "signed")) {
+          const bal = await io.escrowBalance(stored);
+          const amount = BigInt(t.amount);
+          if (bal !== null && bal >= amount && t.fundedSeenAt === undefined) c = withTrancheState(c, t.index, t.state, now, { fundedSeenAt: now });
+          else if (bal !== null && bal < amount && t.fundedSeenAt !== undefined) { reconcileNeeded = true; reconcileDetail = `The funding of step ${t.index + 1} was seen in its escrow and is no longer there (a chain reorganization?); the chain is read again before anything is sent.`; }
+        }
+        continue;
+      }
     }
     const current = c.tranches[t.index];
     const stall = current.handedOverAt && current.expected?.etaSeconds ? { since: Math.floor(current.handedOverAt / 1000), expected: current.expected.etaSeconds } : undefined;
     const r = await io.track(stored, stall).catch(() => null);
-    if (!r) continue; // an unreadable state keeps the tranche where it is (I3)
+    if (!r) { if (current.lastReadFailedAt === undefined) c = withTrancheState(c, t.index, current.state, now, { lastReadFailedAt: now }); continue; } // an unreadable state keeps the tranche where it is (I3): "Unknown / reconnecting" (plan §110)
+    if (current.lastReadFailedAt !== undefined) c = withTrancheState(c, t.index, current.state, now, { lastReadFailedAt: undefined });
     const next = trancheStateOf(current, r.tracked, r.job, stored, current.gate ?? c.plan.gate, c.request.to.chain, now, margins);
     if (next) {
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
@@ -224,11 +239,11 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       }
     }
     const after = c.tranches[t.index];
-    if (!active && ["executing", "source-confirmed", "destination-submitted", "partial"].includes(after.state)) {
+    if (!active && ["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"].includes(after.state)) {
       active = { trackState: r.tracked.state, jobState: r.job?.state, ageSeconds: after.handedOverAt ? Math.floor((now - after.handedOverAt) / 1000) : undefined, expectedSeconds: after.expected?.etaSeconds };
     }
   }
-  return { campaign: c, active, justSettled, reconcileNeeded };
+  return { campaign: c, active, justSettled, reconcileNeeded, ...(reconcileDetail ? { reconcileDetail } : {}) };
 }
 
 const pauseWith = (c: Campaign, reason: PauseReason, detail: string, now: number, index?: number): Campaign =>
@@ -255,6 +270,15 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
     const risk = await cached(`risk:${c.provider}`, now, () => io.risk(c.provider ?? ""), fresh).catch(() => null);
     const gas = await cached("gas", now, () => io.gasPriceWei(), fresh).catch(() => null);
     const settledNow = pass.justSettled[0];
+    // V4 (contract §2.4): the trailing 24 h of hand-overs against the velocity limit the user set, in USD at the confirmation's valuation
+    const limit = cfg.protection.velocity?.maxUsdPer24h;
+    let velocity = false;
+    if (limit !== undefined && c.value && typeof c.value === "object" && "usd" in (c.value as object)) {
+      const usdOf = (amount: string) => ((c.value as { usd: number }).usd * Number(BigInt(amount))) / Math.max(1, Number(BigInt(c.request.amount)));
+      const handOvers = c.tranches.filter((t) => t.handedOverAt !== undefined).map((t) => ({ at: t.handedOverAt!, usd: usdOf(t.amount) }));
+      const nextUp = c.tranches.find((t) => ["signed", "funded", "committed", "ready", "planned"].includes(t.state));
+      velocity = !!nextUp && velocityExceeded(handOvers, usdOf(nextUp.amount), limit, now).exceeded;
+    }
     const facts: PauseFacts = {
       now, walletPaused: cfg.protection.pauseLargeOperations,
       crossRateE18: io.crossRateE18(c)?.toString(),
@@ -264,7 +288,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       jobState: pass.active?.jobState, trackState: pass.active?.trackState,
       settlementAgeSeconds: pass.active?.ageSeconds, expectedSeconds: pass.active?.expectedSeconds,
       delivered: settledNow?.deliveredOut, guaranteedMin: settledNow?.minOut,
-      reconcileNeeded: pass.reconcileNeeded,
+      reconcileNeeded: pass.reconcileNeeded, reconcileDetail: pass.reconcileDetail,
+      velocityExceeded: velocity,
     };
     const pause = c.state === "running" || c.state === "reassessing" || c.state === "user-confirmed" || c.state === "preparing-notes" ? detectPause(c, facts) : null;
     const needed = largestPlanned(c);
@@ -315,7 +340,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             break;
           }
         }
-        const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ["funded", "signed", "failed", "executing", "source-confirmed", "destination-submitted", "partial", "refunding", "settled"].includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
+        const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ["funded", "signed", "failed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial", "refunding", "settled"].includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
         const tipBps = Number((BigInt(r.order.params.executorTip) * 10000n) / BigInt(t.amount));
         const check = checkWithinBounds(c.bounds, { amount: BigInt(t.amount), toAmountMin: BigInt(q.toAmountMin), quoteExpiresAt: q.expiresAt, feeBps: tipBps, destination: dest.address, fundedBefore, now: sinceS });
         if (!check.ok) {
@@ -397,7 +422,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         }
         const signed = signedCache.get(stored.orderId.toLowerCase());
         if (!signed) { c = withTrancheState(c, t.index, "funded", now, {}, "the signature is not in memory any more; signing again"); nextAt = now + 1000; break; }
-        const release = canRelease(c, BigInt(t.amount));
+        const release = canRelease(c, BigInt(t.amount), t.provider ?? c.provider); // I1, I2, I4 and (V4) I6
         if (!release.ok) { nextAt = now + TRACK_INTERVAL_MS; break; }
         schedulerStatus.progress(`Protected swap: handing step ${t.index + 1} to the executor…`);
         try {

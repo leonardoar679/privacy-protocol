@@ -56,6 +56,8 @@ class World implements CampaignIo {
   refundsBack = new Set<string>();
   fundThrowsAfterSend = false;
   handOverThrows = false;
+  /** the settlement read fails (the service or the network is down) */
+  trackThrows = false;
   moved = false;
   breakerOpen = false;
   incidents: string[] = [];
@@ -111,6 +113,7 @@ class World implements CampaignIo {
   async track(stored: StoredSwap, stall?: { since: number; expected: number }) {
     this.calls.push(`track:${stored.campaign!.index}`);
     this.lastStall = stall;
+    if (this.trackThrows) throw new Error("ECONNRESET");
     const job = this.jobs.get(stored.orderId) ?? null;
     const state = this.tracked.get(stored.orderId) ?? (job?.state === "refund-only" ? "REFUND_PENDING" : job ? "PROVIDER_EXECUTING" : "SOURCE_FINAL");
     if (this.refundsBack.has(stored.orderId)) this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }]; });
@@ -188,10 +191,14 @@ describe("starting a campaign (spec §3, §4, §17)", () => {
     expect(activityStatusLabel({ kind: "campaign", status: "running" })).toBe("In progress");
     expect(isFinished({ kind: "campaign", status: "running" })).toBe(false);
     expect(isFinished({ kind: "campaign", status: "completed" })).toBe(true);
-    // the user's cap: inside its range, and above the recommendation only on an R1 / R2 route
+    // the user's cap (V4, contract §2.2): inside the band's range, never above the service's recommendation, and above the band's default only on an R0 / R1 exposure tier
     expect(buildCampaign({ quotes: quoteSet(), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps).toBe(200);
-    const r2 = { ...quoteSet("near-intents"), protection: { ...protection("near-intents"), riskClass: "R2", bandBps: [200, 300] as [number, number], capBps: 250, concurrency: "parallel" as const, maxParallel: 2, gate: "destination-submitted" as const } };
-    expect(buildCampaign({ quotes: r2, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan).toMatchObject({ capBps: 300, concurrency: "parallel", maxParallel: 2 });
+    const r3 = { ...quoteSet("near-intents"), protection: { ...protection("near-intents"), riskClass: "R2", bandBps: [200, 300] as [number, number], capBps: 250, concurrency: "parallel" as const, maxParallel: 2, gate: "destination-submitted" as const } };
+    expect(buildCampaign({ quotes: r3, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan, "a solver route without a signed hard quote is exposure tier R3: the default holds").toMatchObject({ capBps: 250, concurrency: "parallel", maxParallel: 2 });
+    const r1 = { ...r3, protection: { ...r3.protection, exposureTier: "R1" as const, capBps: 250 } };
+    expect(buildCampaign({ quotes: r1, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps, "a signed hard quote (R1): the user may raise the cap to 3 %").toBe(300);
+    expect(buildCampaign({ quotes: r1, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 120, now: clock, rng: () => 0.5, session }).plan.capBps, "and lower it anywhere").toBe(120);
+    expect(buildCampaign({ quotes: { ...r1, protection: { ...r1.protection, exposureTier: "R4", capBps: 100 } }, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps, "an unknown / high-risk route: 1 % whatever the user chose").toBe(100);
     // the journal formats: nothing new in an empty journal; a V2 journal round-trips byte for byte
     expect(Object.keys(emptyJournal()).sort()).toEqual(["chainIndexes", "noteCounter", "notes", "schedule", "swaps", "v"]);
     const v2 = JSON.stringify({ ...emptyJournal(), swaps: [{ orderId: "0x1", attemptId: "0x2", refundCounter: 0, provider: "thorchain", policy: "balanced", request: {}, params: {}, endpoint: "0x3", createdAt: 1, state: "committed" }], activity: [{ id: "swap:0x1", kind: "swap", at: 1, asset: "ETH", decimals: 18, amount: "1", status: "committed", ref: "0x1" }] });
@@ -200,9 +207,16 @@ describe("starting a campaign (spec §3, §4, §17)", () => {
   it("settings: the protection block heals from a V2 journal and from nonsense", () => {
     expect(healSettings({}).protection).toEqual(DEFAULT_PROTECTION);
     expect(healSettings({ protection: { mode: "nope", capBps: 999, pauseLargeOperations: "yes", notifications: { system: true } } as never }).protection).toEqual({ ...DEFAULT_PROTECTION, notifications: { inApp: true, system: true, generic: true } });
-    expect(healProtection({ mode: "max-safety", capBps: 250, autoReroute: true, secondDevice: { enabled: true, credentialId: "abc" } })).toEqual({ mode: "max-safety", capBps: 250, pauseLargeOperations: false, autoReroute: true, notifications: DEFAULT_PROTECTION.notifications, secondDevice: { enabled: true, credentialId: "abc" } });
-    expect(healProtection({ capBps: 150 }).capBps).toBeUndefined();
-    expect(PROTECTION_DEFAULTS["max-safety"].capBps).toBe(200);
+    expect(healProtection({ mode: "max-safety", capBps: 250, autoReroute: true, secondDevice: { enabled: true, credentialId: "abc" } })).toEqual({ mode: "max-safety", capBps: 250, pauseLargeOperations: false, autoReroute: true, notifications: DEFAULT_PROTECTION.notifications, secondDevice: { enabled: true, credentialId: "abc" }, enabled: true, protectFromEnhanced: false });
+    expect(healProtection({ capBps: 150 }).capBps, "V4: the fraction may go down to 1 %").toBe(150);
+    expect(healProtection({ capBps: 50 }).capBps).toBeUndefined();
+    expect(healProtection({ capBps: 600 }).capBps).toBeUndefined();
+    expect(PROTECTION_DEFAULTS["max-safety"].capBps, "plan §90 (V4): Maximum Safety is 1 %").toBe(100);
+    // V4: the opt-out, the enhanced opt-in, concentration and velocity heal to sane values
+    expect(healProtection({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 } as never)).toMatchObject({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 });
+    expect(healProtection({ providerShareCapBps: 500, velocity: { maxUsdPer24h: -1 }, introSeenAt: "x" } as never)).toMatchObject({ enabled: true, protectFromEnhanced: false });
+    expect(healProtection({ providerShareCapBps: 500 } as never).providerShareCapBps).toBeUndefined();
+    expect(healProtection({ velocity: { maxUsdPer24h: -1 } } as never).velocity).toBeUndefined();
     expect(PROTECTION_DEFAULTS["max-privacy"].sizing).toBe("bucket");
   });
 });
@@ -231,12 +245,12 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     clock += 15_000;
     r = await tick(c);
     cur = current(c);
-    expect(cur.tranches[0].state, "delivered: the finality margin still runs").toBe("destination-submitted");
+    expect(cur.tranches[0].state, "delivered: the finality margin still runs (V4: DESTINATION_CONFIRMED, not merely submitted)").toBe("destination-confirmed");
     expect(cur.tranches[0].deliveredSince).toBe(clock);
     expect(cur.tranches[0].outcome).toMatchObject({ deliveredOut: ((OUT * eth(50)) / AMOUNT).toString(), delivered: eth(50).toString() });
     clock += 3600_000 - 1000;
     await tick(c);
-    expect(current(c).tranches[0].state, "one second short of the margin").toBe("destination-submitted");
+    expect(current(c).tranches[0].state, "one second short of the margin").toBe("destination-confirmed");
     clock += 2000;
     r = await tick(c);
     cur = current(c);
@@ -326,6 +340,66 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(e).pause).toMatchObject({ reason: "price-deviation", trancheIndex: 0 });
     expect(current(e).tranches[0].state).toBe("funded");
     world.moved = false;
+  });
+
+  it("V4 (plan §110): a failed settlement read keeps the step where it is and marks it unknown / reconnecting; the next successful read clears the mark", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    world.trackThrows = true;
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("track");
+    expect(current(c).tranches[0]).toMatchObject({ state: "executing", lastReadFailedAt: clock });
+    expect(exposure(current(c)).inFlight, "unknown stays in flight (I3)").toBe(eth(50));
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].lastReadFailedAt, "the first failure's time is kept").toBe(clock - 15_000);
+    world.trackThrows = false;
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].lastReadFailedAt).toBeUndefined();
+    expect(current(c).tranches[0].state).toBe("source-confirmed");
+    expect(world.calls.filter((x) => x.startsWith("handover:")), "never a second hand-over").toEqual(["handover:0"]);
+  });
+
+  it("V4 (plan §111): a funding seen in the escrow and then gone pauses with reconcile naming a possible reorganization; the step is never funded twice", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    await tick(c); clock += 2000; // fund: the escrow holds the amount
+    let r = await tick(c); clock += 2000; // sign: the reconcile pass saw the funding first
+    expect(r?.action.kind).toBe("sign");
+    expect(current(c).tranches[0]).toMatchObject({ state: "signed", fundedSeenAt: clock - 2000 });
+    const orderId = current(c).tranches[0].orderId!;
+    world.escrow.set(orderId, 0n); // the quorum no longer sees the funding
+    r = await tick(c);
+    expect(r?.action).toMatchObject({ kind: "pause", reason: "reconcile", detail: expect.stringMatching(/reorganization/) });
+    expect(current(c).state).toBe("paused");
+    expect(current(c).tranches[0].state, "the tranche keeps its state and its fundedTx").toBe("signed");
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "no second withdrawal").toEqual(["fund:0"]);
+    expect(world.calls.filter((x) => x.startsWith("handover:"))).toHaveLength(0);
+    // the funding is seen again (the other fork won after all): resume continues without a new send
+    world.escrow.set(orderId, eth(50));
+    resumeCampaign(c.id, session, clock);
+    r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("hand-over");
+    expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
+  });
+
+  it("V4 (plan §62): a velocity limit below the next step pauses before the hand-over; raising it lets the step through", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; await tick(c); clock += 2000; await tick(c); clock += 2000; // commit, fund, sign
+    settings.set({ protection: { ...settings.get().protection, velocity: { maxUsdPer24h: 150_000 } } }); // one $200K piece would exceed it
+    let r = await tick(c);
+    expect(r?.action).toMatchObject({ kind: "pause", reason: "velocity" });
+    expect(world.calls.filter((x) => x.startsWith("handover:"))).toHaveLength(0);
+    settings.set({ protection: { ...settings.get().protection, velocity: { maxUsdPer24h: 1_000_000 } } });
+    resumeCampaign(c.id, session, clock);
+    r = await tick(c); // reassess → requote
+    expect(r?.action.kind).toBe("requote");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("hand-over");
+    expect(current(c).tranches[0].state).toBe("executing");
   });
 
   it("a resume whose fresh competition chose another provider waits for the reroute Review; accepting adopts it, the next tranche is committed there", async () => {

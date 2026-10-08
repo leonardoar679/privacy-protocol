@@ -26,7 +26,9 @@ export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction
 export interface RouteScore { provider: string; total: number; filtered?: string; components: { price: number; security: number; privacy: number; latency: number; liquidity: number; reliability: number } }
 export interface ServiceFee { kind: string; /** base units of `asset` in the unit `decimals` gives */ amount: string; asset: string; decimals?: number; usd?: number }
 export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[]; plan?: ExecutionPlan; impactBps?: number; sizeSignals?: string[] }
-export interface CompetitionEntry { provider: string; outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped"; reason?: string; ms: number; plan?: ExecutionPlan }
+/** V4 (contract §3.2): the quote in the common shape, on a quoted or filtered competition line. */
+export interface NormalizedQuote { provider: string; netAmountOut: string; grossAmountOut: string; providerFee: string | null; networkFee: string | null; estimatedGas: string | null; estimatedDuration: number; routeRisk: { class: string; flags: string[]; exposureTier: "R0" | "R1" | "R2" | "R3" | "R4"; security: number; reliability: number }; privacyRisk: { score: number; linkPublic: boolean } }
+export interface CompetitionEntry { provider: string; outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped"; reason?: string; ms: number; plan?: ExecutionPlan; normalized?: NormalizedQuote }
 export type ServiceValuation = { usd: number; at: number; source: string } | { unavailable: true; reason: string };
 /** V3 (High-Value Protection spec §10): the service's recommendation for the chosen route — advice; the wallet keeps its own bounds and accounting (services/private-swap/src/risk/protection.ts). */
 export interface Protection {
@@ -37,6 +39,10 @@ export interface Protection {
   concentration: { providers: { id: string; shareBps: number }[]; singleVenue: boolean; capBps: number };
   elpf: { prior: number; pFailure: number; perTrancheUsd: number | null; perCampaignUsd: number | null };
   staged: boolean; reasons: string[];
+  /** V4 (contract §2.2–§2.3, §3.4); optional for a service older than V4 */
+  exposureTier?: "R0" | "R1" | "R2" | "R3" | "R4"; exposureReasons?: string[];
+  impactRemedy?: "none" | "reduce-tranche" | "rfq" | "streaming" | "other-venue";
+  ledgerPreview?: { totalOrderValue: string; maxExternalExposure: string; firstTranche: string };
 }
 export interface ServiceIncident { provider: string; date: string; title: string; lossUsd: number; class: string; halfLifeDays: number; source: string }
 export interface ProviderRiskView { model: { class: string; flags: string[]; custody: string; gate: string; pFailPrior: number; bandBps: [number, number] }; security: { total: number; baseline: number; incidents: number; incidentList: ServiceIncident[] }; incidents: ServiceIncident[]; reliability: number | null }

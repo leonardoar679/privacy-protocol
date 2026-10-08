@@ -20,7 +20,8 @@ import type { JournalData, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { cancelAction, scheduleAction } from "./schedule";
 import { session as defaultSession, type WalletSession } from "./session";
-import { CAP_BPS_RANGE, PROTECTION_DEFAULTS } from "./settings";
+import { PROTECTION_DEFAULTS } from "./settings";
+import { capBpsFor, type ExposureTier } from "@ref/wallet/exposurePolicy";
 
 /** The tier's slippage inside the price bound (§3): the confirmation quote's minimum per unit, less this. */
 export const BOUNDS_SLIPPAGE_BPS = 50;
@@ -85,8 +86,10 @@ export interface StartCampaignInput {
   destination: DestinationPolicy;
   usd: number | null;
   lint?: LintItem[] | null;
-  /** the user's exposure fraction from Settings (bps); clamped by what the risk engine permits (§14) */
+  /** the user's exposure fraction from Settings (bps); clamped by what the risk engine permits (§14; contract §2.2) */
   capBps?: number;
+  /** V4: the user's concentration setting (bps of the order per provider), applied when two or more venues quote the size */
+  providerShareCapBps?: number;
   /** the Chainlink cross-rate at confirmation (destination base units per source base unit, 1e18), when both feeds exist */
   crossRateE18?: bigint | null;
   gasPriceWei?: string | null;
@@ -106,12 +109,10 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const quote: ServiceQuote | undefined = i.quotes.quotes.find((q) => q.provider === i.provider);
   if (!quote) throw new Error(`no quote from ${i.provider}`);
   const defaults = PROTECTION_DEFAULTS[i.mode];
-  // the cap: the recommendation's, or the user's choice inside its range — above the recommendation only where the risk engine permits (an R1 / R2 route, §14)
-  let capBps = p.capBps;
-  if (i.capBps !== undefined) {
-    const wanted = Math.min(CAP_BPS_RANGE[1], Math.max(CAP_BPS_RANGE[0], Math.round(i.capBps)));
-    capBps = wanted <= p.capBps || p.riskClass === "R1" || p.riskClass === "R2" ? wanted : p.capBps;
-  }
+  // the cap (contract §2.2): the band's default, the route's exposure tier, the mode and the user's fraction clipped to the band's range — above the service's recommendation only on an R0 / R1 route
+  const exposureTier = (p.exposureTier ?? "R3") as ExposureTier;
+  const core = capBpsFor({ tier: i.tier, mode: i.mode, exposureTier, userCapBps: i.capBps });
+  const capBps = exposureTier === "R0" || exposureTier === "R1" ? core.capBps : Math.min(core.capBps, p.capBps);
   const band: [number, number] = [Math.min(p.bandBps[0], capBps), Math.min(p.bandBps[1], capBps)];
   const sizing = p.sizing ?? defaults.sizing;
   const maxParallel = p.concurrency === "sequential" ? 1 : Math.max(1, p.maxParallel);
@@ -127,7 +128,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   };
   const plan: TranchePlan = {
     riskClass: p.riskClass as TranchePlan["riskClass"], bandBps: band, capBps, sizing, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, gate: p.gate, cadenceSeconds: p.cadenceSeconds ?? defaults.cadenceSeconds,
-    providerShareCapBps: p.providerShareCapBps, executeWindowSeconds: p.executeWindowSeconds, estimatedTranches: split.pieces.length, estimatedSeconds: p.estimatedSeconds,
+    providerShareCapBps: p.concentration.singleVenue ? 10000 : Math.min(p.providerShareCapBps || 10000, i.providerShareCapBps ?? 10000), executeWindowSeconds: p.executeWindowSeconds, estimatedTranches: split.pieces.length, estimatedSeconds: p.estimatedSeconds,
     shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}),
   };
   // the reference rate (§3): the Chainlink cross-rate when both feeds exist, else the quote's expected rate (then the deviation check compares like with like only approximately)

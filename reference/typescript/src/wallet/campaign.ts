@@ -94,6 +94,8 @@ export interface Tranche {
   settledAt?: number;
   /** V4 (plan §110): the last settlement read that failed; the screens say "Unknown / reconnecting" while it is newer than the last successful read */
   lastReadFailedAt?: number;
+  /** V4 (plan §111): when the funding was first seen in the escrow by the RPC quorum — a balance below the amount after this is a possible reorganization (the runner pauses `reconcile`; the tranche is never funded twice) */
+  fundedSeenAt?: number;
   history: { state: TrancheState; at: number; note?: string }[];
 }
 
@@ -372,6 +374,8 @@ export interface PauseFacts {
   expectedSeconds?: number;
   /** a money-moving step ended with an unknown outcome */
   reconcileNeeded?: boolean;
+  /** what the reconcile is about, when the runner knows (a possible reorganization, a missing order) */
+  reconcileDetail?: string;
   boundsViolation?: string;
   /** V4 (contract §2.4): the next hand-over would take the trailing 24 h above the velocity limit the user set */
   velocityExceeded?: boolean;
@@ -380,7 +384,7 @@ export interface PauseFacts {
 /** The first pause condition that holds, in the order of §8's severity; null when the campaign is healthy. */
 export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; detail: string } | null {
   if (f.walletPaused) return { reason: "wallet-pause", detail: "Large operations are paused by you; in-flight steps are still tracked." };
-  if (f.reconcileNeeded) return { reason: "reconcile", detail: "A step ended without a known outcome; the chain and the executor are read before anything is sent again." };
+  if (f.reconcileNeeded) return { reason: "reconcile", detail: f.reconcileDetail ?? "A step ended without a known outcome; the chain and the executor are read before anything is sent again." };
   if (f.receiverMismatch) return { reason: "unexpected-destination", detail: "The provider call would pay a different destination; nothing was signed." };
   const since = c.createdAt;
   if (f.incidentDates?.some((d) => d >= since)) return { reason: "security-incident", detail: "A security incident for the chosen provider was reported after this operation started." };

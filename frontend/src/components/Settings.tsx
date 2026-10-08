@@ -55,7 +55,7 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
   const p = s.protection;
   function applyExposure() {
     const bps = Math.round(Number(exposure) * 100);
-    if (!Number.isFinite(bps) || bps < CAP_BPS_RANGE[0] || bps > CAP_BPS_RANGE[1]) { setExposureError(`The exposure fraction stays between ${CAP_BPS_RANGE[0] / 100} % and ${CAP_BPS_RANGE[1] / 100} % of the order; 3 % only where the risk engine permits it.`); setExposure(((p.capBps ?? PROTECTION_DEFAULTS[p.mode].capBps) / 100).toFixed(1)); return; }
+    if (!Number.isFinite(bps) || bps < CAP_BPS_RANGE[0] || bps > CAP_BPS_RANGE[1]) { setExposureError(`The exposure fraction stays between ${CAP_BPS_RANGE[0] / 100} % and ${CAP_BPS_RANGE[1] / 100} % of the order; the order's size and the route's risk set the ceiling at confirmation (2.5–3 % from $1M, 1 % on an unknown or high-risk route).`); setExposure(((p.capBps ?? PROTECTION_DEFAULTS[p.mode].capBps) / 100).toFixed(1)); return; }
     setExposureError("");
     settings.set({ protection: { ...p, capBps: bps } });
   }
