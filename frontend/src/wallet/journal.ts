@@ -47,6 +47,11 @@ export interface JournalData {
   settings?: Record<string, unknown>;
   /** the light client's last verified store (plan §38), so the next sync resumes from it instead of trusting a beacon API again */
   lightClient?: { chainId: string; snapshot: unknown };
+  /**
+   * V2 (whale spec §13, §25): the last good Chainlink read (`sdk/prices.ts`), the memory of the valuation fail-safe.
+   * Optional and never written by emptyJournal(): the pinned at-rest vectors and older journals stay valid.
+   */
+  prices?: unknown;
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

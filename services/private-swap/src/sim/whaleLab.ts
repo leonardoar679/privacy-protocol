@@ -23,23 +23,11 @@ import { NearIntentsAdapter } from "../adapters/nearIntents";
 import { LifiAdapter } from "../adapters/lifi";
 import { AcrossAdapter } from "../adapters/across";
 
-// ---- Chainlink through public RPCs (spec §13 feed table) ----------------------------------------
+// ---- Chainlink through public RPCs: the feed table the wallet and the engine pin (reference/typescript/src/wallet/valuation.ts) ----
+import { FEED_REGISTRY, SELECTOR, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, type FeedSpec } from "../../../../reference/typescript/src/wallet/valuation";
 const RPCS = [process.env.LAB_RPC_URL, "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://1rpc.io/eth", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com", "https://eth.llamarpc.com"].filter(Boolean) as string[];
-/**
- * Pinned proxies verified by description(); BTC is resolved from the Feed Registry (the address Chainlink's docs
- * once listed for BTC / USD, 0xF4030086522a5bEEa4988F8cA5B36dBAC08cBBAE, has no code on mainnet today).
- */
-export const FEEDS: Record<string, { proxy?: string; description: string; registryBase?: string }> = {
-  ETH: { proxy: "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419", description: "ETH / USD" },
-  USDC: { proxy: "0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6", description: "USDC / USD" },
-  USDT: { proxy: "0x3E7d1eAB13ad0104d2750B8863b489D65364e32D", description: "USDT / USD" },
-  BTC: { description: "BTC / USD", registryBase: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB" },
-  SOL: { proxy: "0x4ffC43a60e009B551865A93d232E33Fce9f01507", description: "SOL / USD" },
-};
-const FEED_REGISTRY = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf";
-const USD_DENOMINATION = "0x0000000000000000000000000000000000000348";
-const SEL_LATEST_ROUND_DATA = "0xfeaf968c", SEL_DESCRIPTION = "0x7284e416", SEL_GET_FEED = "0xd2edb6dd";
-const pad32 = (hex: string) => hex.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+/** The mainnet table (BTC is resolved from the Feed Registry: the address Chainlink's docs once listed for BTC / USD, 0xF4030086522a5bEEa4988F8cA5B36dBAC08cBBAE, has no code today). */
+export const FEEDS: FeedSpec[] = feedsFor(1);
 
 /** One eth_call through the public RPCs, each tried twice (they rate-limit and answer HTML now and then); "0x" means no code at the address. */
 async function ethCall(to: string, data: string): Promise<string> {
@@ -65,28 +53,21 @@ async function ethCall(to: string, data: string): Promise<string> {
   throw lastErr;
 }
 class NoCode extends Error {}
-const word = (hex: string, i: number) => BigInt("0x" + hex.replace(/^0x/, "").slice(i * 64, i * 64 + 64));
-function decodeString(hex: string): string {
-  const h = hex.replace(/^0x/, "");
-  const off = Number(BigInt("0x" + h.slice(0, 64))) * 2, len = Number(BigInt("0x" + h.slice(off, off + 64)));
-  return Buffer.from(h.slice(off + 64, off + 64 + len * 2), "hex").toString("utf8");
-}
 export interface FeedRead { symbol: string; source: string; description: string; usd: number; updatedAt: number; roundId: string; ageSeconds: number }
 export async function readFeed(symbol: string, now = Math.floor(Date.now() / 1000)): Promise<FeedRead> {
-  const f = FEEDS[symbol];
+  const f = FEEDS.find((x) => x.symbol === symbol);
   if (!f) throw new Error(`no feed for ${symbol}`);
   const candidates: string[] = f.proxy ? [f.proxy] : [];
   if (f.registryBase) {
-    try { candidates.push("0x" + word(await ethCall(FEED_REGISTRY, SEL_GET_FEED + pad32(f.registryBase) + pad32(USD_DENOMINATION)), 0).toString(16).padStart(40, "0")); } catch { /* registry unreachable */ }
+    try { candidates.push(decodeAddress(await ethCall(FEED_REGISTRY, getFeedCalldata(f.registryBase)))); } catch { /* registry unreachable */ }
   }
   let lastErr: unknown;
   for (const addr of candidates) {
     try {
-      const description = decodeString(await ethCall(addr, SEL_DESCRIPTION));
+      const description = decodeString(await ethCall(addr, SELECTOR.description));
       if (description !== f.description) throw new Error(`${addr} is "${description}", not "${f.description}"`);
-      const rd = await ethCall(addr, SEL_LATEST_ROUND_DATA);
-      const answer = word(rd, 1), updatedAt = Number(word(rd, 3));
-      return { symbol, source: addr, description, usd: Number(answer) / 1e8, updatedAt, roundId: word(rd, 0).toString(), ageSeconds: now - updatedAt };
+      const rd = decodeLatestRoundData(await ethCall(addr, SELECTOR.latestRoundData));
+      return { symbol, source: addr, description, usd: Number(rd.answer) / 1e8, updatedAt: rd.updatedAt, roundId: rd.roundId.toString(), ageSeconds: now - rd.updatedAt };
     } catch (e) { lastErr = e; }
   }
   throw new Error(`no feed answered for ${symbol}: ${String(lastErr)}`);

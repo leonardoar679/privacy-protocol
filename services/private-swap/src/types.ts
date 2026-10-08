@@ -1,8 +1,13 @@
-// PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10.
+// PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10; V2: docs/whale-execution-spec-v1.0.md §1–§2.
+import type { Tier, Valuation } from "../../../reference/typescript/src/wallet/valuation";
+export type { Tier, Valuation };
 
 export type Chain = "ethereum" | "bitcoin" | "solana" | "base" | "arbitrum" | "bsc" | "avalanche" | "optimism" | "polygon" | "tron" | "litecoin" | "doge";
 export type ProviderId = "thorchain" | "chainflip" | "mayan" | "near-intents" | "lifi" | "uniswap-across";
 export type Policy = "best-privacy" | "best-price" | "fastest";
+/** The user's saved preference the policy is derived from (whale spec §4); never on chain. */
+export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
+export const isPreference = (x: unknown): x is Preference => x === "balanced" || x === "best-privacy" || x === "best-price" || x === "fastest" || x === "native";
 export type RouteCategory = "A" | "B" | "C" | "D" | "E"; // spec §4 / plan §32
 export type IngressKind = "plain-address" | "contract-call";
 
@@ -150,12 +155,17 @@ export interface Order {
   orderId: `0x${string}`;
   request: QuoteRequest;
   policy: Policy;
+  /** whale spec §1: the preference the policy was derived from */
+  preference?: Preference;
   quote: Quote;
   ingress: Ingress;
   params: OrderParams;
   endpoint: string; // predicted escrow address
   execution?: Execution; // signed once the wallet has the final ingress
   privacy: { delaySeconds: [number, number]; amountNormalized: boolean; score: number; destinationLinkPublic: boolean };
+  /** whale spec §1, §13: the source amount's USD value at commit (or why there is none) and the value tier — recomputed by the service; the higher of the wallet's and the service's applies */
+  value?: Valuation;
+  tier?: Tier;
   state: OrderState;
   history: { state: OrderState; at: number; note?: string }[];
 }

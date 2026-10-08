@@ -354,17 +354,26 @@ mainnet feeds through the wallet's own RPC quorum (`VITE_RPC_URLS`: every endpoi
 `latestRoundData()`, the round ids agree and the answers lie within 0.5 % of each other) and, on
 the service, through its RPC. No price API, no new endpoint, nothing user-specific sent anywhere.
 
-| Pair | Feed (mainnet) | Heartbeat |
-|---|---|---|
-| ETH / USD | `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419` | 1 h |
-| USDC / USD | `0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6` | 24 h |
-| USDT / USD | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | 24 h |
-| BTC / USD, SOL / USD | resolved once from the Feed Registry (`0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf`, `getFeed`) and pinned in Stage 2 after a `description()` check | 1 h |
+| Pair | Mainnet feed | Sepolia feed | Heartbeat |
+|---|---|---|---|
+| ETH / USD | `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419` | `0x694AA1769357215DE4FAC081bf1f309aDC325306` | 1 h |
+| BTC / USD | the Feed Registry (`0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf`) `getFeed(BTC, USD)`, read at each refresh (the documented proxy has no code) | `0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43` | 1 h |
+| USDC / USD | `0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6` | `0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E` | 24 h |
+| USDT / USD | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | — | 24 h |
+| SOL / USD | `0x4ffC43a60e009B551865A93d232E33Fce9f01507` | — | 24 h |
 
-Every pinned proxy is verified by `description()` in a test. A price older than **2 × heartbeat** is
-*unavailable*. The wallet reads prices only after its first sync and only while it holds unspent
-notes (never at first launch; `frontend/test/first-launch.test.tsx` pins it) and journals the last
-good price with its time (§25).
+The table is `reference/typescript/src/wallet/valuation.ts` (`FEEDS`), shared by the wallet, the
+engine and the lab; every address answered its `description()` from here on 2026-10-07/08, and every
+read checks it again before the price is used. A deployment on another chain names its own feeds
+(`VITE_PRICE_FEEDS`, a JSON list of the same shape); without any, valuation is *not configured* and
+the wallet shows no USD. Endpoints agree when every answer is within 0.5 % of the median and no round
+is more than one behind the newest; the newest read is used. A price older than **2 × heartbeat** is
+*unavailable*. The wallet reads prices only once it holds unspent notes on a chain with feeds (never
+at first launch; `frontend/test/first-launch.test.tsx` pins it; `test/prices.test.ts` the rest),
+caches a read for five minutes and journals the last good one (`journal.prices`, JSON form, §25) as
+the memory of the fail-safe. The service reads through its own `RPC_URLS` and applies the default
+thresholds: a wallet's thresholds can lower its own tiers only above the service's floor, since the
+higher tier always applies (§1).
 
 **Tiers** (`settings.tiers`, USD; the defaults of plan §13, configurable):
 

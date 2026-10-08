@@ -2,13 +2,15 @@
 // order (one-time escrow endpoint + refund note), and produce the signed execution once the ingress is
 // known. The engine never holds keys for money: the order key is a per-order wallet-derived key.
 import { randomBytes } from "crypto";
-import type { Order, OrderParams, Policy, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress } from "./types";
+import type { Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
 import { CATEGORY_PREFERENCE, categoryOf } from "./types";
 import { chooseRoute, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
 import { isBucket } from "../../../reference/typescript/src/wallet/amounts";
+import { higherTier, type Assessment, type TierThresholds } from "../../../reference/typescript/src/wallet/valuation";
 import { executionDigest, orderSignerAddress, predictEscrow, recoverExecutionSigner, signExecution } from "./endpoints";
 import { encodeCall } from "./abi";
+import { NO_VALUER, assessRequest, type Valuer } from "./valuation";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];
@@ -20,6 +22,10 @@ export interface EngineConfig {
   refundWindowSeconds: number; // refundAfter = executeDeadline + this
   /** cover traffic per provider (swaps/hour on a typical pair): it counts only for a provider that keeps the escrow → destination link private (spec §10) */
   providerThroughput?: Partial<Record<ProviderId, number>>;
+  /** whale spec §13: the price source for the value tiers (RPC_URLS); without one every order is at least high-value */
+  valuer?: Valuer;
+  /** the service's tier thresholds (the defaults; a wallet can only raise the tier) */
+  tierThresholds?: TierThresholds;
 }
 
 /** Static estimates (docs/privacy-lab.md, cross-chain section); they matter only for a provider that keeps the escrow → destination link private, and no adapter does today. */
@@ -43,6 +49,9 @@ export interface QuoteSet {
   health: Record<ProviderId, Health>;
   scores: RouteScore[];
   chosen?: RouteScore;
+  /** whale spec §1, §13: the service's valuation of the gross amount and the tier that applies (the higher of the wallet's hint and the service's own) */
+  value?: Assessment["value"];
+  tier?: Tier;
 }
 
 export const DELAY_BUDGET: Record<Policy, [number, number]> = {
@@ -85,8 +94,15 @@ export class PrivateSwapEngine {
     return { ...req, amount: req.amount - this.tip(req.amount) };
   }
 
+  /** The gross amount's USD value and tier by the service's own read (whale spec §13); a wallet's hint can only raise the tier. */
+  async assess(gross: QuoteRequest, hint?: Tier): Promise<Assessment> {
+    const a = await assessRequest(this.cfg.valuer ?? NO_VALUER, gross.from, gross.amount, this.cfg.tierThresholds);
+    return hint ? { ...a, tier: higherTier(a.tier, hint) } : a;
+  }
+
   /** Quote all capable providers in parallel; failures are recorded, never fatal (plan §57). */
-  async quoteAll(gross: QuoteRequest, policy: Policy): Promise<QuoteSet> {
+  async quoteAll(gross: QuoteRequest, policy: Policy, hint: { tier?: Tier } = {}): Promise<QuoteSet> {
+    const assessment = await this.assess(gross, hint.tier);
     const req = this.net(gross);
     const category = categoryOf(req.from, req.to);
     const capable = this.cfg.adapters.filter((a) => a.capabilities().routes.includes(category) && a.capabilities().chains.includes(req.from.chain) && a.capabilities().chains.includes(req.to.chain));
@@ -106,7 +122,7 @@ export class PrivateSwapEngine {
     const unexecutable = Object.fromEntries(ordered.filter((a) => a.capabilities().contractSender === false).map((a) => [a.id, "ingress from a contract sender unconfirmed by the provider"])) as Partial<Record<ProviderId, string>>;
     const scores = scoreRoutes(quotes, health, policy, Date.now(), unexecutable);
     const links = Object.fromEntries(ordered.map((a) => [a.id, { public: a.capabilities().destinationLinkPublic, evidence: a.capabilities().linkEvidence }])) as QuoteSet["links"];
-    return { quotes, errors, health, scores, chosen: chooseRoute(scores), links };
+    return { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier: assessment.tier };
   }
 
   /** Whether this provider publishes the escrow → destination link; an unknown provider counts as public (no credit for cover traffic). */
@@ -114,8 +130,8 @@ export class PrivateSwapEngine {
     return this.cfg.adapters.find((a) => a.id === provider)?.capabilities().destinationLinkPublic ?? true;
   }
 
-  /** Build the order object + on-chain params for a chosen quote (spec §2, §6). */
-  buildOrder(req: QuoteRequest, policy: Policy, quote: Quote, keys: { orderPrivateKey?: Uint8Array; orderSigner?: string; refundOwnerCommitment: bigint; refundNoteSecret: bigint; refundNoteDataHash: `0x${string}` }): Order {
+  /** Build the order object + on-chain params for a chosen quote (spec §2, §6); `assessment` (whale spec §1) is the value / tier recorded with it. */
+  buildOrder(req: QuoteRequest, policy: Policy, quote: Quote, keys: { orderPrivateKey?: Uint8Array; orderSigner?: string; refundOwnerCommitment: bigint; refundNoteSecret: bigint; refundNoteDataHash: `0x${string}` }, assessment?: Assessment, preference?: Preference): Order {
     const orderSigner = keys.orderSigner ?? (keys.orderPrivateKey ? orderSignerAddress(keys.orderPrivateKey) : undefined);
     if (!orderSigner) throw new Error("buildOrder needs the one-time order signer (address) or its key");
     const orderId = ("0x" + randomBytes(32).toString("hex")) as `0x${string}`;
@@ -138,8 +154,10 @@ export class PrivateSwapEngine {
       crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds, linkPublic: this.linkPublic(quote.provider) },
     });
     return {
-      orderId, request: req, policy, quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
-      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(amount), score, destinationLinkPublic: this.linkPublic(quote.provider) }, state: "QUOTED", history: [{ state: "QUOTED", at: Date.now() }],
+      orderId, request: req, policy, ...(preference ? { preference } : {}), quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
+      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(amount), score, destinationLinkPublic: this.linkPublic(quote.provider) },
+      ...(assessment ? { value: assessment.value, tier: assessment.tier } : {}),
+      state: "QUOTED", history: [{ state: "QUOTED", at: Date.now() }],
     };
   }
 
@@ -148,7 +166,7 @@ export class PrivateSwapEngine {
    * the same escrow, so a wallet that funded its escrow hours ago can prepare / sign after a service
    * restart. `quote` is a fresh quote from the same provider (it is re-quoted again at prepare time).
    */
-  restoreOrder(req: QuoteRequest, policy: Policy, quote: Quote, params: OrderParams): Order {
+  restoreOrder(req: QuoteRequest, policy: Policy, quote: Quote, params: OrderParams, assessment?: Assessment, preference?: Preference): Order {
     if (!/^0x[0-9a-fA-F]{40}$/.test(params.orderSigner)) throw new Error("restoreOrder: params.orderSigner is not an address");
     if (params.executeDeadline >= params.refundAfter) throw new Error("restoreOrder: executeDeadline must precede refundAfter");
     const endpoint = predictEscrow(this.cfg.factory, this.cfg.escrowCreationCode, params);
@@ -160,8 +178,10 @@ export class PrivateSwapEngine {
       crossChain: { throughputPerHour: this.cfg.providerThroughput?.[quote.provider] ?? DEFAULT_PROVIDER_THROUGHPUT[quote.provider], etaSeconds: quote.etaSeconds, linkPublic: this.linkPublic(quote.provider) },
     });
     return {
-      orderId: params.orderId, request: req, policy, quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
-      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(params.amount), score, destinationLinkPublic: this.linkPublic(quote.provider) }, state: "COMMITTED", history: [{ state: "COMMITTED", at: Date.now(), note: "restored by the wallet" }],
+      orderId: params.orderId, request: req, policy, ...(preference ? { preference } : {}), quote, ingress: { kind: "contract-call", to: "", calldata: "0x", value: 0n, expiresAt: quote.expiresAt, minOutEncoded: quote.minOutEncoded },
+      params, endpoint, privacy: { delaySeconds: [dMin, dMax], amountNormalized: isBucket(params.amount), score, destinationLinkPublic: this.linkPublic(quote.provider) },
+      ...(assessment ? { value: assessment.value, tier: assessment.tier } : {}),
+      state: "COMMITTED", history: [{ state: "COMMITTED", at: Date.now(), note: "restored by the wallet" }],
     };
   }
 

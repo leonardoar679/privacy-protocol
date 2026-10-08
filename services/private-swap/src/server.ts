@@ -20,8 +20,12 @@ export function guestStatus(s: TrackStatus["state"]): UserStatus {
     default: return "Pending";
   }
 }
-import type { AssetRef, Order, OrderParams, Policy, ProviderId, QuoteRequest } from "./types";
+import { isPreference, type AssetRef, type Order, type OrderParams, type Policy, type ProviderId, type QuoteRequest, type Tier } from "./types";
 import type { PreparedExecution } from "./engine";
+import { isTier } from "./valuation";
+
+/** The wallet's own tier of the order (whale spec §1): a hint that can only raise the service's tier. */
+const tierHint = (b: any): Tier | undefined => (isTier(b?.tier) ? b.tier : undefined);
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",");
@@ -39,22 +43,22 @@ async function route(method: string, path: string, body: any): Promise<{ status:
     return { status: 200, body: { deployment: { chainId: engine.cfg.chainId, factory: engine.cfg.factory, nativeVault: engine.cfg.refundVaults.native }, providers } };
   }
   if (method === "POST" && path === "/quote") {
-    const set = await engine.quoteAll(request(body), body.policy as Policy);
+    const set = await engine.quoteAll(request(body), body.policy as Policy, { tier: tierHint(body) });
     return { status: 200, body: set };
   }
   if (method === "POST" && path === "/order") {
     // the wallet chose a route; it supplies the one-time signer and the pre-generated refund note
     const req = request(body), policy = body.policy as Policy;
-    const set = await engine.quoteAll(req, policy);
+    const set = await engine.quoteAll(req, policy, { tier: tierHint(body) });
     const provider = (body.provider ?? set.chosen?.provider) as ProviderId | undefined;
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote) return { status: 400, body: { error: `no quote from ${provider ?? "any provider"}`, errors: set.errors } };
     if (set.scores.find((s) => s.provider === provider)?.filtered) return { status: 400, body: { error: `route filtered: ${set.scores.find((s) => s.provider === provider)!.filtered}` } };
     const order = engine.buildOrder(req, policy, quote, {
       orderSigner: String(body.orderSigner), refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash,
-    });
+    }, { value: set.value ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? "high-value", failSafe: !set.value || "unavailable" in set.value }, isPreference(body.preference) ? body.preference : undefined);
     orders.set(order.orderId, { order });
-    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state) } };
+    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state), tier: order.tier, value: order.value } };
   }
   if (method === "POST" && path === "/order/resume") {
     // the wallet persisted the order (encrypted journal) and the service forgot it (restart): rebuild it from the on-chain params
@@ -64,12 +68,12 @@ async function route(method: string, path: string, body: any): Promise<{ status:
       orderId: p.orderId, assetType: Number(p.assetType) as 0 | 1, asset: p.asset, amount: BigInt(p.amount), orderSigner: p.orderSigner, executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter),
       refundVault: p.refundVault, refundOwnerCommitment: BigInt(p.refundOwnerCommitment), refundNoteSecret: BigInt(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: BigInt(p.executorTip),
     };
-    const set = await engine.quoteAll(req, policy);
+    const set = await engine.quoteAll(req, policy, { tier: tierHint(body) });
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote) return { status: 400, body: { error: `no quote from ${provider} right now; retry later`, errors: set.errors } };
-    const order = engine.restoreOrder(req, policy, quote, params);
+    const order = engine.restoreOrder(req, policy, quote, params, { value: set.value ?? { unavailable: true, reason: "not valued" }, tier: set.tier ?? "high-value", failSafe: !set.value || "unavailable" in set.value }, isPreference(body.preference) ? body.preference : undefined);
     orders.set(order.orderId, { order });
-    return { status: 200, body: { order, status: userStatus(order.state) } };
+    return { status: 200, body: { order, status: userStatus(order.state), tier: order.tier, value: order.value } };
   }
   if (method === "POST" && path === "/prepare") {
     const entry = orders.get(body.orderId);
