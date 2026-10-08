@@ -76,6 +76,14 @@ The devnet keeps state across runs (each run makes a new wallet and new deposits
 - the fee line showed base units with raw asset ids ("2047477191 Ethereum.USDC"): fees now carry `decimals` (spec §2);
 - the price guard's refusal was a 500: it is 409 `price_guard` (spec §14);
 - Vite discovered `snarkjs` at the first proof and reloaded the page mid-transaction: it is pre-bundled now.
+- (V3) the service's price guard compares a step's provider at the step's own size: for a 20 ETH step of a $10M order
+  Chainflip beat THORChain by more than 50 bps and the guard refused the campaign's whole-order provider, and the
+  runner fell into the scheduler's ten-minute backoff — every step is now routed by the competition at its size, a
+  provider change goes through the reroute Review, and the guard's refusal pauses `route-degraded` (spec §8);
+- (V3) WebAuthn refuses an IP-address origin as its RP ID ("This is an invalid domain"): the run opens the wallet at
+  `http://localhost:5173/`, where the separate device registers through the virtual authenticator;
+- (V3) with Advanced on, the Shield screen names the leaf ("Shielded 500 ETH — note at leaf N") instead of "Added …":
+  the run accepts either.
 
 ## Notes for this machine
 
