@@ -39,6 +39,10 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
   of `sdk/tiers.ts controlsFor(tier)`: a tap at enhanced, `HoldToConfirm` from high-value, the WebAuthn
   second factor (`sdk/secondFactor.ts`, registered under Settings, password fallback) from
   high-value-secondary, the 30-minute review hold and the JSON export at institutional.
+  **Settlement tracking (V2 Stage 7, whale spec §19):** `sdk/orderTracker.ts` derives the spec's state
+  from the journal, the relayer job, the escrow balance (RPC quorum) and `GET /track/:provider`, journals
+  every transition, and `SettlementLine` shows the plan §61 label with the four-step line (Quote locked /
+  Source confirmed / Destination sent / Destination finalized) in Swap and Activity.
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

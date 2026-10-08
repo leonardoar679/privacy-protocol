@@ -70,6 +70,10 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
   .app { max-width: 860px; padding: 28px 32px 64px; }
 }
 
+/* detail that only a wide screen shows (plan §95: provider, transaction hashes) */
+.wide-only { display: none; }
+@media (min-width: 1024px) { .wide-only { display: block; } }
+
 /* cards, rows, lists */
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 14px 0; }
 .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }

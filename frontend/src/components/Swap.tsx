@@ -10,6 +10,8 @@ import { downloadText } from "../sdk/download";
 import { simulateExecution, type Simulation } from "../sdk/simulate";
 import { feedsConfigured } from "../sdk/prices";
 import { Review, type ReviewLine } from "./Review";
+import { trackOrder, type Tracked } from "../sdk/orderTracker";
+import { SettlementLine } from "./SettlementLine";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
 import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
 import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
@@ -96,6 +98,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const [review, setReview] = useState<ReviewState | null>(null);
   const [routeAck, setRouteAck] = useState(false);
   const [destAck, setDestAck] = useState(false);
+  const [tracked, setTracked] = useState<Tracked | null>(null);
 
   const to = TARGETS[target];
   const units = parseAmount(fromAsset, amount);
@@ -134,13 +137,26 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     try { return await fn(); } catch (e: any) { setError(e.message ?? String(e)); } finally { setBusy(""); }
   }
 
-  // follow the executor's job while it is open
+  // settlement tracking (whale spec §19): the journal, the executor's job, the escrow balance and the destination tracker,
+  // derived into the spec's state every 15 s while the order is open on this screen; every transition is journaled
+  const trackedOrderId = stored?.orderId;
   useEffect(() => {
-    if (!job || submission.kind !== "relayer" || ["completed", "refunded", "refund-failed"].includes(job.state)) return;
-    const url = submission.url;
-    const t = setInterval(() => relayerSwapStatus(url, job.id).then((j) => { setJob(j); patchStored(job.id, { state: j.state, ...(j.executionTx ? { executionTx: j.executionTx } : {}) }); }).catch(() => {}), 15_000);
-    return () => clearInterval(t);
-  }, [job, submission]);
+    if (!trackedOrderId) { setTracked(null); return; }
+    let live = true;
+    const tick = async () => {
+      const current = session.isUnlocked() ? session.journal().swaps.find((x) => x.orderId === trackedOrderId) : undefined;
+      if (!current) return;
+      try {
+        const r = await trackOrder(current, { deployment, relayerUrl: submission.kind === "relayer" ? submission.url : null });
+        if (!live) return;
+        setTracked(r.tracked);
+        if (r.job) { setJob(r.job); setStored((s) => (s && s.orderId === trackedOrderId ? { ...s, state: r.job!.state, ...(r.job!.executionTx ? { executionTx: r.job!.executionTx } : {}) } : s)); }
+      } catch { /* the next tick */ }
+    };
+    void tick();
+    const t = setInterval(() => { if (!tracked || !["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED"].includes(tracked.state)) void tick(); }, 15_000);
+    return () => { live = false; clearInterval(t); };
+  }, [trackedOrderId, deployment, submission]);
 
   // the executor re-shielded the order: its refund note goes into the wallet now, not at the next rescan (PP-S09)
   useEffect(() => {
@@ -304,7 +320,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
       const { refundTokens, refundFloors } = s.call;
       if (refundTokens?.length) patchStored(order.orderId, { refundTokens, refundFloors });
       const j = await relayerSwapExecute(submission.url, { factory, params: s.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
-      patchStored(order.orderId, { jobId: j.id, state: j.state });
+      patchStored(order.orderId, { jobId: j.id, state: j.state, executionRef: s.prepared.provider }); // the provider's reference for tracking (NEAR Intents: the deposit address)
       return { job: j };
     });
     if (!r) return;
@@ -550,9 +566,12 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
           {signLint && <PrivacyLint items={signLint} compact />}
           {stored?.simulation && <p className="muted" style={{ fontSize: 12 }}>{stored.simulation.ok ? `Simulated on your RPC endpoints before hand-over${stored.simulation.gas ? ` (about ${Number(stored.simulation.gas).toLocaleString()} gas)` : ""}.` : `The last simulation failed: ${stored.simulation.reason ?? stored.simulation.error}.`}</p>}
           {signed && <p className="muted" style={{ fontSize: 12 }}>Confirmed: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission (Settings)." : ""}</p>}
-          {job
-            ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>
-            : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote, or return it to your private balance." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked, on any screen." : "fund the swap, then confirm it."}</p>}
+          {tracked
+            ? <SettlementLine tracked={tracked} />
+            : job
+              ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b></p>
+              : <p className="muted" style={{ fontSize: 12 }}>Status: Pending — {funded ? "confirm the swap against a fresh quote, or return it to your private balance." : dueAt ? "the funding fires at the scheduled time while the wallet is unlocked, on any screen." : "fund the swap, then confirm it."}</p>}
+          {job && <p className="muted" style={{ fontSize: 12 }}>{advanced ? `Executor: ${job.state}${job.executionTx ? `, execution ${job.executionTx.slice(0, 10)}…` : job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""} — ` : ""}refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>}
           {job?.state === "executed" && <p className="muted" style={{ fontSize: 12 }}>{(checked?.refundTo ?? (stored?.quote as { refundTarget?: string } | undefined)?.refundTarget) === "destination"
             ? "Handed to the provider. If it cannot deliver, it refunds at your fresh address on the destination chain, not to the pool."
             : `Handed to the provider. If it cannot deliver, it refunds the escrow, and the executor re-shields that into your private balance when it arrives within its watch (by default a day after ${new Date(order.params.refundAfter * 1000).toLocaleString()}). An amount too small to be worth a re-shield is left in the escrow, where anyone can re-shield it.`}</p>}

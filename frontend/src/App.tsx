@@ -130,7 +130,7 @@ export function App() {
         {tab === "home" && <Home masterSeed={masterSeed} deployment={deployment} account={account} privacyLevel={posture.overall} detailsOpen={detailsOpen} onOpen={open} onTab={(t) => go(t)} />}
         {tab === "swap" && <Swap masterSeed={masterSeed} deployment={deployment} account={account} />}
         {tab === "send" && <SendTab masterSeed={masterSeed} deployment={deployment} account={account} />}
-        {tab === "activity" && <Activity />}
+        {tab === "activity" && <Activity deployment={deployment} />}
       </main>
 
       {sheet === "add-funds" && (

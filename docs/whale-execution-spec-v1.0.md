@@ -583,8 +583,15 @@ where it gets its facts.
 
 *Implemented:* the machine, `recoverState`, `userStatus` (`order.ts`); *Stage 3*: `GET /track/:provider`
 (`server.ts`), `SwapJob.executionTx` (`services/relayer/src/swapExecutor.ts`), `TrackStatus.refundedAmount`
-/ `progress` and the partial mappings of THORChain and Chainflip; the wallet shows the relayer's job
-labels until *Stage 7* (wallet tracker and labels).
+/ `progress` and the partial mappings of THORChain and Chainflip; *Stage 7*: the wallet's tracker
+`frontend/src/sdk/orderTracker.ts` — `deriveState(stored, facts)` (pure; the table above, from the
+journal, the relayer job with its `executionTx`, the escrow balance agreed by every RPC endpoint and
+the tracker's read; PARTIAL carries both amounts and the stream's progress; FAILED says what sits in
+the escrow) and `trackOrder` (reads the facts, journals `executionTx` once, `executionRef` at
+hand-over for NEAR Intents, `track`, one `history` entry per transition with its time, the Activity
+label); `components/SettlementLine.tsx` shows the label and the four-step line in the Swap screen
+(polled every 15 s while the order is open) and Activity (the journaled state, "Refresh" tracks every
+open swap; a wide screen or Advanced adds the provider and the transaction hashes).
 
 ## 20. Refund state machine (plan V2 §61, §105, §137.20)
 

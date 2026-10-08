@@ -45,6 +45,14 @@ export interface StoredSwap {
   competition?: unknown[];
   /** institutional (spec §24): the funding is scheduled no earlier than this, and the order can be cancelled until then */
   reviewHoldUntil?: number;
+  /** settlement tracking (spec §19, Stage 7): the deployAndExecute transaction, journaled the first time the executor reports it (never overwritten) */
+  executionTx?: string;
+  /** the provider's own reference for tracking (NEAR Intents: the deposit address the escrow paid), journaled at hand-over */
+  executionRef?: string;
+  /** the last derived settlement state (sdk/orderTracker.ts) and what the tracker read */
+  track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; at: number };
+  /** every settlement transition with its time (spec §25) */
+  history?: { state: string; at: number; note?: string }[];
 }
 
 /**
