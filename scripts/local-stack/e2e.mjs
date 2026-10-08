@@ -195,9 +195,9 @@ async function campaignRun(page, nav, swap) {
   const progress = page.getByTestId("campaign-progress");
   const started = await Promise.any([progress.waitFor({ timeout: 120_000 }).then(() => true), page.getByTestId("second-device-error").waitFor({ timeout: 120_000 }).then(() => false)]).catch(() => false);
   if (!started) { check("the institutional confirmation: the separate device after the password", false, (await page.getByTestId("second-device-error").textContent().catch(() => "")) ?? ""); return; }
-  let step = await text(page.getByTestId("campaign-step"));
+  let step = (await page.getByTestId("campaign-step").getAttribute("data-step")) ?? "";
   let amounts = await panelAmounts(page);
-  check(`the campaign is journaled and shown: ${step}, ✓ Protected, Completed 0, In progress 0, the rest protected`, /^Step 1 of ~\d+$/.test(step) && (await text(page.getByTestId("campaign-status"))) === "✓ Protected" && amounts.completed === 0 && amounts["in-flight"] === 0 && amounts.protected > 0, JSON.stringify(amounts));
+  check(`the campaign is journaled and shown: step ${step}, ✓ Protected, Completed 0, In progress 0, the rest protected`, step === "1" && (await text(page.getByTestId("campaign-status"))) === "✓ Protected" && amounts.completed === 0 && amounts["in-flight"] === 0 && amounts.protected > 0, JSON.stringify(amounts));
   await snap(page, "campaign-started");
   // the runner (the App-level scheduler, this tab open): the review hold (1 min), then step 1 through commit → fund → sign → hand-over
   let tranche1 = "", reroutes = 0;
@@ -264,8 +264,8 @@ async function campaignRun(page, nav, swap) {
   await textAppears(page, "Your protected swaps", 60_000);
   await clickButton(page, "Open");
   await progress.waitFor({ timeout: 30_000 });
-  step = await text(page.getByTestId("campaign-step"));
-  check("after a reload and unlock the campaign, its steps and its state come back from the encrypted journal", /^Step 1 of ~\d+$/.test(step) && (await progress.getAttribute("data-state")) === "winding-down" && (await page.locator("[data-tranche]").count()) >= 2, `${step} · ${await progress.getAttribute("data-state")}`);
+  step = (await page.getByTestId("campaign-step").getAttribute("data-step")) ?? "";
+  check("after a reload and unlock the campaign, its steps and its state come back from the encrypted journal", step === "1" && (await progress.getAttribute("data-state")) === "winding-down" && (await page.locator("[data-tranche]").count()) >= 2, `${step} · ${await progress.getAttribute("data-state")}`);
   await snap(page, "campaign-after-reload");
   await nav.getByRole("button", { name: "Activity", exact: true }).click();
   await page.getByTestId("activity").waitFor();

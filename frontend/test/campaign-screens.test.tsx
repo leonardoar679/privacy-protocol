@@ -114,6 +114,15 @@ describe("the Review's campaign moment (spec §15)", () => {
     expect(src.match(/Safe to execute/g)!.length, "the words appear only in the verdict type and its class choice").toBeLessThanOrEqual(3);
   });
 
+  it("V4 (plan §55, §69): the verdict's EXECUTION line, and 'Cross-chain settlement is not atomic' stated on a cross-chain route", async () => {
+    const c = await mount(<Review {...reviewProps({ verdict: { security: "Safe to execute", privacy: "Good", why: "security 69/100", execution: "Best available", executionWhy: "2 providers quoted this size; thorchain won on the policy's weights" }, crossChain: true })} />);
+    expect(c.querySelector('[data-testid="verdict-execution"]')!.textContent).toBe("Best available ✓");
+    expect(c.querySelector('[data-testid="verdict"]')!.textContent).toContain("2 providers quoted this size");
+    expect(c.querySelector('[data-testid="non-atomic"]')!.textContent).toContain("Cross-chain settlement is not atomic");
+    const only = await mount(<Review {...reviewProps({ verdict: { security: "Review", privacy: "Good", why: "x", execution: "Only route" }, crossChain: false })} />);
+    expect(only.querySelector('[data-testid="verdict-execution"]')!.textContent).toBe("Only route");
+    expect(only.querySelector('[data-testid="non-atomic"]')).toBeNull();
+  });
   it("institutional: the separate device is asked after the second factor; without one the confirmation is refused with no password fallback", async () => {
     const onConfirm = vi.fn();
     await session.create("pw"); session.acknowledgePhrase();
@@ -149,7 +158,8 @@ describe("the campaign progress panel (spec §15)", () => {
     const c0 = campaign();
     const onPause = vi.fn(), onCancel = vi.fn(), onResume = vi.fn();
     let c = await mount(<CampaignProgress campaign={c0} onPause={onPause} onResume={onResume} onCancel={onCancel} now={T0 + 10_000} />);
-    expect(c.querySelector('[data-testid="campaign-step"]')!.textContent).toBe("Step 3 of ~50");
+    expect(c.querySelector('[data-testid="campaign-step"]')!.textContent, "plan §98: never 1/40 unless Advanced").toBe("Executing in protected steps");
+    expect(c.querySelector('[data-testid="campaign-step"]')!.getAttribute("data-step")).toBe("3");
     expect(c.querySelector('[data-testid="campaign-status"]')!.textContent).toBe("● Processing");
     expect(campaignStatus(c0)).toEqual({ mark: "●", word: "Processing" });
     const amounts = c.querySelector('[data-testid="campaign-amounts"]')!;
@@ -171,12 +181,19 @@ describe("the campaign progress panel (spec §15)", () => {
     await act(async () => { button(c, "Return the rest to my private balance")!.click(); });
     expect(onCancel).toHaveBeenCalledTimes(1);
     c = await mount(<CampaignProgress campaign={c0} advanced onPause={onPause} onResume={onResume} onCancel={onCancel} now={T0 + 10_000} />);
+    expect(c.querySelector('[data-testid="campaign-step"]')!.textContent, "Advanced: the counter").toBe("Step 3 of ~50");
     const steps = c.querySelector('[data-testid="campaign-steps"]')!;
     expect(steps.querySelectorAll("[data-tranche]")).toHaveLength(50);
     expect(steps.querySelector('[data-tranche="2"]')!.getAttribute("data-tranche-state")).toBe("executing");
     const dashboard = c.querySelector('[data-testid="exposure-dashboard"]')!;
     expect(dashboard.textContent).toContain("class R5");
     expect(dashboard.textContent).toContain("Expected loss per failure");
+    // V4 (plan §110): a step whose last read failed says unknown / reconnecting, never failed
+    const unknown = { ...c0, tranches: c0.tranches.map((t) => (t.index === 2 ? { ...t, lastReadFailedAt: T0 + 9000 } : t)) };
+    const u = await mount(<CampaignProgress campaign={unknown} advanced onPause={onPause} onResume={onResume} onCancel={onCancel} now={T0 + 10_000} />);
+    expect(u.textContent).toContain("1 unknown / reconnecting");
+    expect(u.querySelector('[data-tranche="2"]')!.textContent).toContain("unknown / reconnecting");
+    expect(u.textContent).not.toMatch(/\bfailed\b/);
   });
   it("the exposure dashboard (Advanced): the figures, the provider exposure, the timeline never above the cap, the per-step table, the pause history", async () => {
     let c0 = withCampaignState(campaign(), "paused", T0 + 20_000, "the provider is skipped", { pause: { reason: "provider-error", detail: "x", at: T0 + 20_000 } });
@@ -190,6 +207,7 @@ describe("the campaign progress panel (spec §15)", () => {
     expect(d.querySelector('[data-dashboard="cap"]')!.textContent).toContain("50 ETH");
     expect(d.querySelector('[data-dashboard="cap"]')!.textContent).toContain("(2 %)");
     expect(d.querySelector('[data-dashboard="provider-exposure"]')!.textContent).toContain("thorchain: 150 ETH");
+    expect(d.querySelector('[data-dashboard="provider-limits"]')!.textContent, "V4: in flight per provider against its limit (I6)").toContain("thorchain: 50 ETH");
     expect(d.textContent).toContain("Maximum allowed at once");
     expect(d.textContent).toContain("Expected loss per failure");
     expect(d.textContent).toContain("$4,000");
@@ -236,7 +254,8 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     const home = await mount(<Home masterSeed={session.state().seed!} deployment={null} account={null} privacyLevel="Good" onOpen={() => {}} onTab={() => {}} />);
     const line = home.querySelector('[data-testid="campaign-line"]')!;
     expect(line.textContent).toContain("● Processing");
-    expect(line.textContent).toContain("Step 3 of ~50");
+    expect(line.textContent, "plan §98").toContain("Executing in protected steps");
+    expect(home.querySelector('[data-testid="protection-badge"]')!.textContent, "plan §94").toContain("Protection: Balanced ✓");
     const sw = line.querySelector('[data-testid="pause-large-operations"]') as HTMLInputElement;
     expect(sw.checked).toBe(false);
     await act(async () => { sw.click(); });
@@ -248,6 +267,7 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     expect(rows[0].textContent).toContain("Protected swap");
     expect(rows[0].textContent).toContain("In progress");
     expect(rows[0].textContent).not.toContain("Remove");
+    expect(rows[0].querySelector('[data-testid="activity-campaign"]')!.textContent, "plan §100").toMatch(/^Execution: .+ · Protection: \$200K max exposure · Privacy: Good · Duration: \d+[hm] /);
     settings.set({ advanced: true });
     activity = await mount(<Activity />);
     rows = [...activity.querySelectorAll('[data-testid="activity-row"]')];
@@ -282,6 +302,36 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     expect(panel.textContent).toContain("no password fallback");
     // the user's settings are journaled
     expect((session.journal().settings as any).protection).toMatchObject({ mode: "max-safety", capBps: 250, pauseLargeOperations: true, secondDevice: { enabled: true, credentialId: "CQkJ" } });
+  });
+  it("V4 (plan §92, §128): turning protection off is a two-step with the warning; the enhanced opt-in, concentration and velocity are journaled, nonsense refused", async () => {
+    await session.create("pw"); session.acknowledgePhrase();
+    const c = await mount(<Settings deployment={null} readsLine="" coreLine="" />);
+    const panel = c.querySelector('[data-testid="protected-execution"]')!;
+    const on = panel.querySelector('[data-testid="protection-enabled"]') as HTMLInputElement;
+    expect(on.checked).toBe(true);
+    await act(async () => { on.click(); });
+    expect(settings.get().protection.enabled, "not off yet: the warning first").toBe(true);
+    expect(panel.querySelector('[data-testid="protection-off-warning"]')!.textContent).toContain("Changing this can reduce protection");
+    await act(async () => { button(panel, "I understand, turn it off")!.click(); });
+    expect(settings.get().protection.enabled).toBe(false);
+    expect(panel.querySelector('[data-testid="protection-off-notice"]')).toBeTruthy();
+    await act(async () => { (panel.querySelector('[data-testid="protection-enabled"]') as HTMLInputElement).click(); });
+    expect(settings.get().protection.enabled, "back on at once").toBe(true);
+    await act(async () => { (panel.querySelector('[data-testid="protect-from-enhanced"]') as HTMLInputElement).click(); });
+    expect(settings.get().protection.protectFromEnhanced).toBe(true);
+    const share = panel.querySelector('[data-testid="concentration-input"]') as HTMLInputElement;
+    await act(async () => { setValue(share, "25"); share.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    expect(settings.get().protection.providerShareCapBps).toBe(2500);
+    await act(async () => { setValue(share, "5"); share.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    expect(settings.get().protection.providerShareCapBps, "below 10 %: refused").toBe(2500);
+    expect(panel.textContent).toContain("stays between 10 % and 100 %");
+    const velocity = panel.querySelector('[data-testid="velocity-input"]') as HTMLInputElement;
+    await act(async () => { setValue(velocity, "500000"); velocity.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    expect(settings.get().protection.velocity).toEqual({ maxUsdPer24h: 500_000 });
+    await act(async () => { setValue(velocity, ""); velocity.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    expect(settings.get().protection.velocity).toBeUndefined();
+    expect(panel.textContent).toContain("Changing these can reduce protection");
+    expect((session.journal().settings as any).protection).toMatchObject({ enabled: true, protectFromEnhanced: true, providerShareCapBps: 2500 });
   });
   it("the trade check carries the protection plan, sanitized; no new protection module says anonymous or atomic", () => {
     const s = tradeSummary({ from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: eth(400), usd: 1_000_000, tier: "high-value", protection: protection() });

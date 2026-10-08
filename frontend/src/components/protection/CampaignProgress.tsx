@@ -43,14 +43,15 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
   const privacy: Level | null = typeof snapshot.privacyScore === "number" ? levelOf(snapshot.privacyScore) : null;
   const terminal = c.state === "completed" || c.state === "cancelled";
   const alerts = (c.alerts ?? []).slice(-3).reverse();
+  const unknown = c.tranches.filter((t) => t.lastReadFailedAt !== undefined).length; // plan §110: never "failed"
   return (
     <div data-testid="campaign-progress" data-state={c.state} data-status={status.word}>
       <div className="row" style={{ alignItems: "center" }}>
         <b>Protected swap · {sym} → {c.request.to.symbol}</b>
         <b className={status.mark === "✓" ? "level-Excellent" : status.mark === "⚠" ? "level-Reduced" : "level-Good"} data-testid="campaign-status">{status.mark} {status.word}</b>
       </div>
-      <div className="numeral-sm" data-testid="campaign-step">Step {step} of ~{total}</div>
-      <div className="muted small">{terminal ? (c.state === "completed" ? "Every step settled." : "The rest returned to your private balance.") : `${settled} settled · ${e.inFlightCount} executing · ${counted.length - settled - e.inFlightCount - e.preparedCount} remaining`}{privacy ? ` · Privacy: ` : ""}{privacy && <b className={`level-${privacy}`}>{privacy}</b>}</div>
+      <div className="numeral-sm" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? `Step ${step} of ~${total}` : "Executing in protected steps"}</div>
+      <div className="muted small">{terminal ? (c.state === "completed" ? "Every step settled." : "The rest returned to your private balance.") : `${settled} settled · ${e.inFlightCount} executing · ${counted.length - settled - e.inFlightCount - e.preparedCount} remaining${unknown ? ` · ${unknown} unknown / reconnecting` : ""}`}{privacy ? ` · Privacy: ` : ""}{privacy && <b className={`level-${privacy}`}>{privacy}</b>}</div>
       <div className="bar" style={{ display: "flex", marginTop: 8 }} data-testid="protection-bar" title="completed · in flight · prepared · protected">
         <span style={{ width: `${pct(e.completed)}%`, background: "var(--shield)" }} data-segment="completed" />
         <span style={{ width: `${pct(e.inFlight)}%`, background: "var(--accent)" }} data-segment="in-flight" />

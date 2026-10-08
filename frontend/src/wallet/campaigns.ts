@@ -61,14 +61,15 @@ export function notesShapedFor(vault: string, needed: bigint): boolean {
   return sched.ok && sched.pairs.length === 0;
 }
 
-/** "Step k of ~N · completed / in flight / protected" for Activity and Home. */
-export function progressLine(c: Campaign): string {
+/** "Executing in protected steps · completed / in flight / protected" for Activity and Home; "Step k of ~N" only under Advanced (plan §98). */
+export function progressLine(c: Campaign, advanced = false): string {
   const e = exposure(c);
   const settled = c.tranches.filter((t) => t.state === "settled").length;
   const total = c.tranches.filter((t) => t.state !== "skipped").length;
   const dec = c.request.from.decimals, sym = c.request.from.symbol;
   const f = (u: bigint) => { const base = 10n ** BigInt(dec); const frac = (u % base).toString().padStart(dec, "0").slice(0, 4).replace(/0+$/, ""); return `${u / base}${frac ? `.${frac}` : ""}`; };
-  return `Step ${Math.min(settled + 1, Math.max(total, 1))} of ~${Math.max(total, 1)} · ${f(e.completed)} ${sym} completed · ${f(e.inFlight)} ${sym} in flight · ${f(e.protected)} ${sym} protected`;
+  const head = advanced ? `Step ${Math.min(settled + 1, Math.max(total, 1))} of ~${Math.max(total, 1)}` : "Executing in protected steps";
+  return `${head} · ${f(e.completed)} ${sym} completed · ${f(e.inFlight)} ${sym} in flight · ${f(e.protected)} ${sym} protected`;
 }
 
 export interface StartCampaignInput {

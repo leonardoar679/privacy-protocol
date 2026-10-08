@@ -6,7 +6,7 @@ import { assetsOf } from "../sdk/assets";
 import { priceStore, usePrices, valueOfBalances } from "../sdk/prices";
 import { useNotes } from "../wallet/notes";
 import { useSchedulerStatus } from "../wallet/schedule";
-import { useSettings } from "../wallet/settings";
+import { PROTECTION_DEFAULTS, useSettings } from "../wallet/settings";
 import { useSession } from "../wallet/session";
 import { housekeepingPlan, housekeepingSummary, pendingHousekeeping, plannedSteps } from "../wallet/housekeeping";
 import { activeCampaigns, progressLine } from "../wallet/campaigns";
@@ -27,7 +27,7 @@ export function Home({ masterSeed, deployment, account, privacyLevel, detailsOpe
   const notes = useNotes();
   const prices = usePrices();
   const running = useSchedulerStatus();
-  const { housekeeping, protection } = useSettings();
+  const { housekeeping, protection, advanced } = useSettings();
   useSession(); // the pending maintenance step lives in the journal
   const [details, setDetails] = useState(!!detailsOpen);
   useEffect(() => { if (detailsOpen) setDetails(true); }, [detailsOpen]);
@@ -67,12 +67,13 @@ export function Home({ masterSeed, deployment, account, privacyLevel, detailsOpe
           <button className="tab" onClick={() => onOpen("add-funds")}>Add funds</button>
           <button className="tab" onClick={() => onOpen("receive")}>Receive</button>
           <button className="badge shield" onClick={() => onOpen("privacy")} title="Privacy Center" data-testid="privacy-badge">🛡 Privacy: {privacyLevel ?? "—"}</button>
+          <button className="badge" onClick={() => onOpen("settings")} title="Protected execution (Settings)" data-testid="protection-badge">🔒 Protection: {protection.enabled ? `${PROTECTION_DEFAULTS[protection.mode].label} ✓` : "Off ⚠"}</button>
           <button className="tab" onClick={() => setDetails((v) => !v)}>{details ? "Hide details" : "Details"}</button>
         </div>
         {running.running && <p className="notice" style={{ marginTop: 10 }}>{running.running.line}</p>}
         {activeCampaigns().map((c) => { const st = campaignStatus(c); return (
           <div key={c.id} className="notice" style={{ marginTop: 10 }} data-testid="campaign-line">
-            <b className={st.mark === "✓" ? "level-Excellent" : st.mark === "⚠" ? "level-Reduced" : "level-Good"}>{st.mark} {st.word}</b> · Protected swap {c.request.from.symbol} → {c.request.to.symbol}: {progressLine(c)}.
+            <b className={st.mark === "✓" ? "level-Excellent" : st.mark === "⚠" ? "level-Reduced" : "level-Good"}>{st.mark} {st.word}</b> · Protected swap {c.request.from.symbol} → {c.request.to.symbol}: {progressLine(c, advanced)}.
             <label style={{ display: "block", color: "var(--fg)", marginTop: 6 }}><input type="checkbox" checked={protection.pauseLargeOperations} onChange={(e: any) => settings.set({ protection: { ...protection, pauseLargeOperations: e.target.checked } })} data-testid="pause-large-operations" /> Pause large operations (the wallet's automation only; steps already handed over finish)</label>
           </div>
         ); })}

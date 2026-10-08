@@ -21,7 +21,7 @@ export interface RouteDetails { provider: string; mode: string; parts?: number; 
 /** The maximum-loss model of a protected execution (High-Value Protection spec §15, plan V3 §46), every figure already formatted. */
 export interface MaximumLoss { order: string; cap: string; maxExposure: string; protected: string; preparation: string }
 /** The combined verdict (plan V3 §43): SECURITY and PRIVACY are one block — "Safe to execute" is never shown without the privacy level. */
-export interface Verdict { security: "Safe to execute" | "Review" | "Do not execute"; privacy: Level; why: string }
+export interface Verdict { security: "Safe to execute" | "Review" | "Do not execute"; privacy: Level; why: string; /** V4 (plan §55): the third line — the competition's winner, the only route, or a route the user chose over the winner */ execution?: "Best available" | "Only route" | "Review"; executionWhy?: string }
 /** Advanced (plan V3 §94): the protection plan in figures. */
 export interface ProtectionDetails { riskClass: string; custody: string; band: string; cap: string; gate: string; steps: string; duration: string; cadence: string; elpf: string; concentration: string; alternative?: string }
 
@@ -52,6 +52,8 @@ export interface ReviewProps {
   maximumLoss?: MaximumLoss | null;
   verdict?: Verdict | null;
   protectionDetails?: ProtectionDetails | null;
+  /** V4 (plan §69): the route settles across chains; the Review states the fact in the plan's words */
+  crossChain?: boolean;
   /** "Check this trade" on Private AI (spec §22): available only with an open private session; the summary is sanitized by the caller */
   tradeCheck?: { available: boolean; reason?: string; run: () => Promise<TradeCheck> } | null;
   busy?: string;
@@ -138,6 +140,7 @@ export function Review(p: ReviewProps) {
           <div className="row"><span className="muted">Estimated time</span><b>{p.execution.eta}</b></div>
         </>
       )}
+      {p.crossChain && <p className="notice small" style={{ margin: "6px 0" }} data-testid="non-atomic">Cross-chain settlement is not atomic: your funds leave first and arrive later, and a failure in between is refunded, not reversed.</p>}
       <div className="row"><span className="muted">Privacy</span><b className={`level-${p.privacy.level}`}>{p.privacy.level}{p.advanced && p.privacy.score !== undefined ? ` (${p.privacy.score}/100)` : ""}</b></div>
       {p.issuer && <div className="row"><span className="muted">Token</span><b className="small">{p.issuer}</b></div>}
       {p.routeKind && <div className="row"><span className="muted">Route</span><b>{p.routeKind}</b></div>}
@@ -156,7 +159,8 @@ export function Review(p: ReviewProps) {
         <div className="small" style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 12 }} data-testid="verdict">
           <div className="row"><span className="muted">Security</span><b className={p.verdict.security === "Safe to execute" ? "level-Excellent" : p.verdict.security === "Review" ? "level-Reduced" : "error"} data-testid="verdict-security">{p.verdict.security}</b></div>
           <div className="row"><span className="muted">Privacy</span><b className={`level-${p.verdict.privacy}`} data-testid="verdict-privacy">{p.verdict.privacy}</b></div>
-          <div className="muted">{p.verdict.why}</div>
+          {p.verdict.execution && <div className="row"><span className="muted">Execution</span><b className={p.verdict.execution === "Best available" ? "level-Excellent" : p.verdict.execution === "Only route" ? "level-Good" : "level-Reduced"} data-testid="verdict-execution">{p.verdict.execution}{p.verdict.execution === "Best available" ? " ✓" : ""}</b></div>}
+          <div className="muted">{p.verdict.why}{p.verdict.executionWhy ? ` · ${p.verdict.executionWhy}` : ""}</div>
         </div>
       )}
 

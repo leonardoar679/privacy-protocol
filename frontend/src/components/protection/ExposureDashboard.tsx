@@ -1,4 +1,4 @@
-import { exposure, providerShares, type Campaign, type Tranche } from "@ref/wallet/campaign";
+import { exposure, ledger, providerShares, type Campaign, type Tranche } from "@ref/wallet/campaign";
 import { formatUsd } from "@ref/wallet/valuation";
 import { fmtUnits } from "../../sdk/format";
 import { ALERT_TITLES } from "../../wallet/alerts";
@@ -38,6 +38,7 @@ export function ExposureDashboard({ campaign: c, now = Date.now() }: { campaign:
   const trim = (x: string) => (x.includes(".") ? x.replace(/0+$/, "").replace(/\.$/, "") : x);
   const amt = (u: bigint) => `${trim(fmtUnits(u, dec, 4))} ${sym}${usdPer !== null ? ` (≈ ${formatUsd(usdPer * (Number(u) / 10 ** dec), { compact: true })})` : ""}`;
   const shares = providerShares(c);
+  const book = ledger(c); // V4 (contract §3.5): the in-flight amount per provider against its limit (I6)
   const timeline = exposureTimeline(c);
   const pauses = c.history.filter((h) => h.state === "paused" || h.state === "reassessing" || h.state === "requoting" || h.state === "rerouting" || h.state === "winding-down");
   const outDec = c.request.to.decimals, outSym = c.request.to.symbol;
@@ -52,6 +53,7 @@ export function ExposureDashboard({ campaign: c, now = Date.now() }: { campaign:
       <div className="row"><span>Remaining (never exposed yet)</span><b>{amt(e.remaining)}</b></div>
       <div className="row"><span>Route</span><b>{c.provider ?? "—"} · class {c.plan.riskClass} · band {c.plan.bandBps[0] / 100}–{c.plan.bandBps[1] / 100} % · gate {c.plan.gate} · {c.plan.concurrency}</b></div>
       <div className="row"><span>Provider exposure (carried or carrying)</span><b data-dashboard="provider-exposure">{Object.keys(shares).length ? Object.entries(shares).map(([p, u]) => `${p}: ${amt(u)}`).join(" · ") : "nothing handed over yet"}</b></div>
+      <div className="row"><span>In flight per provider · its limit (I6)</span><b data-dashboard="provider-limits">{Object.keys(book.byProvider).length ? Object.entries(book.byProvider).map(([p, v]) => `${p}: ${amt(BigInt(v.inFlight))} of ${amt(BigInt(v.limit))}`).join(" · ") : "nothing in flight"}</b></div>
       <div className="row"><span>Expected loss per failure</span><b>{c.plan.elpfUsd !== undefined ? formatUsd(c.plan.elpfUsd) : "not valued"}</b></div>
       {timeline.length > 0 && (
         <div style={{ marginTop: 6 }} data-testid="exposure-timeline">
@@ -64,7 +66,7 @@ export function ExposureDashboard({ campaign: c, now = Date.now() }: { campaign:
         {c.tranches.map((t) => (
           <div key={t.index} className="row" data-tranche={t.index} data-tranche-state={t.state}>
             <span>Step {t.index + 1} · {trim(fmtUnits(t.amount, dec, 4))} {sym}{t.provider ? ` · ${t.provider}` : ""}{t.outcome?.deliveredOut ? ` · delivered ${trim(fmtUnits(t.outcome.deliveredOut, outDec, 6))} ${outSym}` : ""}</span>
-            <b>{TRANCHE_WORDS[t.state]}{t.handedOverAt ? ` · handed over ${time(t.handedOverAt)}` : ""}{t.settledAt ? ` · settled ${time(t.settledAt)}` : t.notBefore && t.state === "planned" && t.notBefore > now ? ` · not before ${time(t.notBefore)}` : ""}</b>
+            <b>{t.lastReadFailedAt !== undefined && IN_FLIGHT_STATES.has(t.state) ? "unknown / reconnecting" : TRANCHE_WORDS[t.state]}{t.handedOverAt ? ` · handed over ${time(t.handedOverAt)}` : ""}{t.settledAt ? ` · settled ${time(t.settledAt)}` : t.notBefore && t.state === "planned" && t.notBefore > now ? ` · not before ${time(t.notBefore)}` : ""}</b>
           </div>
         ))}
       </div>

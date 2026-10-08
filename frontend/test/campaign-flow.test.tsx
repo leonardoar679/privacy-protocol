@@ -221,6 +221,8 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     const verdict = container.querySelector('[data-testid="verdict"]')!;
     expect(verdict.querySelector('[data-testid="verdict-security"]')!.textContent).toMatch(/Safe to execute|Review/);
     expect(verdict.querySelector('[data-testid="verdict-privacy"]')!.textContent).toMatch(/Excellent|Good|Reduced/);
+    expect(verdict.querySelector('[data-testid="verdict-execution"]')!.textContent, "V4 (plan §55): one quote → Only route").toBe("Only route");
+    expect(container.querySelector('[data-testid="non-atomic"]')!.textContent, "V4 (plan §69)").toContain("Cross-chain settlement is not atomic");
     expect(line(container, "exposure").getAttribute("data-ok")).toBe("1");
     expect(line(container, "security").getAttribute("data-ok")).toBe("1");
     expect(line(container, "route").getAttribute("data-ok"), "a single quote must be acknowledged").toBe("0");
@@ -247,7 +249,9 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect((c.riskSnapshot as any).privacyScore).toBe(72);
     expect(pendingActions().map((a) => a.kind)).toEqual(["campaign-tick"]);
     expect(container.querySelector('[data-testid="campaign-progress"]')!.getAttribute("data-state")).toBe("user-confirmed");
-    expect(container.querySelector('[data-testid="campaign-step"]')!.textContent).toBe(`Step 1 of ~${c.tranches.length}`);
+    expect(container.querySelector('[data-testid="campaign-step"]')!.textContent, "plan §98").toBe("Executing in protected steps");
+    expect(container.querySelector('[data-testid="campaign-step"]')!.getAttribute("data-steps")).toBe(String(c.tranches.length));
+    expect(settings.get().protection.introSeenAt, "the first-time explanation was shown once (plan §127)").toBeTypeOf("number");
     // the runner: one action per tick with the wallet's own modules against the real engine
     let r = await tick();
     expect(r?.action).toMatchObject({ kind: "commit", index: 0 });

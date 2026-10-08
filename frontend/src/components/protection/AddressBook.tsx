@@ -7,7 +7,7 @@ import type { Deployment } from "../../sdk/chain";
 import { assetsOf, formatAmount } from "../../sdk/assets";
 import { privateWithdrawal } from "../../sdk/privateTx";
 import { assertSecondFactor, verifyPassword, webauthnAvailable } from "../../sdk/secondFactor";
-import { addAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, useAddressBook, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "../../wallet/addressBook";
+import { addAddress, approveAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, useAddressBook, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "../../wallet/addressBook";
 import { useSettings } from "../../wallet/settings";
 import { session } from "../../wallet/session";
 import { HoldToConfirm } from "../HoldToConfirm";
@@ -163,10 +163,11 @@ export function DestinationStatus({ chain, address, tier, masterSeed, deployment
       <span className={check.ok ? "muted" : "level-Reduced"}>{check.status}</span>
       <span className="tabs" style={{ margin: "4px 0 0", display: "inline-flex" }}>
         {!entry && <button className="tab" onClick={() => { const r = addAddress({ chain, address, asset }); if (r.ok) setOpen("verify"); }} data-testid="add-to-book">Add to the address book</button>}
-        {entry && entry.verification.status !== "verified" && <button className="tab" onClick={() => setOpen(open === "verify" ? null : "verify")} data-testid="verify-destination">Verify</button>}
+        {entry && (entry.verification.status !== "verified" || check.reason === "stale") && <button className="tab" onClick={() => setOpen(open === "verify" ? null : "verify")} data-testid="verify-destination">{check.reason === "stale" ? "Check it again" : "Verify"}</button>}
         {entry && check.reason === "cooling-off" && large && <button className="tab" onClick={() => setOpen(open === "override" ? null : "override")} data-testid="override-destination">Confirm an immediate use</button>}
+        {entry && check.reason === "unapproved" && <button className="tab" onClick={() => approveAddress(entry.id)} data-testid="approve-destination">Approve for large payments</button>}
       </span>
-      {open === "verify" && entry && entry.verification.status !== "verified" && <VerifyEntry entry={entry} masterSeed={masterSeed} deployment={deployment} onDone={() => setOpen(null)} />}
+      {open === "verify" && entry && (entry.verification.status !== "verified" || check.reason === "stale") && <VerifyEntry entry={entry} masterSeed={masterSeed} deployment={deployment} onDone={() => setOpen(null)} />}
       {open === "override" && entry && <OverridePanel entry={entry} tier={tier} onDone={() => setOpen(null)} />}
     </div>
   );
@@ -190,7 +191,7 @@ export function AddressBookPanel({ deployment }: { deployment: Deployment | null
   return (
     <div className="panel" data-testid="address-book">
       <h3>Address book</h3>
-      <p className="muted small">Destinations of large payments are verified here and wait 24 hours after they are added, unless you confirm an immediate use. Fresh addresses of this wallet are verified by derivation and retire after one use. The book never leaves this device.</p>
+      <p className="muted small">Destinations of large payments are verified here, wait 24 hours after they are added unless you confirm an immediate use, and are then approved for large payments by you; an approval unused for 90 days is checked again before the next large payment. Fresh addresses of this wallet are verified by derivation and retire after one use. The book never leaves this device.</p>
       {entries.length === 0 && <p className="muted small">No entries yet.</p>}
       {entries.map((e) => {
         const check = destinationCheck(e.chain, e.normalized, { tier: "high-value", now });
@@ -200,10 +201,12 @@ export function AddressBookPanel({ deployment }: { deployment: Deployment | null
               <div><b>{e.label || "(no label)"}</b> <span className="muted small">· {chainOfEntry(e)} · {e.source === "fresh" ? "this wallet's" : "entered"} · {LIFECYCLE_WORDS[e.lifecycle]}{e.verification.method ? ` · ${METHOD_WORDS[e.verification.method]}` : ""}{e.usedBy.length ? ` · paid by ${e.usedBy.length} operation${e.usedBy.length === 1 ? "" : "s"}` : ""}</span></div>
               <code className="small" style={{ wordBreak: "break-all" }}>{groupAddress(e.address)}</code>
               <div className={check.ok ? "muted small" : "small level-Reduced"}>{check.status}</div>
-              {verifying === e.id && e.verification.status !== "verified" && masterSeed && <VerifyEntry entry={e} masterSeed={masterSeed} deployment={deployment} onDone={() => setVerifying(null)} />}
+              {verifying === e.id && (e.verification.status !== "verified" || check.reason === "stale") && masterSeed && <VerifyEntry entry={e} masterSeed={masterSeed} deployment={deployment} onDone={() => setVerifying(null)} />}
             </div>
             <div className="tabs" style={{ margin: 0, flexDirection: "column", alignItems: "flex-end" }}>
               {e.verification.status !== "verified" && e.lifecycle !== "retired" && <button className="tab" onClick={() => setVerifying(verifying === e.id ? null : e.id)}>Verify</button>}
+              {e.source === "entered" && check.reason === "unapproved" && <button className="tab" onClick={() => approveAddress(e.id)} data-testid="approve-entry">Approve for large payments</button>}
+              {e.source === "entered" && check.reason === "stale" && <button className="tab" onClick={() => setVerifying(verifying === e.id ? null : e.id)} data-testid="recheck-entry">Check it again</button>}
               {e.source === "entered" && e.lifecycle !== "retired" && <button className="tab" onClick={() => { const l = prompt("Label", e.label); if (l !== null) relabelAddress(e.id, l); }}>Label</button>}
               {e.lifecycle !== "retired" && <button className="tab" onClick={() => retireAddress(e.id)} data-testid="retire-entry">Retire</button>}
             </div>

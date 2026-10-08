@@ -44,6 +44,11 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
   const [deviceStatus, setDeviceStatus] = useState("");
   const [allowances, setAllowances] = useState<AllowanceLine[] | null>(null);
   const [allowanceStatus, setAllowanceStatus] = useState("");
+  // V4 (plan §62, §92, §128): the opt-out asks twice; concentration and velocity are typed
+  const [offAsk, setOffAsk] = useState(false);
+  const [share, setShare] = useState(() => (s.protection.providerShareCapBps !== undefined ? String(s.protection.providerShareCapBps / 100) : ""));
+  const [velocity, setVelocity] = useState(() => (s.protection.velocity ? String(s.protection.velocity.maxUsdPer24h) : ""));
+  const [knobError, setKnobError] = useState("");
   async function readAllowances() {
     if (!account) { setAllowanceStatus("Connect the public wallet first (Home → Add funds)."); return; }
     setAllowanceStatus("Reading through the connected wallet's own provider…");
@@ -58,6 +63,18 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
     if (!Number.isFinite(bps) || bps < CAP_BPS_RANGE[0] || bps > CAP_BPS_RANGE[1]) { setExposureError(`The exposure fraction stays between ${CAP_BPS_RANGE[0] / 100} % and ${CAP_BPS_RANGE[1] / 100} % of the order; the order's size and the route's risk set the ceiling at confirmation (2.5–3 % from $1M, 1 % on an unknown or high-risk route).`); setExposure(((p.capBps ?? PROTECTION_DEFAULTS[p.mode].capBps) / 100).toFixed(1)); return; }
     setExposureError("");
     settings.set({ protection: { ...p, capBps: bps } });
+  }
+  function applyShare() {
+    if (share.trim() === "") { const { providerShareCapBps: _s, ...rest } = p; settings.set({ protection: rest as typeof p }); setKnobError(""); return; }
+    const bps = Math.round(Number(share) * 100);
+    if (!Number.isFinite(bps) || bps < 1000 || bps > 10000) { setKnobError("The concentration stays between 10 % and 100 % of the order per provider."); setShare(p.providerShareCapBps !== undefined ? String(p.providerShareCapBps / 100) : ""); return; }
+    setKnobError(""); settings.set({ protection: { ...p, providerShareCapBps: bps } });
+  }
+  function applyVelocity() {
+    if (velocity.trim() === "") { const { velocity: _v, ...rest } = p; settings.set({ protection: rest as typeof p }); setKnobError(""); return; }
+    const usd = Number(velocity);
+    if (!Number.isFinite(usd) || usd <= 0) { setKnobError("The velocity limit is a positive USD amount per 24 hours."); setVelocity(p.velocity ? String(p.velocity.maxUsdPer24h) : ""); return; }
+    setKnobError(""); settings.set({ protection: { ...p, velocity: { maxUsdPer24h: usd } } });
   }
   async function registerDevice() {
     setDeviceStatus("Registering a separate device (a security key, or a phone over the cross-device flow)…");
@@ -144,6 +161,19 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
       <div className="panel" data-testid="protected-execution">
         <h3>Protected execution</h3>
         <p className="muted small">A large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your private balance and unsettled at any time. The mode sets the fraction, the sizes and the pace; the wallet chooses the pieces.</p>
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.enabled} onChange={(e: any) => { if (e.target.checked) { settings.set({ protection: { ...p, enabled: true } }); setOffAsk(false); } else setOffAsk(true); }} data-testid="protection-enabled" /> Use protected execution for large orders (from $1M; from $100K when the route is thin or when you ask)
+        </label>
+        {offAsk && p.enabled && (
+          <div className="notice" data-testid="protection-off-warning">
+            <div className="small"><b>Changing this can reduce protection.</b> With protected execution off, a large order runs as one execution: the whole amount sits with one provider at once, and a provider failure can reach all of it instead of a small fraction.</div>
+            <div className="tabs" style={{ margin: "6px 0 0" }}><button className="danger" onClick={() => { settings.set({ protection: { ...p, enabled: false } }); setOffAsk(false); }} data-testid="protection-off-confirm">I understand, turn it off</button><button className="tab" onClick={() => setOffAsk(false)}>Keep it on</button></div>
+          </div>
+        )}
+        {!p.enabled && <p className="notice small" data-testid="protection-off-notice">Protected execution is off: large orders run as one execution. Turn it back on above.</p>}
+        <label style={{ display: "block", color: "var(--fg)" }}>
+          <input type="checkbox" checked={p.protectFromEnhanced} onChange={(e: any) => settings.set({ protection: { ...p, protectFromEnhanced: e.target.checked } })} data-testid="protect-from-enhanced" /> Protect every order from $100K (steps of at most 5 % at a time), not only when the route is thin or unreliable
+        </label>
         {PROTECTION_MODES.map((m: ProtectionMode) => (
           <label key={m} style={{ display: "block", padding: "6px 0", color: "var(--fg)" }}>
             <input type="radio" name="protection-mode" checked={p.mode === m} onChange={() => { settings.set({ protection: { ...p, mode: m, capBps: undefined } }); setExposure((PROTECTION_DEFAULTS[m].capBps / 100).toFixed(1)); }} />
@@ -160,6 +190,12 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
         <label style={{ display: "block", color: "var(--fg)" }}>
           <input type="checkbox" checked={p.autoReroute} onChange={(e: any) => settings.set({ protection: { ...p, autoReroute: e.target.checked } })} /> Adopt a changed route without a new review below the second-confirmation size
         </label>
+        <div className="muted small" style={{ marginTop: 6 }}><b>Advanced.</b> Changing these can reduce protection.</div>
+        <label>Provider concentration (% of the order one provider may carry when several quote the size; the service recommends 30; empty for the recommendation)</label>
+        <input inputMode="decimal" value={share} onChange={(e: any) => setShare(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyShare} data-testid="concentration-input" />
+        <label>Velocity limit (USD handed over within any 24 hours; empty for none)</label>
+        <input inputMode="numeric" value={velocity} onChange={(e: any) => setVelocity(e.target.value.replace(/[^0-9]/g, ""))} onBlur={applyVelocity} data-testid="velocity-input" />
+        {knobError && <p className="error small">{knobError}</p>}
         <label style={{ display: "block", color: "var(--fg)", marginTop: 6 }}>
           <input type="checkbox" checked={p.notifications.inApp} onChange={(e: any) => settings.set({ protection: { ...p, notifications: { ...p.notifications, inApp: e.target.checked } } })} /> In-app notifications about a protected swap (paused, step settled, route changed)
         </label>

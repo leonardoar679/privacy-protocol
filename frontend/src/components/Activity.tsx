@@ -9,6 +9,11 @@ import { STEPS, trackOrder } from "../sdk/orderTracker";
 import { isOpenSwap } from "../sdk/swapFunding";
 import type { Deployment } from "../sdk/chain";
 import type { StoredSwap } from "../wallet/journal";
+import { campaignById } from "../wallet/campaigns";
+import { planWords } from "../sdk/tiers";
+import { exposure } from "@ref/wallet/campaign";
+import { levelOf } from "@ref/wallet/privacyCenter";
+import { formatUsd } from "@ref/wallet/valuation";
 
 // Activity (plan V2 §49–§50, §96; whale spec §19, §25): one local list of everything this wallet moved —
 // date, asset, amount, status, the private reference — from the encrypted journal, never from a server.
@@ -76,6 +81,20 @@ export function Activity({ deployment = null }: { deployment?: Deployment | null
                   </div>
                 )}
                 {swap?.track?.label === "Partial" && <div className="muted small">Delivered {swap.track.deliveredAmount ?? "?"} · returned {swap.track.refundedAmount ?? "?"}</div>}
+                {r.kind === "campaign" && (() => {
+                  // V4 (plan §100): execution, protection, privacy, duration
+                  const c = campaignById(r.ref);
+                  if (!c) return null;
+                  const e = exposure(c);
+                  const usd = c.value && typeof c.value === "object" && "usd" in (c.value as object) ? (c.value as { usd: number }).usd : null;
+                  const capUsd = usd !== null && e.total > 0n ? formatUsd((usd * Number(e.cap)) / Number(e.total), { compact: true }) : `${formatUnits(e.cap, r.decimals)} ${r.asset}`;
+                  const snap = (c.riskSnapshot ?? {}) as { privacyScore?: number; quote?: { plan?: { mode: string; parts: number; intervalBlocks: number; expectedSeconds: number } } };
+                  const finished = c.state === "completed" || c.state === "cancelled";
+                  const end = finished ? c.history[c.history.length - 1]?.at ?? Date.now() : Date.now();
+                  const ms = Math.max(0, end - c.createdAt);
+                  const dur = ms >= 3600_000 ? `${Math.floor(ms / 3600_000)}h ${Math.floor((ms % 3600_000) / 60_000)}m` : `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
+                  return <div className="muted small" data-testid="activity-campaign">Execution: {planWords(snap.quote?.plan as never)} · Protection: {capUsd} max exposure · Privacy: {typeof snap.privacyScore === "number" ? levelOf(snap.privacyScore) : "—"} · Duration: {dur}{finished ? "" : " so far"}</div>;
+                })()}
                 <div className="muted small"><code>{shortRef(r.ref)}</code> <button className="tab" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => navigator.clipboard?.writeText(r.ref)}>Copy</button></div>
                 {swap && (
                   <div className={advanced ? "muted small" : "muted small wide-only"} data-testid="activity-wide">
