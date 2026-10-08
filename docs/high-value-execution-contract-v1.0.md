@@ -635,7 +635,19 @@ $1M / $5M / $10M / $25M / $50M, the cap variants *one trade* / 5 % / 2.5 % / 1 %
 `docs/HighValuePolicyBenchmark.md` with the plan's §122 columns (order size, risk tier, exposure %, number of
 external executions, completion time, expected loss, worst-case loss, privacy score, cost at the live gas
 price). The production default (`PROTECTION_DEFAULTS.balanced.capBps`) is set from that table and the figure
-is recorded in this section when the benchmark runs (*V4* Stage 5).
+is recorded here.
+
+*Run of 2026-10-08* (`docs/HighValuePolicyBenchmark.md`, gas at the price of the run): on the reference cross-chain route
+(ETH → BTC through THORChain streaming, class R5, the destination-final gate with Bitcoin's 60-minute margin) a $10M order
+as **one execution** takes ≈ 4.5 h with the whole $10M reachable by one fault (expected loss $200K at the 2 % prior); at
+**5 %** 32 steps in ≈ 72 h, worst case ≈ $385K, expected loss ≈ $7.7K; at **2.5 %** 66 steps in ≈ 137 h, worst case
+≈ $180K, expected loss ≈ $3.6K; at **1 %** 160 steps in ≈ 349 h, worst case ≈ $77K, expected loss ≈ $1.5K; gas grows with
+the steps ($123 / $254 / $616 at the run's 0.42 gwei) and no provider states an impact figure at these sizes. The §123 rule —
+among the caps that complete $10M within a week, the smallest expected loss plus cost — keeps **2.5 %** (1 % loses on the
+week; 5 % loses on the expected loss). The §119 conditions move the time (a thin market's slower stream adds ≈ 20 h, a
+degraded provider or a 3 % move adds one pause) and never the worst-case loss; the §120 privacy matrix (the whale UTXO lab at
+3,894 ETH) gives the campaign a per-piece joint set of 8.8 against 1.6 for one escrow, with 16 % of the same-size
+withdrawals inside its window its own — the campaign is a visible pattern, measured, not promised away.
 
 ---
 

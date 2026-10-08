@@ -92,6 +92,16 @@ screen while the wallet is unlocked (Home shows the line and the "Pause large op
 "Your protected swaps" reopens the progress panel, the dashboard under Advanced). A route change at a step's size asks for
 the reroute Review. A devnet never delivers, so the first step stays "executing": Return the rest winds the campaign down.
 
+V4 (`docs/high-value-execution-contract-v1.0.md`): the panel says "Executing in protected steps" (the step counter under
+Advanced); the Review's verdict carries the EXECUTION line and, on a cross-chain route, "Cross-chain settlement is not
+atomic"; the wizard's first step shows the one-time explanation. Between $100K and $1M the quote offers "Protect this
+order" (the Protected policy, 5 %) unless Settings → Protected execution already protects every order from $100K; the same
+panel holds the deliberate opt-out (a warned second step), the fraction (1–5 %, the route and the size set the ceiling),
+the provider concentration and the velocity limit. An entered destination, once verified and out of its cooling-off, needs
+"Approve for large payments" (in the address book or under the typed address); an approval unused for 90 days asks for a
+re-check. Home shows "🔒 Protection: Balanced ✓" beside the privacy badge; Activity's row carries execution, protection,
+privacy and duration.
+
 ## What to expect to break first
 - Provider quotes: live APIs rate-limit and change shapes; the adversarial suite is the reference.
 - The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call

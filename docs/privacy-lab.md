@@ -200,6 +200,15 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
 real deposit-size distribution is public and could replace it); the observer uses the piece's own delay
 law for every candidate; no clustering of a whale's pieces.
 
+## The policy benchmark (V4) — added 2026-10-08
+
+`benchmarks/whale/run-policy.mjs` (→ `reference/typescript/src/sim/policyBenchmark.ts`) runs the campaign lab over the cap
+variants the High-Value Execution Engine plan asks to compare (§121: one execution vs 5 % vs 2.5 % vs 1 %), the §119
+conditions and the §120 privacy matrix, and writes `docs/HighValuePolicyBenchmark.md` with the plan's §122 columns. Its
+§123 rule keeps 2.5 % (contract §9). The privacy columns come from the whale UTXO lab below and the six-component
+assessment (`reference/typescript/src/wallet/privacyAssessment.ts`); nothing new is measured there — the matrix maps the
+plan's four configurations onto what these labs already quantify and says which column is a measurement and which a score.
+
 ## High-value protection (V3: tranches under an in-flight cap) — added 2026-10-08
 
 V3 (`docs/high-value-protection-spec-v1.0.md`) executes a large order as a sequence of tranches, each one external

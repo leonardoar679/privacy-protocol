@@ -112,6 +112,24 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     failure priors (2 % TSS / MPC, 1.5 % relayer bridge / CCTP, 3 % intent) stand in until settlement
     history exists. The security score's adjustments (`services/private-swap/src/risk/security.ts`) are a
     judgement, not a measurement.
+20. **V4 — the §4 policy table is read with the plan's §91**: the full protection layer activates at ≥ $1M; at
+    $100K–$1M an order runs under the Protected policy (5 %) only when the service says `staged`, when Settings say so,
+    or when the user asks for that order — every $100K order is not a 20-step campaign by default. The exposure tiers
+    R0–R4 are derived from the V3 risk class and the live facts (`reference/typescript/src/wallet/exposurePolicy.ts`);
+    no R0 or R1 route exists today (UniswapX stays an interface), so 3 % and above are unreachable in practice.
+21. **V4 — the policy benchmark decides the default by a stated rule** (`docs/HighValuePolicyBenchmark.md`: the smallest cap
+    whose completion time stays within twice the 5 % cap's and whose cost within 1.5× it, at $10M on the reference
+    cross-chain route); the expected loss uses the assumed class priors (gap 19), the cost is gas at the price of the run plus
+    the measured price impact of the pieces, and the privacy score is the assessment of contract §3.11, not an observer.
+    Please judge the rule and whether 2.5 % should move.
+22. **V4 — "Cross-chain settlement is not atomic" is now said on the Review** (plan §69) while the wording pin still forbids
+    any claim of atomicity; the sentence names the fact and the refund, nothing else.
+23. **V4 — the approval step and its staleness are wallet rules**, not cryptographic: an approval is a journaled tap after
+    verification and the cooling-off (or the Immediate override), and a re-check after 90 days idle re-runs a verification
+    method. A compromised unlocked session can approve; the second factor and the separate device still gate the payment.
+24. **V4 — the velocity limit and the opt-out are the user's**: both live in the encrypted journal; a compromised unlocked
+    session can raise the limit or turn the layer off (the latter behind a warned second step). There is no server-side
+    limit by design (self-custody, plan §63).
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

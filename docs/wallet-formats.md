@@ -57,6 +57,15 @@ decimal strings), `addressBook` (the destination entries of spec §12: `id` = `<
 tranche's own order, the action kinds `campaign-tick` and `campaign-shape`, the activity kind `campaign`, and
 `settings.protection`. A V2 journal round-trips byte for byte.
 
+V4 (the High-Value Execution Engine contract, `docs/high-value-execution-contract-v1.0.md` §3) adds, all optional and
+never written by `emptyJournal()`: on a tranche the state `destination-confirmed` (delivered, the finality margin running),
+`lastReadFailedAt` (the last failed settlement read: "Unknown / reconnecting") and `fundedSeenAt` (the funding first seen in
+the escrow by the quorum: a balance below the amount after it is a possible reorganization); on an address-book entry the
+lifecycle `approved` with `approvedAt` (the user's approval for large payments; stale after 90 days idle); on
+`settings.protection` the mode `best-execution`, `enabled` (the deliberate opt-out), `protectFromEnhanced`,
+`providerShareCapBps`, `velocity { maxUsdPer24h }` and `introSeenAt`; the pause reason `velocity`. A V3 journal round-trips
+byte for byte (`healProtection` fills the new settings with their defaults).
+
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. Nothing in either file is ever stored in the clear; the only two
