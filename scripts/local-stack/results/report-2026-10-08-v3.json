@@ -1,0 +1,346 @@
+{
+  "startedAt": "2026-10-08T10:11:30.522Z",
+  "stack": {
+    "rpc": "http://127.0.0.1:8546",
+    "core": "0x7a2088a1bfc9d81c55368ae168c2c02570cb814f",
+    "swapFactory": "0xc5a5c42992decbae36851359345fe25997f5c42d"
+  },
+  "steps": [
+    "10:11:30 browser 154.0.8037.98 (chrome, headless)",
+    "10:11:31 lock screen shown",
+    "10:11:31 PASS the recovery phrase has 24 words",
+    "10:11:31 PASS Home shows no USD before any balance",
+    "10:11:32 PASS first launch: no request left the page's origin (creating a wallet, every tab and sheet) — 167 same-origin loads",
+    "10:11:32 PASS Settings: the light client is off and says so",
+    "10:11:32 deposit 1: 500 ETH shielded (vault 7282.599999999999 ETH)",
+    "10:11:32 deposit 2: 500 ETH shielded (vault 7782.599999999999 ETH)",
+    "10:11:32 PASS the ETH vault received the two deposits — 6782.599999999999 → 7782.599999999999 ETH",
+    "10:11:32 PASS Home values the private balance through the RPC quorum: ≈ $4,250,000",
+    "10:11:33 PASS a $850 withdrawal is the plain flow (a Withdraw button, no Review)",
+    "10:11:36 PASS the fresh recipient received 0.2 ETH from the vault, submitted by the relayer — 0x18f6ea76D5213dDd3B68A68BBD13356ee5A9b090: 0.2 ETH",
+    "10:11:36 PASS the next withdrawal pre-fills the next fresh address — 0x00a18A65f107351181d1AFd1BCF107af0c87f3D9",
+    "10:11:36 PASS the enhanced Review shows the USD numeral — $119,000",
+    "10:11:36 PASS the enhanced Review carries the privacy lint",
+    "10:11:36 PASS enhanced: a tap confirms (no hold)",
+    "10:11:39 PASS the second fresh recipient received 28 ETH — 0x00a18A65f107351181d1AFd1BCF107af0c87f3D9: 28 ETH",
+    "10:11:40 PASS the destination is a fresh Bitcoin address of this wallet — bc1qcplyedvs7tt5rsh7f4csnceljy6llxmm03akcz",
+    "10:11:43 quote attempt 1: two or more quotes — Best routeAutomaticReceive approximately6.147767 BTCAt least6.117033 BTCNetworkBitcoinPrivacyExcellentPriceExcellentTime~13 min after the scheduled fundingFee510.999902 USDC + 0.00000568 BTCDestinationNetworkBitcoinAssetBTCAddressbc1q cply edvs 7tt5 rsh7 f4cs ",
+    "10:11:43 PASS one route in plain words: Best route Automatic",
+    "10:11:43 PASS the fee line is in asset units, never base units — Fee510.999902 US",
+    "10:11:43 acknowledged 0 privacy items before the Review",
+    "10:11:43 PASS enhanced: the commit goes through a Review (no protection line below $1M)",
+    "10:11:43 PASS the Review is the commit moment",
+    "10:11:43 PASS the Review shows $850,000 — $850,000",
+    "10:11:43 PASS the five lines are there — Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromPrivate ETHToNetworkBitcoinAssetBTCAddressbc1q cply edvs 7tt5 rsh7 f4cs ncel jy6l lxmm 03ak czA fresh address of this wallet, used once.Receive at least6",
+    "10:11:43 PASS the Route line names the competition (quoted by 2+ providers, or the single quote) — Route checked · 2 providers quoted this size; the best route won on privacy, price, security, reliability, time and liquidity",
+    "10:11:43 acknowledged 0 items inside the Review",
+    "10:11:43 PASS Advanced details list the provider, the mode, the fees and the alternatives — ProviderchainflipExecution modedca · 52 partsFees510.999902 USDC + 0.00000568 BTCExpected output6.147767 BTCSettlementnative deposit addressLink evidencethe vault-swap calldata encodes the destination address (decoded locally before signing)Alternatives: thorchain — quoted; near-intents — filtered (",
+    "10:11:44 PASS enhanced: a tap confirms the commit (the hold starts at high-value, where every order is a protected execution)",
+    "10:11:44 PASS the funding is scheduled at a random time inside the policy window — Funding scheduled10/8/2026, 11:51:39 AM (random within 1 h–24 h; keep the wallet unlocked)",
+    "10:11:44 committed: the order is journaled and its funding scheduled",
+    "10:11:45 PASS Fund now is offered (no institutional hold at this tier)",
+    "10:11:48 PASS the escrow is funded by a private withdrawal (2 · Confirm the swap enabled)",
+    "10:11:48 after funding: Funded at a random time within 1 h–24 h; change the trade preference under Settings.Ge",
+    "10:11:50 PASS a lower hard quote asks for consent before anything is signed (§14) — The price moved. This route now guarantees at least 6.116422 BTC; you approved 6.117033 BTC (−0 %). Nothing has been signed.",
+    "10:11:53 PASS the Review is the execute moment",
+    "10:11:53 PASS the signed execution was simulated on every RPC endpoint before the hand-over — ✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,811,576 gas",
+    "10:11:53 PASS the price line states the guaranteed minimum — ✓Price protected · the provider call guarantees at least 6.116422 BTC, read from its calldata; the service's price guard ran at the hard quote",
+    "10:12:04 PASS the settlement line reports the execution — Executing",
+    "10:12:05 PASS the executor's deployAndExecute is mined on the devnet — 0xbba5f43a131cee52d4a54a6bd564d4c2f87620756cfbb89ee1d795bb6162f3c6 in block 92 (3 logs)",
+    "10:12:05 PASS the one-time escrow is empty after the execution — 0xb870099d354a364a9c3840e10a8617670ab19b41: 0 ETH",
+    "10:12:07 PASS after a reload and unlock the open order and its settlement line come back from the journal — Status: Executingrefreshed every 15 s.Handed to the provider. If it cannot deliver, it",
+    "10:12:07 PASS Activity lists every money flow (two deposits, two withdrawals, one swap) — 5 rows",
+    "10:12:07 PASS the swap row never says a bare failed — ActivityRefreshSwap · 10/8/2026, 3:11:44 AM200 ETH · → BTC✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalized0x186b6b3e…6138 Copychainflip · funded 0x56bbfab0…f47c · execution 0xbba5f43a…f3c6 · 2 transitions, last 3:11:59 AMExecutingWithdrawn · 10/8/2026, 3:11:39 AM28 ETH · to ",
+    "10:12:08 PASS Settings → Protected execution: the three modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator) — Second device (institutional size)registered",
+    "10:12:08 campaign deposit 1: 500 ETH shielded",
+    "10:12:08 campaign deposit 2: 500 ETH shielded",
+    "10:12:08 campaign deposit 3: 500 ETH shielded",
+    "10:12:09 campaign deposit 4: 500 ETH shielded",
+    "10:12:09 campaign deposit 5: 500 ETH shielded",
+    "10:12:13 PASS the protection line under the quote: steps, one at a time, at most $X at risk, the duration — Protected execution: about 117 steps of ≈ $200K · one at a time · at most $200K at risk · about 10 days.",
+    "10:12:13 PASS the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step) — Routethorchain · class R5 · threshold-signed vaultsSecurity⚠ Reviewsecurity 69/100 (baseline 84, incidents -14.97) · reliability 95/100 · 1 incident on record, the latest 146 days ago · impact per ste",
+    "10:12:13 PASS the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm — Maximum-loss modelOrder2353 ETH (≈ $10M)In-flight cap47.06 ETH (≈ $200K)Maximum external exposure47.06 ETH (≈ $200K)Remaining protected2305.94 ETH (≈ $9.8M)Prep | SecurityReviewPrivacyExcellentsecurity 69/100 (baseline 84, incidents -14.97) · reliability 95/100 · 1 incident on recor",
+    "10:12:17 PASS the campaign is journaled and shown: Step 1 of ~117, ✓ Protected, Completed 0, In progress 0, the rest protected — {\"completed\":0,\"in-flight\":0,\"protected\":2305.94,\"remaining\":2353}",
+    "10:13:17 step 1: Step 1 · 20 ETHwaiting · not before 3:13:17 AM · ✓ Protected",
+    "10:13:29 reroute 1: The route changed to chainflip.A route change on a large operation is reviewed, never adopted quietly. The steps already",
+    "10:13:29 PASS a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again) — The route changed to chainflip.A route change on a large operation is reviewed, never adopted quietly. The steps already handed over continue.",
+    "10:13:55 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "10:14:05 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "10:14:05 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "10:14:09 PASS step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty — Step 1 · 20 ETH · chainflipexecuting · handed over 3:14:05 AM · 0x8014310aaa589f21aac9dfa469d8ccc7478fbac0c1056ddfc4f77b6521b69f3f",
+    "10:14:09 PASS step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing — {\"completed\":0,\"in-flight\":20,\"protected\":2305.94,\"remaining\":2333} cap 47.06 · step 2: Step 2 · 20 ETHwaiting",
+    "10:14:09 PASS the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF — Order2353 ETH (≈ $10M)In flight (handed over, unsettled)20 ETH (≈ $85K)Prepared (in our escrows, not yet handed over)0 ETH (≈ $0)Maximum allowed at once47.06 ETH (≈ $200K) (2 %)Max loss right now40 ET",
+    "10:14:31 PASS Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review — ⚠ Review · Protected swap ETH → BTC: Step 1 of ~117 · 0 ETH completed · 20 ETH in flight · 2305.94 ETH protected. Pause large operations (the wallet's automatio",
+    "10:14:32 PASS Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles — winding-down · 116 skipped",
+    "10:14:33 PASS after a reload and unlock the campaign, its steps and its state come back from the encrypted journal — Step 1 of ~117 · winding-down",
+    "10:14:33 PASS Activity: one row for the protected swap (its steps under Advanced), never a bare failed — Protected swap: checking every open step…Swap ",
+    "10:14:34 hosts contacted after first launch: 127.0.0.1:8546, localhost:8546, 127.0.0.1:8790, localhost:5173, 127.0.0.1:8787"
+  ],
+  "checks": [
+    {
+      "name": "the recovery phrase has 24 words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Home shows no USD before any balance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "first launch: no request left the page's origin (creating a wallet, every tab and sheet)",
+      "ok": true,
+      "detail": "167 same-origin loads"
+    },
+    {
+      "name": "Settings: the light client is off and says so",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the ETH vault received the two deposits",
+      "ok": true,
+      "detail": "6782.599999999999 → 7782.599999999999 ETH"
+    },
+    {
+      "name": "Home values the private balance through the RPC quorum: ≈ $4,250,000",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a $850 withdrawal is the plain flow (a Withdraw button, no Review)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fresh recipient received 0.2 ETH from the vault, submitted by the relayer",
+      "ok": true,
+      "detail": "0x18f6ea76D5213dDd3B68A68BBD13356ee5A9b090: 0.2 ETH"
+    },
+    {
+      "name": "the next withdrawal pre-fills the next fresh address",
+      "ok": true,
+      "detail": "0x00a18A65f107351181d1AFd1BCF107af0c87f3D9"
+    },
+    {
+      "name": "the enhanced Review shows the USD numeral",
+      "ok": true,
+      "detail": "$119,000"
+    },
+    {
+      "name": "the enhanced Review carries the privacy lint",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "enhanced: a tap confirms (no hold)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the second fresh recipient received 28 ETH",
+      "ok": true,
+      "detail": "0x00a18A65f107351181d1AFd1BCF107af0c87f3D9: 28 ETH"
+    },
+    {
+      "name": "the destination is a fresh Bitcoin address of this wallet",
+      "ok": true,
+      "detail": "bc1qcplyedvs7tt5rsh7f4csnceljy6llxmm03akcz"
+    },
+    {
+      "name": "one route in plain words: Best route Automatic",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fee line is in asset units, never base units",
+      "ok": true,
+      "detail": "Fee510.999902 US"
+    },
+    {
+      "name": "enhanced: the commit goes through a Review (no protection line below $1M)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review is the commit moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review shows $850,000",
+      "ok": true,
+      "detail": "$850,000"
+    },
+    {
+      "name": "the five lines are there",
+      "ok": true,
+      "detail": "Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromPrivate ETHToNetworkBitcoinAssetBTCAddressbc1q cply edvs 7tt5 rsh7 f4cs ncel jy6l lxmm 03ak czA fresh address of this wallet, used once.Receive at least6"
+    },
+    {
+      "name": "the Route line names the competition (quoted by 2+ providers, or the single quote)",
+      "ok": true,
+      "detail": "Route checked · 2 providers quoted this size; the best route won on privacy, price, security, reliability, time and liquidity"
+    },
+    {
+      "name": "Advanced details list the provider, the mode, the fees and the alternatives",
+      "ok": true,
+      "detail": "ProviderchainflipExecution modedca · 52 partsFees510.999902 USDC + 0.00000568 BTCExpected output6.147767 BTCSettlementnative deposit addressLink evidencethe vault-swap calldata encodes the destination address (decoded locally before signing)Alternatives: thorchain — quoted; near-intents — filtered ("
+    },
+    {
+      "name": "enhanced: a tap confirms the commit (the hold starts at high-value, where every order is a protected execution)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the funding is scheduled at a random time inside the policy window",
+      "ok": true,
+      "detail": "Funding scheduled10/8/2026, 11:51:39 AM (random within 1 h–24 h; keep the wallet unlocked)"
+    },
+    {
+      "name": "Fund now is offered (no institutional hold at this tier)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the escrow is funded by a private withdrawal (2 · Confirm the swap enabled)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a lower hard quote asks for consent before anything is signed (§14)",
+      "ok": true,
+      "detail": "The price moved. This route now guarantees at least 6.116422 BTC; you approved 6.117033 BTC (−0 %). Nothing has been signed."
+    },
+    {
+      "name": "the Review is the execute moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the signed execution was simulated on every RPC endpoint before the hand-over",
+      "ok": true,
+      "detail": "✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,811,576 gas"
+    },
+    {
+      "name": "the price line states the guaranteed minimum",
+      "ok": true,
+      "detail": "✓Price protected · the provider call guarantees at least 6.116422 BTC, read from its calldata; the service's price guard ran at the hard quote"
+    },
+    {
+      "name": "the settlement line reports the execution",
+      "ok": true,
+      "detail": "Executing"
+    },
+    {
+      "name": "the executor's deployAndExecute is mined on the devnet",
+      "ok": true,
+      "detail": "0xbba5f43a131cee52d4a54a6bd564d4c2f87620756cfbb89ee1d795bb6162f3c6 in block 92 (3 logs)"
+    },
+    {
+      "name": "the one-time escrow is empty after the execution",
+      "ok": true,
+      "detail": "0xb870099d354a364a9c3840e10a8617670ab19b41: 0 ETH"
+    },
+    {
+      "name": "after a reload and unlock the open order and its settlement line come back from the journal",
+      "ok": true,
+      "detail": "Status: Executingrefreshed every 15 s.Handed to the provider. If it cannot deliver, it"
+    },
+    {
+      "name": "Activity lists every money flow (two deposits, two withdrawals, one swap)",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "name": "the swap row never says a bare failed",
+      "ok": true,
+      "detail": "ActivityRefreshSwap · 10/8/2026, 3:11:44 AM200 ETH · → BTC✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalized0x186b6b3e…6138 Copychainflip · funded 0x56bbfab0…f47c · execution 0xbba5f43a…f3c6 · 2 transitions, last 3:11:59 AMExecutingWithdrawn · 10/8/2026, 3:11:39 AM28 ETH · to "
+    },
+    {
+      "name": "Settings → Protected execution: the three modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)",
+      "ok": true,
+      "detail": "Second device (institutional size)registered"
+    },
+    {
+      "name": "the protection line under the quote: steps, one at a time, at most $X at risk, the duration",
+      "ok": true,
+      "detail": "Protected execution: about 117 steps of ≈ $200K · one at a time · at most $200K at risk · about 10 days."
+    },
+    {
+      "name": "the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step)",
+      "ok": true,
+      "detail": "Routethorchain · class R5 · threshold-signed vaultsSecurity⚠ Reviewsecurity 69/100 (baseline 84, incidents -14.97) · reliability 95/100 · 1 incident on record, the latest 146 days ago · impact per ste"
+    },
+    {
+      "name": "the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm",
+      "ok": true,
+      "detail": "Maximum-loss modelOrder2353 ETH (≈ $10M)In-flight cap47.06 ETH (≈ $200K)Maximum external exposure47.06 ETH (≈ $200K)Remaining protected2305.94 ETH (≈ $9.8M)Prep | SecurityReviewPrivacyExcellentsecurity 69/100 (baseline 84, incidents -14.97) · reliability 95/100 · 1 incident on recor"
+    },
+    {
+      "name": "the campaign is journaled and shown: Step 1 of ~117, ✓ Protected, Completed 0, In progress 0, the rest protected",
+      "ok": true,
+      "detail": "{\"completed\":0,\"in-flight\":0,\"protected\":2305.94,\"remaining\":2353}"
+    },
+    {
+      "name": "a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again)",
+      "ok": true,
+      "detail": "The route changed to chainflip.A route change on a large operation is reviewed, never adopted quietly. The steps already handed over continue."
+    },
+    {
+      "name": "step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty",
+      "ok": true,
+      "detail": "Step 1 · 20 ETH · chainflipexecuting · handed over 3:14:05 AM · 0x8014310aaa589f21aac9dfa469d8ccc7478fbac0c1056ddfc4f77b6521b69f3f"
+    },
+    {
+      "name": "step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing",
+      "ok": true,
+      "detail": "{\"completed\":0,\"in-flight\":20,\"protected\":2305.94,\"remaining\":2333} cap 47.06 · step 2: Step 2 · 20 ETHwaiting"
+    },
+    {
+      "name": "the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF",
+      "ok": true,
+      "detail": "Order2353 ETH (≈ $10M)In flight (handed over, unsettled)20 ETH (≈ $85K)Prepared (in our escrows, not yet handed over)0 ETH (≈ $0)Maximum allowed at once47.06 ETH (≈ $200K) (2 %)Max loss right now40 ET"
+    },
+    {
+      "name": "Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review",
+      "ok": true,
+      "detail": "⚠ Review · Protected swap ETH → BTC: Step 1 of ~117 · 0 ETH completed · 20 ETH in flight · 2305.94 ETH protected. Pause large operations (the wallet's automatio"
+    },
+    {
+      "name": "Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles",
+      "ok": true,
+      "detail": "winding-down · 116 skipped"
+    },
+    {
+      "name": "after a reload and unlock the campaign, its steps and its state come back from the encrypted journal",
+      "ok": true,
+      "detail": "Step 1 of ~117 · winding-down"
+    },
+    {
+      "name": "Activity: one row for the protected swap (its steps under Advanced), never a bare failed",
+      "ok": true,
+      "detail": "Protected swap: checking every open step…Swap "
+    }
+  ],
+  "failures": [],
+  "outcome": {
+    "priceGuardRefusals": 0,
+    "execution": {
+      "orderId": "0x186b6b3ed007ae7117587e5c60658bd536f23857ed7a2fe0f3bd6cd873eb6138",
+      "escrow": "0xb870099d354a364a9c3840e10a8617670ab19b41",
+      "executionTx": "0xbba5f43a131cee52d4a54a6bd564d4c2f87620756cfbb89ee1d795bb6162f3c6",
+      "provider": null
+    },
+    "reroutes": 1
+  },
+  "hosts": [
+    "127.0.0.1:8546",
+    "localhost:8546",
+    "127.0.0.1:8790",
+    "localhost:5173",
+    "127.0.0.1:8787"
+  ],
+  "finishedAt": "2026-10-08T10:14:34.103Z",
+  "requests": 810
+}

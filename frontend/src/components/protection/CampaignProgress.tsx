@@ -3,6 +3,7 @@ import { levelOf, type Level } from "@ref/wallet/privacyCenter";
 import { formatUsd } from "@ref/wallet/valuation";
 import { fmtUnits } from "../../sdk/format";
 import { ALERT_TITLES } from "../../wallet/alerts";
+import { ExposureDashboard } from "./ExposureDashboard";
 
 // The progress of a protected execution (High-Value Protection spec §15; plan V3 §47, §66–§67, §75, §143): "Step k of
 // ~N", the protection bar (completed · in flight · prepared · protected), the four amounts visible at all times, the
@@ -35,7 +36,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
   const pct = (u: bigint) => (e.total > 0n ? Number((u * 10000n) / e.total) / 100 : 0);
   const counted = c.tranches.filter((t) => t.state !== "skipped");
   const settled = counted.filter((t) => t.state === "settled").length;
-  const total = Math.max(counted.length, 1);
+  const total = Math.max(c.tranches.length, 1); // the plan's steps; a cancel skips the rest, it does not shrink the plan
   const step = Math.min(settled + 1, total);
   const status = campaignStatus(c);
   const snapshot = (c.riskSnapshot ?? {}) as { privacyScore?: number };
@@ -93,19 +94,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
         </ul>
       )}
 
-      {advanced && (
-        <div className="muted small" style={{ marginTop: 10 }} data-testid="campaign-steps">
-          <div className="row"><span>Route</span><b>{c.provider ?? "—"} · class {c.plan.riskClass} · band {c.plan.bandBps[0] / 100}–{c.plan.bandBps[1] / 100} % · gate {c.plan.gate}</b></div>
-          {c.plan.elpfUsd !== undefined && <div className="row"><span>Expected loss per failure</span><b>{formatUsd(c.plan.elpfUsd)}</b></div>}
-          <div className="row"><span>Max loss (any moment)</span><b>{amt(e.maxLoss)}</b></div>
-          {c.tranches.map((t) => (
-            <div key={t.index} className="row" data-tranche={t.index} data-tranche-state={t.state}>
-              <span>Step {t.index + 1} · {trim(fmtUnits(t.amount, dec, 4))} {sym}{t.provider ? ` · ${t.provider}` : ""}</span>
-              <b>{TRANCHE_WORDS[t.state]}{t.settledAt ? ` · ${new Date(t.settledAt).toLocaleTimeString()}` : t.notBefore && t.state === "planned" && t.notBefore > now ? ` · not before ${new Date(t.notBefore).toLocaleTimeString()}` : ""}</b>
-            </div>
-          ))}
-        </div>
-      )}
+      {advanced && <ExposureDashboard campaign={c} now={now} />}
     </div>
   );
 }

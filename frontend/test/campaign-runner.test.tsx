@@ -60,6 +60,8 @@ class World implements CampaignIo {
   breakerOpen = false;
   incidents: string[] = [];
   chosen = "thorchain";
+  /** the provider the competition at a step's size chooses (the campaign's when null) */
+  sizeChosen: string | null = null;
   noQuote = false;
   gas: string | null = null;
   crossRate: bigint | null = null;
@@ -69,7 +71,7 @@ class World implements CampaignIo {
   async commit(c: Campaign, t: Tranche, destination: string) {
     this.calls.push(`commit:${t.index}:${c.provider}`);
     const orderId = ("0x" + (++this.n).toString(16).padStart(64, "0")) as `0x${string}`;
-    const q = quote(c.provider ?? "thorchain", BigInt(t.amount));
+    const q = quote(this.sizeChosen ?? c.provider ?? "thorchain", BigInt(t.amount));
     const nowS = Math.floor(this.now() / 1000);
     const params = { orderId, assetType: 0, asset: "0x0000000000000000000000000000000000000000" as `0x${string}`, amount: t.amount, orderSigner: "0x00000000000000000000000000000000000000a1" as `0x${string}`, executeDeadline: q.expiresAt + 7200, refundAfter: q.expiresAt + 14400, refundVault: ETH_VAULT, refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}`, executorTip: (BigInt(t.amount) / 400n).toString() };
     const stored: StoredSwap = { orderId, attemptId: "0x" + "22".repeat(32), refundCounter: this.n, provider: q.provider, policy: "privacy-execution", request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50 }, params, endpoint: "0x00000000000000000000000000000000000000e5", quote: q, approvedMin: q.toAmountMin, createdAt: nowS * 1000, state: "committed", refundNoteData: "0x01" + "00".repeat(168), campaign: { id: c.id, index: t.index }, tier: c.tier };
@@ -330,7 +332,7 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     resumeCampaign(c.id, session, clock);
     let r = await tick(c);
     expect(r?.action.kind).toBe("requote");
-    expect(world.calls.at(-1)).toBe("quote:2500");
+    expect(world.calls.at(-1), "the requote runs at the next step's size").toBe("quote:50");
     let cur = current(c);
     expect(cur.state).toBe("rerouting");
     expect(cur.pendingReroute).toMatchObject({ provider: "chainflip" });
@@ -364,6 +366,57 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("complete");
     expect(current(e).state).toBe("cancelled");
     expect(current(e).tranches.every((t) => t.state === "skipped" || t.state === "planned")).toBe(true);
+  });
+
+  it("the competition at a step's size chose another provider: a Review at institutional (the unfunded order abandoned), adopted below the second-confirmation tier; a funded step of the old provider returns through its refund after the reroute", async () => {
+    const c = await fresh();
+    world.sizeChosen = "chainflip";
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    let cur = current(c);
+    expect(cur).toMatchObject({ state: "rerouting", pendingReroute: { provider: "chainflip" } });
+    expect(cur.tranches[0]).toMatchObject({ state: "planned", orderId: undefined });
+    expect(session.journal().swaps.find((x) => x.campaign?.index === 0)?.state, "the order of the other provider was abandoned unfunded").toBe("abandoned");
+    expect(notes.at(-1)).toMatchObject({ kind: "route-changed", title: "Route changed — review" });
+    acceptReroute(c.id, true, session, clock);
+    expect(current(c).provider).toBe("chainflip");
+    clock += current(c).tranches[0].notBefore! - clock + 1000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    expect(current(c).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
+    // below the second-confirmation tier with autoReroute on, the step's route is adopted and the order kept
+    settings.set({ protection: { ...settings.get().protection, autoReroute: true } });
+    const d = startCampaign({ quotes: quoteSet("thorchain", eth(250)), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: eth(250), tier: "high-value", mode: "balanced", preference: "balanced", policy: "privacy-execution", destination: { kind: "fresh-per-tranche" }, usd: 1_000_000, now: clock, rng: () => 0.5, session });
+    r = await tick(d);
+    expect(r?.action.kind).toBe("commit");
+    expect(current(d)).toMatchObject({ state: "running", provider: "chainflip" });
+    expect(current(d).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
+    expect(current(d).alerts?.at(-1)).toMatchObject({ kind: "route-changed" });
+    settings.set({ protection: { ...settings.get().protection, autoReroute: false } });
+    // a funded step of the old provider after a reroute: it returns through its own refund and is planned again
+    world.sizeChosen = null;
+    const e = await fresh();
+    await tick(e); clock += 2000; await tick(e); clock += 2000; // committed and funded with thorchain
+    expect(current(e).tranches[0]).toMatchObject({ state: "funded", provider: "thorchain" });
+    pauseCampaign(e.id, session, clock);
+    world.chosen = "chainflip"; // the requote at the step's size
+    resumeCampaign(e.id, session, clock);
+    r = await tick(e);
+    expect(r?.action.kind).toBe("requote");
+    expect(world.calls.at(-1), "quoted at the next step's size, not the remaining amount").toBe("quote:50");
+    acceptReroute(e.id, true, session, clock);
+    r = await tick(e);
+    expect(r?.action.kind).toBe("sign");
+    cur = current(e);
+    expect(cur.tranches[0]).toMatchObject({ state: "refunding", provider: "thorchain", jobId: expect.any(String) });
+    expect(world.calls.filter((x) => x.startsWith("refund:"))).toEqual(["refund:0"]);
+    expect(world.calls.filter((x) => x.startsWith("sign:")), "never signed with the old provider").toHaveLength(0);
+    world.tracked.set(cur.tranches[0].orderId!, "REFUNDED");
+    clock += 2000;
+    r = await tick(e);
+    expect(current(e).tranches[0].state).toBe("refunded");
+    expect(exposure(current(e)).remaining).toBe(eth(2500));
+    world.chosen = "thorchain";
   });
 
   it("cancel returns a funded tranche through a refund-only job, skips the rest, and ends when the refund is back; the tick survives a lock", async () => {

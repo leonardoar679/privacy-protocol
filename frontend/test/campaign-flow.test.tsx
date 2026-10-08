@@ -257,7 +257,8 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(bodies["/order"].at(-1).executeWindowSeconds, "the short window travels with the order").toBe(7200);
     expect(Number((child.params as any).executeDeadline) - Number((child.quote as any).expiresAt)).toBe(7200);
     expect(bodies["/order"].at(-1).mode).toBe("balanced");
-    expect(bodies["/order"].at(-1).provider).toBe("thorchain");
+    expect(bodies["/order"].at(-1).provider, "the service chooses the route at the step's size; a change goes through the reroute Review").toBeUndefined();
+    expect(child.provider).toBe("thorchain");
     expect(pendingActions().filter((a) => a.kind === "fund-escrow"), "a step is funded by its campaign").toHaveLength(0);
     r = await tick();
     expect(r?.action.kind).toBe("fund");

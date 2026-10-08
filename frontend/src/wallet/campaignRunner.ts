@@ -38,7 +38,8 @@ import { settings as defaultSettings, type Settings } from "./settings";
 
 /** Everything the runner reads or moves, behind one interface: the wallet's modules by default, fakes in the tests. */
 export interface CampaignIo {
-  commit(c: Campaign, t: Tranche, destination: string): Promise<{ stored: StoredSwap; order: ServiceOrder }>;
+  /** the order at the step's size: the service runs the competition at that size and may choose another provider than the campaign's (a route change, §8) */
+  commit(c: Campaign, t: Tranche, destination: string): Promise<{ stored: StoredSwap; order: ServiceOrder; protection?: unknown }>;
   /** the private withdrawal into the tranche's escrow; `onStatus` lines say when the submission starts (the reconcile boundary) */
   fund(stored: StoredSwap, onStatus: (line: string) => void): Promise<{ txHash: string }>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
@@ -105,10 +106,10 @@ export function defaultIo(d: IoDeps): CampaignIo {
       const r = await commitOrder({
         masterSeed: d.masterSeed, deployment: d.deployment, session: d.session,
         request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, destinationKind: entered ? "entered" : "fresh", preferNative: c.request.preference === "native", mode: c.mode, executeWindowSeconds: c.bounds.executeWindowSeconds },
-        policy: (c.policy ?? "balanced") as never, provider: c.provider, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
+        policy: (c.policy ?? "balanced") as never, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
       });
       orders.set(r.stored.orderId.toLowerCase(), r.order);
-      return { stored: r.stored, order: r.order };
+      return { stored: r.stored, order: r.order, protection: r.response.protection ?? null };
     },
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus }),
     escrowBalance: async (stored) => {
@@ -290,7 +291,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         c = withTrancheState(c, t.index, "ready", now, { destination: dest.address, ...(dest.index !== undefined ? { destinationIndex: dest.index } : {}), provider: c.provider, attempt: t.attempt + 1 });
         putCampaign(c, s); // journaled before the call (§9)
         schedulerStatus.progress(`Protected swap: committing step ${t.index + 1}…`);
-        let r: { stored: StoredSwap; order: ServiceOrder };
+        let r: { stored: StoredSwap; order: ServiceOrder; protection?: unknown };
         try { r = await io.commit(c, c.tranches[t.index], dest.address); }
         catch (e) {
           const m = (e as Error)?.message ?? String(e);
@@ -299,6 +300,19 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           break;
         }
         const q = r.order.quote;
+        // the competition at this size chose another provider (§8): a route change is reviewed, or adopted below the second-confirmation tier when allowed
+        if (c.provider && q.provider !== c.provider) {
+          if (cfg.protection.autoReroute && !atLeast(c.tier, "high-value-secondary")) {
+            c = withAlert(withCampaignState(c, "running", now, `the route for this step is ${q.provider} (adopted automatically below the second-confirmation size)`, { provider: q.provider }), "route-changed", `The route changed to ${q.provider} for the steps of this size (adopted automatically, as you allowed).`, now, t.index);
+            send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${q.provider}.`, campaignId: c.id });
+          } else {
+            abandonSwap(r.stored.orderId, s); // never funded: nothing left the private balance
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the competition at this size chose ${q.provider}: waiting for your review`);
+            c = withAlert(withCampaignState(c, "rerouting", now, `the route changed to ${q.provider}: waiting for your review`, { pendingReroute: { provider: q.provider, protection: r.protection ?? null, at: now } }), "route-changed", `The route for the steps of this size is ${q.provider}, not ${c.provider}; review it before the operation continues.`, now, t.index);
+            send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${q.provider}.`, campaignId: c.id });
+            break;
+          }
+        }
         const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ["funded", "signed", "failed", "executing", "source-confirmed", "destination-submitted", "partial", "refunding", "settled"].includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
         const tipBps = Number((BigInt(r.order.params.executorTip) * 10000n) / BigInt(t.amount));
         const check = checkWithinBounds(c.bounds, { amount: BigInt(t.amount), toAmountMin: BigInt(q.toAmountMin), quoteExpiresAt: q.expiresAt, feeBps: tipBps, destination: dest.address, fundedBefore, now: sinceS });
@@ -316,6 +330,11 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const t = c.tranches[action.index];
         const stored = childOrder(t, s);
         if (!stored) { c = withTrancheState(c, t.index, "failed", now, {}, "its order is missing from the journal"); c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
+        if (t.provider && c.provider && t.provider !== c.provider && !stored.fundedTx) {
+          abandonSwap(stored.orderId, s);
+          c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the route changed to ${c.provider} before this step was funded: its order is abandoned and the step planned again`);
+          nextAt = now + 1000; break;
+        }
         if (stored.fundedTx) { c = withTrancheState(c, t.index, "funded", now, {}, "already funded"); nextAt = now + 1000; break; }
         const bal = await io.escrowBalance(stored);
         if (bal !== null && bal >= BigInt(t.amount)) { c = withTrancheState(c, t.index, "funded", now, {}, "funded (the escrow already holds the amount)"); nextAt = now + 1000; break; }
@@ -336,6 +355,12 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const t = c.tranches[action.index];
         const stored = childOrder(t, s);
         if (!stored) { c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
+        if (t.provider && c.provider && t.provider !== c.provider) {
+          // the route changed after this step was funded: its escrow returns through its own refund (§8) and the amount is planned again
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
+          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
+          break;
+        }
         schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
         try {
           const r = await io.sign(stored);
@@ -351,6 +376,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
           if (/receiver|does not do what this wallet asked for/i.test(m)) { c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index); break; }
+          if (/below the best alternative|price_guard/i.test(m)) { c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index); break; }
           if (/escrow|digest|not the one this wallet committed|minimum/i.test(m)) { c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index); break; }
           putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; // a network failure before anything was signed: backoff
         }
@@ -362,6 +388,11 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (!stored) { c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
         const existing = stored.jobId ? { id: stored.jobId, state: stored.state } : await io.job(stored);
         if (existing) { c = withTrancheState(c, t.index, "executing", now, { jobId: existing.id, handedOverAt: now }, "already handed over (reconciled)"); nextAt = now + TRACK_INTERVAL_MS; break; }
+        if (t.provider && c.provider && t.provider !== c.provider) {
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
+          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
+          break;
+        }
         const signed = signedCache.get(stored.orderId.toLowerCase());
         if (!signed) { c = withTrancheState(c, t.index, "funded", now, {}, "the signature is not in memory any more; signing again"); nextAt = now + 1000; break; }
         const release = canRelease(c, BigInt(t.amount));
@@ -391,10 +422,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (c.state !== "requoting") c = withCampaignState(c, "requoting", now, "quoting the remaining amount again");
         const e = exposure(c);
         if (e.remaining <= 0n) { c = withCampaignState(c, "running", now, "nothing left to quote"); nextAt = now + 1000; break; }
+        // the competition at the next step's size (§8, §10): that is the size a provider executes, and where the venues differ
+        const nextPlanned = c.tranches.find((x) => x.state === "planned");
+        const quoteAmount = nextPlanned ? BigInt(nextPlanned.amount) : e.remaining;
         let set: QuoteSet;
-        try { set = await io.quote(c, e.remaining); } catch (err) { c = pauseWith(c, "route-degraded", `No fresh quote for the remaining amount (${(err as Error)?.message ?? err}).`, now); break; }
+        try { set = await io.quote(c, quoteAmount); } catch (err) { c = pauseWith(c, "route-degraded", `No fresh quote for the next step (${(err as Error)?.message ?? err}).`, now); break; }
         const chosen = set.chosen?.provider;
-        if (!chosen) { c = pauseWith(c, "route-degraded", "No provider quotes the remaining amount right now.", now); break; }
+        if (!chosen) { c = pauseWith(c, "route-degraded", "No provider quotes the next step right now.", now); break; }
         const snapshot = { ...(typeof c.riskSnapshot === "object" && c.riskSnapshot ? (c.riskSnapshot as object) : {}), requote: { at: now, provider: chosen, protection: set.protection ?? null, competition: set.competition ?? null } };
         if (chosen === c.provider) {
           c = withCampaignState(c, "running", now, `requoted: ${chosen} still carries the route`, { riskSnapshot: snapshot, pause: undefined });

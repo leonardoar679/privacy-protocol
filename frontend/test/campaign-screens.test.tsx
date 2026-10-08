@@ -19,6 +19,7 @@ import { Home } from "../src/components/Home";
 import { Activity } from "../src/components/Activity";
 import { Settings } from "../src/components/Settings";
 import { CampaignProgress, campaignStatus } from "../src/components/protection/CampaignProgress";
+import { ExposureDashboard, exposureTimeline } from "../src/components/protection/ExposureDashboard";
 import { controlsFor } from "../src/sdk/tiers";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
@@ -65,8 +66,11 @@ function campaign(): Campaign {
   });
   c = { ...c, provider: "thorchain", policy: "privacy-execution", value: { usd: 10_000_000, at: T0 } };
   c = withCampaignState(c, "running", T0 + 1000);
-  for (const i of [0, 1]) c = withTrancheState(c, i, "settled", T0 + 2000 + i, { orderId: `0x${i}`, settledAt: T0 + 2000 + i, outcome: { delivered: eth(50).toString() } });
-  c = withTrancheState(c, 2, "executing", T0 + 5000, { orderId: "0x2", handedOverAt: T0 + 5000, jobId: "job-2" });
+  for (const i of [0, 1]) {
+    c = withTrancheState(c, i, "executing", T0 + 1000 + 2000 * i, { orderId: `0x${i}`, handedOverAt: T0 + 1000 + 2000 * i, jobId: `job-${i}`, provider: "thorchain" });
+    c = withTrancheState(c, i, "settled", T0 + 2000 + 2000 * i, { settledAt: T0 + 2000 + 2000 * i, outcome: { delivered: eth(50).toString() } });
+  }
+  c = withTrancheState(c, 2, "executing", T0 + 5000, { orderId: "0x2", handedOverAt: T0 + 5000, jobId: "job-2", provider: "thorchain" });
   return c;
 }
 const protection = (): Protection => ({ provider: "thorchain", riskClass: "R5", flags: [], custody: "tss-vaults", bandBps: [200, 200], capBps: 200, sizing: "varied", concurrency: "sequential", maxParallel: 1, gate: "destination-final", cadenceSeconds: [600, 5400], providerShareCapBps: 10000, executeWindowSeconds: 7200, estimatedTranches: 50, estimatedSeconds: 250_000, trancheUsd: [200_000, 200_000], capUsd: 200_000, trancheImpactBps: 0.18, thinMarket: false, maxPieceUnits: null, concentration: { providers: [{ id: "thorchain", shareBps: 10000 }], singleVenue: true, capBps: 10000 }, elpf: { prior: 0.02, pFailure: 0.02, perTrancheUsd: 4000, perCampaignUsd: 4000 }, staged: false, reasons: ["a bridge / MPC / counterparty route runs one piece at a time (sequential safety mode)"] });
@@ -170,8 +174,29 @@ describe("the campaign progress panel (spec §15)", () => {
     const steps = c.querySelector('[data-testid="campaign-steps"]')!;
     expect(steps.querySelectorAll("[data-tranche]")).toHaveLength(50);
     expect(steps.querySelector('[data-tranche="2"]')!.getAttribute("data-tranche-state")).toBe("executing");
-    expect(steps.textContent).toContain("class R5");
-    expect(steps.textContent).toContain("Expected loss per failure");
+    const dashboard = c.querySelector('[data-testid="exposure-dashboard"]')!;
+    expect(dashboard.textContent).toContain("class R5");
+    expect(dashboard.textContent).toContain("Expected loss per failure");
+  });
+  it("the exposure dashboard (Advanced): the figures, the provider exposure, the timeline never above the cap, the per-step table, the pause history", async () => {
+    let c0 = withCampaignState(campaign(), "paused", T0 + 20_000, "the provider is skipped", { pause: { reason: "provider-error", detail: "x", at: T0 + 20_000 } });
+    c0 = { ...c0, alerts: [{ kind: "provider-degraded", at: T0 + 20_000, text: "The provider is skipped after repeated failures." }] };
+    const timeline = exposureTimeline(c0);
+    expect(timeline.map((p) => [p.trancheIndex, p.note, p.inFlight])).toEqual([[0, "handed over", eth(50)], [0, "settled", 0n], [1, "handed over", eth(50)], [1, "settled", 0n], [2, "handed over", eth(50)]]);
+    for (const p of timeline) expect(p.inFlight).toBeLessThanOrEqual(eth(50)); // I1: never above the cap
+    const c = await mount(<ExposureDashboard campaign={c0} now={T0 + 30_000} />);
+    const d = c.querySelector('[data-testid="exposure-dashboard"]')!;
+    expect(d.querySelector('[data-dashboard="in-flight"]')!.textContent).toContain("50 ETH");
+    expect(d.querySelector('[data-dashboard="cap"]')!.textContent).toContain("50 ETH");
+    expect(d.querySelector('[data-dashboard="cap"]')!.textContent).toContain("(2 %)");
+    expect(d.querySelector('[data-dashboard="provider-exposure"]')!.textContent).toContain("thorchain: 150 ETH");
+    expect(d.textContent).toContain("Maximum allowed at once");
+    expect(d.textContent).toContain("Expected loss per failure");
+    expect(d.textContent).toContain("$4,000");
+    expect(d.querySelectorAll('[data-testid="exposure-timeline"] [data-timeline-inflight]')).toHaveLength(5);
+    expect(d.querySelectorAll('[data-testid="campaign-steps"] [data-tranche]')).toHaveLength(50);
+    expect(d.querySelector('[data-testid="pause-history"]')!.textContent).toContain("paused");
+    expect(d.querySelector('[data-testid="pause-history"]')!.textContent).toContain("Provider degraded");
   });
   it("a paused campaign says why and offers Resume; a reroute offers its Review; a finished one stops offering actions", async () => {
     const paused = withCampaignState(campaign(), "paused", T0 + 20_000, "x", { pause: { reason: "provider-error", detail: "The provider is skipped after repeated failures.", at: T0 + 20_000, trancheIndex: 2 } });

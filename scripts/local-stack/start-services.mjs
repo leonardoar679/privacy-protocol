@@ -72,6 +72,7 @@ start("wallet", "frontend", ["vite", "--port", "5173", "--strictPort", "--host",
   VITE_SWAP_SERVICE: "http://127.0.0.1:8787",
   VITE_RELAYER_URL: "http://127.0.0.1:8790",
   VITE_THORCHAIN_ROUTER: stack.pins.thorchainRouter,
+  VITE_REVIEW_HOLD_MINUTES: "1", // the institutional review hold, shortened for the browser run (V3 Stage 7)
 });
 
 const stop = () => { for (const { p } of procs) try { p.kill(); } catch {} ; process.exit(0); };

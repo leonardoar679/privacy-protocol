@@ -3,9 +3,11 @@
 The automated form of `docs/local-run.md`: a devnet, the pool and the swap periphery deployed from the forge
 artifacts, the swap service, the relayer, the wallet, and a real browser clicking through the flows the plan's
 verification lists — first launch with no network, a wallet created, deposits, a $1K withdrawal, a $120K withdrawal
-through the enhanced Review, and a $3.4M swap through the high-value Review, the hold, the scheduled funding, the hard
-quote, the wallet's own check of the provider call, the simulation, the execute Review, the executor and the tracker,
-then a reload and the Activity list. Provider quotes are live (THORChain, Chainflip, …); nothing here holds funds.
+through the enhanced Review, an $850K swap through the Review, the scheduled funding, the hard quote, the wallet's
+own check of the provider call, the simulation, the execute Review, the executor and the tracker, a reload and the
+Activity list, and (V3) a $10M protected swap: the separate device, the wizard, the campaign Review, the runner taking
+the first step through the executor while the second waits, the dashboard, the global switch, Return the rest.
+Provider quotes are live (THORChain, Chainflip, …); nothing here holds funds.
 
 ```
 cd scripts/local-stack && npm install          # hardhat 2, playwright, viem — only here, not in the workspaces
@@ -17,7 +19,8 @@ npm run services                                # 3. the swap service (8787), th
 BROWSER_CHANNEL=chrome npm run e2e              # 4. the browser run → run/e2e/NN-step.png + report.json (HEADED=1 to watch)
 ```
 
-`BROWSER_CHANNEL` is `chrome` or `msedge` for the browsers already on the machine; unset, Playwright's own Chromium
+The browser opens the wallet at `http://localhost:5173/` (a hostname, not the IP: WebAuthn refuses an IP origin as its
+RP ID, and the V3 run registers a separate device). `BROWSER_CHANNEL` is `chrome` or `msedge` for the browsers already on the machine; unset, Playwright's own Chromium
 (`npx playwright install chromium`). The wallet can also be used by hand at http://127.0.0.1:5173 while step 3 runs;
 the funding wallet in the browser is the devnet's account #1 (the e2e injects it; by hand, any injected wallet pointed
 at http://127.0.0.1:8546 with chain id 1 works).
@@ -37,21 +40,33 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under Settings (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (35 checks, `results/report-2026-10-08.json`; 36 when the hard quote asks for consent)
+## What a run checks (49/49 checks, `results/report-2026-10-08-v3.json`; one more when the hard quote asks for consent)
 
 - first launch: the lock screen, 24 words, Home without a USD figure, every tab and sheet — no request left the page's
   origin;
 - two 500 ETH deposits land in the vault; Home values the balance at ≈ $4,250,000 through both RPC endpoints;
 - a 0.2 ETH ($850) withdrawal is the plain flow: a proof in the Web Worker, the relayer submits, the fresh recipient is paid;
 - a 28 ETH ($119,000) withdrawal goes through the enhanced Review (the numeral, the lint, a tap) to the next fresh address;
-- an 800 ETH ($3,400,000) swap to a fresh Bitcoin address: one route in words with fees in asset units; the commit Review
-  with the five lines and the two-quotes rule (the single quote acknowledged when only one provider answered); a hold,
-  never a tap; the funding scheduled inside the policy window; Fund now; the hard quote (a lower minimum asks for consent;
-  a hard quote the price guard refuses is retried, else the order returns to the pool); the execute Review with the
-  simulation on 2 RPC endpoints and the guaranteed minimum; the hand-over; the executor's `deployAndExecute` mined; the
-  escrow empty; the settlement line "Executing";
+- a 200 ETH ($850,000) swap to a fresh Bitcoin address (the enhanced tier — from $1M every order is a protected
+  execution, below): one route in words with fees in asset units; the commit Review with the five lines; a tap; the
+  funding scheduled inside the policy window; Fund now; the hard quote (a lower minimum asks for consent; a hard quote
+  the price guard refuses is retried, else the order returns to the pool); the execute Review with the simulation on
+  2 RPC endpoints and the guaranteed minimum; the hand-over; the executor's `deployAndExecute` mined; the escrow empty;
+  the settlement line "Executing";
 - after a reload and unlock the order and its line come back from the encrypted journal; Activity has a row per flow and
-  never a bare "failed".
+  never a bare "failed";
+- **V3** (`docs/high-value-protection-spec-v1.0.md`): Settings → Protected execution with a separate device registered
+  through a virtual cross-platform authenticator (CDP `WebAuthn.addVirtualAuthenticator`); five more 500 ETH deposits;
+  a $10M ETH → BTC order: the protection line under the quote, the wizard (risk analysis → privacy analysis →
+  destination check), the campaign Review (the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure
+  and Security lines, the review hold of `VITE_REVIEW_HOLD_MINUTES=1`), a hold, the password fallback for the second
+  factor and the separate device; the campaign journaled (Step 1 of ~N, ✓ Protected, Completed 0 / In progress 0 /
+  Protected); the App-level runner takes step 1 through commit → fund → sign → hand-over against live quotes —
+  `deployAndExecute` mined, the escrow empty — while step 2 waits (In progress = one step ≤ the cap, ● Processing); the
+  exposure dashboard under Advanced; Pause large operations on Home pauses on the next tick (⚠ Review); Return the rest
+  winds down (the planned steps skipped, the executed step tracked); the campaign comes back after a reload; Activity
+  has one row for it. The devnet never delivers: settlement, multi-step progression and partial fills are pinned by
+  the vitest suites (`campaign-runner`, `campaign-flow`), not here.
 
 The devnet keeps state across runs (each run makes a new wallet and new deposits); restart `npm run chain` and
 `npm run deploy` for a clean chain. The relayer's journal lives in `run/relayer-journal`.

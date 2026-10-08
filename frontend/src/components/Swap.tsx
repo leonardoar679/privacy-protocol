@@ -309,6 +309,11 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const usdOf = (x: bigint): string | null => (usdPer === null ? null : formatUsd(usdPer * (Number(x) / 10 ** fromAsset.decimals), { compact: true }));
   const amountWords = (x: bigint): string => `${formatAmount(fromAsset, x)} ${fromAsset.symbol}${usdOf(x) ? ` (≈ ${usdOf(x)})` : ""}`;
   const durationWords = (seconds: number): string => (seconds >= 2 * 86400 ? `${Math.round(seconds / 86400)} days` : seconds >= 3600 ? `${Math.round(seconds / 3600)} h` : `${Math.round(seconds / 60)} min`);
+  /** the pieces the wallet would cut from this quote (the draft plan of the chosen route): what the protection line names */
+  const lineDraft = (() => {
+    if (!campaignMode || !protectionPlan || !quotes?.chosen) return null;
+    try { return buildCampaign({ quotes, provider: protectionPlan.provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" }, usd, capBps: protection.capBps, now: Date.now(), rng: () => 0.5 }); } catch { return null; }
+  })();
   useEffect(() => { if (review?.moment === "campaign" && submission.kind === "relayer") relayerInfo(submission.url).then((i) => setRelayerFee(BigInt(i.minFeeWei))).catch(() => setRelayerFee(null)); }, [review?.moment, submission]);
   const funded = !!stored?.fundedTx;
   const dueAt = stored?.dueAt;
@@ -609,8 +614,8 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
               <div className="row"><span className="muted">Price</span><b className={`level-${levelOf(chosen.components.price)}`}>{levelOf(chosen.components.price)}</b></div>
               <div className="row"><span className="muted">Time</span><b>~{hours(chosenQuote.etaSeconds)}{policy !== "fastest" ? " after the scheduled funding" : ""}</b></div>
               <div className="row"><span className="muted">Fee</span><b>{feeSummary(chosenQuote)}</b></div>
-              {campaignMode && protectionPlan && (() => { const cap = (units * BigInt(protectionPlan.capBps)) / 10000n; const piece = (units * BigInt(protectionPlan.bandBps[1])) / 10000n; return (
-                <p className="notice" data-testid="protection-line">Protected execution: about {protectionPlan.estimatedTranches} steps of ≈ {usdOf(piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`} · {protectionPlan.concurrency === "sequential" ? "one at a time" : `up to ${protectionPlan.maxParallel} at a time`} · at most {usdOf(cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`} at risk · about {durationWords(protectionPlan.estimatedSeconds)}.</p>
+              {campaignMode && protectionPlan && (() => { const cap = lineDraft ? BigInt(lineDraft.bounds.maxExternalExposure) : (units * BigInt(protectionPlan.capBps)) / 10000n; const piece = lineDraft ? lineDraft.tranches.reduce((m, t) => (BigInt(t.amount) > m ? BigInt(t.amount) : m), 0n) : (units * BigInt(protectionPlan.bandBps[1])) / 10000n; const steps = lineDraft ? lineDraft.tranches.length : protectionPlan.estimatedTranches; return (
+                <p className="notice" data-testid="protection-line">Protected execution: about {steps} steps of ≈ {usdOf(piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`} · {protectionPlan.concurrency === "sequential" ? "one at a time" : `up to ${protectionPlan.maxParallel} at a time`} · at most {usdOf(cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`} at risk · about {durationWords(protectionPlan.estimatedSeconds)}.</p>
               ); })()}
               {quotedOnly === 1 && <p className="notice">Only one provider answered for this size; the route cannot be compared with another live quote.</p>}
               <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmt(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />
