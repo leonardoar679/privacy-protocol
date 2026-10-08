@@ -4,7 +4,8 @@ import { parseDestination } from "@ref/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
 import { formatUsd, type Tier } from "@ref/wallet/valuation";
 import type { Deployment } from "../sdk/chain";
-import { privateWithdrawal } from "../sdk/privateTx";
+import { HousekeepingNeeded, privateWithdrawal } from "../sdk/privateTx";
+import { scheduleHousekeeping } from "../wallet/housekeeping";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount } from "../sdk/assets";
 import { consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { feedsConfigured, priceStore } from "../sdk/prices";
@@ -31,6 +32,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
   const [asset, setAsset] = useState(assets[0]);
   const [review, setReview] = useState(false);
   const [destAck, setDestAck] = useState(false);
+  const [consolidate, setConsolidate] = useState(false);
   // the default recipient is the next fresh EVM address of this wallet (plan §28, §45): shown now,
   // reserved in the journal only when the withdrawal is confirmed, never handed out twice
   const [recipient, setRecipient] = useState(() => peekFreshAddress(masterSeed, "evm").address);
@@ -81,6 +83,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
       setReview(false);
     } catch (e: any) {
       setStatus(e.message ?? String(e));
+      setConsolidate(e instanceof HousekeepingNeeded);
     } finally {
       setBusy(false);
     }
@@ -128,6 +131,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
         {controls.review ? "Review" : "Withdraw"}
       </button>
       {status && <p className="muted">{status}</p>}
+      {consolidate && <button className="tab" data-testid="consolidate-now" onClick={() => { const ok = scheduleHousekeeping(deployment, { now: true }); setStatus(ok ? "A maintenance step is scheduled now; it runs while the wallet is unlocked, then the next ones at quiet times." : "Nothing to consolidate right now."); setConsolidate(false); }}>Consolidate my notes now</button>}
       <Scorecard action="withdraw" facts={{ delaySeconds: 0, amountIsBucket: isBucketFor(asset, units), privateSubmission: submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: !edited }} />
     </div>
   );

@@ -815,6 +815,20 @@ scheduler's failures and their next attempt, and removes finished rows on reques
 A journal that fails to decrypt at unlock is kept as it is: the session reports `journalUnreadable`,
 persists nothing, and sets the blob aside under `pp.journal.unreadable` only when the user asks
 (`wallet/session.ts`). *Stage 5* (`lint`, `simulation`), *Stage 7* (`track`, `history`, `executionTx`).
+*Implemented (Stage 8, plan §73–§74 — note management for large balances):* the `housekeeping`
+Activity records and `JournalData.housekeeping` (what today's steps spent on fees). The planner
+`reference/typescript/src/wallet/noteStrategy.ts` keeps a balance in the shipped alphabet's pieces —
+no note above the 16th bucket (100 ETH / 100,000 USDC), the 13th (10 ETH / 10,000 USDC) as the ideal
+piece while the count stays under 64, dust below the smallest bucket merged into its neighbour unless
+it is worth less than a fee — as private self-transfers: a split (1-in/3-out: the piece, the rest, the
+relayer's fee note; `sdk/privateTx.ts planSplit` / `splitNote`) or a merge; every action pays a fee
+and the plan is simulated on a working copy. The extended alphabet is not adopted (the whale UTXO lab:
+a piece nobody else withdraws has no cover). `frontend/src/wallet/housekeeping.ts` schedules one step
+at a time at a random time inside the policy window (never immediate), runs it from the App-level
+scheduler on any screen within the daily fee cap of `settings.housekeeping` (opt-out there), and
+schedules the next under a new id — or tomorrow's when the cap is reached; Home says what is planned.
+A spend spread over more notes than one go merges (eight) is `HousekeepingNeeded` with a true message
+and a "Consolidate my notes now" offer, no longer "insufficient balance".
 
 ## 26. Out of scope here
 

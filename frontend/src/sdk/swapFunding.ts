@@ -13,6 +13,7 @@ import { session as defaultSession, type WalletSession } from "../wallet/session
 import type { ScheduledAction, StoredSwap } from "../wallet/journal";
 import { activityId, updateActivity } from "../wallet/activity";
 import { cancelAction, schedulerStatus } from "../wallet/schedule";
+import { runHousekeepingStep } from "../wallet/housekeeping";
 
 export const CLOSED_STATES = ["completed", "refunded", "abandoned"];
 export const isOpenSwap = (s: Pick<StoredSwap, "state">): boolean => !CLOSED_STATES.includes(s.state);
@@ -66,7 +67,15 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
  */
 export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Uint8Array; deployment: Deployment | null; session?: WalletSession }): Promise<void> {
   const s = o.session ?? defaultSession;
-  if (a.kind !== "fund-escrow") return; // housekeeping: Stage 8
+  if (a.kind === "housekeeping") {
+    // private balance maintenance (plan V2 §73): one step per scheduled action; the step schedules the next under a new id
+    if (!o.deployment) { cancelAction(a.id, s); return; }
+    schedulerStatus.start(a.id, "Private balance maintenance: planning a step…");
+    try { await runHousekeepingStep({ masterSeed: o.masterSeed, deployment: o.deployment, session: s, onStatus: (line) => schedulerStatus.progress(line) }); }
+    finally { schedulerStatus.finish(); }
+    return;
+  }
+  if (a.kind !== "fund-escrow") return;
   const stored = s.journal().swaps.find((x) => x.orderId === a.orderId);
   if (!stored || stored.fundedTx || !isOpenSwap(stored)) { cancelAction(a.id, s); return; }
   const asset = assetOfStored(o.deployment, stored);

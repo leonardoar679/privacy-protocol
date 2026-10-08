@@ -3,7 +3,8 @@ import { decodePrivacyAddress } from "@ref/address";
 import { formatUsd, type Tier } from "@ref/wallet/valuation";
 import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
 import type { Deployment } from "../sdk/chain";
-import { privateTransfer } from "../sdk/privateTx";
+import { HousekeepingNeeded, privateTransfer } from "../sdk/privateTx";
+import { scheduleHousekeeping } from "../wallet/housekeeping";
 import { assetsOf, formatAmount, parseAmount } from "../sdk/assets";
 import { feedsConfigured, priceStore } from "../sdk/prices";
 import { controlsFor, issuerLine } from "../sdk/tiers";
@@ -32,6 +33,7 @@ export function Send({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState(false);
   const [acknowledged, setAcknowledged] = useState<LintId[]>([]);
+  const [consolidate, setConsolidate] = useState(false);
   const units = parseAmount(asset, amount);
   const priced = feedsConfigured(deployment);
   const assessment = units > 0n && priced ? priceStore.assess(units, asset) : null;
@@ -55,6 +57,7 @@ export function Send({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       setReview(false);
     } catch (e: any) {
       setStatus(e?.message ?? String(e));
+      setConsolidate(e instanceof HousekeepingNeeded); // the balance is there, spread over too many notes: offer the maintenance step now
     } finally {
       setBusy(false);
     }
@@ -93,6 +96,7 @@ export function Send({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
         {controls.review ? "Review" : "Send"}
       </button>
       {status && <p className="muted">{status}</p>}
+      {consolidate && <button className="tab" data-testid="consolidate-now" onClick={() => { const ok = scheduleHousekeeping(deployment, { now: true }); setStatus(ok ? "A maintenance step is scheduled now; it runs while the wallet is unlocked, then the next ones at quiet times." : "Nothing to consolidate right now."); setConsolidate(false); }}>Consolidate my notes now</button>}
       <Scorecard action="transfer" facts={{ delaySeconds: 0, amountIsBucket: true, privateSubmission: submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: true }} />
     </div>
   );

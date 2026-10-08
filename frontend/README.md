@@ -43,6 +43,11 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
   from the journal, the relayer job, the escrow balance (RPC quorum) and `GET /track/:provider`, journals
   every transition, and `SettlementLine` shows the plan §61 label with the four-step line (Quote locked /
   Source confirmed / Destination sent / Destination finalized) in Swap and Activity.
+  **Private balance maintenance (V2 Stage 8, plan §73–§74):** `src/wallet/housekeeping.ts` applies the
+  planner of `reference/typescript/src/wallet/noteStrategy.ts` (100-unit then 10-unit pieces, dust merged)
+  one private self-transfer at a time inside the policy window, within the daily fee cap of Settings;
+  `sdk/privateTx.ts splitNote` is the split beside the merges; Home says what is planned; a spend spread
+  over too many notes offers "Consolidate my notes now" instead of "insufficient balance".
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

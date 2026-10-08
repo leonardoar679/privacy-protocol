@@ -20,6 +20,8 @@ import { useVerifyStatus } from "./sdk/verifiedReads";
 import { session, useSession } from "./wallet/session";
 import { useScheduler } from "./wallet/schedule";
 import { usePosture } from "./wallet/posture";
+import { useNotes } from "./wallet/notes";
+import { scheduleHousekeeping } from "./wallet/housekeeping";
 
 // The wallet (plan V2 §39–§45, §90–§95; whale spec §23): four tabs — Home, Swap, Send, Activity — and
 // nothing else in the main navigation; on a wide screen the side column adds Private assets, the Privacy
@@ -64,7 +66,7 @@ export function App() {
   const [account, setAccount] = useState<string | null>(null);
   const [deployment] = useState(() => deploymentFromEnv());
   const [guest, setGuest] = useState(false);
-  const { advanced, verifyReads } = useSettings();
+  const { advanced, verifyReads, housekeeping } = useSettings();
   const core = useSyncExternalStore(subscribeCore, coreStatus);
   const vs = useVerifyStatus();
   const s = useSession();
@@ -82,6 +84,9 @@ export function App() {
     await runScheduledAction(a, { masterSeed: seed, deployment });
   }, [deployment]));
   useEffect(() => { if (s.status !== "unlocked") { setSheet(null); setTab("home"); } }, [s.status]);
+  // private balance maintenance (plan V2 §73): once the notes change and the shape calls for it, a step is drawn inside the policy window
+  const notes = useNotes();
+  useEffect(() => { if (s.status === "unlocked" && housekeeping.enabled && notes.length) scheduleHousekeeping(deployment); }, [s.status, housekeeping.enabled, notes, deployment]);
 
   async function connect() {
     const eth = (window as any).ethereum;

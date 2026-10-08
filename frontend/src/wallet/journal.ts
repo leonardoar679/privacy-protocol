@@ -94,6 +94,8 @@ export interface JournalData {
   prices?: unknown;
   /** V2 (whale spec §25, Stage 4): the Activity list. Optional, never written by emptyJournal(); readers default it to []. */
   activity?: ActivityRecord[];
+  /** V2 (Stage 8): what private balance maintenance spent on relayer fees today (the daily cap of settings.housekeeping) */
+  housekeeping?: { day: string; feeWei: string; steps: number };
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

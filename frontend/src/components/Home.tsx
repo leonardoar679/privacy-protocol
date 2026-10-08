@@ -6,6 +6,9 @@ import { assetsOf } from "../sdk/assets";
 import { priceStore, usePrices, valueOfBalances } from "../sdk/prices";
 import { useNotes } from "../wallet/notes";
 import { useSchedulerStatus } from "../wallet/schedule";
+import { useSettings } from "../wallet/settings";
+import { useSession } from "../wallet/session";
+import { housekeepingPlan, housekeepingSummary, pendingHousekeeping, plannedSteps } from "../wallet/housekeeping";
 import { PrivateBalance } from "./PrivateBalance";
 
 export type HomeSheet = "add-funds" | "receive" | "privacy" | "settings" | "ai";
@@ -21,6 +24,8 @@ export function Home({ masterSeed, deployment, account, privacyLevel, detailsOpe
   const notes = useNotes();
   const prices = usePrices();
   const running = useSchedulerStatus();
+  const { housekeeping } = useSettings();
+  useSession(); // the pending maintenance step lives in the journal
   const [details, setDetails] = useState(!!detailsOpen);
   useEffect(() => { if (detailsOpen) setDetails(true); }, [detailsOpen]);
   const assets = assetsOf(deployment);
@@ -62,6 +67,17 @@ export function Home({ masterSeed, deployment, account, privacyLevel, detailsOpe
           <button className="tab" onClick={() => setDetails((v) => !v)}>{details ? "Hide details" : "Details"}</button>
         </div>
         {running.running && <p className="notice" style={{ marginTop: 10 }}>{running.running.line}</p>}
+        {hasNotes && deployment && (() => {
+          const plans = housekeepingPlan(deployment);
+          const steps = plannedSteps(plans);
+          const pending = pendingHousekeeping();
+          if (!steps && !pending) return null;
+          return (
+            <p className="muted small" style={{ marginTop: 10 }} data-testid="maintenance">
+              Private balance maintenance: {housekeeping.enabled ? `${housekeepingSummary(plans)}${pending ? ` Next step ${new Date(pending.dueAt).toLocaleString()}${pending.error ? ` (the last attempt failed: ${pending.error})` : ""}.` : ""}` : `${steps} step${steps === 1 ? "" : "s"} would help; maintenance is off under Settings.`}
+            </p>
+          );
+        })()}
       </div>
       {details && (
         <>

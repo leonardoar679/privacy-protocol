@@ -255,22 +255,33 @@ export function planMerge(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint
   return { spec, noteData, spent: [a, b], merged, fee: feeOut };
 }
 
-/** The pairs to merge (largest first, as selectInputs orders them) so that ≤ 2 notes cover `needed`, fees included. Pure; ok=false when the balance cannot get there. */
-export function mergeSchedule(notes: { id: string; amount: bigint }[], needed: bigint, feePerTx: bigint, maxMerges = 8): { pairs: [string, string][]; ok: boolean } {
+/**
+ * The pairs to merge (largest first, as selectInputs orders them) so that ≤ 2 notes cover `needed`, fees included.
+ * Pure; ok=false when the balance cannot get there, with the reason: the balance (fees included) is short, or the
+ * spend needs more merges than one go does (`too-many-merges`: the balance is there, spread over too many notes).
+ */
+export function mergeSchedule(notes: { id: string; amount: bigint }[], needed: bigint, feePerTx: bigint, maxMerges = 8): { pairs: [string, string][]; ok: boolean; reason?: "balance" | "fees" | "too-many-merges" } {
   let pool = notes.map((n) => ({ ...n }));
   const pairs: [string, string][] = [];
   for (let i = 0; i <= maxMerges; i++) {
     let sel: ReturnType<typeof selectInputs>;
-    try { sel = selectInputs(pool, needed); } catch { return { pairs, ok: false }; }
+    try { sel = selectInputs(pool, needed); } catch { return { pairs, ok: false, reason: "balance" }; }
     if (!sel.merges.length) return { pairs, ok: true };
     if (i === maxMerges) break;
     const [x, y] = sel.merges[0];
     const a = pool.find((n) => n.id === x.id)!, b = pool.find((n) => n.id === y.id)!;
-    if (a.amount + b.amount <= feePerTx) return { pairs, ok: false };
+    if (a.amount + b.amount <= feePerTx) return { pairs, ok: false, reason: "fees" };
     pairs.push([a.id, b.id]);
     pool = [...pool.filter((n) => n.id !== a.id && n.id !== b.id), { id: `${a.id}+${b.id}`, amount: a.amount + b.amount - feePerTx }];
   }
-  return { pairs, ok: false };
+  return { pairs, ok: false, reason: "too-many-merges" };
+}
+
+/** The balance is there but spread over too many notes for one spend (plan V2 §73): housekeeping consolidates it. */
+export class HousekeepingNeeded extends Error {
+  constructor(readonly notes: number, readonly merges: number, symbol: string) {
+    super(`Your ${symbol} balance is spread over ${notes} notes; this spend needs more than ${merges} merges and the wallet does at most ${merges} in one go. Private balance maintenance consolidates them (Settings), or send a smaller amount now.`);
+  }
 }
 
 /** Perform one merge on chain (private self-transfer) and record the merged note. */
@@ -303,6 +314,7 @@ export async function ensureSpendable(o: { masterSeed: Uint8Array; deployment: D
   for (;;) {
     const notes = noteStore.unspent(vaultId).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount }));
     const sched = mergeSchedule(notes, o.needed + feePerTx, feePerTx);
+    if (!sched.ok && sched.reason === "too-many-merges") throw new HousekeepingNeeded(notes.length, 8, assetByVault(o.deployment, vault)?.symbol ?? "private");
     if (!sched.ok) throw new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs");
     if (!sched.pairs.length) return done;
     const [ia, ib] = sched.pairs[0];
@@ -311,6 +323,45 @@ export async function ensureSpendable(o: { masterSeed: Uint8Array; deployment: D
     await mergeNotes({ ...o, a, b, submission });
     done++;
   }
+}
+
+// ---- splits (plan V2 §73–§74, housekeeping): one note of ours into two of ours — a common-sized piece and
+// the rest — with a private self-transfer (1-in/3-out: piece, rest, the relayer's fee note or a dummy).
+export interface SplitPlan { spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; piece: { note: Note; noteData: Hex; counter: number }; rest: { note: Note; noteData: Hex; counter: number }; fee?: FeeOutput }
+
+/** Split `note` into `piece` and the rest (minus the fee). Pure. */
+export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote, piece: bigint, domain: bigint, fee?: FeeTerms): SplitPlan {
+  const keys = deriveKeys(masterSeed);
+  const vaultId = note.note.vaultId;
+  const restAmount = note.note.amount - piece - (fee?.amount ?? 0n);
+  if (piece <= 0n || restAmount <= 0n) throw new Error("the note does not cover the piece, the rest and the fee");
+  const mk = (amount: bigint) => { const counter = noteStore.allocateCounter(); const n: Note = { vaultId, amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) }; return { note: n, noteData: encryptForSelf(keys, n), counter }; };
+  const pieceOut = mk(piece), restOut = mk(restAmount);
+  const feeOut: FeeOutput | undefined = fee ? { note: feeNote(vaultId, fee), outputIndex: 2 } : undefined;
+  const noteData: [Hex, Hex, Hex] = [pieceOut.noteData, restOut.noteData, feeOut ? encryptTo(fee!.viewPub, feeOut.note) : placeholderNoteData()];
+  const spec: TxSpec = {
+    ...treeSpec(tree), inputs: [{ ...note.note, spendKey: keys.spendKey, leafIndex: note.leafIndex }, null], outputs: [pieceOut.note, restOut.note, feeOut?.note ?? dummy(vaultId)],
+    withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: domain,
+  };
+  return { spec, noteData, spent: [note], piece: pieceOut, rest: restOut, fee: feeOut };
+}
+
+/** Perform one split on chain (private self-transfer) and record both notes. */
+export async function splitNote(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
+  const submission = o.submission ?? settings.get().submission;
+  const vaultId = o.note.note.vaultId;
+  const vault = ("0x" + vaultId.toString(16).padStart(40, "0")) as Address;
+  const terms = await feeTerms(o.deployment, submission, vault);
+  o.onStatus?.(`Splitting a note (${o.note.leafIndex}) into a common-sized piece privately…`);
+  const tree = await syncTreeQuorum(o.deployment);
+  await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
+  poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
+  const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note });
+  const pieceNote: OwnedNote = { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };
+  noteStore.add(pieceNote);
+  recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: o.piece.toString(), status: "completed", ref: r.txHash, note: "a common-sized piece split off privately" });
+  return { ...r, pieceNote, restNote: r.change! };
 }
 
 /** The 121-byte wallet record of a note (spec §5.1), for a manual backup / import. */

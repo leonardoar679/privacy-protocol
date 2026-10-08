@@ -186,7 +186,11 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
   pool's public deposit sizes). A large *balance* is kept as standard-bucket notes (≤ 100 ETH, ideally
   10 ETH) by the housekeeping planner, so that a withdrawal to the user's own addresses can leave as
   pieces over the policy window when privacy is preferred over speed; the number of concurrent large
-  holders bounds what any single large piece can hide behind.
+  holders bounds what any single large piece can hide behind. *Shipped in Stage 8:*
+  `reference/typescript/src/wallet/noteStrategy.ts` (the planner: 100-unit then 10-unit pieces, dust
+  merged, fee-aware), `frontend/src/wallet/housekeeping.ts` (one private self-transfer per step inside
+  the policy window, the daily fee cap, the opt-out); the lint's `large-piece` item counts the holders
+  from the pool's public deposit sizes (`sdk/poolDeposits.ts`).
 
 **Limits.** Whales share one amount here; the background law has no whales of its own (the pool's
 real deposit-size distribution is public and could replace it); the observer uses the piece's own delay
