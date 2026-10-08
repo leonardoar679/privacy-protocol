@@ -12,6 +12,8 @@ import { swapService, type TrackResult } from "./swapService";
 import type { StoredSwap } from "../wallet/journal";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { activityId, updateActivity } from "../wallet/activity";
+import { markAddressSettled } from "../wallet/addressBook";
+import { chainKindOf } from "../keys/chainKeys";
 
 /** The spec's states (services/private-swap/src/order.ts), as the wallet derives them. */
 export type OrderState = "COMMITTED" | "SOURCE_SUBMITTED" | "SOURCE_FINAL" | "PROVIDER_EXECUTING" | "DESTINATION_SUBMITTED" | "DESTINATION_FINAL" | "COMPLETED" | "PARTIAL" | "REFUND_PENDING" | "PROVIDER_TIMEOUT" | "DESTINATION_FAILED" | "REFUNDED" | "EXPIRED" | "CANCELLED" | "FAILED";
@@ -146,6 +148,9 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
       if (!last || last.state !== tracked.state) x.history = [...(x.history ?? []), { state: tracked.state, at: now, note: tracked.label }];
       if (job && x.state !== job.state) x.state = job.state;
     });
+    // High-Value Protection spec §12: a settled payment retires a fresh destination (one use) and marks an entered one paid
+    const r = stored.request as { to?: { chain?: string }; destination?: string };
+    if ((tracked.state === "COMPLETED" || tracked.state === "DESTINATION_FINAL") && stored.track?.state !== tracked.state && r.to?.chain && r.destination) markAddressSettled(chainKindOf(r.to.chain), r.destination, s, now);
     updateActivity(activityId("swap", stored.orderId), { status: job?.state ?? stored.state, note: `${(stored.request as { to?: { symbol?: string } })?.to?.symbol ? `→ ${(stored.request as { to?: { symbol?: string } }).to!.symbol} · ` : ""}${tracked.label}` }, s);
   }
   return { tracked, job };

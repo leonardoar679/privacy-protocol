@@ -5,6 +5,7 @@
 import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@ref/wallet/chainKeys";
 import { seedToPhrase } from "../wallet/keystore";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
+import { recordFreshAddress } from "../wallet/addressBook";
 
 const seeds = new WeakMap<Uint8Array, { of: Uint8Array; seed64: Uint8Array }>();
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -32,7 +33,9 @@ export function peekFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: Wa
 export function consumeFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: WalletSession = defaultSession): ChainAccount {
   const index = nextIndex(chain, s);
   s.update((j) => { j.chainIndexes[chain] = index + 1; });
-  return accountFor(chain, chainSeed(masterSeed), index);
+  const acct = accountFor(chain, chainSeed(masterSeed), index);
+  recordFreshAddress(chain, acct.address, index, s); // High-Value Protection spec §12: verified by derivation, retired after one use
+  return acct;
 }
 
 /** The most recently reserved address of a chain, if any (what the Receive screen shows). */

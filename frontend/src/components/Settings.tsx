@@ -8,6 +8,9 @@ import { CAP_BPS_RANGE, PREFERENCES, PROTECTION_DEFAULTS, PROTECTION_MODES, sett
 import { session } from "../wallet/session";
 import { registerSecondDevice, registerSecondFactor, webauthnAvailable } from "../sdk/secondFactor";
 import { requestSystemNotifications } from "../wallet/notifications";
+import { AddressBookPanel } from "./protection/AddressBook";
+import { allowancesFor, revokeAllowance, type AllowanceLine } from "../sdk/allowances";
+import { formatAmount } from "../sdk/assets";
 
 // Settings (plan V2 §43, §97, §108–§110; whale spec §13, §23): backup and lock, the trade preference
 // (never on the Swap screen), the value tiers, private balance maintenance, the privacy and network
@@ -29,7 +32,7 @@ const TIER_FIELDS: { key: keyof TierThresholds; label: string }[] = [
   { key: "institutional", label: "Institutional review from (USD)" },
 ];
 
-export function Settings({ deployment, readsLine, coreLine }: { deployment: Deployment | null; readsLine: string; coreLine: string }) {
+export function Settings({ deployment, readsLine, coreLine, account = null }: { deployment: Deployment | null; readsLine: string; coreLine: string; /** the connected public wallet, if any: its allowances toward the vaults can be read and revoked */ account?: string | null }) {
   const s = useSettings();
   const [tiers, setTiers] = useState<Record<keyof TierThresholds, string>>({ enhanced: String(s.tiers.enhanced), highValue: String(s.tiers.highValue), highValueSecondary: String(s.tiers.highValueSecondary), institutional: String(s.tiers.institutional) });
   const [tierError, setTierError] = useState("");
@@ -39,6 +42,16 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
   const [exposure, setExposure] = useState(() => ((s.protection.capBps ?? PROTECTION_DEFAULTS[s.protection.mode].capBps) / 100).toFixed(1));
   const [exposureError, setExposureError] = useState("");
   const [deviceStatus, setDeviceStatus] = useState("");
+  const [allowances, setAllowances] = useState<AllowanceLine[] | null>(null);
+  const [allowanceStatus, setAllowanceStatus] = useState("");
+  async function readAllowances() {
+    if (!account) { setAllowanceStatus("Connect the public wallet first (Home → Add funds)."); return; }
+    setAllowanceStatus("Reading through the connected wallet's own provider…");
+    try { setAllowances(await allowancesFor(deployment, account as `0x${string}`)); setAllowanceStatus(""); } catch (e: any) { setAllowanceStatus(e?.message ?? String(e)); }
+  }
+  async function revoke(line: AllowanceLine) {
+    try { const tx = await revokeAllowance(line.asset.token as `0x${string}`, line.asset.vault as `0x${string}`); setAllowanceStatus(`Revoked (tx ${tx.slice(0, 10)}…); read again once it is mined.`); } catch (e: any) { setAllowanceStatus(e?.message ?? String(e)); }
+  }
   const p = s.protection;
   function applyExposure() {
     const bps = Math.round(Number(exposure) * 100);
@@ -165,6 +178,8 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
         {deviceStatus && <p className="muted small">{deviceStatus}</p>}
       </div>
 
+      <AddressBookPanel deployment={deployment} />
+
       <div className="panel">
         <h3>Private balance maintenance</h3>
         <label style={{ display: "block", color: "var(--fg)" }}>
@@ -201,6 +216,19 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
         </label>
         <p className="muted small">{deployment ? `Core ${deployment.core.slice(0, 8)}… · chain ${deployment.chainId} · ${deployment.rpcUrls.length} RPC endpoint${deployment.rpcUrls.length === 1 ? "" : "s"} · ${coreLine}` : "No deployment configured: set VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT (docs/testnet.md)"}</p>
         <p className="muted small">Unaudited; not for production. The proving key served in dev is the insecure single-party setup (circuits/setup/dev).</p>
+        <div style={{ marginTop: 8 }} data-testid="allowances">
+          <label>Token allowances of the connected wallet toward the vaults</label>
+          <p className="muted small">A deposit approves the exact amount; what a failed deposit left behind can be revoked here. Read through the connected wallet's own provider, never this wallet's endpoints.</p>
+          <div className="tabs" style={{ margin: "4px 0" }}><button className="tab" onClick={readAllowances} data-testid="read-allowances">Read allowances</button></div>
+          {allowances?.map((l) => (
+            <div key={l.asset.symbol} className="row small" data-testid="allowance-line" data-asset={l.asset.symbol}>
+              <span>{l.asset.symbol} → its vault</span>
+              <b>{l.allowance === null ? "unreadable" : `${formatAmount(l.asset, l.allowance)} ${l.asset.symbol}`}{l.allowance !== null && l.allowance > 0n && <button className="tab" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 12 }} onClick={() => revoke(l)} data-testid="revoke-allowance">Revoke</button>}</b>
+            </div>
+          ))}
+          {allowances && allowances.length === 0 && <p className="muted small">No ERC-20 vault on this deployment.</p>}
+          {allowanceStatus && <p className="muted small">{allowanceStatus}</p>}
+        </div>
       </div>
 
       <div className="panel">

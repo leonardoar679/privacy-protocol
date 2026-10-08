@@ -30,7 +30,9 @@ export const DEFAULT_MAX_FEE_BPS = 100;
 export const EXPIRY_MARGIN_SECONDS = 48 * 3600;
 export const TERMINAL_STATES: readonly Campaign["state"][] = ["completed", "cancelled"];
 
-export const campaignsOf = (j: JournalData): Campaign[] => j.campaigns ?? [];
+const EMPTY: Campaign[] = [];
+/** The campaigns of a journal (the same empty array while there is none: a stable snapshot for the screens). */
+export const campaignsOf = (j: JournalData): Campaign[] => j.campaigns ?? EMPTY;
 export function campaignById(id: string, s: WalletSession = defaultSession): Campaign | null {
   return s.isUnlocked() ? campaignsOf(s.journal()).find((c) => c.id === id) ?? null : null;
 }
@@ -41,7 +43,6 @@ export function putCampaign(c: Campaign, s: WalletSession = defaultSession): voi
   updateActivity(activityId("campaign", c.id), { status: c.state, note: progressLine(c) }, s);
 }
 export const useCampaigns = (s: WalletSession = defaultSession): Campaign[] => useSyncExternalStore((l) => s.subscribe(l), () => (s.isUnlocked() ? campaignsOf(s.journal()) : EMPTY));
-const EMPTY: Campaign[] = [];
 /** The child order of a tranche (its own StoredSwap), if committed. */
 export const childOrder = (t: Tranche, s: WalletSession = defaultSession): StoredSwap | null => (t.orderId && s.isUnlocked() ? s.journal().swaps.find((x) => x.orderId.toLowerCase() === t.orderId!.toLowerCase()) ?? null : null);
 

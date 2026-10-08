@@ -152,7 +152,7 @@ export function App() {
       )}
       {sheet === "receive" && <Sheet title="Receive" onClose={() => setSheet(null)} testId="sheet-receive"><Receive masterSeed={masterSeed} /></Sheet>}
       {sheet === "privacy" && <Sheet title="Privacy Center" onClose={() => setSheet(null)} testId="sheet-privacy"><PrivacyCenter deployment={deployment} /></Sheet>}
-      {sheet === "settings" && <Sheet title="Settings" onClose={() => setSheet(null)} testId="sheet-settings"><Settings deployment={deployment} readsLine={readsLine} coreLine={coreLine} /></Sheet>}
+      {sheet === "settings" && <Sheet title="Settings" onClose={() => setSheet(null)} testId="sheet-settings"><Settings deployment={deployment} readsLine={readsLine} coreLine={coreLine} account={account} /></Sheet>}
       {sheet === "ai" && <Sheet title="Private AI" onClose={() => setSheet(null)} testId="sheet-ai"><PrivateAI masterSeed={masterSeed} deployment={deployment} /></Sheet>}
       {advanced && tab === "home" && <p className="muted small" style={{ textAlign: "center" }}>{coreLine}</p>}
     </div>

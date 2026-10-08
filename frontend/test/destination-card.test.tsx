@@ -74,7 +74,9 @@ describe("destinations on the screens", () => {
     expect(button(container, "Review")!.disabled).toBe(true);
     await act(async () => { button(container, "I understand")!.click(); });
     expect(container.querySelector('[data-item="destination-not-public-wallet"]')!.textContent).toContain("(acknowledged)");
-    expect(button(container, "Review")!.disabled).toBe(false);
+    // V3 (High-Value Protection spec §12): an entered address at high-value is offered only once it is in the address book, verified and out of its cooling-off (test/address-book.test.tsx)
+    expect(button(container, "Review")!.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="destination-status"]')!.getAttribute("data-reason")).toBe("unknown");
     expect(fetches).toBe(0);
   });
 

@@ -38,6 +38,8 @@ import { DestinationCard } from "./DestinationCard";
 import { PrivacyLint } from "./PrivacyLint";
 import { Scorecard } from "./Scorecard";
 import { CampaignProgress } from "./protection/CampaignProgress";
+import { DestinationStatus } from "./protection/AddressBook";
+import { destinationCheck } from "../wallet/addressBook";
 import { maximumLossModel, type DestinationPolicy } from "@ref/wallet/campaign";
 import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, progressLine, resumeCampaign, startCampaign } from "../wallet/campaigns";
 import { crossRateFromPrices } from "../wallet/campaignRunner";
@@ -131,6 +133,9 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const usd = assessment && "usd" in assessment.value ? assessment.value.usd : null;
   const tier: Tier = assessment?.tier ?? "standard";
   const controls = controlsFor(tier);
+  // High-Value Protection spec §12: an entered destination against the address book — verified before a large operation, its cooling-off delaying the first funding
+  const destCheck = destinationEdited && parsedDestination?.ok ? destinationCheck(chainKindOf(to.ref.chain), destination, { tier }) : null;
+  const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]); // a read only with unspent notes (the store checks)
   /** the policy the service scored under (its tier override applied), or the preference's own before a quote */
   const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
@@ -316,7 +321,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const quotedOnly = quotes?.competition ? quotes.competition.filter((c) => c.outcome === "quoted").length : undefined;
   const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, units), holders, acknowledged };
   // the privacy lint (whale spec §18) with the quote, and again with what the wallet read in the provider call
-  const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider, ...(campaignMode && protectionPlan ? { campaign: { sizing: protectionPlan.sizing, consecutiveSameSize: false, destinationPerTranche: !destinationEdited, cadenceFixed: false, destinationCooling: false } } : {}) }) : null;
+  const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider, ...(campaignMode && protectionPlan ? { campaign: { sizing: protectionPlan.sizing, consecutiveSameSize: false, destinationPerTranche: !destinationEdited, cadenceFixed: false, destinationCooling: !!destCheck && !destCheck.ok } } : {}) }) : null;
   const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: stored.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;
   const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
   const ack = (id: LintId) => setAcknowledged((x) => [...x, id]);
@@ -386,12 +391,13 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
           <div className="small" data-testid="wizard-destination">
             <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} kind={destinationEdited ? "entered" : "fresh"} title={destinationEdited ? "Every step pays" : "The first step pays"} />
             <p className="muted" style={{ margin: "4px 0" }}>{destinationEdited ? "An entered address: every step pays this one address, which links the steps on the destination side. The format parses; check every group before you continue." : "Each step pays its own fresh address of this wallet, reserved when the step starts and never reused; the destinations do not link the steps."}</p>
+            {destinationEdited && <DestinationStatus chain={chainKindOf(to.ref.chain)} address={destination} tier={tier} masterSeed={masterSeed} deployment={deployment} asset={to.ref.symbol} />}
             {destinationEdited && !destAck && <button className="tab" onClick={() => setDestAck(true)}>I checked every group</button>}
             {destinationEdited && destAck && <div className="level-Excellent">✓ checked</div>}
           </div>
         )}
         <div className="tabs" style={{ marginTop: 10 }}>
-          <button className="primary" onClick={next} disabled={w.step === 2 && destinationEdited && !destAck} data-testid="wizard-next">{w.step < 2 ? "Continue" : "Continue to the review"}</button>
+          <button className="primary" onClick={next} disabled={w.step === 2 && destinationEdited && (!destAck || !(destCheck?.verified ?? false))} data-testid="wizard-next" title={w.step === 2 && destinationEdited && !(destCheck?.verified ?? false) ? "Verify the destination in your address book first" : undefined}>{w.step < 2 ? "Continue" : "Continue to the review"}</button>
           <button className="tab" onClick={() => setWizard(null)}>Back</button>
         </div>
       </div>
@@ -407,7 +413,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     const lines: ReviewLine[] = [
       { id: "price", label: "Price protected", ok: BigInt(f.quote.toAmountMin) > 0n, meaning: `every step must guarantee at least ${fmt(f.draft.bounds.minimumOutput, 18 + dec - fromAsset.decimals > 0 ? 18 : 18)} ${sym} per ${fromAsset.symbol} of the quote's minimum less ${0.5} %; a step below it pauses the operation` },
       { id: "route", label: "Route checked", ok: !controls.twoQuotes || liveQuotes >= 2 || routeAck, meaning: liveQuotes >= 2 ? `${liveQuotes} providers quoted this size` : "only one provider answered for this size; the route cannot be compared with another live quote", ...(controls.twoQuotes && liveQuotes < 2 ? { ack: { text: "I accept the single quote", done: routeAck, onAck: () => setRouteAck(true) } } : {}) },
-      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck), meaning: destinationEdited ? "entered by hand: every step pays it; the format parses and you checked every group" : "a fresh address of this wallet per step, each used once" },
+      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck && (destCheck?.verified ?? false)), meaning: destinationEdited ? `entered by hand: every step pays it; ${destCheck?.verified ? "verified in your address book" : "it must be verified in your address book first"}${destCheck?.reason === "cooling-off" ? "; its cooling-off delays the first step" : ""}` : "a fresh address of this wallet per step, each used once" },
       { id: "slippage", label: "Slippage checked", ok: f.quote.impactBps === undefined || (f.p.trancheImpactBps ?? 0) <= IMPACT_CAP_BPS, meaning: f.p.trancheImpactBps !== null ? `impact per step ${f.p.trancheImpactBps} bps against a cap of ${IMPACT_CAP_BPS}` : "the provider gave no impact figure; the minimum bounds every step" },
       { id: "exposure", label: "Exposure bounded", ok: f.draft.plan.capBps <= 300, meaning: `at most ${amountWords(maximumLossModel(f.draft).cap)} outside your private balance and unsettled at once (${f.draft.plan.capBps / 100} %); ${f.p.concurrency === "sequential" ? "one step at a time" : `up to ${f.p.maxParallel} steps at a time`}; each step ${GATE_WORDS[f.p.gate] ?? f.p.gate}` },
       { id: "security", label: "Security assessed", ok: f.verdict.security !== "Do not execute", meaning: f.verdict.why },
@@ -439,7 +445,8 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
       quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps,
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
       confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
-      reviewHoldUntil: controls.reviewHold ? now + REVIEW_HOLD_MINUTES * 60_000 : undefined, now,
+      // the first step waits for the review hold and for an entered destination's cooling-off (§12), whichever ends later
+      reviewHoldUntil: [controls.reviewHold ? now + REVIEW_HOLD_MINUTES * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,
     }));
     if (!c) return;
     reset(); setQuotes(null); setCampaignView(c.id);
@@ -481,7 +488,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     const lines: ReviewLine[] = [
       { id: "price", label: "Price protected", ok: BigInt(quote.toAmountMin) > 0n, meaning: `at least ${fmt(quote.toAmountMin, dec)} ${sym} is bound in the order; a lower minimum needs your consent; the price guard runs again at the hard quote` },
       { id: "route", label: "Route checked", ok: !controls.twoQuotes || liveQuotes >= 2 || routeAck, meaning: liveQuotes >= 2 ? `${liveQuotes} providers quoted this size; the best route won on privacy, price, security, reliability, time and liquidity` : "only one provider answered for this size; the route cannot be compared with another live quote", ...(controls.twoQuotes && liveQuotes < 2 ? { ack: { text: "I accept the single quote", done: routeAck, onAck: () => setRouteAck(true) } } : {}) },
-      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck), meaning: destinationEdited ? "entered by hand: the format parses; confirm you checked every group of the address" : "a fresh address of this wallet, used once, its format checked", ...(destinationEdited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
+      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck && !destinationLocked), meaning: destinationEdited ? `entered by hand: the format parses; confirm you checked every group of the address${destCheck ? `; ${destCheck.status}` : ""}` : "a fresh address of this wallet, used once, its format checked", ...(destinationEdited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
       { id: "slippage", label: "Slippage checked", ok: quote.impactBps === undefined || quote.impactBps <= IMPACT_CAP_BPS, meaning: quote.impactBps === undefined ? "the provider gave no impact figure; the minimum bounds the outcome" : `price impact ${quote.impactBps} bps against a cap of ${IMPACT_CAP_BPS}` },
       { id: "privacy", label: "Privacy reviewed", ok: !lintItems || unacknowledgedBlocks(lintItems).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
     ];
@@ -584,6 +591,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
       <input value={destination} onChange={(e: any) => { setDestination(e.target.value); setDestinationEdited(e.target.value.trim() !== ""); }} placeholder="fresh address" />
       {destinationEdited && <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Never use your public wallet address here. <button className="tab" onClick={() => { setDestinationEdited(false); setDestination(peekFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address); }}>Use a fresh address</button></p>}
       {destinationError && <p className="error" style={{ fontSize: 13, marginTop: -4 }} data-testid="destination-error">Destination: {destinationError}.</p>}
+      {destinationEdited && parsedDestination?.ok && <DestinationStatus chain={chainKindOf(to.ref.chain)} address={destination} tier={tier} masterSeed={masterSeed} deployment={deployment} asset={to.ref.symbol} />}
       <p className="muted" style={{ fontSize: 12 }}>Funded at a random time within {window[1] === 0 ? "no delay (your preference is Fastest)" : `${hours(window[0])}–${hours(window[1])}`}; change the trade preference under Settings.</p>
       <button className="primary" onClick={getQuotes} disabled={!!busy || !destination || units <= 0n || !!destinationError}>Get a quote</button>
       {busy && <p className="muted">{busy}</p>}
@@ -608,7 +616,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
               <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmt(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />
               {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
               <div className="tabs" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={() => startCommit(chosen.provider)} disabled={!!busy || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>{controls.review ? "Review" : "Swap"}</button>
+                <button className="primary" onClick={() => startCommit(chosen.provider)} disabled={!!busy || blocked || (destinationLocked && !campaignMode)} title={blocked ? "Acknowledge the privacy check first" : destinationLocked && !campaignMode ? destCheck?.status : undefined}>{controls.review ? "Review" : "Swap"}</button>
                 <button className="tab" onClick={() => setShowRoute((v) => !v)}>{showRoute ? "Hide route details" : "Route details"}</button>
               </div>
             </>

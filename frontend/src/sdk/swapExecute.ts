@@ -24,6 +24,8 @@ import { session as defaultSession, type WalletSession } from "../wallet/session
 import type { Submission } from "../wallet/settings";
 import type { StoredSwap } from "../wallet/journal";
 import { activityId, recordActivity } from "../wallet/activity";
+import { markAddressUsed } from "../wallet/addressBook";
+import { chainKindOf } from "../keys/chainKeys";
 import { sampleDueAt, scheduleAction } from "../wallet/schedule";
 
 /** A provider call this wallet checked, signed and simulated — kept in memory until it is handed over (never journaled). */
@@ -159,6 +161,8 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
   const job = await relayerSwapExecute(i.submission.url, { factory, params: signed.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
   patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider }, s); // the provider's reference for tracking (NEAR Intents: the deposit address)
+  const r = stored.request as { to?: { chain?: string }; destination?: string };
+  if (r.to?.chain && r.destination) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
   return { job };
 }
 

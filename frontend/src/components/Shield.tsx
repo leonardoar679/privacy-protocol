@@ -5,6 +5,7 @@ import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount } from
 import { useSettings } from "../wallet/settings";
 import { AssetSelect } from "./AssetSelect";
 import { Scorecard } from "./Scorecard";
+import { readAllowance, revokeAllowance } from "../sdk/allowances";
 
 // Shielding is a PUBLIC deposit (amount visible); privacy comes from later private transfers. The
 // note (owner commitment from the spending key, a fresh note secret) is created here and recorded in
@@ -17,7 +18,21 @@ export function Shield({ masterSeed, deployment }: { masterSeed: Uint8Array; dep
   const [amount, setAmount] = useState("1.0");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [leftover, setLeftover] = useState<bigint | null | "unknown">(null);
   const units = parseAmount(asset, amount);
+  // High-Value Protection spec §13: a failed deposit may leave the exact-amount approval behind; it is read through the connected wallet and can be revoked
+  async function checkLeftover() {
+    if (!asset.token) return;
+    const eth = (window as any).ethereum;
+    const [from] = eth ? await eth.request({ method: "eth_accounts" }).catch(() => []) : [];
+    if (!from) { setLeftover("unknown"); return; }
+    const a = await readAllowance(asset.token, from, asset.vault);
+    setLeftover(a === null ? "unknown" : a);
+  }
+  async function revokeLeftover() {
+    if (!asset.token) return;
+    try { const tx = await revokeAllowance(asset.token, asset.vault); setStatus(`Allowance revoked (tx ${tx.slice(0, 10)}…).`); setLeftover(0n); } catch (e: any) { setStatus(e?.message ?? String(e)); }
+  }
   const bucket = bucketBelowFor(asset, units);
 
   async function shield() {
@@ -33,6 +48,7 @@ export function Shield({ masterSeed, deployment }: { masterSeed: Uint8Array; dep
       }
     } catch (e: any) {
       setStatus(e.message ?? String(e));
+      if (asset.token) void checkLeftover();
     } finally {
       setBusy(false);
     }
@@ -55,6 +71,11 @@ export function Shield({ masterSeed, deployment }: { masterSeed: Uint8Array; dep
         Shield
       </button>
       {status && <p className="muted">{status}</p>}
+      {asset.token && leftover !== null && (
+        <p className="notice" style={{ fontSize: 12 }} data-testid="leftover-allowance">
+          {leftover === "unknown" ? "The allowance left for the vault could not be read through the connected wallet; check it in that wallet." : leftover > 0n ? <>An approval of {formatAmount(asset, leftover)} {asset.symbol} for the vault remains from the failed deposit. <button className="tab" onClick={revokeLeftover} data-testid="revoke-leftover">Revoke it</button></> : "No allowance is left for the vault."}
+        </p>
+      )}
       <p className="muted" style={{ fontSize: 12 }}>
         This deposit is public by design (your connected wallet sends it{asset.token ? ", after an exact-amount approval" : ""}); everything after it is private.
       </p>

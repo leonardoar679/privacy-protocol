@@ -20,6 +20,8 @@ import { DestinationCard } from "./DestinationCard";
 import { PrivacyLint } from "./PrivacyLint";
 import { Review, type ReviewLine } from "./Review";
 import { Scorecard } from "./Scorecard";
+import { DestinationStatus } from "./protection/AddressBook";
+import { destinationCheck, useAddressBook } from "../wallet/addressBook";
 
 // Public exit (spec §34): reveals vault/amount/recipient on settlement. The default recipient is a
 // fresh address of this wallet (plan §28, §45); the proof is generated locally in a Web Worker. Works
@@ -28,6 +30,7 @@ import { Scorecard } from "./Scorecard";
 // on the destination card with its USD value, and the privacy lint runs before the button is enabled.
 export function Withdraw({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a recipient equal to it is flagged */ account?: string | null }) {
   const { submission, advanced, verifyReads, secondFactor } = useSettings();
+  useAddressBook(); // High-Value Protection spec §12: the recipient's status follows the book
   const assets = assetsOf(deployment);
   const [asset, setAsset] = useState(assets[0]);
   const [review, setReview] = useState(false);
@@ -52,6 +55,9 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
   const usd = assessment && "usd" in assessment.value ? formatUsd(assessment.value.usd) : null;
   const tier: Tier = assessment?.tier ?? "standard";
   const controls = controlsFor(tier);
+  // High-Value Protection spec §12: an entered recipient against the address book (verified and out of its cooling-off, or an immediate use confirmed)
+  const destCheck = edited && parsed?.ok ? destinationCheck("evm", recipient, { tier }) : null;
+  const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]);
   useEffect(() => {
     if (!deployment || units <= topBucket(asset.decimals)) { setHolders(null); return; }
@@ -93,7 +99,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
     const lines: ReviewLine[] = [
       { id: "price", label: "Amount fixed", ok: true, meaning: `${formatAmount(asset, units)} ${asset.symbol} is released by the vault to the recipient; the amount becomes public` },
       { id: "route", label: "Route checked", ok: true, meaning: "a withdrawal from the pool: proven in this wallet, no provider" },
-      { id: "destination", label: "Destination verified", ok: !edited || (parsed?.ok === true && destAck), meaning: edited ? "entered by hand: the format and checksum parse; confirm you checked every group" : "a fresh address of this wallet, used once", ...(edited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
+      { id: "destination", label: "Destination verified", ok: !edited || (parsed?.ok === true && destAck && !destinationLocked), meaning: edited ? `entered by hand: the format and checksum parse; confirm you checked every group${destCheck ? `; ${destCheck.status}` : ""}` : "a fresh address of this wallet, used once", ...(edited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
       { id: "slippage", label: "No slippage", ok: true, meaning: "the recipient receives exactly this amount" },
       { id: "privacy", label: "Privacy reviewed", ok: unacknowledgedBlocks(lintItems).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
     ];
@@ -116,6 +122,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
       <input value={recipient} onChange={(e: any) => { setRecipient(e.target.value); setEdited(e.target.value.trim() !== ""); }} placeholder="0x… (never your public wallet address)" />
       {edited && <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Never use your public wallet address here. <button className="tab" onClick={useFresh}>Use a fresh address of this wallet</button></p>}
       {recipientError && <p className="error" style={{ fontSize: 13, marginTop: -4 }} data-testid="destination-error">Recipient: {recipientError}.</p>}
+      {edited && parsed?.ok && <DestinationStatus chain="evm" address={recipient} tier={tier} masterSeed={masterSeed} deployment={deployment} asset={asset.symbol} />}
       <label>Amount ({asset.symbol}){usd ? ` · ≈ ${usd}` : ""}</label>
       <input value={amount} onChange={(e: any) => setAmount(e.target.value)} inputMode="decimal" />
       {units > 0n && !isBucketFor(asset, units) && (
@@ -127,7 +134,7 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
       {units > 0n && !recipientError && <DestinationCard network="Ethereum" asset={asset.symbol} address={recipient} amount={formatAmount(asset, units)} usd={usd} kind={edited ? "entered" : "fresh"} />}
       {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
       {assessment && tier !== "standard" && <p className="notice" style={{ marginTop: -4, marginBottom: 10 }}>{assessment.failSafe ? "No price is available, so this withdrawal is treated as a large one: " : "A large withdrawal: "}it is reviewed before it is sent.</p>}
-      <button className="primary" onClick={() => (controls.review ? setReview(true) : withdraw())} disabled={busy || units <= 0n || !!recipientError || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>
+      <button className="primary" onClick={() => (controls.review ? setReview(true) : withdraw())} disabled={busy || units <= 0n || !!recipientError || blocked || destinationLocked} title={blocked ? "Acknowledge the privacy check first" : destinationLocked ? destCheck?.status : undefined}>
         {controls.review ? "Review" : "Withdraw"}
       </button>
       {status && <p className="muted">{status}</p>}

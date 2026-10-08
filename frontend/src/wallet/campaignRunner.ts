@@ -26,6 +26,7 @@ import { abandonSwap, fundEscrow } from "../sdk/swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../sdk/swapService";
 import type { MinimumMoved } from "../sdk/providerCall";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
+import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
 import { campaignById, childOrder, expectedOut, forgetCampaignTick, largestPlanned, notesShapedFor, putCampaign, replanRemainder, scheduleTick, sourceEquivalent, cryptoUniform, TERMINAL_STATES } from "./campaigns";
 import type { ScheduledAction, StoredSwap } from "./journal";
@@ -212,6 +213,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
       if (next.state === "settled" && current.state !== "settled") {
         justSettled.push({ index: t.index, deliveredOut: next.patch.outcome?.deliveredOut, minOut: current.expected?.minOut });
+        if (current.destination) markAddressSettled(chainKindOf(c.request.to.chain), current.destination, s, now); // §12: a fresh address retires, an entered one is paid
         c = withAlert(c, "step-settled", `Step ${t.index + 1} settled.`, now, t.index);
         // the random delay before the next release (§4): drawn at settlement
         const planned = c.tranches.find((x) => x.state === "planned" && x.notBefore === undefined);
@@ -369,6 +371,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const r = await io.handOver(stored, signed);
           signedCache.delete(stored.orderId.toLowerCase());
           c = withTrancheState(c, t.index, "executing", now, { jobId: r.job?.id, handedOverAt: now }, r.job ? `handed to the executor (job ${r.job.id.slice(0, 10)}…)` : "finalized; submitted by the connected wallet");
+          if (t.destination) markAddressUsed(chainKindOf(c.request.to.chain), t.destination, c.id, s, now); // §12
           nextAt = now + TRACK_INTERVAL_MS;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);

@@ -4,6 +4,7 @@ import type { ChainAccount, ChainKind } from "@ref/wallet/chainKeys";
 import { privacyAddress } from "../sdk/privateTx";
 import { consumeFreshAddress, lastFreshAddress } from "../keys/chainKeys";
 import { DestinationCard } from "./DestinationCard";
+import { findEntry, useAddressBook } from "../wallet/addressBook";
 
 // Receive (plan §46): the wallet's private address for pool payments, and FRESH per-asset addresses
 // (Bitcoin / Solana / EVM) from the Chain Key Abstraction — a new one on demand, each meant to be
@@ -27,6 +28,10 @@ export function Receive({ masterSeed }: { masterSeed: Uint8Array }) {
   const a = ASSETS.find((x) => x.id === asset)!;
   const current = a.chain ? shown[a.chain] ?? lastFreshAddress(masterSeed, a.chain) : null;
   const address = a.chain ? current?.address ?? "" : privacyAddress(masterSeed);
+  useAddressBook();
+  // High-Value Protection spec §12: a fresh address is meant for one payment; the book says when it was used
+  const entry = a.chain && current ? findEntry(a.chain, current.address) : null;
+  const spent = !!entry && (entry.lifecycle === "used" || entry.lifecycle === "settled" || entry.lifecycle === "retired");
 
   function generate() {
     if (!a.chain) return;
@@ -48,7 +53,8 @@ export function Receive({ masterSeed }: { masterSeed: Uint8Array }) {
             <QR text={address} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <code style={{ fontSize: 12, wordBreak: "break-all", display: "block" }}>{address}</code>
-              {current && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>fresh address #{current.index + 1}</div>}
+              {current && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>fresh address #{current.index + 1}{spent ? " · already used once: generate a new one for the next payment" : ""}</div>}
+              {spent && <div className="small level-Reduced" data-testid="address-used">This address was used; it is retired after its payment settles.</div>}
               <div className="tabs">
                 <button className="tab" onClick={() => navigator.clipboard?.writeText(address)}>Copy</button>
                 {a.chain && <button className="tab" onClick={generate}>New address</button>}

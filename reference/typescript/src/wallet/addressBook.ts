@@ -3,6 +3,9 @@
 // destination must be verified before any operation at ≥ high-value and is in a 24 h cooling-off after it is
 // added; the Immediate override is explicit and journaled; a retired address is never selected automatically.
 // Pure rules over plain records (the wallet keeps them in the encrypted journal; nothing here is ever sent).
+import { ed25519 } from "@noble/curves/ed25519";
+import { base58 } from "@scure/base";
+import { hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { atLeast, type Tier } from "./valuation";
 
 export type AddressLifecycle = "generated" | "verified" | "used" | "settled" | "retired";
@@ -89,4 +92,20 @@ export function useStatus(e: AddressBookEntry, o: { tier: Tier; now: number }): 
   if (r.reason === "unverified") return "Not verified yet: verify it before a large payment.";
   const hours = Math.max(1, Math.ceil(((r.until ?? o.now) - o.now) / 3600_000));
   return `Added recently: large payments wait ${hours} h more (or confirm an immediate use).`;
+}
+
+/** The challenge an entered destination signs to prove control (§12, signed-message): plain text, dated, naming the address and the entry. */
+export const challengeMessage = (e: Pick<AddressBookEntry, "id" | "normalized">, at: number): string => `Privacy Wallet destination check
+address: ${e.normalized}
+id: ${e.id}
+at: ${new Date(at).toISOString()}`;
+
+/** A Solana destination proves control with an ed25519 signature (base58 or hex, 64 bytes) of the challenge; the address is the public key. */
+export function verifySolanaMessage(address: string, message: string, signature: string): boolean {
+  try {
+    const pub = base58.decode(address);
+    const s = signature.trim();
+    const sig = /^(0x)?[0-9a-fA-F]{128}$/.test(s) ? hexToBytes(s.replace(/^0x/, "")) : base58.decode(s);
+    return pub.length === 32 && sig.length === 64 && ed25519.verify(sig, utf8ToBytes(message), pub);
+  } catch { return false; }
 }
