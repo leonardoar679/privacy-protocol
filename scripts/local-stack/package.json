@@ -1,0 +1,17 @@
+{
+  "name": "privacy-protocol-local-stack",
+  "private": true,
+  "type": "module",
+  "description": "The whole stack on one workstation: a devnet as chain id 1, the pool and the swap periphery from the forge artifacts, the swap service, the relayer, the wallet, and the browser run of docs/local-run.md",
+  "scripts": {
+    "chain": "hardhat node --port 8546 --hostname 127.0.0.1",
+    "deploy": "node deploy.mjs",
+    "services": "node start-services.mjs",
+    "e2e": "node e2e.mjs"
+  },
+  "devDependencies": {
+    "hardhat": "^2.29.1",
+    "playwright": "^1.64.0",
+    "viem": "^2.57.3"
+  }
+}

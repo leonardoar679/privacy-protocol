@@ -1,7 +1,20 @@
 # Running the whole stack on a workstation
 
-What this machine could not do (no browser, no node that survives the Winsock LSP) is exactly the
-first thing to do elsewhere. Order of operations, with what each step proves.
+Order of operations, with what each step proves. The automated form of steps 1–5 lives in
+[`scripts/local-stack`](../scripts/local-stack/README.md): a Hardhat devnet as chain id 1 (Foundry's `anvil`
+segfaults on this machine, a Winsock LSP; a JavaScript node survives it), the contracts deployed from the forge
+artifacts, mock Chainlink feeds and the mainnet bytecode of the pinned provider contracts at their addresses, the three
+services from one script, and a Playwright-driven browser clicking through the flows below — 35 checks (36 when the hard quote asks for consent), last run
+2026-10-08 (`results/report-2026-10-08.json`). The one difference from a testnet: there the light client stays on; on
+the devnet the run switches it off under Settings (no beacon chain to follow).
+
+```
+cd scripts/local-stack && npm install
+npm run chain      # the devnet            (terminal 1)
+npm run deploy     # run/stack.json        (terminal 2)
+npm run services   # 8787 / 8790 / 5173   (terminal 2, keeps running)
+BROWSER_CHANNEL=chrome npm run e2e        # terminal 3; or open http://127.0.0.1:5173 by hand
+```
 
 ## 0. Verify the tree first
 ```

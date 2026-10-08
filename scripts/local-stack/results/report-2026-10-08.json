@@ -1,0 +1,256 @@
+{
+  "startedAt": "2026-10-08T04:25:06.569Z",
+  "stack": {
+    "rpc": "http://127.0.0.1:8546",
+    "core": "0x7a2088a1bfc9d81c55368ae168c2c02570cb814f",
+    "swapFactory": "0xc5a5c42992decbae36851359345fe25997f5c42d"
+  },
+  "steps": [
+    "04:25:06 browser 154.0.8037.98 (chrome, headless)",
+    "04:25:07 lock screen shown",
+    "04:25:07 PASS the recovery phrase has 24 words",
+    "04:25:07 PASS Home shows no USD before any balance",
+    "04:25:08 PASS first launch: no request left the page's origin (creating a wallet, every tab and sheet) — 155 same-origin loads",
+    "04:25:08 PASS Settings: the light client is off and says so",
+    "04:25:09 deposit 1: 500 ETH shielded (vault 843.6 ETH)",
+    "04:25:09 deposit 2: 500 ETH shielded (vault 1343.6 ETH)",
+    "04:25:09 PASS the ETH vault received the two deposits — 343.6 → 1343.6 ETH",
+    "04:25:09 PASS Home values the private balance through the RPC quorum: ≈ $4,250,000",
+    "04:25:09 PASS a $850 withdrawal is the plain flow (a Withdraw button, no Review)",
+    "04:25:14 PASS the fresh recipient received 0.2 ETH from the vault, submitted by the relayer — 0xbCeC0c5A875e8F313CC5719cb7262646a3124546: 0.2 ETH",
+    "04:25:14 PASS the next withdrawal pre-fills the next fresh address — 0xE40BAd970ebD7432dBE0B18927442C0613542198",
+    "04:25:14 PASS the enhanced Review shows the USD numeral — $119,000",
+    "04:25:14 PASS the enhanced Review carries the privacy lint",
+    "04:25:14 PASS enhanced: a tap confirms (no hold)",
+    "04:25:17 PASS the second fresh recipient received 28 ETH — 0xE40BAd970ebD7432dBE0B18927442C0613542198: 28 ETH",
+    "04:25:17 PASS the destination is a fresh Bitcoin address of this wallet — bc1qd3pcryx0xgcxtq7g2490q8fst2xfk6mlqn9fw9",
+    "04:25:22 quote attempt 1: a single quote — Best routeAutomaticReceive approximately24.555844 BTCAt least24.433065 BTCNetworkBitcoinPrivacyExcellentPriceExcellentTime~23 min after the scheduled fundingFee0.09838470 BTC + 0.00001115 BTCOnly one provider answered for this size; the route cannot be compare",
+    "04:25:27 quote attempt 2: a single quote — Best routeAutomaticReceive approximately24.555844 BTCAt least24.433065 BTCNetworkBitcoinPrivacyExcellentPriceExcellentTime~23 min after the scheduled fundingFee0.09838470 BTC + 0.00001115 BTCOnly one provider answered for this size; the route cannot be compare",
+    "04:25:34 quote attempt 3: a single quote — Best routeAutomaticReceive approximately24.559969 BTCAt least24.437169 BTCNetworkBitcoinPrivacyExcellentPriceExcellentTime~23 min after the scheduled fundingFee0.09840032 BTC + 0.00001115 BTCOnly one provider answered for this size; the route cannot be compare",
+    "04:25:39 PASS one route in plain words: Best route Automatic",
+    "04:25:39 PASS the fee line is in asset units, never base units — Fee0.09840032 BTC + 0.00001115 BTCOnly one provider answered for this size;",
+    "04:25:39 acknowledged 0 privacy items before the Review",
+    "04:25:39 PASS high-value: the commit goes through a Review",
+    "04:25:39 PASS the Review is the commit moment",
+    "04:25:39 PASS the Review shows $3,400,000 — $3,400,000",
+    "04:25:39 PASS the five lines are there — Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. High-value transfer.$3,400,000800 ETHFromPrivate ETHToNetworkBitcoinAssetBTCAddressbc1q d3pc ryx0 xgcx tq7g 2490 q8fs t2xf k6ml qn9f w9A fresh address of this wallet, used once.Receive at",
+    "04:25:39 PASS the Route line applies the two-quotes rule (quoted by 2+ providers, or the single quote acknowledged) — Route checked · only one provider answered for this size; the route cannot be compared with another live quoteI accept the single quote",
+    "04:25:39 acknowledged 1 items inside the Review",
+    "04:25:39 PASS Advanced details list the provider, the mode, the fees and the alternatives — ProviderthorchainExecution modestreaming · 142 partsFees0.09840458 BTC + 0.00001115 BTCExpected output24.561051 BTCSettlementnative deposit addressLink evidencethe deposit memo names the destination and the refund escrow (=:ASSET:DEST/ESCROW:LIMIT) and the outbound carries OUT:<inbound tx>Alternativ",
+    "04:25:40 PASS high-value: a hold, never a tap",
+    "04:25:45 PASS the funding is scheduled at a random time inside the policy window — Funding scheduled10/8/2026, 7:12:02 PM (random within 1 h–24 h; keep the wallet unlocked)",
+    "04:25:45 committed: the order is journaled and its funding scheduled",
+    "04:25:45 PASS Fund now is offered (no institutional hold at this tier)",
+    "04:25:49 PASS the escrow is funded by a private withdrawal (2 · Confirm the swap enabled)",
+    "04:25:49 after funding: Funded at a random time within 1 h–24 h; change the trade preference under Settings.Ge",
+    "04:25:57 PASS the Review is the execute moment",
+    "04:25:57 PASS the signed execution was simulated on every RPC endpoint before the hand-over — ✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,845,008 gas",
+    "04:25:57 PASS the price line states the guaranteed minimum — ✓Price protected · the provider call guarantees at least 24.446924 BTC, read from its calldata; the service's price guard ran at the hard quote",
+    "04:26:17 PASS the settlement line reports the execution — Executing",
+    "04:26:17 PASS the executor's deployAndExecute is mined on the devnet — 0xb633dec064c7dde3729f0759f9160ebc4976776d6d3b5be562facf75f65e5e43 in block 57 (3 logs)",
+    "04:26:17 PASS the one-time escrow is empty after the execution — 0x9725be3b685a67824b6a328971341b68a46f3715: 0 ETH",
+    "04:26:22 PASS after a reload and unlock the open order and its settlement line come back from the journal — StatusExecuting",
+    "04:26:23 PASS Activity lists every money flow (two deposits, two withdrawals, one swap) — 5 rows",
+    "04:26:23 PASS the swap row never says a bare failed — ActivityRefreshSwap · 10/7/2026, 9:25:45 PM800 ETH · → BTC✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalized0x9567c506…9ef8 Copythorchain · funded 0xb634e0de…8c05 · execution 0xb633dec0…5e43 · 3 transitions, last 9:26:15 PMExecutingWithdrawn · 10/7/2026, 9:25:17 PM28 ETH · to ",
+    "04:26:23 hosts contacted after first launch: 127.0.0.1:8546, localhost:8546, 127.0.0.1:8790, 127.0.0.1:5173, 127.0.0.1:8787, gateway.liquify.com, rest.cosmos.directory, thorchain-thornode-lb-1.thorwallet.org"
+  ],
+  "checks": [
+    {
+      "name": "the recovery phrase has 24 words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Home shows no USD before any balance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "first launch: no request left the page's origin (creating a wallet, every tab and sheet)",
+      "ok": true,
+      "detail": "155 same-origin loads"
+    },
+    {
+      "name": "Settings: the light client is off and says so",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the ETH vault received the two deposits",
+      "ok": true,
+      "detail": "343.6 → 1343.6 ETH"
+    },
+    {
+      "name": "Home values the private balance through the RPC quorum: ≈ $4,250,000",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a $850 withdrawal is the plain flow (a Withdraw button, no Review)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fresh recipient received 0.2 ETH from the vault, submitted by the relayer",
+      "ok": true,
+      "detail": "0xbCeC0c5A875e8F313CC5719cb7262646a3124546: 0.2 ETH"
+    },
+    {
+      "name": "the next withdrawal pre-fills the next fresh address",
+      "ok": true,
+      "detail": "0xE40BAd970ebD7432dBE0B18927442C0613542198"
+    },
+    {
+      "name": "the enhanced Review shows the USD numeral",
+      "ok": true,
+      "detail": "$119,000"
+    },
+    {
+      "name": "the enhanced Review carries the privacy lint",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "enhanced: a tap confirms (no hold)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the second fresh recipient received 28 ETH",
+      "ok": true,
+      "detail": "0xE40BAd970ebD7432dBE0B18927442C0613542198: 28 ETH"
+    },
+    {
+      "name": "the destination is a fresh Bitcoin address of this wallet",
+      "ok": true,
+      "detail": "bc1qd3pcryx0xgcxtq7g2490q8fst2xfk6mlqn9fw9"
+    },
+    {
+      "name": "one route in plain words: Best route Automatic",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fee line is in asset units, never base units",
+      "ok": true,
+      "detail": "Fee0.09840032 BTC + 0.00001115 BTCOnly one provider answered for this size;"
+    },
+    {
+      "name": "high-value: the commit goes through a Review",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review is the commit moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review shows $3,400,000",
+      "ok": true,
+      "detail": "$3,400,000"
+    },
+    {
+      "name": "the five lines are there",
+      "ok": true,
+      "detail": "Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. High-value transfer.$3,400,000800 ETHFromPrivate ETHToNetworkBitcoinAssetBTCAddressbc1q d3pc ryx0 xgcx tq7g 2490 q8fs t2xf k6ml qn9f w9A fresh address of this wallet, used once.Receive at"
+    },
+    {
+      "name": "the Route line applies the two-quotes rule (quoted by 2+ providers, or the single quote acknowledged)",
+      "ok": true,
+      "detail": "Route checked · only one provider answered for this size; the route cannot be compared with another live quoteI accept the single quote"
+    },
+    {
+      "name": "Advanced details list the provider, the mode, the fees and the alternatives",
+      "ok": true,
+      "detail": "ProviderthorchainExecution modestreaming · 142 partsFees0.09840458 BTC + 0.00001115 BTCExpected output24.561051 BTCSettlementnative deposit addressLink evidencethe deposit memo names the destination and the refund escrow (=:ASSET:DEST/ESCROW:LIMIT) and the outbound carries OUT:<inbound tx>Alternativ"
+    },
+    {
+      "name": "high-value: a hold, never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the funding is scheduled at a random time inside the policy window",
+      "ok": true,
+      "detail": "Funding scheduled10/8/2026, 7:12:02 PM (random within 1 h–24 h; keep the wallet unlocked)"
+    },
+    {
+      "name": "Fund now is offered (no institutional hold at this tier)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the escrow is funded by a private withdrawal (2 · Confirm the swap enabled)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review is the execute moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the signed execution was simulated on every RPC endpoint before the hand-over",
+      "ok": true,
+      "detail": "✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,845,008 gas"
+    },
+    {
+      "name": "the price line states the guaranteed minimum",
+      "ok": true,
+      "detail": "✓Price protected · the provider call guarantees at least 24.446924 BTC, read from its calldata; the service's price guard ran at the hard quote"
+    },
+    {
+      "name": "the settlement line reports the execution",
+      "ok": true,
+      "detail": "Executing"
+    },
+    {
+      "name": "the executor's deployAndExecute is mined on the devnet",
+      "ok": true,
+      "detail": "0xb633dec064c7dde3729f0759f9160ebc4976776d6d3b5be562facf75f65e5e43 in block 57 (3 logs)"
+    },
+    {
+      "name": "the one-time escrow is empty after the execution",
+      "ok": true,
+      "detail": "0x9725be3b685a67824b6a328971341b68a46f3715: 0 ETH"
+    },
+    {
+      "name": "after a reload and unlock the open order and its settlement line come back from the journal",
+      "ok": true,
+      "detail": "StatusExecuting"
+    },
+    {
+      "name": "Activity lists every money flow (two deposits, two withdrawals, one swap)",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "name": "the swap row never says a bare failed",
+      "ok": true,
+      "detail": "ActivityRefreshSwap · 10/7/2026, 9:25:45 PM800 ETH · → BTC✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalized0x9567c506…9ef8 Copythorchain · funded 0xb634e0de…8c05 · execution 0xb633dec0…5e43 · 3 transitions, last 9:26:15 PMExecutingWithdrawn · 10/7/2026, 9:25:17 PM28 ETH · to "
+    }
+  ],
+  "failures": [],
+  "outcome": {
+    "priceGuardRefusals": 0,
+    "execution": {
+      "orderId": "0x9567c506a0c73c13e6916001d647c129c25e891366787f894d6278487ea69ef8",
+      "escrow": "0x9725be3b685a67824b6a328971341b68a46f3715",
+      "executionTx": "0xb633dec064c7dde3729f0759f9160ebc4976776d6d3b5be562facf75f65e5e43",
+      "provider": null
+    }
+  },
+  "hosts": [
+    "127.0.0.1:8546",
+    "localhost:8546",
+    "127.0.0.1:8790",
+    "127.0.0.1:5173",
+    "127.0.0.1:8787",
+    "gateway.liquify.com",
+    "rest.cosmos.directory",
+    "thorchain-thornode-lb-1.thorwallet.org"
+  ],
+  "finishedAt": "2026-10-08T04:26:23.345Z",
+  "requests": 520
+}
