@@ -180,8 +180,12 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
   withdrawals of that size inside its window) stays at 2–6 % because the window is long, but 133 equal
   pieces over 17 days are a pattern this lab does not score. A real observer would cluster them; the
   numbers above are upper bounds on what splitting earns.
-- **Consequence for the product** (spec V2 §12, §13, Stage 8): a large *swap* keeps one escrow — the
-  exact amount, the "fast" option — and the lint says what that means ("a whale among whales": the
+- **Consequence for the product** (spec V2 §12, §13, Stage 8; revised by V3): under V2 a large *swap*
+  kept one escrow — the exact amount, the "fast" option — and the lint said what that means ("a whale
+  among whales"). V3 (`docs/high-value-protection-spec-v1.0.md` §4–§5, §11) executes a large swap as
+  bucketed tranches under an in-flight exposure cap, for capital-exposure reasons first; what that earns
+  or costs in privacy is measured by the campaign rows of its Stage 2, not assumed. The V2 wording: the
+  lint says what one escrow means ("a whale among whales": the
   pool side links it to the set of large holders, whose size the Privacy Center can state from the
   pool's public deposit sizes). A large *balance* is kept as standard-bucket notes (≤ 100 ETH, ideally
   10 ETH) by the housekeeping planner, so that a withdrawal to the user's own addresses can leave as

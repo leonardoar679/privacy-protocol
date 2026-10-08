@@ -8,6 +8,8 @@ what the user sees while a non-atomic settlement is in flight (plan V2 §1–§1
 **`PrivacyCore`, the vaults, the circuits and the `SwapOrderEscrow` / `SwapOrderFactory` bytecode are
 unchanged by this document**: every rule here is engine (replaceable), relayer (replaceable), wallet
 (replaceable) or research. UniswapX is specified as an interface only (§11) and deferred.
+`docs/high-value-protection-spec-v1.0.md` (V3) extends this document: a large order executed as tranches
+under an in-flight exposure cap.
 
 Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `services/private-swap/`,
 `services/relayer/`, `frontend/src/`, `reference/typescript/src/wallet/`, `benchmarks/whale/`.
@@ -333,7 +335,8 @@ ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; par
   answers it. **Calibrated 2026-10-07** (`benchmarks/whale/execution.md`): THORNode refuses the single
   plan from $100K up and Chainflip answers DCA only from $1M, so `STREAM_GAIN_BPS` = 0 — the streamed
   quote is used whenever its net output is at least the single quote's, and always when the single
-  plan is refused. `STREAM_MAX_SECONDS` = 14,400 (4 h) bounds automatic selection: THORChain streams
+  plan is refused (a documented value, not a code constant: the engine takes the provider's streamed
+  plan whenever it offers one, `adapters/thorchain.ts`, `adapters/chainflip.ts`). `STREAM_MAX_SECONDS` = 14,400 (4 h) bounds automatic selection: THORChain streams
   ETH → BTC in 205 / 411 / 1,031 / 2,063 / 5,160 parts taking ≈ 23 min / 44 min / 106 min / 3.5 h /
   8.6 h at $1M / $2M / $5M / $10M / $25M, and USDC → BTC up to 10,216 parts (17 h), with its own cap
   of 14,400 parts (24 h). A plan longer than the bound is still offered when it is the only route,
@@ -362,10 +365,12 @@ ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; par
   wallet cannot justify is not signed. Guest mode (UTXO sources) stays single-swap.
 - **The escrow is unchanged**: one call, one `executed` flag. The streaming happens inside the provider.
 
-*Stage 3* (engine, adapters, service tests) and *Stage 5* (wallet decoders). The constants are
-calibrated by `benchmarks/whale/execution-lab.mjs` (Stage 1); the 2026-10-07 probes gave THORChain
+*Implemented (Stages 3 and 5):* the engine, the adapters and the service tests (Stage 3), the wallet
+decoders (Stage 5). The constants were calibrated by `benchmarks/whale/run-execution.mjs`
+(`services/private-swap/src/sim/whaleLab.ts`, Stage 1); the 2026-10-07 probes gave THORChain
 2,000 ETH → BTC at 19 bps slippage over ≤ 1,062 sub-swaps and Chainflip 400 ETH → BTC as a
-103-chunk DCA, while Chainflip refused 2,000 ETH outright.
+103-chunk DCA, while Chainflip refused 2,000 ETH outright. V3 executes a large order as tranches,
+each one stream (`docs/high-value-protection-spec-v1.0.md` §4).
 
 ## 13. $1M / $5M / $10M risk tiers (plan V2 §4–§5, §13, §66, §100, §137.13)
 
@@ -429,7 +434,11 @@ higher tier always applies (§1).
 - Tiers apply to swaps, withdrawals and private transfers alike (the value of what leaves the
   wallet's control); shields are valued for display only.
 
-*Stage 2.*
+*Implemented (Stage 2):* `reference/typescript/src/wallet/valuation.ts`, `frontend/src/sdk/prices.ts`,
+`services/private-swap/src/valuation.ts`. V3 extends this table with the protection columns — the tranche
+band, the in-flight cap, the settlement gate, diversification and the separate-device confirmation
+(`docs/high-value-protection-spec-v1.0.md` §14); a campaign's tier is the tier of the whole order, never
+of a tranche.
 
 ## 14. Price protection (plan V2 §8, §14, §137.14)
 
@@ -791,6 +800,11 @@ high-value-secondary; at institutional the funding is scheduled no earlier than 
 abandoned meanwhile) and the order exports as JSON (`exportOrderReview`: the order without its
 secrets, the competition, the simulation, the lint). The journaled tier is the higher of the
 service's and the wallet's (§1). Below enhanced the one-tap flow stays, with the card.
+*V3 (`docs/high-value-protection-spec-v1.0.md` §3, §7, §15):* for a protected campaign the Review at the
+start (moment `campaign`) is the one confirmation that binds the execution bounds — with the tier's hold,
+second factor and review hold — and each tranche inside the bounds runs its commit and execute moments
+without a new confirmation; a tranche outside them pauses the campaign and asks on a new Review (moment
+`reroute`). The two per-order moments above stay normative for a single order.
 
 ## 25. Local encrypted order history (plan V2 §49–§50, §83–§86, §137.25)
 

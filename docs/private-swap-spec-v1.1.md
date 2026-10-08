@@ -25,6 +25,9 @@ Invariant D1 (plan §74): the funds a provider — or a compromised adapter, rou
 reach are **exactly the balance of the one escrow the order funded**. The core holds nothing; every
 vault's accounting is untouched by anything the escrow or the provider does. This is enforced by
 construction (the escrow is just a withdrawal recipient) and tested (`contracts/test/periphery`).
+V3 (`docs/high-value-protection-spec-v1.0.md` §5) executes a large order as a sequence of such escrows
+(tranches): D1 holds per tranche, and the campaign's in-flight cap bounds what is simultaneously
+reachable across them.
 
 ## 2. Order object (wallet-side, canonical)
 ```

@@ -1,0 +1,509 @@
+# High-Value Protection Specification V1.0
+
+Normative. How a large private order ($100K to $50M+) is executed so that no more than a bounded
+fraction of it is ever exposed to one external risk boundary, and no more than that fraction is ever
+unsettled at one time: the risk classes of the routes, the execution bounds one confirmation binds, how
+an order becomes a sequence of tranches, how exposure is counted, what releases the next tranche, when
+and why the wallet pauses and never continues on its own, how it recovers, what it shows, and what the
+labs must measure (plan V3 §1–§155). It extends `docs/whale-execution-spec-v1.0.md` (V2) and
+`docs/private-swap-spec-v1.1.md`, which stay normative where this document does not restate them.
+**`PrivacyCore`, the vaults, the circuits and the `SwapOrderEscrow` / `SwapOrderFactory` bytecode are
+unchanged by this document** (plan V3 §123–§125): every rule here is wallet (replaceable), engine
+(replaceable), relayer (replaceable) or research. The service never holds a user's portfolio, address
+list or identity (V2 §22, §25): every per-user state of this document lives in the wallet's encrypted
+journal. The AI recommends, simulates, explains and warns; it never signs (plan V3 §92).
+
+Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `reference/typescript/src/wallet/`,
+`frontend/src/`, `services/private-swap/`, `services/relayer/`, `benchmarks/whale/`.
+
+Status (2026-10-08): a section marked *Stage N* is built by the V3 pass in that stage, in order (the
+roadmap tracks completion). Constants marked *lab-calibrated* take their final value from Stage 2
+(`benchmarks/whale/campaign.md`); until then the value written here is the default the labs start from.
+
+---
+
+## 1. Principles (plan V3 §1–§4, §121, §138–§139)
+
+- **The same simple wallet.** A small user sees the one-tap flow of V2; a large user sees the same
+  screens with protection added underneath. Nothing in this document adds a control a user must set
+  to be protected (plan §1, §140).
+- **No single unnecessary risk boundary.** A large order MUST NOT be executed as one external
+  execution when the route carries protocol, counterparty, bridge, liquidity or operational risk
+  (§2). It is executed as **tranches**, each one external execution risk boundary (§4).
+- **The fraction is a ceiling on exposure, not a transaction count** (plan §3–§4). A 2.5 % tranche
+  MAY be one contract call that guarantees its own bounds, one THORChain streaming order with hundreds
+  of internal sub-swaps, or one intent. The user sees "Swap $10M", never "Swap #1 … #40" (§15).
+- **Unsettled exposure is what is at risk** (plan §18, §133). The in-flight cap (§5) bounds the sum of
+  tranches handed over and not yet settled; it is stronger than, and independent of, the tranche size.
+- **Never continue automatically after an anomaly** (plan §22, §45, §86). A pause is a wallet state the
+  protocol never has (plan §59–§60).
+- **Safety hierarchy** (plan §138), in order: do not lose funds; do not send to the wrong destination;
+  do not execute outside the price limits; do not expose unnecessary identity; then cost; then speed.
+- **Privacy hierarchy** (plan §139), in order: protect the keys; prevent direct identity linkage;
+  prevent timing linkage; prevent amount fingerprinting; prevent provider / RPC correlation; then speed.
+- **What this adds** (plan §121): execution privacy and financial-history privacy (V1.0–V2) plus
+  capital-exposure control. Splitting is not privacy: §11 says what a campaign reveals.
+
+## 2. Risk classes (plan V3 §5–§12, §73–§74, §135–§137)
+
+Every route of a large order is classified before anything is funded. The class decides the default
+tranche band, the settlement gate (§6) and the prior failure probability (§10).
+
+| Class | Meaning | Today's routes | Default band (of the order) | Gate (§6) |
+|---|---|---|---|---|
+| R1 | atomic smart-contract execution that guarantees minimum output, deadline, destination and maximum input in the transaction | none (every adapter has `Capabilities.atomic: false`) | lab-calibrated, MAY exceed 3 % when impact ≤ cap | source final |
+| R2 | RFQ / solver execution with signed bounds | Mayan SWIFT (auction), NEAR Intents (intent); UniswapX RFQ when built (V2 §11) | 2.0–3.0 % | destination submitted |
+| R3 | DEX execution | the Across swap leg (a source swap before the bridge), LI.FI source swaps | the carrying class's band, and the thin-market rule | the carrying class's gate |
+| R4 | cross-chain execution that can stop in a partial state (plan §9) | LI.FI (aggregation), Mayan Fast-MCTP, Across (relayer-bridge), as the second class of their routes | 2.0–3.0 % | destination submitted (R2/R4) or final (R5) |
+| R5 | bridge / MPC / TSS custody of funds in flight | THORChain (TSS vaults), Chainflip (MPC vault), Across (relayer inventory + bridge), Mayan Fast-MCTP (CCTP), LI.FI bridges | 1.0–2.5 % (default 2.5 % Balanced, 2.0 % Maximum Safety and ≥ $5M) | destination final |
+| R6 | external OTC / counterparty | none; interface only (§19) | 1.0–2.5 % | destination final |
+| R7 | issuer-controlled asset on either leg (USDC, USDT) | any route whose source or destination asset has an issuer | the carrying class's band; the issuer line and the isolated vault (V2 §24) | the carrying class's gate |
+
+- The class of a route is the **highest-risk class among its legs** (R5 over R4 over R2), with R3 and R7
+  as flags on top. The risk database (§10) states each provider's class and custody model; the shared
+  `riskModelOf(provider, quote, from, to)` applies it to a quote (`reference/typescript/src/wallet/riskClasses.ts`).
+- **Why not 2 % everywhere** (plan §73–§74): the optimal fraction depends on counterparty, technology,
+  liquidity, settlement, market and privacy risk. The risk engine MAY narrow a class's band (never widen it
+  above 3 %) from live facts: a provider whose security score is below 70, whose breaker opened in the
+  last 24 h or with an incident in the last 30 days gets the lower edge of its band.
+- **The thin-market rule** (plan §135–§137): a tranche is not safe just because it is 2.5 %. A piece whose
+  quoted impact exceeds `IMPACT_CAP_BPS` (50, V2 §4) MUST be halved until it fits or the route is left
+  to streaming / another venue; a piece above a provider's stated instant limit (`Quote.limits.maxInstant`,
+  Across ≈ 180 WETH) MUST be reduced to that limit. **The large-market rule**: when a tranche is tiny
+  relative to liquidity (impact < 5 bps) the engine MAY recommend the band's upper edge.
+
+*Stage 1* (`riskClasses.ts`), *Stage 3* (the risk database, the recommendation).
+
+## 3. Execution bounds (plan V3 §31–§34, §78–§82)
+
+One confirmation (§14) binds the **execution bounds** of a campaign — the whale spec's phase-2 fields
+(V2 §3) lifted to the campaign — and no tranche MAY leave them without a new confirmation:
+
+```
+ExecutionBounds {
+  orderId            bytes32  the campaign id: uniformly random, never derived from identity (V2 §1)
+  assetIn, chainIn            the source asset and chain
+  amountInLimit      uint     the whole order in base units; the sum of all tranches funded MUST NOT exceed it
+  assetOut, chainOut          the destination asset and chain
+  destination                 { kind: "fresh-per-tranche" } (the wallet's next unused address per tranche, V2 §21)
+                              | { kind: "entered" | "book", address, bookId? } (one verified address for every tranche, §12)
+  minimumOutput      uint     the minimum output PER SOURCE UNIT (1e18 fixed point): the confirmation quote's
+                              toAmountMin / amount, less the tier's slippage (50 bps; the provider's recommended
+                              tolerance when lower, V2 §14); every tranche's hard quote MUST guarantee at least
+                              amount × minimumOutput, pro rata for a stream (V2 §12)
+  expiry             unix s   the campaign expiry: no tranche is committed after it
+  maxFeeBps          bps      the tip (≤ 25 bps, V1.1) plus the relayer fee ceiling per tranche; a tranche above it pauses
+  privacyMode                 balanced | max-privacy | max-safety (§14)
+  maxExternalExposure uint    the in-flight cap (§5) in base units
+  executeWindowSeconds        the per-tranche execution window (§4): executeDeadline = quote expiry + window
+}
+```
+
+- **What the user approves** (plan §32): what, where, at least how much, at most which fee, until when
+  — never "the provider may do whatever it wants". **What a provider never gets**: more than one tranche's
+  escrow balance (V1.1 D1, now per tranche), a different destination, a lower minimum, a later deadline, a
+  larger fee (V2 §3 per escrow, unchanged).
+- **The price bound** (plan §78, §80): a tranche whose hard quote at `/prepare` guarantees less than
+  `amount × minimumOutput` MUST NOT be signed (the V2 `MinimumMoved` consent is replaced inside a campaign by
+  a **pause**, `price-deviation`, §8: consent to a lower minimum is a campaign-level decision, never a
+  per-tranche tap). Because V2's price guard is silent when one venue answers (V2 §14), the campaign
+  keeps its own second check: the **Chainlink cross-rate** (the destination feed over the source feed,
+  V2 §13) at release MUST NOT have moved by more than `MAX_DEVIATION_BPS` (100, lab-calibrated) against
+  the rate at confirmation; otherwise the campaign pauses and requotes. Unlimited slippage (5 %, 10 %) is
+  never a default (plan §80).
+- **Stale quotes never execute** (plan §82): the signed deadline of a tranche is
+  `min(quote.expiresAt, executeDeadline)` (V2 §14); a tranche past it is not handed over.
+- **No unlimited approvals** (plan §33): see §13.
+
+*Stage 1* (types, `checkWithinBounds`), *Stage 4* (the wallet), *Stage 3* (`executeWindowSeconds` in the engine).
+
+## 4. Tranche sizing and cadence (plan V3 §3–§4, §15–§17, §27–§29, §52–§53)
+
+- **Pieces come from the bucket alphabet.** A tranche is one bucket, or the sum of two buckets, of the
+  asset's alphabet (`amounts.ts bucketsFor(decimals)`: {1, 2, 5} × 10^k; 0.001…500 ETH, 1…500,000 USDC)
+  inside the band `[band.min, min(band.max, cap / maxParallel)]` of the order (§2, §5). Two sizing modes:
+  - `bucket`: every piece is the largest bucket inside the band (a $10M ETH order at $4,250 = 2,353 ETH →
+    50 ETH ≈ 2.1 %, 47 pieces; a $1M order → 5 ETH ≈ 2.1 %); the public amounts are the common sizes of
+    the pool, and consecutive pieces are equal;
+  - `varied`: consecutive pieces differ (50 / 60 / 70 ETH: a bucket plus a smaller bucket), so no two
+    consecutive external executions have the same size (plan §15, §52), at the cost of less common amounts.
+  The default mode per privacy mode is **lab-calibrated** (Stage 2 measures both against the single piece
+  and the Tornado baseline, §11). The last piece absorbs the remainder when it is below the dust floor.
+- **The user never chooses** sizes, fractions, sub-swap counts or intervals (plan §15, §28; V2 §1 kept).
+  Advanced information MAY show the fractions (plan §65).
+- **Streaming inside a tranche** (plan §27–§29): the engine's plan per tranche is V2 §12 unchanged
+  (THORChain streaming or Rapid when it fits, Chainflip DCA): one tranche, one escrow call, many internal
+  legs, one destination settlement. Streaming is execution, not privacy (plan §30; V2 §12).
+- **Cadence** (plan §53): the release of a tranche after its predecessor settled waits a random delay drawn
+  from the mode's cadence window (`CADENCE_SECONDS`, Balanced [10 min, 90 min], Maximum Privacy
+  [30 min, 6 h], Maximum Safety [10 min, 60 min]; lab-calibrated), from the CSPRNG (`schedule.ts
+  sampleDueAt`), never a fixed interval. The wallet MUST NOT produce an exact-interval pattern.
+- **The note shape** (plan §54): before the first tranche the wallet MAY reshape its notes so that every
+  tranche spends at most two notes (`campaign-shape`, §7): private self-transfers through the housekeeping
+  planner with the campaign's piece as the target (the daily fee cap of V2 §25 is lifted for a confirmed
+  campaign and the cost is shown in the maximum-loss model, §15). Above 64 × 100 ETH the campaign's shape
+  policy overrides the balance planner's `maxNotes` (it would otherwise split and merge in a loop).
+
+*Stage 1* (`planTranches`), *Stage 2* (the defaults), *Stage 4* (the wallet).
+
+## 5. Exposure accounting and the in-flight cap (plan V3 §18, §46–§48, §96–§100, §132–§134)
+
+For a campaign with total `T` and cap fraction `capBps` (§14):
+
+```
+cap        = floor(T × capBps / 10000)                          the maximum external exposure
+inFlight   = Σ amount of tranches handed over and not yet past their gate (§6)   externally reachable
+prepared   = Σ amount of tranches funded or signed but not handed over           in our own escrows: D1
+completed  = Σ amount of settled tranches + the delivered share of partial ones
+refunded   = Σ amount back in the pool (returns to `remaining` and is re-planned)
+remaining  = T − completed − inFlight − prepared
+protected  = T − completed − cap                                 what no single fault can reach
+maxLoss    = min(cap, inFlight + the next tranche)               what the screen calls "at most $X at risk"
+```
+
+Invariants, each pinned by a test:
+- **I1** a tranche `i` is handed over only if `inFlight + amount[i] ≤ cap`;
+- **I2** every piece satisfies `amount[i] ≤ cap` (the splitter guarantees it, §4);
+- **I3** a tranche whose settlement cannot be read (the tracker unreachable, the job unknown) stays in
+  flight — fail closed;
+- **I4** at most `maxParallel` tranches are prepared at once (capital in escrows is bounded even though D1
+  keeps it ours);
+- **I5** completed and in-flight are reported separately and never netted (plan §47, §133).
+
+The scenario of plan §132 — completed $247K, in flight $263K, cap $250K — is unreachable: I2 forbids a
+$263K piece under a $250K cap, and I1 forbids a second release while the first is unsettled. **Only
+unsettled funds count against the cap** (plan §133): a settled tranche frees its exposure the moment its
+gate is reached. The provider-concentration limit (§10) is a separate, weaker control over the whole order.
+
+*Stage 1* (`exposure`), *Stage 4* (the wallet), *Stage 5* (the screens).
+
+## 6. Release modes and the settlement gate (plan V3 §19–§21, §83)
+
+- **Sequential safety mode**: tranche N+1 is released only after tranche N reached its gate and the
+  campaign is healthy on fresh facts (§8). The **first tranche is always alone** — the live health test
+  of plan §21 — in every mode.
+- **Parallel mode** (plan §20): in Balanced and Maximum Privacy, when two pieces fit under the cap
+  (`maxParallel` 2, lab-calibrated), two tranches MAY be in flight, with different providers when two
+  venues quote the size; the cap is the total, never per provider. Maximum Safety and the institutional
+  tier are sequential only.
+- **The gate per class** (the owner's decision, 2026-10-08): R5 routes settle at **destination final**;
+  R2/R4 routes at **destination submitted**; R1 at **source final**. Maximum Safety raises every gate to
+  destination final.
+- **Destination finality** (plan §83) is the provider's delivered state (`TrackStatus.completed` with a
+  destination transaction) plus an **elapsed-time margin** after the outbound: Bitcoin 60 min, Solana
+  1 min, EVM chains 15 min (lab-calibrated). The wallet MUST NOT query a third-party explorer for the
+  destination (it would hand the destination to that service); the screen distinguishes "received" from
+  "finalized" by the margin. "Destination submitted" is the provider's outbound observed.
+- **What the trackers report** (informative): THORChain and Chainflip report partial fills with delivered
+  and refunded amounts (V2 §12, §19); LI.FI reports partial without amounts; Mayan, NEAR and Across report
+  completed, refunded or executing only. A route whose tracker cannot distinguish states settles on
+  `completed` under I3.
+
+*Stage 1* (`gateFor`, `settledBy`), *Stage 2* (the margins), *Stage 4* (the runner).
+
+## 7. The campaign state machine (plan V3 §44)
+
+The wizard steps DRAFT → QUOTING → RISK ANALYSIS → PRIVACY ANALYSIS → DESTINATION VERIFIED are screen
+state (nothing is journaled, nothing is funded). The journal starts at the confirmation:
+
+```
+USER CONFIRMED ─▶ PREPARING NOTES ─▶ RUNNING ─▶ … ─▶ COMPLETED
+                                       │  ▲
+                                       ▼  │ resume (§8)
+                                     PAUSED ─▶ REASSESSING ─▶ REQUOTING ─▶ REROUTING (a new Review)
+                                       │
+                                       └──▶ WINDING DOWN ─▶ CANCELLED
+tranche:  planned ─▶ ready ─▶ committed ─▶ funded ─▶ signed ─▶ executing ─▶ source confirmed
+          ─▶ destination submitted ─▶ settled | partial | refunding ─▶ refunded | failed | skipped
+```
+
+- A tranche is **one V1.1/V2 order**: `committed` = `/order` journaled as a child `StoredSwap`
+  (`StoredSwap.campaign = { id, index }`), `funded` = the private withdrawal into its escrow (V2 §3 phase 2
+  per tranche; the escrow holds it, D1), `signed` = prepare → the wallet's own check of the provider call →
+  the signature → the simulation on every endpoint (V2 §24), kept in the wallet, `executing` = the
+  hand-over to the executor (the only moment money becomes externally reachable), then the V2 §19 states
+  through the tracker. The order machine of V1.1 §3 and the relayer's job machine of V2 §20 are unchanged.
+- **One action per tick.** The runner (`frontend/src/wallet/campaignRunner.ts`) computes the next action
+  from the journal and fresh facts with the pure reducer `nextAction(campaign, facts, now)`
+  (`reference/typescript/src/wallet/campaign.ts`: `none | wait | shape-notes | commit | fund | sign |
+  hand-over | track | pause | release-next | wind-down | complete`), journals the tranche state before the
+  network call and re-reads the journal at the next tick. It runs on any tab while the wallet is unlocked
+  (the scheduler of V2 §25) and resumes at unlock after a reconcile (§9).
+- **Progressive confidence** (plan §21): `release-next` requires the previous tranche at its gate, the
+  exposure invariants (§5), the bounds (§3), no pause condition on fresh facts (§8) and the cadence delay (§4).
+- **Partial fills** (V2 §12) are not anomalies by themselves when the delivered amount meets the
+  tranche's pro-rata minimum: the refunded part returns to `remaining` and is re-planned; a delivered amount
+  below the minimum is an anomaly (§8).
+
+*Stage 1* (the reducer), *Stage 4* (the runner).
+
+## 8. Pause, resume, reroute, cancel (plan V3 §22, §45, §76–§78)
+
+A pause stops releasing tranches; it cannot recall an execution already handed over; in-flight tranches
+are still tracked and may settle during the pause. Every pause journals its reason and raises an alert
+(§15). Reasons:
+
+| Reason | Fact |
+|---|---|
+| `price-deviation` | a tranche's hard quote below the price bound, or the Chainlink cross-rate moved beyond `MAX_DEVIATION_BPS` (§3) |
+| `provider-error` | the relayer job `execute-failed` / `refund-failed`, the tracker `failed`, or the provider's breaker open (§10) |
+| `chain-congestion` | the relayer's live gas price above 3 × its value at confirmation (lab-calibrated) |
+| `route-degraded` | the chosen provider's reliability below 60 (V2 §16) or no live quote for the tranche size |
+| `unexpected-destination` | the provider call's receiver differs from the tranche's destination (the wallet already refuses the call, V2 §21; the campaign pauses too) |
+| `security-incident` | an incident for the provider dated after the campaign started (§10) |
+| `anomaly` | a delivered amount below the tranche's guaranteed minimum (plan §45: $241K for $250K), a partial fill below the pro-rata minimum, or a settlement older than 3 × the plan's expected time |
+| `reconcile` | a money-moving step ended with an unknown outcome (§9) |
+| `bounds` | the next tranche would leave the bounds (§3): remaining limit, fee, expiry, destination |
+| `user` | the campaign's Pause button |
+| `wallet-pause` | the global "Pause large operations" switch (plan §59): it pauses the wallet's automation only, never the protocol (plan §60) |
+
+- **Resume** always goes **reassess** (fresh facts: health, incidents, the cross-rate; the guards must
+  clear) → **requote** (a fresh competition for the remaining amount: a new plan and risk snapshot) →
+  **reroute** when the chosen provider changed: a route change on a high-value order is a major event
+  (plan §77) that MUST be confirmed on a new Review (moment `reroute`) unless `settings.protection.autoReroute`
+  is on and the tier is below high-value-secondary; at ≥ $5M the second factor is asked again. The wallet
+  never changes the execution strategy quietly (plan §76).
+- **Cancel** ("Return the rest to my private balance") → WINDING DOWN: planned tranches become `skipped`,
+  funded unsigned tranches get a refund-only job (V2 §20: `deployAndRefund` at `refundAfter`, hours away
+  with the short window of §3), in-flight tranches finish; COMPLETED or CANCELLED when nothing is open.
+- **Never automatically continue** after an unexplained anomaly (plan §45): the engine determines why
+  before releasing the next tranche; "why" is the user's decision on the Review when the facts cannot settle it.
+
+*Stage 1* (`detectPause`), *Stage 4* (the wallet), *Stage 5* (the screens).
+
+## 9. Recovery and duplicate-send protection (plan V3 §84–§89)
+
+- **Reconcile before every money movement.** Before funding, signing or handing over, the runner reads
+  the facts — the funding receipt through the RPC quorum, the predicted escrow's balance (V2 §19), the
+  relayer job (`GET /swap/:orderId`), the tracker — and sets the tranche's state from them. A tranche with
+  `fundedTx`, or whose escrow already holds the amount, is never funded twice; a tranche with a `jobId` is
+  never handed over twice; the relayer keys jobs by `orderId` and replaces only its `REPLACEABLE` states
+  (V2 §20). **No automatic retry on money movement** (plan §86): a network failure after a send is
+  `reconcile` (§8), never "send again".
+- **Unique ids** (plan §87): one `orderId` per tranche attempt (a requote after a pause is a new attempt
+  with a new one-time key, `keys/swapKeys.ts`); the relayer's job id is the execution id; a retry MUST first
+  prove the previous attempt did not settle (the facts above).
+- **Provider timeout / destination failure** (plan §85): the tranche follows its own order's refund path
+  (V2 §20); the amount returns to `remaining`; the campaign pauses with `provider-error` and reassesses.
+- **Application crash / lock** (plan §85): the `campaign-tick` action survives in the journal; the first
+  tick after unlock reconciles every non-terminal tranche before acting.
+- **The local audit trail** (plan §88): the campaign journals every event — created, quote selected, risk
+  assessment, confirmation, each tranche's transitions, every pause and resume, settlement — in the
+  encrypted journal; it is exportable (V2 §24) and never uploaded.
+- **Server logs** (plan §89, restating V2 §22/§25): the service and the relayer MAY hold random order
+  ids that name nobody, provider, state and timestamps; never a user id, a portfolio, a private note, a source wallet, a
+  private balance, a campaign id or a step index (none is sent to them). The relayer's job list
+  (`GET /swap`) MUST require `RELAYER_ADMIN_TOKEN`: a campaign's N jobs are not listable by a third party.
+
+*Stage 4* (the runner), *Stage 3* (the relayer token).
+
+## 10. Provider risk (plan V3 §23–§25, §49–§50, §113–§118, §134, §155)
+
+- **The risk database** (plan §115): `services/private-swap/risk/providers/<id>.json` (class, custody
+  model, upgradeability, audits with dates and scope, bug bounty, TVL, 30-day volume, security events,
+  privacy events, last reviewed), `assets/<symbol>.json` (issuer, freeze and pause risk, decimals),
+  `routes/<provider>-<from>-<to>.json` (gate, band, share cap, minimum tranche; **generated by the lab from
+  measured data with `measuredAt`**, plan §116 — never hard-coded forever). An operator file
+  (`INCIDENTS_FILE`, V2 §16) is reloaded on an interval; a malformed file adds nothing.
+- **Security scoring with separate fields** (plan §114): `securityBreakdown(provider)` = baseline −
+  incident penalties (V2 §16 decay) ± audit recency ± code-change recency ± TVL and volume bands ± bug
+  bounty ± upgradeability (immutable > timelock > multisig > admin) ± bridge / validator model; "audited" is
+  never a binary. The route health score (plan §24) is the V2 §4 components (security, liquidity, execution
+  as price, latency, failure as reliability, privacy) shown per provider.
+- **Histories** (plan §117–§118): security events (provider, incident, date, impact, affected chains and
+  assets, recovery, status) and privacy events (metadata behaviour, address reuse, timing leakage, provider
+  visibility) are kept and feed the score; the route engine never forgets a previous failure.
+- **Circuit breaker extensions** (plan §23, §113): besides V2's three consecutive failures, the breaker
+  opens on a failure-rate spike in the window, a settlement stall counted from `/track` (an execution
+  older than 3 × its plan's time and unfinished), quote divergence (the price guard's gap at `/prepare`),
+  and a new incident less than 24 h old; an expired breaker closes half-open (one probe).
+- **Concentration** (plan §49–§50, §134): for very large orders no provider SHOULD carry more than
+  `PROVIDER_SHARE_CAP_BPS` (500, lab-calibrated) of the whole order **when two or more providers quote the
+  tranche size**; with one venue the recommendation says "single venue" and never diversifies for
+  appearance; the privacy engine weighs diversification against metadata fragmentation (§11).
+- **Expected loss per failure** (plan §155): `ELPF = P(failure) × capital exposed`, per tranche
+  (`exposed` = the tranche) and per campaign (`exposed` = the cap); `P(failure)` = the class prior
+  (lab-calibrated) × (1 + failures in the window / 3) × an incident factor. It is shown under Advanced and
+  compared across modes.
+- **The recommendation** (`recommendProtection`, `QuoteSet.protection`): class, band, cap fraction, gate,
+  release mode, estimated steps and time, per-tranche impact and the thin-market flag, concentration, ELPF,
+  and `staged` for $100K–$1M (true when the single venue's impact exceeds the cap or its reliability is
+  below 60). It is advice: the wallet computes its own bounds and accounting from the shared core.
+
+*Stage 3.*
+
+## 11. Privacy under protection (plan V3 §16, §30, §50–§55, §101–§103, §129–§130, §154)
+
+- **Randomization is not security** (plan §16): varying sizes and times is one component; the set still
+  needs common amounts, fresh destinations, private submission, provider separation and timing diversity.
+  The wallet MUST NOT say "anonymous" or "100 % private" (V2 §18).
+- **What a campaign reveals** (honest statement): N public withdrawals of common sizes to N fresh escrows
+  on a random cadence, each followed by a provider deposit whose memo or calldata publishes the destination
+  (V2 §17: every adapter's link is public). An observer who clusters them sees a campaign; the labs
+  measure how much (§18) and the Privacy Center says it. Diversifying providers adds timestamps, amounts
+  and endpoints (plan §50): the engine optimises diversification against fragmentation, not either alone.
+- **Lint additions** (V2 §18): `same-size-consecutive` (warn: two consecutive tranches of the same size
+  under `varied`; informative under `bucket`), `tranche-link` (warn: an entered destination links every
+  tranche publicly; fresh-per-tranche does not), `exact-cadence` (block: a release pattern with a fixed
+  interval — the wallet never produces one), `destination-cooling` (block at ≥ high-value until the
+  entered destination is verified and out of cooling-off, §12).
+- **Private restructuring first** (plan §51, §55): a large cross-chain operation goes public funding wallet
+  → private pool → private restructuring (§4) → tranche → fresh escrow → provider → fresh destination,
+  never permanent wallet → provider → permanent address (plan §127: one-time source and destination).
+- **Modes** (plan §101–§105): Maximum Privacy = fewer public exits (the `bucket` sizing, the widest
+  cadence, `best-privacy` scheduling) under the same cap; Maximum Safety = the lowest band, sequential,
+  mandatory destination verification, the second device, diversification where possible, "execution may
+  take longer"; Balanced = the default of §14. The wallet, not the user, finds the balance (plan §101).
+- **The cross-chain privacy metric** (plan §130): source, destination, cross-chain, amount, timing and
+  provider linkability per route → the cross-chain privacy score (the V2 §17 cross-chain term extended
+  with the campaign's arrival pattern, measured in §18).
+
+*Stage 1* (the lint), *Stage 2* (the labs), *Stage 5* (the screens).
+
+## 12. Destination protection (plan V3 §35–§40, §126–§128)
+
+- **The address book** is journaled (`journal.addressBook`, optional): `{ id, chain, asset?, address,
+  normalized, label, addedAt, lifecycle: generated | verified | used | settled | retired, verification:
+  { status, method, at }, coolingUntil?, override?, lastUsedAt, usedBy }`. It is local; it is never sent
+  anywhere (plan §35; V2 §22).
+- **Verification methods**: `derived` (the wallet's own fresh addresses, re-derived at use — verified by
+  construction), `groups-read` (the grouped address re-typed group by group, V2 §21), `signed-message`
+  (an EVM address proves control by a signed message the wallet checks), `test-transaction` (one smallest
+  piece sent first; the wallet says "⚠ This test creates public transaction metadata", plan §40).
+  Cryptographic verification is preferred; the test transaction is the fallback.
+- **Rules**: an entered destination MUST be verified before any operation at ≥ high-value (plan §36);
+  a newly added entered destination is in **cooling-off** for 24 h (plan §38) before a ≥ high-value
+  operation may fund toward it — the campaign MAY be confirmed, its first funding waits like the review hold;
+  the **Immediate** override requires the typed phrase, the second factor (or the second device at
+  institutional) and the hold, and is journaled. Fresh addresses skip cooling. A `retired` entry is never
+  selected automatically (plan §128); a reused entry is warned (`tranche-link`).
+- **Lifecycle** (plan §128): fresh addresses are `generated` at reservation, `verified` by derivation,
+  `used` at hand-over, `settled` when the tranche settles, `retired` afterwards; entered addresses go
+  `verified` → `used` → `settled` and stay usable but warned.
+- **Simplified allowlisting** (plan §37): the book is the allowlist; velocity and threshold controls are the
+  tiers and the cap (§5, §14); roles and multi-operator approval are out of scope (§19).
+
+*Stage 1* (`addressBook.ts`), *Stage 6* (the screens).
+
+## 13. Approvals (plan V3 §33–§34)
+
+- The wallet never approves `MAX_UINT256`: the shield approves the exact amount (V1.1, `shieldERC20`),
+  and after a failed deposit the remaining allowance is shown and can be revoked (approve 0) from Settings
+  → Advanced; the wallet reads allowances through the injected wallet's own provider (no address ↔ RPC link).
+- The escrow approves the provider for its whole post-tip balance at execute and the vault for the exact
+  amount at refund (bytecode, unchanged). A provider that pulls less keeps an allowance over that one
+  escrow only: D1 bounds it to the tranche. This is documented as a known limit (audit package).
+
+*Stage 6.*
+
+## 14. Value modes and controls (plan V3 §68–§72, §104–§105)
+
+The V2 §13 tiers gain the protection columns (USD thresholds configurable as before):
+
+| Tier | Value | Confirmation (V2 §24) | Protection |
+|---|---|---|---|
+| standard | < 100,000 | one tap | none (plan §68) |
+| enhanced | ≥ 100,000 | Review + lint | simulation, destination verification, lint; **staged only when `staged`** (a single venue with impact > cap or reliability < 60), then one tranche band of 2.0–3.0 % (plan §69) |
+| high-value | ≥ 1,000,000 | + simulation + hold | **tranches** (band per class), the destination lock (§12), route competition, execution monitoring; cap 2.5 % Balanced (plan §70) |
+| high-value-secondary | ≥ 5,000,000 | + the second factor | + cap 2.0 %, provider diversification when two venues quote the size, the second factor again on reroute (plan §71) |
+| institutional | ≥ 10,000,000 | + the review hold and the export | + sequential only, band 2.0–2.5 %, the strongest route verification, the **second factor on a separate device** (a WebAuthn cross-platform credential — a security key or a phone — with no password fallback), the cooling-off never bypassed without it (plan §72) |
+
+- **Modes** (`settings.protection.mode`): Balanced (cap 2.5 %, streaming, fresh endpoints, hard minimum
+  output, automatic lint — the recommended default, plan §105), Maximum Privacy (plan §103), Maximum
+  Safety (plan §104). The exposure fraction is user-adjustable within 2.0–3.0 %; 3 % only when the risk
+  engine permits (an R1/R2 route with impact under the cap, plan §72, §74).
+- **The global switch** "Pause large operations" (plan §59) pauses every campaign's automation; it never
+  touches the protocol (plan §60: a protocol pause is forbidden and does not exist, V1.0).
+- **Device protection** (plan §61–§64): the platform authenticator at ≥ $5M (V2 §24), the separate device
+  at ≥ $10M; a compromised phone does not reach the institutional threshold alone; threshold signing across
+  devices is out of scope (§19).
+
+*Stage 4* (settings), *Stage 5* (controls and screens).
+
+## 15. Screens, alerts and notifications (plan V3 §43, §46–§47, §65–§67, §75–§77, §93–§94, §140–§146)
+
+- **Before the start** (plan §46, §93): the Swap screen at ≥ high-value shows the protection line
+  ("Protected execution · about N steps of ≈ $X · one at a time · at most $Y at risk · about T"); the
+  Review (moment `campaign`) shows the **maximum-loss model** — Order, in-flight cap, maximum external
+  exposure, remaining protected, preparation cost — the five lines of V2 §24 plus **Exposure** (the cap
+  and the gate in words), and the **combined verdict** (plan §43): SECURITY ("Safe to execute" / "Review" /
+  "Do not execute") and PRIVACY (the level word). "Safe to execute" MUST NEVER be shown without the privacy
+  line. Advanced (plan §94): the provider, streaming and internal legs, LP fee, gas, settlement confidence,
+  the band, the gate, ELPF, concentration, the alternative and its price difference.
+- **During** (plan §47, §66–§67, §143): "Step k of ~N", completed ✓, executing …, remaining, the protection
+  bar (completed · in flight · prepared · protected), the privacy level; Completed / In progress /
+  Protected / Remaining are visible at all times (the user never wonders where the funds are); "You can
+  safely leave this screen — keep the wallet unlocked" (the web wallet; native background execution is
+  out of scope, §19). The three statuses ✓ Protected / ⚠ Review / ● Processing; no red walls (plan §141).
+- **The exposure dashboard** (plan §75, Advanced): order, in flight, maximum allowed, provider, provider
+  exposure, remaining, the per-tranche table, the pause history, ELPF.
+- **Alerts** (plan §76): provider degraded, price changed, liquidity dropped, destination changed, route
+  changed, execution delayed, chain congested, security incident, paused, step settled — in-app always;
+  the browser `Notification` API only when enabled and the tab is hidden, with the text "Your private
+  operation has updated" unless amount previews are enabled (plan §145–§146). No push server.
+- **Wording**: "Best execution", never "<provider> is our official bridge" (plan §112); never "atomic",
+  never "anonymous".
+
+*Stage 5* (the screens), *Stage 7* (the dashboard).
+
+## 16. zkAPI and the AI (plan V3 §90–§92)
+
+The trade check of V2 §22 carries the protection plan (class, band, steps, gate, ELPF, concentration)
+in its sanitized summary — never an address, hash, balance or identity — and the private session may
+recommend, simulate, explain and warn about a campaign; it cannot sign, authorize, bypass a limit or
+change a destination (the module imports nothing that can, pinned). The metered quote gateway stays as
+in V2 §22. *Stage 5.*
+
+## 17. The journal and the relayer's list (plan V3 §88)
+
+- `JournalData.campaigns?: Campaign[]` (id, state, mode, tier, value, request, bounds, plan, tranches
+  with their histories, the reference rate, the risk snapshot, the lint, the pause, confirmations, alerts,
+  history), `JournalData.addressBook?`, `StoredSwap.campaign?: { id, index }`, `ScheduledAction.kind` +
+  `campaign-tick | campaign-shape`, `ActivityRecord.kind` + `campaign`, `settings.protection`. **Every field
+  is optional and never written by `emptyJournal()`** (V2 §25): the pinned at-rest vectors stay valid and a
+  V2 journal round-trips byte-identically (pinned).
+- `GET /swap` on the relayer requires `RELAYER_ADMIN_TOKEN` (§9).
+
+*Stage 4.*
+
+## 18. Labs and acceptance (plan V3 §131–§132, §151–§155)
+
+- **The campaign lab** (`benchmarks/whale/run-campaign.mjs`, `reference/typescript/src/sim/campaignLab.ts`):
+  the reducer against a simulated world for $1M, $2M, $5M, $10M, $25M, $50M on EVM → EVM, EVM → BTC,
+  EVM → SOL, BTC → EVM, SOL → EVM, from the measured quotes of `benchmarks/whale/execution.json`: steps,
+  wall time with the gate margins, pauses, gas at the live price, the providers that serve a tranche.
+- **Failure injection** (plan §152): provider outage, quote mismatch, price spike, chain congestion, RPC
+  failure, destination error, wrong chain, wrong token, reorg, bridge timeout, solver failure, app crash,
+  network disconnect — each against each campaign state. **Capital-loss simulation** (plan §153): the
+  maximum possible loss per fault, which MUST be at most one active tranche plus nothing (the cap), never
+  the order. **ELPF** per fault and mode (§10).
+- **Privacy simulation** (plan §154): timing, amount, timing × amount, provider and cross-chain
+  linkability for the Tornado baseline, the V2 single escrow, and V3 campaigns (`bucket` and `varied`,
+  gated cadence), in `whaleUtxoLab.ts` and `crossChainLab.ts`; the numbers go to `docs/privacy-lab.md`
+  and decide the defaults of §4 and §14.
+- **Acceptance** (plan §131): $1M — destination validation, simulation, lint, a tranche plan; $5M — plus
+  the second confirmation and provider-health monitoring; $10M — plus ≤ 2.5–3 % exposure, sequential
+  settlement, automatic route re-evaluation. The §132 scenario and the invariants of §5 are tests; the
+  local-stack browser run (V2) shows a $10M campaign's first tranche executing and the campaign waiting
+  at the gate (a devnet never delivers), the dashboard, the switch, cancel and a reload.
+
+*Stage 2* (the labs), *Stage 1 / 4 / 5* (the tests), *Stage 7* (the browser run).
+
+## 19. Study notes and out of scope here
+
+- **`PrivateExecutionEscrow`** (plan §124–§125): a trust-minimized temporary execution boundary with strict
+  amount bounds, destination, expiry, refund and no arbitrary call is what `SwapOrderEscrow` already is for
+  one order, except that its provider call is arbitrary calldata signed by the one-time key. A stricter
+  escrow (a provider allowlist on chain, a bounded call shape) would add bytecode, a new creation hash and
+  an attack surface; "prefer no escrow where possible" and the one-use execution account (plan §125–§126)
+  are the direction when a provider can execute from a user-controlled fresh address — a separate security
+  study, not this pass.
+- **UniswapX RFQ (R2)**: the interface of V2 §11 and its escrow requirement (EIP-1271) stay deferred.
+  **OTC / R6** (plan §11): an interface only — counterparty, settlement, collateral, reputation, legal
+  entity and settlement method as risk-database fields; no desk is integrated.
+- **Multi-device threshold approval** (plan §61–§64): a 2-of-3 across devices needs a second-device
+  channel the server only orchestrates; the separate-device second factor of §14 is the in-scope control.
+- **Push notifications, background execution, native shells** (plan §144–§149): the web wallet runs
+  campaigns while unlocked and resumes at unlock; in-app alerts and local notifications only.
+- Third-party explorer queries for destination finality (§6); execution with real funds and the testnet
+  broadcast; independent audits.
