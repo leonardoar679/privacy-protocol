@@ -115,7 +115,7 @@ ExecutionBounds {
   `min(quote.expiresAt, executeDeadline)` (V2 §14); a tranche past it is not handed over.
 - **No unlimited approvals** (plan §33): see §13.
 
-*Implemented (Stage 1):* the types and `checkWithinBounds` in `reference/typescript/src/wallet/campaign.ts` (`test/campaign.test.ts`). *Stage 4* (the wallet), *Stage 3* (`executeWindowSeconds` in the engine).
+*Implemented (Stage 1):* the types and `checkWithinBounds` in `reference/typescript/src/wallet/campaign.ts` (`test/campaign.test.ts`). *Implemented (Stage 3):* `executeWindowSeconds` — `QuoteHint.executeWindowSeconds` on `/quote` and `/order`, clamped by `executeWindowFor(policy, window)` into `[EXECUTE_WINDOW_MIN_SECONDS (600), the policy's delay budget]` and written into `executeDeadline` (so `refundAfter` follows) by `buildOrder` (`services/private-swap/src/engine.ts`, `test/risk.test.ts`). *Stage 4* (the wallet).
 
 ## 4. Tranche sizing and cadence (plan V3 §3–§4, §15–§17, §27–§29, §52–§53)
 
@@ -334,7 +334,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
   and `staged` for $100K–$1M (true when the single venue's impact exceeds the cap or its reliability is
   below 60). It is advice: the wallet computes its own bounds and accounting from the shared core.
 
-*Stage 3.*
+*Implemented (Stage 3):* `services/private-swap/src/risk/riskDb.ts` (`RiskDb.load(RISK_DB_DIR)`: `providers/`, `assets/`, `routes/` validated field by field, `problems` listed, `override(provider, pair)` for the shared risk model, `incidents()`), `risk/security.ts` (`securityBreakdown`: baseline − decaying incidents ± audit recency ± code change ± bug bounty ± TVL ± upgradeability, every field reported, unknown adjusts nothing; `securityScore` in `health.ts` is its total — the V2 pins hold), `health.ts` (`incidents()` = the database's security events + `INCIDENTS_FILE` re-read every 60 s; `ProviderHealthTracker.recordSettlementStall(provider, key)`, `recordQuoteDivergence`, `recordIncident`; the breaker opens on 3 consecutive failures, 6 in the window, 2 stalls, 3 divergences or an incident < 24 h, closes on any success, and after expiry allows one probe whose failure reopens it; `state(provider)`), `risk/protection.ts` (`recommendProtection` → `Protection`; `protectionFor` attaches `QuoteSet.protection` and `QuoteSet.risk` from the enhanced tier in `quoteAll`, USD per unit from the same valuation as the tier; `CADENCE_SECONDS`, `PROVIDER_SHARE_CAP_BPS` 500, `capBpsFor`), the routes `GET /risk` and `GET /risk/:provider` (record without its events, breakdown, breaker state, routes), `/health` (incident counts, database counts and problems), `/prepare` feeding `recordQuoteDivergence` on the price guard's refusal, `/track?since&expected` counting a stall (`stalled: true`) once per execution, and `mode` on `/quote`, `/order`, `/guest/quote`. Records shipped: six providers (THORChain's GG20 incident moved here from the code; audits deliberately *not recorded* until taken from the published reports), three assets, fourteen lab-generated routes. Tests: `services/private-swap/test/risk.test.ts` (12).
 
 ## 11. Privacy under protection (plan V3 §16, §30, §50–§55, §101–§103, §129–§130, §154)
 
@@ -468,7 +468,7 @@ in V2 §22. *Stage 5.*
   V2 journal round-trips byte-identically (pinned).
 - `GET /swap` on the relayer requires `RELAYER_ADMIN_TOKEN` (§9).
 
-*Stage 4.*
+*Stage 4* (the journal). *Implemented (Stage 3):* the relayer's `GET /swap` answers 403 `admin_closed` without `RELAYER_ADMIN_TOKEN` and 401 `admin_token` without the exact bearer token (`services/relayer/src/admin.ts`, timing-safe; `test/admin.test.ts`); the local stack sets the token and its browser run sends it.
 
 ## 18. Labs and acceptance (plan V3 §131–§132, §151–§155)
 

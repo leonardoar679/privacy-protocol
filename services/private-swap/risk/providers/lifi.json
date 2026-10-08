@@ -1,0 +1,22 @@
+{
+  "provider": "lifi",
+  "class": "R5",
+  "custody": "aggregator",
+  "bridgeModel": "an aggregator diamond over bridges (Across, Mayan allowed here): inherits the chosen bridge's model",
+  "upgradeability": "admin",
+  "pFailPrior": 0.02,
+  "bandBps": [
+    100,
+    250
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the quote API receives fromAddress and toAddress and the route",
+      "effect": "api-logs",
+      "source": "services/private-swap/src/adapters/lifi.ts"
+    }
+  ],
+  "notes": "upgradeability: EIP-2535 diamond whose owner adds facets (admin); audits: not recorded here"
+}

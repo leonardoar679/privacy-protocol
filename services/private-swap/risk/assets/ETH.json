@@ -1,0 +1,9 @@
+{
+  "symbol": "ETH",
+  "issuer": null,
+  "freezeRisk": false,
+  "pauseRisk": false,
+  "blacklist": false,
+  "decimals": 18,
+  "notes": "native asset: no issuer, no freeze; the strongest base asset for a private reserve (plan V3 §56)"
+}

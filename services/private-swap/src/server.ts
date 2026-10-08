@@ -9,7 +9,12 @@
 import { createServer } from "http";
 import { randomBytes } from "crypto";
 import { defaultEngine } from "./config";
-import { MinimumMovedError } from "./engine";
+import { MinimumMovedError, type QuoteHint } from "./engine";
+import { riskDb } from "./risk/riskDb";
+import { securityBreakdown } from "./risk/security";
+import { incidents } from "./health";
+import { STALL_FACTOR, type ProtectionMode } from "../../../reference/typescript/src/wallet/campaign";
+import { riskModelOf } from "../../../reference/typescript/src/wallet/riskClasses";
 import { userStatus } from "./order";
 import { maxGapBpsFor, PriceGuardError } from "./scoring";
 import { isPolicy, isPreference, type AssetRef, type Order, type OrderParams, type Policy, type Preference, type ProviderId, type QuoteRequest, type Tier, type TrackStatus, type UserStatus } from "./types";
@@ -41,6 +46,10 @@ function policyOf(b: any): Policy | { preference: Preference } {
   }
   return { preference: preferenceOf(b) ?? "balanced" };
 }
+/** V3 (High-Value Protection spec §3, §14): the protection mode and the per-tranche execution window a wallet may send with a quote or an order. */
+const modeOf = (b: any): ProtectionMode | undefined => (b?.mode === "balanced" || b?.mode === "max-privacy" || b?.mode === "max-safety" ? b.mode : undefined);
+const windowOf = (b: any): number | undefined => (b?.executeWindowSeconds !== undefined && Number.isFinite(Number(b.executeWindowSeconds)) && Number(b.executeWindowSeconds) > 0 ? Number(b.executeWindowSeconds) : undefined);
+const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: preferenceOf(b), mode: modeOf(b), executeWindowSeconds: windowOf(b) });
 class BadRequest extends Error {}
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -60,29 +69,46 @@ const assessmentOf = (set: { value?: unknown; tier?: Tier }) => ({ value: (set.v
 async function route(method: string, path: string, query: URLSearchParams, body: any, headers: Record<string, string | string[] | undefined> = {}): Promise<{ status: number; body: unknown }> {
   // the metered zkAPI gateway (whale spec §22): runtime-key auth, a fresh request id, 503 with the reason while no upstream exists
   if (method === "GET" && path === "/gateway/health") return { status: 200, body: gatewayHealth(gatewayCfg) };
-  if (method === "POST" && path === "/gateway/quote") return gatewayQuote(gatewayCfg, headers, body, async (b: any) => engine.quoteAll(request(b), policyOf(b), { tier: tierHint(b), preference: preferenceOf(b) }));
+  if (method === "POST" && path === "/gateway/quote") return gatewayQuote(gatewayCfg, headers, body, async (b: any) => engine.quoteAll(request(b), policyOf(b), hintsOf(b)));
   if (method === "GET" && path === "/health") {
     const providers = Object.fromEntries(await Promise.all(engine.cfg.adapters.map(async (a) => [a.id, await a.health()])));
     // the deployment every order is built for: the wallet hands (factory, params, execution) to a relayer's swap executor
-    return { status: 200, body: { deployment: { chainId: engine.cfg.chainId, factory: engine.cfg.factory, nativeVault: engine.cfg.refundVaults.native }, providers } };
+    // V3 (High-Value Protection spec §10): what the risk database holds and the incidents feeding the scores right now
+    const db = riskDb(), inc = incidents();
+    const byProvider: Record<string, number> = {};
+    for (const i of inc) byProvider[i.provider] = (byProvider[i.provider] ?? 0) + 1;
+    return { status: 200, body: { deployment: { chainId: engine.cfg.chainId, factory: engine.cfg.factory, nativeVault: engine.cfg.refundVaults.native }, providers, incidents: { total: inc.length, byProvider }, riskDb: { providers: db.providers.size, assets: db.assets.size, routes: db.routes.size, problems: db.problems } } };
+  }
+  // ---- the risk view of a provider (High-Value Protection spec §10): its database record, the security breakdown, the breaker's state, its routes — stateless, nothing per user
+  if (method === "GET" && (path === "/risk" || path.startsWith("/risk/"))) {
+    const db = riskDb(), now = Date.now();
+    const view = (id: ProviderId) => {
+      const record = db.providerRisk(id);
+      const { securityEvents: _e, ...fields } = record ?? { provider: id };
+      return { provider: id, model: riskModelOf(id, {}, { symbol: "" }, { symbol: "" }, "balanced", db.override(id)), security: securityBreakdown(id, now, db), breaker: engine.tracker.state(id, now), record: record ? fields : null, routes: [...db.routes.values()].filter((r) => r.provider === id).map((r) => ({ pair: r.pair, class: r.class, measuredAt: r.measuredAt, servedUpToUsd: r.servedUpToUsd, gate: r.gate, maxTrancheBps: r.maxTrancheBps, providerShareCapBps: r.providerShareCapBps, minTrancheUsd: r.minTrancheUsd })) };
+    };
+    if (path === "/risk") return { status: 200, body: { providers: engine.cfg.adapters.map((a) => view(a.id)), problems: db.problems } };
+    const id = path.slice("/risk/".length) as ProviderId;
+    if (!engine.cfg.adapters.some((a) => a.id === id)) return { status: 404, body: { error: "unknown provider" } };
+    return { status: 200, body: view(id) };
   }
   if (method === "POST" && path === "/quote") {
-    const set = await engine.quoteAll(request(body), policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
+    const set = await engine.quoteAll(request(body), policyOf(body), hintsOf(body));
     return { status: 200, body: set };
   }
   if (method === "POST" && path === "/order") {
     // the wallet chose a route; it supplies the one-time signer and the pre-generated refund note
     const req = request(body);
-    const set = await engine.quoteAll(req, policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
+    const set = await engine.quoteAll(req, policyOf(body), hintsOf(body));
     const provider = (body.provider ?? set.chosen?.provider) as ProviderId | undefined;
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote) return { status: 400, body: { error: `no quote from ${provider ?? "any provider"}`, errors: set.errors, competition: set.competition } };
     if (set.scores.find((s) => s.provider === provider)?.filtered) return { status: 400, body: { error: `route filtered: ${set.scores.find((s) => s.provider === provider)!.filtered}`, competition: set.competition } };
     const order = engine.buildOrder(req, set.policy, quote, {
       orderSigner: String(body.orderSigner), refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash,
-    }, assessmentOf(set), preferenceOf(body));
+    }, assessmentOf(set), preferenceOf(body), { executeWindowSeconds: windowOf(body) });
     orders.set(order.orderId, { order });
-    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state), tier: order.tier, value: order.value, policy: set.policy, competition: set.competition } };
+    return { status: 200, body: { order, scores: set.scores, status: userStatus(order.state), tier: order.tier, value: order.value, policy: set.policy, competition: set.competition, ...(set.protection ? { protection: set.protection } : {}), ...(set.risk ? { risk: set.risk } : {}) } };
   }
   if (method === "POST" && path === "/order/resume") {
     // the wallet persisted the order (encrypted journal) and the service forgot it (restart): rebuild it from the on-chain params
@@ -92,7 +118,7 @@ async function route(method: string, path: string, query: URLSearchParams, body:
       orderId: p.orderId, assetType: Number(p.assetType) as 0 | 1, asset: p.asset, amount: BigInt(p.amount), orderSigner: p.orderSigner, executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter),
       refundVault: p.refundVault, refundOwnerCommitment: BigInt(p.refundOwnerCommitment), refundNoteSecret: BigInt(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: BigInt(p.executorTip),
     };
-    const set = await engine.quoteAll(req, policyOf(body), { tier: tierHint(body), preference: preferenceOf(body) });
+    const set = await engine.quoteAll(req, policyOf(body), hintsOf(body));
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote) return { status: 400, body: { error: `no quote from ${provider} right now; retry later`, errors: set.errors, competition: set.competition } };
     const order = engine.restoreOrder(req, set.policy, quote, params, assessmentOf(set), preferenceOf(body));
@@ -116,7 +142,10 @@ async function route(method: string, path: string, query: URLSearchParams, body:
     } catch (e) {
       if (e instanceof MinimumMovedError) return { status: 409, body: { error: e.message, code: "minimum_moved", approvedMin: e.approvedMin, newMin: e.newMin } };
       // the price guard's refusal (whale spec §14) is an expected answer, not a server fault: the wallet shows the gap and signs nothing
-      if (e instanceof PriceGuardError) return { status: 409, body: { error: e.message, code: "price_guard", provider: e.provider, best: e.best, gapBps: e.gapBps, maxGapBps: e.maxGapBps } };
+      if (e instanceof PriceGuardError) {
+        engine.tracker.recordQuoteDivergence(e.provider as ProviderId, e.gapBps); // V3 §10: repeated divergence opens the breaker
+        return { status: 409, body: { error: e.message, code: "price_guard", provider: e.provider, best: e.best, gapBps: e.gapBps, maxGapBps: e.maxGapBps } };
+      }
       throw e;
     }
   }
@@ -134,11 +163,16 @@ async function route(method: string, path: string, query: URLSearchParams, body:
     const tx = query.get("tx") ?? undefined, ref = query.get("ref") ?? undefined;
     if (!tx && !ref) return { status: 400, body: { error: "tx (the execution transaction) or ref (the provider's reference) is required" } };
     const t = await adapter.track({ sourceTxHash: tx, providerRef: ref });
-    return { status: 200, body: { track: t, status: guestStatus(t.state) } };
+    // V3 §10: `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the service count a settlement stall — an unfinished execution older than STALL_FACTOR × its plan
+    const since = Number(query.get("since")), expected = Number(query.get("expected"));
+    const open = !["completed", "refunded", "failed"].includes(t.state);
+    const stalled = open && Number.isFinite(since) && since > 0 && Number.isFinite(expected) && expected > 0 && Date.now() / 1000 - since > STALL_FACTOR * expected;
+    if (stalled) engine.tracker.recordSettlementStall(provider, `${provider}:${tx ?? ref}`);
+    return { status: 200, body: { track: t, status: guestStatus(t.state), ...(stalled ? { stalled: true } : {}) } };
   }
   // ---- walletless / guest mode (plan §49): no pool, no escrow, no keys — a quote and a one-time deposit instruction
   if (method === "POST" && path === "/guest/quote") {
-    const set = await engine.quoteAll(request(body), body.policy === undefined ? "best-price" : policyOf(body), { tier: tierHint(body) });
+    const set = await engine.quoteAll(request(body), body.policy === undefined ? "best-price" : policyOf(body), { tier: tierHint(body), mode: modeOf(body) });
     return { status: 200, body: set };
   }
   if (method === "POST" && path === "/guest/ingress") {

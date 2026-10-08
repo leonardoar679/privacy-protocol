@@ -47,7 +47,7 @@ const usdRe = (n, prefix = "≈ ") => new RegExp(prefix.replace(/[.*+?^${}()|[\]
 const text = async (locator) => ((await locator.textContent()) ?? "").replace(/\s+/g, " ");
 /** the relayer's swap jobs created by this run (its journal keeps earlier runs' jobs) */
 async function jobsOfThisRun() {
-  const jobs = await (await fetch(`${RELAYER}/swap`)).json().catch(() => null);
+  const jobs = await (await fetch(`${RELAYER}/swap`, { headers: { authorization: "Bearer local-stack" } })).json().catch(() => null); // the operator token start-services.mjs sets
   const list = Array.isArray(jobs) ? jobs : Array.isArray(jobs?.jobs) ? jobs.jobs : Object.values(jobs ?? {});
   return list.filter((j) => j && Number(j.createdAt ?? j.updatedAt ?? 0) >= RUN_START - 60_000).sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0));
 }

@@ -1,0 +1,22 @@
+{
+  "provider": "near-intents",
+  "class": "R2",
+  "custody": "intent",
+  "bridgeModel": "1Click intents: a solver network fills the intent; the deposit address is the solver's",
+  "validatorModel": "solver network; the 1Click service signs the quote",
+  "pFailPrior": 0.03,
+  "bandBps": [
+    200,
+    300
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the 1Click API sees refundTo and the recipient in the quote request",
+      "effect": "api-logs",
+      "source": "services/private-swap/src/adapters/nearIntents.ts"
+    }
+  ],
+  "notes": "contract-sent deposits unconfirmed by the provider (ONECLICK_CONTRACT_DEPOSITS_CONFIRMED); upgradeability and audits: not recorded here"
+}

@@ -13,6 +13,7 @@ import { Relayer, RelayerError, type RelayerConfig } from "./relayer";
 import { SwapExecutor, SwapJobError, loadEscrowCreationCode } from "./swapExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "./rateLimit";
+import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
 const env = (k: string, d?: string): string => { const v = process.env[k] ?? d; if (v === undefined) throw new Error(`missing env ${k}`); return v; };
@@ -61,7 +62,11 @@ const server = createServer(async (req, res) => {
       const job = await relayer.status(url.pathname.slice("/status/".length) as Hex);
       return job ? send(200, job) : send(404, { error: "unknown transaction" });
     }
-    if (req.method === "GET" && url.pathname === "/swap") return send(200, executor.list());
+    if (req.method === "GET" && url.pathname === "/swap") {
+      // the whole job list is operator data (a campaign's escrows are not listable by anyone): a bearer token opens it
+      const auth = adminAuthorized(req.headers.authorization, process.env.RELAYER_ADMIN_TOKEN);
+      return auth.ok ? send(200, executor.list()) : send(auth.status, { error: auth.error, code: auth.code });
+    }
     if (req.method === "GET" && url.pathname.startsWith("/swap/")) {
       const job = executor.get(url.pathname.slice("/swap/".length));
       return job ? send(200, job) : send(404, { error: "unknown swap job" });

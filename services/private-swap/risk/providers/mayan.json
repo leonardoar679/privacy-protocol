@@ -1,0 +1,23 @@
+{
+  "provider": "mayan",
+  "class": "R5",
+  "custody": "cctp",
+  "bridgeModel": "Fast-MCTP: Circle CCTP attestation; SWIFT: auction orders filled by solvers, refunded on the source chain to the trader (the escrow)",
+  "validatorModel": "Circle attesters (CCTP); solvers (SWIFT)",
+  "upgradeability": "admin",
+  "pFailPrior": 0.015,
+  "bandBps": [
+    100,
+    250
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the order carries destAddr; the forwarder whitelist is owner-controlled",
+      "effect": "link-public",
+      "source": "services/private-swap/src/adapters/mayan.ts"
+    }
+  ],
+  "notes": "upgradeability: the forwarder whitelist and the Solana programs have an upgrade authority (admin); audits: not recorded here"
+}

@@ -1,0 +1,23 @@
+{
+  "provider": "uniswap-across",
+  "class": "R5",
+  "custody": "relayer-bridge",
+  "bridgeModel": "Across: relayers front the fill on the destination chain and are repaid by the HubPool after UMA's optimistic verification",
+  "validatorModel": "UMA optimistic oracle; relayer inventory",
+  "upgradeability": "multisig",
+  "pFailPrior": 0.015,
+  "bandBps": [
+    100,
+    250
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the deposit event publishes the recipient; the swap leg's message names the fresh address",
+      "effect": "link-public",
+      "source": "services/private-swap/src/adapters/across.ts"
+    }
+  ],
+  "notes": "upgradeability: HubPool / SpokePool admin by the Across DAO multisig; audits: not recorded here"
+}

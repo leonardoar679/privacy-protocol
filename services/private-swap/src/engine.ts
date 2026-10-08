@@ -14,6 +14,8 @@ import { encodeCall } from "./abi";
 import { NO_VALUER, assessRequest, type Valuer } from "./valuation";
 import { ProviderHealthTracker } from "./health";
 import { placeholderDestination } from "./placeholders";
+import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
+import type { ProtectionMode } from "../../../reference/typescript/src/wallet/campaign";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];
@@ -64,6 +66,9 @@ export interface QuoteSet {
   policy: Policy;
   /** whale spec §2: every capable provider and what it answered */
   competition: CompetitionEntry[];
+  /** High-Value Protection spec §10: the recommendation for the chosen route and the risk view of every provider that quoted, from the enhanced tier (advice: the wallet keeps its own accounting) */
+  protection?: Protection;
+  risk?: Partial<Record<ProviderId, ProviderRisk>>;
 }
 
 export const DELAY_BUDGET: Record<Policy, [number, number]> = {
@@ -89,7 +94,21 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
 /** A provider that answered "no" for this request (a 4xx with a reason, a refusal of the size or the route) is not an outage: the breaker ignores it. */
 const isRefusal = (msg: string) => /HTTP 4\d\d|refused|not supported|does not (support|list|serve)|insufficient|too low|too high|not offered|cannot|no (dry-quote|quote|liquidity|route|available)|unexpected|mismatch|placeholder|not implemented|only|limit/i.test(msg);
 
-export interface QuoteHint { tier?: Tier; preference?: Preference; preferNative?: boolean }
+export interface QuoteHint {
+  tier?: Tier; preference?: Preference; preferNative?: boolean;
+  /** High-Value Protection spec §14: the protection mode the recommendation is computed under (balanced when absent) */
+  mode?: ProtectionMode;
+  /** High-Value Protection spec §3: the per-tranche execution window; buildOrder clamps it into the policy's delay budget */
+  executeWindowSeconds?: number;
+}
+/** The shortest execution window a wallet can ask for: a quote refreshed at submission still needs a relayer tick (High-Value Protection spec §3). */
+export const EXECUTE_WINDOW_MIN_SECONDS = 600;
+/** executeDeadline − quote expiry: the policy's maximum delay (V2), or the wallet's shorter window clamped into [EXECUTE_WINDOW_MIN_SECONDS, that maximum]. */
+export function executeWindowFor(policy: Policy, executeWindowSeconds?: number): number {
+  const dMax = DELAY_BUDGET[policy][1];
+  if (executeWindowSeconds === undefined || !Number.isFinite(executeWindowSeconds)) return dMax;
+  return Math.max(Math.min(EXECUTE_WINDOW_MIN_SECONDS, dMax), Math.min(Math.floor(executeWindowSeconds), dMax));
+}
 
 /**
  * The one call the escrow makes for an ingress (spec §5, §6). The escrow forwards what is left after the
@@ -192,7 +211,11 @@ export class PrivateSwapEngine {
     const scores = scoreRoutes(quotes, health, policy, now, unexecutable, { tier, amount: req.amount, chains: [req.from.chain, req.to.chain], skipped, filteredBy });
     for (const s of scores) if (s.filtered) { const c = competition.find((x) => x.provider === s.provider && x.outcome === "quoted"); if (c) { c.outcome = "filtered"; c.reason = s.filtered; } }
     const links = Object.fromEntries(ordered.map((a) => [a.id, { public: a.capabilities().destinationLinkPublic, evidence: a.capabilities().linkEvidence }])) as QuoteSet["links"];
-    return { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition };
+    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition };
+    // V3 (High-Value Protection spec §10): the recommendation rides on the competition from the enhanced tier; the USD per source unit comes from the same valuation as the tier
+    const units = Number(gross.amount) / 10 ** gross.from.decimals;
+    const usdPerUnit = "usd" in assessment.value && units > 0 ? assessment.value.usd / units : null;
+    return { ...set, ...protectionFor(set, gross, gross.amount, tier, hint.mode ?? "balanced", usdPerUnit, this.tracker) };
   }
 
   /** Whether this provider publishes the escrow → destination link; an unknown provider counts as public (no credit for cover traffic). */
@@ -210,14 +233,14 @@ export class PrivateSwapEngine {
   }
 
   /** Build the order object + on-chain params for a chosen quote (spec §2, §6); `assessment` (whale spec §1) is the value / tier recorded with it. */
-  buildOrder(req: QuoteRequest, policy: Policy, quote: Quote, keys: { orderPrivateKey?: Uint8Array; orderSigner?: string; refundOwnerCommitment: bigint; refundNoteSecret: bigint; refundNoteDataHash: `0x${string}` }, assessment?: Assessment, preference?: Preference): Order {
+  buildOrder(req: QuoteRequest, policy: Policy, quote: Quote, keys: { orderPrivateKey?: Uint8Array; orderSigner?: string; refundOwnerCommitment: bigint; refundNoteSecret: bigint; refundNoteDataHash: `0x${string}` }, assessment?: Assessment, preference?: Preference, opts: { executeWindowSeconds?: number } = {}): Order {
     const orderSigner = keys.orderSigner ?? (keys.orderPrivateKey ? orderSignerAddress(keys.orderPrivateKey) : undefined);
     if (!orderSigner) throw new Error("buildOrder needs the one-time order signer (address) or its key");
     const orderId = ("0x" + randomBytes(32).toString("hex")) as `0x${string}`;
     const amount = req.amount; // gross: what the private withdrawal funds
     const executorTip = this.tip(amount);
     const [dMin, dMax] = DELAY_BUDGET[policy];
-    const executeDeadline = quote.expiresAt + dMax; // the quote will be refreshed at submission; cap generously
+    const executeDeadline = quote.expiresAt + executeWindowFor(policy, opts.executeWindowSeconds); // the quote is refreshed at submission: the policy's budget, or a campaign tranche's short window (V3 §3)
     const params: OrderParams = {
       orderId, assetType: req.from.asset === "native" ? 0 : 1, asset: req.from.asset === "native" ? "0x0000000000000000000000000000000000000000" : req.from.asset,
       amount, orderSigner, executeDeadline, refundAfter: executeDeadline + this.cfg.refundWindowSeconds,

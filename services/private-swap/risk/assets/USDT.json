@@ -1,0 +1,9 @@
+{
+  "symbol": "USDT",
+  "issuer": "Tether",
+  "freezeRisk": true,
+  "pauseRisk": true,
+  "blacklist": true,
+  "decimals": 6,
+  "notes": "issuer-controlled: freeze, pause and blacklist exist outside this protocol; the isolated vault bounds the blast radius, not the issuer's authority (plan V3 §57)"
+}

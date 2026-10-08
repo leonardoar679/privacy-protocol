@@ -1,0 +1,23 @@
+{
+  "provider": "chainflip",
+  "class": "R5",
+  "custody": "mpc-vault",
+  "bridgeModel": "one MPC vault per chain whose key is held by the validator set; vault swaps encode the destination in calldata",
+  "validatorModel": "FLIP-bonded validators (150 authority set), key rotations by epoch",
+  "upgradeability": "governance",
+  "pFailPrior": 0.02,
+  "bandBps": [
+    100,
+    250
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the vault-swap calldata encodes the destination address (decoded locally before signing)",
+      "effect": "link-public",
+      "source": "services/private-swap/src/adapters/chainflip.ts"
+    }
+  ],
+  "notes": "audits: not recorded here"
+}

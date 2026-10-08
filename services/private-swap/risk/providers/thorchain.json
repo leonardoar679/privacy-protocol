@@ -1,0 +1,34 @@
+{
+  "provider": "thorchain",
+  "class": "R5",
+  "custody": "tss-vaults",
+  "bridgeModel": "Asgard vaults: TSS keys signed by the active node set; inbound deposits to a vault, outbounds signed by the vault",
+  "validatorModel": "node operators bonded in RUNE; GG20 threshold signing replaced after the 2026-05 incident",
+  "upgradeability": "governance",
+  "pFailPrior": 0.02,
+  "bandBps": [
+    100,
+    250
+  ],
+  "lastReviewed": "2026-10-08",
+  "securityEvents": [
+    {
+      "provider": "thorchain",
+      "date": "2026-05-15",
+      "title": "GG20 TSS vault key reconstructed by a malicious node; ~$10.7M drained from an Asgard vault; 5-week trading pause",
+      "lossUsd": 10700000,
+      "class": "key-compromise",
+      "halfLifeDays": 365,
+      "source": "https://www.quillaudits.com/blog/hack-analysis/thorchain-gg20-hack"
+    }
+  ],
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the deposit memo names the destination and the refund escrow; the outbound carries OUT:<inbound tx>",
+      "effect": "link-public",
+      "source": "docs/private-swap-spec-v1.1.md, services/private-swap/src/adapters/thorchain.ts"
+    }
+  ],
+  "notes": "audits: not recorded here — take the firm, date and scope from the project's published reports before relying on the audit field"
+}
