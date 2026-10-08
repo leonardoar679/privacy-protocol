@@ -10,6 +10,44 @@
     100,
     250
   ],
+  "audits": [
+    {
+      "firm": "CertiK",
+      "date": "2020-03-31",
+      "scope": "code review, March 2020 (THORChain-Certik-CodeReview-Mar2020)",
+      "url": "https://github.com/thorchain/Resources/tree/master/Audits"
+    },
+    {
+      "firm": "Kudelski Security",
+      "date": "2020-06-30",
+      "scope": "the TSS, June 2020 (THORChain-Kudelski-TSS-Audit-June2020)",
+      "url": "https://github.com/thorchain/Resources/tree/master/Audits"
+    },
+    {
+      "firm": "IOActive",
+      "date": "2020-11-30",
+      "scope": "penetration test, November 2020 (THORChain-IOActive-PenetrationTest-Nov2020)",
+      "url": "https://github.com/thorchain/Resources/tree/master/Audits"
+    },
+    {
+      "firm": "Trail of Bits",
+      "date": "2021-08-31",
+      "scope": "full audit, August 2021 (THORChain-TrailOfBits-FullAudit-Aug2021)",
+      "url": "https://github.com/thorchain/Resources/tree/master/Audits"
+    },
+    {
+      "firm": "Halborn",
+      "date": "2021-09-30",
+      "scope": "the state machine, the router contracts and Bifrost, and separately the TSS, September 2021 (Halborn-StateMachine-Router-Bifrost-Audit-Sep2021, Halborn-TSS-Audit-Sep2021)",
+      "url": "https://github.com/thorchain/Resources/tree/master/Audits"
+    },
+    {
+      "firm": "Zellic",
+      "date": "2025-01-14",
+      "scope": "the Bifrost UTXO client, engagement 2025-01-06 → 2025-01-14 (THORChain Bifrost UTXO Client - Zellic Audit Report)",
+      "url": "https://github.com/Zellic/publications"
+    }
+  ],
   "lastReviewed": "2026-10-08",
   "securityEvents": [
     {
@@ -19,7 +57,7 @@
       "lossUsd": 10700000,
       "class": "key-compromise",
       "halfLifeDays": 365,
-      "source": "https://www.quillaudits.com/blog/hack-analysis/thorchain-gg20-hack"
+      "source": "https://blog.thorchain.org/thorchain-exploit-report-1, https://www.quillaudits.com/blog/hack-analysis/thorchain-gg20-hack"
     }
   ],
   "privacyEvents": [
@@ -30,5 +68,5 @@
       "source": "docs/private-swap-spec-v1.1.md, services/private-swap/src/adapters/thorchain.ts"
     }
   ],
-  "notes": "audits: not recorded here — take the firm, date and scope from the project's published reports before relying on the audit field"
+  "notes": "audits taken from the project's published reports on 2026-10-08 (the Audits directory of github.com/thorchain/Resources and Zellic's publications); a date known only to the month is recorded as the month's last day; Gauntlet's 2020 economic reviews are not security audits and are not listed; no audit of the signing scheme that replaced GG20 after the 2026-05 incident is published yet (checked 2026-10-08); bug bounty: no published maximum"
 }

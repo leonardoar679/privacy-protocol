@@ -77,7 +77,10 @@ against zkAPI's local stack on a clean machine.
   significant digits, the value tier, the preference, the chosen route's plan and score components,
   the competition record (address-like reasons masked), the privacy-check items by id / level /
   category, and (V3, spec §16) for a large order the protection plan — risk class, custody, tranche
-  band, exposure cap, steps, settlement gate, ELPF rounded, concentration in words — and it is refused
+  band, exposure cap, steps, settlement gate, ELPF rounded, concentration in words (V4 changes nothing in
+  this summary: the cap it carries is the one the policy core set and the concentration line names the
+  30 % share cap at ≥ $5M; the exposure tier, the ledger preview and the normalized quotes stay in the
+  wallet) — and it is refused
   before sending if any string looks like an address, a hash or a
   privacy address. The answer shows as best route / alternative / estimated savings / privacy /
   execution / risk. The assistant recommends and warns; it signs nothing, withdraws nothing, changes

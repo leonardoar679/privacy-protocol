@@ -49,8 +49,9 @@ describe("the risk database (spec §10)", () => {
     expect(db.assetRisk("usdc")).toMatchObject({ symbol: "USDC", freezeRisk: true });
     expect(db.assetRisk("ETH")).toMatchObject({ freezeRisk: false, issuer: null });
     // the built-in THORChain incident lives in the database now; the health module's feed is the same list
-    expect(db.incidents()).toHaveLength(1);
-    expect(db.incidents()[0]).toMatchObject({ provider: "thorchain", class: "key-compromise", date: "2026-05-15", halfLifeDays: 365 });
+    expect(db.incidents()).toHaveLength(4); // LI.FI's two arbitrary-call exploits, NEAR Intents' Omni Bridge exploit, THORChain's GG20 exploit
+    expect(db.incidents().map((i) => `${i.provider} ${i.date}`).sort()).toEqual(["lifi 2022-03-20", "lifi 2024-07-16", "near-intents 2026-10-01", "thorchain 2026-05-15"]);
+    expect(db.incidents().find((i) => i.provider === "thorchain")).toMatchObject({ provider: "thorchain", class: "key-compromise", date: "2026-05-15", halfLifeDays: 365 });
     expect(INCIDENTS).toEqual(db.incidents());
     expect(incidents(NOW)).toEqual(db.incidents());
     // the override the shared risk model takes from the record
@@ -95,13 +96,19 @@ describe("the security breakdown with separate fields (spec §10)", () => {
     // 145 days after the GG20 incident: 25 × (1 − 145 / 365) ≈ 15.07 off the baseline of 84; governance adjusts nothing
     expect(thor).toMatchObject({ baseline: 84, audit: 0, codeChange: 0, bugBounty: 0, tvl: 0, upgradeability: 0, total: 69 });
     expect(thor.incidents).toBeCloseTo(-15.07, 2);
-    expect(thor.fields).toMatchObject({ custody: "tss-vaults", upgradeability: "governance", audits: 0, lastAudit: null, tvlUsd: null, bugBountyUsd: null });
+    // six audits on record; the latest (Zellic's Bifrost UTXO client review, 2025-01-14) is 631 days old at NOW: within two years, adjusts nothing
+    expect(thor.fields).toMatchObject({ custody: "tss-vaults", upgradeability: "governance", audits: 6, lastAudit: "2025-01-14", tvlUsd: null, bugBountyUsd: null });
     expect(thor.incidentList).toHaveLength(1);
-    expect(securityBreakdown("chainflip", NOW, db).total).toBe(88);
-    expect(securityBreakdown("mayan", NOW, db)).toMatchObject({ baseline: 89, upgradeability: -3, total: 86 }); // an admin key
-    expect(securityBreakdown("lifi", NOW, db)).toMatchObject({ baseline: 86, upgradeability: -3, total: 83 });
-    expect(securityBreakdown("uniswap-across", NOW, db)).toMatchObject({ baseline: 90, upgradeability: -1, total: 89 }); // a multisig
-    expect(securityBreakdown("near-intents", NOW, db).total).toBe(85);
+    expect(securityBreakdown("chainflip", NOW, db)).toMatchObject({ baseline: 88, audit: -3, total: 85 }); // the last published audit (Zellic, 2024-08-01) is over two years old at NOW
+    expect(securityBreakdown("mayan", NOW, db)).toMatchObject({ baseline: 89, audit: 1, upgradeability: -3, total: 87 }); // an admin key; OtterSec's follow-up of 2026-01 within the year
+    const lifi = securityBreakdown("lifi", NOW, db);
+    expect(lifi).toMatchObject({ baseline: 86, audit: 1, bugBounty: 1, upgradeability: -3, total: 85 }); // the per-facet audit log's latest review, the $1M bounty
+    expect(lifi.incidentList).toHaveLength(2); // the 2022 and 2024 arbitrary-call exploits, decayed to nothing after a year each
+    expect(lifi.incidents).toBeCloseTo(0, 9);
+    expect(securityBreakdown("uniswap-across", NOW, db)).toMatchObject({ baseline: 90, audit: 1, upgradeability: -1, total: 90 }); // a multisig; OpenZeppelin's v5 review of 2026-07
+    const near = securityBreakdown("near-intents", NOW, db);
+    expect(near).toMatchObject({ baseline: 85, audit: 0, bugBounty: 1, total: 66 }); // six days after the 2026-10-01 Omni Bridge exploit; the $300K HackenProof bounty
+    expect(near.incidents).toBeCloseTo(-20 * (1 - 6 / 365), 2); // a bridge incident: 20, decaying over a year
     expect(securityBreakdown("otc", NOW, db)).toMatchObject({ baseline: 70, total: 70 }); // unknown provider: the conservative baseline
     // the fields: a fresh audit +1, a stale one −3, a code change this month −1, a bounty ≥ $100K +1, TVL ≥ $100M +1, immutable +2
     const rich = new RiskDb("mem");
@@ -112,7 +119,7 @@ describe("the security breakdown with separate fields (spec §10)", () => {
     // an operator incident on top (INCIDENTS_FILE), de-duplicated against the record
     const extra = [{ provider: "chainflip", date: "2026-10-01", title: "api outage", lossUsd: 0, class: "api" as const, halfLifeDays: 30, source: "ops" }];
     expect(securityBreakdown("chainflip", NOW, db, [...extra, ...extra]).incidentList).toHaveLength(1);
-    expect(securityBreakdown("chainflip", NOW, db, extra).total).toBe(88 - 8); // 10 × (1 − 6 / 30)
+    expect(securityBreakdown("chainflip", NOW, db, extra).total).toBe(85 - 8); // 10 × (1 − 6 / 30)
     expect(incidentPenalty(extra[0], NOW)).toBeCloseTo(8, 9);
     expect(incidentPenalty(extra[0], Date.parse("2026-09-01"))).toBe(0); // the future adjusts nothing
     expect(INCIDENT_PENALTY["key-compromise"]).toBe(25);
@@ -120,7 +127,8 @@ describe("the security breakdown with separate fields (spec §10)", () => {
     expect(daysSinceIncident("chainflip", NOW, db)).toBeNull();
     // the V2 score the scoring module reads is the breakdown's total
     expect(securityScore("thorchain", NOW)).toBe(69);
-    expect(securityScore("chainflip", Date.parse(INCIDENTS[0].date) + 30 * 86_400_000)).toBe(BASELINE_SECURITY.chainflip);
+    const gg20 = INCIDENTS.find((i) => i.provider === "thorchain")!;
+    expect(securityScore("chainflip", Date.parse(gg20.date) + 30 * 86_400_000)).toBe(BASELINE_SECURITY.chainflip); // 2026-06-14: no incident of its own, the audit still within two years
   });
 });
 
@@ -209,16 +217,22 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     expect(capBpsFor("enhanced", "balanced", "R1")).toBe(500);
     const amount = eth(250); // $1M
     const set = setOf([q("near-intents", amount, { plan: undefined, etaSeconds: 300 })]);
-    const balanced = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    const BEFORE = Date.parse("2026-09-15T00:00:00Z"); // before NEAR Intents' 2026-10-01 incident, which makes the route R4 for 30 days (pinned below)
+    const balanced = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db, now: BEFORE, rng: () => 0.5 })!;
     expect(balanced).toMatchObject({ riskClass: "R2", gate: "destination-submitted", concurrency: "parallel", maxParallel: 2, capBps: 250, bandBps: [200, 250], sizing: "varied" });
-    const privacy = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "max-privacy", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    const privacy = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "max-privacy", usdPerUnit: ETH_USD, db, now: BEFORE, rng: () => 0.5 })!;
     expect(privacy.sizing).toBe("bucket");
     expect(privacy.cadenceSeconds).toEqual(CADENCE_SECONDS["max-privacy"]);
-    const safety = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "max-safety", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    const safety = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "max-safety", usdPerUnit: ETH_USD, db, now: BEFORE, rng: () => 0.5 })!;
     expect(safety).toMatchObject({ gate: "destination-final", concurrency: "sequential", capBps: 100, bandBps: [100, 100] });
     // V4: the Best Execution mode keeps the band's cap, the shortest cadence and varied sizing
-    const best = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "best-execution", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    const best = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "best-execution", usdPerUnit: ETH_USD, db, now: BEFORE, rng: () => 0.5 })!;
     expect(best).toMatchObject({ capBps: 250, sizing: "varied", cadenceSeconds: CADENCE_SECONDS["best-execution"], concurrency: "parallel", exposureTier: "R3" });
+    // six days after the provider's 2026-10-01 incident the same route is an unknown / high-risk one: R4, the cap 1 % whatever the mode, the band narrowed
+    const after = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "best-execution", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    expect(after).toMatchObject({ riskClass: "R2", exposureTier: "R4", capBps: 100 });
+    expect(after.exposureReasons).toEqual(["a security incident within 30 days"]);
+    expect(after.reasons.join("\n")).toMatch(/narrowed/);
   });
   it("a provider's instant limit thins the piece; a high impact per piece halves it (thin market)", () => {
     const amount = eth(1250); // $5M

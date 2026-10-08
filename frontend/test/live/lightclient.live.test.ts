@@ -13,9 +13,11 @@ import { currentSlot, periodAtSlot } from "../../src/sdk/lightclient/spec";
 import { beaconBlockHeaderRoot } from "../../src/sdk/lightclient/ssz";
 
 const CHAINS: { spec: BeaconChainSpec; rpc: string[]; weth: Hex; fork: string }[] = [
-  // eth_getProof ~100 blocks deep: some public RPCs cap their proof window below the finalized block (PublicNode, Flashbots, 1RPC)
+  // eth_getProof at the finalized block is 64–96 blocks deep: some public RPCs cap their proof window below that
+  // (PublicNode ≈ 80 blocks on Sepolia, Tenderly fewer, Flashbots, 1RPC) and answer "distance to target block exceeds
+  // maximum proof window"; the list is tried in order, so the deep-window endpoints come first (probed 2026-10-08).
   { spec: MAINNET, rpc: ["https://eth.drpc.org", "https://rpc.mevblocker.io", "https://eth.merkle.io"], weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", fork: "fulu" },
-  { spec: SEPOLIA, rpc: ["https://ethereum-sepolia-rpc.publicnode.com"], weth: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14", fork: "gloas" },
+  { spec: SEPOLIA, rpc: ["https://rpc.sepolia.ethpandaops.io", "https://api.zan.top/eth-sepolia", "https://sepolia.rpc.thirdweb.com", "https://ethereum-sepolia-rpc.publicnode.com"], weth: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14", fork: "gloas" },
 ];
 type Versioned<T> = { version: string; data: T };
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));

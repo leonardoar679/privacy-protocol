@@ -9,7 +9,30 @@
     200,
     300
   ],
+  "audits": [
+    {
+      "firm": "Hacken",
+      "date": "2025-01-27",
+      "scope": "the Defuse contracts (the Verifier, intents.near, and the bridge contracts), audited December 2024, report 2025-01-27",
+      "url": "https://hacken.io/audits/aurora-labs-limited/sca-aurora-labs-defuse-contracts-dec2024/"
+    }
+  ],
+  "bugBounty": {
+    "usdMax": 300000,
+    "url": "https://hackenproof.com/programs/near-intents-smart-contracts"
+  },
   "lastReviewed": "2026-10-08",
+  "securityEvents": [
+    {
+      "provider": "near-intents",
+      "date": "2026-10-01",
+      "title": "≈ $3.8M USDT drained on BSC through a bug in the Omni Bridge deposit / withdrawal path; the service paused, patched and resumed within the hour on most networks; the funds were returned on 2026-10-02 and full compensation was promised",
+      "lossUsd": 3800000,
+      "class": "bridge",
+      "halfLifeDays": 365,
+      "source": "https://crypto.news/near-intents-resumes-service-after-3-8m-exploit/, https://nftevening.com/near-intents-recovers-3-8m-full-cross-chain-exploit/"
+    }
+  ],
   "privacyEvents": [
     {
       "date": "2026-10-07",
@@ -18,5 +41,5 @@
       "source": "services/private-swap/src/adapters/nearIntents.ts"
     }
   ],
-  "notes": "contract-sent deposits unconfirmed by the provider (ONECLICK_CONTRACT_DEPOSITS_CONFIRMED); upgradeability and audits: not recorded here"
+  "notes": "contract-sent deposits unconfirmed by the provider (ONECLICK_CONTRACT_DEPOSITS_CONFIRMED); upgradeability: not recorded here; the audit and the bounty taken from Hacken's and HackenProof's published pages on 2026-10-08; the 2026-10-01 incident puts the provider at exposure tier R4 until 2026-10-31 (an incident within 30 days) and costs ≈ 20 security points decaying over a year"
 }

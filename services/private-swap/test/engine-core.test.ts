@@ -72,7 +72,7 @@ describe("route scoring (spec §9)", () => {
     const inc = INCIDENTS.find((i) => i.provider === "thorchain")!;
     const at = Date.parse(inc.date) + 30 * 86_400_000;
     expect(securityScore("thorchain", at)).toBeLessThan(BASELINE_SECURITY.thorchain - 15);
-    expect(securityScore("thorchain", Date.parse(inc.date) + 2 * inc.halfLifeDays * 86_400_000)).toBe(BASELINE_SECURITY.thorchain);
+    expect(securityScore("thorchain", Date.parse(inc.date) + 2 * inc.halfLifeDays * 86_400_000)).toBe(BASELINE_SECURITY.thorchain - 3); // the incident has decayed to nothing; by then the last published audit (Zellic, 2025-01) is over two years old: −3
     expect(securityScore("chainflip", at)).toBe(BASELINE_SECURITY.chainflip);
   });
 });
