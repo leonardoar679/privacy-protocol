@@ -10,6 +10,7 @@ node run-execution.mjs --pairs ETH>BTC --sizes 1000000,5000000 --pause 2000
 node ../privacy/run-crosschain.mjs      # §120: the cross-chain observer lab, now with the streamed-settlement rows (crosschain.json)
 npx tsx src/sim/whaleUtxoLab.ts         # §120 / §74: in reference/typescript — a whale's withdrawal as one piece vs K bucketed pieces (V3: + the two tranche strategies)
 node run-campaign.mjs                   # V3 (high-value protection spec §18): the campaign lab on execution.json — steps, time, gas at the live price, the 13 faults, ELPF → campaign.json, campaign.md, and services/private-swap/risk/routes/*.json
+node run-policy.mjs                     # V4 (plan §119–§123): the policy benchmark — one execution vs 5 % vs 2.5 % vs 1 % over $1M–$50M, the §119 conditions at $10M, the §120 privacy matrix from utxo-10m.json, the §123 default by a stated rule → policy.json, docs/HighValuePolicyBenchmark.md
 ```
 
 - `research.mjs` reads the last swap actions from Midgard (sizes in USD, the share that streamed, the

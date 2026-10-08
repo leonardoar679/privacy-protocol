@@ -68,7 +68,9 @@ export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>,
   return quotes.map((q) => {
     const h = health[q.provider];
     const haltedOn = h && ctx.chains ? chainHalted(h, ctx.chains) : null;
-    const others = liveQuotes.filter((o) => o.provider !== q.provider && !unexecutable[o.provider] && !ctx.skipped?.[o.provider] && !ctx.filteredBy?.[o.provider]);
+    const inLimits = (o: Quote) => ctx.amount === undefined || ((o.limits?.max === undefined || ctx.amount <= o.limits.max) && (o.limits?.min === undefined || ctx.amount >= o.limits.min));
+    const healthy = (o: Quote) => { const oh = health[o.provider]; return !oh || (oh.reachable && !oh.halted && !(ctx.chains && chainHalted(oh, ctx.chains))); };
+    const others = liveQuotes.filter((o) => o.provider !== q.provider && !unexecutable[o.provider] && !ctx.skipped?.[o.provider] && !ctx.filteredBy?.[o.provider] && inLimits(o) && healthy(o)); // V4: a route above its own limit, unreachable or halted is no alternative
     const impactCap = ctx.tier && atLeast(ctx.tier, "high-value") && bps(q) > IMPACT_CAP_BPS && others.some((o) => bps(o) <= IMPACT_CAP_BPS);
     const longStream = !!q.plan && q.plan.mode !== "single" && q.plan.expectedSeconds > STREAM_MAX_SECONDS && others.some((o) => !(o.plan && o.plan.mode !== "single" && o.plan.expectedSeconds > STREAM_MAX_SECONDS));
     const filtered =

@@ -133,6 +133,19 @@ export interface SimOptions {
   fault?: FaultKind;
   /** the tranche the fault hits (default: the middle one) */
   faultAt?: number;
+  // V4 (plan §119, §121; the policy benchmark): the cap and band instead of the mode's (10000 with ignoreImpact: one execution), the liquidity and the provider's health
+  capBpsOverride?: number;
+  bandOverride?: [number, number];
+  /** no thin-market halving: the piece is the cap (the single-trade baseline pays the full impact) */
+  ignoreImpact?: boolean;
+  /** thin liquidity: the measured impact scaled up */
+  impactMultiplier?: number;
+  /** the provider's reliability in the facts (90 when absent) */
+  reliability?: number;
+  /** the whole order as one piece (the single-execution baseline), bypassing the splitter */
+  singlePiece?: boolean;
+  /** thin liquidity's proxy where the provider states no impact figure: the stream takes this many times longer */
+  etaMultiplier?: number;
 }
 export interface PauseRecord { reason: PauseReason; atHours: number; minutes: number; tranche?: number }
 export interface SimRow {
@@ -140,6 +153,8 @@ export interface SimRow {
   tranches: number; trancheUsd: [number, number]; capUsd: number; wallHours: number; executionHours: number; pauses: PauseRecord[];
   gasUnits: number; fundings: number; handOvers: number; maxInFlightUsd: number; maxPreparedUsd: number; invariantsHeld: boolean; completed: boolean; cancelled: boolean;
   elpfTrancheUsd: number; elpfCampaignUsd: number; pFailPrior: number;
+  /** V4: the pieces in base units and the price-impact cost of executing them (Σ impact(piece) × piece), USD */
+  pieceUnits: string[]; impactCostUsd: number; maxPieceUsd: number;
   fault?: { kind: FaultKind; atTranche: number; exposedUsd: number; maxLossUsd: number; outcome: string; extraHours: number };
   assumed?: boolean;
 }
@@ -154,12 +169,14 @@ export function simulateCampaign(o: SimOptions): SimRow {
   const total = BigInt(Math.round((o.sizeUsd / o.priceUsd) * 1e6)) * 10n ** BigInt(decimals - 6);
   const unitsToUsd = (u: bigint) => (Number(u / 10n ** BigInt(decimals - 6)) / 1e6) * o.priceUsd;
   const plan = planFor(o.sizeUsd, o.mode, r, o.sizing, o.priceUsd);
+  if (o.capBpsOverride !== undefined) { plan.capBps = o.capBpsOverride; plan.bandBps = o.bandOverride ?? [Math.min(plan.bandBps[0], o.capBpsOverride), Math.min(plan.bandBps[1], o.capBpsOverride)]; }
+  const impactMul = o.impactMultiplier ?? 1;
   // the thin-market rule and the instant limit cap the piece
   const capUsd = (o.sizeUsd * plan.capBps) / 10000;
   let maxPieceUsd = Math.min(capUsd, r.instantLimitUsd ?? Infinity, r.maxUsd ?? Infinity);
-  while (maxPieceUsd > 1000 && impactFor(r, maxPieceUsd) > 50) maxPieceUsd /= 2;
+  if (!o.ignoreImpact) while (maxPieceUsd > 1000 && impactFor(r, maxPieceUsd) * impactMul > 50) maxPieceUsd /= 2;
   const maxPiece = BigInt(Math.round((maxPieceUsd / o.priceUsd) * 1e6)) * 10n ** BigInt(decimals - 6);
-  const split = planTranches(total, { decimals, bandBps: plan.bandBps, capBps: plan.capBps, sizing: plan.sizing, maxParallel: plan.maxParallel, maxPiece, rng });
+  const split = o.singlePiece ? { pieces: [total], exact: 1, band: [total, total] as [bigint, bigint] } : planTranches(total, { decimals, bandBps: plan.bandBps, capBps: plan.capBps, sizing: plan.sizing, maxParallel: plan.maxParallel, maxPiece, rng });
   const model = riskModelOf(r.provider, { plan: { mode: r.planMode } }, r.from, r.to, o.mode);
   const bounds: ExecutionBounds = {
     orderId: "lab", assetIn: r.from, chainIn: r.from.chain, amountInLimit: total.toString(), assetOut: r.to, chainOut: r.to.chain, destination: { kind: "fresh-per-tranche" },
@@ -181,7 +198,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
 
   const faultActive = () => faultFiredAt >= 0 && faultUntil > t;
   const facts = (): Parameters<typeof detectPause>[1] => {
-    const f: Parameters<typeof detectPause>[1] = { now: t * 1000, walletPaused: false, crossRateE18: c.referenceRateE18, liveQuotes: 2, providerHealth: { reliability: 90 } };
+    const f: Parameters<typeof detectPause>[1] = { now: t * 1000, walletPaused: false, crossRateE18: c.referenceRateE18, liveQuotes: 2, providerHealth: { reliability: o.reliability ?? 90 } };
     // a settlement far older than its expected time is an anomaly (§8): the oldest unsettled step not yet paused on
     for (const [i, fl] of flights) {
       const st = c.tranches[i].state;
@@ -287,7 +304,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
         t += SEC.handOver; gas += GAS_PER_EXECUTE;
         handOvers.set(i, (handOvers.get(i) ?? 0) + 1);
         const usd = stepUsd(i);
-        const eta = etaFor(r, usd);
+        const eta = Math.round(etaFor(r, usd) * (o.etaMultiplier ?? 1));
         const fl: Flight = { handedOverAt: t, outboundAt: t + eta, deliveredAt: t + eta + SEC.delivered, refundAt: refundAfter(t), expectedSeconds: eta + SEC.delivered + (margins[r.to.chain] ?? margins.default) };
         if (faultArmed && i === faultAt && (o.fault === "bridge-timeout" || o.fault === "solver-failure")) {
           fire(BigInt(c.tranches[i].amount) + e.inFlight, 0);
@@ -334,6 +351,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
   const e = exposure(c);
   const fundedOnce = [...fundings.values()].every((n) => n === 1) && [...handOvers.values()].every((n) => n === 1);
   const trancheUsd = pieces.map((p) => unitsToUsd(p));
+  const impactCostUsd = trancheUsd.reduce((s, u) => s + ((impactFor(r, u) * impactMul) / 10000) * u, 0);
   const elpfTranche = expectedLossPerFailure({ pFailPrior: model.pFailPrior, exposed: Math.max(...trancheUsd) });
   const elpfCampaign = expectedLossPerFailure({ pFailPrior: model.pFailPrior, exposed: capUsd });
   const baseline = o.fault ? undefined : null;
@@ -343,6 +361,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
     gasUnits: gas, fundings: [...fundings.values()].reduce((s, x) => s + x, 0), handOvers: [...handOvers.values()].reduce((s, x) => s + x, 0),
     maxInFlightUsd: unitsToUsd(maxInFlight), maxPreparedUsd: unitsToUsd(maxPrepared), invariantsHeld: invariantsHeld && fundedOnce && !(crashed && !fundedOnce), completed: done, cancelled: c.state === "cancelled",
     elpfTrancheUsd: elpfTranche.expectedLoss, elpfCampaignUsd: elpfCampaign.expectedLoss, pFailPrior: model.pFailPrior,
+    pieceUnits: pieces.map((p) => p.toString()), impactCostUsd, maxPieceUsd,
     ...(o.fault ? { fault: { kind: o.fault, atTranche: faultAt, exposedUsd: unitsToUsd(faultExposed), maxLossUsd: unitsToUsd(faultExposed), outcome: outcome || (done ? (pauses.length ? "completed after the pause" : "completed; nothing paused (reconciled from the journal and the chain)") : c.state), extraHours: 0 } } : {}),
     ...(r.assumed ? { assumed: true } : {}),
     ...(baseline === null ? {} : {}),
@@ -350,7 +369,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
 }
 
 export const SIZES_USD = [1_000_000, 2_000_000, 5_000_000, 10_000_000, 25_000_000, 50_000_000];
-export const MODES: ProtectionMode[] = ["balanced", "max-privacy", "max-safety"];
+export const MODES: ProtectionMode[] = ["balanced", "max-privacy", "max-safety", "best-execution"];
 
 export function runAll(routes: RouteSpec[], prices: Record<string, number>, seed = 4242): { rows: SimRow[]; faults: SimRow[] } {
   const rows: SimRow[] = [];
