@@ -28,6 +28,8 @@ own contracts, the UI shell (`frontend`), gas optimisation.
 | `core/rust/privacy-core` + `privacy-core-wasm` | equivalence with the circuit / contracts / TypeScript beyond the vectors (differential fuzzing is the suggested method); constant-time properties of the scalar / field code paths that touch secrets; the WASM surface takes caller randomness only |
 | `services/private-swap` `/guest/*`, `frontend/src/components/Guest.tsx`, `frontend/src/sdk/guestGuard.ts` | the walletless path: the deposit address comes only from the THORNode gateway quorum, and the browser re-checks it and the memo (destination, asset, OP_RETURN size, minimum) before showing them; nothing identifying leaves the client except the destination |
 | `frontend/src/sdk/providerCall.ts`, `swapGuard.ts`, `swapSign.ts` | the wallet's own reading of the provider call before the one-time key signs: the pinned contracts, each decoder against the deployed provider contracts (THORChain router, Chainflip Vault, Across SpokePool, Mayan forwarder + Fast-MCTP, LI.FI AcrossFacetV4 / MayanFacet), the minimum and the consent flow |
+| **V2** `reference/typescript/src/wallet/{valuation,privacyLint,destinations,noteStrategy,privacyCenter}.ts`, `frontend/src/sdk/{prices,simulate,tiers,secondFactor,orderTracker,poolDeposits}.ts`, `frontend/src/wallet/{housekeeping,lintFacts}.ts`, `frontend/src/zkapi/tradeCheck.ts` | the whale execution layer (`docs/whale-execution-spec-v1.0.md`): the Chainlink reads through the RPC quorum and the fail-safe (can a lying endpoint or feed lower a tier?), the pre-trade simulation's revert decoding and the second call from the escrow, the WebAuthn gate (it verifies the user, not a signature — is that enough for its role?), the lint's categories against the privacy factors, the destination parsers (bech32 / bech32m / base58check / EIP-55 / base58), the tracker's state derivation, the housekeeping planner (fee accounting, note-count bounds, the observer's clustering caveat in `docs/privacy-lab.md`), the trade-check sanitizer (address shapes) |
+| **V2** `services/private-swap/src/{scoring,health,engine,valuation,placeholders,gateway}.ts`, `adapters/{thorchain,chainflip,mayan}.ts` | the five policies and the tier override, the impact / limit / stream filters, the competition record and the per-adapter budget, the breaker, the price guard at `/prepare`, the placeholders at phase 1, the streaming memo (`LIMIT` per sub-swap), Chainflip `dcaParams` equality, Mayan swap & lock (the USDC vault requirement), the gateway's key handling |
 | `frontend/src/sdk/lightclient/`, `frontend/src/sdk/verifiedReads.ts` | the Ethereum light client: SSZ roots and generalized indices per data format (Electra/Fulu, Gloas), update validation and committee rotation against consensus-specs, the BLS ciphersuite, the trust-on-first-use bootstrap and the snapshot age limit, the execution header field list, the Merkle-Patricia walk (inclusion and exclusion), and the pool check (prefix root, nullifier slots) |
 
 ## 2. Pinning and reproducing
@@ -75,6 +77,16 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
    from taking the worse of the two); please check that composition.
 8. **zkAPI** is used as service credit only; its own issues (pause + 30-day expiry, single-party
    setup, server-dependent operation) are in `docs/zkapi/security.md`.
+9. **V2 — UniswapX is deferred** (`docs/whale-execution-spec-v1.0.md` §11): it needs the escrow to
+   answer EIP-1271 for a Permit2 order, a bytecode change; EVM→EVM keeps Across and LI.FI.
+10. **V2 — the zkAPI quote gateway is blocked upstream** (spec §22): the interface and the status
+    exist; no live zkAPI deployment leases keys for this service.
+11. **V2 — the second factor is a platform-authenticator gate**, not a cryptographic check of the
+    assertion signature (the wallet checks the credential id answered with user verification
+    required); the wallet password is the fallback. Please judge whether that is enough for its role.
+12. **V2 — the whale labs are upper bounds** (`docs/privacy-lab.md`): a per-piece observer, no
+    clustering of a whale's pieces, one amount shared by the whales; the housekeeping planner's
+    pieces inherit those limits.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

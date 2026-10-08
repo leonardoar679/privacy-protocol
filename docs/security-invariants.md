@@ -112,3 +112,19 @@ amounts are linked almost always — the privacy score carries this term.
 
 Still owed: a production ceremony (the dev setup is insecure by design) and an external audit of
 the circuit and the contracts.
+
+## V2 — the whale execution layer (`docs/whale-execution-spec-v1.0.md`)
+| Invariant | Executed by |
+|---|---|
+| Valuation (§13): a price is used only when every configured RPC endpoint answered the same feed within 0.5 % and one round, and it is younger than 2 × heartbeat; otherwise the tier is at least high-value (fail-safe); a chain without feeds has no USD and no tiers; a wallet's tier hint can only raise the service's tier | `reference/typescript/test/valuation.test.ts`, `frontend/test/prices.test.ts`, `services/private-swap/test/{valuation,engine-v2}.test.ts` |
+| Phase-1 quotes carry a placeholder destination; the fresh address reaches only the chosen provider at `/prepare` (§5) | `services/private-swap/test/privacy-flow.test.ts` (live) |
+| A hard quote below the approved minimum is refused (409 `minimum_moved`) and the price guard runs against a fresh competition (§14) | `services/private-swap/test/engine-v2.test.ts`, `frontend/test/swap-flow.test.tsx` |
+| The signed execution is simulated on every RPC endpoint before it leaves the wallet; a revert or a missing answer keeps the signature in the wallet (§24) | `frontend/test/{simulate,swap-flow}.test.ts{,x}` |
+| A block item of the privacy lint at tier ≥ high-value disables the confirmation until acknowledged (§18) | `reference/typescript/test/privacyLint.test.ts`, `frontend/test/destination-card.test.tsx` |
+| From high-value the confirmation is a hold, from high-value-secondary the authenticator (user verification required) or the password, at institutional the funding waits for the review hold (§24) | `frontend/test/{review-flow,hold-to-confirm}.test.tsx` |
+| A typed destination of another chain is refused by name; a mixed-case EVM address must carry its checksum (§21) | `reference/typescript/test/destinations.test.ts` |
+| A funded order is never shown as a bare "failed": the label says where the money is; `executionTx` is journaled once (§19) | `frontend/test/order-tracker.test.ts`, `services/relayer/test/swapExecutor.test.ts` |
+| Housekeeping runs one private self-transfer per step inside the policy window, never immediately unless asked, within the daily fee cap, and never spends a note twice across a plan (plan §73) | `frontend/test/housekeeping.test.ts`, `reference/typescript/test/noteStrategy.test.ts` |
+| What leaves for the trade check carries no address, hash or identity, and the AI module imports nothing that signs or submits (§22) | `frontend/test/trade-check.test.ts` |
+| The gateway never echoes a runtime key and answers 503 while no upstream exists (§22) | `services/private-swap/test/gateway.test.ts` |
+| An unreadable journal is never overwritten; replacing a wallet needs a typed confirmation (§25) | `frontend/test/{journal-safety,home-shell}.test.ts{,x}` |
