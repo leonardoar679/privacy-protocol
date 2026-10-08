@@ -40,7 +40,12 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under Settings (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (49/49 checks, `results/report-2026-10-08-v3.json`; one more when the hard quote asks for consent)
+## What a run checks (48/48 checks on the V4 run, `results/report-2026-10-08-v4.json` — 49 when the hard quote asks for consent; the V3 run: `results/report-2026-10-08-v3.json`)
+
+V4 (`docs/high-value-execution-contract-v1.0.md`): the same run against the V4 service and wallet — the progress panel says
+"Executing in protected steps" and the run reads the step from its `data-step` attribute (the counter shows under Advanced);
+the campaign Review carries the EXECUTION verdict line and "Cross-chain settlement is not atomic"; the wizard shows the
+first-time explanation. What a devnet cannot show stays with the vitest flows and the tests tree (`tests/high-value`).
 
 - first launch: the lock screen, 24 words, Home without a USD figure, every tab and sheet — no request left the page's
   origin;
