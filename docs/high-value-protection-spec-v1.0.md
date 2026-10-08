@@ -72,7 +72,7 @@ tranche band, the settlement gate (§6) and the prior failure probability (§10)
   Across ≈ 180 WETH) MUST be reduced to that limit. **The large-market rule**: when a tranche is tiny
   relative to liquidity (impact < 5 bps) the engine MAY recommend the band's upper edge.
 
-*Stage 1* (`riskClasses.ts`), *Stage 3* (the risk database, the recommendation).
+*Implemented (Stage 1):* `reference/typescript/src/wallet/riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`; `test/riskClasses.test.ts`). *Stage 3* (the risk database, the recommendation).
 
 ## 3. Execution bounds (plan V3 §31–§34, §78–§82)
 
@@ -115,7 +115,7 @@ ExecutionBounds {
   `min(quote.expiresAt, executeDeadline)` (V2 §14); a tranche past it is not handed over.
 - **No unlimited approvals** (plan §33): see §13.
 
-*Stage 1* (types, `checkWithinBounds`), *Stage 4* (the wallet), *Stage 3* (`executeWindowSeconds` in the engine).
+*Implemented (Stage 1):* the types and `checkWithinBounds` in `reference/typescript/src/wallet/campaign.ts` (`test/campaign.test.ts`). *Stage 4* (the wallet), *Stage 3* (`executeWindowSeconds` in the engine).
 
 ## 4. Tranche sizing and cadence (plan V3 §3–§4, §15–§17, §27–§29, §52–§53)
 
@@ -144,7 +144,7 @@ ExecutionBounds {
   campaign and the cost is shown in the maximum-loss model, §15). Above 64 × 100 ETH the campaign's shape
   policy overrides the balance planner's `maxNotes` (it would otherwise split and merge in a loop).
 
-*Stage 1* (`planTranches`), *Stage 2* (the defaults), *Stage 4* (the wallet).
+*Implemented (Stage 1):* `planTranches` (`campaign.ts`: single buckets, or two of the same or adjacent decade, inside the band; `bucket` / `varied`; the remainder rule; every piece under the cap — `test/campaign.test.ts` at $1M, $4.25M, $10M and $50M in ETH and USDC). *Stage 2* (the defaults), *Stage 4* (the wallet).
 
 ## 5. Exposure accounting and the in-flight cap (plan V3 §18, §46–§48, §96–§100, §132–§134)
 
@@ -175,7 +175,7 @@ $263K piece under a $250K cap, and I1 forbids a second release while the first i
 unsettled funds count against the cap** (plan §133): a settled tranche frees its exposure the moment its
 gate is reached. The provider-concentration limit (§10) is a separate, weaker control over the whole order.
 
-*Stage 1* (`exposure`), *Stage 4* (the wallet), *Stage 5* (the screens).
+*Implemented (Stage 1):* `exposure`, `canRelease` (I1, I2, the first tranche alone, the mode's concurrency), `canPrepare` (I4), `maximumLossModel`, `providerShares` (`campaign.ts`; the §132 state pinned unreachable in `test/campaign.test.ts`). *Stage 4* (the wallet), *Stage 5* (the screens).
 
 ## 6. Release modes and the settlement gate (plan V3 §19–§21, §83)
 
@@ -199,7 +199,7 @@ gate is reached. The provider-concentration limit (§10) is a separate, weaker c
   completed, refunded or executing only. A route whose tracker cannot distinguish states settles on
   `completed` under I3.
 
-*Stage 1* (`gateFor`, `settledBy`), *Stage 2* (the margins), *Stage 4* (the runner).
+*Implemented (Stage 1):* `gateFor`, `settledBy` and `FINALITY_MARGIN_SECONDS` (`campaign.ts`; an unknown state never settles). *Stage 2* (the margins), *Stage 4* (the runner).
 
 ## 7. The campaign state machine (plan V3 §44)
 
@@ -235,7 +235,7 @@ tranche:  planned ─▶ ready ─▶ committed ─▶ funded ─▶ signed ─�
   tranche's pro-rata minimum: the refunded part returns to `remaining` and is re-planned; a delivered amount
   below the minimum is an anomaly (§8).
 
-*Stage 1* (the reducer), *Stage 4* (the runner).
+*Implemented (Stage 1):* `nextAction`, `createCampaign`, `replan`, `withTrancheState`, `withCampaignState` (`campaign.ts`; every state walked in `test/campaign.test.ts`, incl. the continuation after a crash at each step: never a second funding or hand-over). *Stage 4* (the runner).
 
 ## 8. Pause, resume, reroute, cancel (plan V3 §22, §45, §76–§78)
 
@@ -269,7 +269,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
 - **Never automatically continue** after an unexplained anomaly (plan §45): the engine determines why
   before releasing the next tranche; "why" is the user's decision on the Review when the facts cannot settle it.
 
-*Stage 1* (`detectPause`), *Stage 4* (the wallet), *Stage 5* (the screens).
+*Implemented (Stage 1):* `detectPause` with `MAX_DEVIATION_BPS`, `CONGESTION_FACTOR`, `STALL_FACTOR` (`campaign.ts`; each reason in `test/campaign.test.ts`). *Stage 4* (the wallet), *Stage 5* (the screens).
 
 ## 9. Recovery and duplicate-send protection (plan V3 §84–§89)
 
@@ -358,7 +358,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
   provider linkability per route → the cross-chain privacy score (the V2 §17 cross-chain term extended
   with the campaign's arrival pattern, measured in §18).
 
-*Stage 1* (the lint), *Stage 2* (the labs), *Stage 5* (the screens).
+*Implemented (Stage 1):* the four items and `LintFacts.campaign` (`reference/typescript/src/wallet/privacyLint.ts`; `test/privacyLint.test.ts`). *Stage 2* (the labs), *Stage 5* (the screens).
 
 ## 12. Destination protection (plan V3 §35–§40, §126–§128)
 
@@ -383,7 +383,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
 - **Simplified allowlisting** (plan §37): the book is the allowlist; velocity and threshold controls are the
   tiers and the cap (§5, §14); roles and multi-operator approval are out of scope (§19).
 
-*Stage 1* (`addressBook.ts`), *Stage 6* (the screens).
+*Implemented (Stage 1):* `reference/typescript/src/wallet/addressBook.ts` (`addEntry`, `verifyEntry`, `overrideCooling`, `canUse`, `markUsed`, `markSettled`, `retire`, `selectable`, `useStatus`; `test/addressBook.test.ts`). *Stage 6* (the screens).
 
 ## 13. Approvals (plan V3 §33–§34)
 

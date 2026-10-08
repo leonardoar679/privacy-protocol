@@ -11,7 +11,7 @@ import { atLeast, type Tier } from "./valuation";
 
 export type LintLevel = "ok" | "warn" | "block";
 export type LintCategory = "Financial privacy" | "Destination linkage" | "Provider visibility" | "Timing risk" | "Amount fingerprint" | "Network privacy";
-export type LintId = "source-not-reused" | "destination-fresh" | "destination-not-public-wallet" | "no-public-linkage" | "private-wallet-used" | "provider-identity-detached" | "timing" | "amount-fingerprint" | "minimum-protected" | "network" | "large-piece";
+export type LintId = "source-not-reused" | "destination-fresh" | "destination-not-public-wallet" | "no-public-linkage" | "private-wallet-used" | "provider-identity-detached" | "timing" | "amount-fingerprint" | "minimum-protected" | "network" | "large-piece" | "same-size-consecutive" | "tranche-link" | "exact-cadence" | "destination-cooling";
 
 export interface LintItem { id: LintId; level: LintLevel; category: LintCategory; text: string; /** a block item the user acknowledged (tier ≥ high-value) */ acknowledged?: boolean }
 
@@ -37,6 +37,18 @@ export interface LintFacts {
   lightClient: boolean;
   /** the public piece against the shipped bucket alphabet and the pool's deposit sizes; null when not applicable (a private transfer) */
   largePiece: { inAlphabet: boolean; holders: number | null } | null;
+  /** a protected campaign (V3 spec §11): what its tranches reveal; absent for a single order */
+  campaign?: {
+    sizing: "bucket" | "varied";
+    /** two consecutive pieces of the same size under `varied` */
+    consecutiveSameSize: boolean;
+    /** every tranche pays its own fresh destination (false: one entered address links them all) */
+    destinationPerTranche: boolean;
+    /** the releases follow a fixed interval (the wallet never produces one) */
+    cadenceFixed: boolean;
+    /** the entered destination is not yet usable: unverified or in its cooling-off (§12) */
+    destinationCooling: boolean;
+  };
   acknowledged?: LintId[];
 }
 
@@ -92,6 +104,22 @@ export function lint(f: LintFacts): LintItem[] {
     else if (f.largePiece.holders === null) add("large-piece", "warn", "Amount fingerprint", "A piece above the common sizes: how many holders could pay it is not known until the pool's deposits are read.");
     else if (f.largePiece.holders >= HOLDERS_FLOOR) add("large-piece", "ok", "Amount fingerprint", `A large piece, but at least ${f.largePiece.holders} holders could pay it.`);
     else add("large-piece", "warn", "Amount fingerprint", `A whale among whales: only ${f.largePiece.holders} holder${f.largePiece.holders === 1 ? "" : "s"} could pay this piece; pieces over time widen the set (private balance maintenance).`);
+  }
+
+  if (f.campaign) {
+    const c = f.campaign;
+    if (c.sizing === "bucket") add("same-size-consecutive", "ok", "Amount fingerprint", "Every step is a common size; equal consecutive steps are the design of this mode.");
+    else if (c.consecutiveSameSize) add("same-size-consecutive", "warn", "Amount fingerprint", "Two consecutive steps have the same size: a repeated size on a cadence is a pattern.");
+    else add("same-size-consecutive", "ok", "Amount fingerprint", "No two consecutive steps have the same size.");
+    add("tranche-link", c.destinationPerTranche ? "ok" : "warn", "Destination linkage", c.destinationPerTranche
+      ? "Each step pays its own fresh address: the steps are not linked by their destination."
+      : "Every step pays the same entered address: the destination links the steps publicly.");
+    add("exact-cadence", c.cadenceFixed ? "block" : "ok", "Timing risk", c.cadenceFixed
+      ? "The steps would follow a fixed interval: a clock is a fingerprint."
+      : "Each step is released after a random delay inside the mode's window.");
+    add("destination-cooling", c.destinationCooling ? "block" : "ok", "Destination linkage", c.destinationCooling
+      ? "The entered destination is not usable for a large payment yet: verify it and let its cooling-off pass, or confirm an immediate use."
+      : "The destination is verified and out of its cooling-off, or it is this wallet's own.");
   }
   return items;
 }

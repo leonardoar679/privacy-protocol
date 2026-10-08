@@ -66,4 +66,21 @@ describe("privacy lint", () => {
     expect(t["amount-fingerprint"].level).toBe("ok");
     expect(t["destination-fresh"].text).toMatch(/privacy address/);
   });
+
+  it("a protected campaign (V3 §11) adds four items: sizes, the destination link, the cadence and the cooling-off; a single order has none", () => {
+    const clean = { sizing: "bucket" as const, consecutiveSameSize: true, destinationPerTranche: true, cadenceFixed: false, destinationCooling: false };
+    const c = byId(lint({ ...base, tier: "institutional", campaign: clean }));
+    for (const id of ["same-size-consecutive", "tranche-link", "exact-cadence", "destination-cooling"]) expect(c[id].level).toBe("ok");
+    expect(c["same-size-consecutive"].text).toMatch(/common size/);
+    const varied = byId(lint({ ...base, tier: "institutional", campaign: { ...clean, sizing: "varied" } }));
+    expect(varied["same-size-consecutive"]).toMatchObject({ level: "warn", category: "Amount fingerprint" });
+    expect(byId(lint({ ...base, tier: "institutional", campaign: { ...clean, sizing: "varied", consecutiveSameSize: false } }))["same-size-consecutive"].level).toBe("ok");
+    const linked = byId(lint({ ...base, tier: "high-value", campaign: { ...clean, destinationPerTranche: false, cadenceFixed: true, destinationCooling: true } }));
+    expect(linked["tranche-link"]).toMatchObject({ level: "warn", category: "Destination linkage" });
+    expect(linked["exact-cadence"]).toMatchObject({ level: "block", category: "Timing risk" });
+    expect(linked["destination-cooling"]).toMatchObject({ level: "block", category: "Destination linkage" });
+    expect(byId(lint({ ...base, tier: "enhanced", campaign: { ...clean, cadenceFixed: true } }))["exact-cadence"].level).toBe("warn"); // below high-value a block is a warning
+    expect(lint({ ...base, tier: "institutional" }).some((i) => i.id.startsWith("tranche") || i.id === "exact-cadence" || i.id === "destination-cooling" || i.id === "same-size-consecutive")).toBe(false);
+    for (const i of lint({ ...base, tier: "institutional", campaign: clean })) expect(i.text.toLowerCase()).not.toMatch(/anonymous|100 ?%|atomic/);
+  });
 });

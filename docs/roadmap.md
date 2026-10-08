@@ -75,7 +75,7 @@ Spec first: `docs/high-value-protection-spec-v1.0.md`, then the stages in order;
 | Stage | Deliverable | Status |
 |-------|-------------|--------|
 | 0 | the spec (19 sections: principles, risk classes, execution bounds, tranche sizing, exposure accounting, the gate per class, the campaign state machine, pause / resume / cancel, recovery, provider risk + ELPF, privacy, destinations, approvals, modes, screens, the AI, the journal, labs, out of scope) + errata to the whale spec (§12 / §13 stage notes, §24 for campaigns), V1.1 D1 and the privacy lab | ✅ 2026-10-08 |
-| 1 | the shared pure core: `reference/typescript/src/wallet/{campaign,riskClasses,addressBook}.ts` (types, the splitter, exposure I1–I5, gates, pause detection, the reducer), the four lint items; tests | ⏳ |
+| 1 | the shared pure core: `reference/typescript/src/wallet/{campaign,riskClasses,addressBook}.ts` (types, the splitter, exposure I1–I5, gates, pause detection, the reducer), the four lint items; reference 128 tests (campaign 18, risk classes 4, address book 4, lint +1) | ✅ 2026-10-08 |
 | 2 | labs: the campaign lab (steps, time, gas at the live price, the 13 faults, maximum loss per fault, ELPF), the privacy rows (`whaleUtxoLab`, `crossChainLab`), the route risk JSON; the lab-calibrated constants into the spec | ⏳ |
 | 3 | service: the risk database and loader, `securityBreakdown`, the breaker extensions, `recommendProtection` on `QuoteSet`, `executeWindowSeconds`, `GET /risk/:provider`; the relayer's `GET /swap` behind a token | ⏳ |
 | 4 | wallet: the journal and settings fields, `sdk/swapExecute.ts` (commit / prepare-and-sign / hand-over extracted), `wallet/{campaigns,campaignRunner,alerts,notifications}.ts`, the App-level tracker, `campaign-shape` | ⏳ |
