@@ -8,8 +8,9 @@ import type { StoredSwap } from "../wallet/journal";
 import type { LintItem } from "@ref/wallet/privacyLint";
 import type { Simulation } from "./simulate";
 
-// Vite's env in the browser; under vitest the VITE_ keys live on process.env only (guarded: no `process` in a browser)
-const env: Record<string, string | undefined> = { ...((typeof process !== "undefined" && process.env) || {}), ...((import.meta as any).env ?? {}) };
+// Vite's env in the browser; under vitest the VITE_ keys live on process.env only (looked up through globalThis: no `process` in a browser, no node types here)
+const nodeEnv = ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}) as Record<string, string | undefined>;
+const env: Record<string, string | undefined> = { ...nodeEnv, ...((import.meta as any).env ?? {}) };
 
 export interface Controls { review: boolean; lint: boolean; simulation: boolean; hold: boolean; secondFactor: boolean; reviewHold: boolean; export: boolean; twoQuotes: boolean }
 
