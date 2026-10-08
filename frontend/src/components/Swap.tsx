@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { formatUsd, tierLabel } from "@ref/wallet/valuation";
 import { levelOf } from "@ref/wallet/privacyCenter";
+import { parseDestination } from "@ref/wallet/destinations";
+import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
 import { feeSummary, swapService, type AssetRef, type Policy, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
 import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
@@ -11,18 +13,23 @@ import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chai
 import { recoverSwapRefunds } from "../sdk/privateTx";
 import type { Deployment } from "../sdk/chain";
 import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../sdk/assets";
-import { relayerSwapExecute, relayerSwapRefund, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
+import { relayerInfo, relayerSwapExecute, relayerSwapRefund, relayerSwapStatus, swapJobStatus, type SwapJob } from "../sdk/relayer";
 import { fmtUnits } from "../sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "../sdk/policy";
 import { priceStore } from "../sdk/prices";
+import { holdersAbove } from "../sdk/poolDeposits";
+import { simulateExecution } from "../sdk/simulate";
 import { abandonSwap, assetOfStored, fundEscrow, isOpenSwap, patchSwap, swapFactoryOf } from "../sdk/swapFunding";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
 import { session, useSession } from "../wallet/session";
 import type { StoredSwap } from "../wallet/journal";
 import { activityId, recordActivity } from "../wallet/activity";
+import { topBucket, walletLint } from "../wallet/lintFacts";
 import { completeAction, sampleDueAt, scheduleAction } from "../wallet/schedule";
 import { AssetSelect } from "./AssetSelect";
+import { DestinationCard } from "./DestinationCard";
+import { PrivacyLint } from "./PrivacyLint";
 import { Scorecard } from "./Scorecard";
 
 // Private swap (spec v1.1, plan §22, §26–§31, §36, §47, §79; whale spec §23): quote every provider through
@@ -54,8 +61,8 @@ const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "nat
 const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
 const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
 
-export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {
-  const { submission, advanced, preference } = useSettings();
+export function Swap({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null }) {
+  const { submission, advanced, preference, verifyReads } = useSettings();
   useSession(); // re-render when the journal-backed session changes
   const assets = assetsOf(deployment);
   const [fromAsset, setFromAsset] = useState(assets[0]);
@@ -76,10 +83,22 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   const [refundLine, setRefundLine] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [acknowledged, setAcknowledged] = useState<LintId[]>([]);
+  const [holders, setHolders] = useState<number | null>(null);
 
   const to = TARGETS[target];
   const units = parseAmount(fromAsset, amount);
   const bucket = bucketBelowFor(fromAsset, units);
+  // a typed destination is parsed for the destination chain (whale spec §21): another chain's address is refused by name
+  const parsedDestination = destinationEdited ? parseDestination(chainKindOf(to.ref.chain), destination) : null;
+  const destinationError = parsedDestination && !parsedDestination.ok ? parsedDestination.reason : "";
+  // a piece above the common sizes: how many holders could pay it, from the pool's public deposits (on this input, never at launch)
+  useEffect(() => {
+    if (!deployment || units <= topBucket(fromAsset.decimals)) { setHolders(null); return; }
+    let live = true;
+    holdersAbove(deployment, fromAsset.vault, units).then((h) => { if (live) setHolders(h); }).catch(() => { if (live) setHolders(null); });
+    return () => { live = false; };
+  }, [deployment, units, fromAsset]);
   // the value tier (whale spec §13): the wallet's own assessment is a hint the service can only raise; the fail-safe is at least high-value
   const assessment = units > 0n ? priceStore.assess(units, fromAsset) : null;
   const usd = assessment && "usd" in assessment.value ? assessment.value.usd : null;
@@ -166,6 +185,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, approvedMin: (shown ?? res.order.quote).toAmountMin, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
       preference, tier: res.order.tier ?? res.tier, value: res.order.value ?? res.value, plan: res.order.plan ?? shown?.plan,
     };
+    if (lintItems) entry.lint = { items: lintItems, at: Date.now() };
     session.update((j) => { j.swaps = [...j.swaps.filter((s) => s.orderId !== entry.orderId), entry]; });
     recordActivity({ id: activityId("swap", entry.orderId), kind: "swap", asset: fromAsset.symbol, decimals: fromAsset.decimals, amount: req.amount, status: "committed", ref: entry.orderId, note: `→ ${to.ref.symbol}` });
     if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: entry.orderId, dueAt });
@@ -230,6 +250,12 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       const { params, call } = gate;
       setBusy("Signing locally…");
       const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab
+      // the signed execution is simulated on every RPC endpoint before it leaves this wallet (whale spec §24): a revert keeps the signature here
+      setBusy("Simulating the execution through your RPC endpoints…");
+      const tipRecipient = submission.kind === "relayer" ? await relayerInfo(submission.url).then((i) => i.relayer).catch(() => undefined) : undefined;
+      const sim = await simulateExecution({ deployment: deployment!, factory: swapFactoryOf(deployment), params, execution: { provider: prepared.provider, value: BigInt(prepared.value), providerCalldata: prepared.calldata, deadline: prepared.deadline, signature }, account: tipRecipient });
+      patchStored(order.orderId, { simulation: { ok: sim.ok, at: Date.now(), ...(sim.ok ? { gas: sim.gas.toString() } : { error: sim.error, reason: sim.reason }) } });
+      if (!sim.ok) throw new Error(`Not handed over: ${sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
       const fin = await swapService.finalize(order.orderId, signature);
       const label = `${a.token ? "" : fmt(fin.execution.value, 18) + " ETH · "}valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()}`;
       if (submission.kind !== "relayer") return { label, job: undefined, call };
@@ -257,6 +283,11 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
   const orderAsset = stored ? assetOf(stored) : fromAsset;
   const window = DELAY_WINDOW[policy];
   const quotedOnly = quotes?.competition ? quotes.competition.filter((c) => c.outcome === "quoted").length : undefined;
+  const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, units), holders, acknowledged };
+  // the privacy lint (whale spec §18) with the quote, and again with what the wallet read in the provider call
+  const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider }) : null;
+  const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: stored.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;
+  const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
 
   return (
     <div className="panel" data-testid="swap">
@@ -286,8 +317,9 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
       <label>Receive at {destinationEdited ? "(your own address)" : "(a fresh address of this wallet, reserved when you confirm)"}</label>
       <input value={destination} onChange={(e: any) => { setDestination(e.target.value); setDestinationEdited(e.target.value.trim() !== ""); }} placeholder="fresh address" />
       {destinationEdited && <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Never use your public wallet address here. <button className="tab" onClick={() => { setDestinationEdited(false); setDestination(peekFreshAddress(masterSeed, chainKindOf(to.ref.chain)).address); }}>Use a fresh address</button></p>}
+      {destinationError && <p className="error" style={{ fontSize: 13, marginTop: -4 }} data-testid="destination-error">Destination: {destinationError}.</p>}
       <p className="muted" style={{ fontSize: 12 }}>Funded at a random time within {window[1] === 0 ? "no delay (your preference is Fastest)" : `${hours(window[0])}–${hours(window[1])}`}; change the trade preference under Settings.</p>
-      <button className="primary" onClick={getQuotes} disabled={!!busy || !destination || units <= 0n}>Get a quote</button>
+      <button className="primary" onClick={getQuotes} disabled={!!busy || !destination || units <= 0n || !!destinationError}>Get a quote</button>
       {busy && <p className="muted">{busy}</p>}
       {error && <p style={{ color: "var(--warn)" }}>{error}</p>}
 
@@ -304,8 +336,10 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
               <div className="row"><span className="muted">Time</span><b>~{hours(chosenQuote.etaSeconds)}{policy !== "fastest" ? " after the scheduled funding" : ""}</b></div>
               <div className="row"><span className="muted">Fee</span><b>{feeSummary(chosenQuote)}</b></div>
               {quotedOnly === 1 && <p className="notice">Only one provider answered for this size; the route cannot be compared with another live quote.</p>}
+              <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmt(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />
+              {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
               <div className="tabs" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={() => commit(chosen.provider)} disabled={!!busy}>Swap</button>
+                <button className="primary" onClick={() => commit(chosen.provider)} disabled={!!busy || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>Swap</button>
                 <button className="tab" onClick={() => setShowRoute((v) => !v)}>{showRoute ? "Hide route details" : "Route details"}</button>
               </div>
             </>
@@ -326,7 +360,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
                   {s.filtered ? ` · not selectable: ${s.filtered}` : ""}
                   {advanced ? ` · score ${s.total} (price ${s.components.price}, security ${s.components.security}, latency ${s.components.latency}, reliability ${s.components.reliability}, liquidity ${s.components.liquidity})` : ""}
                 </div>
-                {!s.filtered && chosen?.provider !== s.provider && <button className="tab" style={{ marginTop: 4 }} onClick={() => commit(s.provider)} disabled={!!busy}>Use this route</button>}
+                {!s.filtered && chosen?.provider !== s.provider && <button className="tab" style={{ marginTop: 4 }} onClick={() => commit(s.provider)} disabled={!!busy || blocked}>Use this route</button>}
               </div>
             );
           })}
@@ -356,7 +390,7 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
 
       {order && (
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-          <div className="row"><span className="muted">Receive at</span><code style={{ fontSize: 11 }}>{(stored?.request as any)?.destination ?? destination}</code></div>
+          <DestinationCard network={TARGETS[Object.keys(TARGETS).find((k) => TARGETS[k].ref.symbol === ((stored?.request as any)?.to?.symbol ?? to.ref.symbol) && TARGETS[k].ref.chain === ((stored?.request as any)?.to?.chain ?? to.ref.chain)) ?? target].network} asset={(stored?.request as any)?.to?.symbol ?? to.ref.symbol} address={(stored?.request as any)?.destination ?? destination} amount={stored?.approvedMin ? `at least ${fmt(stored.approvedMin, (stored.request as any)?.to?.decimals ?? to.ref.decimals)}` : undefined} title="Receive at" />
           <div className="row"><span className="muted">Privacy</span><b className={`level-${levelOf(order.privacy.score)}`}>{levelOf(order.privacy.score)}{advanced ? ` (${order.privacy.score}/100)` : ""}</b></div>
           <div className="row"><span className="muted">{funded ? "Funded" : dueAt ? "Funding scheduled" : "Funding"}</span><b>{funded ? `tx ${stored!.fundedTx!.slice(0, 10)}…` : dueAt ? `${new Date(dueAt).toLocaleString()} (random within ${hours(order.privacy.delaySeconds[0])}–${hours(order.privacy.delaySeconds[1])}; keep the wallet unlocked)` : "now"}</b></div>
           <div className="row"><span className="muted">Returns to your private balance if not executed by</span><b>{new Date(order.params.refundAfter * 1000).toLocaleString()}</b></div>
@@ -394,6 +428,8 @@ export function Swap({ masterSeed, deployment }: { masterSeed: Uint8Array; deplo
               {advanced ? ` (${checked.provider}: ${checked.facts.join("; ")})` : ""}
             </p>
           )}
+          {signLint && <PrivacyLint items={signLint} compact />}
+          {stored?.simulation && <p className="muted" style={{ fontSize: 12 }}>{stored.simulation.ok ? `Simulated on your RPC endpoints before hand-over${stored.simulation.gas ? ` (about ${Number(stored.simulation.gas).toLocaleString()} gas)` : ""}.` : `The last simulation failed: ${stored.simulation.reason ?? stored.simulation.error}.`}</p>}
           {signed && <p className="muted" style={{ fontSize: 12 }}>Confirmed: {signed}{submission.kind !== "relayer" ? " — submit deployAndExecute yourself or switch to relayer submission (Settings)." : ""}</p>}
           {job
             ? <p className="muted" style={{ fontSize: 12 }}>Status: <b>{swapJobStatus(job.state)}</b>{advanced ? ` (${job.state}${job.txHash ? `, tx ${job.txHash.slice(0, 10)}…` : ""}${job.error ? `, ${job.error}` : ""})` : ""} — refreshed every 15 s{OPEN_FOR_RESIGN.includes(job.state) ? "; the quote expired: confirm again with a fresh one" : ""}.</p>

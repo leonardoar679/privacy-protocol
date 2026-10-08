@@ -38,6 +38,9 @@ export interface StoredSwap {
   tier?: string;
   value?: unknown;
   plan?: unknown;
+  /** the privacy lint at commit (spec §18) and the last pre-trade simulation (spec §24) */
+  lint?: { items: unknown[]; at: number };
+  simulation?: { ok: boolean; gas?: string; error?: string; reason?: string; at: number };
 }
 
 /**

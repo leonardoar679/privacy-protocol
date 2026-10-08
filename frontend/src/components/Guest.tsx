@@ -4,6 +4,8 @@ import { SWAP_SERVICE, type AssetRef, type QuoteSet } from "../sdk/swapService";
 import { checkGuestInstruction, type CheckedGuest } from "../sdk/guestGuard";
 import { MinimumMoved } from "../sdk/providerCall";
 import { fmtUnits, parseUnitsSafe } from "../sdk/format";
+import { parseDestination } from "@ref/wallet/destinations";
+import { DestinationCard } from "./DestinationCard";
 
 // Walletless mode (plan §49): no seed, no pool, no keys. The user says what they sell and where the
 // result should go; the service returns a ONE-TIME deposit instruction (THORChain's walletless flow:
@@ -40,6 +42,9 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   const [error, setError] = useState("");
   const from = SOURCES[source], to = TARGETS[target];
   const units = () => parseUnitsSafe(amount, from.decimals).toString();
+  // the typed destination is parsed for Ethereum (whale spec §21): a Bitcoin or Solana address is refused by name
+  const parsedDest = destination ? parseDestination("evm", destination) : null;
+  const destError = parsedDest && !parsedDest.ok ? parsedDest.reason : "";
   const request = () => ({ from, to, amount: units(), destination, slippageBps: 100, policy: "best-price" });
 
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
@@ -96,8 +101,9 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
       </select>
       <label>Destination address{freshDestination ? " (a fresh address of your wallet)" : ""}</label>
       <input value={destination} onChange={(e: any) => setDestination(e.target.value.trim())} placeholder="0x…" />
+      {destError && <p className="error" style={{ fontSize: 13, marginTop: -4 }} data-testid="destination-error">Destination: {destError}.</p>}
       <div className="tabs">
-        <button className="primary" onClick={getQuote} disabled={!!busy || !destination}>Get a quote</button>
+        <button className="primary" onClick={getQuote} disabled={!!busy || !destination || !!destError}>Get a quote</button>
         <button className="tab" onClick={onBack}>Back</button>
       </div>
       {busy && <p className="muted">{busy}</p>}
@@ -109,6 +115,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
               <div className="row"><span className="muted">Receive approximately</span><b>{fmt(thor.toAmount, to.decimals)} {to.symbol}</b></div>
               <div className="row"><span className="muted">At least</span><b>{fmt(thor.toAmountMin, to.decimals)} {to.symbol}</b></div>
               <div className="row"><span className="muted">Estimated</span><b>~{Math.round(thor.etaSeconds / 60)} min</b></div>
+              <DestinationCard network="Ethereum" asset={to.symbol} address={destination} amount={`at least ${fmt(thor.toAmountMin, to.decimals)}`} kind="entered" title="Receive at" />
               <button className="primary" onClick={() => getInstruction()} disabled={!!busy}>Show my deposit instruction</button>
               <p className="muted" style={{ fontSize: 12 }}>The instruction comes from THORChain, the native-chain route whose deposit address this browser verifies against independent gateways before showing it.</p>
             </>

@@ -27,6 +27,12 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
   (`src/wallet/schedule.ts`) runs at the App level on any tab, one action at a time, with backoff;
   `sdk/swapFunding.ts` is the funding path shared with "Fund now". Light-first tokens with dark mode
   (`styles.css`), safe areas and `public/manifest.webmanifest` so iPhone Safari can install it.
+  **Safety layer (V2 Stage 5, whale spec §18, §21, §24):** `DestinationCard` (Network / Asset / address
+  grouped in fours / amount / USD) on every screen that confirms an address, fed by
+  `reference/typescript/src/wallet/destinations.ts` (a wrong-chain paste is refused by name);
+  `PrivacyLint` (the eleven ✓ / ⚠ / ✖ items of `reference/typescript/src/wallet/privacyLint.ts`, facts from
+  `src/wallet/lintFacts.ts`); `sdk/simulate.ts` simulates `deployAndExecute` on every RPC endpoint after
+  the order key signs and before anything leaves the wallet.
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

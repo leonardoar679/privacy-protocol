@@ -13,7 +13,12 @@ export interface MockCoreOptions {
   feeds?: Record<string, MockFeed>;
   /** the Feed Registry's getFeed(base, USD) answers: base denomination → feed address */
   registry?: Record<string, string>;
+  /** a programmable answer to eth_call for the simulation tests (whale spec §24): return undefined to fall through */
+  onCall?: (tx: MockTx, override?: unknown) => { result: Hex } | { error: { code?: number; message: string; data?: Hex } } | undefined;
+  /** a programmable answer to eth_estimateGas */
+  onEstimateGas?: (tx: MockTx, override?: unknown) => bigint | { error: { code?: number; message: string; data?: Hex } };
 }
+export interface MockTx { from?: string; to?: string; data?: string; value?: string }
 
 export async function startMockCore(o: MockCoreOptions) {
   const selNext = toFunctionSelector("nextLeafIndex()");
@@ -35,8 +40,17 @@ export async function startMockCore(o: MockCoreOptions) {
       case "eth_chainId": return res("0x7a69");
       case "eth_blockNumber": return res("0x10");
       case "eth_getLogs": return res(Object.entries(o.events).map(([i, l]) => logFor(Number(i), l)));
+      case "eth_estimateGas": {
+        if (!o.onEstimateGas) return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "mock rpc: eth_estimateGas unsupported" } };
+        const g = o.onEstimateGas(req.params[0], req.params[2] ?? (typeof req.params[1] === "object" ? req.params[1] : undefined));
+        return typeof g === "bigint" ? res(toHex(g)) : { jsonrpc: "2.0", id: req.id, error: { code: g.error.code ?? 3, message: g.error.message, data: g.error.data } };
+      }
       case "eth_call": {
         state.calls++;
+        if (o.onCall) {
+          const r = o.onCall(req.params[0], req.params[2]);
+          if (r) return "error" in r ? { jsonrpc: "2.0", id: req.id, error: { code: r.error.code ?? 3, message: r.error.message, data: r.error.data } } : res(r.result);
+        }
         const data: string = req.params[0].data;
         const to: string = String(req.params[0].to ?? "").toLowerCase();
         if (to === FEED_REGISTRY && data.startsWith(selGetFeed)) {

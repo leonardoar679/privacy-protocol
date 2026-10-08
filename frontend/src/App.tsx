@@ -43,7 +43,7 @@ function Sheet({ title, onClose, children, testId }: { title: string; onClose: (
   );
 }
 
-function SendTab({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: ReturnType<typeof deploymentFromEnv> }) {
+function SendTab({ masterSeed, deployment, account }: { masterSeed: Uint8Array; deployment: ReturnType<typeof deploymentFromEnv>; account: string | null }) {
   const [mode, setMode] = useState<"private" | "public">("private");
   return (
     <div data-testid="send-tab">
@@ -52,7 +52,7 @@ function SendTab({ masterSeed, deployment }: { masterSeed: Uint8Array; deploymen
         <button className={mode === "private" ? "active" : ""} onClick={() => setMode("private")}>Privately</button>
         <button className={mode === "public" ? "active" : ""} onClick={() => setMode("public")}>To a public address</button>
       </div>
-      {mode === "private" ? <Send masterSeed={masterSeed} deployment={deployment} /> : <Withdraw masterSeed={masterSeed} deployment={deployment} />}
+      {mode === "private" ? <Send masterSeed={masterSeed} deployment={deployment} /> : <Withdraw masterSeed={masterSeed} deployment={deployment} account={account} />}
     </div>
   );
 }
@@ -128,8 +128,8 @@ export function App() {
           </div>
         )}
         {tab === "home" && <Home masterSeed={masterSeed} deployment={deployment} account={account} privacyLevel={posture.overall} detailsOpen={detailsOpen} onOpen={open} onTab={(t) => go(t)} />}
-        {tab === "swap" && <Swap masterSeed={masterSeed} deployment={deployment} />}
-        {tab === "send" && <SendTab masterSeed={masterSeed} deployment={deployment} />}
+        {tab === "swap" && <Swap masterSeed={masterSeed} deployment={deployment} account={account} />}
+        {tab === "send" && <SendTab masterSeed={masterSeed} deployment={deployment} account={account} />}
         {tab === "activity" && <Activity />}
       </main>
 

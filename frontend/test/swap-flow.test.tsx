@@ -10,7 +10,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { getAddress } from "viem";
+import { encodeErrorResult, getAddress, parseAbi, toFunctionSelector, type Hex } from "viem";
 import { Swap } from "../src/components/Swap";
 import { session } from "../src/wallet/session";
 import { PINNED, thorAsset } from "../src/sdk/providerCall";
@@ -58,6 +58,22 @@ const score = { provider: "thorchain", total: 80, components: { price: 80, secur
 const calls: string[] = [];
 const relayerBodies: any[] = [];
 const jobs = new Map<string, string>();
+const RELAYER_EOA = getAddress("0x00000000000000000000000000000000000000ee");
+// the deployment's RPC endpoint: the pre-trade simulation (whale spec §24) runs deployAndExecute here; `rpcBend` makes it revert
+let rpcBend: { revert?: Hex; providerReason?: string } = {};
+const rpcSeen: any[] = [];
+function rpc(req: any) {
+  const { id, method } = req;
+  if (method === "eth_call") {
+    const tx = req.params[0];
+    rpcSeen.push(tx);
+    if (rpcBend.revert && String(tx.to).toLowerCase() === FACTORY.toLowerCase()) return { jsonrpc: "2.0", id, error: { code: 3, message: "execution reverted", data: rpcBend.revert } };
+    if (rpcBend.providerReason && String(tx.to).toLowerCase() === PINNED.thorchainRouter.toLowerCase()) return { jsonrpc: "2.0", id, error: { code: 3, message: "execution reverted", data: encodeErrorResult({ abi: parseAbi(["error Error(string message)"]), errorName: "Error", args: [rpcBend.providerReason] }) } };
+    return { jsonrpc: "2.0", id, result: "0x" };
+  }
+  if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
+  return { jsonrpc: "2.0", id, error: { code: -32601, message: `mock rpc: ${method} unsupported` } };
+}
 
 async function service(path: string, body: any): Promise<Response> {
   switch (path) {
@@ -95,8 +111,10 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const u = new URL(url);
   calls.push(`${u.host}${u.pathname}`);
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
+  if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)
   if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
   if (u.host === "127.0.0.1:8790") {
+    if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: "", minFeeWei: "0", gasPriceWei: "0", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/refund") { relayerBodies.push(body); jobs.set(String(body.params.orderId).toLowerCase(), "refund-only"); }
     if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
     const id = String(body?.params?.orderId ?? u.pathname.slice("/swap/".length)).toLowerCase();
@@ -107,7 +125,7 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
 
 beforeAll(() => { globalThis.fetch = fetchMock as unknown as typeof fetch; });
 let root: Root | null = null;
-afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); bend = {}; calls.length = 0; orders.clear(); relayerBodies.length = 0; jobs.clear(); });
+afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); bend = {}; rpcBend = {}; rpcSeen.length = 0; calls.length = 0; orders.clear(); relayerBodies.length = 0; jobs.clear(); });
 
 const button = (c: HTMLElement, text: string | RegExp) => [...c.querySelectorAll("button")].find((b) => (typeof text === "string" ? b.textContent?.trim() === text : text.test(b.textContent ?? ""))) as HTMLButtonElement | undefined;
 async function mount(container: HTMLElement) {
@@ -144,6 +162,26 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     expect(calls).toContain("127.0.0.1:8787/finalize");
     expect(calls).toContain("127.0.0.1:8790/swap/execute");
     expect(calls.filter((c) => c.endsWith("/thorchain/inbound_addresses")).length, "the wallet asked the gateways itself").toBe(3);
+    // the signed execution was simulated on the deployment's endpoint before it left the wallet, with the relayer as the tip recipient
+    const sim = rpcSeen.find((tx) => String(tx.to).toLowerCase() === FACTORY.toLowerCase());
+    expect(sim, "deployAndExecute simulated").toBeTruthy();
+    expect(String(sim.from).toLowerCase()).toBe(RELAYER_EOA.toLowerCase());
+    expect(calls.indexOf("127.0.0.1:1/"), "simulated before finalize").toBeLessThan(calls.indexOf("127.0.0.1:8787/finalize"));
+    expect(session.journal().swaps[0].simulation).toMatchObject({ ok: true, gas: "210000" });
+    expect(container.textContent).toContain("Simulated on your RPC endpoints before hand-over");
+    expect(container.querySelector('[data-testid="privacy-lint"]')).toBeTruthy();
+  });
+
+  it("a call the chain would revert is not handed over: the escrow's error and the provider's reason are shown, nothing is finalized, the signature stays here", async () => {
+    const container = document.createElement("div");
+    const orderId = await committedAndFunded(container);
+    rpcBend = { revert: toFunctionSelector("ProviderCallFailed()") as Hex, providerReason: "THORChain: trading halted" };
+    await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
+    await vi.waitFor(() => expect(container.textContent).toContain("Not handed over: the execution would revert (ProviderCallFailed: the provider rejected the call); the provider says: THORChain: trading halted"), { timeout: 20_000 });
+    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(calls).not.toContain("127.0.0.1:8790/swap/execute");
+    expect(session.journal().swaps.find((s) => s.orderId === orderId)!.simulation).toMatchObject({ ok: false, error: "ProviderCallFailed" });
+    expect(button(container, "2 · Confirm the swap")!.disabled, "confirm again later against a fresh quote").toBe(false);
   });
 
   it("a call paying another address is refused and nothing is signed", async () => {

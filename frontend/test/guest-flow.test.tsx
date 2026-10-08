@@ -7,13 +7,14 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { getAddress } from "viem";
 import { Guest } from "../src/components/Guest";
 import { buildMemo } from "../../services/private-swap/src/adapters/thorchain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const VAULT = "bc1qvaultvaultvaultvaultvaultvaultvaultvau1t";
-const DEST = "0x4E41cD3b4B0D4ec1B0c1dB5E1c9f0a7d0b5C1e2f";
+const DEST = getAddress("0x4e41cd3b4b0d4ec1b0c1db5e1c9f0a7d0b5c1e2f"); // EIP-55: a mixed-case address must carry its checksum (whale spec §21)
 const LIMIT = 30_000_000n; // 0.3 ETH in 1e8 units
 let bent: { to?: string; limit?: bigint } = {};
 const calls: string[] = [];

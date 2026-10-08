@@ -3,6 +3,7 @@ import qrcode from "qrcode-generator";
 import type { ChainAccount, ChainKind } from "@ref/wallet/chainKeys";
 import { privacyAddress } from "../sdk/privateTx";
 import { consumeFreshAddress, lastFreshAddress } from "../keys/chainKeys";
+import { DestinationCard } from "./DestinationCard";
 
 // Receive (plan §46): the wallet's private address for pool payments, and FRESH per-asset addresses
 // (Bitcoin / Solana / EVM) from the Chain Key Abstraction — a new one on demand, each meant to be
@@ -42,17 +43,21 @@ export function Receive({ masterSeed }: { masterSeed: Uint8Array }) {
       </select>
       <p className="muted" style={{ fontSize: 13 }}>{a.note}</p>
       {address ? (
-        <div className="row" style={{ alignItems: "flex-start" }}>
-          <QR text={address} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <code style={{ fontSize: 12, wordBreak: "break-all", display: "block" }}>{address}</code>
-            {current && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>fresh address #{current.index + 1}</div>}
-            <div className="tabs">
-              <button className="tab" onClick={() => navigator.clipboard?.writeText(address)}>Copy</button>
-              {a.chain && <button className="tab" onClick={generate}>New address</button>}
+        <>
+          <div className="row" style={{ alignItems: "flex-start" }}>
+            <QR text={address} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <code style={{ fontSize: 12, wordBreak: "break-all", display: "block" }}>{address}</code>
+              {current && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>fresh address #{current.index + 1}</div>}
+              <div className="tabs">
+                <button className="tab" onClick={() => navigator.clipboard?.writeText(address)}>Copy</button>
+                {a.chain && <button className="tab" onClick={generate}>New address</button>}
+              </div>
             </div>
           </div>
-        </div>
+          {/* the card beside the QR (whale spec §21, plan §57): the QR alone is never the confirmation */}
+          <DestinationCard title="Your address" network={a.chain === "bitcoin" ? "Bitcoin" : a.chain === "solana" ? "Solana" : a.chain === "evm" ? "Ethereum (any EVM network)" : "Private pool"} asset={a.chain === "bitcoin" ? "BTC" : a.chain === "solana" ? "SOL" : a.chain === "evm" ? "ETH" : "ETH · private"} address={address} kind={a.chain ? "fresh" : "privacy-address"} />
+        </>
       ) : (
         <button className="primary" onClick={generate}>Generate a private receiving address</button>
       )}

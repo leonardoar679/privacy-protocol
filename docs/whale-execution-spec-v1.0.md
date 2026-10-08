@@ -540,7 +540,15 @@ journal and the scorecard facts, by one function shared by the wallet and the en
 - The wallet MUST NOT say "anonymous" or "100 % private" anywhere; the Privacy Center states the
   limits of plan §69.
 
-*Stage 5.*
+*Implemented (Stage 5):* `reference/typescript/src/wallet/privacyLint.ts` (`lint(facts)`: the eleven
+items, `block` only from the high-value tier — a warning with the same text below — `acknowledged`,
+`unacknowledgedBlocks`, `HOLDERS_FLOOR` 16); the wallet's facts come from `frontend/src/wallet/lintFacts.ts`
+(settings, deployment, the quote set's links and competition record, what the wallet read in the
+provider call, the pool's deposit sizes through `sdk/poolDeposits.ts` for a piece above the common
+sizes — read on the user's input, never at launch); `components/PrivacyLint.tsx` renders the ✓ / ⚠ / ✖
+lines with "I understand" on a block item; the Swap screen shows the list with the quote and again
+after the provider call is read, Withdraw with the amount; Swap and Withdraw stay disabled while a
+block item is unacknowledged; the lint at commit is journaled (`StoredSwap.lint`).
 
 ## 19. Cross-chain failure states (plan V2 §60–§61, §96, §137.19)
 
@@ -626,8 +634,13 @@ waiting-funding ─▶ executing ─▶ executed ──(late-refund watch, 24 h 
   and in USD; shown wherever an address is confirmed (Swap, Withdraw, Guest, Receive) and, at tier
   ≥ `high-value`, together with the QR (plan §57: the QR alone is never the confirmation).
 
-*Implemented:* the escrow source, fresh destinations, the receiver checks. *Stage 5* adds the parser,
-the wrong-chain refusal and the card.
+*Implemented:* the escrow source, fresh destinations, the receiver checks; *(Stage 5)*
+`reference/typescript/src/wallet/destinations.ts` (`parseEvm` / `parseBitcoin` / `parseSolana`,
+`parseDestination(chain, text)` with the wrong-chain refusal by name, `looksLikeChain`, `groupAddress`;
+vectors: the chain-key derivations, BIP-173 / BIP-350, base58check, testnet refused),
+`components/DestinationCard.tsx` on Swap (with the quote and on the order), Withdraw (with the USD
+value), Guest and Receive (beside the QR); a typed destination that does not parse disables the action
+and says why.
 
 ## 22. zkAPI quote-service integration (plan V2 §33–§37, §77–§81, §137.22)
 
@@ -724,7 +737,16 @@ For tier ≥ `high-value` the Review screen is mandatory at both irreversible mo
 - Below `high-value`: `enhanced` shows the Review with the lint and a tap; `standard` keeps the
   one-tap flow with the destination card.
 
-*Stage 5* (simulation, lint, card) and *Stage 6* (Review, hold, second factor, review hold, issuer line).
+*Implemented (Stage 5):* the pre-trade simulation — `frontend/src/sdk/simulate.ts`
+(`simulateExecution`: `deployAndExecute(params, execution)` encoded exactly as the relayer sends it,
+`eth_call` then `eth_estimateGas` on every endpoint with the relayer's address as the tip recipient
+(`/info`) or a fixed non-zero one, every endpoint must succeed, an endpoint with no usable answer fails
+closed, reverts decoded with the escrow's errors by selector plus `Error(string)` / `Panic`, the
+provider's reason recovered by a second call from the escrow on `ProviderCallFailed` for an ETH order,
+the pre-funding preview through a balance override on the predicted escrow); the Swap screen runs it
+after signing and before `/finalize` — a failure keeps the signature in the wallet and is journaled
+(`StoredSwap.simulation`). The lint (§18) and the card (§21) are in place. *Stage 6* (Review, hold,
+second factor, review hold, issuer line).
 
 ## 25. Local encrypted order history (plan V2 §49–§50, §83–§86, §137.25)
 

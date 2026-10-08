@@ -29,6 +29,9 @@ describe("the browser checks a guest's deposit instruction before showing it", (
     const c = await checkGuestInstruction(instruction(), expectation());
     expect(c).toMatchObject({ depositAddress: VAULT, minOut: LIMIT * 10n ** 10n, gateways: 3 });
   });
+  it("a streamed memo (whale spec §12) is not for a guest: guests stay single-swap", async () => {
+    await refused(checkGuestInstruction(instruction({ memo: buildMemo(engineThorAsset(ETH as any), DEST, LIMIT, undefined, { interval: 1, quantity: 5 }) }), expectation()), /memo/);
+  });
   it("a token target uses THORChain's short asset form so the memo fits OP_RETURN, and still passes", async () => {
     const full = buildMemo(engineThorAsset(USDC as any), DEST, 83_299_108_167n);
     expect(Buffer.byteLength(full)).toBeGreaterThan(UTXO_MEMO_BYTES);
