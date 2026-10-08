@@ -4,7 +4,7 @@
 // at each step (never a second funding or hand-over for one tranche).
 import { describe, it, expect } from "vitest";
 import {
-  canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, maximumLossModel, nextAction, planTranches, providerShares,
+  canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
   rateE18, replan, settledBy, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, TRACK_INTERVAL_MS,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
 } from "../src/wallet/campaign";
@@ -122,6 +122,42 @@ describe("exposure (§5)", () => {
     expect(canRelease(seq, half)).toMatchObject({ ok: false, reason: expect.stringContaining("sequential") });
     expect(canPrepare(seq)).toMatchObject({ ok: false }); // I4
   });
+  it("V4 (contract §3.5): the ledger per provider — the plan's §25 example is admitted under the cap, equal full pieces are refused by I1, a provider above its share by I6", () => {
+    const K = 1_000n * USDC;
+    // a $10M order, cap $250K (2.5 %), three venues quoting: THORChain $100K + Chainflip $80K + Mayan $70K in flight = $250K
+    const pieces = [100n * K, 80n * K, 70n * K, 250n * K, ...Array.from({ length: 38 }, () => 250n * K)];
+    const total = sum(pieces);
+    let c = campaign(pieces, ["settled", "executing", "executing", "planned"], {}, { capBps: 250, concurrency: "parallel", maxParallel: 3, providerShareCapBps: 3000 });
+    c = { ...c, tranches: c.tranches.map((t, i) => (i === 0 ? { ...t, state: "settled" as TrancheState, provider: "thorchain" } : i === 1 ? { ...t, provider: "chainflip" } : i === 2 ? { ...t, provider: "mayan" } : t)) };
+    c = withTrancheState(c, 0, "executing", 5, { provider: "thorchain" }); // the first piece flies too: $100K + $80K + $70K
+    const e = exposure(c);
+    expect(e.inFlight).toBe(250n * K);
+    expect(e.byProvider).toEqual({ thorchain: 100n * K, chainflip: 80n * K, mayan: 70n * K });
+    const l = ledger(c);
+    expect(l).toMatchObject({ orderId: "c1", totalOrderValue: total.toString(), maxExternalExposure: ((total * 250n) / 10000n).toString(), inFlight: (250n * K).toString(), pending: "0", completed: "0" });
+    expect(l.byProvider.thorchain).toEqual({ inFlight: (100n * K).toString(), limit: ((total * 3000n) / 10000n).toString() });
+    expect(BigInt(l.remaining)).toBe(total - 250n * K);
+    // I1: nothing more fits while $250K is unsettled; $250K each from three providers is the plan's §25 counter-example
+    expect(canRelease(c, 250n * K, "thorchain")).toMatchObject({ ok: false, reason: expect.stringContaining("I1") });
+    // I6: with a 30 % share cap a provider that already carries its share is refused even under the global cap
+    const share = campaign([250n * K, 250n * K, 250n * K, 250n * K], ["settled", "settled", "settled", "planned"], {}, { capBps: 10000, concurrency: "parallel", maxParallel: 2, providerShareCapBps: 3000 }); // a cap as wide as the order: only I6 and the modes refuse
+    const carried = { ...share, tranches: share.tranches.map((t, i) => (i < 3 ? { ...t, provider: "thorchain" } : t)) };
+    const flying = withTrancheState(withTrancheState(carried, 0, "executing", 6), 1, "destination-confirmed", 7); // $500K of $1M in flight with THORChain > 30 %
+    expect(exposure(flying).inFlight).toBe(500n * K); // destination-confirmed counts as in flight (I3 until the gate)
+    expect(providerLimit(carried)).toBe(300n * K);
+    expect(canRelease(flying, 250n * K, "thorchain")).toMatchObject({ ok: false, reason: expect.stringContaining("I6") });
+    expect(canRelease(flying, 250n * K, "chainflip")).toMatchObject({ ok: false, reason: expect.stringContaining("first tranche") }); // under the cap and its share, but the first piece is unsettled
+    const one = withTrancheState(carried, 0, "executing", 6);
+    expect(canRelease(one, 250n * K, "thorchain")).toMatchObject({ ok: false, reason: expect.stringContaining("I6") }); // $250K + $250K > $300K: I6 before the first-tranche rule
+    expect(canRelease(one, 250n * K, "chainflip")).toMatchObject({ ok: false, reason: expect.stringContaining("first tranche") });
+    const after = withTrancheState(withTrancheState(carried, 0, "settled", 6), 1, "executing", 7);
+    expect(canRelease(after, 250n * K, "thorchain")).toMatchObject({ ok: false, reason: expect.stringContaining("I6") }); // $250K + $250K > $300K
+    expect(canRelease(after, 250n * K, "chainflip")).toEqual({ ok: true });
+    expect(canRelease(after, 250n * K)).toEqual({ ok: true }); // no provider known yet: the global invariants alone
+    // a single venue (share cap 10000) is never refused by I6
+    const single = campaign([250n * K, 250n * K, 250n * K, 250n * K], ["settled", "executing", "planned", "planned"], {}, { capBps: 5000, concurrency: "parallel", maxParallel: 2, providerShareCapBps: 10000 });
+    expect(canRelease({ ...single, tranches: single.tranches.map((t) => ({ ...t, provider: "thorchain" })) }, 250n * K, "thorchain")).toEqual({ ok: true });
+  });
   it("the maximum-loss model and the provider shares", () => {
     const c = campaign([T, T, T, T], ["settled", "executing", "planned", "planned"]);
     const m = maximumLossModel(c);
@@ -177,6 +213,12 @@ describe("the bounds (§3)", () => {
 describe("detectPause (§8)", () => {
   const c = campaign([50n * ETH, 50n * ETH], ["executing", "planned"]);
   const healthy = { now: 2_000_000, walletPaused: false, crossRateE18: c.referenceRateE18, liveQuotes: 2, providerHealth: { reliability: 90 } };
+  it("V4: the velocity limit pauses with its own reason, after the facts that outrank it", () => {
+    const c = campaign([1n * ETH, 1n * ETH], ["settled", "planned"]);
+    expect(detectPause(c, { now: 1, walletPaused: false, velocityExceeded: true })).toMatchObject({ reason: "velocity" });
+    expect(detectPause(c, { now: 1, walletPaused: true, velocityExceeded: true })).toMatchObject({ reason: "wallet-pause" });
+    expect(detectPause(c, { now: 1, walletPaused: false, velocityExceeded: true, boundsViolation: "x" })).toMatchObject({ reason: "velocity" });
+  });
   it("null when healthy; each reason in its order of severity", () => {
     expect(detectPause(c, healthy)).toBeNull();
     expect(detectPause(c, { ...healthy, walletPaused: true })?.reason).toBe("wallet-pause");

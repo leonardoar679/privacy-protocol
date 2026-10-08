@@ -23,7 +23,7 @@ import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { noteStore } from "../src/wallet/notes";
 import { consumeFreshAddress, peekFreshAddress } from "../src/keys/chainKeys";
-import { addAddress, bookOf, challengeMessage, destinationCheck, entryIdFor, findEntry, markAddressSettled, markAddressUsed, methodsFor, overrideCoolingOff, retireAddress, verifyAddress, verifySignedChallenge } from "../src/wallet/addressBook";
+import { approveAddress, addAddress, bookOf, challengeMessage, destinationCheck, entryIdFor, findEntry, markAddressSettled, markAddressUsed, methodsFor, overrideCoolingOff, retireAddress, verifyAddress, verifySignedChallenge } from "../src/wallet/addressBook";
 import { OVERRIDE_PHRASE } from "../src/components/protection/AddressBook";
 import { buildCampaign } from "../src/wallet/campaigns";
 import type { Deployment } from "../src/sdk/chain";
@@ -80,7 +80,13 @@ describe("the journaled address book (spec §12)", () => {
     const cooling = destinationCheck("evm", EVM, { tier: "high-value", now: T0 + 2000 });
     expect(cooling).toMatchObject({ ok: false, reason: "cooling-off", verified: true, until: T0 + COOLING_OFF_MS });
     expect(cooling.status).toMatch(/wait 24 h more/);
-    expect(destinationCheck("evm", EVM, { tier: "high-value", now: T0 + COOLING_OFF_MS + 1 })).toMatchObject({ ok: true, verified: true });
+    // V4 (plan §19): out of the cooling-off the entry still needs the explicit approval; approving it makes it usable
+    expect(destinationCheck("evm", EVM, { tier: "high-value", now: T0 + COOLING_OFF_MS + 1 })).toMatchObject({ ok: false, reason: "unapproved", verified: true });
+    expect(approveAddress(e.id, session, T0 + COOLING_OFF_MS + 1)).toMatchObject({ lifecycle: "approved", approvedAt: T0 + COOLING_OFF_MS + 1 });
+    expect(destinationCheck("evm", EVM, { tier: "high-value", now: T0 + COOLING_OFF_MS + 2 })).toMatchObject({ ok: true, verified: true });
+    // an approval idle for 90 days is stale
+    expect(destinationCheck("evm", EVM, { tier: "high-value", now: T0 + COOLING_OFF_MS + 91 * 86_400_000 })).toMatchObject({ ok: false, reason: "stale" });
+    // the Immediate override is an approval of its own (the entry is re-read from the journal as it was before the approval here: the override alone suffices)
     overrideCoolingOff(e.id, "second-factor", session, T0 + 3000);
     expect(destinationCheck("evm", EVM, { tier: "high-value", now: T0 + 4000 })).toMatchObject({ ok: true, verified: true, status: "Verified; the cooling-off was overridden." });
     expect(findEntry("evm", EVM)?.override).toEqual({ at: T0 + 3000, by: "second-factor" });

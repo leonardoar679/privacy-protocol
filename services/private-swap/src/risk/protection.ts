@@ -14,7 +14,7 @@ import type { ProviderId, QuoteRequest } from "../types";
 import { daysSinceIncident, securityBreakdown, type SecurityBreakdown } from "./security";
 import { riskDb, type Incident, type RiskDb } from "./riskDb";
 
-export const CADENCE_SECONDS: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600] }; // lab-calibrated (Stage 2)
+export const CADENCE_SECONDS: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600], "best-execution": [600, 3600] }; // lab-calibrated (Stage 2); best-execution (V4): the shortest window
 export const EXECUTE_WINDOW_SECONDS = 7200;
 export const FINALITY_MARGIN: Record<string, number> = { bitcoin: 3600, solana: 60, default: 900 };
 export const PROVIDER_SHARE_CAP_BPS = 500; // lab-calibrated: at ≥ $5M with two or more venues

@@ -262,7 +262,7 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     const panel = c.querySelector('[data-testid="protected-execution"]')!;
     expect(panel.textContent).toContain("Maximum safety");
     const radios = [...panel.querySelectorAll('input[name="protection-mode"]')] as HTMLInputElement[];
-    expect(radios).toHaveLength(3);
+    expect(radios).toHaveLength(4); // V4: Best execution joins the three
     expect(radios[0].checked).toBe(true);
     await act(async () => { radios[2].click(); });
     expect(settings.get().protection.mode).toBe("max-safety");

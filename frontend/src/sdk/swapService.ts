@@ -19,7 +19,7 @@ export interface SwapRequest {
   /** an explicit policy (V1.1), or the preference the service derives it from with the tier */
   policy?: Policy; preference?: Preference; tier?: Tier; destinationKind?: "fresh" | "entered"; preferNative?: boolean;
   /** V3 (High-Value Protection spec §3, §14): the protection mode the recommendation is computed under, and a tranche's short execution window */
-  mode?: "balanced" | "max-privacy" | "max-safety"; executeWindowSeconds?: number;
+  mode?: "balanced" | "max-privacy" | "max-safety" | "best-execution"; executeWindowSeconds?: number;
 }
 
 export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; parts: number; intervalBlocks: number; expectedSeconds: number }

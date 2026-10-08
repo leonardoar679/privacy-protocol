@@ -22,7 +22,7 @@ export function campaignStatus(c: Campaign): CampaignStatus {
 }
 
 export const TRANCHE_WORDS: Record<Tranche["state"], string> = {
-  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for finality", settled: "settled", partial: "partial", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped",
+  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for the destination", "destination-confirmed": "delivered, finality pending", settled: "settled", partial: "partial", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped",
 };
 
 export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onCancel, onReviewReroute, onBack, now = Date.now() }: {

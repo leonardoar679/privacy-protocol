@@ -6,7 +6,7 @@
 // The rules are the shared core's (reference/typescript/src/wallet/addressBook.ts); this module journals them.
 import { useSyncExternalStore } from "react";
 import { recoverMessageAddress, type Hex } from "viem";
-import {
+import { approveEntry,
   addEntry, canUse, challengeMessage, markSettled, markUsed, overrideCooling, retire, selectable, useStatus, verifyEntry, verifySolanaMessage,
   type AddressBookEntry, type AddressChain, type VerificationMethod,
 } from "@ref/wallet/addressBook";
@@ -95,6 +95,14 @@ export function markAddressUsed(chain: AddressChain, address: string, by: string
   const e = findEntry(chain, address, s);
   if (e) put(markUsed(e, by, now), s);
 }
+/** V4 (plan §18–§19): the explicit approval for large payments, once verified and out of its cooling-off (or overridden). */
+export function approveAddress(id: string, s: WalletSession = defaultSession, now = Date.now()): AddressBookEntry | null {
+  const e = bookOf(s.journal()).find((x) => x.id === id);
+  if (!e) return null;
+  const a = approveEntry(e, now);
+  put(a, s);
+  return a;
+}
 /** At settlement: a fresh address retires (one use), an entered one is `settled` and stays usable. */
 export function markAddressSettled(chain: AddressChain, address: string, s: WalletSession = defaultSession, now = Date.now()): void {
   const e = findEntry(chain, address, s);
@@ -105,8 +113,8 @@ export interface DestinationCheck {
   entry: AddressBookEntry | null;
   /** the operation may pay this destination now */
   ok: boolean;
-  /** what stands in the way: unknown (not in the book), unverified, cooling-off, retired */
-  reason?: "unknown" | "unverified" | "cooling-off" | "retired";
+  /** what stands in the way: unknown (not in the book), unverified, cooling-off, unapproved or stale (V4, plan §19), retired */
+  reason?: "unknown" | "unverified" | "cooling-off" | "unapproved" | "stale" | "retired";
   /** the entry is verified (an unverified one can never be confirmed at ≥ high-value; a cooling one can, its first funding waits) */
   verified: boolean;
   /** the cooling-off end, when it is the only obstacle */

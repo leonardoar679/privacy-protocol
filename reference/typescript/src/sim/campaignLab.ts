@@ -92,7 +92,7 @@ export function impactFor(route: RouteSpec, usd: number): number {
 
 // ---- the plan per size and mode (spec §2, §4, §14) -----------------------------------------------------------------
 
-export const CADENCE: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600] }; // lab-calibrated
+export const CADENCE: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600], "best-execution": [600, 3600] }; // lab-calibrated
 export const EXECUTE_WINDOW_SECONDS = 7200;
 export const QUOTE_TTL_SECONDS = 600;
 export const GAS_PER_FUNDING = 1_790_000; // transact (benchmarks/gas/measurements.json)

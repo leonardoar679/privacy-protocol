@@ -29,7 +29,7 @@ export interface Settings {
 }
 
 export type { ProtectionMode };
-export const PROTECTION_MODES: readonly ProtectionMode[] = ["balanced", "max-privacy", "max-safety"];
+export const PROTECTION_MODES: readonly ProtectionMode[] = ["balanced", "max-privacy", "max-safety", "best-execution"];
 export interface ProtectionSettings {
   mode: ProtectionMode;
   /** the in-flight cap the user chose, bps of the order, inside CAP_BPS_RANGE; absent: the mode's default (3 % only where the risk engine permits, §14) */
@@ -50,6 +50,7 @@ export const PROTECTION_DEFAULTS: Record<ProtectionMode, { capBps: number; sizin
   balanced: { capBps: 250, sizing: "varied", cadenceSeconds: [600, 5400], label: "Balanced", words: "At most 2.5 % of the order is exposed at a time; pieces of varied common sizes, a random 10 min – 1.5 h between them; the recommended default." },
   "max-privacy": { capBps: 250, sizing: "bucket", cadenceSeconds: [1800, 21600], label: "Maximum privacy", words: "Every piece the same common size, a random 30 min – 6 h between them: the slowest and the hardest to read." },
   "max-safety": { capBps: 200, sizing: "varied", cadenceSeconds: [600, 3600], label: "Maximum safety", words: "At most 2 % exposed, one piece at a time, every piece final at the destination before the next starts." },
+  "best-execution": { capBps: 250, sizing: "varied", cadenceSeconds: [600, 3600], label: "Best execution", words: "The same exposure as Balanced; routes scored for net output first, pieces released in parallel where the route allows, the shortest pauses between them." },
 };
 export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseLargeOperations: false, autoReroute: false, notifications: { inApp: true, system: false, generic: true }, secondDevice: { enabled: false } };
 

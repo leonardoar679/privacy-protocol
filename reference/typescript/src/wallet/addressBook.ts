@@ -1,5 +1,6 @@
-// The address book (spec V3 §12): destinations are security objects for large operations — every entry carries
-// its chain, asset, label, verification and lifecycle GENERATED → VERIFIED → USED → SETTLED → RETIRED; an entered
+// The address book (spec V3 §12; V4 contract §3.12, §4.5): destinations are security objects for large operations — every
+// entry carries its chain, asset, label, verification and lifecycle GENERATED → VERIFIED → APPROVED → USED → SETTLED → RETIRED
+// (the plan's §19; an approval idle for 90 days is stale and needs a re-check before a large payment); an entered
 // destination must be verified before any operation at ≥ high-value and is in a 24 h cooling-off after it is
 // added; the Immediate override is explicit and journaled; a retired address is never selected automatically.
 // Pure rules over plain records (the wallet keeps them in the encrypted journal; nothing here is ever sent).
@@ -8,7 +9,7 @@ import { base58 } from "@scure/base";
 import { hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { atLeast, type Tier } from "./valuation";
 
-export type AddressLifecycle = "generated" | "verified" | "used" | "settled" | "retired";
+export type AddressLifecycle = "generated" | "verified" | "approved" | "used" | "settled" | "retired";
 export type VerificationMethod = "derived" | "groups-read" | "signed-message" | "test-transaction";
 export type AddressChain = "evm" | "bitcoin" | "solana";
 
@@ -29,12 +30,16 @@ export interface AddressBookEntry {
   /** unix ms: a ≥ high-value operation may not fund toward an entered address before this (§12) */
   coolingUntil?: number;
   override?: { at: number; by: "second-factor" | "second-device" };
+  /** V4 (plan §19): the explicit approval for large payments (the Immediate override is one); stale after APPROVAL_IDLE_MS idle */
+  approvedAt?: number;
   lastUsedAt?: number;
   /** the campaigns / orders that paid it */
   usedBy: string[];
 }
 
 export const COOLING_OFF_MS = 24 * 3600_000;
+/** An approval (or the last use or re-check) older than this is stale: the entry needs a re-check before a payment at ≥ high-value (plan §19). */
+export const APPROVAL_IDLE_MS = 90 * 24 * 3600_000;
 
 export function addEntry(o: { id: string; chain: AddressChain; address: string; normalized: string; label?: string; asset?: string; source: "fresh" | "entered"; now: number }): AddressBookEntry {
   const fresh = o.source === "fresh";
@@ -51,12 +56,21 @@ export function verifyEntry(e: AddressBookEntry, method: VerificationMethod, now
   return { ...e, lifecycle: e.lifecycle === "generated" ? "verified" : e.lifecycle, verification: { status: "verified", method, at: now } };
 }
 
-/** The Immediate override (§12): recorded with what confirmed it; the cooling-off then no longer applies. */
-export function overrideCooling(e: AddressBookEntry, by: "second-factor" | "second-device", now: number): AddressBookEntry {
-  return { ...e, override: { at: now, by } };
+/** The explicit approval for large payments (plan §18–§19, the local allowlist): only a verified entry; a retired one stays retired. */
+export function approveEntry(e: AddressBookEntry, now: number): AddressBookEntry {
+  if (e.verification.status !== "verified" || e.lifecycle === "retired") return e;
+  return { ...e, lifecycle: e.lifecycle === "generated" || e.lifecycle === "verified" ? "approved" : e.lifecycle, approvedAt: now };
 }
 
-export type UseRefusal = { ok: false; reason: "retired" | "unverified" | "cooling-off"; until?: number };
+/** The Immediate override (§12): recorded with what confirmed it; the cooling-off then no longer applies, and the override is the approval. */
+export function overrideCooling(e: AddressBookEntry, by: "second-factor" | "second-device", now: number): AddressBookEntry {
+  return approveEntry({ ...e, override: { at: now, by } }, now);
+}
+
+/** Stale (plan §19): approved, but neither approved, re-checked nor used within APPROVAL_IDLE_MS. */
+export const isStale = (e: AddressBookEntry, now: number): boolean => e.approvedAt !== undefined && now - Math.max(e.approvedAt, e.verification.at ?? 0, e.lastUsedAt ?? 0) > APPROVAL_IDLE_MS;
+
+export type UseRefusal = { ok: false; reason: "retired" | "unverified" | "cooling-off" | "unapproved" | "stale"; until?: number };
 
 /** Whether an operation of `tier` may pay this entry now (§12). */
 export function canUse(e: AddressBookEntry, o: { tier: Tier; now: number }): { ok: true } | UseRefusal {
@@ -64,6 +78,8 @@ export function canUse(e: AddressBookEntry, o: { tier: Tier; now: number }): { o
   if (!atLeast(o.tier, "high-value")) return { ok: true };
   if (e.verification.status !== "verified") return { ok: false, reason: "unverified" };
   if (e.source === "entered" && e.coolingUntil !== undefined && e.coolingUntil > o.now && !e.override) return { ok: false, reason: "cooling-off", until: e.coolingUntil };
+  if (e.source === "entered" && e.approvedAt === undefined) return { ok: false, reason: "unapproved" };
+  if (e.source === "entered" && isStale(e, o.now)) return { ok: false, reason: "stale" };
   return { ok: true };
 }
 
@@ -90,6 +106,8 @@ export function useStatus(e: AddressBookEntry, o: { tier: Tier; now: number }): 
   if (r.ok) return e.source === "fresh" ? "A fresh address of this wallet, verified by derivation." : e.override ? "Verified; the cooling-off was overridden." : "Verified.";
   if (r.reason === "retired") return "Retired: used once and never offered again.";
   if (r.reason === "unverified") return "Not verified yet: verify it before a large payment.";
+  if (r.reason === "unapproved") return "Verified; approve it for large payments to use it.";
+  if (r.reason === "stale") return "Approved long ago and not used since: check it again before a large payment.";
   const hours = Math.max(1, Math.ceil(((r.until ?? o.now) - o.now) / 3600_000));
   return `Added recently: large payments wait ${hours} h more (or confirm an immediate use).`;
 }

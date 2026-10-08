@@ -8,9 +8,9 @@ import { ALERT_TITLES } from "../../wallet/alerts";
 // private balance and unsettled at every hand-over and settlement — never above the cap, I1), the per-step table, the
 // pause history and the expected loss per failure. Everything comes from the journaled campaign; nothing is fetched.
 const TRANCHE_WORDS: Record<Tranche["state"], string> = {
-  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for finality", settled: "settled", partial: "partial", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped",
+  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for the destination", "destination-confirmed": "delivered, finality pending", settled: "settled", partial: "partial", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped",
 };
-const IN_FLIGHT_STATES = new Set<Tranche["state"]>(["executing", "source-confirmed", "destination-submitted", "partial"]);
+const IN_FLIGHT_STATES = new Set<Tranche["state"]>(["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"]);
 const LEAVES_FLIGHT = new Set<Tranche["state"]>(["settled", "refunded", "failed", "skipped", "refunding"]);
 
 export interface ExposurePoint { at: number; inFlight: bigint; trancheIndex: number; note: string }

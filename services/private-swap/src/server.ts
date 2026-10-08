@@ -47,7 +47,7 @@ function policyOf(b: any): Policy | { preference: Preference } {
   return { preference: preferenceOf(b) ?? "balanced" };
 }
 /** V3 (High-Value Protection spec §3, §14): the protection mode and the per-tranche execution window a wallet may send with a quote or an order. */
-const modeOf = (b: any): ProtectionMode | undefined => (b?.mode === "balanced" || b?.mode === "max-privacy" || b?.mode === "max-safety" ? b.mode : undefined);
+const modeOf = (b: any): ProtectionMode | undefined => (b?.mode === "balanced" || b?.mode === "max-privacy" || b?.mode === "max-safety" || b?.mode === "best-execution" ? b.mode : undefined);
 const windowOf = (b: any): number | undefined => (b?.executeWindowSeconds !== undefined && Number.isFinite(Number(b.executeWindowSeconds)) && Number(b.executeWindowSeconds) > 0 ? Number(b.executeWindowSeconds) : undefined);
 const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: preferenceOf(b), mode: modeOf(b), executeWindowSeconds: windowOf(b) });
 class BadRequest extends Error {}

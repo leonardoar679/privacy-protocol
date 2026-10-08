@@ -18,7 +18,7 @@ import { HoldToConfirm } from "../HoldToConfirm";
 // methods — derived (fresh addresses, by construction), the grouped address re-typed, a signed message the wallet checks
 // offline, a test transaction with its public-metadata warning — and the Immediate override: the typed phrase, the second
 // factor (the separate device at institutional), the hold; all journaled, nothing sent anywhere.
-const LIFECYCLE_WORDS: Record<AddressBookEntry["lifecycle"], string> = { generated: "added", verified: "verified", used: "in use", settled: "paid", retired: "retired" };
+const LIFECYCLE_WORDS: Record<AddressBookEntry["lifecycle"], string> = { generated: "added", verified: "verified", approved: "approved for large payments", used: "in use", settled: "paid", retired: "retired" };
 const METHOD_WORDS: Record<VerificationMethod, string> = { derived: "derived by this wallet", "groups-read": "re-typed group by group", "signed-message": "a signed message", "test-transaction": "a test transaction" };
 export const OVERRIDE_PHRASE = "I ACCEPT THE RISK";
 

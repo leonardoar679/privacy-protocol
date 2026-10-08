@@ -9,12 +9,14 @@ import type { Tier } from "./valuation";
 
 export type RiskClass = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7";
 export type Gate = "source" | "destination-submitted" | "destination-final";
-export type ProtectionMode = "balanced" | "max-privacy" | "max-safety";
+/** V4 (contract §2.1, plan §90): Best Execution keeps the band's cap, releases in parallel where the class allows and scores under the best-execution preset. */
+export type ProtectionMode = "balanced" | "max-privacy" | "max-safety" | "best-execution";
 export type Sizing = "bucket" | "varied";
 export type Concurrency = "sequential" | "parallel";
 export type CampaignState = "user-confirmed" | "preparing-notes" | "running" | "paused" | "reassessing" | "requoting" | "rerouting" | "winding-down" | "completed" | "cancelled";
-export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed" | "destination-submitted" | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped";
-export type PauseReason = "price-deviation" | "provider-error" | "chain-congestion" | "route-degraded" | "unexpected-destination" | "security-incident" | "anomaly" | "reconcile" | "bounds" | "user" | "wallet-pause";
+/** `destination-confirmed` (V4, contract §4.2): the destination delivered, the finality margin running — the plan's DESTINATION_CONFIRMED before FINALIZED. */
+export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed" | "destination-submitted" | "destination-confirmed" | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped";
+export type PauseReason = "price-deviation" | "provider-error" | "chain-congestion" | "route-degraded" | "unexpected-destination" | "security-incident" | "anomaly" | "reconcile" | "bounds" | "user" | "wallet-pause" | "velocity";
 /** The alert kinds of §15 (plan V3 §76), plus the campaign's own milestones. */
 export type AlertKind = "provider-degraded" | "price-changed" | "liquidity-dropped" | "destination-changed" | "route-changed" | "execution-delayed" | "chain-congested" | "security-incident" | "paused" | "resumed" | "step-settled" | "completed" | "cancelled";
 export interface CampaignAlert { kind: AlertKind; at: number; text: string; trancheIndex?: number }
@@ -90,6 +92,8 @@ export interface Tranche {
   /** when the tracker first reported the destination delivered (the finality margin counts from here) */
   deliveredSince?: number;
   settledAt?: number;
+  /** V4 (plan §110): the last settlement read that failed; the screens say "Unknown / reconnecting" while it is newer than the last successful read */
+  lastReadFailedAt?: number;
   history: { state: TrancheState; at: number; note?: string }[];
 }
 
@@ -212,12 +216,12 @@ export function planTranches(total: bigint, o: SplitOptions): Split {
 
 // ---- exposure accounting (§5) ----------------------------------------------------------------------------------
 
-export const IN_FLIGHT: readonly TrancheState[] = ["executing", "source-confirmed", "destination-submitted", "partial"];
+export const IN_FLIGHT: readonly TrancheState[] = ["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"];
 export const PREPARED: readonly TrancheState[] = ["funded", "signed", "failed"];
 export const OPEN: readonly TrancheState[] = ["committed", ...PREPARED, ...IN_FLIGHT, "refunding"];
 export const TERMINAL: readonly TrancheState[] = ["settled", "refunded", "skipped"];
 
-export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number }
+export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number; /** V4 (plan §25, §67): the in-flight amount per provider */ byProvider: Record<string, bigint> }
 
 const big = (s: string | undefined): bigint => BigInt(s ?? "0");
 
@@ -226,25 +230,41 @@ export function exposure(c: Campaign): Exposure {
   const total = big(c.request.amount);
   const cap = big(c.bounds.maxExternalExposure);
   let inFlight = 0n, prepared = 0n, completed = 0n, preparedCount = 0, inFlightCount = 0;
+  const byProvider: Record<string, bigint> = {};
+  const fly = (t: Tranche, amount: bigint) => { inFlight += amount; inFlightCount++; if (t.provider) byProvider[t.provider] = (byProvider[t.provider] ?? 0n) + amount; };
   for (const t of c.tranches) {
     const a = big(t.amount);
     if (t.state === "settled") completed += a;
-    else if (t.state === "partial") { const d = big(t.outcome?.delivered); completed += d > a ? a : d; inFlight += a - (d > a ? a : d); inFlightCount++; }
-    else if (IN_FLIGHT.includes(t.state)) { inFlight += a; inFlightCount++; }
+    else if (t.state === "partial") { const d = big(t.outcome?.delivered); completed += d > a ? a : d; fly(t, a - (d > a ? a : d)); }
+    else if (IN_FLIGHT.includes(t.state)) fly(t, a);
     else if (PREPARED.includes(t.state)) { prepared += a; preparedCount++; }
   }
   const remaining = total - completed - inFlight - prepared;
   const next = c.tranches.find((t) => t.state === "planned" || t.state === "ready" || t.state === "committed");
   const nextAmount = next ? big(next.amount) : null;
   const protectedAmount = total - completed - cap;
-  return { total, cap, inFlight, prepared, completed, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount };
+  return { total, cap, inFlight, prepared, completed, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount, byProvider };
 }
 
-/** I1, I2, I4 for releasing (handing over) a tranche of `size`; the first tranche is always alone (§6). */
-export function canRelease(c: Campaign, size: bigint): { ok: true } | { ok: false; reason: string } {
+/** The per-provider limit (I6, plan §46, §67): the order × the plan's share cap (10000 when one venue quotes: a single venue is disclosed, never diversified for appearance). */
+export const providerLimit = (c: Campaign): bigint => bps(big(c.request.amount), Math.min(10000, Math.max(0, c.plan.providerShareCapBps || 10000)));
+
+/** The plan's §26 ledger (contract §3.5): derived from the tranche states alone, never stored. */
+export interface ExposureLedger { orderId: string; totalOrderValue: string; maxExternalExposure: string; completed: string; inFlight: string; pending: string; remaining: string; byProvider: Record<string, { inFlight: string; limit: string }> }
+export function ledger(c: Campaign): ExposureLedger {
+  const e = exposure(c);
+  const limit = providerLimit(c).toString();
+  const byProvider: ExposureLedger["byProvider"] = {};
+  for (const [p, v] of Object.entries(e.byProvider)) byProvider[p] = { inFlight: v.toString(), limit };
+  return { orderId: c.id, totalOrderValue: e.total.toString(), maxExternalExposure: e.cap.toString(), completed: e.completed.toString(), inFlight: e.inFlight.toString(), pending: e.prepared.toString(), remaining: e.remaining.toString(), byProvider };
+}
+
+/** I1, I2, I4 and (V4) I6 for releasing (handing over) a tranche of `size` with `provider`; the first tranche is always alone (§6). */
+export function canRelease(c: Campaign, size: bigint, provider?: string): { ok: true } | { ok: false; reason: string } {
   const e = exposure(c);
   if (size > e.cap) return { ok: false, reason: "the piece is above the in-flight cap (I2)" };
   if (e.inFlight + size > e.cap) return { ok: false, reason: "the cap would be exceeded while earlier tranches are unsettled (I1)" };
+  if (provider && (e.byProvider[provider] ?? 0n) + size > providerLimit(c)) return { ok: false, reason: `${provider} would carry more than its share of the order at once (I6)` };
   const first = c.tranches[0];
   if (first && first.state !== "settled" && first.state !== "refunded" && first.state !== "skipped" && e.inFlightCount > 0) return { ok: false, reason: "the first tranche is the live health test: it settles alone (§6)" };
   if (c.plan.concurrency === "sequential" && e.inFlightCount > 0) return { ok: false, reason: "sequential mode: one tranche in flight at a time" };
@@ -353,6 +373,8 @@ export interface PauseFacts {
   /** a money-moving step ended with an unknown outcome */
   reconcileNeeded?: boolean;
   boundsViolation?: string;
+  /** V4 (contract §2.4): the next hand-over would take the trailing 24 h above the velocity limit the user set */
+  velocityExceeded?: boolean;
 }
 
 /** The first pause condition that holds, in the order of §8's severity; null when the campaign is healthy. */
@@ -373,6 +395,7 @@ export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; 
   }
   if ((f.providerHealth?.reliability !== undefined && f.providerHealth.reliability < 60) || f.liveQuotes === 0) return { reason: "route-degraded", detail: f.liveQuotes === 0 ? "No provider quotes this step right now." : "The chosen provider's reliability dropped." };
   if (f.gasPriceWei !== undefined && f.gasPriceAtConfirmationWei !== undefined && big(f.gasPriceAtConfirmationWei) > 0n && big(f.gasPriceWei) > big(f.gasPriceAtConfirmationWei) * BigInt(CONGESTION_FACTOR)) return { reason: "chain-congestion", detail: "The network fee is several times what it was when you confirmed." };
+  if (f.velocityExceeded) return { reason: "velocity", detail: "The 24-hour limit you set for hand-overs is reached; resume once the window has moved on, or raise the limit under Settings." };
   if (f.boundsViolation) return { reason: "bounds", detail: f.boundsViolation };
   return null;
 }
@@ -451,7 +474,7 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
       case "ready": return { kind: "commit", index: i };
       case "committed": return { kind: "fund", index: i };
       case "funded": return { kind: "sign", index: i };
-      case "signed": { const r = canRelease(c, big(pending.amount)); return r.ok ? { kind: "hand-over", index: i } : flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: r.reason }; }
+      case "signed": { const r = canRelease(c, big(pending.amount), pending.provider ?? c.provider); return r.ok ? { kind: "hand-over", index: i } : flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: r.reason }; }
       default: return { kind: "pause", reason: "provider-error", detail: "The step failed; its funds are in its escrow and return to your private balance.", index: i };
     }
   }
@@ -460,7 +483,7 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
   if (next) {
     if (next.notBefore !== undefined && next.notBefore > f.now) return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: next.notBefore, why: "the random delay before the next step" };
     const p = canPrepare(c);
-    const r = canRelease(c, big(next.amount));
+    const r = canRelease(c, big(next.amount), c.provider);
     if (p.ok && r.ok) return { kind: "commit", index: next.index };
     const why = !p.ok ? p.reason : !r.ok ? r.reason : "waiting";
     return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why };
