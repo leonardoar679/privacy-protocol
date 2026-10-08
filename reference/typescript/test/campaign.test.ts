@@ -265,6 +265,27 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     expect(nextAction(withCampaignState(r, "completed", 7), facts)).toEqual({ kind: "none" });
     expect(nextAction(withCampaignState(r, "cancelled", 7), facts)).toEqual({ kind: "none" });
   });
+  it("a committed tranche is funded and signed before any new one is committed, in every mode", () => {
+    const half = 20n * ETH;
+    let r = withCampaignState(campaign([half, half, half, half], [], {}, { concurrency: "parallel", maxParallel: 2, capBps: 5000 }), "running", 1);
+    r = withTrancheState(r, 0, "settled", 2);
+    r = withTrancheState(r, 1, "executing", 3);
+    expect(nextAction(r, facts)).toEqual({ kind: "commit", index: 2 });
+    r = withTrancheState(r, 2, "committed", 4);
+    expect(nextAction(r, facts)).toEqual({ kind: "fund", index: 2 }); // never a commit of tranche 3 while 2 waits for its funding
+    r = withTrancheState(r, 2, "funded", 5);
+    expect(nextAction(r, facts)).toEqual({ kind: "sign", index: 2 });
+    r = withTrancheState(r, 2, "signed", 6);
+    expect(nextAction(r, facts)).toEqual({ kind: "hand-over", index: 2 });
+  });
+  it("a re-plan sizes its pieces against the order, not the remainder", () => {
+    const order = 2353n * ETH;
+    const r = planTranches(53n * ETH, { decimals: 18, bandBps: [200, 250], capBps: 250, sizing: "bucket", maxParallel: 1, rng: seeded(), reference: order });
+    expect(r.pieces).toEqual([53n * ETH]); // one piece under the order's cap (58.8 ETH), never fifty-three 1 ETH pieces
+    const two = planTranches(120n * ETH, { decimals: 18, bandBps: [200, 250], capBps: 250, sizing: "bucket", maxParallel: 1, rng: seeded(), reference: order });
+    expect(two.pieces.every((p) => p <= (order * 250n) / 10000n)).toBe(true);
+    expect(sum(two.pieces)).toBe(120n * ETH);
+  });
   it("parallel mode releases a second tranche while one flies, within the cap and the limit", () => {
     const half = 20n * ETH;
     let r = withCampaignState(campaign([half, half, half, half, half, half, half, half, half, half, half, half], [], {}, { concurrency: "parallel", maxParallel: 2, capBps: 2000 }), "running", 1);

@@ -13,9 +13,14 @@
 //   pieces-500   greedy buckets ≤ 500 ETH (the current alphabet's top), each piece at its own random delay
 //   pieces-100   greedy buckets ≤ 100 ETH
 //   pieces-10    greedy buckets ≤ 10 ETH (the standard policy's maxBucket), each at its own delay
+//   tranches-bucket / tranches-varied   V3 (High-Value Protection spec §4, §11): the campaign splitter's pieces inside
+//                the 2–2.5 % band of the order under a 2.5 % cap, released one after another — each after the previous
+//                settled (the stream's time plus Bitcoin's finality margin) plus a random cadence draw — so the pieces
+//                are spread over days by the protection rule, not by a privacy delay
 // Usage: npx tsx src/sim/whaleUtxoLab.ts [--users 8000] [--rate 10] [--whales 24] [--amount 1330] [--seed 4242] [--json out.json]
 import { writeFileSync } from "fs";
 import { BUCKETS, POLICY, WEI, planShield, sampleDelay } from "../wallet/amounts";
+import { planTranches } from "../wallet/campaign";
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -49,8 +54,11 @@ const HOUR = 3600;
 
 /** The extended alphabet a whale wallet would need (Stage 8 decides whether it ships): the 1-2-5 series continued. */
 export const EXTENDED_BUCKETS: readonly bigint[] = [...BUCKETS, 1000n * WEI, 2000n * WEI, 5000n * WEI];
-export type Strategy = "exact" | "bucket-ext" | "pieces-500" | "pieces-100" | "pieces-10";
-export const STRATEGIES: Strategy[] = ["exact", "bucket-ext", "pieces-500", "pieces-100", "pieces-10"];
+export type Strategy = "exact" | "bucket-ext" | "pieces-500" | "pieces-100" | "pieces-10" | "tranches-bucket" | "tranches-varied";
+export const STRATEGIES: Strategy[] = ["exact", "bucket-ext", "pieces-500", "pieces-100", "pieces-10", "tranches-bucket", "tranches-varied"];
+/** The campaign's clock between two releases (spec §4, §6): the stream of a ≈ $250K tranche (≈ 18 min measured), Bitcoin's finality margin (60 min), then a cadence draw inside the balanced window [10 min, 90 min]. */
+export const TRANCHE_GAP = { executionSeconds: 1080, marginSeconds: 3600, cadence: [600, 5400] as [number, number] };
+const isTranches = (s: Strategy) => s === "tranches-bucket" || s === "tranches-varied";
 
 /** Greedy decomposition into buckets ≤ maxBucket from the given alphabet (no piece cap: a whale pays for every piece). */
 export function greedy(amount: bigint, alphabet: readonly bigint[], maxBucket: bigint): bigint[] {
@@ -63,17 +71,30 @@ export function greedy(amount: bigint, alphabet: readonly bigint[], maxBucket: b
   }
   return pieces;
 }
-export function piecesFor(strategy: Strategy, amount: bigint): bigint[] {
+export function piecesFor(strategy: Strategy, amount: bigint, rng: () => number = Math.random): bigint[] {
   switch (strategy) {
     case "exact": return [amount];
     case "bucket-ext": { const b = [...EXTENDED_BUCKETS].reverse().find((x) => x <= amount); return b ? [b] : []; }
     case "pieces-500": return greedy(amount, BUCKETS, 500n * WEI);
     case "pieces-100": return greedy(amount, BUCKETS, 100n * WEI);
     case "pieces-10": return greedy(amount, BUCKETS, 10n * WEI);
+    case "tranches-bucket": return planTranches(amount, { decimals: 18, bandBps: [200, 250], capBps: 250, sizing: "bucket", maxParallel: 1, rng }).pieces;
+    case "tranches-varied": return planTranches(amount, { decimals: 18, bandBps: [200, 250], capBps: 250, sizing: "varied", maxParallel: 1, rng }).pieces;
   }
 }
 /** The whale's delay window per strategy: one piece draws from the standard policy; many pieces spread over up to 72 h (the high policy's mean). */
 const windowFor = (s: Strategy, rng: () => number) => (s === "pieces-10" || s === "pieces-100" ? sampleDelay("high", rng) : sampleDelay("standard", rng));
+/** A campaign's release times: the first piece after the standard delay, each next one after the previous settled plus a cadence draw (spec §6). */
+function trancheTimes(n: number, rng: () => number): number[] {
+  const out: number[] = [];
+  let t = sampleDelay("standard", rng);
+  for (let i = 0; i < n; i++) {
+    out.push(t);
+    const [lo, hi] = TRANCHE_GAP.cadence;
+    t += TRANCHE_GAP.executionSeconds + TRANCHE_GAP.marginSeconds + lo + rng() * (hi - lo);
+  }
+  return out;
+}
 
 interface Opts { users: number; rate: number; whales: number; amountEth: number; seed: number; warmup: number }
 interface Piece { user: number; amount: number; t: number; whale: boolean }
@@ -102,11 +123,12 @@ export function simulate(strategy: Strategy, o: Opts): Result {
   const horizon = t;
   // whales: arrive uniformly after the warm-up, hold the amount (deposited earlier in large buckets: public, like every shield), withdraw by the strategy
   const amount = toWei(o.amountEth);
-  const pieces = piecesFor(strategy, amount);
+  const pieces = piecesFor(strategy, amount, rng);
   for (let w = 0; w < o.whales; w++) {
     const tw = horizon * (o.warmup + (1 - o.warmup) * rng());
     users.push({ t: tw, balance: o.amountEth, whale: true });
-    for (const p of pieces) withdrawals.push({ user: o.users + w, amount: toEth(p), t: tw + windowFor(strategy, rng), whale: true });
+    if (isTranches(strategy)) { const times = trancheTimes(pieces.length, rng); pieces.forEach((p, i) => withdrawals.push({ user: o.users + w, amount: toEth(p), t: tw + times[i], whale: true })); }
+    else for (const p of pieces) withdrawals.push({ user: o.users + w, amount: toEth(p), t: tw + windowFor(strategy, rng), whale: true });
   }
   // pieces reference users by push order; the observer scans users in time order
   const original: User[] = [...users];
@@ -115,6 +137,9 @@ export function simulate(strategy: Strategy, o: Opts): Result {
   const byTime = withdrawals.map((w) => ({ ...w })).sort((a, b) => a.t - b.t);
   const pdfStd = ((min, mean) => (x: number) => (x < min ? 0 : Math.exp(-(x - min) / mean) / mean))(POLICY.standard.minDelaySeconds, POLICY.standard.meanDelaySeconds);
   const pdfHigh = ((min, mean) => (x: number) => (x < min ? 0 : Math.exp(-(x - min) / mean) / mean))(POLICY.high.minDelaySeconds, POLICY.high.meanDelaySeconds);
+  // the observer's timing law: the standard delay for one piece, the high policy for many pieces; a campaign's pieces follow the
+  // protection clock (stream + finality + cadence), which an observer who knows the rule can model exactly — the standard
+  // law is used here for the first piece and the later ones are far outside it, so the timing posterior is an upper bound
   const pdf = strategy === "pieces-10" || strategy === "pieces-100" ? pdfHigh : pdfStd;
   const n = users.length;
   const wT = new Float64Array(n), wA = new Float64Array(n), wJ = new Float64Array(n);

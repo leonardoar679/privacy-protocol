@@ -423,6 +423,66 @@
       "guessHit": 0.3485838779956427,
       "unique": 0.0032679738562091504,
       "medianCandidates": 498
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 20,
+      "policy": "bucketed",
+      "streamSeconds": 0,
+      "arrivals": 1002,
+      "effTiming": 7.11612511489655,
+      "effAmount": 3.4359402425900027,
+      "effJoint": 1.3550211606962124,
+      "guessHit": 0.8972055888223552,
+      "unique": 0.48602794411177647,
+      "medianCandidates": 41,
+      "campaignPieces": 40,
+      "campaignBurstShare": 0.69375
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 20,
+      "policy": "bucketed",
+      "streamSeconds": 1200,
+      "arrivals": 1052,
+      "effTiming": 6.981677636633723,
+      "effAmount": 3.6724997118605653,
+      "effJoint": 1.4095621780617684,
+      "guessHit": 0.905893536121673,
+      "unique": 0.4847908745247148,
+      "medianCandidates": 46,
+      "campaignPieces": 40,
+      "campaignBurstShare": 0.6537180910099889
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 100,
+      "policy": "bucketed",
+      "streamSeconds": 0,
+      "arrivals": 1163,
+      "effTiming": 15.057628931897645,
+      "effAmount": 7.582355553504648,
+      "effJoint": 2.070780428129399,
+      "guessHit": 0.7523645743766122,
+      "unique": 0.22699914015477213,
+      "medianCandidates": 31,
+      "campaignPieces": 40,
+      "campaignBurstShare": 0.7239858906525574
+    },
+    {
+      "cls": "native-chain",
+      "ratePerHour": 100,
+      "policy": "bucketed",
+      "streamSeconds": 1200,
+      "arrivals": 1132,
+      "effTiming": 13.633262484484574,
+      "effAmount": 7.3368555712599814,
+      "effJoint": 1.9328788858329917,
+      "guessHit": 0.7950530035335689,
+      "unique": 0.23851590106007067,
+      "medianCandidates": 30,
+      "campaignPieces": 40,
+      "campaignBurstShare": 0.6606914212548015
     }
   ]
 }

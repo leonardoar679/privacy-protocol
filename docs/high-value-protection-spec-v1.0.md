@@ -72,7 +72,7 @@ tranche band, the settlement gate (§6) and the prior failure probability (§10)
   Across ≈ 180 WETH) MUST be reduced to that limit. **The large-market rule**: when a tranche is tiny
   relative to liquidity (impact < 5 bps) the engine MAY recommend the band's upper edge.
 
-*Implemented (Stage 1):* `reference/typescript/src/wallet/riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`; `test/riskClasses.test.ts`). *Stage 3* (the risk database, the recommendation).
+*Implemented (Stage 1):* `reference/typescript/src/wallet/riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`; `test/riskClasses.test.ts`). *Lab-calibrated (Stage 2):* the R5 band [1.0, 2.5] % and the R2 band [2.0, 3.0] % stand; because the 1-2-5 alphabet rarely holds a bucket at 2–2.5 % of an order, pieces land at 1.3–2.5 % (50 ETH of 2,353; 5 ETH of 389): 70–97 steps from $1M to $50M (`benchmarks/whale/campaign.md`). *Stage 3* (the risk database, the recommendation).
 
 ## 3. Execution bounds (plan V3 §31–§34, §78–§82)
 
@@ -127,8 +127,9 @@ ExecutionBounds {
     the pool, and consecutive pieces are equal;
   - `varied`: consecutive pieces differ (50 / 60 / 70 ETH: a bucket plus a smaller bucket), so no two
     consecutive external executions have the same size (plan §15, §52), at the cost of less common amounts.
-  The default mode per privacy mode is **lab-calibrated** (Stage 2 measures both against the single piece
-  and the Tornado baseline, §11). The last piece absorbs the remainder when it is below the dust floor.
+  **`varied` is the default** and `bucket` is Maximum Privacy's choice (Stage 2: the two are equal within the labs'
+  noise, `docs/privacy-lab.md`; `varied` takes fewer steps). The last piece absorbs the remainder when it is below the
+  dust floor; a re-plan after a refund sizes its pieces against the order, never against the remainder.
 - **The user never chooses** sizes, fractions, sub-swap counts or intervals (plan §15, §28; V2 §1 kept).
   Advanced information MAY show the fractions (plan §65).
 - **Streaming inside a tranche** (plan §27–§29): the engine's plan per tranche is V2 §12 unchanged
@@ -136,7 +137,7 @@ ExecutionBounds {
   legs, one destination settlement. Streaming is execution, not privacy (plan §30; V2 §12).
 - **Cadence** (plan §53): the release of a tranche after its predecessor settled waits a random delay drawn
   from the mode's cadence window (`CADENCE_SECONDS`, Balanced [10 min, 90 min], Maximum Privacy
-  [30 min, 6 h], Maximum Safety [10 min, 60 min]; lab-calibrated), from the CSPRNG (`schedule.ts
+  [30 min, 6 h], Maximum Safety [10 min, 60 min]; lab-calibrated, Stage 2: kept), from the CSPRNG (`schedule.ts
   sampleDueAt`), never a fixed interval. The wallet MUST NOT produce an exact-interval pattern.
 - **The note shape** (plan §54): before the first tranche the wallet MAY reshape its notes so that every
   tranche spends at most two notes (`campaign-shape`, §7): private self-transfers through the housekeeping
@@ -144,7 +145,7 @@ ExecutionBounds {
   campaign and the cost is shown in the maximum-loss model, §15). Above 64 × 100 ETH the campaign's shape
   policy overrides the balance planner's `maxNotes` (it would otherwise split and merge in a loop).
 
-*Implemented (Stage 1):* `planTranches` (`campaign.ts`: single buckets, or two of the same or adjacent decade, inside the band; `bucket` / `varied`; the remainder rule; every piece under the cap — `test/campaign.test.ts` at $1M, $4.25M, $10M and $50M in ETH and USDC). *Stage 2* (the defaults), *Stage 4* (the wallet).
+*Implemented (Stage 1):* `planTranches` (`campaign.ts`: single buckets, or two of the same or adjacent decade, inside the band; `bucket` / `varied`; the remainder rule; every piece under the cap — `test/campaign.test.ts` at $1M, $4.25M, $10M and $50M in ETH and USDC). *Calibrated (Stage 2):* `varied` by default, the cadence windows as written, `reference` for re-plans. *Stage 4* (the wallet).
 
 ## 5. Exposure accounting and the in-flight cap (plan V3 §18, §46–§48, §96–§100, §132–§134)
 
@@ -184,8 +185,9 @@ gate is reached. The provider-concentration limit (§10) is a separate, weaker c
   of plan §21 — in every mode.
 - **Parallel mode** (plan §20): in Balanced and Maximum Privacy, when two pieces fit under the cap
   (`maxParallel` 2, lab-calibrated), two tranches MAY be in flight, with different providers when two
-  venues quote the size; the cap is the total, never per provider. Maximum Safety and the institutional
-  tier are sequential only.
+  venues quote the size; the cap is the total, never per provider. **Never for an R5 or R6 route** (plan §19:
+  sequential safety mode for the highest-risk routes — every bridge / MPC route runs one piece at a time).
+  Maximum Safety and the institutional tier are sequential only.
 - **The gate per class** (the owner's decision, 2026-10-08): R5 routes settle at **destination final**;
   R2/R4 routes at **destination submitted**; R1 at **source final**. Maximum Safety raises every gate to
   destination final.
@@ -199,7 +201,7 @@ gate is reached. The provider-concentration limit (§10) is a separate, weaker c
   completed, refunded or executing only. A route whose tracker cannot distinguish states settles on
   `completed` under I3.
 
-*Implemented (Stage 1):* `gateFor`, `settledBy` and `FINALITY_MARGIN_SECONDS` (`campaign.ts`; an unknown state never settles). *Stage 2* (the margins), *Stage 4* (the runner).
+*Implemented (Stage 1):* `gateFor`, `settledBy` and `FINALITY_MARGIN_SECONDS` (`campaign.ts`; an unknown state never settles). *Lab-calibrated (Stage 2):* the margins stand — a Bitcoin-bound step costs ≈ 2.1 h (an 18-minute stream, the 60-minute margin, the Balanced cadence), a week for $10M ETH → BTC; an EVM or Solana destination 1–4 days (`docs/privacy-lab.md`). *Stage 4* (the runner).
 
 ## 7. The campaign state machine (plan V3 §44)
 
@@ -322,8 +324,10 @@ are still tracked and may settle during the pause. Every pause journals its reas
   tranche size**; with one venue the recommendation says "single venue" and never diversifies for
   appearance; the privacy engine weighs diversification against metadata fragmentation (§11).
 - **Expected loss per failure** (plan §155): `ELPF = P(failure) × capital exposed`, per tranche
-  (`exposed` = the tranche) and per campaign (`exposed` = the cap); `P(failure)` = the class prior
-  (lab-calibrated) × (1 + failures in the window / 3) × an incident factor. It is shown under Advanced and
+  (`exposed` = the tranche) and per campaign (`exposed` = the cap); `P(failure)` = the class prior (an
+  assumption until settlement history exists — Stage 2: 2 % for TSS / MPC vaults, 1.5 % for a relayer bridge or
+  CCTP, 3 % for an intent — the service's failure window and incidents move it) × (1 + failures in the window / 3)
+  × an incident factor. It is shown under Advanced and
   compared across modes.
 - **The recommendation** (`recommendProtection`, `QuoteSet.protection`): class, band, cap fraction, gate,
   release mode, estimated steps and time, per-tranche impact and the thin-market flag, concentration, ELPF,
@@ -358,7 +362,7 @@ are still tracked and may settle during the pause. Every pause journals its reas
   provider linkability per route → the cross-chain privacy score (the V2 §17 cross-chain term extended
   with the campaign's arrival pattern, measured in §18).
 
-*Implemented (Stage 1):* the four items and `LintFacts.campaign` (`reference/typescript/src/wallet/privacyLint.ts`; `test/privacyLint.test.ts`). *Stage 2* (the labs), *Stage 5* (the screens).
+*Implemented (Stage 1):* the four items and `LintFacts.campaign` (`reference/typescript/src/wallet/privacyLint.ts`; `test/privacyLint.test.ts`). *Measured (Stage 2, `docs/privacy-lab.md` "High-value protection"):* per piece a campaign's withdrawal hides as well as any bucketed piece of its size (joint effective set 8–24 against 1.6 for one escrow), but 17–24 % of the same-size withdrawals inside a campaign's window are the campaign's own, and on the cross-chain side 65–72 % of the same-size arrivals — a campaign is a public pattern on both sides; the wallet says so. *Stage 5* (the screens).
 
 ## 12. Destination protection (plan V3 §35–§40, §126–§128)
 
@@ -487,7 +491,7 @@ in V2 §22. *Stage 5.*
   local-stack browser run (V2) shows a $10M campaign's first tranche executing and the campaign waiting
   at the gate (a devnet never delivers), the dashboard, the switch, cancel and a reload.
 
-*Stage 2* (the labs), *Stage 1 / 4 / 5* (the tests), *Stage 7* (the browser run).
+*Measured (Stage 2):* `benchmarks/whale/campaign.md` — ETH → BTC through THORChain streaming: $1M 70 steps of $10K–$24K in 141 h, $10M 78 steps of $113K–$128K in 167 h (Maximum Safety 146 h, Maximum Privacy 363 h), $50M 97 steps of $514K–$695K in 215 h; gas $92–$128 per campaign at the price fetched when the lab ran; every one of the 192 campaigns completed with the invariants held. The thirteen faults at the middle tranche of the $10M campaign: a pause before any money moved for an outage, a quote mismatch, a reorg, a wrong chain or token and a wrong destination (the last three cancelled, the rest returned); the tranche in flight ($128K, under the $200K cap) for a price spike, congestion, an RPC failure, a crash or a disconnect; the same for a solver failure (returned at the refund window and re-planned as one more tranche) and a bridge timeout (an anomaly pause after three times the expected time; the step returns when the provider refunds it hours later, 4.5 h in the lab). Each tranche was funded and handed over exactly once in every run. ELPF with the assumed priors: $2.6K per tranche, $4K per campaign cap. `reference/typescript/test/campaignLab.test.ts` pins the invariants, the single funding per tranche and the loss bound per fault. *Stage 1 / 4 / 5* (the tests), *Stage 7* (the browser run).
 
 ## 19. Study notes and out of scope here
 

@@ -88,6 +88,38 @@
       "unique": 0.0003132832080200501,
       "burstShare": 0.03945270495754385,
       "gasUnits": 238070000
+    },
+    {
+      "strategy": "tranches-bucket",
+      "pieces": 45,
+      "pieceEth": [
+        30,
+        10
+      ],
+      "spanHours": 94.5252477116572,
+      "effTiming": 24.311503509975097,
+      "effAmount": 29.88240740740741,
+      "effJoint": 24.311503509975097,
+      "guessHit": 0.032407407407407406,
+      "unique": 0.032407407407407406,
+      "burstShare": 0.24123168890203464,
+      "gasUnits": 80550000
+    },
+    {
+      "strategy": "tranches-varied",
+      "pieces": 45,
+      "pieceEth": [
+        30,
+        10
+      ],
+      "spanHours": 94.70889767393366,
+      "effTiming": 22.559288765437444,
+      "effAmount": 27.655555555555562,
+      "effJoint": 22.559288765437444,
+      "guessHit": 0.03518518518518519,
+      "unique": 0.000925925925925926,
+      "burstShare": 0.24079934941493963,
+      "gasUnits": 80550000
     }
   ]
 }

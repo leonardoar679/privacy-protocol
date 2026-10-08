@@ -199,3 +199,99 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
 **Limits.** Whales share one amount here; the background law has no whales of its own (the pool's
 real deposit-size distribution is public and could replace it); the observer uses the piece's own delay
 law for every candidate; no clustering of a whale's pieces.
+
+## High-value protection (V3: tranches under an in-flight cap) — added 2026-10-08
+
+V3 (`docs/high-value-protection-spec-v1.0.md`) executes a large order as a sequence of tranches, each one external
+execution risk boundary, with at most the cap unsettled at any time. The labs below measure what that costs and what
+it reveals; they decided the constants marked *lab-calibrated* in the spec (its §4, §6, §10, §14, §18). Three runs,
+all read-only and seeded: the **campaign lab** (`benchmarks/whale/run-campaign.mjs` →
+`reference/typescript/src/sim/campaignLab.ts`: the reducer of `wallet/campaign.ts` against a simulated clock fed by
+the measured quotes of `execution.json`), the **whale UTXO lab** with two campaign strategies
+(`benchmarks/whale/utxo.json` at 1,330 ETH and `utxo-10m.json` at 3,894 ETH ≈ $10M at the probe's price) and the
+**cross-chain observer lab** with campaign rows (`benchmarks/privacy/crosschain.json`).
+
+### Steps, time and gas (campaign lab, `benchmarks/whale/campaign.md`)
+
+ETH → BTC through THORChain streaming (class R5: the gate is destination final, Bitcoin's margin 60 min; one tranche in
+flight at a time; the cadence between releases drawn in the mode's window), gas at the price the runner fetched when it
+ran (0.17 gwei, ETH $2,558 — never a constant):
+
+| order | mode | tranches | tranche | cap | wall time | gas |
+|---|---|---|---|---|---|---|
+| $1M | Balanced (varied) | 70 | $10K–$24K | $25K | 141 h | $92 |
+| $1M | Maximum Privacy (bucket) | 78 | $11K–$13K | $25K | 333 h | $103 |
+| $1M | Maximum Safety | 71 | $10K–$18K | $20K | 133 h | $93 |
+| $5M | Balanced | 78 | $51K–$82K | $100K | 169 h | $103 |
+| $10M | Balanced | 78 | $113K–$128K | $200K | 167 h | $103 |
+| $10M | Maximum Privacy | 78 | $113K–$128K | $200K | 363 h | $103 |
+| $10M | Maximum Safety | 78 | $113K–$128K | $200K | 146 h | $103 |
+| $25M | Balanced | 97 | $257K–$347K | $500K | 207 h | $128 |
+| $50M | Balanced | 97 | $514K–$695K | $1M | 215 h | $128 |
+
+- **The step count is set by the bucket alphabet, not by the fraction**: a 2 %–2.5 % piece of $10M in ETH is 78–97
+  ETH and no 1-2-5 bucket sits there, so the splitter takes 50 ETH (1.3 %) or 50 + 20 (1.8 %) — 78 steps rather than
+  40. `varied` (a bucket or two of adjacent decades, consecutive pieces different) gives the fewest steps; `bucket`
+  (single buckets only) the most common sizes. The lab saw no privacy difference between them (below), so
+  **`varied` is the default** and `bucket` is Maximum Privacy's choice.
+- **Time is the finality margin plus the cadence, not the stream**: a $128K tranche streams in ≈ 18 min, then waits
+  60 min for Bitcoin's margin and 10–90 min of cadence (Balanced) — ≈ 2.1 h per step, a week for $10M. Maximum
+  Privacy's wider cadence (30 min–6 h) doubles it. A route whose destination is an EVM chain (15 min margin) or Solana
+  (1 min) finishes in 1–4 days. This is the price of the owner's gate decision (destination final for bridge routes);
+  the screen states the estimate before the start (spec §15) and the campaign resumes at unlock.
+- **Parallel release does not apply to bridge routes** (plan V3 §19): R5 (THORChain, Chainflip, Across, Mayan Fast-MCTP,
+  LI.FI) runs sequentially whatever the size; the assumed R2 SOL → ETH row (Mayan auction) is the only parallel one and
+  finishes a $1M campaign in 35 h against 61–143 h sequential.
+
+### Faults (plan V3 §152–§153): the $10M ETH → BTC campaign, one fault at its middle tranche
+
+| fault | maximum loss | outcome |
+|---|---|---|
+| provider outage, quote mismatch, reorg, wrong chain, wrong token, destination error | $0 | a pause before any money moved; the wrong-destination / wrong-asset cases are cancelled and the rest returns |
+| price spike, chain congestion, RPC failure, app crash, network disconnect | the tranche in flight ($128K) | a pause; nothing is sent again; completed after the pause |
+| solver failure | the tranche in flight ($128K) | the executor reports the failed call; the step returns at its refund window and is re-planned as one more tranche; completed |
+| bridge timeout | the tranche in flight ($128K) | no outbound: an anomaly pause after three times the expected time; the step returns when the provider refunds it hours later (4.5 h extra) and is re-planned; completed |
+
+One external fault reaches at most one active tranche (the cap is $200K; the tranche $128K), never the order; at $1M
+the most a fault reaches is $10K. Every run funded and handed over each tranche exactly once, including the app crash
+(the journal is the state). ELPF with the assumed class priors (2 % for R5): $2.6K per tranche, $4K per campaign cap.
+
+### What a campaign reveals (whale UTXO lab; cross-chain lab)
+
+| strategy (1,330 ETH) | pieces | span | eff. timing | eff. amount | eff. joint | unique | burst | gas |
+|---|---|---|---|---|---|---|---|---|
+| exact (one escrow, V2) | 1 | — | 1.6 | 1.7 | 1.6 | 42 % | 100 % | 2M |
+| pieces-100 (housekeeping, V2) | 15 | 228 h | 12.7 | 17.2 | 12.7 | 0.3 % | 6 % | 27M |
+| pieces-10 | 133 | 400 h | 74.0 | 95.7 | 74.0 | 0.0 % | 4 % | 238M |
+| **tranches-bucket (V3)** | 45 | 95 h | 24.3 | 29.9 | 24.3 | 3.2 % | 24 % | 81M |
+| **tranches-varied (V3)** | 45 | 95 h | 22.6 | 27.7 | 22.6 | 0.1 % | 24 % | 81M |
+
+| strategy (3,894 ETH ≈ $10M) | pieces | span | eff. joint | unique | burst | gas |
+|---|---|---|---|---|---|---|
+| exact | 1 | — | 1.6 | 42 % | 100 % | 2M |
+| pieces-100 | 43 | 324 h | 22.9 | 1.2 % | 8.5 % | 77M |
+| tranches-bucket | 77 | 162 h | 8.4 | 0.6 % | 17 % | 138M |
+| tranches-varied | 77 | 162 h | 8.8 | 0.4 % | 16 % | 138M |
+
+- Per piece, a campaign's withdrawal hides as well as any bucketed piece of its size (joint set 8–24 against 1.6 for
+  one escrow). **The campaign itself is visible**: 17–24 % of the same-size withdrawals inside a campaign's window are
+  the campaign's own (against 6–8 % for housekeeping pieces spread by the privacy delay), because the protection clock
+  releases a piece every ≈ 2 h while the privacy policy spreads pieces over days. A clustering observer sees a
+  campaign; the per-piece numbers are upper bounds on what it earns.
+- On the cross-chain side (`crosschain.json`, native-chain class, bucketed, campaigns of 40 pieces): the per-arrival
+  joint set is 1.4 at 20 swaps/h and 2.1 at 100/h, with 23–49 % of arrivals uniquely linked, against 2.0 / 5.7 and
+  19 % / 0.2 % for the same wallet's independent bucketed swaps — a campaign's pieces are large buckets (10–50 ETH)
+  whose cover at that size is thin — and 65–72 % of the same-size arrivals inside a campaign's window are the
+  campaign's. Streaming the pieces (1,200 s) changes nothing: execution, not privacy (spec §12).
+- **Consequence for the product**: tranching protects capital (one external fault reaches one piece) and gives each
+  piece a pool-side crowd, but a campaign is a public pattern on both sides of the swap. The wallet says so (the lint:
+  `tranche-link`, `same-size-consecutive`, the Privacy Center), Maximum Privacy widens the cadence and keeps single
+  buckets, and nothing claims a campaign is invisible. What the labs do not score: an observer who models the
+  protection clock exactly (the timing posterior here uses the privacy delay law), and the provider's own view (it sees
+  every tranche's escrow and memo).
+
+*Lab-calibrated from these runs*: `capBps` 250 (200 at ≥ $5M and in Maximum Safety), the R5 band [100, 250] bps and
+the R2 band [200, 300], `varied` sizing by default (`bucket` in Maximum Privacy), the cadence windows [10 min, 90 min] /
+[30 min, 6 h] / [10 min, 60 min], the finality margins (BTC 60 min, SOL 1 min, EVM 15 min — kept: the time is the
+gate's price), `MAX_DEVIATION_BPS` 100 (the measured drift over a 2 h step is a few bps), sequential release for R5 /
+R6, and the class priors as assumptions until settlement history exists.

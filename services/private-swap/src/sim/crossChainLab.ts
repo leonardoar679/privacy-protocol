@@ -62,9 +62,11 @@ export const CLASSES: ProviderClass[] = [
 export const THROUGHPUTS = [5, 20, 100]; // swaps per hour on the pair, through that provider
 export type AmountPolicy = "arbitrary" | "bucketed";
 export interface Opts { swaps: number; seed: number; warmup: number; walletShare: number; rateDriftPerSqrtMin: number; tipBps: number }
-export interface Row { cls: string; ratePerHour: number; policy: AmountPolicy; streamSeconds: number; arrivals: number; effTiming: number; effAmount: number; effJoint: number; guessHit: number; unique: number; medianCandidates: number }
+export interface Row { cls: string; ratePerHour: number; policy: AmountPolicy; streamSeconds: number; arrivals: number; effTiming: number; effAmount: number; effJoint: number; guessHit: number; unique: number; medianCandidates: number; /** V3 campaigns: pieces per campaign and the share of same-amount arrivals inside a campaign's window that are the campaign's own (what a clustering observer sees) */ campaignPieces?: number; campaignBurstShare?: number }
 /** Streamed settlement (plan V2 §22–§23, spec §12): the native-chain class also runs as a stream of this many seconds (0 = one swap). */
 export const STREAM_SECONDS = [0, 1200, 6000];
+/** V3 campaigns (High-Value Protection spec §6, §11): our swaps arrive as K ingresses of one bucket, each released after the previous settled (the stream, the finality margin) plus a cadence draw. */
+export const CAMPAIGN = { pieces: 40, marginSeconds: 3600, cadence: [600, 5400] as [number, number] };
 
 interface Swap { ours: boolean; amountIn: number; tE: number; tD: number; out: number; rateAtE: number }
 
@@ -76,17 +78,29 @@ interface Swap { ours: boolean; amountIn: number; tE: number; tD: number; out: n
  * not extra uncertainty, on the timing side; it widens the amount tolerance. Every swap in the row streams
  * for the same time (the cover must stream too; a lone stream among single swaps is a fingerprint).
  */
-export function simulate(cls: ProviderClass, ratePerHour: number, policy: AmountPolicy, o: Opts, seedOffset = 0, streamSeconds = 0): Row {
+export function simulate(cls: ProviderClass, ratePerHour: number, policy: AmountPolicy, o: Opts, seedOffset = 0, streamSeconds = 0, campaign: { pieces: number } | null = null): Row {
   const rng = mulberry32(o.seed + seedOffset);
   const swaps: Swap[] = [];
   let t = 0, logRate = 0, lastT = 0;
+  // V3 campaigns: our traffic comes as campaigns of K equal bucket pieces on the protection clock instead of independent swaps
+  let pending: { amountIn: number; dueAt: number }[] = [];
+  const campaignAmount = () => toBucket(lognormalAmount(rng) * 10) * (1 - o.tipBps / 10000);
   for (let i = 0; i < o.swaps; i++) {
     t += expSample(rng, 3600 / ratePerHour);
     logRate += gaussian(rng) * o.rateDriftPerSqrtMin * Math.sqrt((t - lastT) / 60); // the market moves while swaps are in flight
     lastT = t;
-    const ours = rng() < o.walletShare;
+    let ours = rng() < o.walletShare;
     let amountIn: number;
-    if (!ours) amountIn = sampleBackground(rng);
+    let tE = t;
+    if (campaign && ours) {
+      if (!pending.length) {
+        const a = campaignAmount();
+        let due = t;
+        for (let k = 0; k < campaign.pieces; k++) { pending.push({ amountIn: a, dueAt: due }); due += streamSeconds + cls.etaSeconds + CAMPAIGN.marginSeconds + CAMPAIGN.cadence[0] + rng() * (CAMPAIGN.cadence[1] - CAMPAIGN.cadence[0]); }
+      }
+      const next = pending.shift()!;
+      amountIn = next.amountIn; tE = Math.max(t, next.dueAt);
+    } else if (!ours) amountIn = sampleBackground(rng);
     else {
       const wanted = lognormalAmount(rng);
       amountIn = (policy === "bucketed" ? toBucket(wanted) : wanted) * (1 - o.tipBps / 10000); // the escrow pays the executor tip first
@@ -96,8 +110,9 @@ export function simulate(cls: ProviderClass, ratePerHour: number, policy: Amount
     // a stream settles at the average rate over its length: the drift over the stream is execution noise for the observer
     const streamDrift = streamSeconds > 0 ? o.rateDriftPerSqrtMin * Math.sqrt(streamSeconds / 60) * gaussian(rng) : 0;
     const out = amountIn * rateAtE * (1 - cls.feeBps / 10000) * (1 + cls.execNoise * gaussian(rng) + streamDrift);
-    swaps.push({ ours, amountIn, tE: t, tD: t + eta, out, rateAtE });
+    swaps.push({ ours, amountIn, tE, tD: tE + eta, out, rateAtE });
   }
+  if (campaign) swaps.sort((a, b) => a.tE - b.tE);
   // the observer's tolerances: execution noise plus the rate drift over a typical ETA (and over the stream)
   const tau = Math.sqrt(cls.execNoise ** 2 + o.rateDriftPerSqrtMin ** 2 * ((cls.etaSeconds + streamSeconds) / 60));
   const mu = Math.log(cls.etaSeconds), sig = cls.etaSigma;
@@ -138,10 +153,23 @@ export function simulate(cls: ProviderClass, ratePerHour: number, policy: Amount
   }
   const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length);
   const sorted = [...acc.cands].sort((a, b) => a - b);
+  // a clustering observer on a campaign: of the arrivals with this amount inside the campaign's own window, how many are ours
+  let campaignBurstShare: number | undefined;
+  if (campaign) {
+    let num = 0, den = 0;
+    const ours = swaps.filter((s) => s.ours);
+    for (let i = 0; i + campaign.pieces <= ours.length; i += campaign.pieces) {
+      const first = ours[i], last = ours[i + campaign.pieces - 1];
+      const same = swaps.filter((s) => Math.abs(s.amountIn - first.amountIn) <= first.amountIn * 0.005 && s.tD >= first.tD && s.tD <= last.tD); // the same bucket within the tip's 25 bps
+      num += same.filter((s) => s.ours).length; den += same.length;
+    }
+    campaignBurstShare = den ? num / den : 0;
+  }
   return {
     cls: cls.name, ratePerHour, policy, streamSeconds, arrivals: acc.count,
     effTiming: mean(acc.timing), effAmount: mean(acc.amount), effJoint: mean(acc.joint), guessHit: mean(acc.gh), unique: acc.unique / Math.max(1, acc.count),
     medianCandidates: sorted[Math.floor(sorted.length / 2)] ?? 0,
+    ...(campaign ? { campaignPieces: campaign.pieces, campaignBurstShare } : {}),
   };
 }
 
@@ -151,6 +179,9 @@ export function runAll(o: Opts): Row[] {
   for (const cls of CLASSES) for (const rate of THROUGHPUTS) for (const policy of ["arbitrary", "bucketed"] as AmountPolicy[]) {
     for (const stream of cls.name === "native-chain" ? STREAM_SECONDS : [0]) rows.push(simulate(cls, rate, policy, o, seedOffset++, stream));
   }
+  // V3 (spec §11): campaigns of bucket pieces on the native-chain class, single and streamed, at 20 and 100 swaps per hour
+  const native = CLASSES.find((c) => c.name === "native-chain")!;
+  for (const rate of [20, 100]) for (const stream of [0, 1200]) rows.push(simulate(native, rate, "bucketed", o, seedOffset++, stream, { pieces: CAMPAIGN.pieces }));
   return rows;
 }
 

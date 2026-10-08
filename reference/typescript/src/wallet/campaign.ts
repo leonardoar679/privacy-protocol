@@ -119,6 +119,8 @@ export interface SplitOptions {
   dustFloor?: bigint;
   /** uniform in [0, 1) (the CSPRNG in the wallet, a seeded source in the labs) */
   rng: () => number;
+  /** the order the band and the cap are fractions of — a re-plan of a remainder passes the original order (default: `total`) */
+  reference?: bigint;
 }
 export interface Split { pieces: bigint[]; /** pieces that are not a bucket or a sum of two (the remainder, or a band no bucket fits) */ exact: number; /** the band in base units */ band: [bigint, bigint] }
 
@@ -133,9 +135,10 @@ const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 export function planTranches(total: bigint, o: SplitOptions): Split {
   if (total <= 0n) return { pieces: [], exact: 0, band: [0n, 0n] };
   const alphabet = bucketsFor(o.decimals);
-  const cap = bps(total, o.capBps);
-  const lower = bps(total, o.bandBps[0]);
-  let upper = min(bps(total, o.bandBps[1]), cap / BigInt(Math.max(1, o.maxParallel)));
+  const ref = o.reference && o.reference > 0n ? o.reference : total;
+  const cap = bps(ref, o.capBps);
+  const lower = bps(ref, o.bandBps[0]);
+  let upper = min(bps(ref, o.bandBps[1]), cap / BigInt(Math.max(1, o.maxParallel)));
   if (o.maxPiece !== undefined && o.maxPiece > 0n) upper = min(upper, o.maxPiece);
   if (upper <= 0n) upper = min(total, cap);
   const dust = o.dustFloor ?? alphabet[0];
@@ -383,7 +386,6 @@ export const TRACK_INTERVAL_MS = 15_000;
 export const PAUSED_TRACK_INTERVAL_MS = 60_000;
 
 const inFlightIndexes = (c: Campaign): number[] => c.tranches.filter((t) => IN_FLIGHT.includes(t.state) || t.state === "refunding").map((t) => t.index);
-const activeIndex = (c: Campaign): number => c.tranches.findIndex((t) => OPEN.includes(t.state) || t.state === "ready");
 
 /**
  * The one next action for the runner, from the journaled campaign and fresh facts. One action per tick; the
@@ -411,16 +413,17 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
   }
   // running
   if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail };
-  // the tranche in progress, if any, advances first
-  const i = activeIndex(c);
-  if (i >= 0) {
-    const t = c.tranches[i];
-    switch (t.state) {
-      case "ready": case "committed": return t.state === "ready" ? { kind: "commit", index: i } : { kind: "fund", index: i };
+  // a tranche awaiting a wallet action advances first (the lowest one): a committed order is funded and signed before
+  // any new one is committed, so quotes never wait and the pipeline holds one tranche at a time
+  const pending = c.tranches.find((t) => t.state === "ready" || t.state === "committed" || t.state === "funded" || t.state === "signed" || t.state === "failed");
+  if (pending) {
+    const i = pending.index;
+    switch (pending.state) {
+      case "ready": return { kind: "commit", index: i };
+      case "committed": return { kind: "fund", index: i };
       case "funded": return { kind: "sign", index: i };
-      case "signed": { const r = canRelease(c, big(t.amount)); return r.ok ? { kind: "hand-over", index: i } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: r.reason }; }
-      case "failed": return { kind: "pause", reason: "provider-error", detail: "The step failed; its funds are in its escrow and return to your private balance.", index: i };
-      default: break; // in flight or refunding: tracked below, and the next tranche may be released in parallel mode
+      case "signed": { const r = canRelease(c, big(pending.amount)); return r.ok ? { kind: "hand-over", index: i } : flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: r.reason }; }
+      default: return { kind: "pause", reason: "provider-error", detail: "The step failed; its funds are in its escrow and return to your private balance.", index: i };
     }
   }
   const e = exposure(c);

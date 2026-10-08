@@ -1,0 +1,128 @@
+{
+  "opts": {
+    "users": 8000,
+    "rate": 10,
+    "whales": 24,
+    "amountEth": 3894,
+    "seed": 4242,
+    "warmup": 0.2
+  },
+  "rows": [
+    {
+      "strategy": "exact",
+      "pieces": 1,
+      "pieceEth": [
+        3894
+      ],
+      "spanHours": 0,
+      "effTiming": 1.614389633561929,
+      "effAmount": 1.7083333333333333,
+      "effJoint": 1.614389633561929,
+      "guessHit": 0.7916666666666666,
+      "unique": 0.4166666666666667,
+      "burstShare": 1,
+      "gasUnits": 1790000
+    },
+    {
+      "strategy": "bucket-ext",
+      "pieces": 1,
+      "pieceEth": [
+        2000
+      ],
+      "spanHours": 0,
+      "effTiming": 1.6745394068898776,
+      "effAmount": 1.8333333333333333,
+      "effJoint": 1.6745394068898776,
+      "guessHit": 0.7916666666666666,
+      "unique": 0.5416666666666666,
+      "burstShare": 1,
+      "gasUnits": 1790000
+    },
+    {
+      "strategy": "pieces-500",
+      "pieces": 14,
+      "pieceEth": [
+        500,
+        200,
+        100,
+        50,
+        20,
+        2
+      ],
+      "spanHours": 88.20137060012068,
+      "effTiming": 32.98261542977305,
+      "effAmount": 103.24404761904832,
+      "effJoint": 32.98261542977305,
+      "guessHit": 0.33035714285714285,
+      "unique": 0.050595238095238096,
+      "burstShare": 0.04743707998418764,
+      "gasUnits": 25060000
+    },
+    {
+      "strategy": "pieces-100",
+      "pieces": 43,
+      "pieceEth": [
+        100,
+        50,
+        20,
+        2
+      ],
+      "spanHours": 323.7028428152725,
+      "effTiming": 22.923500800187156,
+      "effAmount": 54.62306201550498,
+      "effJoint": 22.923500800187156,
+      "guessHit": 0.24127906976744187,
+      "unique": 0.011627906976744186,
+      "burstShare": 0.08460956152099225,
+      "gasUnits": 76970000
+    },
+    {
+      "strategy": "pieces-10",
+      "pieces": 391,
+      "pieceEth": [
+        10,
+        2
+      ],
+      "spanHours": 474.2686211912075,
+      "effTiming": 73.6428682428549,
+      "effAmount": 97.59590792838874,
+      "effJoint": 73.6428682428549,
+      "guessHit": 0.024296675191815855,
+      "unique": 0.00010656436487638534,
+      "burstShare": 0.059376390944438244,
+      "gasUnits": 699890000
+    },
+    {
+      "strategy": "tranches-bucket",
+      "pieces": 77,
+      "pieceEth": [
+        50,
+        94
+      ],
+      "spanHours": 162.29790096038488,
+      "effTiming": 8.39186429094409,
+      "effAmount": 13.921536796536797,
+      "effJoint": 8.39186429094409,
+      "guessHit": 0.04329004329004329,
+      "unique": 0.006493506493506494,
+      "burstShare": 0.16750915786319748,
+      "gasUnits": 137830000
+    },
+    {
+      "strategy": "tranches-varied",
+      "pieces": 77,
+      "pieceEth": [
+        50,
+        94
+      ],
+      "spanHours": 162.20783016071914,
+      "effTiming": 8.826115413352712,
+      "effAmount": 14.770562770562771,
+      "effJoint": 8.826115413352712,
+      "guessHit": 0.037337662337662336,
+      "unique": 0.003787878787878788,
+      "burstShare": 0.16198918342954682,
+      "gasUnits": 137830000
+    }
+  ]
+}
