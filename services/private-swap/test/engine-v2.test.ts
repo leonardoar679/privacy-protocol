@@ -23,7 +23,7 @@ const health = (...hs: Health[]) => Object.fromEntries(hs.map((h) => [h.provider
 
 describe("policies (whale spec §4)", () => {
   it("five policies whose weights sum to one; the derivation from a preference and a tier", () => {
-    expect(POLICIES).toEqual(["best-privacy", "best-price", "fastest", "balanced", "privacy-execution"]);
+    expect(POLICIES).toEqual(["best-privacy", "best-price", "fastest", "balanced", "privacy-execution", "best-execution", "high-privacy"]);
     for (const p of POLICIES) expect(Object.values(WEIGHTS[p]).reduce((s, w) => s + w, 0), p).toBeCloseTo(1, 9);
     expect(isPolicy("balanced")).toBe(true);
     expect(isPolicy("cheapest")).toBe(false);
@@ -33,8 +33,22 @@ describe("policies (whale spec §4)", () => {
     expect(policyFor("best-price", "high-value")).toBe("privacy-execution");
     expect(policyFor("fastest", "institutional")).toBe("privacy-execution");
     expect(policyFor("best-privacy", "institutional")).toBe("best-privacy");
+    // V4 (contract §7): the protection mode picks the plan's §43 preset from high-value; below it nothing changes
+    expect(policyFor("balanced", "high-value", "best-execution")).toBe("best-execution");
+    expect(policyFor("best-price", "institutional", "max-privacy")).toBe("high-privacy");
+    expect(policyFor("balanced", "high-value", "max-safety")).toBe("privacy-execution");
+    expect(policyFor("best-privacy", "high-value", "best-execution")).toBe("best-privacy");
+    expect(policyFor("balanced", "enhanced", "best-execution")).toBe("balanced");
+    expect(WEIGHTS["best-execution"]).toEqual({ price: 0.35, security: 0.20, liquidity: 0.15, reliability: 0.10, privacy: 0.10, latency: 0.10 });
+    expect(WEIGHTS["high-privacy"]).toEqual({ price: 0.25, security: 0.20, liquidity: 0.10, reliability: 0.10, privacy: 0.25, latency: 0.10 });
     expect(maxGapBpsFor("enhanced")).toBe(100);
     expect(maxGapBpsFor("high-value")).toBe(50);
+  });
+  it("V4: PAES is reported per route beside the total — price less a quarter of the privacy and security shortfalls", () => {
+    const quotes = [q("near-intents", 1_000_000n, { etaSeconds: 30 }), q("chainflip", 985_000n, { etaSeconds: 1200 })];
+    const s = scoreRoutes(quotes, health(ok("near-intents"), ok("chainflip")), "best-execution");
+    for (const r of s) expect(r.paes).toBe(Math.round((r.components.price - 0.25 * (100 - r.components.privacy) - 0.25 * (100 - r.components.security)) * 100) / 100);
+    expect(s[0].paes).toBeLessThan(s[0].components.price);
   });
   it("balanced still counts latency; privacy-execution drops it and lets privacy and security outweigh 1.5 % of price", () => {
     const quotes = [q("near-intents", 1_000_000n, { etaSeconds: 30 }), q("chainflip", 985_000n, { etaSeconds: 1200 })];
@@ -152,6 +166,25 @@ describe("the competition record, the time budget and the breaker (whale spec §
     expect(set.competition.find((c) => c.provider === "lifi")).toMatchObject({ outcome: "skipped", reason: expect.stringContaining("skipped after 3 consecutive failures") });
     expect(set.errors.lifi).toMatch(/skipped/);
     expect(set.chosen?.provider).toBe("thorchain");
+  });
+  it("V4 (contract §3.2): every quoted line carries the normalized quote — outputs, fees, duration, the route's class and exposure tier, the privacy of the path", async () => {
+    const thor = new Stub("thorchain", "quote"), cf = new Stub("chainflip", "refuse");
+    const e = engine([thor, cf]);
+    const set = await e.quoteAll(req, { preference: "balanced" }, { mode: "best-execution" });
+    expect(set.policy).toBe("best-execution"); // the fail-safe tier is high-value: the mode's preset
+    const line = set.competition.find((c) => c.provider === "thorchain")!;
+    const quote = set.quotes[0];
+    expect(line.normalized).toEqual({
+      provider: "thorchain", netAmountOut: quote.toAmountMin.toString(), grossAmountOut: quote.toAmount.toString(), providerFee: "0", networkFee: "0", estimatedGas: null, estimatedDuration: 1400,
+      routeRisk: { class: "R5", flags: [], exposureTier: "R2", security: set.scores[0].components.security, reliability: set.scores[0].components.reliability },
+      privacyRisk: { score: set.scores[0].components.privacy, linkPublic: true },
+    });
+    expect(set.competition.find((c) => c.provider === "chainflip")!.normalized).toBeUndefined();
+    // fees in USD only when every fee of the kind is valued
+    const valued = q("thorchain", 10n, { fees: [{ kind: "network", amount: 1n, asset: "ETH", usd: 2.5 }, { kind: "liquidity", amount: 1n, asset: "BTC", usd: 10 }, { kind: "affiliate", amount: 1n, asset: "BTC" }] });
+    const { normalizeQuote } = await import("../src/normalize");
+    const n = normalizeQuote(valued, { req, score: set.scores[0], linkPublic: true });
+    expect(n).toMatchObject({ networkFee: "2.5", providerFee: null, estimatedDuration: 600, routeRisk: { exposureTier: "R3" } });
   });
   it("the policy derives from the preference and the tier; the native preference filters a wrapped route when a native one quoted", async () => {
     const native = new Stub("thorchain", "quote", true), wrapped = new Stub("lifi", "quote", false);

@@ -15,6 +15,7 @@ import { NO_VALUER, assessRequest, type Valuer } from "./valuation";
 import { ProviderHealthTracker } from "./health";
 import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
+import { normalizeQuote } from "./normalize";
 import type { ProtectionMode } from "../../../reference/typescript/src/wallet/campaign";
 
 export interface EngineConfig {
@@ -77,6 +78,8 @@ export const DELAY_BUDGET: Record<Policy, [number, number]> = {
   fastest: [0, 0],
   balanced: [3600, 24 * 3600],
   "privacy-execution": [3600, 24 * 3600],
+  "best-execution": [3600, 24 * 3600],
+  "high-privacy": [6 * 3600, 72 * 3600],
 };
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the wallet asks for consent. */
@@ -170,7 +173,7 @@ export class PrivateSwapEngine {
     const assessment = await this.assess(gross, hint.tier);
     const tier = assessment.tier;
     const preference = typeof policyOrPreference === "string" ? hint.preference : policyOrPreference.preference;
-    const policy: Policy = typeof policyOrPreference === "string" ? policyOrPreference : policyFor(policyOrPreference.preference, tier);
+    const policy: Policy = typeof policyOrPreference === "string" ? policyOrPreference : policyFor(policyOrPreference.preference, tier, hint.mode);
     const preferNative = hint.preferNative ?? preference === "native";
     const req = this.net(gross);
     // phase 1: the fresh destination goes only to the chosen provider at prepare (whale spec §5)
@@ -211,6 +214,12 @@ export class PrivateSwapEngine {
     const scores = scoreRoutes(quotes, health, policy, now, unexecutable, { tier, amount: req.amount, chains: [req.from.chain, req.to.chain], skipped, filteredBy });
     for (const s of scores) if (s.filtered) { const c = competition.find((x) => x.provider === s.provider && x.outcome === "quoted"); if (c) { c.outcome = "filtered"; c.reason = s.filtered; } }
     const links = Object.fromEntries(ordered.map((a) => [a.id, { public: a.capabilities().destinationLinkPublic, evidence: a.capabilities().linkEvidence }])) as QuoteSet["links"];
+    // V4 (contract §3.2): every quoted or filtered line in the common shape, risk and privacy included
+    for (const c of competition) {
+      if (c.outcome !== "quoted" && c.outcome !== "filtered") continue;
+      const quote = quotes.find((x) => x.provider === c.provider), s = scores.find((x) => x.provider === c.provider);
+      if (quote && s) c.normalized = normalizeQuote(quote, { req: gross, score: s, health: health[c.provider], breakerOpen: !!skipped[c.provider], linkPublic: this.linkPublic(c.provider), now });
+    }
     const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition };
     // V3 (High-Value Protection spec §10): the recommendation rides on the competition from the enhanced tier; the USD per source unit comes from the same valuation as the tier
     const units = Number(gross.amount) / 10 ** gross.from.decimals;

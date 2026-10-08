@@ -10,7 +10,7 @@ import { fmtUnits } from "./format";
 
 export const SWAP_SERVICE = (import.meta as any).env?.VITE_SWAP_SERVICE ?? "http://127.0.0.1:8787";
 
-export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution";
+export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution" | "best-execution" | "high-privacy";
 export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
 export type Tier = "standard" | "enhanced" | "high-value" | "high-value-secondary" | "institutional";
 export interface AssetRef { chain: string; asset: string; decimals: number; symbol: string }

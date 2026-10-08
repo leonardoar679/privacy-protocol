@@ -6,6 +6,8 @@
 import { planTranches, type Gate, type ProtectionMode, type RiskClass, type Sizing } from "../../../../reference/typescript/src/wallet/campaign";
 import { expectedLossPerFailure, narrowedBand, riskModelOf, type RiskModel } from "../../../../reference/typescript/src/wallet/riskClasses";
 import { atLeast, type Tier } from "../../../../reference/typescript/src/wallet/valuation";
+import { capBpsFor as policyCap, exposureTierOf, impactRemedy as remedyOf, type ExposureTier, type ImpactRemedy } from "../../../../reference/typescript/src/wallet/exposurePolicy";
+import { chainHalted } from "../health";
 import type { QuoteSet } from "../engine";
 import type { ProviderHealthTracker } from "../health";
 import { reliabilityScore } from "../health";
@@ -17,7 +19,7 @@ import { riskDb, type Incident, type RiskDb } from "./riskDb";
 export const CADENCE_SECONDS: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600], "best-execution": [600, 3600] }; // lab-calibrated (Stage 2); best-execution (V4): the shortest window
 export const EXECUTE_WINDOW_SECONDS = 7200;
 export const FINALITY_MARGIN: Record<string, number> = { bitcoin: 3600, solana: 60, default: 900 };
-export const PROVIDER_SHARE_CAP_BPS = 500; // lab-calibrated: at ≥ $5M with two or more venues
+export const PROVIDER_SHARE_CAP_BPS = 3000; // plan §46 (V4): at ≥ $5M with two or more venues, no provider above 30 % of the order
 
 export interface Protection {
   provider: ProviderId;
@@ -48,6 +50,14 @@ export interface Protection {
   /** $100K–$1M: stage the order although the tier does not require it (a single venue with high impact or low reliability) */
   staged: boolean;
   reasons: string[];
+  // V4 (contract §2.2–§2.3, §3.4)
+  /** the route's exposure tier, derived from the risk model and the live facts, and why */
+  exposureTier: ExposureTier;
+  exposureReasons: string[];
+  /** the market-impact remedy applied (plan §81) */
+  impactRemedy: ImpactRemedy;
+  /** the plan's §26 ledger before anything is funded, base units */
+  ledgerPreview: { totalOrderValue: string; maxExternalExposure: string; firstTranche: string };
 }
 
 export interface ProviderRisk { model: RiskModel; security: SecurityBreakdown; incidents: Incident[]; reliability: number | null }
@@ -55,7 +65,8 @@ export interface ProviderRisk { model: RiskModel; security: SecurityBreakdown; i
 const bps = (x: bigint, b: number): bigint => (x * BigInt(b)) / 10000n;
 const unitsToUsd = (units: bigint, decimals: number, usdPerUnit: number): number => (Number(units / 10n ** BigInt(Math.max(0, decimals - 6))) / 10 ** Math.min(6, decimals)) * usdPerUnit;
 
-export function capBpsFor(tier: Tier, mode: ProtectionMode): number { return mode === "max-safety" || atLeast(tier, "high-value-secondary") ? 200 : 250; }
+/** The cap of contract §2 (plan §4, §6, §90): the band's default, the exposure tier's maximum and the mode's ceiling (the user's fraction is applied by the wallet). */
+export function capBpsFor(tier: Tier, mode: ProtectionMode, exposureTier: ExposureTier = "R3"): number { return policyCap({ tier, mode, exposureTier }).capBps; }
 
 /** The risk view of every provider that quoted (for the Review's "Why" and the route health score). */
 export function providerRisks(set: QuoteSet, req: QuoteRequest, mode: ProtectionMode, db: RiskDb = riskDb(), now = Date.now(), tracker?: ProviderHealthTracker): Partial<Record<ProviderId, ProviderRisk>> {
@@ -87,7 +98,14 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const failures = o.tracker?.failures(chosen.provider, now).windowCount ?? 0;
   const band0 = narrowedBand(model, { security: mine.security.total, breakerOpenedRecently: failures >= 3, incidentWithinDays: incidentDays });
   if (band0[1] < model.bandBps[1]) reasons.push("the band is narrowed to its lower edge: the provider's security score, breaker or a recent incident");
-  const capBps = capBpsFor(o.tier, o.mode);
+  // the exposure tier (contract §2.2) from the class and the live facts; a thin market is judged at the band's own cap
+  const health = o.set.health[chosen.provider];
+  const baseCap = capBpsFor(o.tier, o.mode, "R3");
+  const rawImpact = chosen.impactBps !== undefined ? chosen.impactBps * (baseCap / 10000) : null;
+  const breakerOpen = failures >= 3 || !!o.tracker?.breakerOpen(chosen.provider, now);
+  const xt = exposureTierOf(model, { planMode: chosen.plan?.mode, thinMarket: rawImpact !== null && rawImpact > IMPACT_CAP_BPS, knownProvider: db.providerRisk(chosen.provider) !== null, chainHalted: health ? health.halted || chainHalted(health, [o.req.from.chain, o.req.to.chain]) !== null : false, incidentWithinDays: incidentDays, breakerOpen, security: mine.security.total });
+  if (xt.tier === "R4") reasons.push(`an unknown or high-risk route (${xt.reasons.join("; ")}): the exposure is capped at 1 %`);
+  const capBps = capBpsFor(o.tier, o.mode, xt.tier);
   let band: [number, number] = atLeast(o.tier, "institutional") ? [Math.min(200, capBps), Math.min(250, capBps)] : [Math.min(band0[0], capBps), Math.min(band0[1], capBps)];
   if (band[0] > band[1]) band = [band[1], band[1]];
   const sequential = o.mode === "max-safety" || atLeast(o.tier, "institutional") || model.class === "R5" || model.class === "R6";
@@ -101,13 +119,17 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const capFraction = capBps / 10000;
   let trancheImpactBps: number | null = chosen.impactBps !== undefined ? Math.max(0, Math.round(chosen.impactBps * capFraction * 100) / 100) : null;
   let thinMarket = false;
+  let halvingFits = false;
   if (trancheImpactBps !== null && trancheImpactBps > IMPACT_CAP_BPS) {
     let piece = maxPiece ?? capUnits;
     let impact = trancheImpactBps;
     while (impact > IMPACT_CAP_BPS && piece > 1n) { piece /= 2n; impact /= 2; }
-    maxPiece = piece; trancheImpactBps = Math.round(impact * 100) / 100; thinMarket = true;
+    maxPiece = piece; halvingFits = impact <= IMPACT_CAP_BPS; trancheImpactBps = Math.round(impact * 100) / 100; thinMarket = true;
     reasons.push("thin market: the piece is halved until its impact fits under the cap");
   }
+  // the remedy applied (plan §81, contract §2.3): reduce the tranche, an RFQ venue (none today), a stream, another venue
+  const othersUnderLimit = o.set.quotes.some((x) => x.provider !== chosen.provider && !o.set.scores.find((s) => s.provider === x.provider)?.filtered && (x.impactBps ?? 0) * capFraction <= IMPACT_CAP_BPS);
+  const impactRemedy = remedyOf({ trancheImpactBps: rawImpact === null ? null : Math.round(rawImpact * 100) / 100, halvingFits, rfqQuotes: false, streamedPlan: !!chosen.plan && chosen.plan.mode !== "single", otherVenues: othersUnderLimit });
   const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random });
   const pieces = split.pieces;
   const steps = pieces.length;
@@ -141,6 +163,8 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
     concentration: { providers: quoted.map((id) => ({ id, shareBps: Math.floor(10000 / Math.max(1, quoted.length)) })), singleVenue, capBps: shareCap },
     elpf: { prior: model.pFailPrior, pFailure: e1.pFailure, perTrancheUsd: trancheUsd ? e1.expectedLoss : null, perCampaignUsd: capUsd === null ? null : e2.expectedLoss },
     staged, reasons,
+    exposureTier: xt.tier, exposureReasons: xt.reasons, impactRemedy,
+    ledgerPreview: { totalOrderValue: o.amount.toString(), maxExternalExposure: capUnits.toString(), firstTranche: (pieces[0] ?? 0n).toString() },
   };
 }
 

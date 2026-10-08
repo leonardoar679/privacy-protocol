@@ -1,12 +1,13 @@
 // PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10; V2: docs/whale-execution-spec-v1.0.md §1–§2, §5.
 import type { Tier, Valuation } from "../../../reference/typescript/src/wallet/valuation";
+import type { NormalizedQuote } from "./normalize";
 export type { Tier, Valuation };
 
 export type Chain = "ethereum" | "bitcoin" | "solana" | "base" | "arbitrum" | "bsc" | "avalanche" | "optimism" | "polygon" | "tron" | "litecoin" | "doge";
 export type ProviderId = "thorchain" | "chainflip" | "mayan" | "near-intents" | "lifi" | "uniswap-across";
-/** V1.1's three policies and the V2 pair (whale spec §4): `balanced` is the default; `privacy-execution` applies from the high-value tier. */
-export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution";
-export const POLICIES: readonly Policy[] = ["best-privacy", "best-price", "fastest", "balanced", "privacy-execution"];
+/** V1.1's three policies, the V2 pair (whale spec §4: `balanced` is the default; `privacy-execution` applies from the high-value tier) and the V4 presets of the plan's §43 (`best-execution` for the Best Execution mode, `high-privacy` for Maximum Privacy, both from high-value; contract §7). */
+export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution" | "best-execution" | "high-privacy";
+export const POLICIES: readonly Policy[] = ["best-privacy", "best-price", "fastest", "balanced", "privacy-execution", "best-execution", "high-privacy"];
 export const isPolicy = (x: unknown): x is Policy => typeof x === "string" && (POLICIES as readonly string[]).includes(x);
 /** The user's saved preference the policy is derived from (whale spec §4); never on chain. */
 export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
@@ -167,6 +168,8 @@ export interface CompetitionEntry {
   reason?: string;
   ms: number;
   plan?: ExecutionPlan;
+  /** V4 (contract §3.2, plan §42): the quote in the common shape, for a quoted or filtered provider */
+  normalized?: NormalizedQuote;
 }
 
 /** On-chain OrderParams (SwapOrderTypes.OrderParams), spec §6. */

@@ -1,12 +1,17 @@
-// Route scoring (spec §9; whale spec §4): six components, policy-weighted; the best price never wins by itself.
+// Route scoring (spec §9; whale spec §4; V4 contract §7): six components, policy-weighted; the best price never wins by
+// itself. The V4 presets of the plan's §43 are configuration values, not protocol constants; PAES (plan §87) is reported
+// per route beside the total, never the chooser by itself.
 import type { Health, Policy, Preference, ProviderId, Quote, Tier } from "./types";
 import { atLeast } from "../../../reference/typescript/src/wallet/valuation";
+import type { ProtectionMode } from "../../../reference/typescript/src/wallet/campaign";
 import { BASELINE_PRIVACY, chainHalted, reliabilityScore, securityScore } from "./health";
 
 export interface RouteScore {
   provider: ProviderId;
   components: { price: number; security: number; privacy: number; latency: number; liquidity: number; reliability: number };
   total: number;
+  /** V4 (plan §87): the privacy-adjusted execution score, price − ¼ (100 − privacy) − ¼ (100 − security) */
+  paes?: number;
   filtered?: string; // reason the route was excluded before scoring
 }
 
@@ -16,6 +21,9 @@ export const WEIGHTS: Record<Policy, RouteScore["components"]> = {
   fastest: { latency: 0.40, reliability: 0.25, security: 0.15, price: 0.10, privacy: 0.10, liquidity: 0 },
   balanced: { privacy: 0.25, price: 0.25, security: 0.20, reliability: 0.15, latency: 0.10, liquidity: 0.05 },
   "privacy-execution": { privacy: 0.30, security: 0.25, reliability: 0.20, price: 0.15, liquidity: 0.10, latency: 0 },
+  // the plan's §43 presets (V4): the initial best-execution score and the High Privacy score
+  "best-execution": { price: 0.35, security: 0.20, liquidity: 0.15, reliability: 0.10, privacy: 0.10, latency: 0.10 },
+  "high-privacy": { price: 0.25, security: 0.20, liquidity: 0.10, reliability: 0.10, privacy: 0.25, latency: 0.10 },
 };
 
 /** whale spec §4 (calibrated 2026-10-07): a plan whose own impact figure exceeds this is not chosen at the high-value tiers when another route quoted the size. */
@@ -23,11 +31,19 @@ export const IMPACT_CAP_BPS = 50;
 /** whale spec §12 (calibrated 2026-10-07): a streamed plan longer than this is not chosen automatically when a faster route quoted; alone, it is offered with its duration stated. */
 export const STREAM_MAX_SECONDS = 14_400;
 
-/** The policy a preference and a tier give (whale spec §4): `native` is balanced plus a filter; from the high-value tier everything but best-privacy becomes privacy-execution. */
-export function policyFor(preference: Preference, tier: Tier): Policy {
+/**
+ * The policy a preference, a tier and (V4) the protection mode give (whale spec §4; contract §7): `native` is balanced plus
+ * a filter; from the high-value tier everything but best-privacy becomes privacy-execution — or the plan's §43 preset the
+ * mode names: best-execution under the Best Execution mode, high-privacy under Maximum Privacy.
+ */
+export function policyFor(preference: Preference, tier: Tier, mode?: ProtectionMode): Policy {
   const base: Policy = preference === "native" ? "balanced" : preference;
-  return atLeast(tier, "high-value") && base !== "best-privacy" ? "privacy-execution" : base;
+  if (!atLeast(tier, "high-value") || base === "best-privacy") return base;
+  return mode === "best-execution" ? "best-execution" : mode === "max-privacy" ? "high-privacy" : "privacy-execution";
 }
+
+/** PAES (plan §87) on the 0–100 components. */
+export const paesOf = (c: RouteScore["components"]): number => Math.round((c.price - 0.25 * (100 - c.privacy) - 0.25 * (100 - c.security)) * 100) / 100;
 
 export interface ScoringContext {
   /** the order's value tier (the impact cap applies from high-value) */
@@ -90,7 +106,7 @@ export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>,
     };
     const w = WEIGHTS[policy];
     const total = Math.round((Object.keys(w) as (keyof typeof w)[]).reduce((s, k) => s + w[k] * components[k], 0) * 100) / 100;
-    return { provider: q.provider, components, total: filtered ? 0 : total, filtered };
+    return { provider: q.provider, components, total: filtered ? 0 : total, paes: paesOf(components), filtered };
   });
 }
 

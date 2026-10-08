@@ -181,7 +181,9 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     const amount = eth(2500); // $10M at $4,000
     const set = setOf([q("thorchain", amount, { impactBps: 9 })]);
     const p = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "institutional", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
-    expect(p).toMatchObject({ provider: "thorchain", riskClass: "R5", custody: "tss-vaults", capBps: 200, bandBps: [200, 200], concurrency: "sequential", maxParallel: 1, gate: "destination-final", sizing: "varied", executeWindowSeconds: EXECUTE_WINDOW_SECONDS, thinMarket: false, staged: false });
+    expect(p).toMatchObject({ provider: "thorchain", riskClass: "R5", custody: "tss-vaults", capBps: 200, bandBps: [200, 200], concurrency: "sequential", maxParallel: 1, gate: "destination-final", sizing: "varied", executeWindowSeconds: EXECUTE_WINDOW_SECONDS, thinMarket: false, staged: false, exposureTier: "R2", impactRemedy: "none" });
+    expect(p.ledgerPreview).toEqual({ totalOrderValue: amount.toString(), maxExternalExposure: ((amount * 200n) / 10000n).toString(), firstTranche: expect.stringMatching(/^\d+$/) });
+    expect(BigInt(p.ledgerPreview.firstTranche)).toBeLessThanOrEqual(BigInt(p.ledgerPreview.maxExternalExposure));
     expect(p.estimatedTranches).toBeGreaterThanOrEqual(45);
     expect(p.estimatedTranches).toBeLessThanOrEqual(55);
     expect(p.capUsd).toBe(200_000);
@@ -200,8 +202,11 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
   });
   it("the band and the cap follow the tier and the mode; max-privacy sizes by bucket; max-safety gates everything at destination final", () => {
     expect(capBpsFor("high-value", "balanced")).toBe(250);
-    expect(capBpsFor("high-value", "max-safety")).toBe(200);
-    expect(capBpsFor("high-value-secondary", "balanced")).toBe(200);
+    expect(capBpsFor("high-value", "max-safety")).toBe(100); // plan §90 (V4): Maximum Safety is 1 %
+    expect(capBpsFor("high-value-secondary", "balanced")).toBe(250); // plan §4: $5M–$10M 2.5 %
+    expect(capBpsFor("institutional", "balanced")).toBe(200);
+    expect(capBpsFor("high-value", "balanced", "R4")).toBe(100);
+    expect(capBpsFor("enhanced", "balanced", "R1")).toBe(500);
     const amount = eth(250); // $1M
     const set = setOf([q("near-intents", amount, { plan: undefined, etaSeconds: 300 })]);
     const balanced = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
@@ -210,7 +215,10 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     expect(privacy.sizing).toBe("bucket");
     expect(privacy.cadenceSeconds).toEqual(CADENCE_SECONDS["max-privacy"]);
     const safety = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "max-safety", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
-    expect(safety).toMatchObject({ gate: "destination-final", concurrency: "sequential", capBps: 200 });
+    expect(safety).toMatchObject({ gate: "destination-final", concurrency: "sequential", capBps: 100, bandBps: [100, 100] });
+    // V4: the Best Execution mode keeps the band's cap, the shortest cadence and varied sizing
+    const best = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "high-value", mode: "best-execution", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    expect(best).toMatchObject({ capBps: 250, sizing: "varied", cadenceSeconds: CADENCE_SECONDS["best-execution"], concurrency: "parallel", exposureTier: "R3" });
   });
   it("a provider's instant limit thins the piece; a high impact per piece halves it (thin market)", () => {
     const amount = eth(1250); // $5M
@@ -225,13 +233,17 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     expect(thin.thinMarket).toBe(true);
     expect(thin.trancheImpactBps!).toBeLessThanOrEqual(50);
     expect(BigInt(thin.maxPieceUnits!)).toBeLessThan(amount * 200n / 10000n);
+    // V4: a thin market is an unknown / high-risk route — exposure tier R4, the cap 1 %, the remedy named
+    expect(thin).toMatchObject({ exposureTier: "R4", capBps: 100, impactRemedy: "reduce-tranche" });
+    expect(thin.exposureReasons).toEqual(["low liquidity for this size"]);
+    expect(thin.reasons.join("\n")).toMatch(/capped at 1 %/);
   });
   it("two venues at ≥ $5M are share-capped; one venue is never diversified for appearance; $500K is staged only on impact or reliability", () => {
     const amount = eth(1250);
     const two = setOf([q("thorchain", amount), q("chainflip", amount, { plan: { mode: "dca", parts: 20, intervalBlocks: 2, expectedSeconds: 1200 } })]);
     const p = recommendProtection({ set: two, req: reqEthBtc(amount), amount, tier: "high-value-secondary", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
     expect(p.concentration).toEqual({ providers: [{ id: "thorchain", shareBps: 5000 }, { id: "chainflip", shareBps: 5000 }], singleVenue: false, capBps: PROVIDER_SHARE_CAP_BPS });
-    expect(p.providerShareCapBps).toBe(500);
+    expect(p.providerShareCapBps).toBe(3000); // plan §46 (V4)
     const filtered: QuoteSet = { ...two, scores: [score("thorchain"), score("chainflip", "quote expired")] };
     expect(recommendProtection({ set: filtered, req: reqEthBtc(amount), amount, tier: "high-value-secondary", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW })!.concentration.singleVenue).toBe(true);
     const small = eth(125); // $500K

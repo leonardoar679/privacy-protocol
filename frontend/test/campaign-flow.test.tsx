@@ -304,7 +304,7 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(c.tier).toBe("high-value-secondary");
     expect(c.confirmations.secondFactor).toBeGreaterThan(0);
     expect(c.confirmations.secondDevice).toBeUndefined();
-    expect(c.plan.capBps, "2 % from the second-confirmation tier").toBe(200);
+    expect(c.plan.capBps, "2.5 % at $5M–$10M (plan §4, V4)").toBe(250);
   }, 60_000);
 
   it("$10M: the separate device after the second factor, the review hold before the first step, the export", async () => {

@@ -10,6 +10,9 @@ export const DELAY_WINDOW: Record<Policy, [number, number]> = {
   fastest: [0, 0],
   balanced: [3600, 24 * 3600],
   "privacy-execution": [3600, 24 * 3600],
+  // V4 (contract §7): the presets the service applies under the Best Execution and Maximum Privacy modes from high-value
+  "best-execution": [3600, 24 * 3600],
+  "high-privacy": [6 * 3600, 72 * 3600],
 };
 
 /** The policy a preference maps to before the tier override (the service applies the override; "native" is balanced plus a filter). */
