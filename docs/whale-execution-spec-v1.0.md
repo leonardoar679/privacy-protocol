@@ -745,8 +745,27 @@ closed, reverts decoded with the escrow's errors by selector plus `Error(string)
 provider's reason recovered by a second call from the escrow on `ProviderCallFailed` for an ETH order,
 the pre-funding preview through a balance override on the predicted escrow); the Swap screen runs it
 after signing and before `/finalize` — a failure keeps the signature in the wallet and is journaled
-(`StoredSwap.simulation`). The lint (§18) and the card (§21) are in place. *Stage 6* (Review, hold,
-second factor, review hold, issuer line).
+(`StoredSwap.simulation`). The lint (§18) and the card (§21) are in place.
+*Implemented (Stage 6):* `frontend/src/components/Review.tsx` at the commit and execute moments of a swap
+(`Swap.tsx`: `startCommit` → the Review → `commit`; `signAndHand` → prepare, check, sign, simulate →
+the Review → `handOver`) and before a large send or withdrawal (`Send.tsx`, `Withdraw.tsx`): the USD
+numeral and the asset amount, From and To with the card, Receive at least, the execution in words
+(`sdk/tiers.ts planWords`) with its time, the privacy level and the lint, the five lines of plan §4 as
+`ReviewLine`s — Price protected, Route checked (the simulation at execute; at commit "only one
+provider answered" must be acknowledged from high-value), Destination verified (an entered address
+is acknowledged group by group), Slippage checked (`IMPACT_CAP_BPS` 50), Privacy reviewed — the
+issuer line and the route kind (`issuerLine`, `routeKind`), "Advanced details" with the provider,
+the mode and parts, the fees, the expected output, the settlement, the alternatives from the
+competition record and the link evidence. `sdk/tiers.ts controlsFor(tier)` decides: the Review and
+the lint from enhanced; the simulation and `components/HoldToConfirm.tsx` (a pointer hold of
+`HOLD_MS` 1.5 s with a progress ring, Enter / Space held as the keyboard equivalent) from
+high-value; `sdk/secondFactor.ts` (WebAuthn platform authenticator, `userVerification: "required"`,
+registered under Settings → Second confirmation; the wallet password as the fallback) from
+high-value-secondary; at institutional the funding is scheduled no earlier than `REVIEW_HOLD_MINUTES`
+(30) after the confirmation (`StoredSwap.reviewHoldUntil`; "Fund now" waits; the order can be
+abandoned meanwhile) and the order exports as JSON (`exportOrderReview`: the order without its
+secrets, the competition, the simulation, the lint). The journaled tier is the higher of the
+service's and the wallet's (§1). Below enhanced the one-tap flow stays, with the card.
 
 ## 25. Local encrypted order history (plan V2 §49–§50, §83–§86, §137.25)
 

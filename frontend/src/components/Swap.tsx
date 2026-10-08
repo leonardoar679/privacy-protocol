@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
-import { formatUsd, tierLabel } from "@ref/wallet/valuation";
+import { formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@ref/wallet/valuation";
 import { levelOf } from "@ref/wallet/privacyCenter";
 import { parseDestination } from "@ref/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
-import { feeSummary, swapService, type AssetRef, type Policy, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder } from "../sdk/swapService";
+import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type Prepared, type QuoteSet, type RouteScore, type ServiceHealth, type ServiceOrder, type ServiceOrderParams } from "../sdk/swapService";
+import { controlsFor, exportOrderReview, IMPACT_CAP_BPS, issuerLine, planWords, REVIEW_HOLD_MINUTES, routeKind } from "../sdk/tiers";
+import { downloadText } from "../sdk/download";
+import { simulateExecution, type Simulation } from "../sdk/simulate";
+import { feedsConfigured } from "../sdk/prices";
+import { Review, type ReviewLine } from "./Review";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest } from "../keys/swapKeys";
 import { checkOrder, OrderMismatch, predictEscrow } from "../sdk/swapGuard";
 import type { CheckedCall, MinimumMoved } from "../sdk/providerCall";
@@ -18,7 +23,6 @@ import { fmtUnits } from "../sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "../sdk/policy";
 import { priceStore } from "../sdk/prices";
 import { holdersAbove } from "../sdk/poolDeposits";
-import { simulateExecution } from "../sdk/simulate";
 import { abandonSwap, assetOfStored, fundEscrow, isOpenSwap, patchSwap, swapFactoryOf } from "../sdk/swapFunding";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
@@ -60,9 +64,13 @@ const risk = (security: number) => (security >= 85 ? "Low" : security >= 70 ? "M
 const settlement = (p: string) => (p === "thorchain" || p === "chainflip" ? "native deposit address" : p === "near-intents" ? "solver network" : p === "mayan" ? "signed intent (drivers compete)" : "aggregator / bridge");
 const providerKind = (p: string): "deposit-address" | "signed-intent" | "aggregator-api" => (p === "thorchain" || p === "chainflip" || p === "near-intents" ? "deposit-address" : p === "mayan" ? "signed-intent" : "aggregator-api");
 const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
+const asTier = (t: unknown): Tier | null => (TIERS.includes(t as Tier) ? (t as Tier) : null);
+/** A provider call this wallet checked, signed and simulated — kept here until the user confirms (the Review at the execute moment) or handed over at once. */
+interface Signed { prepared: Prepared; params: ServiceOrderParams; call: CheckedCall; signature: Hex; sim: Simulation; label: string }
+type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed };
 
 export function Swap({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null }) {
-  const { submission, advanced, preference, verifyReads } = useSettings();
+  const { submission, advanced, preference, verifyReads, secondFactor } = useSettings();
   useSession(); // re-render when the journal-backed session changes
   const assets = assetsOf(deployment);
   const [fromAsset, setFromAsset] = useState(assets[0]);
@@ -85,6 +93,9 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const [error, setError] = useState("");
   const [acknowledged, setAcknowledged] = useState<LintId[]>([]);
   const [holders, setHolders] = useState<number | null>(null);
+  const [review, setReview] = useState<ReviewState | null>(null);
+  const [routeAck, setRouteAck] = useState(false);
+  const [destAck, setDestAck] = useState(false);
 
   const to = TARGETS[target];
   const units = parseAmount(fromAsset, amount);
@@ -100,8 +111,13 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     return () => { live = false; };
   }, [deployment, units, fromAsset]);
   // the value tier (whale spec §13): the wallet's own assessment is a hint the service can only raise; the fail-safe is at least high-value
-  const assessment = units > 0n ? priceStore.assess(units, fromAsset) : null;
+  // (a network without feeds has no USD and no tiers; a missing price on a network with feeds is the fail-safe)
+  const priced = feedsConfigured(deployment);
+  const assessment = units > 0n && priced ? priceStore.assess(units, fromAsset) : null;
   const usd = assessment && "usd" in assessment.value ? assessment.value.usd : null;
+  const tier: Tier = assessment?.tier ?? "standard";
+  const controls = controlsFor(tier);
+  useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]); // a read only with unspent notes (the store checks)
   /** the policy the service scored under (its tier override applied), or the preference's own before a quote */
   const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
   const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: units.toString(), destination, slippageBps: 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native" });
@@ -146,7 +162,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     return () => { live = false; };
   }, [job?.state, stored?.orderId, deployment]);
 
-  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setShowRoute(false); setRefundLine(""); }
+  function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setShowRoute(false); setRefundLine(""); setReview(null); setRouteAck(false); setDestAck(false); }
   function patchStored(orderId: string, patch: Partial<StoredSwap>) {
     patchSwap(orderId, patch);
     setStored((s) => (s && s.orderId.toLowerCase() === orderId.toLowerCase() ? { ...s, ...patch } : s));
@@ -177,15 +193,22 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
       return r;
     });
     if (!res) return;
+    const committedLint = lintItems, competition = quotes?.competition;
+    // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
+    const serviceTier = asTier(res.order.tier ?? res.tier);
+    const journaledTier: Tier | undefined = serviceTier && assessment ? higherTier(serviceTier, tier) : serviceTier ?? (assessment ? tier : undefined);
     reset();
     const orderPolicy: Policy = res.order.policy ?? res.policy ?? policy;
-    const dueAt = orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy]);
+    // institutional (spec §24): the funding is scheduled no earlier than the review hold, whatever the policy's window drew
+    const reviewHoldUntil = controls.reviewHold ? Date.now() + REVIEW_HOLD_MINUTES * 60_000 : undefined;
+    const sampled = orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy]);
+    const dueAt = reviewHoldUntil !== undefined ? Math.max(sampled ?? 0, reviewHoldUntil) : sampled;
     const entry: StoredSwap = {
       orderId: res.order.orderId, attemptId, refundCounter, provider: res.order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
       params: res.order.params, endpoint: res.order.endpoint, quote: res.order.quote, approvedMin: (shown ?? res.order.quote).toAmountMin, createdAt: Date.now(), dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
-      preference, tier: res.order.tier ?? res.tier, value: res.order.value ?? res.value, plan: res.order.plan ?? shown?.plan,
+      preference, tier: journaledTier, value: res.order.value ?? res.value, plan: res.order.plan ?? shown?.plan, ...(competition ? { competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     };
-    if (lintItems) entry.lint = { items: lintItems, at: Date.now() };
+    if (committedLint) entry.lint = { items: committedLint, at: Date.now() };
     session.update((j) => { j.swaps = [...j.swaps.filter((s) => s.orderId !== entry.orderId), entry]; });
     recordActivity({ id: activityId("swap", entry.orderId), kind: "swap", asset: fromAsset.symbol, decimals: fromAsset.decimals, amount: req.amount, status: "committed", ref: entry.orderId, note: `→ ${to.ref.symbol}` });
     if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: entry.orderId, dueAt });
@@ -205,6 +228,12 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
     reset();
     setOrder(r.order); setStored(s); setOrderKey(deriveOrderKey(masterSeed, s.attemptId as Hex)); setRefundNoteData((s.refundNoteData as Hex | undefined) ?? null);
     if (s.jobId && submission.kind === "relayer") relayerSwapStatus(submission.url, s.jobId).then(setJob).catch(() => {});
+  }
+
+  /** The commit moment: the Review from the enhanced tier (spec §24), one tap below it. */
+  function startCommit(provider?: string) {
+    if (controls.review) { setRouteAck(false); setDestAck(false); setReview({ moment: "commit", provider }); return; }
+    void commit(provider);
   }
 
   async function fundNow() {
@@ -234,15 +263,16 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   }
 
   /**
-   * Re-quote with the escrow as sender, check the provider call, sign it locally, hand it to the executor.
-   * Repeatable while the job is open. `acceptMin`: the user consented to a lower minimum than approved.
+   * Re-quote with the escrow as sender, check the provider call, sign it locally and simulate the execution on
+   * every RPC endpoint (whale spec §24). The signature stays here until it is handed over. `acceptMin`: the user
+   * consented to a lower minimum than approved.
    */
-  async function signAndHand(acceptMin?: bigint) {
+  async function prepareSigned(acceptMin?: bigint): Promise<Signed | { moved: MinimumMoved } | undefined> {
     if (!order || !orderKey || !refundNoteData) return;
     if (!stored) { setError("This order is not in this wallet's journal, so its provider call cannot be checked; it is not signed."); return; }
     const a = assetOf(stored);
     const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
-    const r = await run("Re-quoting with the escrow as sender, then checking the call…", async () => {
+    return run("Re-quoting with the escrow as sender, then checking the call…", async () => {
       const prepared = await swapService.prepare(order.orderId);
       // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
       const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment!.chainId), acceptMin, pooled: (deployment?.erc20Vaults ?? []).map((v) => v.token) });
@@ -255,25 +285,41 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
       const tipRecipient = submission.kind === "relayer" ? await relayerInfo(submission.url).then((i) => i.relayer).catch(() => undefined) : undefined;
       const sim = await simulateExecution({ deployment: deployment!, factory: swapFactoryOf(deployment), params, execution: { provider: prepared.provider, value: BigInt(prepared.value), providerCalldata: prepared.calldata, deadline: prepared.deadline, signature }, account: tipRecipient });
       patchStored(order.orderId, { simulation: { ok: sim.ok, at: Date.now(), ...(sim.ok ? { gas: sim.gas.toString() } : { error: sim.error, reason: sim.reason }) } });
-      if (!sim.ok) throw new Error(`Not handed over: ${sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
-      const fin = await swapService.finalize(order.orderId, signature);
-      const label = `${a.token ? "" : fmt(fin.execution.value, 18) + " ETH · "}valid until ${new Date(fin.execution.deadline * 1000).toLocaleTimeString()}`;
-      if (submission.kind !== "relayer") return { label, job: undefined, call };
-      setBusy("Handing the signed order to the relayer's executor…");
+      setChecked(call);
+      const label = `${a.token ? "" : fmt(prepared.value, 18) + " ETH · "}valid until ${new Date(prepared.deadline * 1000).toLocaleTimeString()}`;
+      return { prepared, params, call, signature, sim, label };
+    });
+  }
+
+  /** Hand a checked, signed and simulated execution to the service (finalize) and the relayer's executor. */
+  async function handOver(s: Signed) {
+    if (!order || !refundNoteData) return;
+    const r = await run("Handing the signed order to the relayer's executor…", async () => {
+      if (!s.sim.ok) throw new Error(`Not handed over: ${s.sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
+      const fin = await swapService.finalize(order.orderId, s.signature);
+      if (submission.kind !== "relayer") return { job: undefined };
       const health: ServiceHealth = await swapService.health();
       const factory = swapFactoryOf(deployment);
       if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
-      const { refundTokens, refundFloors } = gate.call;
+      const { refundTokens, refundFloors } = s.call;
       if (refundTokens?.length) patchStored(order.orderId, { refundTokens, refundFloors });
-      const j = await relayerSwapExecute(submission.url, { factory, params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
+      const j = await relayerSwapExecute(submission.url, { factory, params: s.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
       patchStored(order.orderId, { jobId: j.id, state: j.state });
-      return { label, job: j, call };
+      return { job: j };
     });
     if (!r) return;
-    if ("moved" in r) { setMoved(r.moved ?? null); return; }
+    setReview(null); setMoved(null); setSigned(s.label); if (r.job) setJob(r.job);
+  }
+
+  /** The execute moment: prepare, check, sign, simulate; then the Review (from the enhanced tier) or the hand-over at once. */
+  async function signAndHand(acceptMin?: bigint) {
+    const s = await prepareSigned(acceptMin);
+    if (!s) return;
+    if ("moved" in s) { setMoved(s.moved ?? null); return; }
     setMoved(null);
-    if (acceptMin !== undefined) patchStored(order.orderId, { approvedMin: acceptMin.toString() });
-    setSigned(r.label); setChecked(r.call); if (r.job) setJob(r.job);
+    if (acceptMin !== undefined) patchStored(order!.orderId, { approvedMin: acceptMin.toString() });
+    if (executeControls.review) { setReview({ moment: "execute", signed: s }); return; }
+    await handOver(s);
   }
 
   const chosen = quotes?.chosen;
@@ -282,12 +328,83 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   const dueAt = stored?.dueAt;
   const orderAsset = stored ? assetOf(stored) : fromAsset;
   const window = DELAY_WINDOW[policy];
+  /** the order's tier as journaled at commit (the execute moment follows it, not today's price) */
+  const storedTier: Tier = asTier(stored?.tier) ?? tier;
+  const executeControls = controlsFor(storedTier);
+  const holdActive = !!stored?.reviewHoldUntil && stored.reviewHoldUntil > Date.now();
   const quotedOnly = quotes?.competition ? quotes.competition.filter((c) => c.outcome === "quoted").length : undefined;
   const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, units), holders, acknowledged };
   // the privacy lint (whale spec §18) with the quote, and again with what the wallet read in the provider call
   const lintItems = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider }) : null;
   const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: stored.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;
   const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
+  const ack = (id: LintId) => setAcknowledged((x) => [...x, id]);
+
+  /** The Review before commit (spec §24): the five lines of plan §4 computed from the quote set and the lint. */
+  function commitReview(provider?: string) {
+    const q = quotes!;
+    const prov = provider ?? q.chosen!.provider;
+    const quote = q.quotes.find((x) => x.provider === prov)!;
+    const score = q.scores.find((s) => s.provider === prov) ?? q.chosen!;
+    const dec = to.ref.decimals, sym = to.ref.symbol;
+    const liveQuotes = q.competition ? q.competition.filter((c) => c.outcome === "quoted").length : q.quotes.length;
+    const lines: ReviewLine[] = [
+      { id: "price", label: "Price protected", ok: BigInt(quote.toAmountMin) > 0n, meaning: `at least ${fmt(quote.toAmountMin, dec)} ${sym} is bound in the order; a lower minimum needs your consent; the price guard runs again at the hard quote` },
+      { id: "route", label: "Route checked", ok: !controls.twoQuotes || liveQuotes >= 2 || routeAck, meaning: liveQuotes >= 2 ? `${liveQuotes} providers quoted this size; the best route won on privacy, price, security, reliability, time and liquidity` : "only one provider answered for this size; the route cannot be compared with another live quote", ...(controls.twoQuotes && liveQuotes < 2 ? { ack: { text: "I accept the single quote", done: routeAck, onAck: () => setRouteAck(true) } } : {}) },
+      { id: "destination", label: "Destination verified", ok: !destinationEdited || (parsedDestination?.ok === true && destAck), meaning: destinationEdited ? "entered by hand: the format parses; confirm you checked every group of the address" : "a fresh address of this wallet, used once, its format checked", ...(destinationEdited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
+      { id: "slippage", label: "Slippage checked", ok: quote.impactBps === undefined || quote.impactBps <= IMPACT_CAP_BPS, meaning: quote.impactBps === undefined ? "the provider gave no impact figure; the minimum bounds the outcome" : `price impact ${quote.impactBps} bps against a cap of ${IMPACT_CAP_BPS}` },
+      { id: "privacy", label: "Privacy reviewed", ok: !lintItems || unacknowledgedBlocks(lintItems).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
+    ];
+    const exportNow = () => downloadText(`privacy-wallet-order-review-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, JSON.stringify({ format: "privacy-protocol/order-review/v1", exportedAt: new Date().toISOString(), request: request(), tier, value: assessment?.value ?? null, quotes: q, lint: lintItems ?? null }, null, 2));
+    return (
+      <Review moment="commit" tier={tier} controls={controls} usd={usd !== null ? formatUsd(usd) : null} amount={`${formatAmount(fromAsset, units)} ${fromAsset.symbol}`} from={`Private ${fromAsset.symbol}`}
+        to={{ network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }} receiveMin={`${fmt(quote.toAmountMin, dec)} ${sym}`}
+        execution={{ words: planWords(quote.plan), detail: quote.plan && quote.plan.mode !== "single" ? planLabel(quote.plan) : undefined, eta: `~${hours(quote.etaSeconds)}${policy !== "fastest" ? " after the scheduled funding" : ""}` }}
+        privacy={{ level: levelOf(score.components.privacy), score: score.components.privacy }} lint={lintItems ?? []} onAcknowledgeLint={ack} lines={lines}
+        issuer={issuerLine(fromAsset.symbol) ?? issuerLine(sym)} routeKind={routeKind(refOf(fromAsset), to.ref, quote.nativeAssets)}
+        details={{ provider: prov, mode: quote.plan?.mode ?? "single", parts: quote.plan?.parts, fees: feeSummary(quote), expectedOutput: `${fmt(quote.toAmount, dec)} ${sym}`, settlement: settlement(prov), alternatives: (q.competition ?? []).filter((c) => c.provider !== prov).map((c) => ({ provider: c.provider, outcome: c.outcome, reason: c.reason })), score: advanced ? `${score.total} (price ${score.components.price}, security ${score.components.security}, privacy ${score.components.privacy}, latency ${score.components.latency}, reliability ${score.components.reliability}, liquidity ${score.components.liquidity})` : undefined, linkEvidence: q.links?.[prov]?.evidence }}
+        advanced={advanced} reviewHold={controls.reviewHold ? { minutes: REVIEW_HOLD_MINUTES } : null} onExport={controls.export ? exportNow : undefined} secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+        busy={busy} error={error} onConfirm={() => commit(prov)} onCancel={() => setReview(null)} />
+    );
+  }
+
+  /** The Review before the hand-over (spec §24): the checked call, the simulation, the lint read against the call. */
+  function executeReview(s: Signed) {
+    const t = ((stored?.request as { to?: AssetRef })?.to ?? to.ref);
+    const dec = t.decimals, sym = t.symbol;
+    const dest = String((stored?.request as { destination?: string })?.destination ?? destination);
+    const approved = stored?.approvedMin ? BigInt(stored.approvedMin) : 0n;
+    const quote = (stored?.quote ?? {}) as { impactBps?: number; nativeAssets?: boolean; toAmount?: string; etaSeconds?: number; fees?: unknown[] };
+    const lines: ReviewLine[] = [
+      { id: "price", label: "Price protected", ok: s.call.minOut !== null && s.call.minOut >= approved, meaning: s.call.minOut !== null ? `the provider call guarantees at least ${fmt(s.call.minOut.toString(), dec)} ${sym}, read from its calldata; the service's price guard ran at the hard quote` : "this call binds no minimum this wallet can read" },
+      { id: "route", label: "Route checked", ok: s.sim.ok, meaning: s.sim.ok ? `simulated on ${s.sim.endpoints} RPC endpoint${s.sim.endpoints === 1 ? "" : "s"}: it executes, about ${Number(s.sim.gas).toLocaleString()} gas` : s.sim.reason },
+      { id: "destination", label: "Destination verified", ok: true, meaning: `the call pays ${dest.slice(0, 10)}… — read from its calldata, equal to the destination committed` },
+      { id: "slippage", label: "Slippage checked", ok: quote.impactBps === undefined || quote.impactBps <= IMPACT_CAP_BPS, meaning: quote.impactBps === undefined ? "the minimum bounds the outcome" : `price impact ${quote.impactBps} bps against a cap of ${IMPACT_CAP_BPS}` },
+      { id: "privacy", label: "Privacy reviewed", ok: !signLint || unacknowledgedBlocks(signLint).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
+    ];
+    const exportNow = () => stored && downloadText(`privacy-wallet-order-${stored.orderId.slice(2, 10)}.json`, exportOrderReview(stored, { simulation: s.sim, lint: signLint }));
+    return (
+      <Review moment="execute" tier={storedTier} controls={executeControls} usd={stored?.value && typeof stored.value === "object" && "usd" in (stored.value as object) ? formatUsd((stored.value as { usd: number }).usd) : usd !== null ? formatUsd(usd) : null}
+        amount={`${formatAmount(orderAsset, BigInt((stored?.params as { amount?: string })?.amount ?? "0"))} ${orderAsset.symbol}`} from="A one-time escrow funded from your private balance"
+        to={{ network: TARGETS[Object.keys(TARGETS).find((k) => TARGETS[k].ref.symbol === sym && TARGETS[k].ref.chain === t.chain) ?? target].network, asset: sym, address: dest, kind: destinationEdited ? "entered" : "fresh" }}
+        receiveMin={s.call.minOut !== null ? `${fmt(s.call.minOut.toString(), dec)} ${sym}` : null}
+        execution={{ words: planWords(s.prepared.plan ?? (stored?.plan as ExecutionPlan | undefined)), detail: s.prepared.plan && s.prepared.plan.mode !== "single" ? planLabel(s.prepared.plan) : undefined, eta: `~${hours(quote.etaSeconds ?? 0)}` }}
+        privacy={{ level: levelOf(order?.privacy.score ?? 0), score: order?.privacy.score }} lint={signLint ?? []} onAcknowledgeLint={ack} lines={lines}
+        issuer={issuerLine(orderAsset.symbol) ?? issuerLine(sym)} routeKind={routeKind(refOf(orderAsset), t, quote.nativeAssets)}
+        details={{ provider: s.call.provider, mode: s.prepared.plan?.mode ?? "single", parts: s.prepared.plan?.parts, fees: "as quoted at commit", expectedOutput: quote.toAmount ? `${fmt(quote.toAmount, dec)} ${sym}` : "as quoted", settlement: settlement(s.call.provider), alternatives: ((stored?.competition ?? []) as { provider: string; outcome: string; reason?: string }[]).filter((c) => c.provider !== s.call.provider), linkEvidence: undefined, score: advanced ? s.call.facts.join("; ") : undefined }}
+        advanced={advanced} onExport={executeControls.export ? exportNow : undefined} secondFactor={executeControls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+        busy={busy} error={error} onConfirm={() => handOver(s)} onCancel={() => setReview(null)} />
+    );
+  }
+
+  if (review) {
+    return (
+      <div className="panel" data-testid="swap">
+        <h3>Swap privately</h3>
+        {review.moment === "commit" && quotes ? commitReview(review.provider) : review.moment === "execute" ? executeReview(review.signed) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="panel" data-testid="swap">
@@ -339,7 +456,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
               <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmt(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />
               {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
               <div className="tabs" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={() => commit(chosen.provider)} disabled={!!busy || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>Swap</button>
+                <button className="primary" onClick={() => startCommit(chosen.provider)} disabled={!!busy || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>{controls.review ? "Review" : "Swap"}</button>
                 <button className="tab" onClick={() => setShowRoute((v) => !v)}>{showRoute ? "Hide route details" : "Route details"}</button>
               </div>
             </>
@@ -360,7 +477,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
                   {s.filtered ? ` · not selectable: ${s.filtered}` : ""}
                   {advanced ? ` · score ${s.total} (price ${s.components.price}, security ${s.components.security}, latency ${s.components.latency}, reliability ${s.components.reliability}, liquidity ${s.components.liquidity})` : ""}
                 </div>
-                {!s.filtered && chosen?.provider !== s.provider && <button className="tab" style={{ marginTop: 4 }} onClick={() => commit(s.provider)} disabled={!!busy || blocked}>Use this route</button>}
+                {!s.filtered && chosen?.provider !== s.provider && <button className="tab" style={{ marginTop: 4 }} onClick={() => startCommit(s.provider)} disabled={!!busy || blocked}>Use this route</button>}
               </div>
             );
           })}
@@ -392,7 +509,8 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
           <DestinationCard network={TARGETS[Object.keys(TARGETS).find((k) => TARGETS[k].ref.symbol === ((stored?.request as any)?.to?.symbol ?? to.ref.symbol) && TARGETS[k].ref.chain === ((stored?.request as any)?.to?.chain ?? to.ref.chain)) ?? target].network} asset={(stored?.request as any)?.to?.symbol ?? to.ref.symbol} address={(stored?.request as any)?.destination ?? destination} amount={stored?.approvedMin ? `at least ${fmt(stored.approvedMin, (stored.request as any)?.to?.decimals ?? to.ref.decimals)}` : undefined} title="Receive at" />
           <div className="row"><span className="muted">Privacy</span><b className={`level-${levelOf(order.privacy.score)}`}>{levelOf(order.privacy.score)}{advanced ? ` (${order.privacy.score}/100)` : ""}</b></div>
-          <div className="row"><span className="muted">{funded ? "Funded" : dueAt ? "Funding scheduled" : "Funding"}</span><b>{funded ? `tx ${stored!.fundedTx!.slice(0, 10)}…` : dueAt ? `${new Date(dueAt).toLocaleString()} (random within ${hours(order.privacy.delaySeconds[0])}–${hours(order.privacy.delaySeconds[1])}; keep the wallet unlocked)` : "now"}</b></div>
+          <div className="row"><span className="muted">{funded ? "Funded" : dueAt ? "Funding scheduled" : "Funding"}</span><b>{funded ? `tx ${stored!.fundedTx!.slice(0, 10)}…` : dueAt ? `${new Date(dueAt).toLocaleString()} (random within ${hours(order.privacy.delaySeconds[0])}–${hours(order.privacy.delaySeconds[1])}${stored?.reviewHoldUntil ? `, no earlier than the review hold ${new Date(stored.reviewHoldUntil).toLocaleTimeString()}` : ""}; keep the wallet unlocked)` : "now"}</b></div>
+          {holdActive && <p className="notice" data-testid="review-hold">Review hold until {new Date(stored!.reviewHoldUntil!).toLocaleTimeString()}: the order can still be abandoned under open swaps, and nothing is funded before then.</p>}
           <div className="row"><span className="muted">Returns to your private balance if not executed by</span><b>{new Date(order.params.refundAfter * 1000).toLocaleString()}</b></div>
           {advanced && (
             <>
@@ -403,11 +521,12 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
             </>
           )}
           <div className="tabs" style={{ marginTop: 10 }}>
-            <button className="primary" onClick={fundNow} disabled={!!busy || funded} title={dueAt ? "Funding now shortens the random delay and weakens timing privacy" : undefined}>{dueAt && !funded ? "1 · Fund now (less timing privacy)" : "1 · Fund the swap from your private balance"}</button>
+            <button className="primary" onClick={fundNow} disabled={!!busy || funded || holdActive} title={holdActive ? "The review hold has not passed" : dueAt ? "Funding now shortens the random delay and weakens timing privacy" : undefined}>{dueAt && !funded ? "1 · Fund now (less timing privacy)" : "1 · Fund the swap from your private balance"}</button>
             <button className="primary" onClick={() => signAndHand()} disabled={!!busy || !funded || (!!job && !OPEN_FOR_RESIGN.includes(job.state))}>
               {job && OPEN_FOR_RESIGN.includes(job.state) ? "2 · Confirm again with a fresh quote" : "2 · Confirm the swap"}
             </button>
             {funded && CAN_RETURN(job) && <button className="tab" onClick={returnToBalance} disabled={!!busy} title="The order is not executed; its escrow re-shields into your private balance once the window opens">Return to my private balance</button>}
+            {executeControls.export && stored && <button className="tab" onClick={() => downloadText(`privacy-wallet-order-${stored.orderId.slice(2, 10)}.json`, exportOrderReview(stored, { lint: signLint }))}>Export for review (JSON)</button>}
           </div>
           {moved && (() => {
             const t = (stored?.request as any)?.to as AssetRef | undefined;

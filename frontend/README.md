@@ -33,6 +33,12 @@ proves it in a Web Worker over the normative prover (`reference/typescript/src/p
   `PrivacyLint` (the eleven ✓ / ⚠ / ✖ items of `reference/typescript/src/wallet/privacyLint.ts`, facts from
   `src/wallet/lintFacts.ts`); `sdk/simulate.ts` simulates `deployAndExecute` on every RPC endpoint after
   the order key signs and before anything leaves the wallet.
+  **High-value review (V2 Stage 6, whale spec §24):** `Review` before the two irreversible moments of a
+  swap and before a large send or withdrawal — the USD numeral, the card, Receive at least, the execution
+  in words, the lint, the five lines of plan §4, the issuer line, "Advanced details" — with the controls
+  of `sdk/tiers.ts controlsFor(tier)`: a tap at enhanced, `HoldToConfirm` from high-value, the WebAuthn
+  second factor (`sdk/secondFactor.ts`, registered under Settings, password fallback) from
+  high-value-secondary, the 30-minute review hold and the JSON export at institutional.
 - `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
   `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
   inputs + 3 payloads).

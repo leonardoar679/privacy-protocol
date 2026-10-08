@@ -13,7 +13,7 @@ export default mergeConfig(
       exclude: ["test/live/**", "node_modules/**"], // network suites: vitest.live.config.ts (verify-all --live)
       environment: "node",
       testTimeout: 60_000,
-      env: { VITE_KDF_LOG2N: "12" }, // fast scrypt for the session under test; production ignores this
+      env: { VITE_KDF_LOG2N: "12", VITE_HOLD_MS: "40" }, // fast scrypt and a short hold-to-confirm for the session under test; production ignores both
     },
   }),
 );

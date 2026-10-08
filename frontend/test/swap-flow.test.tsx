@@ -10,9 +10,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { encodeErrorResult, getAddress, parseAbi, toFunctionSelector, type Hex } from "viem";
+import { encodeAbiParameters, encodeErrorResult, getAddress, parseAbi, toFunctionSelector, type Hex } from "viem";
 import { Swap } from "../src/components/Swap";
 import { session } from "../src/wallet/session";
+import { noteStore } from "../src/wallet/notes";
+import { priceStore } from "../src/sdk/prices";
 import { PINNED, thorAsset } from "../src/sdk/providerCall";
 import type { Deployment } from "../src/sdk/chain";
 import { PrivateSwapEngine, type PreparedExecution } from "../../services/private-swap/src/engine";
@@ -62,10 +64,18 @@ const RELAYER_EOA = getAddress("0x00000000000000000000000000000000000000ee");
 // the deployment's RPC endpoint: the pre-trade simulation (whale spec §24) runs deployAndExecute here; `rpcBend` makes it revert
 let rpcBend: { revert?: Hex; providerReason?: string } = {};
 const rpcSeen: any[] = [];
+// Chainlink's ETH / USD proxy on mainnet (the deployment is chain 1): $2,500, so 0.5 ETH is a standard-tier swap (one tap, no Review)
+const ETH_FEED = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
 function rpc(req: any) {
   const { id, method } = req;
   if (method === "eth_call") {
     const tx = req.params[0];
+    if (String(tx.to).toLowerCase() === ETH_FEED) {
+      if (String(tx.data).startsWith("0x7284e416")) return { jsonrpc: "2.0", id, result: encodeAbiParameters([{ type: "string" }], ["ETH / USD"]) };
+      const t = BigInt(Math.floor(Date.now() / 1000) - 60);
+      return { jsonrpc: "2.0", id, result: encodeAbiParameters([{ type: "uint80" }, { type: "int256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint80" }], [7n, 2_500_00000000n, t, t, 7n]) };
+    }
+    if (String(tx.to).toLowerCase() !== FACTORY.toLowerCase() && String(tx.to).toLowerCase() !== PINNED.thorchainRouter.toLowerCase()) return { jsonrpc: "2.0", id, error: { code: -32000, message: "mock: no contract" } }; // the other feeds, the registry
     rpcSeen.push(tx);
     if (rpcBend.revert && String(tx.to).toLowerCase() === FACTORY.toLowerCase()) return { jsonrpc: "2.0", id, error: { code: 3, message: "execution reverted", data: rpcBend.revert } };
     if (rpcBend.providerReason && String(tx.to).toLowerCase() === PINNED.thorchainRouter.toLowerCase()) return { jsonrpc: "2.0", id, error: { code: 3, message: "execution reverted", data: encodeErrorResult({ abi: parseAbi(["error Error(string message)"]), errorName: "Error", args: [rpcBend.providerReason] }) } };
@@ -137,6 +147,10 @@ async function mount(container: HTMLElement) {
 async function committedAndFunded(container: HTMLElement) {
   await session.create("a strong password");
   session.acknowledgePhrase();
+  // a balance to value and a price for it: the swap is then standard-tier (whale spec §13) and the flow one tap, as in V1.1
+  noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+  await priceStore.refresh(deployment);
+  expect(priceStore.state().status).toBe("ready");
   await mount(container);
   await act(async () => { button(container, "Get a quote")!.click(); });
   await vi.waitFor(() => expect(button(container, "Swap")).toBeTruthy());

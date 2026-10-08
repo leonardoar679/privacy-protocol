@@ -41,6 +41,10 @@ export interface StoredSwap {
   /** the privacy lint at commit (spec §18) and the last pre-trade simulation (spec §24) */
   lint?: { items: unknown[]; at: number };
   simulation?: { ok: boolean; gas?: string; error?: string; reason?: string; at: number };
+  /** what every provider answered at commit (spec §2), kept for the route details and the export */
+  competition?: unknown[];
+  /** institutional (spec §24): the funding is scheduled no earlier than this, and the order can be cancelled until then */
+  reviewHoldUntil?: number;
 }
 
 /**

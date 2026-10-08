@@ -2,19 +2,22 @@ import { useEffect, useState } from "react";
 import type { Address } from "viem";
 import { parseDestination } from "@ref/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
-import { formatUsd } from "@ref/wallet/valuation";
+import { formatUsd, type Tier } from "@ref/wallet/valuation";
 import type { Deployment } from "../sdk/chain";
 import { privateWithdrawal } from "../sdk/privateTx";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount } from "../sdk/assets";
 import { consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
-import { priceStore } from "../sdk/prices";
+import { feedsConfigured, priceStore } from "../sdk/prices";
 import { holdersAbove } from "../sdk/poolDeposits";
+import { controlsFor, issuerLine } from "../sdk/tiers";
+import { downloadText } from "../sdk/download";
 import { noteStore } from "../wallet/notes";
 import { useSettings } from "../wallet/settings";
 import { topBucket, walletLint } from "../wallet/lintFacts";
 import { AssetSelect } from "./AssetSelect";
 import { DestinationCard } from "./DestinationCard";
 import { PrivacyLint } from "./PrivacyLint";
+import { Review, type ReviewLine } from "./Review";
 import { Scorecard } from "./Scorecard";
 
 // Public exit (spec §34): reveals vault/amount/recipient on settlement. The default recipient is a
@@ -23,9 +26,11 @@ import { Scorecard } from "./Scorecard";
 // a typed recipient is parsed (EIP-55 when mixed-case; another chain's address refused by name), shown
 // on the destination card with its USD value, and the privacy lint runs before the button is enabled.
 export function Withdraw({ masterSeed, deployment, account = null }: { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a recipient equal to it is flagged */ account?: string | null }) {
-  const { submission, advanced, verifyReads } = useSettings();
+  const { submission, advanced, verifyReads, secondFactor } = useSettings();
   const assets = assetsOf(deployment);
   const [asset, setAsset] = useState(assets[0]);
+  const [review, setReview] = useState(false);
+  const [destAck, setDestAck] = useState(false);
   // the default recipient is the next fresh EVM address of this wallet (plan §28, §45): shown now,
   // reserved in the journal only when the withdrawal is confirmed, never handed out twice
   const [recipient, setRecipient] = useState(() => peekFreshAddress(masterSeed, "evm").address);
@@ -39,15 +44,20 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
   const bucket = bucketBelowFor(asset, units);
   const parsed = edited ? parseDestination("evm", recipient) : null;
   const recipientError = parsed && !parsed.ok ? parsed.reason : "";
-  const assessment = units > 0n ? priceStore.assess(units, asset) : null;
+  // the value tier (whale spec §13): a network without feeds has no USD and no tiers; a missing price on one with feeds is the fail-safe
+  const priced = feedsConfigured(deployment);
+  const assessment = units > 0n && priced ? priceStore.assess(units, asset) : null;
   const usd = assessment && "usd" in assessment.value ? formatUsd(assessment.value.usd) : null;
+  const tier: Tier = assessment?.tier ?? "standard";
+  const controls = controlsFor(tier);
+  useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]);
   useEffect(() => {
     if (!deployment || units <= topBucket(asset.decimals)) { setHolders(null); return; }
     let live = true;
     holdersAbove(deployment, asset.vault, units).then((h) => { if (live) setHolders(h); }).catch(() => { if (live) setHolders(null); });
     return () => { live = false; };
   }, [deployment, units, asset]);
-  const lintItems = units > 0n ? walletLint({ action: "withdraw", tier: assessment?.tier ?? "standard", deployment, settings: { submission, verifyReads }, destination: recipient, destinationKind: edited ? "entered" : "fresh", account, delaySeconds: 0, amount: units, decimals: asset.decimals, amountIsBucket: isBucketFor(asset, units), holders, acknowledged }) : null;
+  const lintItems = units > 0n ? walletLint({ action: "withdraw", tier, deployment, settings: { submission, verifyReads }, destination: recipient, destinationKind: edited ? "entered" : "fresh", account, delaySeconds: 0, amount: units, decimals: asset.decimals, amountIsBucket: isBucketFor(asset, units), holders, acknowledged }) : null;
   const blocked = lintItems ? unacknowledgedBlocks(lintItems).length > 0 : false;
 
   function useFresh() {
@@ -68,11 +78,31 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
         ? `Withdrawn ${amount} ${asset.symbol} to ${to.slice(0, 8)}… (tx ${r.txHash.slice(0, 10)}…); proof ${(r.proofMs / 1000).toFixed(1)} s${r.verifiedLocally ? ", verified locally" : ""}; spent leaves ${r.spent.join(", ")}${r.change ? `; change note at leaf ${r.change.leafIndex}` : ""}.`
         : `Withdrawn ${amount} ${asset.symbol} to ${to.slice(0, 8)}….`);
       if (!edited) setRecipient(peekFreshAddress(masterSeed, "evm").address); // the next withdrawal gets the next address
+      setReview(false);
     } catch (e: any) {
       setStatus(e.message ?? String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (review && lintItems) {
+    const lines: ReviewLine[] = [
+      { id: "price", label: "Amount fixed", ok: true, meaning: `${formatAmount(asset, units)} ${asset.symbol} is released by the vault to the recipient; the amount becomes public` },
+      { id: "route", label: "Route checked", ok: true, meaning: "a withdrawal from the pool: proven in this wallet, no provider" },
+      { id: "destination", label: "Destination verified", ok: !edited || (parsed?.ok === true && destAck), meaning: edited ? "entered by hand: the format and checksum parse; confirm you checked every group" : "a fresh address of this wallet, used once", ...(edited ? { ack: { text: "I checked every group", done: destAck, onAck: () => setDestAck(true) } } : {}) },
+      { id: "slippage", label: "No slippage", ok: true, meaning: "the recipient receives exactly this amount" },
+      { id: "privacy", label: "Privacy reviewed", ok: unacknowledgedBlocks(lintItems).length === 0, meaning: "every privacy check is ok, a warning, or acknowledged" },
+    ];
+    return (
+      <div className="panel" data-testid="withdraw">
+        <h3>Withdraw to a public address</h3>
+        <Review moment="withdraw" tier={tier} controls={controls} usd={usd} amount={`${formatAmount(asset, units)} ${asset.symbol}`} from={`Private ${asset.symbol}`}
+          to={{ network: "Ethereum", asset: asset.symbol, address: recipient, kind: edited ? "entered" : "fresh" }} privacy={{ level: edited ? "Reduced" : "Good" }} lint={lintItems} onAcknowledgeLint={(id) => setAcknowledged((a) => [...a, id])} lines={lines}
+          issuer={issuerLine(asset.symbol)} advanced={advanced} onExport={controls.export ? () => downloadText(`privacy-wallet-withdrawal-review-${Date.now()}.json`, JSON.stringify({ format: "privacy-protocol/withdrawal-review/v1", exportedAt: new Date().toISOString(), asset: asset.symbol, amount: units.toString(), recipient, tier, value: assessment?.value ?? null, lint: lintItems }, null, 2)) : undefined}
+          secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null} busy={busy ? status : undefined} onConfirm={withdraw} onCancel={() => setReview(false)} />
+      </div>
+    );
   }
 
   return (
@@ -93,8 +123,9 @@ export function Withdraw({ masterSeed, deployment, account = null }: { masterSee
       )}
       {units > 0n && !recipientError && <DestinationCard network="Ethereum" asset={asset.symbol} address={recipient} amount={formatAmount(asset, units)} usd={usd} kind={edited ? "entered" : "fresh"} />}
       {lintItems && <PrivacyLint items={lintItems} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} />}
-      <button className="primary" onClick={withdraw} disabled={busy || units <= 0n || !!recipientError || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>
-        Withdraw
+      {assessment && tier !== "standard" && <p className="notice" style={{ marginTop: -4, marginBottom: 10 }}>{assessment.failSafe ? "No price is available, so this withdrawal is treated as a large one: " : "A large withdrawal: "}it is reviewed before it is sent.</p>}
+      <button className="primary" onClick={() => (controls.review ? setReview(true) : withdraw())} disabled={busy || units <= 0n || !!recipientError || blocked} title={blocked ? "Acknowledge the privacy check first" : undefined}>
+        {controls.review ? "Review" : "Withdraw"}
       </button>
       {status && <p className="muted">{status}</p>}
       <Scorecard action="withdraw" facts={{ delaySeconds: 0, amountIsBucket: isBucketFor(asset, units), privateSubmission: submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: !edited }} />

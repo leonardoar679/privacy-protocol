@@ -117,6 +117,9 @@ export class PriceStore {
 export const priceStore = new PriceStore();
 export const usePrices = (): PriceState => useSyncExternalStore((l) => priceStore.subscribe(l), () => priceStore.state());
 
+/** Whether valuation is configured at all for this deployment (spec §13: without feeds for the chain the wallet shows no USD and the tiers are off). */
+export const feedsConfigured = (d: Deployment | null, feeds: FeedSpec[] | null = feedsFromEnv()): boolean => !!d && feedsFor(d.chainId, feeds).length > 0;
+
 /** The USD value of balances under a price state: the total of what could be valued, how many assets that is, and the symbols left unpriced. */
 export function valueOfBalances(st: PriceState, lines: { symbol: string; decimals: number; units: bigint }[]): { usd: number; valued: number; unpriced: string[] } {
   let usd = 0, valued = 0;

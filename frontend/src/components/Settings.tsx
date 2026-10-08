@@ -6,6 +6,7 @@ import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
 import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "../sdk/policy";
 import { PREFERENCES, settings, useSettings, type Preference } from "../wallet/settings";
 import { session } from "../wallet/session";
+import { registerSecondFactor, webauthnAvailable } from "../sdk/secondFactor";
 
 // Settings (plan V2 §43, §97, §108–§110; whale spec §13, §23): backup and lock, the trade preference
 // (never on the Swap screen), the value tiers, private balance maintenance, the privacy and network
@@ -33,6 +34,18 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
   const [tierError, setTierError] = useState("");
   const [cap, setCap] = useState(() => formatEther(BigInt(s.housekeeping.dailyFeeCapWei)));
   const [forget, setForget] = useState("");
+  const [factorStatus, setFactorStatus] = useState("");
+
+  async function registerFactor() {
+    setFactorStatus("Registering with the platform authenticator…");
+    try {
+      const credentialId = await registerSecondFactor();
+      settings.set({ secondFactor: { enabled: true, credentialId } });
+      setFactorStatus("Registered. Transfers above the second-confirmation threshold ask the authenticator first; your password stays the fallback.");
+    } catch (e: any) {
+      setFactorStatus(e?.message ?? String(e));
+    }
+  }
 
   function applyTiers() {
     const t: TierThresholds = { enhanced: Number(tiers.enhanced), highValue: Number(tiers.highValue), highValueSecondary: Number(tiers.highValueSecondary), institutional: Number(tiers.institutional) };
@@ -81,6 +94,17 @@ export function Settings({ deployment, readsLine, coreLine }: { deployment: Depl
         ))}
         {tierError && <p className="error small">{tierError}</p>}
         <div className="tabs" style={{ margin: "4px 0" }}><button className="tab" onClick={resetTiers}>Reset to defaults</button></div>
+      </div>
+
+      <div className="panel" data-testid="second-factor">
+        <h3>Second confirmation</h3>
+        <p className="muted small">Above the second-confirmation threshold a transfer asks this device to verify you — Face ID, Touch ID or Windows Hello — before it is sent. It gates the action and holds no key; your wallet password is always the fallback.</p>
+        <div className="row"><span className="muted">Authenticator</span><b>{s.secondFactor.credentialId ? "registered on this device" : webauthnAvailable() ? "not registered (the password is asked instead)" : "not available in this browser (the password is asked instead)"}</b></div>
+        <div className="tabs" style={{ margin: "6px 0" }}>
+          {!s.secondFactor.credentialId && <button className="tab" onClick={registerFactor} disabled={!webauthnAvailable()}>Register this device</button>}
+          {s.secondFactor.credentialId && <button className="tab" onClick={() => { settings.set({ secondFactor: { enabled: false } }); setFactorStatus("Removed; the password is asked instead."); }}>Remove</button>}
+        </div>
+        {factorStatus && <p className="muted small">{factorStatus}</p>}
       </div>
 
       <div className="panel">

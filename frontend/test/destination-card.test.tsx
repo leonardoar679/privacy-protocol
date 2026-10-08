@@ -64,16 +64,17 @@ describe("destinations on the screens", () => {
     const input = container.querySelector('input[placeholder^="0x"]') as HTMLInputElement;
     await act(async () => { setValue(input, BTC); });
     expect(container.querySelector('[data-testid="destination-error"]')!.textContent).toContain("this looks like a Bitcoin address; the destination is Ethereum");
-    expect(button(container, "Withdraw")!.disabled).toBe(true);
-    // the connected wallet's own address: a block (no price → the fail-safe tier is high-value) that clears with an acknowledgement
+    // no price on chain 1 → the fail-safe tier is high-value → the button opens the Review (whale spec §24)
+    expect(button(container, "Review")!.disabled).toBe(true);
+    // the connected wallet's own address: a block that clears with an acknowledgement
     await act(async () => { setValue(input, account); });
     expect(container.querySelector('[data-testid="destination-error"]')).toBeNull();
     const item = container.querySelector('[data-item="destination-not-public-wallet"]')!;
     expect(item.getAttribute("data-level")).toBe("block");
-    expect(button(container, "Withdraw")!.disabled).toBe(true);
+    expect(button(container, "Review")!.disabled).toBe(true);
     await act(async () => { button(container, "I understand")!.click(); });
     expect(container.querySelector('[data-item="destination-not-public-wallet"]')!.textContent).toContain("(acknowledged)");
-    expect(button(container, "Withdraw")!.disabled).toBe(false);
+    expect(button(container, "Review")!.disabled).toBe(false);
     expect(fetches).toBe(0);
   });
 
