@@ -13,7 +13,10 @@ import { Create, Restore, Unlock } from "../features/onboarding/Lock";
 import { More } from "../features/more/More";
 import { ClassicSoon } from "../features/classic-privacy/ClassicSoon";
 import { Home } from "../features/wallet/Home";
-import { PrivacyRoute, ProtectRoute, ReceiveRoute, SendRoute, SettingsRoute } from "../app/legacy/routes";
+import { PrivacyRoute, SettingsRoute } from "../app/legacy/routes";
+import { ProtectRoute } from "../features/protect/ProtectRoute";
+import { SendRoute } from "../features/send/SendRoute";
+import { ReceiveRoute } from "../features/wallet/ReceiveRoute";
 import { Outlet } from "react-router-dom";
 import type { Deployment } from "../sdk/chain";
 

@@ -38,7 +38,7 @@ export function sendFees(o: SendFeeInput): FeeView {
   lines.push({ label: o.t("fees.relayer"), value: o.format(b.relayer), hint: b.relayerIncluded && o.terms.feePercentBps > 0 ? o.t("fees.included") : undefined });
   return {
     receive: { label: o.t("fees.recipientReceives"), value: o.format(split.delivered) },
-    pay: { label: o.t(o.withdrawal ? "fees.maximumYouPay" : "fees.youPay"), value: o.format(split.total) },
+    pay: { label: o.t(o.mode === "exact-input" ? "fees.youSend" : o.withdrawal ? "fees.maximumYouPay" : "fees.youPay"), value: o.format(split.total) },
     total: o.format(split.fee),
     lines,
     split: { total: split.total, delivered: split.delivered, fee: split.fee },

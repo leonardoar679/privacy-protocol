@@ -28,7 +28,7 @@ describe("the fee engine (spec §10)", () => {
   it("a send, exact-input: the typed amount leaves the balance and the recipient gets the rest", () => {
     const v = sendFees({ mode: "exact-input", amount: 2_525_000_000n, terms, format: fmt, t });
     expect(v.receive.value).toBe("2500 USDC");
-    expect(v.pay?.value).toBe("2525 USDC");
+    expect(v.pay).toEqual({ label: "You send", value: "2525 USDC" });
   });
   it("a withdrawal says Maximum you pay; without a percentage there is no privacy line", () => {
     const v = sendFees({ mode: "exact-output", amount: 2_500_000_000n, terms: { ...terms, feePercentBps: 0 }, withdrawal: true, format: fmt, t });

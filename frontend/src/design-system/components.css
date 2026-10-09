@@ -192,3 +192,19 @@ button.ds-list-row { cursor: pointer; }
 .ds-gallery { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-4); }
 .ds-gallery h2 { margin: 0; font-size: var(--heading-size); }
 .ds-gallery section { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* V5 Stage 7: the flows' small layouts */
+.ds-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-stack-sm { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-kv { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; font-size: var(--label-size); }
+.ds-kv-label { color: var(--fg-muted); }
+.ds-kv-value { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.ds-note { margin: 0; color: var(--fg-muted); font-size: var(--caption-size); }
+.ds-note-warn { margin: 0; color: var(--warn); font-size: var(--caption-size); }
+.ds-mono-break { font-family: var(--font-mono); font-size: var(--caption-size); overflow-wrap: anywhere; word-break: break-all; display: block; }
+.ds-qr { width: 180px; height: 180px; background: #fff; padding: var(--space-2); border-radius: var(--radius-sm); flex: 0 0 auto; }
+.ds-qr svg { width: 100%; height: 100%; display: block; }
+.ds-receive { display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
+.ds-receive-main { flex: 1 1 200px; min-width: 0; }
+.ds-privacy-line { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--shield); font-weight: 600; }
+.ds-tabular { font-variant-numeric: tabular-nums; }

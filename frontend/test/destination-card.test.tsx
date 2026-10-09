@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 // Destinations on the screens (whale spec §21, §18): a typed address of another chain is refused by name
 // and the action stays disabled; a valid one shows the card grouped in fours; the privacy lint lists its
-// items under Withdraw; Receive shows the card beside the QR. No network: nothing here fetches.
+// items under a public Send (V5: the Send screen's public path); Receive shows the card beside the QR. No network: nothing here fetches.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { getAddress } from "viem";
 import { Swap } from "../src/components/Swap";
-import { Withdraw } from "../src/components/Withdraw";
-import { Receive } from "../src/components/Receive";
+import { Send } from "../src/features/send/Send";
+import { Receive } from "../src/features/wallet/Receive";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { peekFreshAddress } from "../src/keys/chainKeys";
@@ -51,10 +51,11 @@ describe("destinations on the screens", () => {
     expect(fetches).toBe(0);
   });
 
-  it("Withdraw: the fresh recipient shows the card grouped in fours and the lint; a Bitcoin address is refused as such; the connected wallet's own address blocks until acknowledged at the high-value tier", async () => {
+  it("Send to a public address: the fresh recipient shows the card grouped in fours and the lint; a Bitcoin address is refused as such; the connected wallet's own address blocks until acknowledged at the high-value tier", async () => {
     const account = EVM;
-    const container = await mount(() => <Withdraw masterSeed={session.state().seed!} deployment={deployment} account={account} />);
+    const container = await mount(() => <Send masterSeed={session.state().seed!} deployment={deployment} account={account} initialMode="public" />);
     const fresh = peekFreshAddress(session.state().seed!, "evm").address;
+    await act(async () => { setValue(container.querySelector('[data-testid="send-amount-input"]') as HTMLInputElement, "1"); }); // the lint and the card's amount follow the amount
     expect(container.querySelector('[data-testid="destination-grouped"]')!.textContent).toBe(groupAddress(fresh));
     expect(container.querySelector('[data-testid="destination-card"]')!.textContent).toContain("A fresh address of this wallet, used once.");
     const lint = container.querySelector('[data-testid="privacy-lint"]')!;
@@ -83,8 +84,7 @@ describe("destinations on the screens", () => {
   it("Receive: the card beside the QR, grouped, for the privacy address and for a fresh chain address", async () => {
     const container = await mount(() => <Receive masterSeed={session.state().seed!} />);
     expect(container.querySelector('[data-testid="destination-card"]')!.textContent).toContain("Private pool");
-    const select = container.querySelector("select") as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "bitcoin"); select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { (container.querySelector('[data-testid="receive-bitcoin"]') as HTMLButtonElement).click(); });
     await act(async () => { button(container, "Generate a private receiving address")!.click(); }); // the first Bitcoin address of this wallet
     const addr = container.querySelector("code")!.textContent!;
     expect(addr.startsWith("bc1q")).toBe(true);

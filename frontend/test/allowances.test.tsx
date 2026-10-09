@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Allowances (High-Value Protection spec §13, Stage 6): read and revoked through the injected wallet's own provider,
 // never this wallet's RPC endpoints; the deployment's ERC-20 vaults listed under Settings → Advanced with a Revoke per
-// non-zero allowance; the Shield screen reads what a failed ERC-20 deposit left behind and offers to revoke it.
+// non-zero allowance; the Protect screen (V5) reads what a failed ERC-20 deposit left behind and offers to revoke it.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +10,7 @@ import { erc20Abi } from "../src/sdk/privacyProtocol";
 import { allowancesFor, readAllowance, revokeAllowance } from "../src/sdk/allowances";
 import { parseErc20Vaults } from "../src/sdk/assets";
 import { Settings } from "../src/components/Settings";
-import { Shield } from "../src/components/Shield";
+import { Protect } from "../src/features/protect/Protect";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import type { Deployment } from "../src/sdk/chain";
@@ -94,15 +94,21 @@ describe("allowances through the injected wallet", () => {
     await vi.waitFor(() => expect(container.querySelector('[data-testid="allowances"]')!.textContent).toContain("Revoked"));
     expect(eth.calls.filter((c) => c.method === "eth_sendTransaction")).toHaveLength(1);
     expect(eth.calls.every((c) => c.method !== "eth_getBalance")).toBe(true);
-    // the Shield screen: the deposit failed after the approval → the leftover is read and can be revoked
+    // the Protect screen: the deposit failed after the approval → the leftover is read and can be revoked
     const eth2 = provider(100_000_000n);
     (window as any).ethereum = eth2;
     act(() => root!.unmount()); root = null;
     const c2 = document.createElement("div");
-    await act(async () => { root = createRoot(c2); root.render(<Shield masterSeed={session.state().seed!} deployment={deployment} />); });
-    const select = c2.querySelector("select") as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, USDC_VAULT); select.dispatchEvent(new Event("change", { bubbles: true })); }); // the selector keys assets by vault
-    await act(async () => { button(c2, "Shield")!.click(); });
+    await act(async () => { root = createRoot(c2); root.render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} />); });
+    await act(async () => { (c2.querySelector('[data-testid="protect-asset"]') as HTMLElement).click(); }); // the asset selector (a sheet in the document's body)
+    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="protect-asset-selector-option"]')).toBeTruthy());
+    const usdc = [...document.body.querySelectorAll('[data-testid="protect-asset-selector-option"]')].find((b) => b.textContent?.includes("USDC")) as HTMLButtonElement;
+    await act(async () => { usdc.click(); });
+    const amountInput = c2.querySelector('[data-testid="protect-amount-input"]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(amountInput, "100"); amountInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { button(c2, "Protect")!.click(); });
+    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="confirm-tap"]')).toBeTruthy());
+    await act(async () => { (document.body.querySelector('[data-testid="confirm-tap"]') as HTMLButtonElement).click(); });
     await vi.waitFor(() => expect(c2.querySelector('[data-testid="leftover-allowance"]')).toBeTruthy());
     expect(c2.querySelector('[data-testid="leftover-allowance"]')!.textContent).toContain("An approval of 100 USDC for the vault remains");
     await act(async () => { (c2.querySelector('[data-testid="revoke-leftover"]') as HTMLButtonElement).click(); });

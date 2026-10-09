@@ -25,7 +25,7 @@ import { discoverNotes } from "./core";
 import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
 import { proveInBrowser, type ProveStatus } from "../prover/client";
-import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreAbi } from "./privacyProtocol";
+import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
 import { clientFor, depositedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchRefunds, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "../wallet/session";
@@ -67,25 +67,70 @@ const treeSpec = (t: TreeArg): { leaves: bigint[]; tree?: MerkleLayers } => (t i
 /** `record`: the Activity line this flow writes (whale spec §25) — fields to override, or `false` when the caller keeps its own line (a swap's funding). */
 export interface Progress { onStatus?: ProveStatus; /** V5 (spec §12): the typed event beside every status string, for the operation record */ onEvent?: OnEvent; submission?: Submission; record?: false | Partial<ActivityRecord> }
 
-/** Public shield of `amount` wei into the canonical ETH vault; the payload is encrypted to ourselves; records the note once mined. */
-export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
+/**
+ * V5 (spec §17, the SDK facade): a shield in three steps. `prepareShield` builds the note and the calldata (and spends
+ * one note counter); `submitShield` asks the connected wallet (an exact-amount approval first for an ERC-20), reports
+ * the typed events beside the status strings, and `trackShield` waits for the receipt and journals the note at the
+ * leaf the chain assigned. Shielding is a PUBLIC deposit (amount visible); privacy comes from later private transfers.
+ */
+export interface PreparedShield { deployment: Deployment; vault: Address; token: Address | null; amount: bigint; note: Note; noteData: Hex; counter: number; approve?: TxRequest; deposit: TxRequest }
+
+export function prepareShield(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; token?: Address | null; vault?: Address }): PreparedShield {
   const keys = deriveKeys(o.masterSeed);
+  const vault = o.vault ?? o.deployment.ethVault;
+  const token = o.token ?? null;
   const counter = noteStore.allocateCounter();
-  const note: Note = { vaultId: BigInt(o.deployment.ethVault), amount: o.amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
+  const note: Note = { vaultId: BigInt(vault), amount: o.amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
   const noteData = encryptForSelf(keys, note);
-  o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
-  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
-  const txHash = await sendViaInjectedWallet(buildShieldNative(o.deployment.ethVault, note.ownerCommitment, note.noteSecret, note.amount, noteData));
+  const deposit = token ? buildShieldERC20(vault, o.amount, note.ownerCommitment, note.noteSecret, noteData) : buildShieldNative(vault, note.ownerCommitment, note.noteSecret, o.amount, noteData);
+  return { deployment: o.deployment, vault, token, amount: o.amount, note, noteData, counter, ...(token ? { approve: buildApprove(token, vault, o.amount) } : {}), deposit };
+}
+
+/** The calldata of a shield with a scratch note (random, never journaled), for a gas estimate before anything is prepared: no counter is spent. */
+export function scratchShieldTx(deployment: Deployment, amount: bigint, token: Address | null, vault: Address = deployment.ethVault): { approve?: TxRequest; deposit: TxRequest } {
+  const note: Note = { vaultId: BigInt(vault), amount, ownerCommitment: randomField(), noteSecret: randomField() };
+  const noteData = placeholderNoteData();
+  return { ...(token ? { approve: buildApprove(token, vault, amount) } : {}), deposit: token ? buildShieldERC20(vault, amount, note.ownerCommitment, note.noteSecret, noteData) : buildShieldNative(vault, note.ownerCommitment, note.noteSecret, amount, noteData) };
+}
+
+/** Wait for the deposit and journal the note at the leaf the chain assigned. */
+export async function trackShield(p: PreparedShield, txHash: Hex): Promise<number> {
+  const inserted = await noteInsertions(clientFor(p.deployment), txHash);
+  const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
+  if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
+  noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield" });
+  return mine.leafIndex;
+}
+
+export async function submitShield(p: PreparedShield, o: Progress = {}): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
+  let approveTx: Hex | undefined;
+  if (p.approve) {
+    o.onStatus?.("1/2 Approving the vault for exactly this amount (connected wallet)…");
+    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2 });
+    approveTx = await sendViaInjectedWallet(p.approve);
+    const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash: approveTx });
+    if (approval.status !== "success") throw new Error(`the approval ${approveTx} reverted`);
+    o.onEvent?.({ type: "approved", txHash: approveTx });
+    o.onStatus?.("2/2 Depositing into the vault (a shield is public by design)…");
+    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2 });
+  } else {
+    o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
+    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
+  }
+  const txHash = await sendViaInjectedWallet(p.deposit);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
-  const inserted = await noteInsertions(clientFor(o.deployment), txHash);
-  const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
-  if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
-  noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
-  o.onEvent?.({ type: "mined", txHash, leafIndex: mine.leafIndex });
-  if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.deployment.ethVault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
-  return { txHash, leafIndex: mine.leafIndex };
+  const leafIndex = await trackShield(p, txHash);
+  o.onEvent?.({ type: "mined", txHash, leafIndex });
+  if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(p.deployment, p.vault), amount: p.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
+  return { ...(approveTx ? { approveTx } : {}), txHash, leafIndex };
+}
+
+/** Public shield of `amount` wei into the canonical ETH vault (prepare → submit → track). */
+export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
+  const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount }), o);
+  return { txHash: r.txHash, leafIndex: r.leafIndex };
 }
 
 /**
@@ -94,30 +139,8 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
  * connected wallet; the second waits for the first to be mined.
  */
 export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deployment; token: Address; vault: Address; amount: bigint } & Progress): Promise<{ approveTx: Hex; txHash: Hex; leafIndex: number }> {
-  const keys = deriveKeys(o.masterSeed);
-  const counter = noteStore.allocateCounter();
-  const note: Note = { vaultId: BigInt(o.vault), amount: o.amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
-  const noteData = encryptForSelf(keys, note);
-  const client = clientFor(o.deployment);
-  o.onStatus?.("1/2 Approving the vault for exactly this amount (connected wallet)…");
-  o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2 });
-  const approveTx = await sendViaInjectedWallet(buildApprove(o.token, o.vault, o.amount));
-  const approval = await client.waitForTransactionReceipt({ hash: approveTx });
-  if (approval.status !== "success") throw new Error(`the approval ${approveTx} reverted`);
-  o.onEvent?.({ type: "approved", txHash: approveTx });
-  o.onStatus?.("2/2 Depositing into the vault (a shield is public by design)…");
-  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2 });
-  const txHash = await sendViaInjectedWallet(buildShieldERC20(o.vault, o.amount, note.ownerCommitment, note.noteSecret, noteData));
-  o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
-  o.onStatus?.("Waiting for the deposit to be mined…");
-  o.onEvent?.({ type: "waiting-receipt", txHash });
-  const inserted = await noteInsertions(client, txHash);
-  const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
-  if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
-  noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
-  o.onEvent?.({ type: "mined", txHash, leafIndex: mine.leafIndex });
-  if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.vault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
-  return { approveTx, txHash, leafIndex: mine.leafIndex };
+  const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount, token: o.token, vault: o.vault }), o);
+  return { approveTx: r.approveTx!, txHash: r.txHash, leafIndex: r.leafIndex };
 }
 
 /** Who gets the fee note (the relayer's privacy address), in which vault, and how much. */

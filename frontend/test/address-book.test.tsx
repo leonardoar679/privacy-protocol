@@ -16,8 +16,8 @@ import { base58 } from "@scure/base";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { selectable, COOLING_OFF_MS } from "@ref/wallet/addressBook";
 import { Swap } from "../src/components/Swap";
-import { Withdraw } from "../src/components/Withdraw";
-import { Receive } from "../src/components/Receive";
+import { Send } from "../src/features/send/Send";
+import { Receive } from "../src/features/wallet/Receive";
 import { Settings } from "../src/components/Settings";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
@@ -139,10 +139,11 @@ describe("the journaled address book (spec §12)", () => {
 });
 
 describe("destinations on the screens (spec §12)", () => {
-  it("Withdraw at high-value: a typed address is not usable until it is in the book, verified by its groups, and either cooled or confirmed for immediate use with the phrase, the hold and the password", async () => {
+  it("Send to a public address at high-value: a typed address is not usable until it is in the book, verified by its groups, and either cooled or confirmed for immediate use with the phrase, the hold and the password", async () => {
     await unlocked();
     noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
-    const c = await mount(<Withdraw masterSeed={session.state().seed!} deployment={deployment} />); // no price on chain 1: the fail-safe tier is high-value
+    const c = await mount(<Send masterSeed={session.state().seed!} deployment={deployment} initialMode="public" />); // no price on chain 1: the fail-safe tier is high-value
+    await act(async () => { setValue(c.querySelector('[data-testid="send-amount-input"]') as HTMLInputElement, "0.5"); });
     const input = c.querySelector('input[placeholder^="0x"]') as HTMLInputElement;
     await act(async () => { setValue(input, EVM); });
     let status = c.querySelector('[data-testid="destination-status"]')!;
@@ -227,8 +228,7 @@ describe("destinations on the screens (spec §12)", () => {
     expect(s.querySelectorAll('[data-testid="book-entry"]')).toHaveLength(2);
     // Receive: a fresh address enters the book when generated; once used it says so
     const r = await mount(<Receive masterSeed={session.state().seed!} />);
-    const select = r.querySelector("select") as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "bitcoin"); select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { (r.querySelector('[data-testid="receive-bitcoin"]') as HTMLButtonElement).click(); });
     await act(async () => { button(r, "Generate a private receiving address")!.click(); });
     const addr = r.querySelector("code")!.textContent!;
     expect(findEntry("bitcoin", addr)).toMatchObject({ source: "fresh", lifecycle: "verified" });

@@ -86,7 +86,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByTestId("send-tab")).toBeInTheDocument();
     expect(pathname()).toBe("/send");
-    fireEvent.click(screen.getByRole("tab", { name: "To a public address" }));
+    fireEvent.click(screen.getByRole("radio", { name: "To a public address" })); // V5: the Send screen's segmented control
     const evmIndex = session.journal().chainIndexes.evm ?? 0;
     const recipient = [...document.querySelectorAll("input")].find((i) => /^0x[0-9a-fA-F]{40}$/.test((i as HTMLInputElement).value)) as HTMLInputElement | undefined;
     expect(recipient?.value, "Withdraw pre-fills a fresh address").toBe(peekFreshAddress(session.state().seed!, "evm").address);
@@ -97,7 +97,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
 
     // the screens reached from Home are routes with a Back control
     fireEvent.click(screen.getByTestId("protect-cta")); // the card of an empty balance: "Protect Assets"
-    expect(await screen.findByTestId("shield")).toBeInTheDocument();
+    expect(await screen.findByTestId("protect-submit"), "V5: the Protect screen").toBeInTheDocument();
     expect(pathname()).toBe("/protect");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");

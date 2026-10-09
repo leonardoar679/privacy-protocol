@@ -439,8 +439,10 @@ minimum × 1.1 (today's `feeForRelayer`), `b` the relayer's `feePercentBps` (pro
 absent = 0), all in the transaction's vault units.
 
 **Private send and withdrawal** (one fee note to the relayer, as today — output 1 of a withdrawal, output 2
-of a transfer): exact-output (the Send default; "Recipient receives" is what the user types):
-`fee = max(F, ⌈R·b / 10000⌉)`, `A = R + fee`. Exact-input ("You send" is what the user types):
+of a transfer): exact-input (the Send default, as the §3.5 card: the typed amount is what leaves the
+balance and "Recipient receives" is computed and shown largest; "You send" is the typed amount) and
+exact-output (the user switches "Recipient receives exactly this amount"; "You pay" / "Maximum you pay" is
+computed). Exact-output: `fee = max(F, ⌈R·b / 10000⌉)`, `A = R + fee`. Exact-input ("You send" is what the user types):
 `R = min(A − F, ⌊A·10000 / (10000 + b)⌋)`, `fee = A − R`. Lines: `Privacy fee (1.00 %)` = `⌈R·b/10000⌉`;
 `Relayer / network` = `F`, written "included" when the percentage already covers it; `Total fees` = `fee`.
 Sends show `You pay`; withdrawals show `Maximum you pay` because `F` is re-read at submit — a rise beyond the

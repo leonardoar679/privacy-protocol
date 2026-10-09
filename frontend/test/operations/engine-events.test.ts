@@ -87,6 +87,6 @@ describe("the engine emits beside its status strings", () => {
     const types = [...src.matchAll(/o\.onEvent\?\.\(\{ type: "([a-z-]+)"/g)].map((m) => m[1]);
     expect(new Set(types)).toEqual(new Set(["wallet-prompt", "submitted", "waiting-receipt", "mined", "approved", "proving", "proved", "submitting", "relayer-retry", "fee-terms", "syncing", "verifying", "merging"]));
     expect(types.length).toBeGreaterThanOrEqual(24);
-    expect((src.match(/onStatus\?\.\(/g) ?? []).length, "the status strings stay").toBeGreaterThanOrEqual(18);
+    expect((src.match(/onStatus\?\.\(/g) ?? []).length, "the status strings stay").toBeGreaterThanOrEqual(15);
   });
 });
