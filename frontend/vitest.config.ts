@@ -12,6 +12,7 @@ export default mergeConfig(
       include: ["test/**/*.test.{ts,tsx}"],
       exclude: ["test/live/**", "node_modules/**"], // network suites: vitest.live.config.ts (verify-all --live)
       environment: "node",
+      setupFiles: ["test/setup.ts"], // jest-dom matchers, Testing Library cleanup, the platform pieces Radix expects (V5)
       testTimeout: 60_000,
       env: { VITE_KDF_LOG2N: "12", VITE_HOLD_MS: "40" }, // fast scrypt and a short hold-to-confirm for the session under test; production ignores both
     },

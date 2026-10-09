@@ -1,46 +1,7 @@
 /* Plan V2 §41–§42: a neutral light surface first, one primary accent, one security accent (the shield),
    one warning colour; rounded cards, large numerals, 16 px gutters, the safe areas of a phone; dark mode
-   follows the system. No logos, no jargon. */
-:root {
-  color-scheme: light dark;
-  --bg: #f4f6f8;
-  --panel: #ffffff;
-  --panel-2: #eef2f6;
-  --border: #e1e6ec;
-  --fg: #141a21;
-  --muted: #5f6c7b;
-  --accent: #2457d6;
-  --accent-fg: #ffffff;
-  --accent-soft: #e4ebfb;
-  --shield: #1d8a5a;
-  --shield-soft: #e3f3ea;
-  --warn: #b4610d;
-  --warn-soft: #fbeedd;
-  --danger: #c0392b;
-  --radius: 16px;
-  --nav-h: 64px;
-  font-family: -apple-system, "SF Pro Text", "Segoe UI", "IBM Plex Sans", system-ui, Arial, sans-serif;
-  font-size: 16px;
-  -webkit-text-size-adjust: 100%;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1216;
-    --panel: #171b21;
-    --panel-2: #1f252d;
-    --border: #2a313a;
-    --fg: #eef1f4;
-    --muted: #9aa5b1;
-    --accent: #7a9fff;
-    --accent-fg: #0b1220;
-    --accent-soft: #1d2a4a;
-    --shield: #4cc38a;
-    --shield-soft: #15301f;
-    --warn: #e2b04a;
-    --warn-soft: #3a2d10;
-    --danger: #ff7b6b;
-  }
-}
+   follows the system. No logos, no jargon. The palette lives in design-system/tokens.css since V5 (the names here are
+   its aliases); this file keeps the legacy screens' rules until Stage 10 replaces the last of them. */
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body { background: var(--bg); color: var(--fg); line-height: 1.4; }
