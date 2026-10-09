@@ -39,12 +39,15 @@ async function unlockThrough(password: string) {
 
 describe("the shell", () => {
   it("Settings: the trade preference and the tiers are journaled and come back after a lock; nonsense thresholds are refused", async () => {
-    await mountUnlocked();
-    await openSettings();
+    const { router } = await mountUnlocked();
+    await act(async () => { await router.navigate("/more/wallet"); }); // V5: the trade preference lives under More → Wallet
+    await screen.findByTestId("wallet-screen");
     const radio = labelled("Best privacy")!.querySelector("input") as HTMLInputElement;
     fireEvent.click(radio);
     expect(settings.get().preference).toBe("best-privacy");
     expect((session.journal().settings as { preference?: string }).preference).toBe("best-privacy");
+    await act(async () => { await router.navigate("/more/security"); }); // the thresholds and Lock live under More → Security
+    await screen.findByTestId("settings");
     const enhanced = labelled("Enhanced review from")!.nextElementSibling as HTMLInputElement;
     type(enhanced, "250000");
     fireEvent.focusOut(enhanced);
@@ -67,7 +70,9 @@ describe("the shell", () => {
     expect(badge).toHaveAttribute("data-level"); // High or Reduced from the posture (spec §3.3); the level words live in the Center
     expect(badge.textContent).toContain("Protected");
     fireEvent.click(badge);
-    expect((await screen.findByTestId("privacy-center")).textContent).toContain("Timing privacy");
+    await screen.findByTestId("privacy-center");
+    fireEvent.click(screen.getByTestId("privacy-advanced-toggle")); // V5: the six categories sit under "Advanced privacy settings"
+    expect(screen.getByTestId("privacy-center").textContent).toContain("Timing privacy");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
     await act(async () => {

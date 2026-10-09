@@ -1,5 +1,5 @@
-// The two status lines the legacy Settings screen shows (the light client and the crypto core), computed here until
-// Stage 10 moves them under More → Advanced. Moved from App.tsx unchanged.
+// The two status lines of More → Advanced and Home's details (the light client and the crypto core). Moved from
+// App.tsx unchanged (V5 Stage 3), under More since Stage 10.
 import { useSyncExternalStore } from "react";
 import { coreStatus, subscribeCore } from "../../sdk/core";
 import { specForChain } from "../../sdk/lightclient/spec";

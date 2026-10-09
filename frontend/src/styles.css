@@ -1,10 +1,7 @@
-/* Plan V2 §41–§42: a neutral light surface first, one primary accent, one security accent (the shield),
-   one warning colour; rounded cards, large numerals, 16 px gutters, the safe areas of a phone; dark mode
-   follows the system. No logos, no jargon. The palette lives in design-system/tokens.css since V5 (the names here are
-   its aliases); this file keeps the legacy screens' rules until Stage 10 replaces the last of them. */
-* { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
-body { background: var(--bg); color: var(--fg); line-height: 1.4; }
+/* The rules of the V1.1–V4 components still mounted inside the V5 screens (the address book panel, Private AI, the
+   guest swap, the privacy lint, the scorecard, the destination and settlement lines, the legacy balance): panels,
+   rows, tabs, the native inputs, the word levels. The palette lives in design-system/tokens.css (the names here are
+   its aliases); every V5 screen uses the design system's classes instead. Shrinks as those components are rebuilt. */
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 18px; margin: 0 0 8px; }
 h3 { font-size: 17px; margin: 0 0 8px; }
@@ -12,28 +9,6 @@ p { margin: 8px 0; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--fg); word-break: break-all; }
-
-/* the shell: content column + navigation (bottom bar on phones, side column from 1024 px) */
-.shell { min-height: 100dvh; display: flex; flex-direction: column; }
-.app { width: 100%; max-width: 720px; margin: 0 auto; padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(var(--nav-h) + 16px + env(safe-area-inset-bottom, 0px)); }
-.app.lock { padding-bottom: 32px; }
-.nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; justify-content: space-around; gap: 4px; background: var(--panel); border-top: 1px solid var(--border); padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
-.nav button { flex: 1 1 0; background: none; border: none; color: var(--muted); font: inherit; font-size: 12px; padding: 8px 0; border-radius: 10px; cursor: pointer; }
-.nav button.active { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
-.nav .desktop-only { display: none; }
-.nav .brand { display: none; }
-@media (min-width: 1024px) {
-  .shell { flex-direction: row; align-items: flex-start; }
-  .nav { position: sticky; top: 0; bottom: auto; height: 100dvh; flex: 0 0 220px; flex-direction: column; justify-content: flex-start; border-top: none; border-right: 1px solid var(--border); padding: 24px 12px; }
-  .nav .brand { display: block; font-weight: 700; padding: 6px 12px 18px; }
-  .nav button { flex: 0 0 auto; text-align: left; padding: 10px 12px; font-size: 14px; }
-  .nav .desktop-only { display: block; }
-  .app { max-width: 860px; padding: 28px 32px 64px; }
-}
-
-/* detail that only a wide screen shows (plan §95: provider, transaction hashes) */
-.wide-only { display: none; }
-@media (min-width: 1024px) { .wide-only { display: block; } }
 
 /* cards, rows, lists */
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 14px 0; }
@@ -59,28 +34,12 @@ label { font-size: 13px; color: var(--muted); }
 .bar { height: 10px; border-radius: 6px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
 .bar > span { display: block; height: 100%; background: var(--accent); }
 
-/* the privacy badge and the word levels */
-.badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 12px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); font: inherit; font-size: 14px; cursor: pointer; }
-.badge.shield { background: var(--shield-soft); color: var(--shield); border-color: transparent; }
+/* the word levels */
 .level-Excellent { color: var(--shield); font-weight: 600; }
 .level-Good { color: var(--accent); font-weight: 600; }
 .level-Reduced { color: var(--warn); font-weight: 600; }
 .notice { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
 .error { color: var(--warn); }
-
-/* sheets: a panel from the bottom on phones, centered from 1024 px */
-.sheet-backdrop { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; }
-.sheet { background: var(--bg); border-radius: 20px 20px 0 0; width: 100%; max-width: 720px; max-height: 92dvh; overflow: auto; padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
-.sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0 8px; }
-@media (min-width: 1024px) {
-  .sheet-backdrop { align-items: center; }
-  .sheet { border-radius: 20px; max-height: 86dvh; }
-}
-
-/* home */
-.home-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
-.home-actions button.primary { width: 100%; }
-.quiet-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 @media (max-width: 480px) {
   .row { flex-direction: column; gap: 4px; }

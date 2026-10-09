@@ -10,7 +10,7 @@ import { AssetRow, BalanceCard, Button, Card, Collapsible, Icon, IconButton, Lis
 import { useT } from "../../app/i18n/useT";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
-import { useStatusLines } from "../../app/legacy/statusLines";
+import { useStatusLines } from "../more/statusLines";
 import { assetsOf } from "../../sdk/assets";
 import { priceStore, usePrices, valueOfBalances } from "../../sdk/prices";
 import { activityOf, activityStatusLabel, KIND_LABELS } from "../../wallet/activity";

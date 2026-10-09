@@ -1,6 +1,6 @@
 // The route table (spec §2): the onboarding routes behind RequireLocked, the shell routes behind RequireUnlocked,
 // the gallery in dev builds only, every unknown path back to Home. The heavy screens — Swap, Private AI, the
-// guest swap, Activity, Settings — are separate chunks loaded when their route opens (spec §20).
+// guest swap, Activity — are separate chunks loaded when their route opens (spec §20).
 import { lazy } from "react";
 import { Navigate, useRouteError, type RouteObject } from "react-router-dom";
 import { Button, ErrorCard, Page } from "../design-system";
@@ -11,9 +11,8 @@ import { Shell } from "../app/Shell";
 import { Welcome } from "../features/onboarding/Welcome";
 import { Create, Restore, Unlock } from "../features/onboarding/Lock";
 import { More } from "../features/more/More";
-import { ClassicSoon } from "../features/classic-privacy/ClassicSoon";
 import { Home } from "../features/wallet/Home";
-import { PrivacyRoute, SettingsRoute } from "../app/legacy/routes";
+import { AdvancedRoute, ClassicPoolRoute, ClassicRoute, PrivacyRoute, SecurityRoute, WalletRoute, WhatStaysPrivateRoute } from "../features/more/MoreRoutes";
 import { ProtectRoute } from "../features/protect/ProtectRoute";
 import { SendRoute } from "../features/send/SendRoute";
 import { ReceiveRoute } from "../features/wallet/ReceiveRoute";
@@ -27,8 +26,8 @@ export const PROVIDER_FUTURE = { v7_startTransition: true } as const;
 const SwapRoute = lazy(() => import("../features/swap/SwapRoute"));
 const ActivityRoute = lazy(() => import("../features/activity/ActivityRoute"));
 const ActivityDetailRoute = lazy(() => import("../features/activity/ActivityRoute").then((m) => ({ default: m.ActivityDetailRoute })));
-const AIRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.AIRoute })));
-const GuestRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.GuestRoute })));
+const AIRoute = lazy(() => import("../features/ai/AIRoute"));
+const GuestRoute = lazy(() => import("../features/guest/GuestRoute"));
 const Gallery = lazy(() => import("../design-system/Gallery").then((m) => ({ default: m.Gallery })));
 
 function Root({ deployment }: { deployment?: Deployment | null }) {
@@ -58,12 +57,15 @@ export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: De
     { path: "activity/:id", element: <ActivityDetailRoute /> },
     { path: "recovery/:id", element: <ActivityDetailRoute /> },
     { path: "more", element: <More /> },
-    { path: "more/privacy/*", element: <PrivacyRoute /> },
-    { path: "more/security", element: <SettingsRoute title="route.security" /> },
-    { path: "more/wallet", element: <SettingsRoute title="route.wallet" /> },
-    { path: "more/advanced", element: <SettingsRoute title="route.advanced" /> },
+    { path: "more/privacy", element: <PrivacyRoute /> },
+    { path: "more/privacy/advanced", element: <PrivacyRoute advanced /> },
+    { path: "more/privacy/what-stays-private", element: <WhatStaysPrivateRoute /> },
+    { path: "more/security", element: <SecurityRoute /> },
+    { path: "more/wallet", element: <WalletRoute /> },
+    { path: "more/advanced", element: <AdvancedRoute /> },
     { path: "more/ai", element: <AIRoute /> },
-    { path: "more/classic/*", element: <ClassicSoon /> },
+    { path: "more/classic", element: <ClassicRoute /> },
+    { path: "more/classic/:poolId", element: <ClassicPoolRoute /> },
     ...(dev ? [{ path: "gallery", element: <Gallery /> }] : []),
     { path: "*", element: <Navigate to="/" replace /> },
   ];

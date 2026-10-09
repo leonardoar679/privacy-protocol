@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Allowances (High-Value Protection spec §13, Stage 6): read and revoked through the injected wallet's own provider,
-// never this wallet's RPC endpoints; the deployment's ERC-20 vaults listed under Settings → Advanced with a Revoke per
+// never this wallet's RPC endpoints; the deployment's ERC-20 vaults listed under More → Wallet with a Revoke per
 // non-zero allowance; the Protect screen (V5) reads what a failed ERC-20 deposit left behind and offers to revoke it.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
@@ -9,7 +9,8 @@ import { decodeFunctionData, encodeAbiParameters, getAddress } from "viem";
 import { erc20Abi } from "../src/sdk/privacyProtocol";
 import { allowancesFor, readAllowance, revokeAllowance } from "../src/sdk/allowances";
 import { parseErc20Vaults } from "../src/sdk/assets";
-import { Settings } from "../src/components/Settings";
+import { Wallet } from "../src/features/more/Wallet";
+import { connection } from "../src/features/wallet/connection";
 import { Protect } from "../src/features/protect/Protect";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
@@ -26,7 +27,7 @@ const USDC_VAULT = getAddress("0x00000000000000000000000000000000000ca5de");
 const OWNER = getAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
 const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: getAddress("0x00000000000000000000000000000000000000e7"), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: parseErc20Vaults(`USDC:${USDC}:${USDC_VAULT}:6`) };
 let root: Root | null = null;
-afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); delete (window as any).ethereum; });
+afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); delete (window as any).ethereum; connection.reset(); });
 const button = (c: ParentNode, text: string) => [...c.querySelectorAll("button")].find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 
 /** An injected provider: allowances by (token, owner, spender); approvals recorded. */
@@ -84,7 +85,8 @@ describe("allowances through the injected wallet", () => {
     const eth = provider(250_000_000n);
     (window as any).ethereum = eth;
     const container = document.createElement("div");
-    await act(async () => { root = createRoot(container); root.render(<Settings deployment={deployment} readsLine="" coreLine="" account={OWNER} />); });
+    await connection.connect(); // V5: the Wallet screen reads the account from the connection store (the injected fallback)
+    await act(async () => { root = createRoot(container); root.render(<Wallet deployment={deployment} />); });
     await act(async () => { button(container, "Read allowances")!.click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="allowance-line"]')).toBeTruthy());
     const line = container.querySelector('[data-testid="allowance-line"]')!;
@@ -98,6 +100,7 @@ describe("allowances through the injected wallet", () => {
     const eth2 = provider(100_000_000n);
     (window as any).ethereum = eth2;
     act(() => root!.unmount()); root = null;
+    connection.reset(); // the Wallet part's provider is released: the Protect screen falls back to the injected one below
     const c2 = document.createElement("div");
     await act(async () => { root = createRoot(c2); root.render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} />); });
     await act(async () => { (c2.querySelector('[data-testid="protect-asset"]') as HTMLElement).click(); }); // the asset selector (a sheet in the document's body)

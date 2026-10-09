@@ -29,6 +29,8 @@ export default tseslint.config(
     languageOptions: { globals: { window: "readonly", document: "readonly", navigator: "readonly", history: "readonly", console: "readonly", setTimeout: "readonly", clearTimeout: "readonly", setInterval: "readonly", clearInterval: "readonly" } },
     rules: {
       ...jsxA11y.flatConfigs.strict.rules,
+      // a rich label (a title, a note, a description around a native radio or checkbox) nests its text three deep
+      "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
       "no-restricted-globals": ["error", { name: "localStorage", message: "Spec §8: only src/storage touches the browser's storage." }, { name: "sessionStorage", message: "Spec §8: only src/storage touches the browser's storage." }],

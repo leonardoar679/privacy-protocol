@@ -238,3 +238,7 @@ button.ds-list-row { cursor: pointer; }
 .ds-route-table th, .ds-route-table td { text-align: left; padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); vertical-align: top; }
 .ds-route-table tr[data-filtered="1"] { opacity: 0.55; }
 .ds-swap-arrow { display: flex; justify-content: center; color: var(--fg-muted); }
+
+/* a native checkbox or radio inside a label row (the Advanced knobs, the classic disclosures): the accent, a 20 px box */
+.ds-native-row { cursor: pointer; }
+.ds-native-row > input[type="checkbox"], .ds-native-row > input[type="radio"] { width: 20px; height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--accent); }

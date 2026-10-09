@@ -10,6 +10,7 @@ import type { SerializedNote } from "./notes";
 import type { Campaign } from "@ref/wallet/campaign";
 import type { AddressBookEntry } from "@ref/wallet/addressBook";
 import type { OperationRecord } from "./operationRecord";
+import type { ClassicDepositRecord } from "./classicRecord";
 
 export interface StoredSwap {
   orderId: string;
@@ -108,6 +109,8 @@ export interface JournalData {
   addressBook?: AddressBookEntry[];
   /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. */
   operations?: OperationRecord[];
+  /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
+  classic?: { deposits: ClassicDepositRecord[] };
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

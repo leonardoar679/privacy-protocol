@@ -4,7 +4,7 @@
 // Classic entry, Connect Wallet on the welcome screen, an unknown path back to Home.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { prefs } from "../src/storage/prefs";
@@ -63,12 +63,12 @@ describe("the application shell (spec §2)", () => {
   it("the experience preference is mirrored into the journal's advanced flag at unlock; the Settings toggle writes both", async () => {
     prefs().update({ experience: "advanced", firstLaunchDone: true });
     await unlockedWallet();
-    await renderApp("/");
+    const { router } = await renderApp("/");
     await screen.findByTestId("home");
     await waitFor(() => expect(settings.get().advanced).toBe(true));
     expect((session.journal().settings as { advanced?: boolean }).advanced).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await screen.findByTestId("settings");
+    await act(async () => { await router.navigate("/more"); }); // V5 Stage 10: the experience switch lives on the More menu
+    await screen.findByTestId("more");
     const toggle = [...document.querySelectorAll("label")].find((l) => l.textContent?.includes("Show the cryptographic detail"))!.querySelector("input") as HTMLInputElement;
     fireEvent.click(toggle);
     expect(settings.get().advanced).toBe(false);
@@ -84,7 +84,7 @@ describe("the application shell (spec §2)", () => {
     expect(await screen.findByTestId("more-advanced")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("more-classic"));
     const classic = await screen.findByTestId("classic");
-    expect(classic.textContent).toContain("later stage");
+    expect(screen.getByTestId("classic-pool-eth-1"), "V5 Stage 10: the devnet pools").toBeInTheDocument();
     expect(classic.textContent).toContain("never your protected balance");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("more");

@@ -107,6 +107,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("privacy-badge"));
     const center = await screen.findByTestId("privacy-center");
+    fireEvent.click(screen.getByTestId("privacy-advanced-toggle")); // V5: the six categories sit under "Advanced privacy settings"
     for (const c of ["Financial history", "Address separation", "Network privacy", "RPC privacy", "Timing privacy", "Cross-chain privacy"]) expect(center.textContent).toContain(c);
     expect(center.textContent).toContain("What this wallet cannot promise");
     expect(center.textContent!.toLowerCase()).not.toMatch(/anonymous/);
@@ -116,6 +117,10 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByTestId("settings")).toBeInTheDocument();
     expect(pathname()).toBe("/more/security");
+    fireEvent.click(within(nav).getByRole("link", { name: "More" })); // V5: the trade preference lives under More → Wallet
+    fireEvent.click(await screen.findByTestId("more-wallet"));
+    await screen.findByTestId("wallet-screen");
+    expect(pathname()).toBe("/more/wallet");
     expect(document.body.textContent).toContain("Trade preference");
     expect(fetchSpy, "after every screen").not.toHaveBeenCalled();
     expect(beaconSpy).not.toHaveBeenCalled();

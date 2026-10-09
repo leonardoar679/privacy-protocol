@@ -44,7 +44,7 @@ describe("Home (spec §3.3)", () => {
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("protection-badge"));
-    await screen.findByTestId("settings");
+    await screen.findByTestId("advanced"); // V5 Stage 10: More → Advanced on the design system
     expect(pathname()).toBe("/more/advanced");
     expect(fetchSpy, "nothing read for an empty balance").not.toHaveBeenCalled();
   });

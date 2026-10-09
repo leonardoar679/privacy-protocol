@@ -18,7 +18,7 @@ import { selectable, COOLING_OFF_MS } from "@ref/wallet/addressBook";
 import { Swap } from "../src/features/swap/Swap";
 import { Send } from "../src/features/send/Send";
 import { Receive } from "../src/features/wallet/Receive";
-import { Settings } from "../src/components/Settings";
+import { Advanced } from "../src/features/more/Advanced";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { noteStore } from "../src/wallet/notes";
@@ -214,7 +214,7 @@ describe("destinations on the screens (spec §12)", () => {
     expect(findEntry("bitcoin", BTC)?.verification.method).toBe("groups-read");
     expect(c.querySelector('[data-testid="destination-status"]')!.getAttribute("data-reason")).toBe("cooling-off");
     // Settings → Address book lists it with its status and can retire it
-    const s = await mount(<Settings deployment={deployment} readsLine="" coreLine="" />);
+    const s = await mount(<Advanced deployment={deployment} />);
     const entry = s.querySelector('[data-testid="book-entry"]')!;
     expect(entry.getAttribute("data-source")).toBe("entered");
     expect(entry.textContent).toContain("re-typed group by group");
