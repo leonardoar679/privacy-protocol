@@ -13,6 +13,22 @@ describe("the policy table (plan §4)", () => {
     expect(EXPOSURE_POLICY.institutional).toMatchObject({ word: "Extreme Value", capBps: 200, range: [100, 250] });
     expect(TIER_RANGES.R4[1]).toBe(100);
   });
+  it("V5 (spec §11): the consumer bands — Normal at $20K, four sequential quarters at $50K", () => {
+    expect(EXPOSURE_POLICY.large).toMatchObject({ word: "Normal", capBps: null, activation: "none" });
+    expect(EXPOSURE_POLICY["large-protected"]).toMatchObject({ word: "Protected", capBps: 2500, range: [2500, 5000], activation: "staged-or-opt-in" });
+  });
+  it("V5: the $50K band's cap is the band's own — the tier ceilings and the mode ceiling of the high-value layer do not apply", () => {
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R3" })).toMatchObject({ capBps: 2500, range: [2500, 5000], reasons: [] });
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R2", userCapBps: 5000 }).capBps).toBe(5000);
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R3", userCapBps: 1000 })).toMatchObject({ capBps: 2500, reasons: [expect.stringMatching(/clipped to 25–50 %/)] });
+    expect(capBpsFor({ tier: "large-protected", mode: "max-safety", exposureTier: "R3" }).capBps, "Maximum Safety is sequential and destination-final here, not 1 % pieces").toBe(2500);
+    const r4 = capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R4" });
+    expect(r4.capBps).toBe(2500);
+    expect(r4.reasons.join(" ")).toMatch(/next healthy route/);
+    expect(capBpsFor({ tier: "large", mode: "balanced", exposureTier: "R3" }).capBps, "below the band the enhanced row still applies (opt-in): the R3 ceiling under the 5 %").toBe(250);
+    expect(capBpsFor({ tier: "large", mode: "balanced", exposureTier: "R1" }).capBps).toBe(500);
+    expect(capBpsFor({ tier: "enhanced", mode: "balanced", exposureTier: "R3" }).capBps, "unchanged").toBe(250);
+  });
 });
 
 describe("exposureTierOf (plan §6)", () => {

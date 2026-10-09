@@ -1,7 +1,7 @@
 // Valuation and tiers (whale-execution spec §13): the pure rules the wallet and the engine share.
 import { describe, it, expect } from "vitest";
 import {
-  TIER_DEFAULTS, TIERS, agreePrices, assess, atLeast, checkThresholds, decodeLatestRoundData, decodeString, feedsFor, formatUsd, higherTier, isStale, parsePrices, serializePrices, tierOf, usdOf, type FeedSpec, type PriceRead, type Prices,
+  TIER_DEFAULTS, TIERS, agreePrices, assess, atLeast, checkThresholds, fillThresholds, decodeLatestRoundData, decodeString, feedsFor, formatUsd, higherTier, isStale, parsePrices, serializePrices, tierOf, usdOf, type FeedSpec, type PriceRead, type Prices,
 } from "../src/wallet/valuation";
 
 const ETH: FeedSpec = { symbol: "ETH", description: "ETH / USD", heartbeatSeconds: 3600, proxy: "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419" };
@@ -16,7 +16,11 @@ const prices = (usd: number, over: Partial<PriceRead> = {}, at = NOW): Prices =>
 describe("tiers (spec §13)", () => {
   it("places a USD value by the plan V2 §13 thresholds, boundaries inclusive", () => {
     expect(tierOf(0)).toBe("standard");
-    expect(tierOf(99_999.99)).toBe("standard");
+    expect(tierOf(19_999.99)).toBe("standard");
+    expect(tierOf(20_000), "V5 spec §11: the Review and the lint").toBe("large");
+    expect(tierOf(49_999.99)).toBe("large");
+    expect(tierOf(50_000), "V5 spec §11: protected execution").toBe("large-protected");
+    expect(tierOf(99_999.99)).toBe("large-protected");
     expect(tierOf(100_000)).toBe("enhanced");
     expect(tierOf(999_999)).toBe("enhanced");
     expect(tierOf(1_000_000)).toBe("high-value");
@@ -27,7 +31,16 @@ describe("tiers (spec §13)", () => {
     expect(() => tierOf(-1)).toThrow();
   });
   it("orders tiers and refuses nonsense thresholds", () => {
-    expect(TIERS).toEqual(["standard", "enhanced", "high-value", "high-value-secondary", "institutional"]);
+    expect(TIERS).toEqual(["standard", "large", "large-protected", "enhanced", "high-value", "high-value-secondary", "institutional"]);
+    expect(atLeast("large-protected", "enhanced"), "the consumer bands sit below enhanced: every rule keyed on enhanced is untouched").toBe(false);
+    expect(() => checkThresholds({ ...TIER_DEFAULTS, largeProtected: 20_000 })).toThrow(/increase/);
+    expect(() => checkThresholds({ enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 5_000_000, institutional: 10_000_000 }), "an older wallet's four thresholds still check").not.toThrow();
+    // V5: a stored V2–V4 object gets the bands — the defaults, or a fifth and a half of a lowered `enhanced`; given values stay
+    expect(fillThresholds({ enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 5_000_000, institutional: 10_000_000 })).toEqual(TIER_DEFAULTS);
+    expect(fillThresholds({ enhanced: 1_000, highValue: 2_000, highValueSecondary: 3_000, institutional: 4_000 })).toMatchObject({ large: 200, largeProtected: 500 });
+    expect(() => checkThresholds({ enhanced: 1_000, highValue: 2_000, highValueSecondary: 3_000, institutional: 4_000 })).not.toThrow();
+    expect(tierOf(600, { enhanced: 1_000, highValue: 2_000, highValueSecondary: 3_000, institutional: 4_000 })).toBe("large-protected");
+    expect(fillThresholds({ large: 5, largeProtected: 10, enhanced: 1_000, highValue: 2_000, highValueSecondary: 3_000, institutional: 4_000 })).toMatchObject({ large: 5, largeProtected: 10 });
     expect(higherTier("enhanced", "institutional")).toBe("institutional");
     expect(atLeast("high-value", "enhanced")).toBe(true);
     expect(atLeast("standard", "enhanced")).toBe(false);

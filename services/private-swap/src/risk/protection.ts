@@ -108,7 +108,8 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const capBps = capBpsFor(o.tier, o.mode, xt.tier);
   let band: [number, number] = atLeast(o.tier, "institutional") ? [Math.min(200, capBps), Math.min(250, capBps)] : [Math.min(band0[0], capBps), Math.min(band0[1], capBps)];
   if (band[0] > band[1]) band = [band[1], band[1]];
-  const sequential = o.mode === "max-safety" || atLeast(o.tier, "institutional") || model.class === "R5" || model.class === "R6";
+  if (o.tier === "large-protected") band = [capBps, capBps]; // V5 (spec §11): exact pieces of the cap — four sequential steps of 25 %
+  const sequential = o.mode === "max-safety" || o.tier === "large-protected" || atLeast(o.tier, "institutional") || model.class === "R5" || model.class === "R6";
   if (model.class === "R5" || model.class === "R6") reasons.push("a bridge / MPC / counterparty route runs one piece at a time (sequential safety mode)");
   const sizing: Sizing = o.mode === "max-privacy" ? "bucket" : "varied";
   const gate = o.mode === "max-safety" ? "destination-final" : model.gate;
@@ -130,7 +131,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   // the remedy applied (plan §81, contract §2.3): reduce the tranche, an RFQ venue (none today), a stream, another venue
   const othersUnderLimit = o.set.quotes.some((x) => x.provider !== chosen.provider && !o.set.scores.find((s) => s.provider === x.provider)?.filtered && (x.impactBps ?? 0) * capFraction <= IMPACT_CAP_BPS);
   const impactRemedy = remedyOf({ trancheImpactBps: rawImpact === null ? null : Math.round(rawImpact * 100) / 100, halvingFits, rfqQuotes: false, streamedPlan: !!chosen.plan && chosen.plan.mode !== "single", otherVenues: othersUnderLimit });
-  const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random });
+  const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random, exact: o.tier === "large-protected" });
   const pieces = split.pieces;
   const steps = pieces.length;
   const largest = pieces.length ? pieces.reduce((m, p) => (p > m ? p : m), 0n) : 0n;
@@ -153,12 +154,12 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const e1 = expectedLossPerFailure({ pFailPrior: model.pFailPrior, failuresInWindow: failures, incidentFactor, exposed: trancheUsd ? trancheUsd[1] : 0 });
   const e2 = expectedLossPerFailure({ pFailPrior: model.pFailPrior, failuresInWindow: failures, incidentFactor, exposed: capUsd ?? 0 });
   const reliability = mine.reliability;
-  const staged = o.tier === "enhanced" && singleVenue && ((chosen.impactBps ?? 0) > IMPACT_CAP_BPS || (reliability !== null && reliability < 60));
+  const staged = (o.tier === "enhanced" || o.tier === "large-protected") && singleVenue && ((chosen.impactBps ?? 0) > IMPACT_CAP_BPS || (reliability !== null && reliability < 60));
   if (staged) reasons.push("staged below $1M: the only venue quotes with high impact or low reliability");
   return {
     provider: chosen.provider, riskClass: model.class, flags: model.flags, custody: model.custody, bandBps: band, capBps, sizing,
     concurrency: sequential ? "sequential" : "parallel", maxParallel: sequential ? 1 : 2, gate, cadenceSeconds: cadence, providerShareCapBps: shareCap,
-    executeWindowSeconds: EXECUTE_WINDOW_SECONDS, estimatedTranches: steps, estimatedSeconds, trancheUsd, capUsd, trancheImpactBps, thinMarket,
+    executeWindowSeconds: o.tier === "large-protected" ? Math.min(EXECUTE_WINDOW_SECONDS, 1800) : EXECUTE_WINDOW_SECONDS, estimatedTranches: steps, estimatedSeconds, trancheUsd, capUsd, trancheImpactBps, thinMarket, // V5: a strict window at the $50K band
     maxPieceUnits: maxPiece === null ? null : maxPiece.toString(),
     concentration: { providers: quoted.map((id) => ({ id, shareBps: Math.floor(10000 / Math.max(1, quoted.length)) })), singleVenue, capBps: shareCap },
     elpf: { prior: model.pFailPrior, pFailure: e1.pFailure, perTrancheUsd: trancheUsd ? e1.expectedLoss : null, perCampaignUsd: capUsd === null ? null : e2.expectedLoss },
@@ -170,7 +171,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
 
 /** For the quote set: the recommendation and the risk view, from the enhanced tier up (V2 §13). */
 export function protectionFor(set: QuoteSet, req: QuoteRequest, amount: bigint, tier: Tier | undefined, mode: ProtectionMode, usdPerUnit: number | null, tracker?: ProviderHealthTracker, db: RiskDb = riskDb()): { protection?: Protection; risk?: Partial<Record<ProviderId, ProviderRisk>> } {
-  if (!tier || !atLeast(tier, "enhanced")) return {};
+  if (!tier || !atLeast(tier, "large-protected")) return {}; // V5 (spec §11): from the $50K band
   const risk = providerRisks(set, req, mode, db, Date.now(), tracker);
   const protection = recommendProtection({ set, req, amount, tier, mode, usdPerUnit, db, tracker });
   return { ...(protection ? { protection } : {}), risk };

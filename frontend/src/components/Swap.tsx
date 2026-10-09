@@ -308,7 +308,7 @@ export function Swap({ masterSeed, deployment, account = null }: { masterSeed: U
   /** V3 (High-Value Protection spec §14): a protected execution from high-value, or at enhanced when the service says `staged`; the service's recommendation is advice, the wallet keeps its own bounds */
   const protectionPlan: Protection | null = quotes?.protection ?? null;
   // V4 (contract §2.1): the layer can be switched off deliberately (Settings, warned); at $100K–$1M an order is protected when staged, when Settings say so, or when the user asks for this order
-  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced || protectThis)));
+  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced || protectThis)) || (tier === "large-protected" && (protectionPlan.staged || protectThis))); // V5 (spec §11): the $50K band splits when staged or asked
   const usdPer = usd !== null && units > 0n ? usd / (Number(units) / 10 ** fromAsset.decimals) : null;
   const usdOf = (x: bigint): string | null => (usdPer === null ? null : formatUsd(usdPer * (Number(x) / 10 ** fromAsset.decimals), { compact: true }));
   const amountWords = (x: bigint): string => `${formatAmount(fromAsset, x)} ${fromAsset.symbol}${usdOf(x) ? ` (≈ ${usdOf(x)})` : ""}`;

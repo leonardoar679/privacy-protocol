@@ -51,6 +51,7 @@ start("relayer", "services/relayer", ["tsx", "src/server.ts"], {
   GAS_ESTIMATE: "1800000",
   FEE_MARGIN_BPS: "2000",
   REQUIRE_READABLE_FEE_PAYLOAD: "1",
+  FEE_PERCENT_BPS: "100", // V5 (spec §10): the product default
   RELAYER_JOURNAL_DIR: join(RUN, "relayer-journal"),
   SWAP_POLL_MS: "5000",
   LATE_REFUND_WATCH_SECONDS: "86400",

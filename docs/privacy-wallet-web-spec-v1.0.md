@@ -488,8 +488,14 @@ meaning and its tests. `controlsFor` (`frontend/src/sdk/tiers.ts`):
 
 `EXPOSURE_POLICY` gains `large { word "Normal", no cap }` and `large-protected { word "Protected", capBps 2500,
 range [2500, 5000], activation "staged-or-opt-in" }`; `capBpsFor` uses that row at the band and keeps the
-`enhanced` fallback below it. A split order at the band runs at most four sequential steps of 25 % with the
-V3 gate per risk class and `executeWindowSeconds ≤ 1800`.
+`enhanced` fallback below it: at the band the cap is the band's own — a quarter whatever the route's exposure
+tier and the mode (the §6 tier ceilings and the Maximum Safety 1 % are the high-value layer's); an R4 route is not
+split finer but handed to the next healthy route. A split order at the band runs at most four sequential steps of
+25 % with the V3 gate per risk class and `executeWindowSeconds ≤ 1800`: exact quarters of the order
+(`planTranches` with `exact`, carried on the campaign's plan as `exact?`), not the alphabet's buckets — a
+remainder of a few base units, when the order is not a multiple of four, is a piece of its own. A stored V2–V4
+thresholds object (four values) keeps its meaning: `fillThresholds` adds the two bands as the defaults, or a
+fifth and a half of a lowered `enhanced` (`healSettings` never resets a user's thresholds over them).
 
 **Protected execution for an order at the band** (plan §23), split or not: (1) the destination confirmed —
 an entered address re-typed group by group or taken from the address book, plus the book's status line;

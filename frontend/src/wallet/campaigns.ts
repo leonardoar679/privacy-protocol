@@ -118,7 +118,8 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const sizing = p.sizing ?? defaults.sizing;
   const maxParallel = p.concurrency === "sequential" ? 1 : Math.max(1, p.maxParallel);
   const rng = i.rng ?? cryptoUniform;
-  const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng });
+  const exact = i.tier === "large-protected"; // V5 (spec §11): the consumer band's four sequential quarters
+  const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng, exact });
   const cap = (i.amount * BigInt(capBps)) / 10000n;
   const minimumOutput = (rateE18(BigInt(quote.toAmountMin), i.amount) * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
   const estimated = Math.max(p.estimatedSeconds, 3600);
@@ -207,7 +208,7 @@ export function cancelCampaign(id: string, s: WalletSession = defaultSession, no
 export function replanRemainder(c: Campaign, now: number, rng: () => number = cryptoUniform): Campaign {
   const e = exposure(c);
   if (e.remaining <= 0n) return c;
-  const split = planTranches(e.remaining, { decimals: c.request.from.decimals, bandBps: c.plan.bandBps, capBps: c.plan.capBps, sizing: c.plan.sizing, maxParallel: c.plan.maxParallel, rng, reference: e.total });
+  const split = planTranches(e.remaining, { decimals: c.request.from.decimals, bandBps: c.plan.bandBps, capBps: c.plan.capBps, sizing: c.plan.sizing, maxParallel: c.plan.maxParallel, rng, reference: e.total, exact: c.plan.exact });
   return replan(c, split.pieces, now);
 }
 

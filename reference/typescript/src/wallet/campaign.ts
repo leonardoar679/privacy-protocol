@@ -63,6 +63,8 @@ export interface TranchePlan {
   executeWindowSeconds: number;
   estimatedTranches: number;
   estimatedSeconds: number;
+  /** V5 (spec §11): the consumer band's exact quarters (planTranches `exact`); absent on every earlier campaign */
+  exact?: boolean;
   /** the campaign needs its notes reshaped before the first tranche (§4) */
   shapeNotes: boolean;
   elpfUsd?: number;
@@ -147,6 +149,12 @@ export interface SplitOptions {
   rng: () => number;
   /** the order the band and the cap are fractions of — a re-plan of a remainder passes the original order (default: `total`) */
   reference?: bigint;
+  /**
+   * V5 (Privacy Wallet Web spec §11): pieces of exactly the band's upper edge instead of the alphabet's buckets — the
+   * consumer band's four sequential quarters. The remainder joins the last piece while that stays under the cap, else it
+   * is a piece of its own (a few base units at most when the order is not a multiple of four).
+   */
+  exact?: boolean;
 }
 export interface Split { pieces: bigint[]; /** pieces that are not a bucket or a sum of two (the remainder, or a band no bucket fits) */ exact: number; /** the band in base units */ band: [bigint, bigint] }
 
@@ -167,6 +175,14 @@ export function planTranches(total: bigint, o: SplitOptions): Split {
   let upper = min(bps(ref, o.bandBps[1]), cap / BigInt(Math.max(1, o.maxParallel)));
   if (o.maxPiece !== undefined && o.maxPiece > 0n) upper = min(upper, o.maxPiece);
   if (upper <= 0n) upper = min(total, cap);
+  if (o.exact) {
+    const pieces: bigint[] = [];
+    let left = total;
+    while (left >= upper) { pieces.push(upper); left -= upper; }
+    let exact = pieces.length;
+    if (left > 0n) { if (pieces.length && pieces[pieces.length - 1] + left <= cap) pieces[pieces.length - 1] += left; else pieces.push(left); exact++; }
+    return { pieces, exact, band: [lower, upper] };
+  }
   const dust = o.dustFloor ?? alphabet[0];
   // candidates: single buckets inside the band, and sums of two buckets of the same or the adjacent decade
   // (50 + 5, never 50 + 0.001: a bucket plus a crumb is an exact amount in disguise)

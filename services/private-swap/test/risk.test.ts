@@ -283,6 +283,34 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
   });
 });
 
+describe("V5 — the consumer bands (Privacy Wallet Web spec §11)", () => {
+  const db = RiskDb.load(RISK_DB_DIR);
+  it("$60K at the $50K band: four sequential quarters, exact pieces, a window of at most 30 minutes, the band's own cap in every mode", () => {
+    const amount = eth(15); // $60K at $4,000
+    const set = setOf([q("thorchain", amount, { impactBps: 9 })]);
+    const p = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "large-protected", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+    expect(p).toMatchObject({ provider: "thorchain", riskClass: "R5", capBps: 2500, bandBps: [2500, 2500], concurrency: "sequential", maxParallel: 1, gate: "destination-final", estimatedTranches: 4, capUsd: 15_000, trancheUsd: [15_000, 15_000] });
+    expect(p.executeWindowSeconds).toBeLessThanOrEqual(1800);
+    expect(p.ledgerPreview).toEqual({ totalOrderValue: amount.toString(), maxExternalExposure: (amount / 4n).toString(), firstTranche: (amount / 4n).toString() });
+    expect(p.estimatedSeconds).toBeGreaterThan(0);
+    for (const mode of ["max-safety", "max-privacy", "best-execution"] as const) {
+      const r = recommendProtection({ set, req: reqEthBtc(amount), amount, tier: "large-protected", mode, usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+      expect([r.capBps, r.estimatedTranches, r.concurrency], mode).toEqual([2500, 4, "sequential"]);
+    }
+  });
+  it("$20K gets the Review and the lint, no plan attached; the plan attaches from the $50K band, staged on impact like the enhanced tier", () => {
+    const amount = eth(15);
+    const calm = setOf([q("thorchain", amount, { impactBps: 9 })]);
+    expect(protectionFor(calm, reqEthBtc(amount), amount, "large", "balanced", ETH_USD, undefined, db)).toEqual({});
+    expect(protectionFor(calm, reqEthBtc(amount), amount, "standard", "balanced", ETH_USD, undefined, db)).toEqual({});
+    const attached = protectionFor(calm, reqEthBtc(amount), amount, "large-protected", "balanced", ETH_USD, undefined, db);
+    expect(attached.protection).toMatchObject({ capBps: 2500, concurrency: "sequential", estimatedTranches: 4, staged: false });
+    expect(attached.risk?.thorchain).toMatchObject({ model: { class: "R5" } });
+    const impact = protectionFor(setOf([q("thorchain", amount, { impactBps: 400 })]), reqEthBtc(amount), amount, "large-protected", "balanced", ETH_USD, undefined, db);
+    expect(impact.protection?.staged).toBe(true);
+  });
+});
+
 describe("the per-tranche execution window (spec §3)", () => {
   it("is clamped into [10 min, the policy's delay budget] and lands in executeDeadline; absent, the V2 budget stands", () => {
     expect(EXECUTE_WINDOW_MIN_SECONDS).toBe(600);

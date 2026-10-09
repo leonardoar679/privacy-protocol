@@ -13,6 +13,8 @@ export interface PolicyRow { word: string; capBps: number | null; range: [number
 
 export const EXPOSURE_POLICY: Record<Tier, PolicyRow> = {
   standard: { word: "Normal", capBps: null, range: null, activation: "none" },
+  large: { word: "Normal", capBps: null, range: null, activation: "none" }, // V5 (spec §11): the Review and the lint, no split
+  "large-protected": { word: "Protected", capBps: 2500, range: [2500, 5000], activation: "staged-or-opt-in" }, // V5: at most four sequential steps of 25 %
   enhanced: { word: "Protected", capBps: 500, range: [100, 500], activation: "staged-or-opt-in" },
   "high-value": { word: "High Value", capBps: 250, range: [100, 300], activation: "always" },
   "high-value-secondary": { word: "Very High Value", capBps: 250, range: [100, 300], activation: "always" },
@@ -77,7 +79,23 @@ const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.m
  * "3 % only where the risk engine permits"). Below the enhanced tier the enhanced row applies (a campaign there is opt-in).
  */
 export function capBpsFor(i: CapInput): CapResult {
-  const row = EXPOSURE_POLICY[atLeast(i.tier, "enhanced") ? i.tier : "enhanced"];
+  // V5 (spec §11): the $50K band is the consumer's protected execution — at most four sequential steps of a quarter. The
+  // §6 tier ceilings and the mode ceiling are the high-value layer's (bps of a $1M+ order) and do not apply here; an
+  // unknown or high-risk route is not split finer but handed to the next route by the service.
+  if (i.tier === "large-protected") {
+    const row = EXPOSURE_POLICY["large-protected"];
+    const range = row.range!;
+    const reasons: string[] = [];
+    let cap = row.capBps!;
+    if (i.userCapBps !== undefined && Number.isFinite(i.userCapBps)) {
+      const chosen = clamp(Math.floor(i.userCapBps), range[0], range[1]);
+      if (chosen !== Math.floor(i.userCapBps)) reasons.push(`the chosen fraction is clipped to ${range[0] / 100}–${range[1] / 100} % for this band`);
+      cap = chosen;
+    }
+    if (i.exposureTier === "R4") reasons.push("an unknown or high-risk route: protected execution takes the next healthy route rather than smaller pieces");
+    return { capBps: cap, range, reasons };
+  }
+  const row = EXPOSURE_POLICY[atLeast(i.tier, "enhanced") ? i.tier : "enhanced"]; // below enhanced the enhanced row still applies (a campaign there is opt-in)
   const base = row.capBps ?? EXPOSURE_POLICY.enhanced.capBps!;
   const rowRange = row.range ?? EXPOSURE_POLICY.enhanced.range!;
   const tierMax = TIER_RANGES[i.exposureTier][1];

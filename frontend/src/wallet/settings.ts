@@ -1,6 +1,6 @@
 // Wallet-wide settings. In memory, mirrored into the encrypted journal while the wallet is unlocked.
 import { useSyncExternalStore } from "react";
-import { TIER_DEFAULTS, checkThresholds, type TierThresholds } from "@ref/wallet/valuation";
+import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } from "@ref/wallet/valuation";
 import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
 import type { ProtectionMode, Sizing } from "@ref/wallet/campaign";
 import { EXPOSURE_POLICY } from "@ref/wallet/exposurePolicy";
@@ -77,7 +77,9 @@ export const DEFAULT_SETTINGS: Settings = {
 /** A journal written by an earlier wallet lacks the newer fields: fill them with the defaults (and refuse nonsense thresholds). */
 export function healSettings(stored: Partial<Settings> | undefined): Settings {
   const s: Settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
-  s.tiers = { ...TIER_DEFAULTS, ...(stored?.tiers ?? {}) };
+  // V5: the two consumer bands are filled under a stored V2–V4 object's `enhanced` (fillThresholds), never reset over it
+  const { large: _l, largeProtected: _lp, ...v4Defaults } = TIER_DEFAULTS;
+  s.tiers = fillThresholds({ ...v4Defaults, ...(stored?.tiers ?? {}) });
   try { checkThresholds(s.tiers); } catch { s.tiers = { ...TIER_DEFAULTS }; }
   if (!PREFERENCES.includes(s.preference)) s.preference = "balanced";
   s.housekeeping = { ...DEFAULT_SETTINGS.housekeeping, ...(stored?.housekeeping ?? {}) };

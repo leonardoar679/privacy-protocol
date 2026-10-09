@@ -4,9 +4,8 @@
 // relayer's own key, in-flight nullifier protection and status tracking. No real chain, no funds.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createPublicClient, createWalletClient, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { privateKeyToAccount } from "viem/accounts";
@@ -15,27 +14,9 @@ import { decodeTransact, encodeTransact, piFromStrings } from "../src/abi";
 import { encryptNoteData } from "../../../reference/typescript/src/envelope";
 import { noteBody } from "../../../reference/typescript/src/note";
 import { noteDataHash } from "../../../reference/typescript/src/payload";
+import { FIXTURE_ROOT, fixtureRequest, have } from "./fixture";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const fixture = join(root, "contracts/test/e2e/E2EFixture.sol");
-const have = existsSync(fixture) && existsSync(join(root, "circuits/test/fixtures/e2e/tx1.json"));
-
-// ---- the fixture's transaction 0 as a relayer request ----
-function fixtureRequest(): { req: SubmitRequest; deployment: any } {
-  const sol = readFileSync(fixture, "utf8");
-  const words = (s: string) => s.split(",").map((x) => BigInt(x.replace(/uint256\(|\)/g, "").trim()));
-  const pm = sol.match(/if \(t == 0\) \{\s*a = \[([^\]]+)\];\s*b = \[\[([^\]]+)\], \[([^\]]+)\]\];\s*c = \[([^\]]+)\];/);
-  if (!pm) throw new Error("proof(0) not found in E2EFixture.sol");
-  const a = words(pm[1]), b0 = words(pm[2]), b1 = words(pm[3]), c = words(pm[4]);
-  const proof = ("0x" + [a[0], a[1], b0[0], b0[1], b1[0], b1[1], c[0], c[1]].map((w) => w.toString(16).padStart(64, "0")).join("")) as Hex;
-  const um = sol.match(/if \(t == 0\) \{\s*p = \[uint256\(([^)]+)\),([^\]]+)\];/);
-  if (!um) throw new Error("pub(0) not found");
-  const publicInputs = [um[1], ...um[2].split(",")].map((s) => BigInt(s.trim()).toString());
-  const meta = JSON.parse(readFileSync(join(root, "circuits/test/fixtures/e2e/meta.json"), "utf8"));
-  const tx1 = JSON.parse(readFileSync(join(root, "circuits/test/fixtures/e2e/tx1.json"), "utf8"));
-  const deployment = JSON.parse(readFileSync(join(root, "contracts/test/e2e/deployment.json"), "utf8"));
-  return { req: { proof, publicInputs, noteData: meta.noteData[0], fee: { outputIndex: 1, amount: tx1.outAmount[1], noteSecret: tx1.outNoteSecret[1] } }, deployment };
-}
+const root = FIXTURE_ROOT;
 
 // ---- mock JSON-RPC ----
 const raws: Hex[] = [];

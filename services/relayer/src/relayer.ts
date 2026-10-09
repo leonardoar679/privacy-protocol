@@ -40,11 +40,15 @@ export interface RelayerConfig {
   rpcUrl: string;
   requireReadableFeePayload: boolean; // refuse a fee whose payload the relayer cannot decrypt (recovery without the journal)
   journal?: Journal<Job>; // durable submissions: in-flight nullifiers and fee notes survive a restart
+  /** V5 (Privacy Wallet Web spec §10): the privacy fee, basis points of a withdrawal's public amount (the floor still applies; a transfer's amount is hidden, so only the floor can be enforced there); absent or 0: none */
+  feePercentBps?: number;
+  /** V5: the escrow an order's params create under a factory — a withdrawal to it funds a swap and pays the floor only */
+  escrowFor?: (swap: { factory: Address; params: unknown }) => Address;
 }
 
 /** The fee note's opening; `vault` defaults to the ETH vault (older wallets omit it). */
 export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address }
-export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening }
+export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening; /** V5: the swap order this withdrawal funds */ swap?: { factory: Address; params: unknown } }
 export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" }
 
 export class RelayerError extends Error {
@@ -106,6 +110,7 @@ export class Relayer {
       chainId: this.cfg.chainId, core: this.cfg.core, feeVault: this.cfg.feeVault, relayer: this.account.address, privacyAddress: this.identity.privacyAddress,
       minFeeWei: minFeeWei.toString(), gasPriceWei: gasPriceWei.toString(), gasEstimate: this.cfg.gasEstimate.toString(), feeMarginBps: this.cfg.feeMarginBps,
       requireReadableFeePayload: this.cfg.requireReadableFeePayload, inflight: this.inflight.size,
+      feePercentBps: this.cfg.feePercentBps ?? 0, feeMinimumWei: minFeeWei.toString(), // V5 (spec §10)
       feeVaults: Object.entries(this.cfg.feeVaults ?? {}).map(([vault, t]) => ({ vault, symbol: t.symbol, decimals: t.decimals, minFee: t.minFee.toString() })),
     };
   }
@@ -146,6 +151,17 @@ export class Relayer {
     const { pi, feeWei, feeVault, feePayloadReadable } = this.validateShape(req);
     const minFee = await this.minFeeIn(req.fee);
     if (feeWei < minFee) throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
+    // V5 (spec §10): a withdrawal pays the percentage of its public amount, unless its recipient is the swap escrow the request names
+    const bps = this.cfg.feePercentBps ?? 0;
+    if (bps > 0 && pi.mode === 1n) {
+      const recipient = ("0x" + pi.withdrawalRecipient.toString(16).padStart(40, "0")).toLowerCase();
+      let exempt = false;
+      if (req.swap && this.cfg.escrowFor) { try { exempt = this.cfg.escrowFor(req.swap).toLowerCase() === recipient; } catch { exempt = false; } }
+      if (!exempt) {
+        const required = (pi.withdrawalAmount * BigInt(Math.floor(bps)) + 9999n) / 10000n;
+        if (feeWei < required) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bps / 100} % of the withdrawal (${required} in vault ${feeVault})`);
+      }
+    }
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     const data = encodeTransact(req.proof, pi, req.noteData);

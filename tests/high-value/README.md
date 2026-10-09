@@ -25,3 +25,4 @@ node node_modules/vitest/vitest.mjs run --root tests/high-value      # from the 
 | `privacy/` | the assessment (plan §48–§54, §112, §114): I-P 1–7 measured, the equal-pieces-on-a-clock pattern flagged |
 | `mobile/` | the journal (plan §73, §109–§110): the campaign round-trips as JSON, the reducer continues from the journaled state, an unreadable state keeps its exposure |
 | `adversarial/` | chaos (plan §118): random faults at random steps across sizes and modes — every invariant held, each step funded and handed over once, the same seed gives the same run |
+| `policy/` | the consumer bands (Privacy Wallet Web spec §11, V5): the ladder monotone with `large` / `large-protected` below `enhanced`, the $50K band's cap of a quarter unmoved by the exposure tier and the mode, four exact sequential quarters from the planner, the enhanced row unchanged |

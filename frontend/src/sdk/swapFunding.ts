@@ -56,7 +56,7 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
-  const w = await privateWithdrawal({ masterSeed: o.masterSeed, deployment: o.deployment, amount: gross, recipient: predicted, vault: a.vault, onStatus: o.onStatus, record: false });
+  const w = await privateWithdrawal({ masterSeed: o.masterSeed, deployment: o.deployment, amount: gross, recipient: predicted, vault: a.vault, onStatus: o.onStatus, record: false, swap: { factory: swapFactoryOf(o.deployment), params: stored.params } }); // V5: the relayer sees the escrow and takes its minimum only
   patchSwap(stored.orderId, { fundedTx: w.txHash, state: "funded" }, s);
   return w;
 }

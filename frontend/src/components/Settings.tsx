@@ -27,6 +27,8 @@ function downloadBackup() {
 }
 
 const TIER_FIELDS: { key: keyof TierThresholds; label: string }[] = [
+  { key: "large", label: "Review from (USD)" }, // V5 (spec §11)
+  { key: "largeProtected", label: "Protected execution from (USD)" },
   { key: "enhanced", label: "Enhanced review from (USD)" },
   { key: "highValue", label: "High-value controls from (USD)" },
   { key: "highValueSecondary", label: "Second confirmation from (USD)" },
@@ -35,7 +37,7 @@ const TIER_FIELDS: { key: keyof TierThresholds; label: string }[] = [
 
 export function Settings({ deployment, readsLine, coreLine, account = null }: { deployment: Deployment | null; readsLine: string; coreLine: string; /** the connected public wallet, if any: its allowances toward the vaults can be read and revoked */ account?: string | null }) {
   const s = useSettings();
-  const [tiers, setTiers] = useState<Record<keyof TierThresholds, string>>({ enhanced: String(s.tiers.enhanced), highValue: String(s.tiers.highValue), highValueSecondary: String(s.tiers.highValueSecondary), institutional: String(s.tiers.institutional) });
+  const [tiers, setTiers] = useState<Record<keyof TierThresholds, string>>({ large: String(s.tiers.large ?? TIER_DEFAULTS.large), largeProtected: String(s.tiers.largeProtected ?? TIER_DEFAULTS.largeProtected), enhanced: String(s.tiers.enhanced), highValue: String(s.tiers.highValue), highValueSecondary: String(s.tiers.highValueSecondary), institutional: String(s.tiers.institutional) });
   const [tierError, setTierError] = useState("");
   const [cap, setCap] = useState(() => formatEther(BigInt(s.housekeeping.dailyFeeCapWei)));
   const [forget, setForget] = useState("");
@@ -100,12 +102,12 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
   }
 
   function applyTiers() {
-    const t: TierThresholds = { enhanced: Number(tiers.enhanced), highValue: Number(tiers.highValue), highValueSecondary: Number(tiers.highValueSecondary), institutional: Number(tiers.institutional) };
+    const t: TierThresholds = { large: Number(tiers.large), largeProtected: Number(tiers.largeProtected), enhanced: Number(tiers.enhanced), highValue: Number(tiers.highValue), highValueSecondary: Number(tiers.highValueSecondary), institutional: Number(tiers.institutional) };
     try { checkThresholds(t); settings.set({ tiers: t }); setTierError(""); } catch (e: any) { setTierError(e?.message ?? String(e)); }
   }
   function resetTiers() {
     settings.set({ tiers: { ...TIER_DEFAULTS } });
-    setTiers({ enhanced: String(TIER_DEFAULTS.enhanced), highValue: String(TIER_DEFAULTS.highValue), highValueSecondary: String(TIER_DEFAULTS.highValueSecondary), institutional: String(TIER_DEFAULTS.institutional) });
+    setTiers({ large: String(TIER_DEFAULTS.large), largeProtected: String(TIER_DEFAULTS.largeProtected), enhanced: String(TIER_DEFAULTS.enhanced), highValue: String(TIER_DEFAULTS.highValue), highValueSecondary: String(TIER_DEFAULTS.highValueSecondary), institutional: String(TIER_DEFAULTS.institutional) });
     setTierError("");
   }
   function applyCap() {

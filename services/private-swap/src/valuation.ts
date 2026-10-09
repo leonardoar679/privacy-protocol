@@ -66,4 +66,4 @@ export async function assessRequest(valuer: Valuer, from: AssetRef, amount: bigi
   return assess({ amount, decimals: from.decimals, symbol: from.symbol, prices, thresholds, now });
 }
 
-export const isTier = (x: unknown): x is Tier => x === "standard" || x === "enhanced" || x === "high-value" || x === "high-value-secondary" || x === "institutional";
+export const isTier = (x: unknown): x is Tier => x === "standard" || x === "large" || x === "large-protected" || x === "enhanced" || x === "high-value" || x === "high-value-secondary" || x === "institutional";

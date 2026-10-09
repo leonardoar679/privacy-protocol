@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { NO_VALUER, RpcValuer, assessRequest, isTier } from "../src/valuation";
 import { PrivateSwapEngine } from "../src/engine";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../src/types";
-import type { FeedSpec } from "../../../reference/typescript/src/wallet/valuation";
+import { TIER_DEFAULTS, type FeedSpec } from "../../../reference/typescript/src/wallet/valuation";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
@@ -50,6 +50,15 @@ describe("RpcValuer (spec §13)", () => {
     expect(r).toMatchObject({ tier: "high-value", failSafe: false });
     expect((r.value as { usd: number }).usd).toBeCloseTo(1_330 * 2505, 0);
   });
+  it("V5 (Privacy Wallet Web spec §11): a valued order lands in the consumer bands — $20K large, $50K large-protected", async () => {
+    const a = await rpc(2_500_00000000n), b = await rpc(2_500_00000000n, NOW - 500, 11n);
+    const v = new RpcValuer(1, [a.url, b.url], FEEDS, 60_000);
+    expect(await assessRequest(v, ETH, 7n * 10n ** 18n, undefined, NOW)).toMatchObject({ tier: "standard", failSafe: false }); // $17.5K
+    expect(await assessRequest(v, ETH, 8n * 10n ** 18n, undefined, NOW)).toMatchObject({ tier: "large" }); // $20K
+    expect(await assessRequest(v, ETH, 24n * 10n ** 18n, undefined, NOW)).toMatchObject({ tier: "large-protected" }); // $60K
+    expect(await assessRequest(v, ETH, 40n * 10n ** 18n, undefined, NOW)).toMatchObject({ tier: "enhanced" }); // $100K
+    expect(await assessRequest(v, ETH, 8n * 10n ** 18n, { ...TIER_DEFAULTS, largeProtected: 20_000 }, NOW), "a wallet's own thresholds").toMatchObject({ tier: "large-protected" });
+  });
   it("a disagreeing or missing RPC answer leaves the feed unavailable and the fail-safe tier applies", async () => {
     const a = await rpc(2_500_00000000n), b = await rpc(2_700_00000000n);
     const v = new RpcValuer(1, [a.url, b.url], FEEDS, 0);
@@ -61,8 +70,8 @@ describe("RpcValuer (spec §13)", () => {
     expect(new RpcValuer(31337, ["http://127.0.0.1:1"]).feeds).toEqual([]);
     expect(() => new RpcValuer(1, [])).toThrow(/RPC/);
   });
-  it("isTier accepts the five tiers only", () => {
-    for (const t of ["standard", "enhanced", "high-value", "high-value-secondary", "institutional"]) expect(isTier(t)).toBe(true);
+  it("isTier accepts the seven tiers only (V5: the two consumer bands)", () => {
+    for (const t of ["standard", "large", "large-protected", "enhanced", "high-value", "high-value-secondary", "institutional"]) expect(isTier(t)).toBe(true);
     expect(isTier("whale")).toBe(false);
     expect(isTier(undefined)).toBe(false);
   });

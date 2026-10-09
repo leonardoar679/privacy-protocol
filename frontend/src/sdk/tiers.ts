@@ -14,6 +14,16 @@ const env: Record<string, string | undefined> = { ...nodeEnv, ...((import.meta a
 
 export interface Controls {
   review: boolean; lint: boolean; simulation: boolean; hold: boolean; secondFactor: boolean; reviewHold: boolean; export: boolean; twoQuotes: boolean;
+  /** V5 (Privacy Wallet Web spec §11), from `large-protected` ($50K): an entered destination confirmed group by group or taken from the book */
+  destinationConfirm: boolean;
+  /** V5: the §23 interstitial, the strict quote, the one-at-a-time limit, the recovery tracking */
+  protectedExecution: boolean;
+  /** V5: the provider's breaker closed, its security ≥ 60 and no incident within a day, else the next route */
+  providerHealth: boolean;
+  /** V5: the hard quote with at least PROTECTED_EXECUTION.MIN_QUOTE_TTL_S left and slippage capped at MAX_SLIPPAGE_BPS */
+  strictQuote: boolean;
+  /** V5: the operation polled while open; delayed and needs-attention states named */
+  recoveryTracking: boolean;
   /** High-Value Protection spec §14: a protected execution (tranches under the in-flight cap) from high-value; at enhanced only when the service says `staged` */
   campaign: boolean;
   /** the destination lock, the address book and its cooling-off from high-value (§12) */
@@ -23,10 +33,15 @@ export interface Controls {
 }
 
 export const controlsFor = (tier: Tier): Controls => ({
-  review: atLeast(tier, "enhanced"),
-  lint: atLeast(tier, "enhanced"),
-  simulation: atLeast(tier, "high-value"),
-  hold: atLeast(tier, "high-value"),
+  review: atLeast(tier, "large"),
+  lint: atLeast(tier, "large"),
+  simulation: atLeast(tier, "large-protected"),
+  hold: atLeast(tier, "large-protected"),
+  destinationConfirm: atLeast(tier, "large-protected"),
+  protectedExecution: atLeast(tier, "large-protected"),
+  providerHealth: atLeast(tier, "large-protected"),
+  strictQuote: atLeast(tier, "large-protected"),
+  recoveryTracking: atLeast(tier, "large-protected"),
   secondFactor: atLeast(tier, "high-value-secondary"),
   reviewHold: tier === "institutional",
   export: tier === "institutional",
@@ -36,6 +51,9 @@ export const controlsFor = (tier: Tier): Controls => ({
   coolingOff: atLeast(tier, "high-value"),
   secondDevice: tier === "institutional",
 });
+
+/** V5 (spec §11): what protected execution requires of an order at the $50K band and above. */
+export const PROTECTED_EXECUTION = { MIN_QUOTE_TTL_S: 60, MAX_SLIPPAGE_BPS: 50, MAX_EXECUTE_WINDOW_S: 1800, MAX_IN_FLIGHT: 1, STEP_BPS: 2500, MAX_STEPS: 4, DELAYED_AT_ETA_MULTIPLE: 3, POLL_MS: 15_000 } as const;
 
 /** The impact cap of spec §4 (lab-calibrated, Stage 1): a single-shot plan above it is refused by the engine when a stream exists; the Review repeats the figure. */
 export const IMPACT_CAP_BPS = 50;

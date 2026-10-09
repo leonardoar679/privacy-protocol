@@ -8,17 +8,30 @@
 // with cents. Nothing here is a price of its own: a missing or stale feed is "unavailable", and the
 // fail-safe then applies the High-Value controls (spec §13) rather than guessing.
 
-export type Tier = "standard" | "enhanced" | "high-value" | "high-value-secondary" | "institutional";
+/** V5 (Privacy Wallet Web spec §11): `large` ($20K: the Review and the lint) and `large-protected` ($50K: protected execution) sit below `enhanced`, so every rule keyed on `enhanced` and above keeps its meaning. */
+export type Tier = "standard" | "large" | "large-protected" | "enhanced" | "high-value" | "high-value-secondary" | "institutional";
 /** Ascending. */
-export const TIERS: readonly Tier[] = ["standard", "enhanced", "high-value", "high-value-secondary", "institutional"];
-export interface TierThresholds { enhanced: number; highValue: number; highValueSecondary: number; institutional: number }
-/** Plan V2 §13 defaults, in USD; configurable in the wallet's settings. */
-export const TIER_DEFAULTS: TierThresholds = { enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 5_000_000, institutional: 10_000_000 };
+export const TIERS: readonly Tier[] = ["standard", "large", "large-protected", "enhanced", "high-value", "high-value-secondary", "institutional"];
+/** The two V5 thresholds are optional on the wire (an older wallet sends four); the defaults apply when absent. */
+export interface TierThresholds { large?: number; largeProtected?: number; enhanced: number; highValue: number; highValueSecondary: number; institutional: number }
+/** Plan V2 §13 defaults and the V5 consumer bands, in USD; configurable in the wallet's settings. */
+export const TIER_DEFAULTS: Required<TierThresholds> = { large: 20_000, largeProtected: 50_000, enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 5_000_000, institutional: 10_000_000 };
+
+/**
+ * V5: a V2–V4 thresholds object (four values) gets the two consumer bands — the defaults, or a fifth and a half of
+ * `enhanced` when the user lowered that one below them, so an older setting keeps its meaning and stays increasing.
+ */
+export function fillThresholds(t: TierThresholds): Required<TierThresholds> {
+  const large = t.large ?? Math.min(TIER_DEFAULTS.large, t.enhanced / 5);
+  const largeProtected = t.largeProtected ?? Math.min(TIER_DEFAULTS.largeProtected, t.enhanced / 2);
+  return { ...t, large, largeProtected };
+}
 
 export function checkThresholds(t: TierThresholds): void {
-  const v = [t.enhanced, t.highValue, t.highValueSecondary, t.institutional];
+  const f = fillThresholds(t);
+  const v = [f.large, f.largeProtected, f.enhanced, f.highValue, f.highValueSecondary, f.institutional];
   if (v.some((x) => !Number.isFinite(x) || x <= 0)) throw new Error("tier thresholds must be positive numbers");
-  for (let i = 1; i < v.length; i++) if (v[i] <= v[i - 1]) throw new Error("tier thresholds must increase: enhanced < highValue < highValueSecondary < institutional");
+  for (let i = 1; i < v.length; i++) if (v[i] <= v[i - 1]) throw new Error("tier thresholds must increase: large < largeProtected < enhanced < highValue < highValueSecondary < institutional");
 }
 
 export function tierOf(usd: number, t: TierThresholds = TIER_DEFAULTS): Tier {
@@ -27,6 +40,9 @@ export function tierOf(usd: number, t: TierThresholds = TIER_DEFAULTS): Tier {
   if (usd >= t.highValueSecondary) return "high-value-secondary";
   if (usd >= t.highValue) return "high-value";
   if (usd >= t.enhanced) return "enhanced";
+  const f = fillThresholds(t);
+  if (usd >= f.largeProtected) return "large-protected";
+  if (usd >= f.large) return "large";
   return "standard";
 }
 export const tierRank = (t: Tier): number => TIERS.indexOf(t);
@@ -189,6 +205,8 @@ const trim = (s: string) => (s.includes(".") ? s.replace(/\.?0+$/, "") : s);
 /** The tier in the user's words (spec §23: no jargon). */
 export const tierLabel: Record<Tier, string> = {
   standard: "Transfer",
+  large: "Large transfer",
+  "large-protected": "Protected transfer",
   enhanced: "Large transfer",
   "high-value": "High-value transfer",
   "high-value-secondary": "High-value transfer",

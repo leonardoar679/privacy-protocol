@@ -8,6 +8,7 @@
 // encrypted to our view key, a recipient's note to the view key inside their privacy address, the
 // relayer's fee note to its privacy address, dummies are indistinguishable filler — so every note
 // can be recovered from chain by rescanning (scanNotes).
+import type { SwapFunding } from "./relayer";
 import type { Address, Hex } from "viem";
 import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@ref/keys";
 import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
@@ -151,14 +152,14 @@ export function planWithdrawal(masterSeed: Uint8Array, tree: TreeArg, vaultId: b
  * Rule 5: the configured relayer first, then the fallbacks (VITE_RELAYER_URLS); the first one that answers,
  * serves this chain / core and takes fees in this vault is used, and the fee note is built for it.
  */
-export async function feeTerms(deployment: Deployment, submission: Submission, vault: Address, fallbacks: string[] = RELAYER_FALLBACKS): Promise<{ url: string; info: RelayerInfo; fee: FeeTerms } | null> {
+export async function feeTerms(deployment: Deployment, submission: Submission, vault: Address, fallbacks: string[] = RELAYER_FALLBACKS, opts: { /** V5 (spec §10): the amount delivered, for the percentage fee */ delivered?: bigint; /** the recipient is a swap escrow: the minimum only */ escrow?: boolean } = {}): Promise<{ url: string; info: RelayerInfo; fee: FeeTerms } | null> {
   if (submission.kind !== "relayer") return null;
   const candidates = [submission.url, ...fallbacks];
   const errors: string[] = [];
   for (const url of candidates) {
     const picked = await pickRelayer([url], { chainId: deployment.chainId, core: deployment.core });
     if (!picked) { errors.push(`${url}: unreachable or another chain / core`); continue; }
-    const amount = feeInVault(picked.info, vault);
+    const amount = feeInVault(picked.info, vault, undefined, opts.escrow ? undefined : opts.delivered);
     if (amount === null) { errors.push(`${url}: takes no fees in vault ${vault}`); continue; }
     const addr = decodePrivacyAddress(picked.info.privacyAddress);
     return { url: picked.url, info: picked.info, fee: { ownerCommitment: addr.ownerCommitment, viewPub: addr.viewPub, amount, vault: BigInt(vault) } };
@@ -168,7 +169,7 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
 
 export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number }
 
-async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string } & Progress): Promise<Submitted> {
+async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; swap?: SwapFunding } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
   const inputs = buildTxInputs(o.spec); // throws if a note does not open its leaf or value is not conserved
   const proof = await proveInBrowser(inputs, o.onStatus);
@@ -178,7 +179,7 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
     if (!o.fee) throw new Error("relayer submission needs a fee output");
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; handing it to the relayer (your address never touches the chain)…`);
     const url = o.relayerUrl ?? o.submission.url;
-    const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
+    const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address }, ...(o.swap ? { swap: o.swap } : {}) };
     let r: Awaited<ReturnType<typeof relayerSubmit>> | undefined;
     for (let attempt = 1; ; attempt++) {
       try { r = await relayerSubmit(url, body); break; }
@@ -216,17 +217,17 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
  * sync the tree → plan (with the relayer's fee note when submitting privately) → prove in the
  * worker → submit → record the change note with the leaf index the chain assigned.
  */
-export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address } & Progress): Promise<Submitted> {
+export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; /** V5: the swap order this withdrawal funds (the escrow is the recipient): the relayer takes its minimum only */ swap?: SwapFunding } & Progress): Promise<Submitted> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
-  const terms = await feeTerms(o.deployment, submission, vault);
+  const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount, escrow: !!o.swap });
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   const tree = await syncTreeQuorum(o.deployment);
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee, swap: o.swap });
   if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
   return r;
 }
@@ -376,7 +377,7 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
-  const terms = await feeTerms(o.deployment, submission, vault);
+  const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
