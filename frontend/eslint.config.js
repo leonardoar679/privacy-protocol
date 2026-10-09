@@ -17,6 +17,7 @@ const PRIMITIVES = ["src/design-system/primitives/**"];
 
 const FORBIDDEN = "\\b(anonymous|anonymity|mixer|untraceable|undetectable)\\b";
 const forbiddenWord = (selector) => ({ selector, message: "Spec §18: the wallet never says anonymous, mixer, untraceable or undetectable; say private, protected, shielded, reduced public linkage." });
+const ETHEREUM_RULE = { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by src/features/wallet." };
 
 export default tseslint.config(
   { ignores: ["dist/**", "node_modules/**", "public/**", "scripts/**", "test/**", "*.config.*"] },
@@ -37,7 +38,7 @@ export default tseslint.config(
         forbiddenWord(`JSXExpressionContainer > Literal[value=/${FORBIDDEN}/i]`),
         forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`),
         { selector: 'MemberExpression[object.name="window"][property.name=/^(localStorage|sessionStorage)$/]', message: "Spec §8: only src/storage touches the browser's storage." },
-        { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by src/features/wallet." },
+        ETHEREUM_RULE,
         { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through src/api/transport.ts." },
       ],
     },
@@ -45,7 +46,19 @@ export default tseslint.config(
   { files: CONFORMED, ignores: [...PRIMITIVES], rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in src/design-system/primitives." }] }] } },
   { files: STORAGE, rules: { "no-restricted-globals": "off" } },
   { files: TRANSPORT, rules: { "no-restricted-syntax": "off" } },
-  { files: WALLET, rules: {} },
+  {
+    files: WALLET,
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        forbiddenWord(`JSXText[value=/${FORBIDDEN}/i]`),
+        forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`),
+        { selector: 'JSXAttribute[name.name="style"]', message: "Spec §5: a screen composes the design system and carries no inline style." },
+        { selector: "JSXText[value=/[A-Za-z]{3,}/]", message: "Spec §19: user-facing text comes from the message catalog (useT)." },
+        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through src/api/transport.ts." },
+      ],
+    },
+  },
   {
     files: SCREENS,
     rules: {

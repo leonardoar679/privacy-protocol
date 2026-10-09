@@ -1,3 +1,4 @@
+import { prefs } from "../storage/prefs"; // V5: the Advanced toggle is the experience preference too (spec §6)
 import { useState } from "react";
 import { formatEther, parseEther } from "viem";
 import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@ref/wallet/valuation";
@@ -248,7 +249,7 @@ export function Settings({ deployment, readsLine, coreLine, account = null }: { 
       <div className="panel">
         <h3>Advanced</h3>
         <label style={{ display: "block", color: "var(--fg)" }}>
-          <input type="checkbox" checked={s.advanced} onChange={(e: any) => settings.set({ advanced: e.target.checked })} /> Show the cryptographic detail (notes, leaves, escrows, scores)
+          <input type="checkbox" checked={s.advanced} onChange={(e: any) => { settings.set({ advanced: e.target.checked }); prefs().update({ experience: e.target.checked ? "advanced" : "simple" }); }} /> Show the cryptographic detail (notes, leaves, escrows, scores)
         </label>
         <p className="muted small">{deployment ? `Core ${deployment.core.slice(0, 8)}… · chain ${deployment.chainId} · ${deployment.rpcUrls.length} RPC endpoint${deployment.rpcUrls.length === 1 ? "" : "s"} · ${coreLine}` : "No deployment configured: set VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT (docs/testnet.md)"}</p>
         <p className="muted small">Unaudited; not for production. The proving key served in dev is the insecure single-party setup (circuits/setup/dev).</p>
