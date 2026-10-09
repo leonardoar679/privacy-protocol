@@ -100,6 +100,7 @@ export function App() {
   const open = (sh: HomeSheet) => setSheet(sh);
   const go = (t: Tab, details = false) => { setTab(t); setDetailsOpen(details); setSheet(null); };
 
+  if (!s.ready) return <div className="app lock" data-testid="splash" aria-busy="true" />; // V5: the device's store first
   if (s.status !== "unlocked" || !s.seed || s.pendingPhrase) {
     return (
       <div className="app lock">

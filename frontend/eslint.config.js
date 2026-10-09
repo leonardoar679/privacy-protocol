@@ -7,9 +7,9 @@ import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 
 const DESIGN_SYSTEM = ["src/design-system/**/*.{ts,tsx}"];
-const APP = ["src/app/**/*.{ts,tsx}"];
+const STORAGE_DIR = ["src/storage/**/*.{ts,tsx}"];
 const SCREENS = ["src/features/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"];
-const CONFORMED = [...DESIGN_SYSTEM, ...SCREENS];
+const CONFORMED = [...DESIGN_SYSTEM, ...STORAGE_DIR, ...SCREENS];
 const STORAGE = ["src/storage/**"];
 const TRANSPORT = ["src/api/**", "src/sdk/**"];
 const WALLET = ["src/features/wallet/**"];

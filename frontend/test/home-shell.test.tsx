@@ -4,6 +4,7 @@
 // Activity list renders the journal's records and lets finished ones go; an unreadable journal is kept —
 // the wallet says so, writes nothing, and sets it aside only when the user asks; replacing a wallet needs
 // a typed confirmation.
+import "fake-indexeddb/auto";
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,6 +13,7 @@ import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { recordActivity } from "../src/wallet/activity";
 import { JOURNAL_KEY, UNREADABLE_JOURNAL_KEY } from "../src/wallet/storage";
+import { secureStore } from "../src/storage";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
@@ -27,6 +29,7 @@ async function mountUnlocked(container: HTMLElement) {
   await session.create("a strong password");
   session.acknowledgePhrase();
   await act(async () => { root = createRoot(container); root.render(<App />); });
+  await act(async () => { await session.ready; }); // V5: the store hydrates before the shell
   expect(container.querySelector('[data-testid="home"]')).toBeTruthy();
 }
 async function unlockThrough(container: HTMLElement, password: string) {
@@ -97,17 +100,17 @@ describe("the V2 shell", () => {
     await act(async () => { byText(container, "⚙ Settings")!.click(); });
     await act(async () => { byText(container, "Lock")!.click(); });
     const corrupt = JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "11".repeat(48) });
-    localStorage.setItem(JOURNAL_KEY, corrupt);
+    secureStore().set(JOURNAL_KEY, corrupt); // V5: the secure store, not localStorage
     await unlockThrough(container, "a strong password");
     expect(container.querySelector('[data-testid="journal-unreadable"]')).toBeTruthy();
     expect(session.state().journalUnreadable).toBe(true);
     await act(async () => { recordActivity({ id: "shield:0x1", kind: "shield", asset: "ETH", decimals: 18, amount: "1", status: "completed", ref: "0x1" }); });
-    expect(localStorage.getItem(JOURNAL_KEY), "nothing overwrites the unreadable blob").toBe(corrupt);
-    expect(localStorage.getItem(UNREADABLE_JOURNAL_KEY)).toBeNull();
+    expect(secureStore().get(JOURNAL_KEY), "nothing overwrites the unreadable blob").toBe(corrupt);
+    expect(secureStore().get(UNREADABLE_JOURNAL_KEY)).toBeNull();
     await act(async () => { byText(container, "Set it aside and start fresh")!.click(); });
     expect(container.querySelector('[data-testid="journal-unreadable"]')).toBeNull();
-    expect(localStorage.getItem(UNREADABLE_JOURNAL_KEY)).toBe(corrupt);
-    expect(localStorage.getItem(JOURNAL_KEY)).not.toBe(corrupt);
+    expect(secureStore().get(UNREADABLE_JOURNAL_KEY)).toBe(corrupt);
+    expect(secureStore().get(JOURNAL_KEY)).not.toBe(corrupt);
     expect(session.journal().activity!.map((r) => r.id)).toEqual(["shield:0x1"]); // the in-memory journal is what got persisted
   });
 
@@ -116,7 +119,7 @@ describe("the V2 shell", () => {
     await mountUnlocked(container);
     await act(async () => { byText(container, "⚙ Settings")!.click(); });
     await act(async () => { byText(container, "Lock")!.click(); });
-    const keystoreBefore = localStorage.getItem("pp.keystore");
+    const keystoreBefore = secureStore().get("pp.keystore");
     await act(async () => { byText(container, "Create a new wallet (replaces this one)")!.click(); });
     const [pw, confirm] = [...container.querySelectorAll('input[type="password"]')] as HTMLInputElement[];
     await act(async () => { setValue(pw, "another password"); setValue(confirm, "another password"); });
@@ -125,6 +128,6 @@ describe("the V2 shell", () => {
     expect(byText(container, "Create wallet")!.disabled).toBe(false);
     await act(async () => { byText(container, "Create wallet")!.click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="recovery-phrase"]')).toBeTruthy(), { timeout: 20_000 });
-    expect(localStorage.getItem("pp.keystore")).not.toBe(keystoreBefore);
+    expect(secureStore().get("pp.keystore")).not.toBe(keystoreBefore);
   });
 });

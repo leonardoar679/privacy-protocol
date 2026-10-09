@@ -41,6 +41,6 @@ export function deriveKeys(masterSeed: Uint8Array): WalletKeys {
  */
 export function assertNotPersistingSecret(key: string): void {
   if (/seed|secret|spend|private|note-?key/i.test(key)) {
-    throw new Error(`Refusing to persist secret-like key "${key}" to localStorage (TC-01 guard).`);
+    throw new Error(`Refusing to persist secret-like key "${key}" to dapp-origin storage (TC-01 guard).`);
   }
 }

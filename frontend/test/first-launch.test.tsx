@@ -4,12 +4,14 @@
 // network request of its own (no analytics, no tracking, no infrastructure calls, no price read without a
 // balance). The only loads allowed under Private services are same-origin files of this build (the zkAPI
 // pin check and config), and they happen only after the user opens Private AI.
+import "fake-indexeddb/auto";
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/App";
 import { session } from "../src/wallet/session";
 import { peekFreshAddress } from "../src/keys/chainKeys";
+import { secureStore } from "../src/storage";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -43,6 +45,7 @@ describe("first launch (plan §39; V2 four tabs)", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     await act(async () => { root = createRoot(container); root.render(<App />); });
+    await act(async () => { await session.ready; }); // V5: the store hydrates before the lock screen
     expect(container.querySelector('[data-testid="lock-screen"]')).toBeTruthy();
     expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -115,8 +118,12 @@ describe("first launch (plan §39; V2 four tabs)", () => {
     await act(async () => { byText(container, "⚙ Settings")!.click(); });
     await act(async () => { byText(container, "Lock")!.click(); });
     expect(container.querySelector('[data-testid="lock-screen"]')).toBeTruthy();
-    const stored = Object.keys(localStorage).map((k) => `${k}=${localStorage.getItem(k)}`).join("\n");
-    expect(Object.keys(localStorage).sort()).toEqual(["pp.journal", "pp.keystore"]);
+    // V5 (spec §8): the two ciphertext blobs are the secure store's only records; localStorage holds nothing of ours
+    const store = secureStore();
+    await store.flush();
+    expect(localStorage.length).toBe(0);
+    expect(store.keys()).toEqual(["pp.journal", "pp.keystore"]);
+    const stored = store.keys().map((k) => `${k}=${store.get(k)}`).join("\n");
     for (const w of phrase.split(" ").filter((w) => w.length > 5)) expect(stored.toLowerCase()).not.toMatch(new RegExp(`\\b${w}\\b`));
   });
 });

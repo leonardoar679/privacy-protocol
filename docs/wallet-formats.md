@@ -68,8 +68,11 @@ byte for byte (`healProtection` fills the new settings with their defaults).
 
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
-is why the backup file includes it. Nothing in either file is ever stored in the clear; the only two
-storage keys are `pp.keystore` and `pp.journal`.
+is why the backup file includes it. Nothing in either file is ever stored in the clear. V5 (Privacy Wallet Web
+spec §8): the only secure-store records are `pp.keystore` and `pp.journal` (`pp.journal.unreadable` when one is set
+aside), in the IndexedDB database `privacy-wallet`, store `secure` — moved once from localStorage, which then holds
+nothing of ours; the `prefs` store beside it holds the experience mode, theme, locale and backup timestamps and never a
+secret or a financial figure. The formats above are unchanged byte for byte.
 
 ## 3. Chain Key Abstraction (plan §45, §28, §37)
 Root = BIP-32 master key of the BIP-39 seed (`"Bitcoin seed"` HMAC-SHA512).

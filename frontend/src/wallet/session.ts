@@ -20,6 +20,8 @@ export interface SessionState {
   pendingPhrase: string | null;
   /** the stored journal did not decrypt under this seed: the session runs on an empty journal and writes nothing (see discardUnreadableJournal) */
   journalUnreadable: boolean;
+  /** V5: the device's store has been read (status is trustworthy); the shell shows nothing before it */
+  ready: boolean;
 }
 
 export interface Backup { v: 1; keystore: Keystore; journal: EncryptedJournal | null }
@@ -31,10 +33,14 @@ export class WalletSession {
   private listeners = new Set<() => void>();
   private pendingPhrase: string | null = null;
   private unreadable = false;
+  private readyFlag = false;
   private snapshot: SessionState;
+  /** resolves once the store has hydrated and the status reflects the device (V5) */
+  readonly ready: Promise<void>;
 
   constructor(private readonly storage: KeyValueStorage = browserStorage(), private readonly kdf: KdfParams = KDF_DEFAULT) {
-    this.snapshot = { status: this.hasKeystore() ? "locked" : "none", seed: null, pendingPhrase: null, journalUnreadable: false };
+    this.snapshot = { status: this.hasKeystore() ? "locked" : "none", seed: null, pendingPhrase: null, journalUnreadable: false, ready: false };
+    this.ready = Promise.resolve(storage.ready).then(() => { this.readyFlag = true; this.emit(); }, () => { this.readyFlag = true; this.emit(); });
     // mirror the in-memory stores into the journal while unlocked
     noteStore.subscribe(() => this.update((j) => { const s = noteStore.serialize(); j.notes = s.notes; j.noteCounter = s.noteCounter; }));
     settings.subscribe(() => this.update((j) => { j.settings = { ...settings.get() }; }));
@@ -45,7 +51,7 @@ export class WalletSession {
   isUnlocked(): boolean { return this.seed !== null; }
   subscribe(l: () => void): () => void { this.listeners.add(l); return () => this.listeners.delete(l); }
   private emit(): void {
-    this.snapshot = { status: this.seed ? "unlocked" : this.hasKeystore() ? "locked" : "none", seed: this.seed, pendingPhrase: this.pendingPhrase, journalUnreadable: this.unreadable };
+    this.snapshot = { status: this.seed ? "unlocked" : this.hasKeystore() ? "locked" : "none", seed: this.seed, pendingPhrase: this.pendingPhrase, journalUnreadable: this.unreadable, ready: this.readyFlag };
     for (const l of this.listeners) l();
   }
 
