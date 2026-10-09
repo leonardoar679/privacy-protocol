@@ -532,7 +532,10 @@ OperationState = DRAFT → QUOTING → QUOTE_READY → REVIEW → AWAITING_SIGNA
 ```
 `CANCELLED` is added to the plan's list (the wallet's "abandoned"). Records are journaled under
 `JournalData.operations?` (optional, never written by `emptyJournal()`) from `AWAITING_SIGNATURE` on;
-`DRAFT` … `REVIEW` stay in memory. The mapping from every existing vocabulary (`features/operations/adapters.ts`):
+`DRAFT` … `REVIEW` stay in memory. `Code:` the record's types and sets in `frontend/src/wallet/operationRecord.ts` (the journal's
+import), the reducer, the adapters, the catalog, the store and the recovery model under `frontend/src/features/operations/`.
+The history is one line per state; a note (an approval's hash, a relayer retry) joins the current state's line.
+The mapping from every existing vocabulary (`features/operations/adapters.ts`):
 
 | State | protect | send / withdraw | swap / cross-chain (`StoredSwap.state`, `OrderState`, `SwapJobState`) | campaign tranche |
 |---|---|---|---|---|

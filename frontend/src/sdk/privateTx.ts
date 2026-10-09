@@ -9,6 +9,7 @@
 // relayer's fee note to its privacy address, dummies are indistinguishable filler — so every note
 // can be recovered from chain by rescanning (scanNotes).
 import type { SwapFunding } from "./relayer";
+import type { OnEvent } from "../features/operations/engineEvents";
 import type { Address, Hex } from "viem";
 import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@ref/keys";
 import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
@@ -64,7 +65,7 @@ export type TreeArg = bigint[] | MerkleLayers;
 const treeSpec = (t: TreeArg): { leaves: bigint[]; tree?: MerkleLayers } => (t instanceof MerkleLayers ? { leaves: t.leaves, tree: t } : { leaves: t });
 
 /** `record`: the Activity line this flow writes (whale spec §25) — fields to override, or `false` when the caller keeps its own line (a swap's funding). */
-export interface Progress { onStatus?: ProveStatus; submission?: Submission; record?: false | Partial<ActivityRecord> }
+export interface Progress { onStatus?: ProveStatus; /** V5 (spec §12): the typed event beside every status string, for the operation record */ onEvent?: OnEvent; submission?: Submission; record?: false | Partial<ActivityRecord> }
 
 /** Public shield of `amount` wei into the canonical ETH vault; the payload is encrypted to ourselves; records the note once mined. */
 export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
@@ -73,12 +74,16 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
   const note: Note = { vaultId: BigInt(o.deployment.ethVault), amount: o.amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
   const noteData = encryptForSelf(keys, note);
   o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
+  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
   const txHash = await sendViaInjectedWallet(buildShieldNative(o.deployment.ethVault, note.ownerCommitment, note.noteSecret, note.amount, noteData));
+  o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
+  o.onEvent?.({ type: "waiting-receipt", txHash });
   const inserted = await noteInsertions(clientFor(o.deployment), txHash);
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
+  o.onEvent?.({ type: "mined", txHash, leafIndex: mine.leafIndex });
   if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.deployment.ethVault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
   return { txHash, leafIndex: mine.leafIndex };
 }
@@ -95,16 +100,22 @@ export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deplo
   const noteData = encryptForSelf(keys, note);
   const client = clientFor(o.deployment);
   o.onStatus?.("1/2 Approving the vault for exactly this amount (connected wallet)…");
+  o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2 });
   const approveTx = await sendViaInjectedWallet(buildApprove(o.token, o.vault, o.amount));
   const approval = await client.waitForTransactionReceipt({ hash: approveTx });
   if (approval.status !== "success") throw new Error(`the approval ${approveTx} reverted`);
+  o.onEvent?.({ type: "approved", txHash: approveTx });
   o.onStatus?.("2/2 Depositing into the vault (a shield is public by design)…");
+  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2 });
   const txHash = await sendViaInjectedWallet(buildShieldERC20(o.vault, o.amount, note.ownerCommitment, note.noteSecret, noteData));
+  o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
+  o.onEvent?.({ type: "waiting-receipt", txHash });
   const inserted = await noteInsertions(client, txHash);
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   noteStore.add({ note, leafIndex: mine.leafIndex, noteData, counter, spent: false, txHash, label: "shield" });
+  o.onEvent?.({ type: "mined", txHash, leafIndex: mine.leafIndex });
   if (o.record !== false) recordActivity({ id: activityId("shield", txHash), kind: "shield", ...activityAsset(o.deployment, o.vault), amount: o.amount.toString(), status: "completed", ref: txHash, ...(o.record ?? {}) });
   return { approveTx, txHash, leafIndex: mine.leafIndex };
 }
@@ -172,27 +183,35 @@ export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: bool
 async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; swap?: SwapFunding } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
   const inputs = buildTxInputs(o.spec); // throws if a note does not open its leaf or value is not conserved
+  o.onEvent?.({ type: "proving" });
   const proof = await proveInBrowser(inputs, o.onStatus);
+  o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
   let txHash: Hex;
   let submittedBy: Submitted["submittedBy"];
   if (o.submission.kind === "relayer") {
     if (!o.fee) throw new Error("relayer submission needs a fee output");
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; handing it to the relayer (your address never touches the chain)…`);
     const url = o.relayerUrl ?? o.submission.url;
+    o.onEvent?.({ type: "submitting", by: "relayer" });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address }, ...(o.swap ? { swap: o.swap } : {}) };
     let r: Awaited<ReturnType<typeof relayerSubmit>> | undefined;
     for (let attempt = 1; ; attempt++) {
       try { r = await relayerSubmit(url, body); break; }
-      catch (e) { if (isRefusal(e) || attempt >= 3) throw e; o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`); await new Promise((res) => setTimeout(res, 1500 * attempt)); }
+      catch (e) { if (isRefusal(e) || attempt >= 3) throw e; o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`); o.onEvent?.({ type: "relayer-retry", attempt }); await new Promise((res) => setTimeout(res, 1500 * attempt)); }
     }
     txHash = r!.txHash;
     submittedBy = "relayer";
+    o.onEvent?.({ type: "submitted", txHash, by: "relayer" });
   } else {
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
+    o.onEvent?.({ type: "submitting", by: "wallet" });
+    o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
     txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData));
     submittedBy = "wallet";
+    o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   }
   o.onStatus?.("Waiting for the transaction to be mined…");
+  o.onEvent?.({ type: "waiting-receipt", txHash });
   const inserted = await noteInsertions(client, txHash);
   noteStore.markSpent(o.spent.map((n) => n.leafIndex));
   const find = (n: Note) => inserted.find((i) => i.commitment === noteCommitment(noteBody(n), BigInt(i.leafIndex)));
@@ -220,10 +239,13 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
 export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; /** V5: the swap order this withdrawal funds (the escrow is the recipient): the relayer takes its minimum only */ swap?: SwapFunding } & Progress): Promise<Submitted> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
+  o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount, escrow: !!o.swap });
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
+  o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
+  o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
@@ -294,6 +316,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   const terms = await feeTerms(o.deployment, submission, vault);
   o.onStatus?.(`Merging two notes (${o.a.leafIndex} + ${o.b.leafIndex}) privately…`);
   const tree = await syncTreeQuorum(o.deployment);
+  o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
@@ -321,6 +344,7 @@ export async function ensureSpendable(o: { masterSeed: Uint8Array; deployment: D
     const [ia, ib] = sched.pairs[0];
     const a = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ia)!, b = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ib)!;
     o.onStatus?.(`${sched.pairs.length} merge(s) needed before this spend; merging notes ${a.leafIndex} + ${b.leafIndex}…`);
+    o.onEvent?.({ type: "merging", i: done + 1, n: done + sched.pairs.length });
     await mergeNotes({ ...o, a, b, submission });
     done++;
   }
@@ -355,6 +379,7 @@ export async function splitNote(o: { masterSeed: Uint8Array; deployment: Deploym
   const terms = await feeTerms(o.deployment, submission, vault);
   o.onStatus?.(`Splitting a note (${o.note.leafIndex}) into a common-sized piece privately…`);
   const tree = await syncTreeQuorum(o.deployment);
+  o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
@@ -377,12 +402,15 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
+  o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
+  o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
+  o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, o.amount + (terms?.fee.amount ?? 0n));

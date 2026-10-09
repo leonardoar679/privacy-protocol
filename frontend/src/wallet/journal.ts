@@ -9,6 +9,7 @@ import { bytesToHex, bytesToUtf8, concatBytes, hexToBytes, randomBytes, utf8ToBy
 import type { SerializedNote } from "./notes";
 import type { Campaign } from "@ref/wallet/campaign";
 import type { AddressBookEntry } from "@ref/wallet/addressBook";
+import type { OperationRecord } from "./operationRecord";
 
 export interface StoredSwap {
   orderId: string;
@@ -105,6 +106,8 @@ export interface JournalData {
   /** V3 (High-Value Protection spec §17): the campaigns (tranches under an in-flight cap) and the address book. Optional, never written by emptyJournal(): the pinned at-rest vectors and V2 journals stay valid. */
   campaigns?: Campaign[];
   addressBook?: AddressBookEntry[];
+  /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. */
+  operations?: OperationRecord[];
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }
