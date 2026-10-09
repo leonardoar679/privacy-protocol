@@ -57,8 +57,9 @@ export function Activity({ deployment = null, onOpen, onBack }: ActivityProps) {
     return (
       <div key={r.id} data-testid="activity-row" data-label={r.status} data-kind={r.kind} data-state={r.record?.state ?? ""}>
         <ListRow leading={<Icon name={r.icon} size={22} />} title={<><b>{r.title}</b> <span className="ds-note">· {new Date(r.at).toLocaleTimeString()}</span></>} subtitle={`${r.amount}${r.note ? ` · ${r.note}` : ""}`}
-          trailing={<span className="ds-stack-sm"><StatusBadge tone={r.tone}>{r.status}</StatusBadge>{r.finished ? <Button variant="ghost" onClick={() => deleteActivity(r.id)} data-testid="activity-remove">{t("activity.remove")}</Button> : null}</span>}
+          trailing={<StatusBadge tone={r.tone}>{r.status}</StatusBadge>}
           onPress={onOpen ? () => onOpen(r.id) : undefined} testId={`activity-row-${r.id}`} />
+        {r.finished ? <div className="ds-row-actions"><Button variant="ghost" onClick={() => deleteActivity(r.id)} data-testid="activity-remove">{t("activity.remove")}</Button></div> : null}{/* outside the pressable row: a button never nests in a button */}
         {steps ? <div className="ds-checks-line ds-note" data-testid="activity-steps">{STEPS.map((name, i) => <span key={name} data-ok={steps[i] ? "1" : "0"}>{steps[i] ? "✓" : "○"} {name}</span>)}</div> : null}
         {r.swap?.track?.label === "Partial" ? <p className="ds-note">{t("activity.partial", { delivered: r.swap.track.deliveredAmount ?? "?", returned: r.swap.track.refundedAmount ?? "?" })}</p> : null}
         {r.campaignLine ? <p className="ds-note" data-testid="activity-campaign">{r.campaignLine}</p> : null}

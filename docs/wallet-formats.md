@@ -35,6 +35,16 @@ plaintext JSON = { "v": 1, "notes": [...], "noteCounter": n, "chainIndexes": { c
                    "swaps": [...], "schedule": [...], "settings": {...} }     (bigints as decimal strings)
 backup file = { "v": 1, "keystore": keystore, "journal": journal | null }
 ```
+**V5 — where the records live (Privacy Wallet Web spec §8; Stage 2):** the only records of the secure store are
+`pp.keystore` and `pp.journal` — and `pp.journal.unreadable` when a journal that would not decrypt was set aside — in the
+IndexedDB database `privacy-wallet`, object store `secure` (a memory mirror hydrated before the first render; a browser
+without IndexedDB keeps them in memory for the session). The `prefs` store (zod `PrefsV1`: the experience, the theme, the
+locale, the recent network, the backup timestamps, the last connector, the first-launch flag; an unknown key is refused)
+holds no secret and no financial figure. `localStorage` holds nothing of the wallet's: the one-time migration copied the
+records, read them back byte for byte and only then removed the old keys. The plaintext journal's optional fields —
+`activity`, `housekeeping`, `aiFunding`, `campaigns`, `addressBook`, `operations` (V5: the operation records from the
+signature on, spec §12) and `classic` (V5: the Classic Privacy module's deposits, spec §16) — are never written by
+`emptyJournal()`, so every earlier journal and the pinned vectors stay valid.
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
 `orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
 `refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then

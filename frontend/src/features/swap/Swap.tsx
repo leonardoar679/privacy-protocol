@@ -493,7 +493,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
         ) : null}
 
         {quotes && !order ? (
-          <div className="ds-stack" data-testid="quote">
+          <div className="ds-stack" data-testid="quote-section">
             {chosen && chosenQuote && quoteView ? (
               <>
                 <QuoteCard quote={quoteView} labels={{ pay: t("swap.youPay"), receive: t("swap.youReceive"), minimum: t("swap.minimum"), fees: t("swap.fees"), time: t("swap.time"), protection: t("swap.protection") }} onCompare={advanced ? () => setCompare(true) : undefined} compareLabel={t("swap.compareRoutes")} />

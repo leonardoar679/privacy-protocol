@@ -37,10 +37,21 @@ description in slot 1; BTC / USD through a mock Feed Registry) at $4,250 / ETH a
 every proof the wallet makes in the browser is verified on chain.
 
 One consequence: chain id 1 has an Ethereum light client, and the devnet has no beacon chain, so the run switches
-"Verify the pool with the Ethereum light client" off under Settings (the wallet then says reads rest on the RPC quorum).
+"Verify the pool with the Ethereum light client" off under More → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (48/48 checks on the V4 run, `results/report-2026-10-08-v4.json` — 49 when the hard quote asks for consent; the V3 run: `results/report-2026-10-08-v3.json`)
+## What a run checks (166/166 checks on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
+
+V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
+More → Advanced for the light client and More → Wallet for the connection; Protect through the connected wallet's own provider; Send (public),
+exact-input by default, so the recipient receives what you send minus the privacy fee and the relayer's; the hold from $50K; the swap through
+the order panel (Fund now, the hard quote — a lower minimum asks for consent, once more when the live price drifts again before the fresh quote —, the execute Review, the hand-over, the tracker); the reload; Activity; the $10M protected swap on the
+new screens (a step whose hard quote comes back below the approved minimum pauses the campaign for consent; Resume accepts it) — then the viewport matrix (1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024: no horizontal scroll, 44 px controls, a screenshot per screen; once more under
+`?locale=pseudo`) and the leakage twin (every request body read for the phrase and the password; `localStorage` empty; the two ciphertext
+blobs in IndexedDB). On the devnet the light client is switched off under More → Advanced.
+`probes/` keeps two diagnostic scripts from the V5 pass: `probe-hold.mjs` (the hold button under three gestures on the campaign Review,
+the ring's progress sampled) and `probe-layout.mjs` (the elements whose content overflows their box, the fixed elements' geometry, under
+`?locale=pseudo` at 360×800); run them from this folder with the stack up.
 
 V4 (`docs/high-value-execution-contract-v1.0.md`): the same run against the V4 service and wallet — the progress panel says
 "Executing in protected steps" and the run reads the step from its `data-step` attribute (the counter shows under Advanced);

@@ -1,148 +1,131 @@
-# Frontend — V1 wallet shell (Vite + React + TypeScript + viem)
+# Frontend — the privacy wallet (Vite + React + TypeScript + viem)
 
-A consumer wallet for the shielded pool (spec §69–73): the UX shape, the two client-side privacy
-fixes from the study, and — since V1.1 step 16 — **real client-side proving**: every private
-operation (send, withdraw, fund a swap escrow) builds its witness from this session's notes and
-proves it in a Web Worker over the normative prover (`reference/typescript/src/prover.ts`); only the
-`transact` calldata reaches the connected wallet.
+A mobile-first wallet for the shielded pool, rebuilt in V5 on its own design system and shell
+([`docs/privacy-wallet-web-spec-v1.0.md`](../docs/privacy-wallet-web-spec-v1.0.md), the normative text; the pass in
+`docs/roadmap.md`, V5 table). Everything a user touches is new; everything that moves money is the V1.1–V4 engine
+underneath, unchanged: client-side proving in a Web Worker over the normative prover
+(`reference/typescript/src/prover.ts`), the encrypted keystore and journal, fresh per-chain addresses, private
+submission through a relayer, the swap engine with its six adapters, the campaign engine, the lint, the assessment,
+the Privacy Center model. Only the `transact` calldata or a relayed submission ever leaves the page; the seed, the
+keys and the notes never do (`test/privacy-leakage.test.tsx` reads every request to prove it).
 
-> **Status: builds ✅** (`npm install` → `npm run build` run here: `tsc -b` type-checks clean, then
-> `vite build` emits `dist/` — 503 modules, ~467 kB main / ~462 kB proving worker (snarkjs), both
-> free of node-only references). The prover itself is verified in node against the real circuit
-> artifacts (`reference/typescript/test/prover.test.ts`: it reproduces the forge-verified e2e public
-> inputs bit for bit and proves a fresh withdrawal in ~1 s); the browser flow could not be exercised
-> on this machine (no browser, no reachable chain), so the UI wiring is type-checked, not clicked. `npm audit` reports 2 dev-toolchain advisories
-> (esbuild/Vite dev-server only, GHSA-67mh-4wv8-2f99); the production `dist/` is unaffected and the
-> fix is a breaking Vite 8 bump, deferred for V1.
+> **Status (2026-10-08): builds ✅, 406/406 vitest + 6 live, the gates green** (`node scripts/verify-all.mjs` at the
+> repository root: the suites, the lint over all of `src`, the privacy leakage gate, the artifact pins, the dependency
+> audit, the build with its content security policy). The browser run over the local stack: `docs/local-run.md`.
 
-## What's here
-- `src/App.tsx` + `src/components/*` — **V2 (plan V2 §39–§45): four tabs — Home, Swap, Send, Activity** — and
-  nothing else in the main navigation (a side column from 1024 px adds Private assets, Privacy Center,
-  Advanced). `Home` (the private balance as one USD numeral from `sdk/prices.ts`, Send / Swap, Add funds
-  and Receive as sheets, the 🛡 badge opening `PrivacyCenter` — six categories with word levels from
-  `reference/typescript/src/wallet/privacyCenter.ts` — Details for the per-asset lines (`PrivateBalance`)
-  and the private services, `Settings` behind one gear: trade preference, value tiers, housekeeping, light
-  client, submission, Advanced, backup, lock, forget). `Send` = `Send` (privately) or `Withdraw` (to a
-  public address). `Activity` lists the journal's `activity[]` (`src/wallet/activity.ts`). The scheduler
-  (`src/wallet/schedule.ts`) runs at the App level on any tab, one action at a time, with backoff;
-  `sdk/swapFunding.ts` is the funding path shared with "Fund now". Light-first tokens with dark mode
-  (`styles.css`), safe areas and `public/manifest.webmanifest` so iPhone Safari can install it.
-  **Safety layer (V2 Stage 5, whale spec §18, §21, §24):** `DestinationCard` (Network / Asset / address
-  grouped in fours / amount / USD) on every screen that confirms an address, fed by
-  `reference/typescript/src/wallet/destinations.ts` (a wrong-chain paste is refused by name);
-  `PrivacyLint` (the eleven ✓ / ⚠ / ✖ items of `reference/typescript/src/wallet/privacyLint.ts`, facts from
-  `src/wallet/lintFacts.ts`); `sdk/simulate.ts` simulates `deployAndExecute` on every RPC endpoint after
-  the order key signs and before anything leaves the wallet.
-  **High-value review (V2 Stage 6, whale spec §24):** `Review` before the two irreversible moments of a
-  swap and before a large send or withdrawal — the USD numeral, the card, Receive at least, the execution
-  in words, the lint, the five lines of plan §4, the issuer line, "Advanced details" — with the controls
-  of `sdk/tiers.ts controlsFor(tier)`: a tap at enhanced, `HoldToConfirm` from high-value, the WebAuthn
-  second factor (`sdk/secondFactor.ts`, registered under Settings, password fallback) from
-  high-value-secondary, the 30-minute review hold and the JSON export at institutional.
-  **Settlement tracking (V2 Stage 7, whale spec §19):** `sdk/orderTracker.ts` derives the spec's state
-  from the journal, the relayer job, the escrow balance (RPC quorum) and `GET /track/:provider`, journals
-  every transition, and `SettlementLine` shows the plan §61 label with the four-step line (Quote locked /
-  Source confirmed / Destination sent / Destination finalized) in Swap and Activity.
-  **Private balance maintenance (V2 Stage 8, plan §73–§74):** `src/wallet/housekeeping.ts` applies the
-  planner of `reference/typescript/src/wallet/noteStrategy.ts` (100-unit then 10-unit pieces, dust merged)
-  one private self-transfer at a time inside the policy window, within the daily fee cap of Settings;
-  `sdk/privateTx.ts splitNote` is the split beside the merges; Home says what is planned; a spend spread
-  over too many notes offers "Consolidate my notes now" instead of "insufficient balance".
-  **"Check this trade" (V2 Stage 9, whale spec §22):** `src/zkapi/tradeCheck.ts` sends a sanitized
-  summary of a reviewed trade (no address, hash or identity: refused before it leaves) to the private AI
-  session opened under Private AI (`src/zkapi/aiSession.ts`) and the Review shows the six lines; the module
-  imports nothing that signs or submits (pinned by a test).
-- `src/sdk/privacyProtocol.ts` — contract ABIs, deposit tx builders and `buildTransact` (the
-  `PrivacyCore.transact` calldata for a locally produced proof: abi.encode(a, b, c) + the 14 public
-  inputs + 3 payloads).
-- `src/prover/` — `worker.ts` (snarkjs browser build over `@ref/prover`), `client.ts` (one worker per
-  proof; artifacts from `/artifacts/*`, served in dev by the Vite plugin from `../circuits`, or
-  `VITE_ARTIFACT_BASE`). `src/sdk/chain.ts` — deployment from env (`VITE_RPC_URL`, `VITE_CORE`,
-  `VITE_ETH_VAULT`, `VITE_CHAIN_ID`), tree rebuilt from `NoteInserted` events and checked against the
-  core's root, submission via the injected wallet. `src/sdk/privateTx.ts` — shield, private transfer
-  and private withdrawal end to end (UTXO selection, change note, placeholder payloads, prove,
-  submit, record the new leaves). `src/wallet/notes.ts` — the session note store (memory only).
-  Formerly `buildTransact` was a stub that explained the missing piece: client-side Groth16 proving from `circuits/transaction.circom`,
-  submitted over a private channel (never sending the secret to a server, spec §95).
-- `src/keys/wallet.ts` — local key derivation. **The raw seed/secret is never persisted to
-  dapp-origin `localStorage`** (`assertNotPersistingSecret` enforces it) — the direct fix for TC-01.
-- `src/privacy/privacyScore.ts` — ports the research timing/amount/effective-anonymity sims into a
-  live score (spec §73).
-- **V1.1 `src/components/Swap.tsx` — "Swap privately"** (spec v1.1, plan §68): quotes every provider
-  through the local service (`services/private-swap`: `npm run serve`), ranks them by policy with the
-  engine's scores and the cross-chain privacy score, commits an order whose source is a one-time
-  escrow (the withdrawal recipient), and **signs the provider call in the browser** with a one-time
-  order key (`src/keys/swapKeys.ts`, derived from the master seed per attempt; refund note = the
-  wallet's own commitment via `@ref/note`). The service only ever sees the signer address and the
-  signature (verified there by recovery). Order of operations (spec §5/§8): **1 ·** a real
-  private withdrawal proved in the worker funds the escrow; **2 ·** only then the tab re-quotes with the
-  escrow as sender, signs the provider call with the one-time key and hands (factory, params, signed
-  execution, refund payload) to the relayer's swap executor, showing its state (Pending / Executing /
-  Completed / Refunding / Refunded / Failed) every 15 s and offering "Re-sign with a fresh quote" when
-  the executor reports the signed quote expired.
+## The tree (spec §45)
+```
+src/
+  design-system/   tokens.ts → tokens.css (generated, pinned) · base.css · components.css · icons/ (inline SVG)
+                   primitives/ (the only files importing @radix-ui: Dialog, Sheet, Tabs, Toast, Switch, RadioGroup, …)
+                   components/ (Layout, Money, Inputs, Sheets, Status, Button) · labels.ts (its own words, set by the app)
+                   Gallery.tsx (every component in every state; /gallery in dev; axe in test)
+  app/             App.tsx (the data router) · routes → routes/index.tsx · Gate.tsx (ready → keystore → unlocked) · Shell.tsx
+                   (Home / Swap / Activity / More) · Providers.tsx (deployment, toasts, the locale) · Background.tsx (the
+                   scheduler, housekeeping, campaign ticks) · i18n/ (en.ts, messages.ts, detect.ts, catalogs.ts, pseudo.ts)
+  features/        onboarding/ (Welcome, the experience, Create / Unlock / Restore, the phrase)
+                   wallet/ (connection.ts: EIP-6963, injected, lazy WalletConnect; Home; Receive)
+                   protect/ · send/ · swap/ (the quote card, Compare routes, the order panel, the wizard and the protected
+                   execution screens) · review/ (the Review before every irreversible moment) · activity/ (the list and the
+                   detail) · operations/ (the record, the reducer, the adapters, the error catalog, recovery, progress)
+                   fees/ (the fee engine) · more/ (Security, Wallet, Advanced, the More menu) · privacy-center/ (the facts,
+                   What stays private?) · classic-privacy/ (the ClassicPool interface, the devnet mock, the screens)
+                   ai/ · guest/ (the V1.1 Private AI and guest swap screens, mounted as chunks)
+  storage/         idb.ts · secureStore.ts (pp.keystore, pp.journal in IndexedDB; a memory mirror) · migrate.ts · prefs.ts · guard.ts
+  api/             transport.ts (credentials omitted, redirects refused, the host allow-list; every request goes through it)
+  sdk/             the engine: privateTx (shield / withdraw / transfer / merge / split), relayer, swapService, swapExecute,
+                   orderTracker, chain (the RPC quorum, the tree), prices, simulate, swapGuard, swapSign, providerCall,
+                   allowances, verifiedReads + lightclient/, core (the Rust core's WASM), assets, tiers, policy, refunds
+  wallet/          session, keystore, journal, settings, notes, campaigns, campaignRunner, addressBook, alerts,
+                   notifications, activity, schedule, posture, housekeeping, operationRecord, classicRecord
+  prover/          client.ts (one worker per proof; the build's pins travel with the request) · worker.ts (snarkjs over
+                   @ref/prover; the proving key and the witness generator fetched, hashed and checked: pins.ts)
+  keys/ · zkapi/ · privacy/ · components/ (the V1.1–V4 components still mounted: the address book panel, Private AI,
+                   the guest swap, the lint, the scorecard, the destination and settlement lines)
+scripts/           build-tokens.ts · csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs ·
+                   copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
+public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored) · manifest
+test/              406 vitest tests (node; the screens under happy-dom or jsdom), test/live (6, verify-all --live)
+```
+
+## What the wallet does (spec §3)
+- **First launch** — Welcome (Connect Wallet or continue without one), the experience (Simple is the default; Advanced
+  shows the cryptographic detail), Create (the password; the seed never leaves the device), the 24-word phrase, Home.
+- **Home** — the protected balance in USD with its asset rows, Protect / Send / Swap, the recent activity, the
+  privacy badge opening the Privacy Center, the gear opening Security.
+- **Protect** — a public deposit through the connected wallet's own provider (the balance and the network cost read
+  through it, never through the wallet's endpoints); "Service fee: none now".
+- **Send** — privately to a `pp1…` privacy address or publicly to a fresh address of this wallet (default) or an
+  entered one with the four checks; the fee summary collapsed to one number (the privacy fee, the relayer, "You
+  send" / "Recipient receives"); the Review from $20K with the lint, the hold and protected execution from $50K.
+- **Swap** — one card, the best protected route, the quote card with the estimate and the minimum, Compare routes
+  under Advanced, the Review before every commit, the order panel (Fund now, the hard quote, the simulated execution,
+  the hand-over, the tracker), protected execution in steps for large orders (the V3/V4 engine, untouched).
+- **Activity** — every operation grouped by day with its status, the detail with its references and the recovery card
+  ("Your funds were not moved." / "Your funds are still protected." / "We are checking where your funds are.").
+- **More** — Security (the backup, the phrase behind the password, the second confirmation, the large-transfer
+  thresholds, Forget), Wallet (the connection, the trade preference, the allowances), Advanced (the deployment, the
+  light client, the submission path, maintenance, every protected-execution control, the address book), the Privacy
+  Center (the session's facts, computed; "What stays private?"), Classic Privacy (a fixed pool on a devnet mock
+  behind a frozen interface), Private AI.
+
+## The gates (spec §20–§21)
+- `npm run lint` — ESLint over all of `src`: typescript-eslint, the rules of hooks, jsx-a11y strict, the house rules
+  (no storage API outside `storage/`, no `fetch` outside `api/` and `sdk/`, no `window.ethereum` outside
+  `features/wallet/`, no Radix outside the primitives, no inline style and no literal text on a screen, no forbidden
+  word).
+- `test/privacy-leakage.test.tsx` — create → protect → send through the real engine; every request, provider call,
+  transport record and console line read for the seed, the phrase, the keys, the private notes' secrets, the keystore
+  and the forbidden field names; the swap scenario of `test/swap-flow.test.tsx` does the same.
+- `scripts/csp.mjs` — the content security policy built from the build's `VITE_*` hosts and written into
+  `dist/index.html`; the headers on `npm run preview`; `docs/deployment.md`.
+- `scripts/pin-artifacts.mjs` / `check-artifact-pins.mjs` — `public/artifacts.json` and `docs/build-hashes.md`; the
+  prover worker hashes the proving key and the witness generator it fetched and refuses a mismatch in production.
+- `../scripts/audit.mjs` — `npm audit --omit=dev --audit-level=high` with `scripts/audit-allowlist.json`.
+- `test/i18n.test.tsx` — the locale from the browser, a preference or `?locale=`; the ko / zh / ja partial catalogs;
+  no dead English key; the pseudo-locale (`?locale=pseudo`) for the layout checks.
+- `test/a11y/screens.test.tsx` — fourteen routes under axe; `test/design-system/a11y.test.tsx` — the gallery.
 
 ## Run
-`.env.example` lists every setting; `docs/local-run.md` is the end-to-end order on a workstation.
+`.env.example` lists every setting (`VITE_RPC_URLS`, `VITE_CORE`, `VITE_ETH_VAULT`, `VITE_CHAIN_ID`, the relayer and the
+swap service, the beacon and THORNode gateways, `VITE_WC_PROJECT_ID` for WalletConnect, `VITE_ARTIFACT_BASE`).
 ```
 cd frontend
 npm install
-npm run dev     # or: npm run build
-(cd ../services/private-swap && npm run serve)   # the Swap tab talks to http://127.0.0.1:8787 (VITE_SWAP_SERVICE to override)
+npm run dev        # http://localhost:5173 (the circuit artifacts and the Rust core served from ../circuits and ../core)
+npm run build      # dist/ with the policy in index.html; npm run preview sends the headers
+npm test           # 406 tests; npm run lint; node scripts/check-artifact-pins.mjs
+(cd ../services/private-swap && npm run serve)   # the Swap screen talks to http://127.0.0.1:8787
+(cd ../services/relayer && npm start)            # private submission at http://127.0.0.1:8790
 ```
+The whole stack on a workstation, with the browser run: `docs/local-run.md`. Deploying a build: `docs/deployment.md`.
 
-- **`src/zkapi/` + `src/components/PrivateAI.tsx` — Private AI (plan step 04)** on the zkAPI browser
-  SDK (`@openanonymity/zkapi-browser-sdk`, the pinned sibling clone as a `file:` dependency): runtime-key
-  mode only (`privateTransport` refuses proxying), a fresh seed-derived funding address exposed to the
-  SDK as an EIP-1193 provider and funded by a private withdrawal from the pool, credit buckets,
-  spending tiers, streaming chat straight to OpenRouter, mutual-close withdrawal. Build the SDK assets
-  and run the deployment-pin check before using the tab:
-  `ZKAPI_NETWORK=sepolia npm run zkapi:assets && npm run zkapi:pins` (writes `public/zkapi/`, gitignored;
-  the tab stays disabled without a passing, recent `pin-check.json`). Dev server proxies
-  `/zkapi-deployment/*` to the network's protocol server. The Sepolia shared-password dialog is wired.
-  Details and status: `docs/private-ai.md`.
-- **Private submission** (`src/sdk/relayer.ts`, `src/wallet/settings.ts`): by default every private
-  transaction goes to a relayer (`VITE_RELAYER_URL`, default `http://127.0.0.1:8790`; `services/relayer`)
-  that submits it from its own key and is paid by a private fee note the wallet adds as an output
-  (encrypted to the relayer's privacy address, priced from the relayer's live minimum + 10 %); the
-  connected wallet is the public fallback, switchable in the app header.
-- **Merges**: the circuit spends at most two notes, so a spend that needs more first merges pairs with
-  private self-transfers (`mergeSchedule` / `planMerge` / `ensureSpendable` in `src/sdk/privateTx.ts`),
-  each paying the relayer fee; the schedule accounts for those fees and refuses honestly when they eat
-  the balance. Withdrawals and transfers run the merges automatically before the final spend.
-- **`npm test` — 209 vitest tests** (node, with the screens under happy-dom; **V2** adds prices through the RPC quorum, the four-tab shell at first launch with zero requests, the Privacy Center, Activity, journal safety, the serialized scheduler, the pre-trade simulation on mock endpoints, destinations on the screens, the $3.4M review flow against the real engine, the hold control, settlement tracking, housekeeping and the sanitized trade check) of the non-UI glue (`test/`): zkAPI transport policy + pin gate + SSE
-  parsing, the fresh funding provider signing against a local mock JSON-RPC server, tree sync vs the
-  reference Merkle tree, note discovery from envelopes on a mock chain (ours found, others' not, spent
-  state from the nullifier set), withdrawal planning (incl. the relayer fee note) and merge planning
-  through the reference witness builder, the relayer client against a mock relayer.
+## Still open (spec §23)
+The §81 monorepo move (a mechanical pass); Express + SQLite for the services (recorded as the target; the services are
+unchanged but for the relayer's fee terms); the native shells, push notifications and background execution
+(`docs/mobile.md`); biometrics beyond WebAuthn; the Classic contracts, circuit port and legal review (the boundary and
+the mock only); WalletConnect's relay privacy (disclosed); real ko / zh / ja translations (the catalogs fall back to
+English); the production ceremony, audits and a testnet broadcast; a private read transport.
 
-## Still open
-Payloads are the spec §12 envelope (view key → X25519, XChaCha20-Poly1305; `docs/crypto-spec.md`):
-notes are recovered from chain by rescanning ("Rescan the chain for my notes"), senders use the
-recipient's `pp1…` privacy address; submission goes to a relayer by default (the connected wallet is the
-public fallback); no live-chain run has happened here; the dev proving key is insecure.
+## What came before (V1.1–V4, all still underneath)
+- **V1.1** (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79): the keystore and recovery (`wallet/keystore.ts`,
+  `session.ts`, `journal.ts`; scrypt + XChaCha20-Poly1305; the journal under a seed-derived key), the Chain Key
+  Abstraction and fresh addresses (`keys/chainKeys.ts`), the RPC quorum (`sdk/chain.ts`), private submission through
+  a relayer paid by a fee note (`sdk/relayer.ts`), merges before a spend (`sdk/privateTx.ts`), the swap signed in the
+  browser with a one-time order key (`keys/swapKeys.ts`, `sdk/swapSign.ts`), the provider call read before signing
+  (`sdk/providerCall.ts`, `swapGuard.ts`), the guest swap, private ERC-20 assets, the Rust core in the browser
+  (`sdk/core.ts`), Private AI on the zkAPI SDK (`zkapi/`, `docs/private-ai.md`), the at-rest vectors
+  (`test/wallet-vectors.test.ts`, `docs/wallet-formats.md`).
+- **V2** (the whale execution layer): prices through the RPC quorum (`sdk/prices.ts`), the value tiers
+  (`sdk/tiers.ts`), the destination card and the privacy lint, the Review with its controls (a tap, a hold, the
+  WebAuthn second factor), the pre-trade simulation (`sdk/simulate.ts`), settlement tracking (`sdk/orderTracker.ts`),
+  private balance maintenance (`wallet/housekeeping.ts`), "Check this trade" (`zkapi/tradeCheck.ts`).
+- **V3** (high-value protection): the campaign engine and runner (`wallet/campaigns.ts`, `campaignRunner.ts` over
+  `@ref/wallet/campaign`), the protection screens, the address book with its verification methods and cooling-off,
+  alerts and notifications, the separate device at institutional.
+- **V4** (the high-value execution engine): the exposure policy and tiers, the assessment, the user's fraction and the
+  modes, the opt-out, concentration and velocity, the runner's confirmed / unknown / reorg states.
 
-## Out of scope for this build
-A Tor / mixnet transport and the native shells (React Native / Tauri: `docs/mobile.md`). Proof
-generation, note scanning, UTXO selection and merges, private submission through a relayer and a
-light client — once listed here — are built: reads come from an RPC quorum (`VITE_RPC_URLS`) and, on
-mainnet and Sepolia, are checked against the pool an Ethereum light client proves at the latest
-finalized block before every spend and rescan (`src/sdk/lightclient/`, `src/sdk/verifiedReads.ts`).
-
-## Added in the plan-gap pass (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79)
-- **Keystore + recovery** (`src/wallet/keystore.ts`, `session.ts`, `journal.ts`, `storage.ts`, `components/Lock.tsx`): create / unlock / lock / restore
-  from the 24-word phrase or a backup file; the seed at rest is scrypt + XChaCha20-Poly1305 ciphertext, the note journal (notes, counters,
-  fresh-address indexes, swap orders, schedule, settings) is encrypted under a seed-derived key; nothing in storage is ever in the clear.
-- **Chain Key Abstraction + Receive** (`src/keys/chainKeys.ts` over `@ref/wallet/chainKeys`, `components/Receive.tsx`): fresh BIP-84 Bitcoin,
-  SLIP-0010 Solana and BIP-44 EVM addresses with QR codes, reserved through the journal so none is reused; swaps and withdrawals default to them.
-- **Private read layer** (`VITE_RPC_URLS`): every tree view / event set is read from all endpoints and must agree (`syncTreeQuorum`); the public
-  balance is read through the injected wallet's own provider.
-- **No network at first launch**: `test/first-launch.test.tsx` mounts the app in happy-dom, creates a wallet, opens every tab and asserts zero
-  requests (the Pay tab loads only same-origin build files).
-- **Scorecard + advanced mode**: six privacy scores on every action (`components/Scorecard.tsx`), plain-words screens by default, "Advanced"
-  for leaf indexes, escrows, order keys, proof timings and the submission choice.
-- **Swap**: one route in plain words with *View route*, bucket suggestions, a random funding time inside the policy window kept in the journal
-  (`src/wallet/schedule.ts`, fires while unlocked; *Fund now* override), open orders resumed through the service's `/order/resume`.
-- **Guest mode** (`components/Guest.tsx`): swap without a wallet — a one-time deposit instruction from the service's `/guest/*` routes.
-- **Private ERC-20 assets** (plan §36; `src/sdk/assets.ts`, `VITE_ERC20_VAULTS`): ETH plus every token with a canonical vault; asset selectors on Shield / Send / Withdraw / Swap, balances per asset, bucket alphabets per decimals; an ERC-20 shield is an exact-amount approve + the vault's deposit; private transfers / withdrawals / merges / swap funding run in the asset's own vault and pay the relayer in that asset (`fee.vault`). **Relayer failover** (rule 5; `VITE_RELAYER_URLS`): the first relayer that answers, serves this chain / core and takes fees in the asset is used, and the fee note is built for it; transport errors on submit are retried, refusals are not.
-- **The Rust core in the browser** (plan §43; `src/sdk/core.ts`): a sync is two batches — every tree layer in one call, note discovery over every payload in one call — and both run in the Rust core's WASM build when it is served from this origin at `/core/` (dev: straight from `../core/rust/pkg/web` through a Vite plugin; build: `npm run core:assets` copies it to `public/core`, gitignored). Loaded lazily on the first sync, never at first launch; when the package is missing the TypeScript reference does the same work (`test/core-wasm.test.ts` runs both paths against one mock core). The synced layers travel with the plan, so witness paths are lookups. "Advanced" shows which core is running.
-- **At-rest format vectors** (`test/wallet-vectors.test.ts` → `reference/typescript/test/vectors/wallet.json`, spec `docs/wallet-formats.md`): the keystore, journal and phrase this wallet writes are pinned so the Rust core (and any other wallet) opens the same backup file.
+The light client (`sdk/lightclient/`, `sdk/verifiedReads.ts`) checks every spend and rescan against the pool an
+Ethereum light client proves at the latest finalized block on mainnet and Sepolia; a devnet has none and reads rest on
+the RPC quorum. A Tor / mixnet transport stays out of scope.

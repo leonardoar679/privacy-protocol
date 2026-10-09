@@ -124,7 +124,8 @@ export function Send(p: SendProps) {
   const delivered = view ? view.split.delivered : units;
   const total = view ? view.split.total : units;
   const feeLines: FeeLine[] = view ? view.lines : terms.status === "public" ? [{ label: t("fees.relayer"), value: t("send.paidByWallet") }] : [{ label: t("fees.total"), value: t("fees.networkUnknown") }];
-  const feeReceive = view ? view.receive : { label: t("fees.recipientReceives"), value: units > 0n ? `≈ ${format(units)}` : "—" };
+  // before the relayer's terms are read the recipient's figure is not known (exact-input: the fees come out of what you send); the public path pays the fees from the wallet
+  const feeReceive = view ? view.receive : { label: t("fees.recipientReceives"), value: units === 0n ? "—" : terms.status === "public" ? format(units) : t("fees.networkUnknown") };
   const feePay = view?.pay;
   const feeTotal = view ? view.total : terms.status === "public" ? t("send.paidByWallet") : t("fees.networkUnknown");
   const bucket = asset && mode === "public" && units > 0n && !isBucketFor(asset, units) ? bucketBelowFor(asset, units) : null;

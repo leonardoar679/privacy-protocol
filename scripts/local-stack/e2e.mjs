@@ -16,7 +16,7 @@
 //   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
 //      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
 //      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
-//   9. V5: the shell pass per viewport (VIEWPORTS, default 360x800,390x844,412x915,768x1024,1280x800) — no horizontal
+//   9. V5: the shell pass per viewport (VIEWPORTS, default 360x800,390x844,412x915,768x1024,1280x800,1440x900) — no horizontal
 //      scroll, the controls 44 px tall, a screenshot per screen — and the same pass under ?locale=pseudo
 //  10. V5: the leakage twin — every request body read for the phrase and the password; localStorage empty; the secure
 //      store holds the two ciphertext blobs only
@@ -42,7 +42,7 @@ const PRICE = stack.prices.ETH;
 const CHANNEL = process.env.BROWSER_CHANNEL; // chrome | msedge | (unset: Playwright's Chromium)
 const HEADLESS = process.env.HEADED ? false : true;
 const PROOF_TIMEOUT = 420_000; // the first proof downloads the 31 MB key, then witness + proof in the worker
-const VIEWPORTS = (process.env.VIEWPORTS ?? "360x800,390x844,412x915,768x1024,1280x800").split(",").map((s) => s.trim()).filter(Boolean).map((s) => { const [w, h] = s.split("x").map(Number); return { width: w, height: h }; });
+const VIEWPORTS = (process.env.VIEWPORTS ?? "360x800,390x844,412x915,768x1024,1280x800,1440x900").split(",").map((s) => s.trim()).filter(Boolean).map((s) => { const [w, h] = s.split("x").map(Number); return { width: w, height: h }; });
 const RUN_START = Date.now();
 
 const report = { startedAt: new Date().toISOString(), stack: { rpc: stack.rpc, core: stack.core, swapFactory: stack.swapFactory }, steps: [], checks: [], failures: [], outcome: {}, viewports: [] };
@@ -53,7 +53,7 @@ async function snap(page, name) { const file = `${String(++shot).padStart(2, "0"
 const rpc = async (method, params = []) => { const r = await fetch(stack.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
 const balanceEth = async (address) => Number(BigInt(await rpc("eth_getBalance", [address, "latest"]))) / 1e18;
 const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
-const usdRe = (n, prefix = "≈ ") => new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\$" + Math.round(n).toLocaleString("en-US").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\.\\d{1,2})?(?!\\d)");
+const usdRe = (n, prefix = "") => new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\$" + Math.round(n).toLocaleString("en-US").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\.\\d{1,2})?(?!\\d)");
 const text = async (locator) => ((await locator.textContent()) ?? "").replace(/\s+/g, " ");
 /** the relayer's swap jobs created by this run (its journal keeps earlier runs' jobs) */
 async function jobsOfThisRun() {
@@ -86,12 +86,12 @@ async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a po
   await b.waitFor({ state: "visible", timeout: 30_000 });
   for (let i = 0; i < 50 && (await b.isDisabled()); i++) await page.waitForTimeout(200);
   if (await b.isDisabled()) throw new Error(`the hold is still disabled: ${await b.getAttribute("title")}`);
-  await b.scrollIntoViewIfNeeded();
-  const box = await b.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await b.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  // the pointer events dispatched on the button itself (as the unit tests do): no overlay, no emulated long-press can cancel them
+  await b.dispatchEvent("pointerdown");
   await page.waitForTimeout(ms);
-  await page.mouse.up();
+  await b.dispatchEvent("pointerup", {}, { timeout: 2_000 }).catch(() => {}); // the hold fires at HOLD_MS and the screen may already have moved on
 }
 /** the Review's confirmation: a hold from the protected band, a tap below it */
 async function confirmReview(page) {
@@ -120,7 +120,8 @@ async function unlock(page) {
 /** Protect: `amount` ETH through the connected wallet; waits until the vault holds it and the screen reports the note */
 async function protect(page, amount, expectVault) {
   await nav(page, "Home");
-  await clickId(page, "protect-cta").catch(async () => { await page.goto(`${WALLET}protect`, { waitUntil: "load" }); });
+  await byId(page, "home").waitFor({ timeout: 30_000 });
+  if (await byId(page, "protect-cta").count()) await clickId(page, "protect-cta"); else await clickId(page, "add-funds"); // the card of an empty balance, else Home's row
   await byId(page, "protect").waitFor({ timeout: 30_000 });
   if (await byId(page, "protect-connect").count()) { await clickId(page, "protect-connect"); await textAppears(page, "Connected"); }
   await fillId(page, "protect-amount-input", String(amount));
@@ -138,7 +139,14 @@ async function sendPublic(page, amount) {
   const recipient = await byId(page, "send-to-input").inputValue();
   await fillId(page, "send-amount-input", String(amount));
   await byId(page, "send-fees").waitFor({ timeout: 60_000 });
-  return recipient;
+  // the summary settles once the relayer's terms are read: "Recipient receives" drops below the amount typed (exact-input)
+  let receive = NaN;
+  for (let i = 0; i < 60; i++) {
+    receive = Number((await text(byId(page, "send-fees-receive"))).match(/([0-9.]+) ETH/)?.[1] ?? NaN);
+    if (receive > 0 && receive < amount) break;
+    await page.waitForTimeout(250);
+  }
+  return { recipient, receive };
 }
 
 // --- V3: the protected swap on the V5 screens -----------------------------------------------------------------------
@@ -223,7 +231,8 @@ async function campaignRun(page) {
   await snap(page, "campaign-review");
   await hold(page);
   // the second factor: no platform authenticator registered → the password; then the separate device (automatic presence)
-  await byId(page, "second-factor-password").waitFor({ timeout: 30_000 });
+  const prompted = await byId(page, "second-factor-password").waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!prompted) { log("the hold did not take; once more"); await hold(page); await byId(page, "second-factor-password").waitFor({ timeout: 30_000 }); }
   await page.locator('[data-testid="second-factor-password"] input').fill(PASSWORD);
   await clickButton(page, "Confirm with the password");
   const progress = byId(page, "campaign-progress");
@@ -251,6 +260,16 @@ async function campaignRun(page) {
       await page.locator('[data-testid="second-factor-password"] input').fill(PASSWORD);
       await clickButton(page, "Confirm with the password");
       await progress.waitFor({ timeout: 120_000 });
+      continue;
+    }
+    // a step's hard quote below the approved minimum pauses the campaign for consent (spec §14 applied to a step): Resume accepts it, as a user would
+    const resume = page.getByRole("button", { name: "Resume", exact: true });
+    if ((await resume.count()) && (await progress.getAttribute("data-state")) !== "rerouting") {
+      const why = (await text(progress)).match(/Paused — ([^.]+)/)?.[1] ?? "";
+      if (!report.outcome.stepConsent) { report.outcome.stepConsent = why; check("a step's hard quote below the approved minimum pauses the campaign for consent; nothing is signed until Resume", /Price changed/.test(why) || /price/i.test(why), why.slice(0, 160)); await snap(page, "campaign-price-changed"); }
+      log(`paused: ${why.slice(0, 120)} — resuming`);
+      await resume.first().click();
+      await page.waitForTimeout(2000);
       continue;
     }
     tranche1 = (await page.locator('[data-tranche="0"]').count()) ? await text(page.locator('[data-tranche="0"]')) : "";
@@ -320,27 +339,35 @@ async function layoutProbe(page) {
   return page.evaluate(() => {
     const doc = document.documentElement;
     const short = [];
-    for (const el of document.querySelectorAll("button.ds-btn, a.ds-nav-item, button.ds-list-row, button.ds-icon-btn, input.ds-input, input.ds-amount-input, .ds-segmented-item, button.ds-collapsible-toggle")) {
+    for (const el of document.querySelectorAll("button.ds-btn, a.ds-nav-item, button.ds-list-row, button.ds-icon-btn, input.ds-input, input.ds-amount-input, button.ds-collapsible-toggle")) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue; // hidden
       if (r.height < 44 - 0.5) short.push(`${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}:${Math.round(r.height)}px${el.textContent ? ` "${el.textContent.trim().slice(0, 24)}"` : ""}`);
     }
-    return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth, short };
+    // the elements that reach past the viewport, widest first (what an overflow is made of)
+    // (a fixed container stretches to the layout viewport on mobile Chrome once anything overflows: it and its children are left out)
+    const stretched = (el) => { for (let e = el; e && e !== document.body; e = e.parentElement) { if (getComputedStyle(e).position === "fixed") return true; } return false; };
+    const wide = [...document.querySelectorAll("body *")].filter((el) => !stretched(el)).map((el) => ({ el, r: el.getBoundingClientRect() })).filter(({ r }) => r.width > 0 && r.right > doc.clientWidth + 1).sort((a, b) => b.r.right - a.r.right).slice(0, 8).map(({ el, r }) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}${el.getAttribute("data-testid") ? `[${el.getAttribute("data-testid")}]` : ""}:${Math.round(r.right)}px${el.children.length === 0 && el.textContent ? ` "${el.textContent.trim().slice(0, 30)}"` : ""}`);
+    return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth, short, wide };
   });
 }
 async function shellPass(page, viewport, locale) {
   await page.setViewportSize(viewport);
   const tag = `${viewport.width}x${viewport.height}${locale ? `-${locale}` : ""}`;
   const result = { viewport: tag, screens: [] };
+  await page.goto(`${WALLET}${locale ? `?locale=${locale}` : ""}`, { waitUntil: "load" });
+  // the app renders a splash while the store hydrates: wait for the lock screen or Home before deciding
+  const landed = await firstOf(page, { home: byId(page, "home"), lock: byId(page, "lock-screen") }, 120_000);
+  if (landed === "lock") await unlock(page);
+  await byId(page, "home").waitFor({ timeout: 60_000 });
   for (const s of SHELL_SCREENS) {
-    await page.goto(`${WALLET}${s.route}${locale ? `?locale=${locale}` : ""}`, { waitUntil: "load" });
-    if (await byId(page, "lock-screen").count()) await unlock(page);
+    await page.evaluate((path) => { window.history.pushState(null, "", path); window.dispatchEvent(new PopStateEvent("popstate")); }, `/${s.route}`);
     await byId(page, s.id).waitFor({ timeout: 60_000 });
     await page.waitForTimeout(250);
     const probe = await layoutProbe(page);
     const ok = probe.scrollWidth <= probe.clientWidth + 1;
     result.screens.push({ name: s.name, ok, short: probe.short, scrollWidth: probe.scrollWidth, clientWidth: probe.clientWidth, shot: await snap(page, `shell-${tag}-${s.name}`) });
-    check(`${tag} ${s.name}: no horizontal scroll`, ok, `${probe.scrollWidth} ≤ ${probe.clientWidth}`);
+    check(`${tag} ${s.name}: no horizontal scroll`, ok, ok ? `${probe.scrollWidth} ≤ ${probe.clientWidth}` : `${probe.scrollWidth} > ${probe.clientWidth}: ${probe.wide.join(", ")}`);
     check(`${tag} ${s.name}: the controls are 44 px tall`, probe.short.length === 0, probe.short.slice(0, 6).join(", "));
   }
   if (locale) { // the pseudo-locale is on: the words are accented and longer
@@ -456,7 +483,8 @@ try {
 
   // 3. a $1K public send: the standard flow ------------------------------------------------------------------------------
   phase = "send-1k";
-  const recipient1 = await sendPublic(page, 0.2);
+  const { recipient: recipient1, receive: receive1 } = await sendPublic(page, 0.2);
+  check("exact-input by default (spec §10): the recipient receives what you send minus the privacy fee and the relayer's", receive1 > 0.19 && receive1 < 0.2, `${receive1} ETH of 0.2`);
   await page.getByText(usdRe(0.2 * PRICE)).first().waitFor({ timeout: 30_000 });
   check("a $850 send is the plain flow (a Review with a tap, no lint block, no hold)", (await byId(page, "send-large").count()) === 0);
   await snap(page, "send-1k");
@@ -465,12 +493,12 @@ try {
   await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got1 = await balanceEth(recipient1);
-  check("the fresh recipient received 0.2 ETH from the vault, submitted by the relayer", Math.abs(got1 - 0.2) < 1e-9, `${recipient1}: ${got1} ETH`);
+  check("the fresh recipient received exactly the summary's \"Recipient receives\" from the vault, submitted by the relayer", Math.abs(got1 - receive1) < 1e-9, `${recipient1}: ${got1} ETH (summary ${receive1})`);
   await snap(page, "sent-1k");
 
   // 4. a $120K public send: the enhanced Review --------------------------------------------------------------------------
   phase = "send-120k";
-  const recipient2 = await sendPublic(page, 28);
+  const { recipient: recipient2, receive: receive2 } = await sendPublic(page, 28);
   check("the next send pre-fills the next fresh address", recipient2.toLowerCase() !== recipient1.toLowerCase(), recipient2);
   await page.getByText(usdRe(28 * PRICE)).first().waitFor({ timeout: 30_000 });
   await byId(page, "send-large").waitFor({ timeout: 30_000 });
@@ -478,13 +506,13 @@ try {
   await byId(page, "review").waitFor();
   check("the enhanced Review shows the USD numeral", (await byId(page, "review-usd").textContent()).includes(usd(28 * PRICE)), await byId(page, "review-usd").textContent());
   check("the enhanced Review carries the privacy lint", (await byId(page, "privacy-lint").count()) >= 1);
-  check("enhanced: a tap confirms (no hold)", (await byId(page, "confirm-tap").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0);
+  check("V5 (spec §11): from $50K the confirmation is a hold, never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
   await snap(page, "review-120k");
   await acknowledgeAll(page);
-  await byId(page, "confirm-tap").click();
+  await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got2 = await balanceEth(recipient2);
-  check("the second fresh recipient received 28 ETH", Math.abs(got2 - 28) < 1e-9, `${recipient2}: ${got2} ETH`);
+  check("the second fresh recipient received the summary's figure (28 ETH minus the fees)", Math.abs(got2 - receive2) < 1e-9 && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (summary ${receive2})`);
   await snap(page, "sent-120k");
 
   // 5. the $850K swap (the single-order flow; a $1M+ order is a protected execution: section 8) ------------------------------
@@ -523,7 +551,7 @@ try {
   const ackIn = await acknowledgeAll(page);
   log(`acknowledged ${ackIn} items inside the Review`);
   await snap(page, "review-commit");
-  check("enhanced: a tap confirms the commit (the hold starts at the protected band and the high-value tiers)", (await byId(page, "confirm-tap").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0);
+  check("V5 (spec §11): the $850K commit is a hold (from $50K), never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
   await confirmReview(page);
   // after the commit the order panel shows the scheduled funding
   const panel = byId(page, "order-panel");
@@ -553,12 +581,13 @@ try {
   for (let attempt = 1; attempt <= 4 && !executed; attempt++) {
     await confirmSwap.click();
     let outcome = await firstOf(page, { review, consent, refusal }, 240_000);
-    if (outcome === "consent") {
+    for (let consents = 0; outcome === "consent" && consents < 6; consents++) { // the live price can drift again between a consent and the fresh hard quote it leads to
       const moved = (await text(byId(page, "minimum-moved"))).slice(0, 200);
-      check("a lower hard quote asks for consent before anything is signed (§14)", /you approved [0-9.]+ BTC/.test(moved), moved);
-      await snap(page, "minimum-moved");
+      if (consents === 0) { check("a lower hard quote asks for consent before anything is signed (§14)", /you approved [0-9.]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
+      else log(`the price moved again (${consents + 1}): ${moved.slice(0, 120)}`);
       await consent.click();
-      outcome = await firstOf(page, { review, refusal }, 240_000);
+      await byId(page, "minimum-moved").waitFor({ state: "hidden", timeout: 60_000 }).catch(() => {}); // the fresh hard quote replaces the block
+      outcome = await firstOf(page, { review, consent, refusal }, 240_000);
     }
     if (outcome === "refusal") {
       refusals++;

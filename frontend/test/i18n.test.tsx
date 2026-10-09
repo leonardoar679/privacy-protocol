@@ -70,8 +70,10 @@ describe("the locale (spec §19)", () => {
     expect(prefixes).toEqual(expect.arrayContaining(["op.error.", "op.state.", "privacyCenter.level.", "wallet.status."]));
   });
   it("the pseudo-locale lengthens and accents every string, keeps placeholders and the marks, and the screens render it without an English leak", () => {
-    expect(pseudoLocalize("Send {amount} now")).toBe("[Šéñđ {amount} ñóŵ~~~]");
-    expect(pseudoLocalize("✓ Protected · 12 %")).toBe("[✓ Þřóţéçţéđ · 12 %~~~]");
+    expect(pseudoLocalize("Send {amount} now")).toBe("[Šéñđ {amount} ñóŵ ~~~]");
+    expect(pseudoLocalize("✓ Protected · 12 %")).toBe("[✓ Þřóţéçţéđ · 12 % ~~~]");
+    expect(pseudoLocalize("a".repeat(40)), "the lengthening wraps: groups of three, never one run").toBe("[" + "á".repeat(40) + " ~~~ ~~~ ~~~ ~~~ ~~~]");
+    expect(pseudoLocalize("")).toBe("[]");
     const cat = pseudoCatalog(en);
     expect(Object.keys(cat)).toEqual(Object.keys(en));
     for (const k of Object.keys(en) as (keyof typeof en)[]) {

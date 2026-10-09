@@ -33,6 +33,7 @@ own contracts, the UI shell (`frontend`), gas optimisation.
 | **V3** `reference/typescript/src/wallet/{campaign,riskClasses,addressBook}.ts`, `frontend/src/wallet/{campaigns,campaignRunner,addressBook,alerts,notifications}.ts`, `frontend/src/sdk/{swapExecute,allowances}.ts`, `frontend/src/components/protection/*` | the high-value protection layer (`docs/high-value-protection-spec-v1.0.md`): the tranche splitter and the exposure invariants I1–I5, the settlement gate with the elapsed-time margin (no explorer), the reducer's one action per tick, the runner's reconcile before every money movement (never a second funding or hand-over), the bounds one confirmation binds, the address book's verification methods and the Immediate override, the separate cross-platform device with no password fallback, what the trade check sends |
 | **V3** `services/private-swap/src/risk/{riskDb,security,protection}.ts`, `services/private-swap/risk/`, `services/private-swap/src/health.ts`, `services/relayer/src/admin.ts` | the risk database's validation, the security breakdown's adjustments and the incident decay, the breaker's new triggers and the half-open probe, the recommendation's band / cap / gate / ELPF / concentration (advice the wallet re-derives), the execution window clamp, the job list's token |
 | `frontend/src/sdk/lightclient/`, `frontend/src/sdk/verifiedReads.ts` | the Ethereum light client: SSZ roots and generalized indices per data format (Electra/Fulu, Gloas), update validation and committee rotation against consensus-specs, the BLS ciphersuite, the trust-on-first-use bootstrap and the snapshot age limit, the execution header field list, the Merkle-Patricia walk (inclusion and exclusion), and the pool check (prefix root, nullifier slots) |
+| **V5** `frontend/src/{storage,api}`, `frontend/src/features/{operations,fees,privacy-center/status.ts}`, `frontend/src/prover/pins.ts`, `frontend/scripts/{csp,artifact-pins-lib}.mjs`, `frontend/src/app/i18n`, `reference/typescript/src/wallet/fees.ts`, `reference/typescript/src/classic/note.ts`, `services/relayer/src/relayer.ts` (the percentage fee) | the secure store over IndexedDB (the same ciphertext; the migration's equal read-back rule; the prefs schema that holds no secret); the transport policy (credentials omitted, redirects refused, the host allow-list, every request through one module); the fee rule and where the relayer can enforce it (gap 25); the operation state machine's invariants I-O1–I-O5 and the error catalog's funds classes; the pin check in the prover worker; the content security policy's construction from the environment; what the leakage gate reads and what it cannot see; the Privacy Center's facts (computed, never asserted); the classic note format and the module boundary |
 
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
@@ -137,6 +138,24 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 24. **V4 — the velocity limit and the opt-out are the user's**: both live in the encrypted journal; a compromised unlocked
     session can raise the limit or turn the layer off (the latter behind a warned second step). There is no server-side
     limit by design (self-custody, plan §63).
+25. **V5 — the percentage privacy fee is enforceable by the relayer only where the amount is public**: a withdrawal's
+    `withdrawalAmount` is a public input, so the relayer refuses `fee < max(minimum, ⌈amount·bps/10000⌉)` (`fee_below_percent`); a
+    private transfer's amount is not, so the wallet pays the percentage and the relayer checks its minimum only. A modified
+    wallet can underpay transfers; the relayer's economics then rest on withdrawals and swaps. Please judge.
+26. **V5 — WalletConnect's relay** (only when `VITE_WC_PROJECT_ID` is set, loaded lazily) sees the dApp's origin, the wallet's
+    metadata, the encrypted session envelopes and the timing of the public deposits it carries; it is never used for a
+    private operation. The connector is disclosed on "What stays private?".
+27. **V5 — the content security policy lives in a meta tag** written into `index.html` at build time (a static host without
+    headers still gets it) and in the server's headers (`docs/deployment.md`); `frame-ancestors` cannot live in a meta tag;
+    a host that rewrites the HTML can remove either. The policy keeps `style-src-attr 'unsafe-inline'` for the V1.1–V4
+    components still mounted (the design system sets no inline style).
+28. **V5 — the pin file (`public/artifacts.json`) is served by the application's origin** and shares its trust: it binds the
+    artifacts to the build (a swapped key on another host is refused), not the build to a ceremony; a production release
+    pins the ceremony's key and publishes `docs/build-hashes.md` out of band.
+29. **V5 — the gates run in the test browsers' limits**: axe in jsdom / happy-dom (no layout, no colour contrast) and the
+    viewport matrix in one Chromium build; the leakage gate's swap leg runs the service's engine behind a fetch mock and a
+    mocked prover (the proof itself is public data); the locale catalogs beside English are partial (the shell and the first
+    screens) and fall back key by key.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

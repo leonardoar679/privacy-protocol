@@ -30,7 +30,7 @@
 .ds-page-body { display: flex; flex-direction: column; gap: var(--space-4); }
 .ds-page-footer { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); padding: var(--space-3) 0; background: linear-gradient(to top, var(--bg) 70%, transparent); }
 .ds-topbar { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; }
-.ds-topbar-title { flex: 1 1 auto; margin: 0; font-size: var(--heading-size); line-height: var(--heading-line); font-weight: var(--heading-weight); }
+.ds-topbar-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: var(--heading-size); line-height: var(--heading-line); font-weight: var(--heading-weight); }
 .ds-topbar-actions { display: flex; align-items: center; gap: var(--space-2); }
 .ds-bottomnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-nav); display: flex; justify-content: space-around; gap: var(--space-1); background: var(--surface); border-top: 1px solid var(--border); padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px)); }
 .ds-nav-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: var(--touch); padding: var(--space-1) 0; border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--caption-size); line-height: var(--caption-line); text-decoration: none; }
@@ -45,7 +45,8 @@
 }
 
 /* the two primary actions side by side (spec §3.3) */
-.ds-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.ds-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); }
+.ds-actions > * { min-width: 0; }
 
 /* balance, assets */
 .ds-balance { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -70,7 +71,7 @@ button.ds-asset-row { cursor: pointer; }
 .ds-input[aria-invalid="true"] { border-color: var(--danger); }
 .ds-amount { display: flex; flex-direction: column; gap: var(--space-2); }
 .ds-amount-row { display: flex; align-items: center; gap: var(--space-2); }
-.ds-amount-input { flex: 1 1 auto; font-size: var(--title-size); line-height: var(--title-line); font-weight: 600; font-variant-numeric: tabular-nums; border: none; background: transparent; padding: 0; min-width: 0; }
+.ds-amount-input { flex: 1 1 auto; min-height: var(--touch); font-size: var(--title-size); line-height: var(--title-line); font-weight: 600; font-variant-numeric: tabular-nums; border: none; background: transparent; padding: 0; min-width: 0; }
 .ds-amount-symbol { font-size: var(--heading-size); font-weight: 600; color: var(--fg-muted); }
 .ds-amount-usd { color: var(--fg-muted); font-size: var(--label-size); }
 .ds-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
@@ -107,7 +108,7 @@ button.ds-badge { cursor: pointer; }
 .ds-badge-high { background: var(--shield-soft); color: var(--shield); }
 .ds-badge-reduced { background: var(--warn-soft); color: var(--warn); }
 .ds-badge-off { background: var(--surface-2); color: var(--fg-muted); border-color: var(--border); }
-.ds-status { display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--caption-size); font-weight: 600; }
+.ds-status { display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--caption-size); font-weight: 600; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .ds-status-ok { background: var(--shield-soft); color: var(--shield); }
 .ds-status-pending { background: var(--accent-soft); color: var(--accent); }
 .ds-status-warn { background: var(--warn-soft); color: var(--warn); }
@@ -147,6 +148,7 @@ button.ds-badge { cursor: pointer; }
 .ds-segmented-item { flex: 1 1 0; min-height: 38px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--label-size); font-weight: 500; cursor: pointer; }
 .ds-segmented-item[data-state="checked"] { background: var(--surface); color: var(--fg); box-shadow: var(--elevation-1); font-weight: 600; }
 .ds-switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--touch); }
+.ds-switch-row > span, .ds-radio-text { min-width: 0; overflow-wrap: anywhere; }
 .ds-switch { width: 44px; height: 26px; border-radius: var(--radius-full); border: none; padding: 2px; background: var(--border); cursor: pointer; transition: background var(--motion-fast) var(--ease); }
 .ds-switch[data-state="checked"] { background: var(--accent); }
 .ds-switch-thumb { display: block; width: 22px; height: 22px; border-radius: var(--radius-full); background: var(--surface); transition: transform var(--motion-fast) var(--ease); }
@@ -165,7 +167,8 @@ button.ds-badge { cursor: pointer; }
 .ds-list-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) 0; border: none; border-top: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; }
 .ds-list-row:first-child { border-top: none; }
 button.ds-list-row { cursor: pointer; }
-.ds-list-main { flex: 1 1 auto; display: flex; flex-direction: column; }
+.ds-list-main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.ds-list-row > * { min-width: 0; }
 .ds-list-sub { color: var(--fg-muted); font-size: var(--caption-size); }
 .ds-collapsible-toggle { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: 0; border: none; background: none; color: var(--accent); font: inherit; font-size: var(--label-size); cursor: pointer; }
 .ds-collapsible-body { padding-top: var(--space-2); }
@@ -174,6 +177,9 @@ button.ds-list-row { cursor: pointer; }
 .ds-progress-indeterminate .ds-progress-bar { width: 40%; animation: ds-shimmer 1.2s linear infinite; }
 .ds-skeleton { display: block; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%); background-size: 400px 100%; animation: ds-shimmer 1.4s linear infinite; }
 .ds-hold { position: relative; }
+.ds-hold-labels { position: relative; display: inline-block; }
+.ds-hold-hidden { visibility: hidden; }
+.ds-hold-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .ds-hold-ring { width: 22px; height: 22px; border-radius: var(--radius-full); flex: 0 0 22px; }
 
 /* error, security */
@@ -196,7 +202,8 @@ button.ds-list-row { cursor: pointer; }
 /* V5 Stage 7: the flows' small layouts */
 .ds-stack { display: flex; flex-direction: column; gap: var(--space-3); }
 .ds-stack-sm { display: flex; flex-direction: column; gap: var(--space-2); }
-.ds-kv { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; font-size: var(--label-size); }
+.ds-kv { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); align-items: baseline; font-size: var(--label-size); }
+.ds-kv > * { min-width: 0; }
 .ds-kv-label { color: var(--fg-muted); }
 .ds-kv-value { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 .ds-note { margin: 0; color: var(--fg-muted); font-size: var(--caption-size); }
@@ -242,3 +249,10 @@ button.ds-list-row { cursor: pointer; }
 /* a native checkbox or radio inside a label row (the Advanced knobs, the classic disclosures): the accent, a 20 px box */
 .ds-native-row { cursor: pointer; }
 .ds-native-row > input[type="checkbox"], .ds-native-row > input[type="radio"] { width: 20px; height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--accent); }
+
+/* Home's two columns from 1024 px (spec §4, the desktop refinement): one column on phones */
+.ds-columns, .ds-column { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+@media (min-width: 1024px) { .ds-columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; } }
+
+/* an action under a pressable row (Activity's Remove): never inside the row's button */
+.ds-row-actions { display: flex; justify-content: flex-end; margin-top: calc(-1 * var(--space-2)); }

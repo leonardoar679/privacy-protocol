@@ -23,7 +23,7 @@ Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `frontend/src/` (`app/
 `reference/typescript/src/wallet/`, `services/relayer/` (fee terms only), `scripts/local-stack/`,
 `scripts/verify-all.mjs`.
 
-Status (2026-10-08): a section marked *Stage N* is built by the V5 pass in that stage, in order
+Status (2026-10-08): a section marked *Stage N* is built by the V5 pass in that stage, in order Every stage (0–12) landed on `main` on 2026-10-08 (`docs/roadmap.md`, the V5 table); §89 onward awaits the owner's addendum (§24).
 (`docs/roadmap.md` tracks completion). The owner's decisions this document rests on: the rebuild happens
 inside `frontend/` (the plan's §81 monorepo layout is a later mechanical pass); the privacy fee is the
 relayer's percentage term paid through the fee note that already exists, and the executor tip on swaps; the

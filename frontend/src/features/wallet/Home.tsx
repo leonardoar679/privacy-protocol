@@ -77,6 +77,8 @@ export function Home() {
     <Page title={t("app.name")} testId="home"
       status={<ProtectionBadge level={posture.overall === "Reduced" ? "Reduced" : "High"} label={t("privacy.badge")} onPress={() => navigate("/more/privacy")} testId="privacy-badge" />}
       actions={<IconButton label={t("home.settings")} icon="gear" onClick={() => navigate("/more/security")} />}>
+      <div className="ds-columns">
+      <div className="ds-column">
       <BalanceCard label={t("home.protectedBalance")} amountUsd={headline.big} subline={headline.small} status={headline.status} amountTestId="private-usd" />
       {lines.some((l) => l.units > 0n) ? (
         <Card padding="md" testId="assets">
@@ -88,6 +90,8 @@ export function Home() {
         <Button size="lg" icon="send" onClick={() => navigate("/send")}>{t("home.send")}</Button>
         <Button size="lg" icon="swap" onClick={() => navigate("/swap")}>{t("home.swap")}</Button>
       </div>
+      </div>
+      <div className="ds-column">
       <Card padding="md">
         {hasNotes ? <ListRow title={t("home.addFunds")} leading={<Icon name="shield-plus" />} onPress={() => navigate("/protect")} testId="add-funds" /> : null}
         <ListRow title={t("home.receive")} leading={<Icon name="receive" />} onPress={() => navigate("/receive")} testId="receive" />
@@ -115,6 +119,8 @@ export function Home() {
         {advanced ? <p className="ds-field-hint" data-testid="core-line">{coreLine}</p> : null}
         <SecurityCard icon="globe" title={t("home.privateServices")} body={t("home.privateServicesWhy")} action={<Button variant="secondary" onClick={() => { setDetails(true); navigate("/more/ai"); }}>{t("home.privateAI")}</Button>} />
       </Collapsible>
+      </div>
+      </div>
     </Page>
   );
 }
