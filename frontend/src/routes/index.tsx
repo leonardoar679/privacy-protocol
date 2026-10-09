@@ -12,8 +12,10 @@ import { Welcome } from "../features/onboarding/Welcome";
 import { Create, Restore, Unlock } from "../features/onboarding/Lock";
 import { More } from "../features/more/More";
 import { ClassicSoon } from "../features/classic-privacy/ClassicSoon";
-import { HomeRoute, PrivacyRoute, ProtectRoute, ReceiveRoute, SendRoute, SettingsRoute } from "../app/legacy/routes";
+import { Home } from "../features/wallet/Home";
+import { PrivacyRoute, ProtectRoute, ReceiveRoute, SendRoute, SettingsRoute } from "../app/legacy/routes";
 import { Outlet } from "react-router-dom";
+import type { Deployment } from "../sdk/chain";
 
 /** React Router 6 with the v7 behaviours already on (relative splat paths, fetcher persistence, partial hydration …). */
 export const ROUTER_FUTURE = { v7_relativeSplatPath: true, v7_fetcherPersist: true, v7_normalizeFormMethod: true, v7_partialHydration: true, v7_skipActionErrorRevalidation: true } as const;
@@ -25,8 +27,8 @@ const AIRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default
 const GuestRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.GuestRoute })));
 const Gallery = lazy(() => import("../design-system/Gallery").then((m) => ({ default: m.Gallery })));
 
-function Root() {
-  return <Providers><Outlet /></Providers>;
+function Root({ deployment }: { deployment?: Deployment | null }) {
+  return <Providers deployment={deployment}><Outlet /></Providers>;
 }
 
 function RouteError() {
@@ -41,9 +43,9 @@ function RouteError() {
   );
 }
 
-export function buildRoutes({ dev }: { dev: boolean }): RouteObject[] {
+export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: Deployment | null }): RouteObject[] {
   const shellChildren: RouteObject[] = [
-    { index: true, element: <HomeRoute /> },
+    { index: true, element: <Home /> },
     { path: "protect/*", element: <ProtectRoute /> },
     { path: "send/*", element: <SendRoute /> },
     { path: "receive", element: <ReceiveRoute /> },
@@ -62,7 +64,7 @@ export function buildRoutes({ dev }: { dev: boolean }): RouteObject[] {
   ];
   return [
     {
-      element: <Root />,
+      element: <Root deployment={deployment} />,
       errorElement: <RouteError />,
       children: [
         { element: <RequireLocked />, children: [

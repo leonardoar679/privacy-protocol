@@ -7,6 +7,7 @@
 //      to the proven block hash; read contract storage with eth_getProof against its state root
 //      (execution.ts).
 // Beacon APIs and RPCs are couriers: what they hand over is checked, never believed.
+import { fetchFor } from "../../api/transport";
 import { getAddress, toHex, type Address, type Hex } from "viem";
 import { LightClient, LightClientError, beaconApi, type LightClientBootstrap, type LightClientUpdate, type StoreSnapshot } from "./beacon";
 import { verifyAccount, verifyHeader, verifyStorage, type AccountProof, type VerifiedAccount, type VerifiedHeader } from "./execution";
@@ -31,7 +32,7 @@ export interface SyncOptions {
 }
 
 /** A finalized block root that every reachable configured beacon API reports for the same slot (trust on first use, cross-checked). */
-export async function agreedFinalizedRoot(urls: string[], fetchFn: typeof fetch = fetch): Promise<Hex> {
+export async function agreedFinalizedRoot(urls: string[], fetchFn: typeof fetch = fetchFor("beacon")): Promise<Hex> {
   const [first, ...rest] = urls.map((u) => beaconApi(u, fetchFn));
   const head = (await first<{ data: { root: Hex; header: { message: { slot: string } } } }>("/eth/v1/beacon/headers/finalized")).data;
   const slot = head.header.message.slot;
@@ -97,7 +98,7 @@ async function rpc<T>(urls: string[], method: string, params: unknown[], fetchFn
 export interface ProvenStorage { header: VerifiedHeader; account: VerifiedAccount; values: bigint[] }
 
 /** Storage of `address` at the light client's finalized execution block, every word proven. */
-export async function provenStorage(lc: LightClient, rpcUrls: string[], address: Address, slots: Hex[], fetchFn: typeof fetch = fetch): Promise<ProvenStorage> {
+export async function provenStorage(lc: LightClient, rpcUrls: string[], address: Address, slots: Hex[], fetchFn: typeof fetch = fetchFor("rpc")): Promise<ProvenStorage> {
   const blockHash = lc.finalizedExecutionBlockHash();
   const header = verifyHeader(blockHash, await rpc<Record<string, unknown>>(rpcUrls, "eth_getBlockByHash", [blockHash, false], fetchFn));
   const proof = await rpc<AccountProof>(rpcUrls, "eth_getProof", [getAddress(address), slots.map((s) => toHex(BigInt(s), { size: 32 })), toHex(header.number)], fetchFn);

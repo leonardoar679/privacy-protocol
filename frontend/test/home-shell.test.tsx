@@ -5,8 +5,7 @@
 // and sets it aside only when the user asks; replacing a wallet needs a typed confirmation.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { act } from "react";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { recordActivity } from "../src/wallet/activity";
@@ -65,7 +64,8 @@ describe("the shell", () => {
   it("the Privacy badge shows the overall level and opens the Center; Activity renders the journal and removes finished rows", async () => {
     await mountUnlocked();
     const badge = screen.getByTestId("privacy-badge");
-    expect(badge.textContent).toMatch(/Privacy: (Excellent|Good|Reduced)/);
+    expect(badge).toHaveAttribute("data-level"); // High or Reduced from the posture (spec §3.3); the level words live in the Center
+    expect(badge.textContent).toContain("Protected");
     fireEvent.click(badge);
     expect((await screen.findByTestId("privacy-center")).textContent).toContain("Timing privacy");
     fireEvent.click(screen.getByTestId("back"));

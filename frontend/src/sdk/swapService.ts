@@ -5,6 +5,7 @@
 // the service's tier) and its preference instead of a policy; quotes carry their execution plan, the
 // provider's impact figure and the competition record; /prepare keeps the approved minimum; /track
 // reads the destination side of an executed order.
+import { secureFetch } from "../api/transport"; // V5 (spec §7): every request under the one transport policy
 import type { Address, Hex } from "viem";
 import { fmtUnits } from "./format";
 
@@ -73,7 +74,7 @@ export class ServiceMinimumMoved extends Error {
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch(SWAP_SERVICE + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined);
+  const r = await secureFetch(SWAP_SERVICE + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}, "swap-service");
   const j = await r.json();
   if (!r.ok) {
     if (r.status === 409 && j?.code === "minimum_moved") throw new ServiceMinimumMoved(BigInt(j.approvedMin), BigInt(j.newMin));

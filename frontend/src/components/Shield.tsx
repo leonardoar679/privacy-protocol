@@ -1,3 +1,4 @@
+import { activeProvider } from "../sdk/injected";
 import { useState } from "react";
 import type { Deployment } from "../sdk/chain";
 import { shieldERC20, shieldNative } from "../sdk/privateTx";
@@ -23,8 +24,8 @@ export function Shield({ masterSeed, deployment }: { masterSeed: Uint8Array; dep
   // High-Value Protection spec §13: a failed deposit may leave the exact-amount approval behind; it is read through the connected wallet and can be revoked
   async function checkLeftover() {
     if (!asset.token) return;
-    const eth = (window as any).ethereum;
-    const [from] = eth ? await eth.request({ method: "eth_accounts" }).catch(() => []) : [];
+    const eth = activeProvider();
+    const [from] = (eth ? await eth.request({ method: "eth_accounts" }).catch(() => []) : []) as `0x${string}`[];
     if (!from) { setLeftover("unknown"); return; }
     const a = await readAllowance(asset.token, from, asset.vault);
     setLeftover(a === null ? "unknown" : a);

@@ -61,7 +61,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     fireEvent.click(screen.getByTestId("phrase-continue"));
     expect(await screen.findByTestId("home")).toBeInTheDocument();
     expect(pathname()).toBe("/");
-    expect(document.body.textContent).toContain("Private balance");
+    expect(document.body.textContent).toContain("Protected balance");
     expect(screen.getByTestId("private-usd").textContent).toBe("—"); // nothing to value, nothing read
     expect(session.state().status).toBe("unlocked");
     expect(fetchSpy, "Home").not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     expect(await screen.findByTestId("home")).toBeInTheDocument();
 
     // the screens reached from Home are routes with a Back control
-    fireEvent.click(screen.getByRole("button", { name: "Add funds" }));
+    fireEvent.click(screen.getByTestId("protect-cta")); // the card of an empty balance: "Protect Assets"
     expect(await screen.findByTestId("shield")).toBeInTheDocument();
     expect(pathname()).toBe("/protect");
     fireEvent.click(screen.getByTestId("back"));

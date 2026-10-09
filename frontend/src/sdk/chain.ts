@@ -6,7 +6,9 @@
 // Env: VITE_RPC_URLS (comma-separated; or VITE_RPC_URL for one), VITE_CORE, VITE_ETH_VAULT,
 // VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36),
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
-import { createPublicClient, getAddress, http, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
+import { viemTransport } from "../api/transport";
+import { activeProvider } from "./injected";
+import { createPublicClient, getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@ref/merkle";
 import { TX_LEVELS } from "@ref/txInputs";
 import { txDomain } from "@ref/payload";
@@ -32,7 +34,7 @@ export function deploymentFromEnv(env: Record<string, string | undefined> = (imp
  * Reads are "fetch everything" (all NoteInserted events), never address-specific queries, so no
  * endpoint learns which notes are ours. Light-client verification is the native-host upgrade.
  */
-const transportFor = (url: string) => http(url, { batch: true, fetchOptions: { credentials: "omit", redirect: "error" } });
+const transportFor = (url: string) => viemTransport(url); // V5 (spec §7): the one transport policy, announced to the leakage gate
 export const clientFor = (d: Deployment): PublicClient => createPublicClient({ transport: transportFor(d.rpcUrl) });
 export const clientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls?.length ? d.rpcUrls : [d.rpcUrl]).map((u) => createPublicClient({ transport: transportFor(u) }));
 
@@ -147,10 +149,10 @@ export async function syncPoolQuorum(d: Deployment): Promise<{ tree: TreeState; 
 
 /** Submit through the injected wallet (public submission — a relayer / private channel is the L3 upgrade). */
 export async function sendViaInjectedWallet(tx: TxRequest): Promise<Hex> {
-  const eth = (window as any).ethereum;
+  const eth = activeProvider();
   if (!eth) throw new Error("no injected wallet to submit with");
-  const [from] = await eth.request({ method: "eth_requestAccounts" });
-  return eth.request({ method: "eth_sendTransaction", params: [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: "0x" + tx.value.toString(16) } : {}) }] });
+  const [from] = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+  return (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: "0x" + tx.value.toString(16) } : {}) }] })) as Hex;
 }
 
 /** Wait for a transaction and return the leaves it inserted (leaf index + commitment). */
@@ -162,7 +164,7 @@ export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{
 
 /** The connected account's public balance, read through the injected wallet's OWN provider (never our RPCs: no address ↔ endpoint link). */
 export async function publicBalanceViaInjectedWallet(account: string): Promise<bigint | null> {
-  const eth = (window as any).ethereum;
+  const eth = activeProvider();
   if (!eth) return null;
   const hex = await eth.request({ method: "eth_getBalance", params: [account, "latest"] });
   return typeof hex === "string" ? BigInt(hex) : null;

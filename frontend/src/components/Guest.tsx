@@ -1,3 +1,4 @@
+import { secureFetch } from "../api/transport";
 import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
 import { SWAP_SERVICE, type AssetRef, type QuoteSet } from "../sdk/swapService";
@@ -21,7 +22,7 @@ interface Instruction { provider: string; quote: { toAmount: string; toAmountMin
 const fmt = (units: string, decimals: number) => fmtUnits(units, decimals); // from base units, never through a float
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(SWAP_SERVICE + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const r = await secureFetch(SWAP_SERVICE + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, "guest");
   const j = await r.json();
   if (!r.ok) throw new Error(j.error ?? `service error ${r.status}`);
   return j as T;
@@ -74,7 +75,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   }
   useEffect(() => {
     if (!instruction || !txid.trim()) return;
-    const tick = () => fetch(`${SWAP_SERVICE}/guest/track/${instruction.provider}/${encodeURIComponent(txid.trim())}`).then((r) => r.json()).then((j) => setStatus(j.status ?? "Pending")).catch(() => {});
+    const tick = () => secureFetch(`${SWAP_SERVICE}/guest/track/${instruction.provider}/${encodeURIComponent(txid.trim())}`, {}, "guest").then((r) => r.json()).then((j) => setStatus(j.status ?? "Pending")).catch(() => {});
     tick();
     const t = setInterval(tick, 20_000);
     return () => clearInterval(t);

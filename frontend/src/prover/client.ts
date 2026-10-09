@@ -1,6 +1,7 @@
 // Main-thread client of the proving worker (src/prover/worker.ts). One worker per proof, terminated
 // afterwards. Artifacts: /artifacts/* served by the Vite plugin from ../circuits in dev, or
 // VITE_ARTIFACT_BASE in a deployed build.
+import { secureFetch } from "../api/transport";
 import type { Hex } from "viem";
 import { publicInputsFromSignals, type PublicInputs } from "@ref/prover";
 import type { CircuitInputs } from "@ref/txInputs";
@@ -22,7 +23,7 @@ let seq = 0;
 export async function proveInBrowser(inputs: CircuitInputs, onStatus?: ProveStatus): Promise<BrowserProof> {
   let verificationKey: unknown;
   try {
-    const r = await fetch(ARTIFACT_URLS.verificationKey);
+    const r = await secureFetch(ARTIFACT_URLS.verificationKey, {}, "artifacts");
     if (r.ok) verificationKey = await r.json();
   } catch { /* no local verification; the chain verifies anyway */ }
   onStatus?.(verificationKey ? "Proving locally in a Web Worker (the proof is verified locally before submission)…" : "Proving locally in a Web Worker…");

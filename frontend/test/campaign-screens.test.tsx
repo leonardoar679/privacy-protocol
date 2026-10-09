@@ -14,8 +14,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { getAddress } from "viem";
 import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@ref/wallet/campaign";
+import { MemoryRouter } from "react-router-dom";
 import { Review } from "../src/components/Review";
-import { Home } from "../src/components/Home";
+import { Providers } from "../src/app/Providers";
+import { Home } from "../src/features/wallet/Home";
 import { Activity } from "../src/components/Activity";
 import { Settings } from "../src/components/Settings";
 import { CampaignProgress, campaignStatus } from "../src/components/protection/CampaignProgress";
@@ -251,7 +253,7 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
       session.update((j) => { j.swaps = [...j.swaps, stored]; });
       recordActivity({ id: `swap:0x${i}`, kind: "swap", asset: "ETH", decimals: 18, amount: eth(50).toString(), status: "executing", ref: `0x${i}`, note: "→ BTC · step" });
     }
-    const home = await mount(<Home masterSeed={session.state().seed!} deployment={null} account={null} privacyLevel="Good" onOpen={() => {}} onTab={() => {}} />);
+    const home = await mount(<MemoryRouter><Providers deployment={null}><Home /></Providers></MemoryRouter>); // V5: the Home of spec §3.3 reads the session, the deployment context and the connection store
     const line = home.querySelector('[data-testid="campaign-line"]')!;
     expect(line.textContent).toContain("● Processing");
     expect(line.textContent, "plan §98").toContain("Executing in protected steps");

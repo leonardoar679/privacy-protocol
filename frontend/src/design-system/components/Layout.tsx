@@ -19,10 +19,10 @@ export function TopBar({ title, back, backLabel = "Back", actions, status, testI
   );
 }
 
-export function Page({ title, back, backLabel, actions, primaryAction, width = "phone", children, testId }: { title: ReactNode; back?: () => void; backLabel?: string; actions?: ReactNode; primaryAction?: ReactNode; width?: "phone" | "wide"; children: ReactNode; testId?: string }) {
+export function Page({ title, back, backLabel, actions, status, primaryAction, width = "phone", children, testId }: { title: ReactNode; back?: () => void; backLabel?: string; actions?: ReactNode; status?: ReactNode; primaryAction?: ReactNode; width?: "phone" | "wide"; children: ReactNode; testId?: string }) {
   return (
     <div className={cx("ds-page", width === "wide" && "ds-page-wide")} data-testid={testId}>
-      <TopBar title={title} back={back} backLabel={backLabel} actions={actions} />
+      <TopBar title={title} back={back} backLabel={backLabel} actions={actions} status={status} />
       <div className="ds-page-body">{children}</div>
       {primaryAction ? <div className="ds-page-footer">{primaryAction}</div> : null}
     </div>

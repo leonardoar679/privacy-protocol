@@ -7,9 +7,7 @@ import { useT } from "../i18n/useT";
 import { useDeployment } from "../deployment";
 import { useUnlockedSeed } from "../Gate";
 import { connection, shortAccount, useConnection } from "../../features/wallet/connection";
-import { usePosture } from "../../wallet/posture";
 import { useStatusLines } from "./statusLines";
-import { Home, type HomeSheet } from "../../components/Home";
 import { Shield } from "../../components/Shield";
 import { Send } from "../../components/Send";
 import { Withdraw } from "../../components/Withdraw";
@@ -21,23 +19,6 @@ import { Settings } from "../../components/Settings";
 import { PrivateAI } from "../../components/PrivateAI";
 import { Guest } from "../../components/Guest";
 import { useState } from "react";
-
-const SHEET_ROUTES: Record<HomeSheet, string> = { "add-funds": "/protect", receive: "/receive", privacy: "/more/privacy", settings: "/more/security", ai: "/more/ai" };
-
-export function HomeRoute() {
-  const navigate = useNavigate();
-  const seed = useUnlockedSeed();
-  const deployment = useDeployment();
-  const { account } = useConnection();
-  const posture = usePosture(deployment);
-  const { coreLine, advanced } = useStatusLines(deployment);
-  return (
-    <>
-      <Home masterSeed={seed} deployment={deployment} account={account} privacyLevel={posture.overall} onOpen={(sheet) => navigate(SHEET_ROUTES[sheet])} onTab={(tab) => navigate(tab === "send" ? "/send" : "/swap")} />
-      {advanced ? <p className="ds-field-hint" data-testid="core-line">{coreLine}</p> : null}
-    </>
-  );
-}
 
 export function ProtectRoute() {
   const t = useT();

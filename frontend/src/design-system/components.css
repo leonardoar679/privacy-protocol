@@ -44,6 +44,9 @@
   .ds-page-footer { position: static; background: none; }
 }
 
+/* the two primary actions side by side (spec §3.3) */
+.ds-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
 /* balance, assets */
 .ds-balance { display: flex; flex-direction: column; gap: var(--space-1); }
 .ds-balance-amount { font-size: var(--display-size); line-height: var(--display-line); font-weight: var(--display-weight); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }

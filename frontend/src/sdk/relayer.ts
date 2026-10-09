@@ -3,6 +3,8 @@
 // a funded escrow, refund after the window). Any URL works; the wallet keeps a list of relayers and
 // self-submission as fallbacks (plan §85 rule 5). The relayer never receives keys — only proofs,
 // public inputs, payloads, the fee note's opening (its own note), signed executions and refund payloads.
+import { fetchFor } from "../api/transport"; // V5 (spec §7): the policy fetch is the default implementation
+const relayerFetch: typeof fetch = fetchFor("relayer");
 import type { Address, Hex } from "viem";
 
 const envList = (v: unknown): string[] => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -53,12 +55,12 @@ async function call<T>(url: string, path: string, body: unknown | undefined, fet
   return j as T;
 }
 
-export const relayerInfo = (url: string, fetchImpl: typeof fetch = fetch) => call<RelayerInfo>(url, "/info", undefined, fetchImpl);
-export const relayerSubmit = (url: string, req: RelayerSubmitRequest, fetchImpl: typeof fetch = fetch) => call<RelayerSubmitResult>(url, "/submit", req, fetchImpl);
-export const relayerStatus = (url: string, txHash: Hex, fetchImpl: typeof fetch = fetch) => call<{ status: string }>(url, `/status/${txHash}`, undefined, fetchImpl);
-export const relayerSwapExecute = (url: string, req: SwapExecuteRequest, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, "/swap/execute", req, fetchImpl);
-export const relayerSwapRefund = (url: string, req: SwapRefundRequest, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, "/swap/refund", req, fetchImpl);
-export const relayerSwapStatus = (url: string, orderId: string, fetchImpl: typeof fetch = fetch) => call<SwapJob>(url, `/swap/${orderId}`, undefined, fetchImpl);
+export const relayerInfo = (url: string, fetchImpl: typeof fetch = relayerFetch) => call<RelayerInfo>(url, "/info", undefined, fetchImpl);
+export const relayerSubmit = (url: string, req: RelayerSubmitRequest, fetchImpl: typeof fetch = relayerFetch) => call<RelayerSubmitResult>(url, "/submit", req, fetchImpl);
+export const relayerStatus = (url: string, txHash: Hex, fetchImpl: typeof fetch = relayerFetch) => call<{ status: string }>(url, `/status/${txHash}`, undefined, fetchImpl);
+export const relayerSwapExecute = (url: string, req: SwapExecuteRequest, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, "/swap/execute", req, fetchImpl);
+export const relayerSwapRefund = (url: string, req: SwapRefundRequest, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, "/swap/refund", req, fetchImpl);
+export const relayerSwapStatus = (url: string, orderId: string, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, `/swap/${orderId}`, undefined, fetchImpl);
 
 /** A refusal is the relayer's decision (4xx with a code); anything else (network, 5xx) is a reason to try the next relayer. */
 export const isRefusal = (e: unknown): boolean => e instanceof RelayerRefusal && e.status < 500;
@@ -69,7 +71,7 @@ export const isRefusal = (e: unknown): boolean => e instanceof RelayerRefusal &&
  * choice is made before proving. Returns null when none is reachable (the caller falls back to
  * self-submission or reports it).
  */
-export async function pickRelayer(urls: string[], want: { chainId: number; core: Address }, fetchImpl: typeof fetch = fetch): Promise<{ url: string; info: RelayerInfo } | null> {
+export async function pickRelayer(urls: string[], want: { chainId: number; core: Address }, fetchImpl: typeof fetch = relayerFetch): Promise<{ url: string; info: RelayerInfo } | null> {
   const tried: string[] = [];
   for (const url of urls) {
     if (!url || tried.includes(url)) continue;

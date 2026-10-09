@@ -5,6 +5,8 @@
 // straight to the inference provider with a short-lived key; the billing server never sees them.
 // Nothing here touches PrivacyCore, the pool notes or the swap engine (plan §85 rules 1, 11).
 // The pure parts (transport policy, pin gate, streaming) live in ./policy and are unit-tested.
+import { allowHosts, secureFetch } from "../api/transport";
+allowHosts("openrouter.ai");
 import { configureBrowserSdk, CHAT_SPENDING_TIER_USD } from "@openanonymity/zkapi-browser-sdk";
 import client from "@openanonymity/zkapi-browser-sdk/client";
 import { privateTransport, ZKAPI_PUBLIC_PATH, type BrowserConfig, type PinCheck } from "./policy";
@@ -29,7 +31,7 @@ export function configureZkapi(opts: { requestTestnetPassword?: (req: TestnetPas
 
 export async function loadPinCheck(): Promise<PinCheck | null> {
   try {
-    const r = await fetch(`${ZKAPI_PUBLIC_PATH}pin-check.json`, { cache: "no-store", credentials: "omit" });
+    const r = await secureFetch(`${ZKAPI_PUBLIC_PATH}pin-check.json`, {}, "zkapi");
     return r.ok ? ((await r.json()) as PinCheck) : null;
   } catch {
     return null;
@@ -38,8 +40,11 @@ export async function loadPinCheck(): Promise<PinCheck | null> {
 
 export async function loadBrowserConfig(): Promise<BrowserConfig | null> {
   try {
-    const r = await fetch(`${ZKAPI_PUBLIC_PATH}browser-config.json`, { cache: "no-store", credentials: "omit" });
-    return r.ok ? ((await r.json()) as BrowserConfig) : null;
+    const r = await secureFetch(`${ZKAPI_PUBLIC_PATH}browser-config.json`, {}, "zkapi");
+    if (!r.ok) return null;
+    const cfg = (await r.json()) as BrowserConfig;
+    allowHosts(cfg?.trusted_deployment?.rpc_url, cfg?.trusted_deployment?.protocol_server_url, cfg?.trusted_deployment?.openrouter_inference_base); // the deployment's own endpoints (spec §7)
+    return cfg;
   } catch {
     return null;
   }
@@ -47,7 +52,7 @@ export async function loadBrowserConfig(): Promise<BrowserConfig | null> {
 
 /** OpenRouter's public catalog (no key). The provider learns nothing from this read beyond an IP. */
 export async function listModels(): Promise<{ id: string; name: string }[]> {
-  const r = await fetch("https://openrouter.ai/api/v1/models", { credentials: "omit", redirect: "error" });
+  const r = await secureFetch("https://openrouter.ai/api/v1/models", {}, "inference");
   if (!r.ok) throw new Error(`model catalog HTTP ${r.status}`);
   const j = await r.json();
   return (j.data ?? []).map((m: any) => ({ id: String(m.id), name: String(m.name ?? m.id) }));

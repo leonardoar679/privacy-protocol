@@ -2,6 +2,7 @@
 // that lies about the fork schedule could make a forged signature domain verify). Values as served
 // identically by two independent beacon APIs (ChainSafe Lodestar, PublicNode) on 2026-10-07. A fork the
 // build does not know is refused (fail closed): its signature domain and generalized indices are unknown.
+import { allowHosts } from "../../api/transport";
 import type { Hex } from "viem";
 
 /** Light-client data formats this build verifies (the `version` of a beacon API response). */
@@ -79,3 +80,6 @@ export function lcFork(version: string): LcFork {
   if (version === "electra" || version === "fulu" || version === "gloas") return version;
   throw new Error(`light client: data format "${version}" is not one this build verifies`);
 }
+
+// the public beacon APIs are endpoints of this deployment (Privacy Wallet Web spec §7)
+allowHosts(...MAINNET.beaconApis, ...SEPOLIA.beaconApis);

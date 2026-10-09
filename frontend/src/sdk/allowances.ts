@@ -3,13 +3,14 @@
 // revoked here. Reads and writes go through the injected wallet's OWN provider (never this wallet's RPC endpoints: no
 // address ↔ endpoint link). The escrow's approval of the provider for its whole post-tip balance is bytecode and stays:
 // invariant D1 bounds it to one tranche (documented in the audit package).
+import { activeProvider } from "./injected";
 import { decodeFunctionResult, encodeFunctionData, type Address, type Hex } from "viem";
 import { sendViaInjectedWallet, type Deployment } from "./chain";
 import { buildApprove, erc20Abi } from "./privacyProtocol";
 import { assetsOf, type Asset } from "./assets";
 
 type Injected = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
-const injected = (): Injected | null => (typeof window !== "undefined" ? ((window as unknown as { ethereum?: Injected }).ethereum ?? null) : null);
+const injected = (): Injected | null => activeProvider(); // V5 (spec §7): the connection store's provider, the injected one as the fallback
 
 /** `allowance(owner, spender)` read through the injected provider; null without one or on a refusal. */
 export async function readAllowance(token: Address, owner: Address, spender: Address, eth: Injected | null = injected()): Promise<bigint | null> {

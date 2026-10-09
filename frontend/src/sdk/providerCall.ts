@@ -12,6 +12,7 @@
 // refused. A minimum it cannot read (LI.FI into Mayan) is accepted only under the Fastest policy (§9).
 // Written independently of services/private-swap's adapters; the tests check both decoders agree on
 // real provider calls.
+import { allowHosts, fetchFor } from "../api/transport";
 import { base58 } from "@scure/base";
 import { bytesToHex, decodeAbiParameters, decodeFunctionData, getAddress, hexToBytes, isAddress, padHex, parseAbi, type Address, type Hex } from "viem";
 import type { AssetRef, Policy } from "./swapService";
@@ -177,6 +178,7 @@ export const from1e8 = (v: bigint, decimals: number) => (v * 10n ** BigInt(decim
 export const THORNODE_GATEWAYS: string[] = (env.VITE_THORNODE_URLS ?? "https://gateway.liquify.com/chain/thorchain_api,https://rest.cosmos.directory/thorchain,https://thorchain-thornode-lb-1.thorwallet.org")
   .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 export const THORNODE_QUORUM = Math.max(2, Number(env.VITE_THORNODE_QUORUM ?? 2));
+allowHosts(...THORNODE_GATEWAYS); // V5 (spec §7): the gateways are endpoints of this deployment
 
 /**
  * The inbound vault + router for `chain` (THORChain notation, e.g. "ETH"), as at least `quorum` gateways
@@ -184,7 +186,7 @@ export const THORNODE_QUORUM = Math.max(2, Number(env.VITE_THORNODE_QUORUM ?? 2)
  * same for every user (all chains, no amounts, no addresses), and carries no cookie or referrer.
  */
 export async function thornodeInbound(chain: string, opts: { gateways?: string[]; quorum?: number; fetchFn?: typeof fetch; timeoutMs?: number } = {}): Promise<InboundVault> {
-  const gateways = opts.gateways ?? THORNODE_GATEWAYS, quorum = opts.quorum ?? THORNODE_QUORUM, fetchFn = opts.fetchFn ?? fetch;
+  const gateways = opts.gateways ?? THORNODE_GATEWAYS, quorum = opts.quorum ?? THORNODE_QUORUM, fetchFn = opts.fetchFn ?? fetchFor("thornode");
   const answers = await Promise.all(gateways.map(async (base) => {
     try {
       const r = await fetchFn(`${base}/thorchain/inbound_addresses`, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });

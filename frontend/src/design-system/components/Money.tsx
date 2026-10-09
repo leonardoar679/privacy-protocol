@@ -5,11 +5,11 @@ import { cx, nextId } from "../cx";
 import { AssetMonogram, Icon } from "../icons";
 import { Card } from "./Layout";
 
-export function BalanceCard({ label, amountUsd, subline, status, onStatus, statusLabel, testId = "balance" }: { label: string; amountUsd: string | null; subline?: ReactNode; status: "protected" | "unavailable" | "loading"; onStatus?: () => void; statusLabel?: string; testId?: string }) {
+export function BalanceCard({ label, amountUsd, subline, status, onStatus, statusLabel, testId = "balance", amountTestId }: { label: string; amountUsd: string | null; subline?: ReactNode; status: "protected" | "unavailable" | "loading"; onStatus?: () => void; statusLabel?: string; testId?: string; amountTestId?: string }) {
   return (
     <Card elevation={1} padding="lg" testId={testId}>
       <div className="ds-balance">
-        <span className="ds-balance-amount" aria-live="polite" data-testid={`${testId}-amount`} data-status={status}>{amountUsd ?? "—"}</span>
+        <span className="ds-balance-amount" aria-live="polite" data-testid={amountTestId ?? `${testId}-amount`} data-status={status}>{amountUsd ?? "—"}</span>
         <span className="ds-balance-label">{label}</span>
         {subline ? <span className="ds-balance-sub">{subline}</span> : null}
         {onStatus && statusLabel ? <ProtectionBadge level={status === "protected" ? "High" : "Reduced"} label={statusLabel} onPress={onStatus} /> : null}

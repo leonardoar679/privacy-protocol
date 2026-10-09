@@ -3,6 +3,7 @@
 // supermajority of the current sync committee signed a header whose state proves it final. Every proof
 // is checked here — Merkle branches by SSZ hashing, the aggregate BLS signature by pairing — so a beacon
 // API is only a courier: one that lies is caught; one that refuses only stops the client.
+import { fetchFor } from "../../api/transport";
 import { bls12_381 } from "@noble/curves/bls12-381";
 import { bytesToHex, hexToBytes, type Hex } from "viem";
 import {
@@ -141,7 +142,7 @@ export class LightClient {
 
 export interface BeaconApi { get<T>(path: string): Promise<{ version: string; data: T }[] | { version: string; data: T }> }
 
-export function beaconApi(base: string, fetchFn: typeof fetch = fetch, timeoutMs = 20_000) {
+export function beaconApi(base: string, fetchFn: typeof fetch = fetchFor("beacon"), timeoutMs = 20_000) {
   return async <T>(path: string): Promise<T> => {
     const r = await fetchFn(base.replace(/\/+$/, "") + path, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs) });
     if (!r.ok) throw new LightClientError(`beacon API ${base}: HTTP ${r.status} for ${path.split("?")[0]}`);
