@@ -6,7 +6,7 @@
 // checked against address shapes before it is sent. The assistant recommends, simulates, explains,
 // compares and warns; it signs nothing, withdraws nothing, changes no destination and overrides no check
 // (plan §78): this module imports nothing that signs or submits, and a test pins that.
-import { chatStream, inferenceFetch, type ChatMessage, type InferenceAccess } from "./policy";
+import { chatStream, type ChatMessage, type InferenceAccess } from "./policy";
 import type { CompetitionEntry, ExecutionPlan, Protection, RouteScore } from "../sdk/swapService";
 import type { LintItem } from "@ref/wallet/privacyLint";
 import type { Tier } from "@ref/wallet/valuation";

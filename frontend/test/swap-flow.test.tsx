@@ -20,6 +20,8 @@ import type { Deployment } from "../src/sdk/chain";
 import { PrivateSwapEngine, type PreparedExecution } from "../../services/private-swap/src/engine";
 import { buildMemo, encodeDepositWithExpiry } from "../../services/private-swap/src/adapters/thorchain";
 import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "../../services/private-swap/src/types";
+import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
+import { allowedHosts } from "../src/api/transport";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -115,9 +117,12 @@ async function service(path: string, body: any): Promise<Response> {
   return json({ error: "no such route" }, 404);
 }
 
+// V5 Stage 11 (spec §20–§21): every request of the scenario is kept and read for secrets at the end (the leakage gate)
+const requests: { url: string; body: string | null }[] = [];
 const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const url = String(input);
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+  requests.push({ url, body: init?.body ? String(init.body) : null });
   const u = new URL(url);
   calls.push(`${u.host}${u.pathname}`);
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
@@ -271,4 +276,24 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     expect(session.journal().swaps.find((s) => s.orderId === orderId)?.approvedMin).toBe((LIMIT - 60_000n).toString());
     expect(container.textContent).not.toContain("The price moved");
   });
+
+  it("the leakage gate (spec §20–§21): no request of the quote → commit → confirm scenario carries the seed, the phrase, a key, the password or a forbidden field; the service and the relayer see the order, the one-time key and the public call only", async () => {
+    const container = document.createElement("div");
+    requests.length = 0;
+    await committedAndFunded(container);
+    await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="checked-line"]')).toBeTruthy(), { timeout: 30_000 });
+    const { secrets } = sessionSecrets({ password: "a strong password", phrase: session.state().pendingPhrase ?? "" });
+    expect(requests.length).toBeGreaterThan(5);
+    const hosts = [...new Set(requests.map((r) => new URL(r.url).hostname))];
+    expect(hosts.length, "the service, the relayer, the RPC endpoint, the THORNode gateways").toBeGreaterThanOrEqual(3);
+    expect(hosts.filter((h) => !allowedHosts().includes(h)), "every host is allow-listed by the transport").toEqual([]);
+    for (const r of requests) {
+      expect(leaks(`${r.url}
+${r.body ?? ""}`, secrets), r.url).toEqual([]);
+      if (r.body) expect([...fieldNames(JSON.parse(r.body))].filter((n) => FORBIDDEN_FIELDS.test(n)), `${r.url}: field names`).toEqual([]);
+    }
+    const seedHex = Array.from(session.state().seed!, (x) => x.toString(16).padStart(2, "0")).join("");
+    expect(requests.some((r) => (r.body ?? "").includes(seedHex))).toBe(false);
+  }, 60_000);
 });

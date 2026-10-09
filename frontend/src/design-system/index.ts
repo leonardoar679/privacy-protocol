@@ -2,6 +2,7 @@
 // inventory every screen is composed from. A screen imports from here, never from @radix-ui or a stylesheet.
 export * from "./tokens";
 export { cx } from "./cx";
+export { DEFAULT_LABELS, labels, resetLabels, setLabels, useLabels, type Labels } from "./labels";
 export { Icon, AssetMonogram, ICON_NAMES, type IconName } from "./icons";
 export * from "./primitives";
 export { Button, IconButton, type ButtonProps } from "./components/Button";

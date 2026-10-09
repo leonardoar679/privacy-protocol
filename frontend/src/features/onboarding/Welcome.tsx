@@ -19,7 +19,7 @@ export function Welcome() {
   };
   if (step === "promise") {
     return (
-      <div className="ds-main">
+      <main className="ds-main">
         <Page title={t("app.name")} testId="welcome">
           <Card padding="lg">
             <h2 className="ds-error-title">{t("welcome.title")}</h2>
@@ -32,16 +32,16 @@ export function Welcome() {
             {conn.status !== "connected" ? <Button variant="ghost" full onClick={() => setStep("experience")} data-testid="welcome-skip">{t("welcome.skip")}</Button> : null}
           </Card>
         </Page>
-      </div>
+      </main>
     );
   }
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("experience.title")} back={() => setStep("promise")} testId="experience">
         <RadioGroup value={experience} onValueChange={(v) => setExperience(v === "advanced" ? "advanced" : "simple")} ariaLabel={t("experience.title")} name="experience"
           options={[{ value: "simple", label: t("experience.simple"), description: t("experience.simpleWhy"), testId: "experience-simple" }, { value: "advanced", label: t("experience.advanced"), description: t("experience.advancedWhy"), testId: "experience-advanced" }]} />
         <Button size="lg" full onClick={finish} data-testid="experience-continue">{t("common.continue")}</Button>
       </Page>
-    </div>
+    </main>
   );
 }

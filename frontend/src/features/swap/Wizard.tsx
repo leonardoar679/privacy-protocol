@@ -43,7 +43,7 @@ export function Wizard(p: WizardProps) {
     <Card testId="campaign-wizard-card">
       <div className="ds-stack-sm" data-testid="campaign-wizard" data-step={p.step}>
         <div className="ds-note">{t("wizard.heading")} · {titles.map((title, i) => <span key={title} className={i === p.step ? "ds-level ds-level-Good" : i < p.step ? "ds-level ds-level-Excellent" : ""}>{i < p.step ? "✓ " : ""}{title}{i < 2 ? " → " : ""}</span>)}</div>
-        <h3 className="ds-review-title">{titles[p.step]}</h3>
+        <h2 className="ds-review-title">{titles[p.step]}</h2>
         {p.step === 0 && !p.introSeen ? <p className="ds-note-warn" data-testid="protection-intro">{t("wizard.intro")}</p> : null}
         {p.step === 0 ? (
           <div className="ds-stack-sm ds-note" data-testid="wizard-risk">

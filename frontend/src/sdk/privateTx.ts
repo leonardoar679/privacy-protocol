@@ -251,6 +251,8 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
     if (!hit) throw new Error("mined, but the recipient's note commitment was not found in the receipt");
     extraLeaf = hit.leafIndex;
   }
+  // V5 (spec §12): the record's COMPLETED needs the settlement reference — the mined transaction and the leaf of the note it left (the recipient's, else the change)
+  o.onEvent?.({ type: "mined", txHash, ...(extraLeaf !== undefined ? { leafIndex: extraLeaf } : change ? { leafIndex: change.leafIndex } : {}) });
   return { txHash, proofMs: proof.ms, verifiedLocally: proof.verifiedLocally, change, spent: o.spent.map((n) => n.leafIndex), submittedBy, feeWei: o.fee?.note.amount, extraLeaf };
 }
 

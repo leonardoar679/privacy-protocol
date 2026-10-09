@@ -1,8 +1,9 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { extname, join } from "node:path";
+import { cspPlugin, SECURITY_HEADERS, zkapiHosts } from "./scripts/csp.mjs";
 
 /**
  * Serves the circuit artifacts the in-browser prover fetches (`/artifacts/*`) straight from
@@ -56,22 +57,29 @@ function coreWasm(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), circuitArtifacts(), coreWasm()],
-  // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
-  // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
-  optimizeDeps: { include: ["snarkjs"] },
-  resolve: {
-    alias: {
-      // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is
-      "@ref": fileURLToPath(new URL("../reference/typescript/src", import.meta.url)),
+export default defineConfig(({ mode }) => {
+  const root = fileURLToPath(new URL(".", import.meta.url));
+  // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
+  const env = loadEnv(mode, root, "VITE_");
+  return {
+    plugins: [react(), circuitArtifacts(), coreWasm(), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json")))],
+    // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
+    // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
+    optimizeDeps: { include: ["snarkjs"] },
+    resolve: {
+      alias: {
+        // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is
+        "@ref": fileURLToPath(new URL("../reference/typescript/src", import.meta.url)),
+      },
     },
-  },
-  server: {
-    fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
-    // the zkAPI SDK expects its deployment manifest behind a same-origin rewrite (sdk/README.md);
-    // in dev it is proxied to the pinned protocol server of the network the assets were built for
-    proxy: { "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") } },
-  },
-  worker: { format: "es" },
+    server: {
+      fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
+      // the zkAPI SDK expects its deployment manifest behind a same-origin rewrite (sdk/README.md);
+      // in dev it is proxied to the pinned protocol server of the network the assets were built for
+      proxy: { "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") } },
+    },
+    // `npm run preview` answers with the headers a host must send (docs/deployment.md)
+    preview: { headers: { ...SECURITY_HEADERS } },
+    worker: { format: "es" },
+  };
 });

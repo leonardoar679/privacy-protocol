@@ -1,0 +1,120 @@
+# Deploying the web wallet — static hosting, headers, the artifacts (Privacy Wallet Web spec §20)
+
+The wallet is a static build (`cd frontend && npm run build` → `frontend/dist`): HTML, JavaScript, CSS, the WASM of the
+Rust core, the circuit artifacts and the pin file. It needs no server-side code. What a host must do is serve the
+files with the right headers, fall back to `index.html` for the client-side routes, and serve nothing else. The
+wallet makes requests only to the hosts the build was configured with (`VITE_*`, see `frontend/.env.example`); the
+content security policy below names them and refuses every other destination.
+
+## The policy and the headers
+
+`frontend/scripts/csp.mjs` builds the policy from the build's environment and writes it into `dist/index.html` as a
+`<meta http-equiv="Content-Security-Policy">` (the first tag of `<head>`), so a host that cannot set headers still
+ships it. A host that can set headers sends the same policy as a header (a header reaches the browser before any
+byte of the page) plus `frame-ancestors 'none'`, which a meta tag cannot carry. `npm run preview` sends every
+header below (`vite.config.ts` → `preview.headers`). The policy of a build:
+
+```
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' <the hosts of the build>;
+img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self';
+base-uri 'none'; form-action 'none'; object-src 'none'; upgrade-insecure-requests
+```
+
+- `'wasm-unsafe-eval'`: snarkjs (the prover) and the Rust core run as WebAssembly; no `'unsafe-eval'`, no inline script.
+- `worker-src 'self' blob:`: the prover runs in a same-origin module worker.
+- `connect-src`: the RPC endpoints, the relayers, the swap service, the beacon APIs, the THORNode gateways, an artifact host
+  when `VITE_ARTIFACT_BASE` is absolute, WalletConnect's relay only when `VITE_WC_PROJECT_ID` is set, and the zkAPI
+  profile's pinned hosts when the zkAPI assets were built. Nothing else: no analytics, no error reporting, no font or
+  style host.
+- `img-src data: blob:`: the icons wallets announce through EIP-6963 arrive as data URIs; the QR of Receive is inline SVG.
+- `style-src-attr 'unsafe-inline'`: the design system sets no inline styles; a few V1.1–V4 components still mounted do.
+
+The headers (`SECURITY_HEADERS` in `csp.mjs`):
+
+| header | value | why |
+|---|---|---|
+| `Content-Security-Policy` | the policy above + `; frame-ancestors 'none'` | the page cannot be framed (clickjacking); every destination named |
+| `X-Frame-Options` | `DENY` | older browsers |
+| `X-Content-Type-Options` | `nosniff` | WASM and JSON are served as what they are |
+| `Referrer-Policy` | `no-referrer` | no URL of the wallet reaches another host |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()` | nothing the wallet needs |
+| `Cross-Origin-Opener-Policy` | `same-origin` | no window reference from another origin |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` | HTTPS only |
+| `Cache-Control` | `no-store` for `index.html` (the hashed assets may be cached for a year) | a new build is seen at once |
+
+## nginx
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name wallet.example;
+  root /srv/privacy-wallet/dist;
+  # the policy of this build is in dist/index.html's meta tag; repeat it here and add frame-ancestors
+  set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests";
+  add_header Content-Security-Policy $csp always;
+  add_header X-Frame-Options DENY always;
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy no-referrer always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
+  add_header Cross-Origin-Opener-Policy same-origin always;
+  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+  types { application/wasm wasm; application/manifest+json webmanifest; }
+  location = /index.html { add_header Cache-Control "no-store" always; }
+  location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable" always; }
+  location /artifacts/ { add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
+  location / { try_files $uri /index.html; }   # the client-side routes (/send, /more/privacy, …)
+}
+```
+
+## Caddy
+
+```caddyfile
+wallet.example {
+  root * /srv/privacy-wallet/dist
+  encode zstd gzip
+  header {
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+    X-Frame-Options DENY
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    Cross-Origin-Opener-Policy same-origin
+    Strict-Transport-Security "max-age=63072000; includeSubDomains"
+  }
+  @index path /index.html /
+  header @index Cache-Control no-store
+  header /assets/* Cache-Control "public, max-age=31536000, immutable"
+  header /artifacts/* Cache-Control "public, max-age=31536000, immutable"
+  try_files {path} /index.html
+  file_server
+}
+```
+
+## The artifacts and their pins
+
+- `/artifacts/transaction.wasm`, `/artifacts/transaction_final.zkey`, `/artifacts/verification_key.json`: copy them from
+  `circuits/build` and `circuits/setup/<ceremony>` into `dist/artifacts/` (or serve them from `VITE_ARTIFACT_BASE`, which
+  then belongs in `connect-src`). The dev setup's key is the insecure single-party one; a production build ships the
+  ceremony's.
+- `/core/privacy_core_wasm.js`, `/core/privacy_core_wasm_bg.wasm`: `npm run core:assets` copies the Rust core's package
+  into `public/core` before the build; without it the wallet runs the TypeScript reference.
+- `/artifacts.json`: the pins (`node scripts/pin-artifacts.mjs`; `docs/build-hashes.md` records them). The prover worker
+  hashes the proving key and the witness generator it fetched and refuses a mismatch in a production build; a build
+  without a pin file refuses to prove in production. `node scripts/check-artifact-pins.mjs` checks the pins against
+  the files on the build machine and, when `dist/` exists, that `index.html` carries the policy and ships the pin file.
+- `/zkapi/*` (Private AI): `npm run zkapi:assets` and `npm run zkapi:pins` (docs/zkapi-integration-spec.md).
+
+## What the host never sees
+
+No request of the wallet carries a seed, a phrase, a spending or viewing key, a note secret or the keystore; the
+privacy leakage suite (`frontend/test/privacy-leakage.test.tsx`, verify-all's "frontend privacy leakage" step)
+drives the create → protect → send flows and the swap scenario and reads every request body. The host serves files;
+the balance, the notes and the journal live encrypted in the browser's IndexedDB (`docs/wallet-formats.md`).
+
+## Checks before a release
+
+1. `node scripts/verify-all.mjs` (every suite, the lint, the leakage gate, the artifact pins, the dependency audit, the build).
+2. `cd frontend && npm run build && npm run preview`, open the preview: the console shows no CSP violation on first
+   launch, Protect, Send, Swap, the Privacy Center.
+3. `node scripts/check-artifact-pins.mjs` on the build machine; `docs/build-hashes.md --dist` for the record.
+4. The local stack's browser run (`docs/local-run.md`) against the build when the services are reachable.

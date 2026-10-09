@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 import { recoverMessageAddress, type Hex } from "viem";
 import { approveEntry,
-  addEntry, canUse, challengeMessage, markSettled, markUsed, overrideCooling, retire, selectable, useStatus, verifyEntry, verifySolanaMessage,
+  addEntry, canUse, challengeMessage, markSettled, markUsed, overrideCooling, retire, selectable, useStatus as entryStatus, verifyEntry, verifySolanaMessage,
   type AddressBookEntry, type AddressChain, type VerificationMethod,
 } from "@ref/wallet/addressBook";
 import { parseDestination } from "@ref/wallet/destinations";
@@ -16,7 +16,7 @@ import type { JournalData } from "./journal";
 import { session as defaultSession, type WalletSession } from "./session";
 
 export type { AddressBookEntry, AddressChain, VerificationMethod };
-export { challengeMessage, selectable, useStatus };
+export { challengeMessage, selectable, entryStatus as useStatus };
 
 const EMPTY: AddressBookEntry[] = [];
 /** The book of a journal (the same empty array while there is none: a stable snapshot for the screens). */
@@ -132,8 +132,8 @@ export function destinationCheck(chain: AddressChain, address: string, o: { tier
     : { entry: null, ok: true, verified: false, status: "Entered by hand: check every group before you confirm." };
   const r = canUse(entry, { tier: o.tier, now });
   const verified = entry.verification.status === "verified";
-  if (r.ok) return { entry, ok: true, verified, status: useStatus(entry, { tier: o.tier, now }) };
-  return { entry, ok: false, reason: r.reason, verified, ...(r.reason === "cooling-off" ? { until: r.until } : {}), status: useStatus(entry, { tier: o.tier, now }) };
+  if (r.ok) return { entry, ok: true, verified, status: entryStatus(entry, { tier: o.tier, now }) };
+  return { entry, ok: false, reason: r.reason, verified, ...(r.reason === "cooling-off" ? { until: r.until } : {}), status: entryStatus(entry, { tier: o.tier, now }) };
 }
 
 /** The signed-message check (§12): an EVM address proves control with an EIP-191 signature the wallet recovers offline; a Solana address with an ed25519 signature. Bitcoin signatures are not read (use the groups or a test transaction). */

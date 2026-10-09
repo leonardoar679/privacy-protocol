@@ -1,5 +1,6 @@
 // Toasts over Radix (spec §5): a provider at the app's root, `useToast()` anywhere below it. A toast announces a state
 // change (quote updated, proof generated, transaction submitted, protection completed) and nothing else.
+import { useLabels } from "../labels";
 import * as RT from "@radix-ui/react-toast";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { cx } from "../cx";
@@ -11,11 +12,12 @@ interface ToastItem extends ToastInput { id: string }
 const Ctx = createContext<(t: ToastInput) => void>(() => {});
 let seq = 0;
 
-export function ToastProvider({ children, viewportLabel = "Notifications" }: { children: ReactNode; viewportLabel?: string }) {
+export function ToastProvider({ children, viewportLabel }: { children: ReactNode; viewportLabel?: string }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const push = useCallback((t: ToastInput) => setItems((xs) => [...xs, { id: `toast-${++seq}`, ...t }]), []);
   const remove = useCallback((id: string) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
   const value = useMemo(() => push, [push]);
+  const L = useLabels();
   return (
     <Ctx.Provider value={value}>
       <RT.Provider swipeDirection="down">
@@ -26,7 +28,7 @@ export function ToastProvider({ children, viewportLabel = "Notifications" }: { c
             {i.body ? <RT.Description className="ds-toast-body">{i.body}</RT.Description> : null}
           </RT.Root>
         ))}
-        <RT.Viewport className="ds-toast-viewport" label={viewportLabel} />
+        <RT.Viewport className="ds-toast-viewport" label={viewportLabel ?? L.notifications} />
       </RT.Provider>
     </Ctx.Provider>
   );

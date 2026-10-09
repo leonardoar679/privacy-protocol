@@ -9,7 +9,7 @@ import { settings } from "../wallet/settings";
 import { Phrase } from "../features/onboarding/Phrase";
 
 export function Splash() {
-  return <div className="ds-main" data-testid="splash" aria-busy="true"><Skeleton height={120} /></div>;
+  return <main className="ds-main" data-testid="splash" aria-busy="true"><Skeleton height={120} /></main>;
 }
 
 const unlocked = (s: SessionState) => s.status === "unlocked" && !!s.seed && !s.pendingPhrase;

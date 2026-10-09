@@ -38,11 +38,11 @@ function RouteError() {
   const error = useRouteError();
   const reason = error instanceof Error ? error.message : String(error ?? "");
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("app.name")}>
         <ErrorCard title={t("error.routeTitle")} fundsLine={t("funds.notMoved")} fundsState="not-moved" reason={reason} actions={<Button onClick={() => { window.location.assign("/"); }}>{t("error.goHome")}</Button>} />
       </Page>
-    </div>
+    </main>
   );
 }
 

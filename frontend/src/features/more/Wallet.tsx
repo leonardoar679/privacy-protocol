@@ -47,7 +47,7 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
 
         <Card testId="trade-preference">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("wallet.preference.title")}</h3>
+            <h2 className="ds-review-title">{t("wallet.preference.title")}</h2>
             <p className="ds-note">{t("wallet.preference.body")}</p>
             {PREFERENCES.map((pref: Preference) => (
               <label key={pref} className="ds-radio-row" data-testid={`preference-${pref}`}>
@@ -60,7 +60,7 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
 
         <Card testId="allowances">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("wallet.allowances.title")}</h3>
+            <h2 className="ds-review-title">{t("wallet.allowances.title")}</h2>
             <p className="ds-note">{t("wallet.allowances.body")}</p>
             <div className="ds-actions"><Button variant="secondary" onClick={() => void readAllowances()} data-testid="read-allowances">{t("wallet.allowances.read")}</Button></div>
             {allowances?.map((l) => (

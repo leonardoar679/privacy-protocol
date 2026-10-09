@@ -131,7 +131,7 @@ export function Review(p: ReviewProps) {
 
   return (
     <div className="ds-card ds-elev-1 ds-pad-md ds-review" data-testid="review" data-moment={p.moment}>
-      <h3 className="ds-review-title">{title}</h3>
+      <h2 className="ds-review-title">{title}</h2>
       <p className="ds-note">{what} {tierLabel[p.tier]}.</p>
       <div className="ds-numeral ds-review-usd" data-testid="review-usd">{p.usd ?? "—"}</div>
       <div className="ds-review-amount">{p.amount}</div>

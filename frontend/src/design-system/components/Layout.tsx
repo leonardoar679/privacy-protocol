@@ -1,5 +1,6 @@
 // The shell, the page, the bars and the card (spec §2, §5): a phone's bottom navigation that becomes a top bar from
 // 1024 px, a page with its back control and one sticky primary action, cards with soft elevation.
+import { useLabels } from "../labels";
 import type { ReactNode } from "react";
 import { cx } from "../cx";
 import { Icon, type IconName } from "../icons";
@@ -9,10 +10,11 @@ export function Card({ elevation = 1, padding = "md", className, children, testI
   return <Tag className={cx("ds-card", `ds-elev-${elevation}`, `ds-pad-${padding}`, className)} data-testid={testId}>{children}</Tag>;
 }
 
-export function TopBar({ title, back, backLabel = "Back", actions, status, testId }: { title: ReactNode; back?: () => void; backLabel?: string; actions?: ReactNode; status?: ReactNode; testId?: string }) {
+export function TopBar({ title, back, backLabel, actions, status, testId }: { title: ReactNode; back?: () => void; backLabel?: string; actions?: ReactNode; status?: ReactNode; testId?: string }) {
+  const L = useLabels();
   return (
     <header className="ds-topbar" data-testid={testId}>
-      {back ? <IconButton label={backLabel} icon="chevron-left" onClick={back} data-testid="back" /> : null}
+      {back ? <IconButton label={backLabel ?? L.back} icon="chevron-left" onClick={back} data-testid="back" /> : null}
       <h1 className="ds-topbar-title">{title}</h1>
       {actions || status ? <div className="ds-topbar-actions">{status}{actions}</div> : null}
     </header>
@@ -32,9 +34,10 @@ export function Page({ title, back, backLabel, actions, status, primaryAction, w
 export interface NavItem { to: string; label: string; icon: IconName; testId?: string }
 
 /** Four items, never more (spec §2): anchors so the destinations are real links; `onSelect` navigates in the app. */
-export function BottomNav({ items, current, onSelect, label = "Main", brand }: { items: NavItem[]; current: string; onSelect: (to: string) => void; label?: string; brand?: ReactNode }) {
+export function BottomNav({ items, current, onSelect, label, brand }: { items: NavItem[]; current: string; onSelect: (to: string) => void; label?: string; brand?: ReactNode }) {
+  const L = useLabels();
   return (
-    <nav className="ds-bottomnav" aria-label={label}>
+    <nav className="ds-bottomnav" aria-label={label ?? L.mainNav}>
       {brand ? <div className="ds-brand">{brand}</div> : null}
       {items.map((i) => {
         const active = current === i.to || (i.to !== "/" && current.startsWith(`${i.to}/`));

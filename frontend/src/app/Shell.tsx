@@ -31,7 +31,7 @@ export function Shell() {
           </div>
         </div>
       ) : null}
-      <Suspense fallback={<div data-testid="loading" aria-busy="true"><Skeleton height={160} /></div>}>
+      <Suspense fallback={<div data-testid="loading" aria-busy="true" aria-label={t("common.loading")}><Skeleton height={160} /></div>}>
         <Outlet />
       </Suspense>
     </AppShell>

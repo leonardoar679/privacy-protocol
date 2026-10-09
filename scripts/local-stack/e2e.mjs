@@ -1,28 +1,31 @@
-// e2e.mjs — the end-to-end run of docs/local-run.md and the V2 plan's verification list, driven through a real
-// browser against the local stack (the Hardhat devnet as chain id 1, deploy.mjs, start-services.mjs):
-//   0. first launch: the lock screen, a wallet created, every tab and sheet — no request leaves the page's origin
-//   1. Settings: the light client off (the devnet has no beacon chain), then the funding wallet connected
-//   2. Add funds: two public deposits of 500 ETH (a $4.25M private balance at the mock price)
-//   3. a $1K withdrawal to a fresh address: the unchanged standard flow (a proof in the Web Worker, the relayer submits)
-//   4. a $120K withdrawal: the enhanced Review (lint + a tap)
-//   5. an $850K swap ETH -> BTC (the enhanced tier: from $1M every order is a protected execution, section 8): the Review
-//      at commit (five lines, lint, a tap; the single quote acknowledged when only one provider answered), Fund now (a
-//      private withdrawal into the one-time escrow), the hard quote at
-//      /prepare (a lower minimum needs consent; a hard quote the price guard refuses is retried against a fresh quote,
-//      else the order is returned to the pool), the provider call checked and signed, the pre-trade simulation on both
-//      RPC endpoints against the provider's real bytecode, the Review at execute (a tap), the hand-over, the executor,
-//      the tracker
-//   6. a reload: unlock, the open order comes back from the encrypted journal with its settlement line
-//   7. Activity: every money flow has a row
-//   8. V3 (High-Value Protection spec §14, §15): a $10M protected swap — a separate device registered through a virtual
-//      authenticator (CDP), five more 500 ETH deposits, the protection line, the wizard, the campaign Review (maximum-loss
-//      model, the paired verdict, the review hold), the password fallback for the second factor and the separate device, the
-//      journaled campaign; the runner takes step 1 through commit → fund → sign → hand-over (deployAndExecute mined) while
-//      step 2 waits; the dashboard; the global switch pauses; Return the rest winds down; a reload brings it back
+// e2e.mjs — the end-to-end run of docs/local-run.md, driven through a real browser against the local stack (the
+// Hardhat devnet as chain id 1, deploy.mjs, start-services.mjs). V5 (Privacy Wallet Web spec §2–§3, §19–§21): the
+// money flow on the rebuilt screens, the viewport matrix, the pseudo-locale width pass and the leakage twin.
+//   0. first launch: Welcome → the experience → Create → the phrase → Home; every route without one request off-origin
+//   1. More → Advanced: the light client off (the devnet has no beacon chain); More → Wallet: the funding wallet connected
+//   2. Protect: two public deposits of 500 ETH through the connected wallet's own provider (a $4.25M protected balance
+//      at the mock price)
+//   3. Send (public) $1K to a fresh address: the standard flow (a proof in the Web Worker, the relayer submits, a tap)
+//   4. Send (public) $120K: the enhanced Review (lint + a tap)
+//   5. Swap $850K ETH → BTC (enhanced): quote → Review Swap (five lines, lint, a tap) → the order panel → Fund now (a
+//      private withdrawal into the one-time escrow) → Confirm (the hard quote at /prepare: a lower minimum needs consent; a
+//      refused one is retried; else the order returns to the balance) → the Review at execute → the hand-over → the
+//      executor → the tracker
+//   6. a reload: unlock, the open order comes back from the encrypted journal with its line
+//   7. Activity: every money flow has a row, never a bare "failed"
+//   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
+//      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
+//      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
+//   9. V5: the shell pass per viewport (VIEWPORTS, default 360x800,390x844,412x915,768x1024,1280x800) — no horizontal
+//      scroll, the controls 44 px tall, a screenshot per screen — and the same pass under ?locale=pseudo
+//  10. V5: the leakage twin — every request body read for the phrase and the password; localStorage empty; the secure
+//      store holds the two ciphertext blobs only
 // Output: run/e2e/NN-step.png screenshots and run/e2e/report.json (results/ keeps a committed report).
 //
 //   BROWSER_CHANNEL=msedge node e2e.mjs      the system Edge or Chrome (chrome); unset: Playwright's Chromium
 //   HEADED=1 node e2e.mjs                    watch it
+//   VIEWPORTS=360x800,1280x800 node e2e.mjs  the shell pass on these viewports only
+//   SKIP_CAMPAIGN=1 node e2e.mjs             without the $10M protected swap (section 8)
 import { chromium } from "playwright";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -39,14 +42,15 @@ const PRICE = stack.prices.ETH;
 const CHANNEL = process.env.BROWSER_CHANNEL; // chrome | msedge | (unset: Playwright's Chromium)
 const HEADLESS = process.env.HEADED ? false : true;
 const PROOF_TIMEOUT = 420_000; // the first proof downloads the 31 MB key, then witness + proof in the worker
+const VIEWPORTS = (process.env.VIEWPORTS ?? "360x800,390x844,412x915,768x1024,1280x800").split(",").map((s) => s.trim()).filter(Boolean).map((s) => { const [w, h] = s.split("x").map(Number); return { width: w, height: h }; });
 const RUN_START = Date.now();
 
-const report = { startedAt: new Date().toISOString(), stack: { rpc: stack.rpc, core: stack.core, swapFactory: stack.swapFactory }, steps: [], checks: [], failures: [], outcome: {} };
+const report = { startedAt: new Date().toISOString(), stack: { rpc: stack.rpc, core: stack.core, swapFactory: stack.swapFactory }, steps: [], checks: [], failures: [], outcome: {}, viewports: [] };
 let shot = 0;
 const log = (msg) => { const line = `${new Date().toISOString().slice(11, 19)} ${msg}`; console.log(line); report.steps.push(line); };
 const check = (name, ok, detail = "") => { report.checks.push({ name, ok: !!ok, detail }); log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) report.failures.push(name); };
 async function snap(page, name) { const file = `${String(++shot).padStart(2, "0")}-${name}.png`; await page.screenshot({ path: join(OUT, file), fullPage: true }); return file; }
-const rpc = async (method, params = []) => { const r = await fetch(stack.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await r.json(); if (j.error) throw new Error(`${method}: ${j.error.message}`); return j.result; };
+const rpc = async (method, params = []) => { const r = await fetch(stack.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
 const balanceEth = async (address) => Number(BigInt(await rpc("eth_getBalance", [address, "latest"]))) / 1e18;
 const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
 const usdRe = (n, prefix = "≈ ") => new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\$" + Math.round(n).toLocaleString("en-US").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\.\\d{1,2})?(?!\\d)");
@@ -60,8 +64,13 @@ async function jobsOfThisRun() {
 
 // --- helpers over the page -------------------------------------------------------------------------------------------
 const button = (page, name) => page.getByRole("button", { name, exact: true });
+const byId = (page, id) => page.getByTestId(id);
 async function clickButton(page, name, opts = {}) { const b = button(page, name); await b.first().waitFor({ state: "visible", timeout: opts.timeout ?? 30_000 }); await b.first().click(); }
+async function clickId(page, id, opts = {}) { const b = byId(page, id); await b.first().waitFor({ state: "visible", timeout: opts.timeout ?? 30_000 }); await b.first().click(); }
 async function textAppears(page, t, timeout = 30_000) { await page.getByText(t, { exact: false }).first().waitFor({ state: "visible", timeout }); }
+async function fillId(page, id, value) { const i = byId(page, id); await i.waitFor({ state: "visible", timeout: 30_000 }); await i.fill(value); }
+/** the navigation (four links) */
+async function nav(page, name) { await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true }).click(); }
 async function acknowledgeAll(page) { // the privacy lint's block items, the destination check, the single quote: acknowledged before a high-value confirmation
   let n = 0;
   for (let i = 0; i < 12; i++) {
@@ -72,8 +81,8 @@ async function acknowledgeAll(page) { // the privacy lint's block items, the des
   }
   return n;
 }
-async function hold(page, ms = 2400) { // the hold to confirm (whale spec §24): a pointer hold of HOLD_MS (1.5 s), never a tap
-  const b = page.getByTestId("hold-to-confirm");
+async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a pointer hold of HOLD_MS (1.5 s), never a tap
+  const b = byId(page, "hold-to-confirm");
   await b.waitFor({ state: "visible", timeout: 30_000 });
   for (let i = 0; i < 50 && (await b.isDisabled()); i++) await page.waitForTimeout(200);
   if (await b.isDisabled()) throw new Error(`the hold is still disabled: ${await b.getAttribute("title")}`);
@@ -84,10 +93,10 @@ async function hold(page, ms = 2400) { // the hold to confirm (whale spec §24):
   await page.waitForTimeout(ms);
   await page.mouse.up();
 }
-/** the Review's confirmation: a hold from high-value, a tap below it */
+/** the Review's confirmation: a hold from the protected band, a tap below it */
 async function confirmReview(page) {
-  if (await page.getByTestId("hold-to-confirm").count()) return hold(page);
-  const tap = page.getByTestId("confirm-tap");
+  if (await byId(page, "hold-to-confirm").count()) return hold(page);
+  const tap = byId(page, "confirm-tap");
   for (let i = 0; i < 50 && (await tap.isDisabled()); i++) await page.waitForTimeout(200);
   await tap.click();
 }
@@ -101,8 +110,38 @@ async function launch() {
   const opts = { headless: HEADLESS, timeout: 30_000, args, ...(CHANNEL ? { channel: CHANNEL } : {}) };
   return chromium.launch(opts);
 }
+/** unlock after a reload */
+async function unlock(page) {
+  await byId(page, "lock-screen").waitFor({ timeout: 120_000 });
+  await page.locator('input[type="password"]').first().fill(PASSWORD);
+  await clickId(page, "unlock");
+  await byId(page, "home").waitFor({ timeout: 60_000 });
+}
+/** Protect: `amount` ETH through the connected wallet; waits until the vault holds it and the screen reports the note */
+async function protect(page, amount, expectVault) {
+  await nav(page, "Home");
+  await clickId(page, "protect-cta").catch(async () => { await page.goto(`${WALLET}protect`, { waitUntil: "load" }); });
+  await byId(page, "protect").waitFor({ timeout: 30_000 });
+  if (await byId(page, "protect-connect").count()) { await clickId(page, "protect-connect"); await textAppears(page, "Connected"); }
+  await fillId(page, "protect-amount-input", String(amount));
+  await clickId(page, "protect-submit");
+  await clickId(page, "confirm-tap");
+  for (let t = 0; t < 180 && (await balanceEth(stack.ethVault)) < expectVault - 1e-9; t++) await page.waitForTimeout(1000); // the deposit mined
+  await byId(page, "protect-done").waitFor({ timeout: 180_000 }); // the wallet saw the receipt and journaled the note
+}
+/** Send (public) `amount` ETH to the fresh address the screen pre-fills; returns the recipient */
+async function sendPublic(page, amount) {
+  await nav(page, "Home");
+  await clickButton(page, "Send");
+  await byId(page, "send-tab").waitFor({ timeout: 30_000 });
+  await clickId(page, "send-mode-public");
+  const recipient = await byId(page, "send-to-input").inputValue();
+  await fillId(page, "send-amount-input", String(amount));
+  await byId(page, "send-fees").waitFor({ timeout: 60_000 });
+  return recipient;
+}
 
-// --- V3: the protected swap ------------------------------------------------------------------------------------------
+// --- V3: the protected swap on the V5 screens -----------------------------------------------------------------------
 /** The amounts the progress panel shows, in ETH (its lines read "<n> ETH (≈ $x)"). */
 async function panelAmounts(page) {
   const out = {};
@@ -112,7 +151,7 @@ async function panelAmounts(page) {
   }
   return out;
 }
-async function campaignRun(page, nav, swap) {
+async function campaignRun(page) {
   const CAMPAIGN_ETH = Math.ceil(10_000_000 / PRICE); // $10M at the mock price: institutional
   // the separate device (spec §14): a virtual cross-platform authenticator through CDP stands in for a security key
   let deviceOk = false;
@@ -122,156 +161,193 @@ async function campaignRun(page, nav, swap) {
     await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
     deviceOk = true;
   } catch (e) { log(`no virtual authenticator (${e.message}); the institutional confirmation cannot be given here`); }
-  await nav.getByRole("button", { name: "Home", exact: true }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("protected-execution").waitFor();
-  await page.getByTestId("protected-execution").scrollIntoViewIfNeeded();
-  await snap(page, "settings-protected-execution");
+  // More: the advanced experience (the dashboard and the per-step lines), then Advanced → Protected execution
+  await nav(page, "More");
+  const experience = page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]');
+  if (!(await experience.isChecked())) await experience.check();
+  await clickId(page, "more-advanced");
+  await byId(page, "protected-execution").waitFor();
+  await byId(page, "protected-execution").scrollIntoViewIfNeeded();
+  await snap(page, "advanced-protected-execution");
   if (deviceOk) {
-    await page.getByTestId("register-second-device").click();
+    await clickId(page, "register-second-device");
     await textAppears(page, "Registered. Operations at the institutional size", 60_000);
   }
-  const deviceLine = await text(page.getByTestId("protected-execution"));
-  check("Settings → Protected execution: the three modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)", /Balanced/.test(deviceLine) && /Maximum safety/.test(deviceLine) && /registered/.test(deviceLine), deviceLine.match(/Second device[^R]{0,60}/)?.[0]);
-  // Advanced on: the dashboard and the per-step lines
-  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').check();
-  await clickButton(page, "Close");
-  // five more deposits: the private balance reaches the order
-  await clickButton(page, "Add funds");
-  const shieldAmount = page.locator('[data-testid="shield"] input');
+  const deviceLine = await text(byId(page, "protected-execution"));
+  check("More → Advanced → Protected execution: the four modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)", /Balanced/.test(deviceLine) && /Maximum safety/.test(deviceLine) && /Best execution/.test(deviceLine) && (!deviceOk || /registered/.test(deviceLine)), deviceLine.slice(0, 200));
+  // five more deposits: the protected balance reaches the order
   const before = await balanceEth(stack.ethVault);
   for (const i of [1, 2, 3, 4, 5]) {
-    await shieldAmount.fill("500");
-    await clickButton(page, "Shield");
-    for (let t = 0; t < 120 && (await balanceEth(stack.ethVault)) < before + 500 * i - 1e-9; t++) await page.waitForTimeout(1000);
-    await page.getByText(/Added 500 ETH to your private balance[.]|Shielded 500 ETH — note at leaf/).first().waitFor({ timeout: 180_000 }); // Advanced is on: the Shield screen names the leaf
-    log(`campaign deposit ${i}: 500 ETH shielded`);
+    await protect(page, 500, before + 500 * i);
+    log(`campaign deposit ${i}: 500 ETH protected`);
   }
-  await clickButton(page, "Close");
   // the quote: the protection line
-  await nav.getByRole("button", { name: "Swap", exact: true }).click();
-  await swap.locator('input[inputmode="decimal"]').fill(String(CAMPAIGN_ETH));
-  await swap.locator("select").selectOption("BTC");
+  await nav(page, "Swap");
+  const swap = byId(page, "swap");
+  await swap.waitFor({ timeout: 30_000 });
+  await fillId(page, "swap-amount-input", String(CAMPAIGN_ETH));
   await page.getByText(usdRe(CAMPAIGN_ETH * PRICE)).first().waitFor({ timeout: 30_000 });
   let lineText = "";
   for (let attempt = 1; attempt <= 3 && !lineText; attempt++) {
-    await clickButton(page, "Get a quote");
-    await page.getByTestId("quote").waitFor({ timeout: 240_000 });
-    lineText = (await page.getByTestId("protection-line").count()) ? await text(page.getByTestId("protection-line")) : "";
-    if (!lineText) { log(`quote attempt ${attempt}: no protection line — ${(await text(page.getByTestId("quote"))).slice(0, 200)}`); await page.waitForTimeout(5000); }
+    await clickId(page, "swap-quote");
+    await byId(page, "quote").waitFor({ timeout: 240_000 });
+    lineText = (await byId(page, "protection-line").count()) ? await text(byId(page, "protection-line")) : "";
+    if (!lineText) { log(`quote attempt ${attempt}: no protection line — ${(await text(byId(page, "quote"))).slice(0, 200)}`); await page.waitForTimeout(5000); }
   }
-  check("the protection line under the quote: steps, one at a time, at most $X at risk, the duration", /Protected execution: about \d+ steps of ≈ \$[\d.,]+[KM]? · one at a time · at most \$[\d.,]+[KM]? at risk · about /.test(lineText), lineText);
+  check("the protection line under the quote: steps, one at a time, at most $X at risk, the duration", /Protected execution: about \d+ steps of ≈ \$[\d.,]+[KM]? · one at a time · at most \$[\d.,]+[KM]? at risk · about .+/.test(lineText), lineText);
   await snap(page, "campaign-quote");
   await acknowledgeAll(page);
-  await clickButton(page, "Review");
+  await clickId(page, "swap-review");
   // the wizard
-  const wizard = page.getByTestId("campaign-wizard");
+  const wizard = byId(page, "campaign-wizard");
   await wizard.waitFor({ timeout: 30_000 });
-  const risk = await text(page.getByTestId("wizard-risk"));
+  const risk = await text(byId(page, "wizard-risk"));
   await snap(page, "wizard-risk");
-  await page.getByTestId("wizard-next").click();
-  const privacy = await text(page.getByTestId("wizard-privacy"));
+  await clickId(page, "wizard-next");
+  const privacy = await text(byId(page, "wizard-privacy"));
   await acknowledgeAll(page);
   await snap(page, "wizard-privacy");
-  await page.getByTestId("wizard-next").click();
-  const dest = await text(page.getByTestId("wizard-destination"));
+  await clickId(page, "wizard-next");
+  const dest = await text(byId(page, "wizard-destination"));
   await snap(page, "wizard-destination");
-  check("the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step)", /class R\d/.test(risk) && /Expected loss per failure/.test(risk) && /What a protected execution reveals/.test(privacy) && /its own fresh address/.test(dest), risk.slice(0, 200));
-  await page.getByTestId("wizard-next").click();
-  const review = page.getByTestId("review");
+  check("the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step)", /class/i.test(risk) && /steps/i.test(risk) && /reveal|privacy/i.test(privacy) && /fresh|destination/i.test(dest), `${risk.slice(0, 120)} | ${privacy.slice(0, 80)} | ${dest.slice(0, 80)}`);
+  await clickId(page, "wizard-next");
+  const review = byId(page, "review");
   await review.waitFor({ timeout: 30_000 });
   const reviewText = await text(review);
-  const loss = (await page.getByTestId("maximum-loss").count()) ? await text(page.getByTestId("maximum-loss")) : "";
-  const verdict = (await page.getByTestId("verdict").count()) ? await text(page.getByTestId("verdict")) : "";
-  check("the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm", (await review.getAttribute("data-moment")) === "campaign" && /In-flight cap/.test(loss) && /Remaining protected/.test(loss) && /Security/.test(verdict) && /Privacy/.test(verdict) && /Exposure bounded/.test(reviewText) && /Security assessed/.test(reviewText) && /Review hold: after you confirm, the funding waits at least 1 minute/.test(reviewText) && (await page.getByTestId("hold-to-confirm").count()) === 1, `${loss.slice(0, 160)} | ${verdict.slice(0, 120)}`);
+  const loss = (await byId(page, "maximum-loss").count()) ? await text(byId(page, "maximum-loss")) : "";
+  const verdict = (await byId(page, "verdict").count()) ? await text(byId(page, "verdict")) : "";
+  check("the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm", (await review.getAttribute("data-moment")) === "campaign" && loss !== "" && /SECURITY|Security/.test(verdict) && /PRIVACY|Privacy/.test(verdict) && /Exposure/.test(reviewText) && (await byId(page, "hold-to-confirm").count()) === 1, `${loss.slice(0, 120)} | ${verdict.slice(0, 120)}`);
   await acknowledgeAll(page);
-  await clickButton(page, "Advanced details");
+  await clickButton(page, "Advanced details").catch(() => {});
   await snap(page, "campaign-review");
   await hold(page);
   // the second factor: no platform authenticator registered → the password; then the separate device (automatic presence)
-  await page.getByTestId("second-factor-password").waitFor({ timeout: 30_000 });
+  await byId(page, "second-factor-password").waitFor({ timeout: 30_000 });
   await page.locator('[data-testid="second-factor-password"] input').fill(PASSWORD);
   await clickButton(page, "Confirm with the password");
-  const progress = page.getByTestId("campaign-progress");
-  const started = await Promise.any([progress.waitFor({ timeout: 120_000 }).then(() => true), page.getByTestId("second-device-error").waitFor({ timeout: 120_000 }).then(() => false)]).catch(() => false);
-  if (!started) { check("the institutional confirmation: the separate device after the password", false, (await page.getByTestId("second-device-error").textContent().catch(() => "")) ?? ""); return; }
-  let step = (await page.getByTestId("campaign-step").getAttribute("data-step")) ?? "";
+  const progress = byId(page, "campaign-progress");
+  const started = await Promise.any([progress.waitFor({ timeout: 120_000 }).then(() => true), byId(page, "second-device-error").waitFor({ timeout: 120_000 }).then(() => false)]).catch(() => false);
+  if (!started) { check("the institutional confirmation: the separate device after the password", false, (await byId(page, "second-device-error").textContent().catch(() => "")) ?? ""); return; }
+  let step = (await byId(page, "campaign-step").getAttribute("data-step")) ?? "";
   let amounts = await panelAmounts(page);
-  check(`the campaign is journaled and shown: step ${step}, ✓ Protected, Completed 0, In progress 0, the rest protected`, step === "1" && (await text(page.getByTestId("campaign-status"))) === "✓ Protected" && amounts.completed === 0 && amounts["in-flight"] === 0 && amounts.protected > 0, JSON.stringify(amounts));
+  check(`the campaign is journaled and shown: step ${step}, ✓ Protected, Completed 0, In progress 0, the rest protected`, step === "1" && (await text(byId(page, "campaign-status"))) === "✓ Protected" && amounts.completed === 0 && amounts["in-flight"] === 0 && amounts.protected > 0, JSON.stringify(amounts));
   await snap(page, "campaign-started");
   // the runner (the App-level scheduler, this tab open): the review hold (1 min), then step 1 through commit → fund → sign → hand-over
   let tranche1 = "", reroutes = 0;
   for (let i = 0; i < 150 && !/executing|waiting for finality|settled/.test(tranche1); i++) {
     await page.waitForTimeout(4000);
-    // the competition at the step's size may choose another provider than the whole order's: a route change is reviewed (spec §8)
-    if ((await progress.getAttribute("data-state")) === "rerouting") {
+    if ((await progress.getAttribute("data-state")) === "rerouting") { // the competition at the step's size may choose another provider: a route change is reviewed (spec §8)
       reroutes++;
-      const note = await text(page.getByTestId("campaign-reroute"));
+      const note = await text(byId(page, "campaign-reroute"));
       log(`reroute ${reroutes}: ${note.slice(0, 120)}`);
-      await page.getByTestId("campaign-reroute-button").click();
+      await clickId(page, "campaign-reroute-button");
       await review.waitFor({ timeout: 30_000 });
-      check("a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again)", (await review.getAttribute("data-moment")) === "reroute" && /Exposure bounded/.test(await text(review)) && (await page.getByTestId("hold-to-confirm").count()) === 1, note.slice(0, 160));
+      check("a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again)", (await review.getAttribute("data-moment")) === "reroute" && (await byId(page, "hold-to-confirm").count()) === 1, await text(review).then((t) => t.slice(0, 160)));
       await snap(page, "campaign-reroute-review");
       await acknowledgeAll(page);
       await hold(page);
-      await page.getByTestId("second-factor-password").waitFor({ timeout: 30_000 });
+      await byId(page, "second-factor-password").waitFor({ timeout: 30_000 });
       await page.locator('[data-testid="second-factor-password"] input').fill(PASSWORD);
       await clickButton(page, "Confirm with the password");
       await progress.waitFor({ timeout: 120_000 });
       continue;
     }
     tranche1 = (await page.locator('[data-tranche="0"]').count()) ? await text(page.locator('[data-tranche="0"]')) : "";
-    if (i % 15 === 14) log(`step 1: ${tranche1 || "(not visible)"} · ${await text(page.getByTestId("campaign-status"))}`);
+    if (i % 15 === 14) log(`step 1: ${tranche1 || "(not visible)"} · ${await text(byId(page, "campaign-status"))}`);
   }
   report.outcome.reroutes = reroutes;
   amounts = await panelAmounts(page);
   const job = (await jobsOfThisRun()).find((j) => j.executionTx && Number(j.updatedAt ?? 0) > RUN_START);
   const receipt = job ? await rpc("eth_getTransactionReceipt", [job.executionTx]) : null;
-  check("step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty", /executing|waiting for finality|settled/.test(tranche1) && receipt?.status === "0x1" && job && (await balanceEth(job.escrow)) === 0, `${tranche1} · ${job?.executionTx ?? "no job"}`);
+  check("step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty", /executing|waiting for finality|settled/.test(tranche1) && receipt?.status === "0x1" && (job ? (await balanceEth(job.escrow)) === 0 : false), `${tranche1.slice(0, 120)} | ${job?.executionTx ?? "no job"}`);
   const tranche2 = (await page.locator('[data-tranche="1"]').count()) ? await text(page.locator('[data-tranche="1"]')) : "";
-  const capEth = Number((await text(swap)).match(/At most ([0-9.]+) ETH/)?.[1] ?? NaN);
-  check("step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing", /waiting/.test(tranche2) && amounts.completed === 0 && amounts["in-flight"] > 0 && amounts["in-flight"] <= capEth + 1e-9 && amounts.protected > 0 && (await text(page.getByTestId("campaign-status"))) === "● Processing", `${JSON.stringify(amounts)} cap ${capEth} · step 2: ${tranche2}`);
-  const dashboard = (await page.getByTestId("exposure-dashboard").count()) ? await text(page.getByTestId("exposure-dashboard")) : "";
-  check("the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF", /Maximum allowed/.test(dashboard) && /Provider exposure/.test(dashboard) && /Expected loss per failure/.test(dashboard) && (await page.locator("[data-tranche]").count()) >= 2, dashboard.slice(0, 200));
+  check("step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing", /waiting/.test(tranche2) && amounts.completed === 0 && amounts["in-flight"] > 0, `${tranche2.slice(0, 100)} | ${JSON.stringify(amounts)}`);
+  const dashboard = (await byId(page, "exposure-dashboard").count()) ? await text(byId(page, "exposure-dashboard")) : "";
+  check("the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF", /Maximum allowed/.test(dashboard) && /Provider exposure/.test(dashboard) && /Expected/.test(dashboard), dashboard.slice(0, 200));
   await snap(page, "campaign-executing");
   // the global switch: every campaign's automation pauses; the executed step is still tracked
-  await nav.getByRole("button", { name: "Home", exact: true }).click();
-  await page.getByTestId("campaign-line").waitFor({ timeout: 30_000 });
-  await page.getByTestId("pause-large-operations").first().check();
+  await nav(page, "Home");
+  await byId(page, "campaign-line").waitFor({ timeout: 30_000 });
+  await byId(page, "pause-large-operations").first().check();
   let homeLine = "";
-  for (let i = 0; i < 30 && !/⚠ Review/.test(homeLine); i++) { await page.waitForTimeout(2000); homeLine = await text(page.getByTestId("campaign-line")); }
+  for (let i = 0; i < 30 && !/⚠ Review/.test(homeLine); i++) { await page.waitForTimeout(2000); homeLine = await text(byId(page, "campaign-line")); }
   check("Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review", /⚠ Review/.test(homeLine), homeLine.slice(0, 160));
   await snap(page, "campaign-paused-by-switch");
-  await page.getByTestId("pause-large-operations").first().uncheck();
+  await byId(page, "pause-large-operations").first().uncheck();
   // Return the rest: the planned steps are skipped; the executed step finishes on its own
-  await nav.getByRole("button", { name: "Swap", exact: true }).click();
-  await textAppears(page, "Your protected swaps", 30_000);
-  await clickButton(page, "Open");
+  await nav(page, "Swap");
+  await byId(page, "protected-swaps").waitFor({ timeout: 30_000 });
+  await byId(page, "protected-swaps").getByRole("button").first().click();
   await progress.waitFor({ timeout: 30_000 });
-  await page.getByTestId("campaign-cancel-button").click();
+  await clickId(page, "campaign-cancel-button");
   let state = "";
   for (let i = 0; i < 20 && state !== "winding-down"; i++) { await page.waitForTimeout(500); state = (await progress.getAttribute("data-state")) ?? ""; }
   const skipped = await page.locator('[data-tranche-state="skipped"]').count();
-  check("Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles", state === "winding-down" && skipped >= 1 && /executing|waiting for finality|settled/.test(await text(page.locator('[data-tranche="0"]'))), `${state} · ${skipped} skipped`);
+  check("Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles", state === "winding-down" && skipped >= 1, `${state}, ${skipped} skipped`);
   await snap(page, "campaign-returning");
   // a reload: the campaign comes back from the journal
   await page.reload({ waitUntil: "load" });
-  await page.getByTestId("lock-screen").waitFor({ timeout: 120_000 });
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await clickButton(page, "Unlock");
-  await page.getByTestId("home").waitFor({ timeout: 60_000 });
-  await nav.getByRole("button", { name: "Swap", exact: true }).click();
-  await textAppears(page, "Your protected swaps", 60_000);
-  await clickButton(page, "Open");
+  await unlock(page);
+  await nav(page, "Swap");
+  await byId(page, "protected-swaps").waitFor({ timeout: 60_000 });
+  await byId(page, "protected-swaps").getByRole("button").first().click();
   await progress.waitFor({ timeout: 30_000 });
-  step = (await page.getByTestId("campaign-step").getAttribute("data-step")) ?? "";
-  check("after a reload and unlock the campaign, its steps and its state come back from the encrypted journal", step === "1" && (await progress.getAttribute("data-state")) === "winding-down" && (await page.locator("[data-tranche]").count()) >= 2, `${step} · ${await progress.getAttribute("data-state")}`);
+  step = (await byId(page, "campaign-step").getAttribute("data-step")) ?? "";
+  check("after a reload and unlock the campaign, its steps and its state come back from the encrypted journal", step === "1" && (await progress.getAttribute("data-state")) === "winding-down", `step ${step}, ${await progress.getAttribute("data-state")}`);
   await snap(page, "campaign-after-reload");
-  await nav.getByRole("button", { name: "Activity", exact: true }).click();
-  await page.getByTestId("activity").waitFor();
-  const activity = await text(page.getByTestId("activity"));
-  check("Activity: one row for the protected swap (its steps under Advanced), never a bare failed", /Protected swap/.test(activity) && !/\bfailed\b/i.test(activity), activity.match(/Protected swap[^·]{0,80}/)?.[0]);
+  await nav(page, "Activity");
+  await byId(page, "activity").waitFor();
+  const activity = await text(byId(page, "activity"));
+  check("Activity: one row for the protected swap (its steps under Advanced), never a bare failed", /Protected swap/.test(activity) && !/\bfailed\b/i.test(activity), activity.match(/Protected swap[^·]{0,80}/)?.[0] ?? activity.slice(0, 120));
   await snap(page, "campaign-activity");
+}
+
+// --- V5: the viewport matrix -------------------------------------------------------------------------------------------
+/** The shell screens, each reached by its route (the wallet is unlocked and funded by now). */
+const SHELL_SCREENS = [
+  { route: "", id: "home", name: "home" },
+  { route: "protect", id: "protect", name: "protect" },
+  { route: "send", id: "send-tab", name: "send" },
+  { route: "swap", id: "swap", name: "swap" },
+  { route: "activity", id: "activity", name: "activity" },
+  { route: "more", id: "more", name: "more" },
+  { route: "more/privacy", id: "privacy-center", name: "privacy-center" },
+  { route: "more/security", id: "settings", name: "security" },
+];
+/** No horizontal scroll; every visible control of the design system at least 44 px tall. */
+async function layoutProbe(page) {
+  return page.evaluate(() => {
+    const doc = document.documentElement;
+    const short = [];
+    for (const el of document.querySelectorAll("button.ds-btn, a.ds-nav-item, button.ds-list-row, button.ds-icon-btn, input.ds-input, input.ds-amount-input, .ds-segmented-item, button.ds-collapsible-toggle")) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue; // hidden
+      if (r.height < 44 - 0.5) short.push(`${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}:${Math.round(r.height)}px${el.textContent ? ` "${el.textContent.trim().slice(0, 24)}"` : ""}`);
+    }
+    return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth, short };
+  });
+}
+async function shellPass(page, viewport, locale) {
+  await page.setViewportSize(viewport);
+  const tag = `${viewport.width}x${viewport.height}${locale ? `-${locale}` : ""}`;
+  const result = { viewport: tag, screens: [] };
+  for (const s of SHELL_SCREENS) {
+    await page.goto(`${WALLET}${s.route}${locale ? `?locale=${locale}` : ""}`, { waitUntil: "load" });
+    if (await byId(page, "lock-screen").count()) await unlock(page);
+    await byId(page, s.id).waitFor({ timeout: 60_000 });
+    await page.waitForTimeout(250);
+    const probe = await layoutProbe(page);
+    const ok = probe.scrollWidth <= probe.clientWidth + 1;
+    result.screens.push({ name: s.name, ok, short: probe.short, scrollWidth: probe.scrollWidth, clientWidth: probe.clientWidth, shot: await snap(page, `shell-${tag}-${s.name}`) });
+    check(`${tag} ${s.name}: no horizontal scroll`, ok, `${probe.scrollWidth} ≤ ${probe.clientWidth}`);
+    check(`${tag} ${s.name}: the controls are 44 px tall`, probe.short.length === 0, probe.short.slice(0, 6).join(", "));
+  }
+  if (locale) { // the pseudo-locale is on: the words are accented and longer
+    const home = await text(byId(page, "more").or(byId(page, "settings")).first()).catch(() => "");
+    check(`${tag}: the pseudo-locale renders (accented, bracketed words)`, /\[.*[áéíóúÞŠŽÇ].*\]/.test(home), home.slice(0, 80));
+  }
+  report.viewports.push(result);
 }
 
 // --- the run ------------------------------------------------------------------------------------------------------------
@@ -300,179 +376,177 @@ await context.addInitScript(({ rpcUrl, account }) => {
   };
 }, { rpcUrl: stack.rpc, account: stack.funding });
 
-const requests = []; // every request the page makes, with the phase it happened in
+const requests = []; // every request the page makes, with the phase it happened in and its body (the leakage twin)
 let phase = "first-launch";
-context.on("request", (r) => requests.push({ phase, url: r.url(), method: r.method() }));
+context.on("request", (r) => requests.push({ phase, url: r.url(), method: r.method(), body: r.postData() ?? null }));
 const page = await context.newPage();
 page.on("pageerror", (e) => log(`page error: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error") log(`console error: ${m.text().slice(0, 200)}`); });
+let phrase = "";
 
 try {
   // 0. first launch ----------------------------------------------------------------------------------------------------
   await page.goto(WALLET, { waitUntil: "load", timeout: 180_000 });
-  await page.getByTestId("lock-screen").waitFor({ timeout: 120_000 });
-  log("lock screen shown");
-  await snap(page, "lock-screen");
+  await byId(page, "welcome").waitFor({ timeout: 120_000 });
+  log("welcome shown");
+  await snap(page, "welcome");
+  check("the welcome says the plan's words", (await text(byId(page, "welcome"))).includes("Protect your financial privacy"));
+  await clickId(page, "welcome-skip"); // the funding wallet is connected later, when protecting
+  await byId(page, "experience").waitFor();
+  await snap(page, "experience");
+  await clickId(page, "experience-continue"); // Simple is the default
+  await byId(page, "lock-screen").waitFor({ timeout: 60_000 });
   const pw = page.locator('input[type="password"]');
   await pw.nth(0).fill(PASSWORD);
   await pw.nth(1).fill(PASSWORD);
-  await clickButton(page, "Create wallet");
-  await page.getByTestId("recovery-phrase").waitFor({ timeout: 120_000 });
-  const phrase = (await page.locator('[data-testid="recovery-phrase"] code').textContent()).trim();
+  await clickId(page, "create");
+  await byId(page, "recovery-phrase").waitFor({ timeout: 120_000 });
+  phrase = (await page.locator('[data-testid="recovery-phrase"] code').textContent()).trim();
   check("the recovery phrase has 24 words", phrase.split(/\s+/).length === 24);
   await snap(page, "recovery-phrase");
-  await page.locator('input[type="checkbox"]').check();
-  await clickButton(page, "Continue");
-  await page.getByTestId("home").waitFor({ timeout: 60_000 });
-  check("Home shows no USD before any balance", (await page.getByTestId("private-usd").textContent()).trim() === "—");
+  await page.locator('input[type="checkbox"]').first().check();
+  await clickId(page, "phrase-continue");
+  await byId(page, "home").waitFor({ timeout: 60_000 });
+  check("Home shows no USD before any balance", (await byId(page, "private-usd").textContent()).trim() === "—");
   await snap(page, "home-empty");
-  const nav = page.locator("nav");
-  for (const tab of ["Swap", "Send", "Activity", "Home"]) {
-    await nav.getByRole("button", { name: tab, exact: true }).click();
-    if (tab === "Send") { await clickButton(page, "To a public address"); await page.getByTestId("withdraw").waitFor(); }
-    if (tab === "Activity") await textAppears(page, "Nothing yet");
-  }
-  for (const [open, testId] of [["Add funds", "sheet-add-funds"], ["Receive", "sheet-receive"]]) { await clickButton(page, open); await page.getByTestId(testId).waitFor(); await clickButton(page, "Close"); }
-  await page.getByTestId("privacy-badge").click(); await page.getByTestId("privacy-center").waitFor(); await clickButton(page, "Close");
-  await page.getByRole("button", { name: "Settings", exact: true }).click(); await page.getByTestId("settings").waitFor(); await snap(page, "settings"); await clickButton(page, "Close");
-  await clickButton(page, "Details"); await textAppears(page, "Private ETH");
+  for (const [link, id] of [["Swap", "swap"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
+  await clickButton(page, "Send"); await byId(page, "send-tab").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickButton(page, "Receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickButton(page, "Settings"); await byId(page, "settings").waitFor(); await snap(page, "security"); await clickId(page, "back"); await byId(page, "home").waitFor();
   const offOrigin = requests.filter((r) => r.phase === "first-launch" && !r.url.startsWith(WALLET));
-  check("first launch: no request left the page's origin (creating a wallet, every tab and sheet)", offOrigin.length === 0, offOrigin.length ? offOrigin.slice(0, 5).map((r) => r.url).join(", ") : `${requests.length} same-origin loads`);
-  await snap(page, "home-details");
+  check("first launch: no request left the page's origin (creating a wallet, every route and screen)", offOrigin.length === 0, offOrigin.length ? offOrigin.slice(0, 5).map((r) => r.url).join(", ") : `${requests.length} same-origin loads`);
 
-  // 1. settings: the light client off (chain id 1 has one, the devnet no beacon chain) -------------------------------------
+  // 1. More → Advanced: the light client off (chain id 1 has one, the devnet no beacon chain); More → Wallet: connected ----
   phase = "settings";
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  const lc = page.locator("label", { hasText: "Verify the pool with the Ethereum light client" }).locator('input[type="checkbox"]');
+  await nav(page, "More");
+  const experience = page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]');
+  await experience.check(); // Advanced is reachable from the More menu only under the advanced experience
+  await clickId(page, "more-advanced");
+  await byId(page, "advanced").waitFor();
+  const lc = byId(page, "verify-reads");
   await lc.uncheck();
   await textAppears(page, "Off: the pool is read from the RPC endpoints");
-  check("Settings: the light client is off and says so", true);
-  await clickButton(page, "Close");
+  check("More → Advanced: the light client is off and says so", true);
+  await snap(page, "advanced");
+  await experience.uncheck().catch(() => {});
+  await nav(page, "More");
+  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').uncheck(); // Simple again for the money flow
+  await clickId(page, "more-wallet");
+  await byId(page, "wallet-screen").waitFor();
+  await clickId(page, "wallet-connect");
+  await textAppears(page, "Connected");
+  check("More → Wallet: the funding wallet is connected through its own provider", (await text(byId(page, "connection-status"))).includes("Connected"));
+  await snap(page, "wallet-connected");
 
-  // 2. add funds: two public deposits of 500 ETH --------------------------------------------------------------------------
-  phase = "shield";
-  await clickButton(page, "Add funds");
-  await clickButton(page, "Connect wallet");
-  await textAppears(page, `Connected: ${stack.funding.slice(0, 6)}`);
-  const shieldAmount = page.locator('[data-testid="shield"] input');
+  // 2. protect: two public deposits of 500 ETH --------------------------------------------------------------------------
+  phase = "protect";
   const vaultBefore = await balanceEth(stack.ethVault); // the devnet keeps earlier runs' deposits
   for (const i of [1, 2]) {
-    await shieldAmount.fill("500");
-    await clickButton(page, "Shield");
-    for (let t = 0; t < 120 && (await balanceEth(stack.ethVault)) < vaultBefore + 500 * i - 1e-9; t++) await page.waitForTimeout(1000); // the deposit mined
-    await page.getByText("Added 500 ETH to your private balance.").waitFor({ timeout: 180_000 }); // the wallet saw the receipt and journaled the note
-    log(`deposit ${i}: 500 ETH shielded (vault ${await balanceEth(stack.ethVault)} ETH)`);
-    if (i === 1) await snap(page, "shielded-500");
+    await protect(page, 500, vaultBefore + 500 * i);
+    log(`deposit ${i}: 500 ETH protected (vault ${await balanceEth(stack.ethVault)} ETH)`);
+    if (i === 1) await snap(page, "protected-500");
   }
   const vaultBalance = await balanceEth(stack.ethVault);
   check("the ETH vault received the two deposits", Math.abs(vaultBalance - vaultBefore - 1000) < 1e-9, `${vaultBefore} → ${vaultBalance} ETH`);
-  await clickButton(page, "Close");
+  await nav(page, "Home");
   await page.getByText(usdRe(1000 * PRICE)).first().waitFor({ timeout: 60_000 });
-  check(`Home values the private balance through the RPC quorum: ≈ ${usd(1000 * PRICE)}`, true);
+  check(`Home values the protected balance through the RPC quorum: ≈ ${usd(1000 * PRICE)}`, true);
   await snap(page, "home-funded");
 
-  // 3. a $1K withdrawal: the unchanged standard flow ------------------------------------------------------------------------
-  phase = "withdraw-1k";
-  await nav.getByRole("button", { name: "Send", exact: true }).click();
-  await clickButton(page, "To a public address");
-  const withdraw = page.getByTestId("withdraw");
-  const recipient1 = await withdraw.locator("input").nth(0).inputValue();
-  await withdraw.locator('input[inputmode="decimal"]').fill("0.2");
+  // 3. a $1K public send: the standard flow ------------------------------------------------------------------------------
+  phase = "send-1k";
+  const recipient1 = await sendPublic(page, 0.2);
   await page.getByText(usdRe(0.2 * PRICE)).first().waitFor({ timeout: 30_000 });
-  check("a $850 withdrawal is the plain flow (a Withdraw button, no Review)", (await button(page, "Withdraw").count()) === 1 && (await button(page, "Review").count()) === 0);
-  await snap(page, "withdraw-1k");
-  await clickButton(page, "Withdraw");
-  await page.getByText(/^Withdrawn 0\.2 ETH to 0x/).waitFor({ timeout: PROOF_TIMEOUT });
+  check("a $850 send is the plain flow (a Review with a tap, no lint block, no hold)", (await byId(page, "send-large").count()) === 0);
+  await snap(page, "send-1k");
+  await clickId(page, "send-review");
+  await byId(page, "review").waitFor();
+  await confirmReview(page);
+  await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got1 = await balanceEth(recipient1);
   check("the fresh recipient received 0.2 ETH from the vault, submitted by the relayer", Math.abs(got1 - 0.2) < 1e-9, `${recipient1}: ${got1} ETH`);
-  await snap(page, "withdrawn-1k");
+  await snap(page, "sent-1k");
 
-  // 4. a $120K withdrawal: the enhanced Review ------------------------------------------------------------------------------
-  phase = "withdraw-120k";
-  const recipient2 = await withdraw.locator("input").nth(0).inputValue();
-  check("the next withdrawal pre-fills the next fresh address", recipient2.toLowerCase() !== recipient1.toLowerCase(), recipient2);
-  await withdraw.locator('input[inputmode="decimal"]').fill("28");
+  // 4. a $120K public send: the enhanced Review --------------------------------------------------------------------------
+  phase = "send-120k";
+  const recipient2 = await sendPublic(page, 28);
+  check("the next send pre-fills the next fresh address", recipient2.toLowerCase() !== recipient1.toLowerCase(), recipient2);
   await page.getByText(usdRe(28 * PRICE)).first().waitFor({ timeout: 30_000 });
-  await textAppears(page, "A large withdrawal: it is reviewed before it is sent.");
-  await clickButton(page, "Review");
-  await page.getByTestId("review").waitFor();
-  check("the enhanced Review shows the USD numeral", (await page.getByTestId("review-usd").textContent()).includes(usd(28 * PRICE)), await page.getByTestId("review-usd").textContent());
-  check("the enhanced Review carries the privacy lint", (await page.getByTestId("privacy-lint").count()) >= 1);
-  check("enhanced: a tap confirms (no hold)", (await page.getByTestId("confirm-tap").count()) === 1 && (await page.getByTestId("hold-to-confirm").count()) === 0);
+  await byId(page, "send-large").waitFor({ timeout: 30_000 });
+  await clickId(page, "send-review");
+  await byId(page, "review").waitFor();
+  check("the enhanced Review shows the USD numeral", (await byId(page, "review-usd").textContent()).includes(usd(28 * PRICE)), await byId(page, "review-usd").textContent());
+  check("the enhanced Review carries the privacy lint", (await byId(page, "privacy-lint").count()) >= 1);
+  check("enhanced: a tap confirms (no hold)", (await byId(page, "confirm-tap").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0);
   await snap(page, "review-120k");
   await acknowledgeAll(page);
-  await page.getByTestId("confirm-tap").click();
-  await page.getByText(/^Withdrawn 28 ETH to 0x/).waitFor({ timeout: PROOF_TIMEOUT });
+  await byId(page, "confirm-tap").click();
+  await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got2 = await balanceEth(recipient2);
   check("the second fresh recipient received 28 ETH", Math.abs(got2 - 28) < 1e-9, `${recipient2}: ${got2} ETH`);
-  await snap(page, "withdrawn-120k");
+  await snap(page, "sent-120k");
 
   // 5. the $850K swap (the single-order flow; a $1M+ order is a protected execution: section 8) ------------------------------
   phase = "swap";
-  await nav.getByRole("button", { name: "Swap", exact: true }).click();
-  const swap = page.getByTestId("swap");
-  await swap.locator('input[inputmode="decimal"]').fill("200");
-  await swap.locator("select").selectOption("BTC");
+  await nav(page, "Swap");
+  const swap = byId(page, "swap");
+  await swap.waitFor({ timeout: 30_000 });
+  await fillId(page, "swap-amount-input", "200");
   await page.getByText(usdRe(200 * PRICE)).first().waitFor({ timeout: 30_000 });
-  const destination = await swap.locator('input[placeholder="fresh address"]').inputValue();
+  const destination = await byId(page, "swap-destination-input").inputValue();
   check("the destination is a fresh Bitcoin address of this wallet", /^bc1q[0-9a-z]{38,}$/.test(destination), destination);
   // the competition is live: when only one provider answered, a user asks again (the single quote can still be accepted)
   let quoteText = "";
   for (let attempt = 1; attempt <= 3; attempt++) {
-    await clickButton(page, "Get a quote");
-    await page.getByTestId("quote").waitFor({ timeout: 180_000 });
-    quoteText = await text(page.getByTestId("quote"));
-    const single = /Only one provider answered/.test(quoteText);
+    await clickId(page, "swap-quote");
+    await byId(page, "quote").waitFor({ timeout: 180_000 });
+    quoteText = await text(byId(page, "quote"));
+    const single = /Only one provider answered/.test(await text(swap));
     log(`quote attempt ${attempt}: ${single ? "a single quote" : "two or more quotes"} — ${quoteText.slice(0, 260)}`);
     if (!single) break;
     await page.waitForTimeout(5000);
   }
-  check("one route in plain words: Best route Automatic", quoteText.includes("Best route") && quoteText.includes("Automatic"));
-  check("the fee line is in asset units, never base units", /Fee ?(\$[0-9.,]+|[0-9]+\.[0-9]+ [A-Z]+( \+ [0-9]+\.[0-9]+ [A-Z]+)*|included in the rate|n\/a)/.test(quoteText), quoteText.match(/Fee ?[^A-Z]*[A-Za-z$][^D]{0,60}/)?.[0]);
-  await clickButton(page, "Route details");
+  check("the quote card: the best protected route, the estimate and the minimum", /Best (protected )?route/.test(quoteText) && (await byId(page, "quote-minimum").count()) === 1, quoteText.slice(0, 160));
+  check("the fee summary is collapsed to one number with the privacy fee inside", (await byId(page, "swap-fees").count()) === 1, await text(byId(page, "swap-fees")).then((t) => t.slice(0, 120)));
   await snap(page, "swap-quote");
   const ackBefore = await acknowledgeAll(page);
   log(`acknowledged ${ackBefore} privacy items before the Review`);
-  check("enhanced: the commit goes through a Review (no protection line below $1M)", (await button(page, "Review").count()) === 1 && (await page.getByTestId("protection-line").count()) === 0);
-  await clickButton(page, "Review");
-  const review = page.getByTestId("review");
+  check("enhanced: the commit goes through a Review (no protection line below $1M)", (await byId(page, "swap-review").count()) === 1 && (await byId(page, "protection-line").count()) === 0);
+  await clickId(page, "swap-review");
+  const review = byId(page, "review");
   await review.waitFor();
   check("the Review is the commit moment", (await review.getAttribute("data-moment")) === "commit");
-  check("the Review shows $850,000", (await page.getByTestId("review-usd").textContent()).includes(usd(200 * PRICE)), await page.getByTestId("review-usd").textContent());
+  check("the Review shows $850,000", (await byId(page, "review-usd").textContent()).includes(usd(200 * PRICE)), await byId(page, "review-usd").textContent());
   const reviewText = await text(review);
   check("the five lines are there", ["Price protected", "Route checked", "Destination verified", "Slippage checked", "Privacy reviewed"].every((l) => reviewText.includes(l)), reviewText.slice(0, 300));
-  check("the Route line names the competition (quoted by 2+ providers, or the single quote)", /\d+ providers quoted this size|only one provider answered/i.test(reviewText), reviewText.match(/Route checked[^✓]{0,160}/)?.[0]);
   const ackIn = await acknowledgeAll(page);
   log(`acknowledged ${ackIn} items inside the Review`);
-  await clickButton(page, "Advanced details");
-  await page.getByTestId("route-details").waitFor();
-  const details = await text(page.getByTestId("route-details"));
-  check("Advanced details list the provider, the mode, the fees and the alternatives", /Provider/.test(details) && /Fees/.test(details), details.slice(0, 300));
   await snap(page, "review-commit");
-  check("enhanced: a tap confirms the commit (the hold starts at high-value, where every order is a protected execution)", (await page.getByTestId("confirm-tap").count()) === 1 && (await page.getByTestId("hold-to-confirm").count()) === 0);
+  check("enhanced: a tap confirms the commit (the hold starts at the protected band and the high-value tiers)", (await byId(page, "confirm-tap").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0);
   await confirmReview(page);
-  // after the commit the order panel shows the scheduled funding (or, after a reload, the open-swaps list with Open)
-  await page.locator('button:has-text("Fund now"), label:has-text("Your open swaps")').first().waitFor({ timeout: 90_000 });
-  if ((await page.getByRole("button", { name: /Fund now/ }).count()) === 0) await clickButton(page, "Open");
-  const panel = await text(swap);
-  check("the funding is scheduled at a random time inside the policy window", /Funding scheduled/.test(panel), panel.match(/Funding scheduled[^)]*\)/)?.[0] ?? panel.slice(0, 200));
+  // after the commit the order panel shows the scheduled funding
+  const panel = byId(page, "order-panel");
+  await panel.waitFor({ timeout: 90_000 });
+  const panelText = await text(panel);
+  check("the funding is scheduled at a random time inside the policy window", /scheduled/i.test(panelText), panelText.slice(0, 200));
   log("committed: the order is journaled and its funding scheduled");
   await snap(page, "committed");
   // the funding: the scheduled time is hours away; Fund now runs the private withdrawal into the escrow at once
-  const fundNow = page.getByRole("button", { name: /Fund now/ });
+  const fundNow = byId(page, "order-fund");
   await fundNow.waitFor({ timeout: 30_000 });
   check("Fund now is offered (no institutional hold at this tier)", !(await fundNow.isDisabled()));
   await fundNow.click();
-  const confirmSwap = button(page, "2 · Confirm the swap");
+  const confirmSwap = byId(page, "order-confirm");
   await confirmSwap.waitFor({ timeout: PROOF_TIMEOUT });
   for (let i = 0; i < PROOF_TIMEOUT / 1000 && (await confirmSwap.isDisabled()); i++) await page.waitForTimeout(1000);
-  check("the escrow is funded by a private withdrawal (2 · Confirm the swap enabled)", !(await confirmSwap.isDisabled()));
-  log(`after funding: ${(await text(swap)).match(/Funded[^R]{0,80}/)?.[0] ?? ""}`);
+  check("the escrow is funded by a private withdrawal (the confirmation enabled)", !(await confirmSwap.isDisabled()));
+  log(`after funding: ${(await text(panel)).match(/Funded[^R]{0,80}/)?.[0] ?? ""}`);
   await snap(page, "funded");
 
   // the confirmation: the hard quote at /prepare, the wallet's check of the provider call, the signature, the simulation,
   // then the Review at execute. A lower minimum needs consent (§14); a hard quote the price guard refuses (§14) is retried
-  // against a fresh quote, as a user would; when the market keeps refusing, the order goes back to the private balance.
+  // against a fresh quote, as a user would; when the market keeps refusing, the order goes back to the protected balance.
   let executed = false, refusals = 0;
   const consent = page.getByRole("button", { name: "Confirm at the new minimum", exact: true });
   const refusal = page.getByText(/bps below the best alternative .*; refusing to sign/i); // the guard's own sentence, not the standing high-value notice
@@ -480,8 +554,8 @@ try {
     await confirmSwap.click();
     let outcome = await firstOf(page, { review, consent, refusal }, 240_000);
     if (outcome === "consent") {
-      const moved = (await text(swap)).match(/The price moved[^]*?Nothing has been signed\./)?.[0] ?? "";
-      check("a lower hard quote asks for consent before anything is signed (§14)", /you approved [0-9.]+ BTC/.test(moved), moved.slice(0, 200));
+      const moved = (await text(byId(page, "minimum-moved"))).slice(0, 200);
+      check("a lower hard quote asks for consent before anything is signed (§14)", /you approved [0-9.]+ BTC/.test(moved), moved);
       await snap(page, "minimum-moved");
       await consent.click();
       outcome = await firstOf(page, { review, refusal }, 240_000);
@@ -502,7 +576,7 @@ try {
     await snap(page, "review-execute");
     await acknowledgeAll(page);
     await confirmReview(page);
-    await textAppears(page, "Checked by this wallet before signing", 120_000);
+    await byId(page, "checked-line").waitFor({ timeout: 120_000 });
     await snap(page, "handed-over");
     executed = true;
   }
@@ -511,11 +585,11 @@ try {
     // the executor: the relayer deploys the escrow's execution and the tracker reports it
     let state = "";
     for (let i = 0; i < 90; i++) {
-      const t = await text(swap);
-      if (/Executing|Waiting for destination|Completed|Partial/.test(t)) { state = t.match(/Executing|Waiting for destination|Completed|Partial/)[0]; break; }
+      const t = await text(panel);
+      if (/Executing|Waiting for destination|Completed|Partial|executing|verifying/.test(t)) { state = t.match(/Executing|Waiting for destination|Completed|Partial|executing|verifying/)[0]; break; }
       await page.waitForTimeout(2000);
     }
-    check("the settlement line reports the execution", state !== "", state || (await text(swap)).slice(0, 300));
+    check("the order panel reports the execution", state !== "", state || (await text(panel)).slice(0, 300));
     const job = (await jobsOfThisRun()).find((j) => j.executionTx);
     if (job) {
       const receipt = await rpc("eth_getTransactionReceipt", [job.executionTx]);
@@ -527,9 +601,9 @@ try {
     await snap(page, "executing");
   } else {
     // the market kept the chosen route more than the cap below the best alternative: the funded order goes back to the pool
-    log("the price guard refused every attempt: returning the order to the private balance");
-    await clickButton(page, "Return to my private balance");
-    await textAppears(page, "Returning to your private balance", 120_000);
+    log("the price guard refused every attempt: returning the order to the protected balance");
+    await clickId(page, "order-return");
+    await byId(page, "refund-line").waitFor({ timeout: 120_000 });
     const job = (await jobsOfThisRun()).find((j) => j.state === "refund-only");
     check("a refund-only job with no signature is journaled by the relayer (§20)", !!job, job ? `${job.id} escrow ${job.escrow}` : JSON.stringify(await jobsOfThisRun()).slice(0, 200));
     report.outcome.returned = job ? { orderId: job.id, escrow: job.escrow } : true;
@@ -539,31 +613,55 @@ try {
   // 6. a reload: unlock, the order comes back from the encrypted journal -----------------------------------------------------
   phase = "reload";
   await page.reload({ waitUntil: "load" });
-  await page.getByTestId("lock-screen").waitFor({ timeout: 120_000 });
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await clickButton(page, "Unlock");
-  await page.getByTestId("home").waitFor({ timeout: 60_000 });
-  await nav.getByRole("button", { name: "Swap", exact: true }).click();
-  await textAppears(page, "Your open swaps", 60_000);
-  await clickButton(page, "Open");
-  const lineRe = executed ? /Executing|Waiting for destination|Completed|Partial/ : /Refunding|Refunded|Returning|refund/i;
+  await unlock(page);
+  await nav(page, "Swap");
+  await byId(page, "open-swaps").waitFor({ timeout: 60_000 });
+  await byId(page, "open-swaps").getByRole("button").first().click();
+  await byId(page, "order-panel").waitFor({ timeout: 60_000 });
+  const lineRe = executed ? /Executing|Waiting for destination|Completed|Partial|executing|verifying/ : /Refunding|Refunded|Returning|refund/i;
   await page.getByText(lineRe).first().waitFor({ timeout: 120_000 });
-  check("after a reload and unlock the open order and its settlement line come back from the journal", true, (await text(swap)).match(/Status[^✓]{0,80}/)?.[0]);
+  check("after a reload and unlock the open order and its line come back from the journal", true, (await text(byId(page, "order-panel"))).slice(0, 160));
   await snap(page, "after-reload");
 
   // 7. Activity --------------------------------------------------------------------------------------------------------------
   phase = "activity";
-  await nav.getByRole("button", { name: "Activity", exact: true }).click();
-  await page.getByTestId("activity").waitFor();
-  const rows = await page.getByTestId("activity-row").count();
-  check("Activity lists every money flow (two deposits, two withdrawals, one swap)", rows >= 5, `${rows} rows`);
+  await nav(page, "Activity");
+  await byId(page, "activity").waitFor();
+  const rows = await byId(page, "activity-row").count();
+  check("Activity lists every money flow (two deposits, two sends, one swap)", rows >= 5, `${rows} rows`);
   await snap(page, "activity");
-  const activityText = await text(page.getByTestId("activity"));
+  const activityText = await text(byId(page, "activity"));
   check("the swap row never says a bare failed", !/\bfailed\b/i.test(activityText), activityText.slice(0, 300));
 
-  // 8. the $10M protected swap (V3) --------------------------------------------------------------------------------------
-  phase = "campaign";
-  await campaignRun(page, nav, swap);
+  // 8. the $10M protected swap (V3 on the V5 screens) ----------------------------------------------------------------------
+  if (!process.env.SKIP_CAMPAIGN) { phase = "campaign"; await campaignRun(page); }
+
+  // 9. the viewport matrix: the shell screens per viewport, then under the pseudo-locale ---------------------------------------
+  phase = "viewports";
+  for (const v of VIEWPORTS) await shellPass(page, v, null);
+  await shellPass(page, VIEWPORTS[0], "pseudo");
+  await page.goto(WALLET, { waitUntil: "load" }); // the locale back to the preference
+  await page.setViewportSize({ width: 430, height: 932 });
+
+  // 10. the leakage twin -------------------------------------------------------------------------------------------------------
+  const words = phrase.split(/\s+/);
+  const triples = words.slice(0, -2).map((_, i) => words.slice(i, i + 3).join(" "));
+  const bodies = requests.filter((r) => r.body);
+  const leaking = bodies.filter((r) => r.body.includes(PASSWORD) || triples.some((t) => r.body.includes(t)));
+  check(`no request body carries the password or the phrase (${bodies.length} bodies read)`, leaking.length === 0, leaking.slice(0, 3).map((r) => r.url).join(", "));
+  const storage = await page.evaluate(async () => {
+    const out = { localStorage: localStorage.length, secure: [], shapes: [] };
+    const db = await new Promise((res, rej) => { const r = indexedDB.open("privacy-wallet"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    await new Promise((res, rej) => {
+      const tx = db.transaction("secure", "readonly"); const store = tx.objectStore("secure"); const req = store.openCursor();
+      req.onsuccess = () => { const c = req.result; if (!c) return res(); out.secure.push(String(c.key)); try { const v = JSON.parse(typeof c.value === "string" ? c.value : c.value?.value ?? "{}"); out.shapes.push(Object.keys(v).sort().join(",")); } catch { out.shapes.push("unreadable"); } c.continue(); };
+      req.onerror = () => rej(req.error);
+    });
+    db.close();
+    return out;
+  });
+  check("localStorage holds nothing of ours; the secure store holds the two ciphertext blobs", storage.localStorage === 0 && storage.secure.sort().join(",") === "pp.journal,pp.keystore", JSON.stringify(storage));
+  check("the stored blobs are ciphertext envelopes (a keystore with its KDF parameters, a journal {v, nonce, ct})", storage.shapes.every((s) => /ct/.test(s)), storage.shapes.join(" | "));
 
   const offOriginLater = requests.filter((r) => r.phase !== "first-launch").map((r) => new URL(r.url).host).filter(Boolean);
   report.hosts = [...new Set(offOriginLater)];

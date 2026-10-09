@@ -14,7 +14,7 @@ export function ProtectedExecutionNotice({ checks, onContinue, onBack, testId = 
   return (
     <Card testId={testId}>
       <div className="ds-stack-sm">
-        <h3 className="ds-review-title">{t("protectedExec.title")}</h3>
+        <h2 className="ds-review-title">{t("protectedExec.title")}</h2>
         <p className="ds-note">{t("protectedExec.body")}</p>
         <div className="ds-checks-line" data-testid={`${testId}-checks`}>
           {items.map(([k, label]) => <span key={k} data-check={k} data-ok={checks[k] ? "1" : "0"}>{checks[k] ? "✓" : "⚠"} {label}</span>)}

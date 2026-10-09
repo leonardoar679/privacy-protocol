@@ -1,5 +1,6 @@
 // The inputs (spec §3.4–§3.6, §5): a labelled field, the amount in large tabular digits with the common-size chips
 // and Max, the address with its four checks and the address book, a segmented choice, a switch row.
+import { useLabels } from "../labels";
 import { useState, type ChangeEvent, type InputHTMLAttributes, type ReactNode } from "react";
 import { cx, nextId } from "../cx";
 import { AssetMonogram, Icon } from "../icons";
@@ -31,7 +32,8 @@ export function cleanAmount(raw: string, decimals: number): string | null {
   return `${whole}${s.includes(".") ? `.${frac}` : ""}`;
 }
 
-export function AmountInput({ id, label, asset, value, onChange, usd, buckets, bucketsLabel = "Common sizes", onMax, maxLabel = "Max", error, hint, testId = "amount" }: { id: string; label: string; asset: { symbol: string; decimals: number }; value: string; onChange: (value: string) => void; usd?: string | null; buckets?: { label: string; value: string }[]; bucketsLabel?: string; onMax?: () => void; maxLabel?: string; error?: ReactNode; hint?: ReactNode; testId?: string }) {
+export function AmountInput({ id, label, asset, value, onChange, usd, buckets, bucketsLabel, onMax, maxLabel, error, hint, testId = "amount" }: { id: string; label: string; asset: { symbol: string; decimals: number }; value: string; onChange: (value: string) => void; usd?: string | null; buckets?: { label: string; value: string }[]; bucketsLabel?: string; onMax?: () => void; maxLabel?: string; error?: ReactNode; hint?: ReactNode; testId?: string }) {
+  const L = useLabels();
   const change = (e: ChangeEvent<HTMLInputElement>) => { const v = cleanAmount(e.target.value, asset.decimals); if (v !== null) onChange(v); };
   return (
     <Field label={label} htmlFor={id} error={error} hint={hint} testId={testId}>
@@ -39,11 +41,11 @@ export function AmountInput({ id, label, asset, value, onChange, usd, buckets, b
         <div className="ds-amount-row">
           <input id={id} className="ds-amount-input" inputMode="decimal" autoComplete="off" placeholder="0" value={value} onChange={change} aria-invalid={error ? true : undefined} data-testid={`${testId}-input`} />
           <span className="ds-amount-symbol">{asset.symbol}</span>
-          {onMax ? <Button variant="secondary" onClick={onMax} data-testid={`${testId}-max`}>{maxLabel}</Button> : null}
+          {onMax ? <Button variant="secondary" onClick={onMax} data-testid={`${testId}-max`}>{maxLabel ?? L.max}</Button> : null}
         </div>
         {usd ? <span className="ds-amount-usd" data-testid={`${testId}-usd`}>{usd}</span> : null}
         {buckets && buckets.length ? (
-          <div className="ds-chips" role="group" aria-label={bucketsLabel}>
+          <div className="ds-chips" role="group" aria-label={bucketsLabel ?? L.commonSizes}>
             {buckets.map((b) => <button key={b.value} type="button" className="ds-chip" aria-pressed={value === b.value} onClick={() => onChange(b.value)} data-testid={`${testId}-bucket`}>{b.label}</button>)}
           </div>
         ) : null}
@@ -57,7 +59,8 @@ export interface AddressCheck { label: string; state: CheckState; detail?: strin
 export interface BookEntryView { id: string; label: string; address: string }
 
 /** Plan §16: the four checks under the address, a paste control, the address book's entries. */
-export function AddressInput({ id, label, value, onChange, checks, status, onPaste, pasteLabel = "Paste", placeholder, book, onPickEntry, bookLabel = "Address book", error, testId = "address" }: { id: string; label: string; value: string; onChange: (value: string) => void; checks: AddressCheck[]; status?: ReactNode; onPaste?: () => Promise<string | null> | string | null; pasteLabel?: string; placeholder?: string; book?: BookEntryView[]; onPickEntry?: (id: string) => void; bookLabel?: string; error?: ReactNode; testId?: string }) {
+export function AddressInput({ id, label, value, onChange, checks, status, onPaste, pasteLabel, placeholder, book, onPickEntry, bookLabel, error, testId = "address" }: { id: string; label: string; value: string; onChange: (value: string) => void; checks: AddressCheck[]; status?: ReactNode; onPaste?: () => Promise<string | null> | string | null; pasteLabel?: string; placeholder?: string; book?: BookEntryView[]; onPickEntry?: (id: string) => void; bookLabel?: string; error?: ReactNode; testId?: string }) {
+  const L = useLabels();
   const paste = async () => {
     try {
       const text = onPaste ? await onPaste() : typeof navigator !== "undefined" && navigator.clipboard?.readText ? await navigator.clipboard.readText() : null;
@@ -69,7 +72,7 @@ export function AddressInput({ id, label, value, onChange, checks, status, onPas
       <div className="ds-address">
         <div className="ds-address-row">
           <input id={id} className="ds-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoComplete="off" spellCheck={false} aria-invalid={error ? true : undefined} data-testid={`${testId}-input`} />
-          <IconButton label={pasteLabel} icon="paste" onClick={() => void paste()} data-testid={`${testId}-paste`} />
+          <IconButton label={pasteLabel ?? L.paste} icon="paste" onClick={() => void paste()} data-testid={`${testId}-paste`} />
         </div>
         {checks.length ? (
           <ul className="ds-checks" data-testid={`${testId}-checks`}>
@@ -83,7 +86,7 @@ export function AddressInput({ id, label, value, onChange, checks, status, onPas
         ) : null}
         {status}
         {book && book.length && onPickEntry ? (
-          <div className="ds-book" role="group" aria-label={bookLabel}>
+          <div className="ds-book" role="group" aria-label={bookLabel ?? L.addressBook}>
             {book.map((b) => <button key={b.id} type="button" className="ds-chip" onClick={() => onPickEntry(b.id)} data-testid={`${testId}-book-entry`}>{b.label}</button>)}
           </div>
         ) : null}
@@ -106,15 +109,18 @@ export function Segmented({ value, onChange, options, ariaLabel, name }: { value
 export interface AssetOption extends AssetView { id: string; balance?: string; chain?: string }
 
 /** Plan §53: a sheet with a search field and rows of monogram, symbol, name and protected balance; addresses only under Advanced. */
-export function AssetSelector({ open, onClose, assets, value, onChange, title = "Choose asset", searchLabel = "Search", showAddresses, testId = "asset-selector" }: { open: boolean; onClose: () => void; assets: AssetOption[]; value?: string; onChange: (id: string) => void; title?: string; searchLabel?: string; showAddresses?: boolean; testId?: string }) {
+export function AssetSelector({ open, onClose, assets, value, onChange, title, searchLabel, showAddresses, testId = "asset-selector" }: { open: boolean; onClose: () => void; assets: AssetOption[]; value?: string; onChange: (id: string) => void; title?: string; searchLabel?: string; showAddresses?: boolean; testId?: string }) {
+  const L = useLabels();
+  const heading = title ?? L.chooseAsset;
+  const search = searchLabel ?? L.search;
   const [q, setQ] = useState("");
   const [id] = useState(() => nextId("asset-search"));
   const shown = assets.filter((a) => `${a.symbol} ${a.name} ${a.chain ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }} title={title} variant="sheet" testId={testId}>
-      <label htmlFor={id} className="sr-only">{searchLabel}</label>
-      <input id={id} className="ds-input" placeholder={searchLabel} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" data-testid={`${testId}-search`} />
-      <div role="listbox" aria-label={title}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }} title={heading} variant="sheet" testId={testId}>
+      <label htmlFor={id} className="sr-only">{search}</label>
+      <input id={id} className="ds-input" placeholder={search} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" data-testid={`${testId}-search`} />
+      <div role="listbox" aria-label={heading}>
         {shown.map((a) => (
           <button key={a.id} type="button" role="option" aria-selected={a.id === value} className="ds-asset-row" onClick={() => { onChange(a.id); onClose(); }} data-testid={`${testId}-option`}>
             <AssetMonogram symbol={a.symbol} />

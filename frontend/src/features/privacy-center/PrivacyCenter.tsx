@@ -39,7 +39,7 @@ export function PrivacyCenter({ deployment, onBack, onLearnMore, defaultAdvanced
       <div className="ds-stack">
         <Card testId="session-facts">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("privacyCenter.sessionTitle")}</h3>
+            <h2 className="ds-review-title">{t("privacyCenter.sessionTitle")}</h2>
             <div className="ds-checks-line" data-testid="session-checks">
               {check(facts.analyticsOff, t("privacyCenter.fact.noAnalytics"), "analytics")}
               {check(facts.walletDataLocal, t("privacyCenter.fact.encryptedLocally"), "local")}
@@ -76,7 +76,7 @@ export function PrivacyCenter({ deployment, onBack, onLearnMore, defaultAdvanced
           </div>
         </Collapsible>
         <Card testId="privacy-limits-card">
-          <h3 className="ds-review-title">{t("privacyCenter.limitsTitle")}</h3>
+          <h2 className="ds-review-title">{t("privacyCenter.limitsTitle")}</h2>
           <ul className="ds-plain-list ds-note" data-testid="privacy-limits">{posture.limits.map((l, i) => <li key={i}>{l}</li>)}</ul>
         </Card>
       </div>

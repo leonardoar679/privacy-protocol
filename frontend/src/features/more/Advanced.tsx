@@ -80,7 +80,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
 
         <Card testId="network">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("advanced.networkTitle")}</h3>
+            <h2 className="ds-review-title">{t("advanced.networkTitle")}</h2>
             {toggle(s.verifyReads, (v) => settings.set({ verifyReads: v }), t("advanced.verifyReads"), "verify-reads")}
             <p className="ds-note" data-testid="reads-line">{readsLine}</p>
             <Field label={t("advanced.submission")} htmlFor="submission">
@@ -97,7 +97,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
 
         <Card testId="maintenance">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("advanced.maintenanceTitle")}</h3>
+            <h2 className="ds-review-title">{t("advanced.maintenanceTitle")}</h2>
             {toggle(s.housekeeping.enabled, (v) => settings.set({ housekeeping: { ...s.housekeeping, enabled: v } }), t("advanced.maintenanceToggle"), "maintenance-enabled")}
             <Field label={t("advanced.feeCap")} htmlFor="fee-cap" hint={t("advanced.feeCapNote")}><TextInput id="fee-cap" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyCap} data-testid="fee-cap" /></Field>
           </div>
@@ -105,7 +105,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
 
         <Card testId="protected-execution">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("advanced.protection.title")}</h3>
+            <h2 className="ds-review-title">{t("advanced.protection.title")}</h2>
             <p className="ds-note">{t("advanced.protection.body")}</p>
             <label className="ds-switch-row ds-native-row"><span>{t("advanced.protection.enabled")}</span><input type="checkbox" checked={p.enabled} onChange={(e) => { if (e.target.checked) { settings.set({ protection: { ...p, enabled: true } }); setOffAsk(false); } else setOffAsk(true); }} data-testid="protection-enabled" /></label>
             {offAsk && p.enabled ? (

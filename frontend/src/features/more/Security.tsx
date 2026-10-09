@@ -93,7 +93,7 @@ export function Security({ onBack }: { onBack?: () => void }) {
 
         <Card testId="second-factor">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("security.factor.title")}</h3>
+            <h2 className="ds-review-title">{t("security.factor.title")}</h2>
             <p className="ds-note">{t("security.factor.body")}</p>
             <div className="ds-kv"><span className="ds-kv-label">{t("security.factor.authenticator")}</span><b className="ds-kv-value">{s.secondFactor.credentialId ? t("security.factor.registeredHere") : webauthnAvailable() ? t("security.factor.notRegistered") : t("security.factor.unavailable")}</b></div>
             <div className="ds-actions">
@@ -106,7 +106,7 @@ export function Security({ onBack }: { onBack?: () => void }) {
 
         <Card testId="large-transfers">
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("security.tiers.title")}</h3>
+            <h2 className="ds-review-title">{t("security.tiers.title")}</h2>
             <p className="ds-note">{t("security.tiers.body")}</p>
             {TIER_FIELDS.map((f) => (
               <Field key={f.key} label={t(f.label)} htmlFor={`tier-${f.key}`}>

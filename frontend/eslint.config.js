@@ -1,7 +1,8 @@
-// ESLint over the new directories (spec §18, §21): typescript-eslint, the rules of hooks, jsx-a11y strict, and the house
+// ESLint over all of src (spec §18, §21; Stage 11): typescript-eslint, the rules of hooks, jsx-a11y strict, and the house
 // rules — no storage API outside src/storage, no fetch outside src/api and src/sdk, no window.ethereum outside
 // src/features/wallet, no Radix outside the primitives, no inline style and no literal text on a screen, no forbidden
-// word anywhere a user reads. The `files` globs list only the conformed directories; each stage appends its own.
+// word anywhere a user reads. The V1.1–V4 engine and the components still mounted (LEGACY) type their RPC and provider
+// edges loosely and keep bare inputs: `no-explicit-any` and the label rule are off there until they are rebuilt.
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -10,7 +11,8 @@ const DESIGN_SYSTEM = ["src/design-system/**/*.{ts,tsx}"];
 const STORAGE_DIR = ["src/storage/**/*.{ts,tsx}"];
 const SCREENS = ["src/features/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"];
 const API = ["src/api/**/*.ts"];
-const CONFORMED = [...DESIGN_SYSTEM, ...STORAGE_DIR, ...API, ...SCREENS];
+const CONFORMED = ["src/**/*.{ts,tsx}"]; // Stage 11: everywhere (DESIGN_SYSTEM, STORAGE_DIR, API and SCREENS keep their own blocks)
+const LEGACY = ["src/components/**", "src/sdk/**", "src/wallet/**", "src/keys/**", "src/prover/**", "src/zkapi/**", "src/*.ts", "src/*.tsx"];
 const STORAGE = ["src/storage/**"];
 const TRANSPORT = ["src/api/**", "src/sdk/**"];
 const WALLET = ["src/features/wallet/**"];
@@ -33,6 +35,7 @@ export default tseslint.config(
       "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", ignoreRestSiblings: true }],
       "no-restricted-globals": ["error", { name: "localStorage", message: "Spec §8: only src/storage touches the browser's storage." }, { name: "sessionStorage", message: "Spec §8: only src/storage touches the browser's storage." }],
       "no-restricted-syntax": [
         "error",
@@ -48,6 +51,8 @@ export default tseslint.config(
   },
   { files: CONFORMED, ignores: [...PRIMITIVES], rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in src/design-system/primitives." }] }] } },
   { files: STORAGE, rules: { "no-restricted-globals": "off" } },
+  { files: LEGACY, rules: { "@typescript-eslint/no-explicit-any": "off" } },
+  { files: ["src/components/**"], rules: { "jsx-a11y/label-has-associated-control": "off" } },
   { files: TRANSPORT, rules: { "no-restricted-syntax": "off" } },
   {
     files: WALLET,

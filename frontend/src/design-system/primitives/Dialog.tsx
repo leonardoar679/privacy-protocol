@@ -1,5 +1,6 @@
 // The one place Radix's dialog is imported (spec §5): a centered dialog or a bottom sheet, titled, with an accessible
 // description, focus trapped and restored, closed by Escape or the overlay. Props mention no Radix type.
+import { useLabels } from "../labels";
 import * as RD from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 import { cx } from "../cx";
@@ -19,7 +20,8 @@ export interface DialogProps {
   testId?: string;
 }
 
-export function Dialog({ open, onOpenChange, title, description, children, variant = "center", danger, closeLabel = "Close", testId }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, variant = "center", danger, closeLabel, testId }: DialogProps) {
+  const L = useLabels();
   return (
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
@@ -27,7 +29,7 @@ export function Dialog({ open, onOpenChange, title, description, children, varia
         <RD.Content className={cx(variant === "sheet" ? "ds-sheet" : "ds-dialog")} data-testid={testId} data-danger={danger ? "" : undefined} data-variant={variant}>
           <div className="ds-dialog-head">
             <RD.Title className="ds-dialog-title">{title}</RD.Title>
-            <RD.Close className="ds-icon-btn" aria-label={closeLabel}><Icon name="close" size={20} /></RD.Close>
+            <RD.Close className="ds-icon-btn" aria-label={closeLabel ?? L.close}><Icon name="close" size={20} /></RD.Close>
           </div>
           <RD.Description className={description ? "ds-dialog-desc" : "sr-only"}>{description ?? title}</RD.Description>
           <div className="ds-dialog-body">{children}</div>

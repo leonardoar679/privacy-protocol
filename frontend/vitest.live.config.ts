@@ -3,7 +3,6 @@
 import { defineConfig, mergeConfig } from "vitest/config";
 import viteConfig from "./vite.config";
 
-export default mergeConfig(
-  viteConfig,
-  defineConfig({ test: { include: ["test/live/**/*.test.ts"], environment: "node", testTimeout: 180_000 } }),
+export default defineConfig((ctx) =>
+  mergeConfig(typeof viteConfig === "function" ? viteConfig(ctx) : viteConfig, { test: { include: ["test/live/**/*.test.ts"], environment: "node", testTimeout: 180_000 } }),
 );

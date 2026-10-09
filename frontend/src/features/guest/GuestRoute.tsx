@@ -5,7 +5,7 @@ import { Guest } from "../../components/Guest";
 
 export function GuestRoute() {
   const navigate = useNavigate();
-  return <div className="ds-main"><Guest onBack={() => navigate("/unlock")} /></div>;
+  return <main className="ds-main"><Guest onBack={() => navigate("/unlock")} /></main>;
 }
 
 export default GuestRoute;

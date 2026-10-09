@@ -8,7 +8,7 @@ export function Phrase({ phrase }: { phrase: string }) {
   const t = useT();
   const [ack, setAck] = useState(false);
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("phrase.title")}>
         <Card padding="lg" testId="recovery-phrase">
           <p className="ds-field-hint">{t("phrase.body")}</p>
@@ -20,6 +20,6 @@ export function Phrase({ phrase }: { phrase: string }) {
           <Button size="lg" full disabled={!ack} onClick={() => session.acknowledgePhrase()} data-testid="phrase-continue">{t("common.continue")}</Button>
         </Card>
       </Page>
-    </div>
+    </main>
   );
 }

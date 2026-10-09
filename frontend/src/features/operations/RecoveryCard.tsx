@@ -28,7 +28,7 @@ export function Recovery({ record, onMonitor, onRefund, onNewQuote, onReview, te
   return (
     <Card testId={testId}>
       <div className="ds-stack-sm" data-state={record.state} data-funds={v.fundsClass}>
-        <h3 className="ds-review-title">{t("recovery.title")}</h3>
+        <h2 className="ds-review-title">{t("recovery.title")}</h2>
         <StatusBadge tone={v.fundsClass === "not-moved" ? "ok" : v.fundsClass === "still-protected" ? "ok" : "warn"} testId={`${testId}-funds`}>{v.fundsClass === "still-protected" ? t("recovery.fundsSafe") : v.headline}</StatusBadge>
         <p className="ds-note">{v.title}. {v.reason}</p>
         <TransactionTimeline steps={[{ label: t("recovery.legSource"), state: legs.source }, { label: t("recovery.legSwap"), state: legs.swap }, { label: t("recovery.legDestination"), state: legs.destination }]} testId={`${testId}-legs`} />

@@ -4,9 +4,14 @@ Order of operations, with what each step proves. The automated form of steps 1�
 [`scripts/local-stack`](../scripts/local-stack/README.md): a Hardhat devnet as chain id 1 (Foundry's `anvil`
 segfaults on this machine, a Winsock LSP; a JavaScript node survives it), the contracts deployed from the forge
 artifacts, mock Chainlink feeds and the mainnet bytecode of the pinned provider contracts at their addresses, the three
-services from one script, and a Playwright-driven browser clicking through the flows below — 35 checks (36 when the hard quote asks for consent), last run
-2026-10-08 (`results/report-2026-10-08.json`). The one difference from a testnet: there the light client stays on; on
-the devnet the run switches it off under Settings (no beacon chain to follow).
+services from one script, and a Playwright-driven browser clicking through the flows below on the V5 screens (Privacy Wallet
+Web spec: Welcome → the experience → Create, Protect, Send, Swap, Activity, More), then the viewport matrix — the shell
+screens at 360×800, 390×844, 412×915, 768×1024 and 1280×800 with no horizontal scroll and 44 px controls, once more under the
+pseudo-locale — and the leakage twin (every request body read for the phrase and the password, localStorage empty, the two
+ciphertext blobs in IndexedDB). The V2–V4 run: 35 checks (36 when the hard quote asks for consent), last run 2026-10-08
+(`results/report-2026-10-08.json`); the V5 run is Stage 12's. The one difference from a testnet: there the light client
+stays on; on the devnet the run switches it off under More → Advanced (no beacon chain to follow).
+`VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
 
 ```
 cd scripts/local-stack && npm install

@@ -1,5 +1,6 @@
 // Money on screen (spec §3.3, §3.6, §5): the protected balance, an asset row, the fee summary collapsed to one
 // number, the quote card, the badges. Every amount arrives formatted by the caller; nothing here touches units.
+import { useLabels } from "../labels";
 import { useState, type ReactNode } from "react";
 import { cx, nextId } from "../cx";
 import { AssetMonogram, Icon } from "../icons";
@@ -37,7 +38,8 @@ export function AssetRow({ asset, amount, usd, onPress, trailing, testId }: { as
 export interface FeeLine { label: string; value: string; hint?: string }
 
 /** Plan §22: one number by default — "You'll receive" and "Total fees" — the lines behind "View fee details". */
-export function FeeSummary({ receive, pay, total, totalLabel = "Total fees", detailsLabel = "View fee details", lines, defaultOpen = false, testId = "fees" }: { receive: { label: string; value: string }; pay?: { label: string; value: string }; total: string; totalLabel?: string; detailsLabel?: string; lines: FeeLine[]; defaultOpen?: boolean; testId?: string }) {
+export function FeeSummary({ receive, pay, total, totalLabel, detailsLabel, lines, defaultOpen = false, testId = "fees" }: { receive: { label: string; value: string }; pay?: { label: string; value: string }; total: string; totalLabel?: string; detailsLabel?: string; lines: FeeLine[]; defaultOpen?: boolean; testId?: string }) {
+  const L = useLabels();
   const [open, setOpen] = useState(defaultOpen);
   const [id] = useState(() => nextId("fees"));
   return (
@@ -46,7 +48,7 @@ export function FeeSummary({ receive, pay, total, totalLabel = "Total fees", det
       {pay ? <div className="ds-fees-pay"><span>{pay.label}</span><span className="ds-numeral" data-testid={`${testId}-pay`}>{pay.value}</span></div> : null}
       <button type="button" className="ds-fees-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)} data-testid={`${testId}-toggle`}>
         <Icon name="info" size={16} />
-        <span>{totalLabel} <span className="ds-numeral" data-testid={`${testId}-total`}>{total}</span> · {detailsLabel}</span>
+        <span>{totalLabel ?? L.totalFees} <span className="ds-numeral" data-testid={`${testId}-total`}>{total}</span> · {detailsLabel ?? L.viewFeeDetails}</span>
       </button>
       {open ? (
         <dl className="ds-fees-lines" id={id} data-testid={`${testId}-lines`}>
@@ -80,7 +82,8 @@ export function StatusBadge({ tone, children, testId }: { tone: StatusTone; chil
 export interface QuoteView { pay: string; receive: string; minimum: string; fees: string; time: string; protection: ProtectionLevel; route: string }
 
 /** Plan §37: the quote card — You pay / You receive / Minimum / Fees / Time / Protection; "Compare routes" only under Advanced. */
-export function QuoteCard({ quote, labels, onCompare, compareLabel = "Compare routes", testId = "quote" }: { quote: QuoteView; labels: { pay: string; receive: string; minimum: string; fees: string; time: string; protection: string }; onCompare?: () => void; compareLabel?: string; testId?: string }) {
+export function QuoteCard({ quote, labels, onCompare, compareLabel, testId = "quote" }: { quote: QuoteView; labels: { pay: string; receive: string; minimum: string; fees: string; time: string; protection: string }; onCompare?: () => void; compareLabel?: string; testId?: string }) {
+  const L = useLabels();
   return (
     <Card elevation={1} testId={testId}>
       <div className="ds-quote">
@@ -92,7 +95,7 @@ export function QuoteCard({ quote, labels, onCompare, compareLabel = "Compare ro
           <dt>{labels.fees}</dt><dd className="ds-numeral">{quote.fees}</dd>
           <dt>{labels.time}</dt><dd>{quote.time}</dd>
         </dl>
-        {onCompare ? <button type="button" className="ds-collapsible-toggle" onClick={onCompare} data-testid={`${testId}-compare`}><span>{compareLabel}</span><Icon name="chevron-right" size={16} /></button> : null}
+        {onCompare ? <button type="button" className="ds-collapsible-toggle" onClick={onCompare} data-testid={`${testId}-compare`}><span>{compareLabel ?? L.compareRoutes}</span><Icon name="chevron-right" size={16} /></button> : null}
       </div>
     </Card>
   );

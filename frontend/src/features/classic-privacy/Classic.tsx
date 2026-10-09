@@ -30,7 +30,7 @@ export function ClassicHome({ onOpen, onBack }: { onOpen: (poolId: string) => vo
       <div className="ds-stack">
         <Card>
           <div className="ds-stack-sm">
-            <h3 className="ds-review-title">{t("classic.fixedPool")}</h3>
+            <h2 className="ds-review-title">{t("classic.fixedPool")}</h2>
             <p className="ds-note">{t("classic.intro")}</p>
             <p className="ds-note" data-testid="classic-separate">{t("classic.disclosure.separate")}</p>
           </div>
@@ -121,7 +121,7 @@ export function ClassicPoolScreen({ poolId, onBack }: { poolId: string; onBack: 
             <div className="ds-stack-sm">
               {!deposited ? (
                 <>
-                  <h3 className="ds-review-title">{t("classic.deposit.title", { amount: pool.denomination, symbol })}</h3>
+                  <h2 className="ds-review-title">{t("classic.deposit.title", { amount: pool.denomination, symbol })}</h2>
                   <ul className="ds-plain-list ds-note" data-testid="classic-disclosures">{CLASSIC_DISCLOSURE_KEYS.map((k) => <li key={k}>{t(k as MessageKey)}</li>)}</ul>
                   <label className="ds-switch-row ds-native-row"><span>{t("classic.deposit.agree")}</span><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} data-testid="classic-agree" /></label>
                   {agreed ? (
@@ -148,7 +148,7 @@ export function ClassicPoolScreen({ poolId, onBack }: { poolId: string; onBack: 
         {mode === "withdraw" ? (
           <Card testId="classic-withdraw-form">
             <div className="ds-stack-sm">
-              <h3 className="ds-review-title">{t("classic.withdraw.title")}</h3>
+              <h2 className="ds-review-title">{t("classic.withdraw.title")}</h2>
               <Field label={t("classic.withdraw.note")} htmlFor="classic-note-input"><TextInput id="classic-note-input" value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="tornado-eth-1-31337-0x…" autoComplete="off" spellCheck={false} data-testid="classic-note-input" /></Field>
               <Field label={t("classic.withdraw.recipient")} htmlFor="classic-recipient"><TextInput id="classic-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} data-testid="classic-recipient" /></Field>
               {error ? <p className="ds-field-error" data-testid="classic-error">{error}</p> : null}

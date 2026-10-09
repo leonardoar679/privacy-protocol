@@ -38,7 +38,7 @@ export function Unlock() {
   const [password, setPassword] = useState("");
   const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { if (!(await session.unlock(password))) throw new Error(t("lock.wrongPassword")); }); };
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("lock.unlockTitle")} testId="lock-screen">
         <Card padding="lg">
           <form onSubmit={submit} className="ds-page-body">
@@ -50,7 +50,7 @@ export function Unlock() {
           <ModeLinks mode="unlock" />
         </Card>
       </Page>
-    </div>
+    </main>
   );
 }
 
@@ -75,7 +75,7 @@ export function Create() {
   const ok = password.length >= 8 && password === confirm && (!replacing || replace === "REPLACE");
   const submit = (e: FormEvent) => { e.preventDefault(); if (ok) void run(async () => { await session.create(password); }); };
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("lock.createTitle")} testId="lock-screen">
         <Card padding="lg">
           <p className="ds-field-hint">{t("lock.createIntro")}</p>
@@ -88,7 +88,7 @@ export function Create() {
           <ModeLinks mode="create" />
         </Card>
       </Page>
-    </div>
+    </main>
   );
 }
 
@@ -112,7 +112,7 @@ export function Restore() {
     if (kind === "file" && okFile) void run(async () => { if (!(await session.restoreFromBackup(file, password))) throw new Error(t("lock.wrongBackupPassword")); });
   };
   return (
-    <div className="ds-main">
+    <main className="ds-main">
       <Page title={t("lock.restoreTitle")} testId="lock-screen">
         <Card padding="lg">
           <Segmented value={kind} onChange={(v) => setKind(v === "file" ? "file" : "phrase")} ariaLabel={t("lock.restoreTitle")} name="restore-kind" options={[{ value: "phrase", label: t("lock.restorePhrase"), testId: "restore-phrase" }, { value: "file", label: t("lock.restoreFile"), testId: "restore-file" }]} />
@@ -135,6 +135,6 @@ export function Restore() {
           <ModeLinks mode="restore" />
         </Card>
       </Page>
-    </div>
+    </main>
   );
 }
