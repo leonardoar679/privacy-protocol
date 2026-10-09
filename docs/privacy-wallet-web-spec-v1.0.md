@@ -209,7 +209,8 @@ the address book's status; `Route healthy` = the provider's breaker is closed an
 atomic: your funds leave first and arrive later, and a failure in between is refunded, not reversed."
 
 ### 3.8 Protected execution (plan §23–§24) — *Stage 8*
-At the `large-protected` band and above (§11), before the Review:
+At the `large-protected` band (§11), before the Review — from `enhanced` the V3 wizard and the V3 Review carry
+the same safeguards, so the V4 tiers are unchanged (plan V5 decision 3):
 ```
 Protected execution
 Because this transaction is large, we're using additional execution safeguards.

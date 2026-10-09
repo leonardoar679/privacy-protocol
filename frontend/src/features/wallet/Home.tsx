@@ -21,7 +21,7 @@ import { usePosture } from "../../wallet/posture";
 import { useSchedulerStatus } from "../../wallet/schedule";
 import { session, useSession } from "../../wallet/session";
 import { PROTECTION_DEFAULTS, settings, useSettings } from "../../wallet/settings";
-import { campaignStatus } from "../../components/protection/CampaignProgress";
+import { campaignStatus } from "../swap/protected/CampaignProgress";
 import { PrivateBalance } from "../../components/PrivateBalance";
 import { useConnection } from "./connection";
 

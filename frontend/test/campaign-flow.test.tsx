@@ -13,7 +13,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, getAddress } from "viem";
-import { Swap } from "../src/components/Swap";
+import { Swap } from "../src/features/swap/Swap";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { noteStore } from "../src/wallet/notes";
@@ -187,11 +187,11 @@ async function quoted(container: HTMLElement, amountEth: string) {
   await mount(container);
   await act(async () => { setValue(container.querySelector('input[inputmode="decimal"]') as HTMLInputElement, amountEth); });
   await act(async () => { button(container, "Get a quote")!.click(); });
-  await vi.waitFor(() => expect(button(container, "Review")).toBeTruthy());
+  await vi.waitFor(() => expect(button(container, "Review Swap")).toBeTruthy());
 }
 /** The wizard's three steps, then the Review. */
 async function throughWizard(container: HTMLElement) {
-  await act(async () => { button(container, "Review")!.click(); });
+  await act(async () => { button(container, "Review Swap")!.click(); });
   const wizard = () => container.querySelector('[data-testid="campaign-wizard"]');
   expect(wizard()!.getAttribute("data-step")).toBe("0");
   expect(container.querySelector('[data-testid="wizard-risk"]')!.textContent).toContain("class R5");

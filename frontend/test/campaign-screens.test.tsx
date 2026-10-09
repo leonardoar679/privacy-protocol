@@ -15,13 +15,13 @@ import { dirname, join } from "node:path";
 import { getAddress } from "viem";
 import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@ref/wallet/campaign";
 import { MemoryRouter } from "react-router-dom";
-import { Review } from "../src/components/Review";
+import { Review } from "../src/features/review/ReviewScreen";
 import { Providers } from "../src/app/Providers";
 import { Home } from "../src/features/wallet/Home";
 import { Activity } from "../src/components/Activity";
 import { Settings } from "../src/components/Settings";
-import { CampaignProgress, campaignStatus } from "../src/components/protection/CampaignProgress";
-import { ExposureDashboard, exposureTimeline } from "../src/components/protection/ExposureDashboard";
+import { CampaignProgress, campaignStatus } from "../src/features/swap/protected/CampaignProgress";
+import { ExposureDashboard, exposureTimeline } from "../src/features/swap/protected/ExposureDashboard";
 import { controlsFor } from "../src/sdk/tiers";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
@@ -110,7 +110,7 @@ describe("the Review's campaign moment (spec §15)", () => {
     await hold(c);
     expect(onConfirm).toHaveBeenCalledTimes(1);
     // the Review source renders the two verdict lines from one prop, inside one block
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/components/Review.tsx"), "utf8");
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/features/review/ReviewScreen.tsx"), "utf8");
     const block = src.slice(src.indexOf('data-testid="verdict"'), src.indexOf('data-testid="verdict-privacy"'));
     expect(block).toContain('data-testid="verdict-security"');
     expect(src.match(/Safe to execute/g)!.length, "the words appear only in the verdict type and its class choice").toBeLessThanOrEqual(3);
@@ -171,9 +171,9 @@ describe("the campaign progress panel (spec §15)", () => {
     expect(amounts.querySelector('[data-amount="protected"]')!.textContent).toContain("2350 ETH");
     expect(amounts.querySelector('[data-amount="remaining"]')!.textContent).toContain("2350 ETH");
     const bar = c.querySelector('[data-testid="protection-bar"]')!;
-    expect((bar.querySelector('[data-segment="completed"]') as HTMLElement).style.width).toBe("4%");
-    expect((bar.querySelector('[data-segment="in-flight"]') as HTMLElement).style.width).toBe("2%");
-    expect((bar.querySelector('[data-segment="protected"]') as HTMLElement).style.width).toBe("94%");
+    expect(bar.querySelector('[data-segment="completed"]')!.getAttribute("data-width")).toBe("4%"); // V5: an SVG bar, the widths as attributes
+    expect(bar.querySelector('[data-segment="in-flight"]')!.getAttribute("data-width")).toBe("2%");
+    expect(bar.querySelector('[data-segment="protected"]')!.getAttribute("data-width")).toBe("94%");
     expect(c.textContent).toContain("Privacy: Good");
     expect(c.textContent).toContain("You can safely leave this screen — keep the wallet unlocked");
     expect(c.textContent).toContain("one step at a time");
@@ -339,7 +339,7 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     const s = tradeSummary({ from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: eth(400), usd: 1_000_000, tier: "high-value", protection: protection() });
     expect(s.protection).toEqual({ riskClass: "R5", custody: "tss-vaults", bandBps: [200, 200], capBps: 200, steps: 50, gate: "destination-final", concurrency: "sequential", elpfUsd: "4000", concentration: "single venue", staged: false });
     expect(JSON.stringify(s)).not.toMatch(ADDRESS_LIKE);
-    for (const f of ["../src/components/protection/CampaignProgress.tsx", "../src/wallet/campaigns.ts", "../src/wallet/campaignRunner.ts", "../src/wallet/alerts.ts", "../src/wallet/notifications.ts", "../src/sdk/swapExecute.ts"]) {
+    for (const f of ["../src/features/swap/protected/CampaignProgress.tsx", "../src/features/swap/Swap.tsx", "../src/features/swap/facts.ts", "../src/wallet/campaigns.ts", "../src/wallet/campaignRunner.ts", "../src/wallet/alerts.ts", "../src/wallet/notifications.ts", "../src/sdk/swapExecute.ts"]) {
       const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), f), "utf8");
       expect(src, f).not.toMatch(/anonymous|atomic/i);
     }

@@ -15,7 +15,7 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { base58 } from "@scure/base";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { selectable, COOLING_OFF_MS } from "@ref/wallet/addressBook";
-import { Swap } from "../src/components/Swap";
+import { Swap } from "../src/features/swap/Swap";
 import { Send } from "../src/features/send/Send";
 import { Receive } from "../src/features/wallet/Receive";
 import { Settings } from "../src/components/Settings";
@@ -201,6 +201,7 @@ describe("destinations on the screens (spec §12)", () => {
   it("Swap: the status under a typed Bitcoin destination, with the book's way forward; Settings lists the entry; Receive marks a used address", async () => {
     await unlocked();
     const c = await mount(<Swap masterSeed={session.state().seed!} deployment={deployment} />);
+    await act(async () => { setValue(c.querySelector('[data-testid="swap-amount-input"]') as HTMLInputElement, "0.5"); }); // V5: no amount is pre-filled; no price on chain 1: the fail-safe tier is high-value
     const input = c.querySelector('input[placeholder="fresh address"]') as HTMLInputElement;
     await act(async () => { setValue(input, BTC); });
     const status = c.querySelector('[data-testid="destination-status"]')!;

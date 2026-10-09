@@ -131,7 +131,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const plan: TranchePlan = {
     riskClass: p.riskClass as TranchePlan["riskClass"], bandBps: band, capBps, sizing, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, gate: p.gate, cadenceSeconds: p.cadenceSeconds ?? defaults.cadenceSeconds,
     providerShareCapBps: p.concentration.singleVenue ? 10000 : Math.min(p.providerShareCapBps || 10000, i.providerShareCapBps ?? 10000), executeWindowSeconds: p.executeWindowSeconds, estimatedTranches: split.pieces.length, estimatedSeconds: p.estimatedSeconds,
-    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}),
+    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}), ...(exact ? { exact: true } : {}), // V5 (spec §11): the band's exact quarters survive a re-plan
   };
   // the reference rate (§3): the Chainlink cross-rate when both feeds exist, else the quote's expected rate (then the deviation check compares like with like only approximately)
   const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), i.amount);

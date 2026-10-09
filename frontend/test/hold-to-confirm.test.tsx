@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { HoldToConfirm } from "../src/components/HoldToConfirm";
+import { HoldButton } from "../src/design-system";
 import { HOLD_MS } from "../src/sdk/tiers";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,11 +14,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function mount(onConfirm: () => void, disabled = false) {
   const container = document.createElement("div");
-  await act(async () => { root = createRoot(container); root.render(<HoldToConfirm label="Confirm" onConfirm={onConfirm} disabled={disabled} />); });
+  await act(async () => { root = createRoot(container); root.render(<HoldButton label="Confirm" holdMs={HOLD_MS} onConfirm={onConfirm} disabled={disabled} />); });
   return container.querySelector("button") as HTMLButtonElement;
 }
 
-describe("HoldToConfirm", () => {
+describe("HoldButton (the hold to confirm)", () => {
   it("the test hold is short; a completed hold fires once", async () => {
     expect(HOLD_MS).toBeLessThan(200);
     const onConfirm = vi.fn();

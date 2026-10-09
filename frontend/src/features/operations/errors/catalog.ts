@@ -91,6 +91,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   user_pause: { source: "campaign", fundsClass: "still-protected", actions: ["review"] },
   wallet_pause: { source: "campaign", fundsClass: "still-protected", actions: ["review"] },
   velocity: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring", "review"] },
+  quote_ttl_short: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
+  provider_unhealthy: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote", "wait"] },
+  slippage_too_wide: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   unknown: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
 };
 

@@ -208,3 +208,33 @@ button.ds-list-row { cursor: pointer; }
 .ds-receive-main { flex: 1 1 200px; min-width: 0; }
 .ds-privacy-line { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--shield); font-weight: 600; }
 .ds-tabular { font-variant-numeric: tabular-nums; }
+
+/* V5 Stage 8: the Review, the protected execution's progress, the swap screen */
+.ds-level { font-weight: 600; }
+.ds-level-Excellent { color: var(--shield); }
+.ds-level-Good { color: var(--accent); }
+.ds-level-Reduced { color: var(--warn); }
+.ds-level-danger { color: var(--danger); }
+.ds-review { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-review-title { margin: 0; font-size: var(--heading-size); }
+.ds-review-usd { font-size: var(--display-size); line-height: 1.1; }
+.ds-review-amount { font-size: var(--heading-size); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ds-review-block { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--label-size); }
+.ds-review-lines { list-style: none; padding: 0; margin: var(--space-2) 0 0; display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--label-size); }
+.ds-review-lines li { display: flex; gap: var(--space-2); align-items: flex-start; }
+.ds-review-mark { flex: 0 0 16px; }
+.ds-review-actions { flex-direction: column; }
+.ds-protection-bar { width: 100%; height: 8px; border-radius: 4px; overflow: hidden; display: block; background: var(--surface-2); }
+.ds-bar-completed { fill: var(--shield); }
+.ds-bar-inflight { fill: var(--accent); }
+.ds-bar-prepared { fill: var(--warn); }
+.ds-bar-protected { fill: var(--surface-2); }
+.ds-campaign-amounts { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--space-3); font-size: var(--label-size); }
+.ds-campaign-amounts b { text-align: right; font-variant-numeric: tabular-nums; }
+.ds-checks-line { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); font-size: var(--label-size); color: var(--shield); font-weight: 600; }
+.ds-checks-line [data-ok="0"] { color: var(--warn); }
+.ds-plain-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.ds-route-table { width: 100%; border-collapse: collapse; font-size: var(--label-size); }
+.ds-route-table th, .ds-route-table td { text-align: left; padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); vertical-align: top; }
+.ds-route-table tr[data-filtered="1"] { opacity: 0.55; }
+.ds-swap-arrow { display: flex; justify-content: center; color: var(--fg-muted); }

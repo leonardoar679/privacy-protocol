@@ -10,7 +10,8 @@ import { assertSecondFactor, verifyPassword, webauthnAvailable } from "../../sdk
 import { addAddress, approveAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, useAddressBook, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "../../wallet/addressBook";
 import { useSettings } from "../../wallet/settings";
 import { session } from "../../wallet/session";
-import { HoldToConfirm } from "../HoldToConfirm";
+import { HoldButton } from "../../design-system";
+import { HOLD_MS } from "../../sdk/tiers";
 
 // The address book on the screens (High-Value Protection spec §12; plan V3 §35–§40, §126–§128): the Settings panel
 // (every entry with its chain, label, lifecycle and status; add, verify, retire), the inline status under a typed
@@ -138,7 +139,7 @@ export function OverridePanel({ entry, tier, onDone }: { entry: AddressBookEntry
     <div className="notice" style={{ marginTop: 8 }} data-testid="override-panel">
       <div className="small">The cooling-off protects you from an address that was swapped under your eyes: an immediate use needs the phrase <b>{OVERRIDE_PHRASE}</b>, a hold and your {institutional ? "separate device" : "second confirmation"}.</div>
       <input value={phrase} onChange={(e: any) => setPhrase(e.target.value)} placeholder={OVERRIDE_PHRASE} autoComplete="off" data-testid="override-phrase" />
-      {step === "idle" && <HoldToConfirm label="Confirm an immediate use" onConfirm={confirmed} disabled={phrase.trim() !== OVERRIDE_PHRASE} />}
+      {step === "idle" && <HoldButton label="Confirm an immediate use" holdMs={HOLD_MS} onConfirm={confirmed} disabled={phrase.trim() !== OVERRIDE_PHRASE} />}
       {step === "password" && (
         <div data-testid="override-password">
           <div className="small">Second confirmation: {secondFactor.credentialId ? "the authenticator did not confirm; " : "no authenticator is registered; "}enter your wallet password.</div>

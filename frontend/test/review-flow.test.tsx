@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, getAddress } from "viem";
-import { Swap } from "../src/components/Swap";
+import { Swap } from "../src/features/swap/Swap";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { noteStore } from "../src/wallet/notes";
@@ -154,14 +154,14 @@ async function quotedLarge(container: HTMLElement) {
   await act(async () => { setValue(container.querySelector('input[inputmode="decimal"]') as HTMLInputElement, "1360"); });
   expect(container.textContent).toContain("≈ $3,400,000");
   await act(async () => { button(container, "Get a quote")!.click(); });
-  await vi.waitFor(() => expect(button(container, "Review")).toBeTruthy());
+  await vi.waitFor(() => expect(button(container, "Review Swap")).toBeTruthy());
 }
 
 describe("the high-value Review (happy-dom, real engine)", () => {
   it("commit: the USD numeral, the five lines (the single quote acknowledged), the lint and a hold; execute: the simulation line, a hold, then the hand-over", async () => {
     const container = document.createElement("div");
     await quotedLarge(container);
-    await act(async () => { button(container, "Review")!.click(); });
+    await act(async () => { button(container, "Review Swap")!.click(); });
     const review = container.querySelector('[data-testid="review"]')!;
     expect(review.getAttribute("data-moment")).toBe("commit");
     expect(container.querySelector('[data-testid="review-usd"]')!.textContent).toContain("$3,400,000");
@@ -214,7 +214,7 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     (globalThis as any).PublicKeyCredential = class {};
     const container = document.createElement("div");
     await quotedLarge(container);
-    await act(async () => { button(container, "Review")!.click(); });
+    await act(async () => { button(container, "Review Swap")!.click(); });
     expect(container.textContent).toContain("second confirmation next");
     await act(async () => { button(container, "I accept the single quote")!.click(); });
     await hold(container);
@@ -229,7 +229,7 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     get.mockImplementation(async () => { throw new Error("NotAllowedError"); });
     const c2 = document.createElement("div");
     await quotedLarge(c2);
-    await act(async () => { button(c2, "Review")!.click(); });
+    await act(async () => { button(c2, "Review Swap")!.click(); });
     await act(async () => { button(c2, "I accept the single quote")!.click(); });
     await hold(c2);
     await vi.waitFor(() => expect(c2.querySelector('[data-testid="second-factor-password"]')).toBeTruthy());
@@ -248,7 +248,7 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     settings.set({ tiers: { enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 2_000_000, institutional: 3_000_000 } });
     const container = document.createElement("div");
     await quotedLarge(container);
-    await act(async () => { button(container, "Review")!.click(); });
+    await act(async () => { button(container, "Review Swap")!.click(); });
     expect(container.textContent).toContain(`Review hold: after you confirm, the funding waits at least ${REVIEW_HOLD_MINUTES} minutes`);
     expect(button(container, "Export for review (JSON)")).toBeTruthy();
     await act(async () => { button(container, "I accept the single quote")!.click(); });

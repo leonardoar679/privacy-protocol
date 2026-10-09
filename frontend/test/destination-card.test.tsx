@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { getAddress } from "viem";
-import { Swap } from "../src/components/Swap";
+import { Swap } from "../src/features/swap/Swap";
 import { Send } from "../src/features/send/Send";
 import { Receive } from "../src/features/wallet/Receive";
 import { session } from "../src/wallet/session";
@@ -38,6 +38,7 @@ async function mount(el: () => React.ReactElement) {
 describe("destinations on the screens", () => {
   it("Swap: an Ethereum address pasted as a Bitcoin destination is refused by name and the quote button stays disabled; a Bitcoin address passes", async () => {
     const container = await mount(() => <Swap masterSeed={session.state().seed!} deployment={deployment} />);
+    await act(async () => { setValue(container.querySelector('[data-testid="swap-amount-input"]') as HTMLInputElement, "0.5"); }); // V5: no amount is pre-filled
     const input = container.querySelector('input[placeholder="fresh address"]') as HTMLInputElement;
     expect(input.value).toBe(peekFreshAddress(session.state().seed!, "bitcoin").address);
     await act(async () => { setValue(input, EVM); });

@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, encodeErrorResult, getAddress, parseAbi, toFunctionSelector, type Hex } from "viem";
-import { Swap } from "../src/components/Swap";
+import { Swap } from "../src/features/swap/Swap";
 import { session } from "../src/wallet/session";
 import { noteStore } from "../src/wallet/notes";
 import { priceStore } from "../src/sdk/prices";
@@ -137,6 +137,7 @@ beforeAll(() => { globalThis.fetch = fetchMock as unknown as typeof fetch; });
 let root: Root | null = null;
 afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); bend = {}; rpcBend = {}; rpcSeen.length = 0; calls.length = 0; orders.clear(); relayerBodies.length = 0; jobs.clear(); });
 
+const setValue = (el: HTMLInputElement, v: string) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); };
 const button = (c: HTMLElement, text: string | RegExp) => [...c.querySelectorAll("button")].find((b) => (typeof text === "string" ? b.textContent?.trim() === text : text.test(b.textContent ?? ""))) as HTMLButtonElement | undefined;
 async function mount(container: HTMLElement) {
   if (root) act(() => root!.unmount());
@@ -152,9 +153,12 @@ async function committedAndFunded(container: HTMLElement) {
   await priceStore.refresh(deployment);
   expect(priceStore.state().status).toBe("ready");
   await mount(container);
+  await act(async () => { setValue(container.querySelector('[data-testid="swap-amount-input"]') as HTMLInputElement, "0.5"); }); // V5: no amount is pre-filled
   await act(async () => { button(container, "Get a quote")!.click(); });
-  await vi.waitFor(() => expect(button(container, "Swap")).toBeTruthy());
-  await act(async () => { button(container, "Swap")!.click(); });
+  await vi.waitFor(() => expect(button(container, "Review Swap")).toBeTruthy());
+  await act(async () => { button(container, "Review Swap")!.click(); }); // V5 (spec §3.9): the Review before every commit, a tap at standard
+  await vi.waitFor(() => expect(container.querySelector('[data-testid="confirm-tap"]')).toBeTruthy());
+  await act(async () => { (container.querySelector('[data-testid="confirm-tap"]') as HTMLButtonElement).click(); });
   await vi.waitFor(() => expect(session.journal().swaps).toHaveLength(1));
   const s = session.journal().swaps[0];
   expect(s.approvedMin, "the minimum the user saw is journaled at commit").toBe(LIMIT.toString());

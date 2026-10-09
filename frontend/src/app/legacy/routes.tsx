@@ -8,19 +8,11 @@ import { useDeployment } from "../deployment";
 import { useUnlockedSeed } from "../Gate";
 import { useConnection } from "../../features/wallet/connection";
 import { useStatusLines } from "./statusLines";
-import { Swap } from "../../components/Swap";
 import { Activity } from "../../components/Activity";
 import { PrivacyCenter } from "../../components/PrivacyCenter";
 import { Settings } from "../../components/Settings";
 import { PrivateAI } from "../../components/PrivateAI";
 import { Guest } from "../../components/Guest";
-
-export function SwapRoute() {
-  const seed = useUnlockedSeed();
-  const deployment = useDeployment();
-  const { account } = useConnection();
-  return <Swap masterSeed={seed} deployment={deployment} account={account} />;
-}
 
 export function ActivityRoute() {
   const deployment = useDeployment();

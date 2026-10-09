@@ -24,7 +24,7 @@ import type { Deployment } from "../sdk/chain";
 export const ROUTER_FUTURE = { v7_relativeSplatPath: true, v7_fetcherPersist: true, v7_normalizeFormMethod: true, v7_partialHydration: true, v7_skipActionErrorRevalidation: true } as const;
 export const PROVIDER_FUTURE = { v7_startTransition: true } as const;
 
-const SwapRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.SwapRoute })));
+const SwapRoute = lazy(() => import("../features/swap/SwapRoute"));
 const ActivityRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.ActivityRoute })));
 const AIRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.AIRoute })));
 const GuestRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.GuestRoute })));

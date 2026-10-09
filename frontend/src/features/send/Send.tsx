@@ -28,7 +28,7 @@ import { useSettings } from "../../wallet/settings";
 import { topBucket, walletLint } from "../../wallet/lintFacts";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
-import { Review, type ReviewLine } from "../../components/Review";
+import { Review, type ReviewLine } from "../review/ReviewScreen";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { sendFees, type FeeView } from "../fees/feeEngine";
 import { useFeeTerms } from "../fees/useFeeTerms";
