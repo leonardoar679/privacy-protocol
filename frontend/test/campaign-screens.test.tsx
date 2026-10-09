@@ -18,7 +18,7 @@ import { MemoryRouter } from "react-router-dom";
 import { Review } from "../src/features/review/ReviewScreen";
 import { Providers } from "../src/app/Providers";
 import { Home } from "../src/features/wallet/Home";
-import { Activity } from "../src/components/Activity";
+import { Activity } from "../src/features/activity/Activity";
 import { Settings } from "../src/components/Settings";
 import { CampaignProgress, campaignStatus } from "../src/features/swap/protected/CampaignProgress";
 import { ExposureDashboard, exposureTimeline } from "../src/features/swap/protected/ExposureDashboard";

@@ -8,16 +8,10 @@ import { useDeployment } from "../deployment";
 import { useUnlockedSeed } from "../Gate";
 import { useConnection } from "../../features/wallet/connection";
 import { useStatusLines } from "./statusLines";
-import { Activity } from "../../components/Activity";
 import { PrivacyCenter } from "../../components/PrivacyCenter";
 import { Settings } from "../../components/Settings";
 import { PrivateAI } from "../../components/PrivateAI";
 import { Guest } from "../../components/Guest";
-
-export function ActivityRoute() {
-  const deployment = useDeployment();
-  return <Activity deployment={deployment} />;
-}
 
 export function PrivacyRoute() {
   const t = useT();

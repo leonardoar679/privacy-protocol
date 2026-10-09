@@ -25,7 +25,8 @@ export const ROUTER_FUTURE = { v7_relativeSplatPath: true, v7_fetcherPersist: tr
 export const PROVIDER_FUTURE = { v7_startTransition: true } as const;
 
 const SwapRoute = lazy(() => import("../features/swap/SwapRoute"));
-const ActivityRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.ActivityRoute })));
+const ActivityRoute = lazy(() => import("../features/activity/ActivityRoute"));
+const ActivityDetailRoute = lazy(() => import("../features/activity/ActivityRoute").then((m) => ({ default: m.ActivityDetailRoute })));
 const AIRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.AIRoute })));
 const GuestRoute = lazy(() => import("../app/legacy/routes").then((m) => ({ default: m.GuestRoute })));
 const Gallery = lazy(() => import("../design-system/Gallery").then((m) => ({ default: m.Gallery })));
@@ -53,8 +54,9 @@ export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: De
     { path: "send/*", element: <SendRoute /> },
     { path: "receive", element: <ReceiveRoute /> },
     { path: "swap/*", element: <SwapRoute /> },
-    { path: "activity/*", element: <ActivityRoute /> },
-    { path: "recovery/*", element: <ActivityRoute /> },
+    { path: "activity", element: <ActivityRoute /> },
+    { path: "activity/:id", element: <ActivityDetailRoute /> },
+    { path: "recovery/:id", element: <ActivityDetailRoute /> },
     { path: "more", element: <More /> },
     { path: "more/privacy/*", element: <PrivacyRoute /> },
     { path: "more/security", element: <SettingsRoute title="route.security" /> },
