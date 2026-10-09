@@ -98,6 +98,25 @@ The plan consolidates V3 under the engine framing of its §8 and asks (§133) fo
 | 6 | docs (README, `docs/test-matrix.md` V4 table, `docs/security-invariants.md` the §113–§115 lists with their tests, `docs/threat-model.md` V4 rows, `docs/audit-package.md` gaps 20–24, `docs/wallet-formats.md`, `docs/local-run.md`, `docs/privacy-lab.md`, the whale labs' README, the contract's §9 figure), the memory notes, the full verification | ✅ 2026-10-08 |
 | 7 | follow-up: the provider records' audit fields from the published reports (THORChain 6, Chainflip 3, Mayan 4, NEAR Intents 1, LI.FI 3 + the per-facet audit log, Across 4 — firm, date, scope, URL), the security events of LI.FI (2022-03-20, 2024-07-16) and NEAR Intents (2026-10-01, ≈ $3.8M, refunded) and the published bounties (NEAR Intents $300K, LI.FI $1M), with the score pins moved by the facts; audit-package gap 19 restated and gap 21 corrected to the §123 rule as implemented; the Sepolia light-client test with three deep-window RPCs before PublicNode (its ≈ 80-block proof window refused the finalized block half the time); `docs/private-ai.md` says what V4 left unchanged in the trade check | ✅ 2026-10-08 |
 
+## V5 — Privacy Wallet Web V1 (plan "Privacy Wallet Web V1 — Mobile-First Privacy + Swap + Private Transfer Platform" §1–§88, more to follow)
+The plan's rule (§87): replace the UI foundation with a design system and an application shell first, then rebuild every feature inside it; the engines underneath stay. The spec `docs/privacy-wallet-web-spec-v1.0.md` freezes the product model, the four-tab shell and its routes, every screen's words, the tokens and the component inventory, the fee model (the relayer's percentage term through the existing fee note, the executor tip on swaps), the consumer bands `large` ($20K) and `large-protected` ($50K) below the untouched V4 bands, the one operation state machine with the mapping from every existing vocabulary, the error and recovery catalog, the Privacy Center's facts, the Classic Privacy module boundary, the SDK facade, the IndexedDB container with unchanged at-rest formats, and the gates. The owner's decisions: rebuild inside `frontend/` (the §81 monorepo layout later), the lean UI stack (Tailwind, Radix primitives, viem + EIP-6963 with a lazy WalletConnect connector, zod), the services unchanged but the relayer's fee terms, Classic Privacy as screens on a pool interface with the contracts and the legal review later.
+
+| Stage | Deliverable | Status |
+|-------|-------------|--------|
+| 0 | the spec (`docs/privacy-wallet-web-spec-v1.0.md`: 24 sections, §24 reserved for the plan's §89 onward); this table | ✅ 2026-10-08 |
+| 1 | the design system (`frontend/src/design-system/`: tokens → Tailwind, the base stylesheet with the legacy scope, the wrapped Radix primitives, the icon set, the component inventory, the gallery), Testing Library + axe, ESLint with the house rules over the new directories, the message catalog | ⏳ |
+| 2 | the storage container (`frontend/src/storage/`: encrypted IndexedDB for the keystore and the journal with byte-identical formats, the one-time migration from localStorage, the prefs store, the TC-01 guard on both) | ⏳ |
+| 3 | the application shell (react-router routes, Home / Swap / Activity / More, the first launch with the Simple / Advanced choice, the lock gate, the legacy screens mounted inside) | ⏳ |
+| 4 | wallet connection (EIP-6963, the injected fallback, the lazy WalletConnect connector, the chain check), the one transport module, the new Home | ⏳ |
+| 5 | the fee engine (the relayer's percentage terms and `fee_below_percent`, the shared formulas, `FeeSummary`, estimated / minimum receive per operation kind) and the tier ladder's consumer bands | ⏳ |
+| 6 | the operation state machine (the journaled record, the reducer, the adapters from every existing vocabulary, the error catalog, the recovery model) | ⏳ |
+| 7 | the Protect and Send flows on the record (prepare → review → submit → track), `AddressInput` with the §16 checks, the backup nudge, the SDK facade | ⏳ |
+| 8 | Swap and cross-chain (the single card, the quote card, Compare routes under Advanced, the checklist, the Review, the timeline panel, the §24 protected-execution words, the §61 recovery screen; the campaign engine untouched) | ⏳ |
+| 9 | Activity and the operation detail | ⏳ |
+| 10 | More (Security, Wallet, Advanced), the Privacy Center on facts, "What stays private", Classic Privacy on the mock pool | ⏳ |
+| 11 | the gates (the privacy-leakage suite, the Playwright viewport matrix, ESLint everywhere, CSP and headers, artifact pins, the dependency audit, locale detection and the pseudo-locale, accessibility tests) | ⏳ |
+| 12 | desktop refinement, the documentation, the local-stack run | ⏳ |
+
 ## Decisions still open (owner needed)
 - **Gas vs §79 targets** — `transact` 1.79M / `deposit` 1.52M vs 650k / 150k. At today's gas that is
   under a dollar per operation; the levers (direct library calls, Yul body hash, deposit queue,
