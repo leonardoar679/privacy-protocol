@@ -11,19 +11,23 @@
 //!
 //! No randomness is drawn here: every function that needs it (ephemeral keys, nonces, salts, dummies)
 //! takes the bytes from the caller, so each platform uses its own CSPRNG / secure enclave.
-pub mod address;
-pub mod bip39;
-pub mod bip39_wordlist;
-pub mod chainkeys;
-pub mod domains;
-pub mod envelope;
-pub mod field;
-pub mod keys;
-pub mod keystore;
+//!
+//! The modules are grouped as doc §60 lists (V6 Stage 4): `crypto`, `notes`, `commitments`, `nullifiers`, `merkle`,
+//! `encoding`, `proof`, `wallet`. Every path of the flat layout (`privacy_core::note::…`, `::payload::…`, `::keystore::…`)
+//! stays, re-exported below, so the WASM package, the FFI, the prover and their callers are unchanged
+//! (`tests/api_paths.rs`).
+pub mod commitments;
+pub mod crypto;
+pub mod encoding;
 pub mod merkle;
-pub mod note;
-pub mod payload;
-pub mod poseidon2;
-pub mod poseidon2_constants;
+pub mod notes;
+pub mod nullifiers;
+pub mod proof;
+pub mod wallet;
+
+pub use crypto::{domains, field, poseidon2, poseidon2_constants};
+pub use encoding::{address, envelope, payload};
+pub use notes::note;
+pub use wallet::{bip39, bip39_wordlist, chainkeys, keys, keystore};
 
 pub use field::Fr;

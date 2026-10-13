@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import axe from "axe-core";
-import { Gallery } from "../../src/design-system/Gallery";
-import { ICON_NAMES } from "../../src/design-system";
+import { Gallery } from "@privacy-wallet/ui/Gallery";
+import { ICON_NAMES } from "@privacy-wallet/ui";
 
 describe("the gallery is accessible (spec §19)", () => {
   it("renders every section and icon", () => {

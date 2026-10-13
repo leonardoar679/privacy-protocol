@@ -3,9 +3,9 @@
 // beside it while the wallet is unlocked.
 import { Suspense } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AppShell, BottomNav, Button, Skeleton, type NavItem } from "../design-system";
+import { AppShell, BottomNav, Button, Skeleton, type NavItem } from "@privacy-wallet/ui";
 import { useT } from "./i18n/useT";
-import { session } from "../wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { Background } from "./Background";
 import { useSession } from "../hooks";
 

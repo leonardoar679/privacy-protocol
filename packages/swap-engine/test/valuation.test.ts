@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { NO_VALUER, RpcValuer, assessRequest, isTier } from "../src/valuation";
 import { PrivateSwapEngine } from "../src/engine";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../src/types";
-import { TIER_DEFAULTS, type FeedSpec } from "../../../packages/protocol/src/wallet/valuation";
+import { TIER_DEFAULTS, type FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };

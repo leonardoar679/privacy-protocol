@@ -3,15 +3,15 @@
 // route and when they are funded; saved here only, never on chain), and the token allowances of the connected wallet
 // toward the vaults, read and revoked through that wallet's own provider — never this wallet's endpoints.
 import { useState } from "react";
-import { Button, Card, Page, StatusBadge } from "../../design-system";
+import { Button, Card, Page, StatusBadge } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import { allowancesFor, revokeAllowance, type AllowanceLine } from "../../sdk/allowances";
-import { formatAmount } from "../../sdk/assets";
-import type { Deployment } from "../../sdk/chain";
-import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "../../sdk/policy";
-import { PREFERENCES, settings, type Preference } from "../../wallet/settings";
-import { connection, shortAccount } from "../wallet/connection";
+import { allowancesFor, revokeAllowance, type AllowanceLine } from "@privacy-wallet/sdk/allowances";
+import { formatAmount } from "@privacy-wallet/sdk/assets";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "@privacy-wallet/sdk/policy";
+import { PREFERENCES, settings, type Preference } from "@privacy-wallet/sdk/wallet/settings";
+import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { useConnection, useSettings } from "../../hooks";
 
 export function Wallet({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {

@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { formatUnits } from "viem";
 import { protectFees, sendFees, swapFees } from "../src/features/fees/feeEngine";
-import { feeInVault, type RelayerInfo } from "../src/sdk/relayer";
+import { feeInVault, type RelayerInfo } from "@privacy-wallet/sdk/relayer";
 import { t } from "../src/app/i18n/messages";
 
 const fmt = (units: bigint) => `${formatUnits(units, 6)} USDC`;

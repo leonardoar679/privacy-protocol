@@ -5,11 +5,11 @@
 import { useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
 import type { ChainAccount, ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
-import { Button, Page, Segmented } from "../../design-system";
+import { Button, Page, Segmented } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { privacyAddress } from "../../sdk/privateTx";
-import { consumeFreshAddress, lastFreshAddress } from "../../keys/chainKeys";
-import { findEntry } from "../../wallet/addressBook";
+import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
+import { consumeFreshAddress, lastFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { findEntry } from "@privacy-wallet/sdk/wallet/addressBook";
 import { DestinationCard } from "../../components/DestinationCard";
 import { useAddressBook } from "../../hooks";
 

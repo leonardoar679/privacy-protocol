@@ -2,10 +2,10 @@
 // The choice is a preference (spec §8), written here and mirrored into the journal at unlock.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Page, RadioGroup } from "../../design-system";
+import { Button, Card, Page, RadioGroup } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
-import { connection, shortAccount } from "../wallet/connection";
+import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { useConnection } from "../../hooks";
 
 export function Welcome() {

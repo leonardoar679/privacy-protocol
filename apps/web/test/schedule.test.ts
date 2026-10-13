@@ -1,10 +1,10 @@
 // Randomized scheduling (plan §30): due times are uniform inside the policy window, actions live in
 // the encrypted journal (survive lock/unlock), and completion / errors are recorded once.
 import { describe, it, expect, beforeEach } from "vitest";
-import { cancelAction, completeAction, isDue, pendingActions, sampleDueAt, scheduleAction } from "../src/wallet/schedule";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
+import { cancelAction, completeAction, isDue, pendingActions, sampleDueAt, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 

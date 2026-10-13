@@ -1,8 +1,8 @@
 // The recovery phrase, shown once after a wallet is created (spec §3.2, §9): the 24 words, an acknowledgement, Continue.
 import { useState } from "react";
-import { Button, Card, Page } from "../../design-system";
+import { Button, Card, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { session } from "../../wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 
 export function Phrase({ phrase }: { phrase: string }) {
   const t = useT();

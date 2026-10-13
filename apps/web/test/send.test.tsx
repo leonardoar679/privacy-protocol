@@ -10,16 +10,16 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { request as httpRequest } from "node:http";
 import { getAddress } from "viem";
 import { Providers } from "../src/app/Providers";
-import type { EngineEvent } from "../src/features/operations/engineEvents";
-import { finishedOperations, openOperations, resetOperationsMemory } from "../src/features/operations/store";
+import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
+import { finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { Send } from "../src/features/send/Send";
-import { privacyAddress } from "../src/sdk/privateTx";
-import type { Deployment } from "../src/sdk/chain";
-import { priceStore } from "../src/sdk/prices";
-import { peekFreshAddress } from "../src/keys/chainKeys";
-import { noteStore } from "../src/wallet/notes";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { priceStore } from "@privacy-wallet/sdk/prices";
+import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { startMockCore } from "./helpers/mockRpc";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
@@ -32,8 +32,8 @@ function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string
   onEvent?.({ type: "waiting-receipt", txHash: hash });
   onEvent?.({ type: "mined", txHash: hash, ...(leafIndex !== undefined ? { leafIndex } : {}) });
 }
-vi.mock("../src/sdk/privateTx", async (importOriginal) => {
-  const orig = await importOriginal<typeof import("../src/sdk/privateTx")>();
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>();
   return {
     ...orig,
     feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),

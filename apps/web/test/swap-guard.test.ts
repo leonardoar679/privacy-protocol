@@ -1,4 +1,4 @@
-// The wallet's checks on the swap service (src/sdk/swapGuard.ts): the escrow address is recomputed
+// The wallet's checks on the swap service (packages/sdk/src/swapGuard.ts): the escrow address is recomputed
 // with the wallet's own factory exactly as SwapOrderFactory.predict (forge vector) and as the engine
 // does; an honest order built by the real engine passes; every way a dishonest service could bend an
 // order — another endpoint, another signer, a refund that does not come back, another amount / asset /
@@ -9,13 +9,13 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { checkOrder, checkPrepared, executionDigestFromHash, OrderMismatch, predictEscrow, ESCROW_CREATION_CODE } from "../src/sdk/swapGuard";
-import { deriveOrderKey, deriveRefundNote } from "../src/keys/swapKeys";
-import type { ServiceOrder, Prepared } from "../src/sdk/swapService";
-import type { Asset } from "../src/sdk/assets";
-import { PrivateSwapEngine } from "../../../packages/swap-engine/src/engine";
-import { predictEscrow as enginePredict } from "../../../packages/swap-engine/src/endpoints";
-import type { Ingress, ProviderAdapter, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import { checkOrder, checkPrepared, executionDigestFromHash, OrderMismatch, predictEscrow, ESCROW_CREATION_CODE } from "@privacy-wallet/sdk/swapGuard";
+import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
+import type { ServiceOrder, Prepared } from "@privacy-wallet/sdk/swapService";
+import type { Asset } from "@privacy-wallet/sdk/assets";
+import { PrivateSwapEngine } from "@privacy-wallet/swap-engine/engine";
+import { predictEscrow as enginePredict } from "@privacy-wallet/swap-engine/endpoints";
+import type { Ingress, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const vec = read("../../../contracts/test/periphery/vectors/endpoint.json");

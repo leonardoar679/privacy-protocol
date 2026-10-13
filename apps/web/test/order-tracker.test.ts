@@ -3,13 +3,13 @@
 // with both amounts, never a bare "failed" for a funded order — and the journaling of executionTx (once),
 // the track read, a history entry per transition and the Activity label.
 import { describe, it, expect, beforeEach } from "vitest";
-import { deriveState, trackOrder, type TrackFacts } from "../src/sdk/orderTracker";
-import type { SwapJob } from "../src/sdk/relayer";
-import type { StoredSwap } from "../src/wallet/journal";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
-import { activityId, recordActivity } from "../src/wallet/activity";
+import { deriveState, trackOrder, type TrackFacts } from "@privacy-wallet/sdk/orderTracker";
+import type { SwapJob } from "@privacy-wallet/sdk/relayer";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 
 const NOW = 1_800_000_000_000;
 const sec = Math.floor(NOW / 1000);

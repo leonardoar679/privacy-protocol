@@ -14,12 +14,12 @@ import { MerkleTree } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
 import { txDomain } from "@privacy-wallet/protocol/payload";
 import { viewKeyPair } from "@privacy-wallet/protocol/envelope";
-import { assetsOf, bucketBelowFor, isBucketFor, parseAmount, parseErc20Vaults } from "../src/sdk/assets";
-import { buildApprove, erc20Abi } from "../src/sdk/privacyProtocol";
-import { feeTerms, planWithdrawal, placeholderNoteData } from "../src/sdk/privateTx";
-import type { Deployment } from "../src/sdk/chain";
-import type { RelayerInfo } from "../src/sdk/relayer";
-import { noteStore } from "../src/wallet/notes";
+import { assetsOf, bucketBelowFor, isBucketFor, parseAmount, parseErc20Vaults } from "@privacy-wallet/sdk/assets";
+import { buildApprove, erc20Abi } from "@privacy-wallet/sdk/privacyProtocol";
+import { feeTerms, planWithdrawal, placeholderNoteData } from "@privacy-wallet/sdk/privateTx";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import type { RelayerInfo } from "@privacy-wallet/sdk/relayer";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9" as Address;
 const ETH_VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469" as Address;

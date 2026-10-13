@@ -309,7 +309,7 @@ export function gateFor(riskClass: RiskClass, mode: ProtectionMode): Gate {
 }
 
 export interface SettlementFacts {
-  /** the tracker's order state (apps/web/src/sdk/orderTracker.ts deriveState) */
+  /** the tracker's order state (packages/sdk/src/orderTracker.ts deriveState) */
   state: string;
   /** when the destination was first seen delivered (unix ms); the finality margin counts from here */
   deliveredSince?: number;

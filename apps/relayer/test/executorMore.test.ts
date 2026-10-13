@@ -14,7 +14,7 @@ import { utf8ToBytes } from "@noble/hashes/utils";
 import { SwapExecutor, escrowAbi, factoryAbi, loadEscrowCreationCode, type SwapJob, type SwapJobRequest } from "../src/swapExecutor";
 import { Relayer, type Job, type RelayerConfig, type SubmitRequest } from "../src/relayer";
 import { FileJournal, MemoryJournal } from "../src/journal";
-import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "../../../packages/swap-engine/src/endpoints";
+import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const vector = JSON.parse(readFileSync(join(root, "contracts/test/periphery/vectors/endpoint.json"), "utf8"));

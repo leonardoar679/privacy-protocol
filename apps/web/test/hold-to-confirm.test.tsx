@@ -4,8 +4,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { HoldButton } from "../src/design-system";
-import { holdMs } from "../src/sdk/tiers";
+import { HoldButton } from "@privacy-wallet/ui";
+import { holdMs } from "@privacy-wallet/sdk/tiers";
 const HOLD_MS = holdMs(); // 40 ms under test (test/setup.ts)
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

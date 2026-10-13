@@ -1,9 +1,9 @@
-// Relayer client (src/sdk/relayer.ts) against a local mock relayer: info, the exact submit body
+// Relayer client (packages/sdk/src/relayer.ts) against a local mock relayer: info, the exact submit body
 // (proof, 14 public inputs, 3 payloads, the fee note's opening — never a key), fee margin, and
 // error mapping. The relayer service itself is tested in apps/relayer.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
-import { feeForRelayer, relayerInfo, relayerSubmit, relayerStatus, type RelayerInfo } from "../src/sdk/relayer";
+import { feeForRelayer, relayerInfo, relayerSubmit, relayerStatus, type RelayerInfo } from "@privacy-wallet/sdk/relayer";
 
 const info: RelayerInfo = {
   chainId: 31337, core: "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9", feeVault: "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469", relayer: "0x000000000000000000000000000000000000beef",

@@ -5,10 +5,10 @@
 // (the journal's optional `classic` field) and never touches the protected balance.
 import { useState } from "react";
 import { formatNote, generateNote, parseNote, validateNote, type ClassicNote } from "@privacy-wallet/protocol/classic/note";
-import { Button, Card, Collapsible, Field, ListRow, Page, StatusBadge, TextInput } from "../../design-system";
+import { Button, Card, Collapsible, Field, ListRow, Page, StatusBadge, TextInput } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import { session } from "../../wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { classicPools, poolById } from "./mockPool";
 import { CLASSIC_DISCLOSURE_KEYS, type ClassicDepositRecord, type ClassicPool } from "./types";
 import { useSession, useSettings } from "../../hooks";

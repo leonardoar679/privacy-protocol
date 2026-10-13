@@ -50,7 +50,7 @@ Run: `cd packages/swap-engine && npm test` (≈ 2 min, network) · `cd contracts
 
 ## §74 — the swap service compromised (wallet side)
 The engine above is the service's own defence; the wallet does not rely on it. Before the one-time
-order key signs, the wallet reads the call against its journal (`apps/web/src/sdk/providerCall.ts`,
+order key signs, the wallet reads the call against its journal (`packages/sdk/src/providerCall.ts`,
 gate `swapSign.ts`), independently of the adapters' decoders.
 
 | Pretend… | What the wallet checks | Test |

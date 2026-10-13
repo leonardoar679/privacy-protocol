@@ -9,9 +9,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { formatNote, generateNote } from "@privacy-wallet/protocol/classic/note";
 import { ClassicHome, ClassicPoolScreen, classicDeposits } from "../src/features/classic-privacy/Classic";
 import { DEVNET_NET_ID, resetClassicPools } from "../src/features/classic-privacy/mockPool";
-import { emptyJournal } from "../src/wallet/journal";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { emptyJournal } from "@privacy-wallet/sdk/wallet/journal";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
 beforeEach(() => resetClassicPools());
 afterEach(() => { cleanup(); session.forget(); settings.reset(); });

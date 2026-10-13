@@ -3,7 +3,7 @@
 // a dangerous dialog is marked, the confirmation is a tap or a hold and never fires twice, a toast announces.
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AssetSelector, BottomSheet, Button, ConfirmSheet, Modal, ToastProvider, useToast } from "../../src/design-system";
+import { AssetSelector, BottomSheet, Button, ConfirmSheet, Modal, ToastProvider, useToast } from "@privacy-wallet/ui";
 
 function ToastButton() {
   const toast = useToast();

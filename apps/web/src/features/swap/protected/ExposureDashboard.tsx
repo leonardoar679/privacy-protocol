@@ -5,8 +5,8 @@
 import { exposure, ledger, providerShares, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { useT } from "../../../app/i18n/useT";
-import { fmtUnits } from "../../../sdk/format";
-import { ALERT_TITLES } from "../../../wallet/alerts";
+import { fmtUnits } from "@privacy-wallet/sdk/format";
+import { ALERT_TITLES } from "@privacy-wallet/sdk/wallet/alerts";
 import { TRANCHE_WORDS } from "./words";
 
 const IN_FLIGHT_STATES = new Set<Tranche["state"]>(["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"]);

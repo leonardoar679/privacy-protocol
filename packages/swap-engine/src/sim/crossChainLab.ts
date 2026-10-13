@@ -19,7 +19,7 @@
 // the ingress from the arrival — the escrow address ties those two anyway.
 // Usage: npx tsx src/sim/crossChainLab.ts [--swaps 6000] [--seed 4242] [--share 0.2] [--json out.json]
 import { writeFileSync } from "fs";
-import { BUCKETS } from "../../../../packages/protocol/src/wallet/amounts";
+import { BUCKETS } from "@privacy-wallet/protocol/wallet/amounts";
 import { privacyScore } from "../privacyScore";
 
 function mulberry32(seed: number) {

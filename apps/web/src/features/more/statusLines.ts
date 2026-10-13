@@ -1,9 +1,9 @@
 // The two status lines of More → Advanced and Home's details (the light client and the crypto core). Moved from
 // App.tsx unchanged (V5 Stage 3), under More since Stage 10.
 import { useSyncExternalStore } from "react";
-import { coreStatus, subscribeCore } from "../../sdk/core";
-import { specForChain } from "../../sdk/lightclient/spec";
-import type { Deployment } from "../../sdk/chain";
+import { coreStatus, subscribeCore } from "@privacy-wallet/sdk/core";
+import { specForChain } from "@privacy-wallet/sdk/lightclient/spec";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { useSettings, useVerifyStatus } from "../../hooks";
 
 export function useStatusLines(deployment: Deployment | null): { readsLine: string; coreLine: string; advanced: boolean } {

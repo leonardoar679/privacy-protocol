@@ -7,7 +7,7 @@
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
 // RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs),
 // RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open), PORT (8790), HOST (127.0.0.1).
-import { predictEscrow } from "../../../packages/swap-engine/src/endpoints";
+import { predictEscrow } from "@privacy-wallet/swap-engine/endpoints";
 import { toEngineParams, type SwapParamsJson } from "./swapExecutor";
 import { createServer } from "node:http";
 import type { Hex } from "viem";

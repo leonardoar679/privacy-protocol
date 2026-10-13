@@ -9,11 +9,11 @@ import { getAddress } from "viem";
 import { Swap } from "../src/features/swap/Swap";
 import { Send } from "../src/features/send/Send";
 import { Receive } from "../src/features/wallet/Receive";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { peekFreshAddress } from "../src/keys/chainKeys";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { groupAddress } from "@privacy-wallet/protocol/wallet/destinations";
-import type { Deployment } from "../src/sdk/chain";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let fetches = 0;

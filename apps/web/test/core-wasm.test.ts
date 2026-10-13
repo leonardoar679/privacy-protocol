@@ -1,4 +1,4 @@
-// The Rust core inside the wallet (src/sdk/core.ts, plan §43 "one core"): a sync hashes every tree
+// The Rust core inside the wallet (packages/sdk/src/core.ts, plan §43 "one core"): a sync hashes every tree
 // layer in one call and a rescan opens every payload in one call when the WASM package is there, and
 // the TypeScript reference does the same work when it is not. Both paths against the same mock
 // core (loopback JSON-RPC, synthetic events, one real envelope): same tree, same proofs, same witness,
@@ -17,10 +17,10 @@ import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { txDomain } from "@privacy-wallet/protocol/payload";
-import { coreStatus, discoverNotes, treeLayers, useCoreModule, wordsToBigInts, bigIntsToWords, be32 } from "../src/sdk/core";
-import { syncTreeQuorum } from "../src/sdk/chain";
-import { planWithdrawal, placeholderNoteData, scanNotes } from "../src/sdk/privateTx";
-import { noteStore } from "../src/wallet/notes";
+import { coreStatus, discoverNotes, treeLayers, useCoreModule, wordsToBigInts, bigIntsToWords, be32 } from "@privacy-wallet/sdk/core";
+import { syncTreeQuorum } from "@privacy-wallet/sdk/chain";
+import { planWithdrawal, placeholderNoteData, scanNotes } from "@privacy-wallet/sdk/privateTx";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { startMockCore } from "./helpers/mockRpc";
 
 const here = dirname(fileURLToPath(import.meta.url));

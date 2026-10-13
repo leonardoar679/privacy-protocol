@@ -4,8 +4,8 @@
 // circuit port, the proving keys and the legal review are a later pass.
 import type { ClassicNote } from "@privacy-wallet/protocol/classic/note";
 
-export type { ClassicStatus, ClassicDepositRecord } from "../../wallet/classicRecord";
-import type { ClassicDepositRecord, ClassicStatus } from "../../wallet/classicRecord";
+export type { ClassicStatus, ClassicDepositRecord } from "@privacy-wallet/sdk/wallet/classicRecord";
+import type { ClassicDepositRecord, ClassicStatus } from "@privacy-wallet/sdk/wallet/classicRecord";
 
 export interface ClassicPoolStats { size: string; deposits: number; rootAge: number }
 export interface ClassicWithdrawal { poolId: string; recipient: string; relayer: string; fee: string; proof: string | null; root: string; nullifierHash: string; status: "proof-pending" | "ready" }

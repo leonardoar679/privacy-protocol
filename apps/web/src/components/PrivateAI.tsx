@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { formatEther, parseEther } from "viem";
-import type { Deployment } from "../sdk/chain";
-import { privateWithdrawal } from "../sdk/privateTx";
-import { noteStore } from "../wallet/notes";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { aiSession } from "../zkapi/aiSession";
-import { session } from "../wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
 // Private AI (plan §4, §63): one private credit account (zkAPI, native ETH, expiring service credit)

@@ -9,23 +9,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { Activity } from "../src/features/activity/Activity";
 import { Detail } from "../src/features/activity/Detail";
 import { buildRows, groupByDay } from "../src/features/activity/rows";
-import { newOperation, putOperation, resetOperationsMemory } from "../src/features/operations/store";
+import { newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
-import { recordActivity } from "../src/wallet/activity";
-import type { StoredSwap } from "../src/wallet/journal";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { record } from "./helpers/operations";
 
 const trackCalls: string[] = [];
 let trackedState = "DESTINATION_SUBMITTED";
-vi.mock("../src/sdk/orderTracker", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/orderTracker")>()),
+vi.mock("@privacy-wallet/sdk/orderTracker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/orderTracker")>()),
   trackOrder: async (s: StoredSwap) => { trackCalls.push(s.orderId); return { tracked: { state: trackedState, label: trackedState === "COMPLETED" ? "Completed" : "Waiting for destination", steps: [true, true, true, trackedState === "COMPLETED"], detail: "x", destinationTxHash: "0x" + "dd".repeat(32) }, job: null }; },
 }));
 const refundCalls: string[] = [];
-vi.mock("../src/sdk/swapExecute", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/swapExecute")>()),
+vi.mock("@privacy-wallet/sdk/swapExecute", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/swapExecute")>()),
   returnOrderToBalance: async (i: { stored: StoredSwap }) => { refundCalls.push(i.stored.orderId); return { id: "job-r", escrow: "0x" + "0e".repeat(20), state: "refund-only", updatedAt: Date.now() }; },
 }));
 

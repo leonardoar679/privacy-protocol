@@ -6,17 +6,17 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CATALOG, CODES, classify, hasCode, reasonKey, titleKey } from "../../src/features/operations/errors/catalog";
+import { CATALOG, CODES, classify, hasCode, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { fundsHeadline } from "../../src/features/operations/recovery";
 import { en } from "../../src/app/i18n/en";
 import { t } from "../../src/app/i18n/messages";
-import { TransportRefusal } from "../../src/api/transport";
-import { RpcDisagreement } from "../../src/sdk/chain";
-import { GuestInstructionMismatch } from "../../src/sdk/guestGuard";
-import { MinimumMoved, ProviderCallMismatch } from "../../src/sdk/providerCall";
-import { RelayerRefusal } from "../../src/sdk/relayer";
-import { OrderMismatch } from "../../src/sdk/swapGuard";
-import { ServiceMinimumMoved } from "../../src/sdk/swapService";
+import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http";
+import { RpcDisagreement } from "@privacy-wallet/sdk/chain";
+import { GuestInstructionMismatch } from "@privacy-wallet/sdk/guestGuard";
+import { MinimumMoved, ProviderCallMismatch } from "@privacy-wallet/sdk/providerCall";
+import { RelayerRefusal } from "@privacy-wallet/sdk/relayer";
+import { OrderMismatch } from "@privacy-wallet/sdk/swapGuard";
+import { ServiceMinimumMoved } from "@privacy-wallet/sdk/swapService";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 function sources(dir: string): string[] {

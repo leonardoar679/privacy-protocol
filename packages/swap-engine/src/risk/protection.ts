@@ -3,10 +3,10 @@
 // the estimated steps and time, the thin-market flag, provider concentration, ELPF, and whether a $100K–$1M order
 // should be staged. It is advice computed with the shared core (packages/protocol/src/wallet/campaign.ts): the
 // wallet recomputes its own bounds and accounting from the same code. Stateless: nothing here remembers a user.
-import { planTranches, type Gate, type ProtectionMode, type RiskClass, type Sizing } from "../../../../packages/protocol/src/wallet/campaign";
-import { expectedLossPerFailure, narrowedBand, riskModelOf, type RiskModel } from "../../../../packages/protocol/src/wallet/riskClasses";
-import { atLeast, type Tier } from "../../../../packages/protocol/src/wallet/valuation";
-import { capBpsFor as policyCap, exposureTierOf, impactRemedy as remedyOf, type ExposureTier, type ImpactRemedy } from "../../../../packages/protocol/src/wallet/exposurePolicy";
+import { planTranches, type Gate, type ProtectionMode, type RiskClass, type Sizing } from "@privacy-wallet/protocol/wallet/campaign";
+import { expectedLossPerFailure, narrowedBand, riskModelOf, type RiskModel } from "@privacy-wallet/protocol/wallet/riskClasses";
+import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import { capBpsFor as policyCap, exposureTierOf, impactRemedy as remedyOf, type ExposureTier, type ImpactRemedy } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import { chainHalted } from "../health";
 import type { QuoteSet } from "../engine";
 import type { ProviderHealthTracker } from "../health";

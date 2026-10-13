@@ -1,5 +1,5 @@
 // A minimal operation record for the state-machine tests (spec §12).
-import type { OperationRecord } from "../../src/wallet/operationRecord";
+import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 
 export const record = (over: Partial<OperationRecord> = {}): OperationRecord => ({
   id: "send:1", kind: "send", state: "DRAFT", createdAt: 1_000, updatedAt: 1_000,

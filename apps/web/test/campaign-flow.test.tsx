@@ -14,27 +14,27 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, getAddress } from "viem";
 import { Swap } from "../src/features/swap/Swap";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { noteStore } from "../src/wallet/notes";
-import { priceStore } from "../src/sdk/prices";
-import { PINNED, thorAsset } from "../src/sdk/providerCall";
-import { reviewHoldMinutes } from "../src/sdk/tiers";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { priceStore } from "@privacy-wallet/sdk/prices";
+import { PINNED, thorAsset } from "@privacy-wallet/sdk/providerCall";
+import { reviewHoldMinutes } from "@privacy-wallet/sdk/tiers";
 const REVIEW_HOLD_MINUTES = reviewHoldMinutes();
-import { campaignsOf } from "../src/wallet/campaigns";
-import { runCampaignTick, resetRunnerMemory } from "../src/wallet/campaignRunner";
-import { pendingActions } from "../src/wallet/schedule";
-import type { Deployment } from "../src/sdk/chain";
-import { PrivateSwapEngine, type PreparedExecution } from "../../../packages/swap-engine/src/engine";
-import { buildMemo, encodeDepositWithExpiry } from "../../../packages/swap-engine/src/adapters/thorchain";
-import { recommendProtection } from "../../../packages/swap-engine/src/risk/protection";
-import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import { campaignsOf } from "@privacy-wallet/sdk/wallet/campaigns";
+import { runCampaignTick, resetRunnerMemory } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { pendingActions } from "@privacy-wallet/sdk/wallet/schedule";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-engine/engine";
+import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
+import { recommendProtection } from "@privacy-wallet/swap-engine/risk/protection";
+import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // the private withdrawal that funds a step is covered by the funding tests; here it stands in and records the escrow it pays (fundEscrow's own checks — the balance, the recomputed escrow — still run)
 const fundHook = vi.hoisted(() => ({ calls: [] as string[] }));
-vi.mock("../src/sdk/privateTx", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/privateTx")>()),
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   recoverSwapRefunds: async () => [],
   privateWithdrawal: async (o: any) => { fundHook.calls.push(String(o.recipient).toLowerCase()); return { txHash: "0x" + "11".repeat(32), proofMs: 1, verifiedLocally: true, spent: [], submittedBy: "relayer" }; },
 }));

@@ -2,10 +2,10 @@
 // onboarding routes, an unlocked one only the shell; a freshly created wallet shows its recovery phrase before
 // anything else, whatever the route. The redirects are declarative, so the browser's back button stays honest.
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { Skeleton } from "../design-system";
+import { Skeleton } from "@privacy-wallet/ui";
 import { prefs } from "../storage/prefs";
-import { type SessionState } from "../wallet/session";
-import { settings } from "../wallet/settings";
+import { type SessionState } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { Phrase } from "../features/onboarding/Phrase";
 import { usePrefs, useSession } from "../hooks";
 

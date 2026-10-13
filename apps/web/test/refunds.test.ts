@@ -1,4 +1,4 @@
-// Swap refunds back into the wallet (PP-S09, src/sdk/refunds.ts + scanNotes / recoverSwapRefunds): an
+// Swap refunds back into the wallet (PP-S09, packages/sdk/src/refunds.ts + scanNotes / recoverSwapRefunds): an
 // escrow's refund() re-shields with the order's committed payload, which is random, so discovery cannot
 // see it. The journal keeps that payload; an insert carrying it becomes a note only if its commitment
 // recomputes from the vault's Deposited amount, this wallet's owner commitment and the refund secret.
@@ -14,14 +14,14 @@ import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
-import { deriveRefundNote, refundPayload } from "../src/keys/swapKeys";
-import { coreAbi } from "../src/sdk/privacyProtocol";
-import { hasRefundCandidates, matchRefunds, refundClaims, usedCounters } from "../src/sdk/refunds";
-import { recoverSwapRefunds, scanNotes } from "../src/sdk/privateTx";
-import type { DepositedLog, Deployment, NoteInsertedLog } from "../src/sdk/chain";
-import { noteStore } from "../src/wallet/notes";
-import { session } from "../src/wallet/session";
-import type { StoredSwap } from "../src/wallet/journal";
+import { deriveRefundNote, refundPayload } from "@privacy-wallet/sdk/keys/swapKeys";
+import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
+import { hasRefundCandidates, matchRefunds, refundClaims, usedCounters } from "@privacy-wallet/sdk/refunds";
+import { recoverSwapRefunds, scanNotes } from "@privacy-wallet/sdk/privateTx";
+import type { DepositedLog, Deployment, NoteInsertedLog } from "@privacy-wallet/sdk/chain";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 
 const CORE = getAddress("0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9");
 const ETH_VAULT = getAddress("0x36ffa23fd38ae93e2b01aa5fa1570845ada89469");

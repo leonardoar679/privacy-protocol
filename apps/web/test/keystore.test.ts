@@ -2,13 +2,13 @@
 // Pure node: a memory storage stands in for localStorage. Small scrypt N keeps the suite fast.
 import { describe, it, expect, beforeEach } from "vitest";
 import { bytesToHex } from "@noble/hashes/utils";
-import { createKeystore, phraseToSeed, seedToPhrase, unlockKeystore, type Keystore } from "../src/wallet/keystore";
-import { decryptJournal, emptyJournal, encryptJournal, journalKey } from "../src/wallet/journal";
-import { memoryStorage, JOURNAL_KEY, KEYSTORE_KEY } from "../src/wallet/storage";
-import { WalletSession } from "../src/wallet/session";
-import { noteStore } from "../src/wallet/notes";
-import { settings } from "../src/wallet/settings";
-import { assertNotPersistingSecret } from "../src/keys/wallet";
+import { createKeystore, phraseToSeed, seedToPhrase, unlockKeystore, type Keystore } from "@privacy-wallet/sdk/wallet/keystore";
+import { decryptJournal, emptyJournal, encryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
+import { memoryStorage, JOURNAL_KEY, KEYSTORE_KEY } from "@privacy-wallet/sdk/wallet/storage";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { assertNotPersistingSecret } from "@privacy-wallet/sdk/keys/wallet";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const seed = Uint8Array.from({ length: 32 }, (_, i) => (i * 37 + 11) & 0xff);

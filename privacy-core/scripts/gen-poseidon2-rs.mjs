@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regenerate privacy-core/src/poseidon2_constants.rs from the normative TypeScript implementation
+// Regenerate privacy-core/src/crypto/poseidon2_constants.rs from the normative TypeScript implementation
 // (packages/protocol/src/poseidon2.ts, itself machine-extracted from barretenberg's
 // poseidon2_params.hpp), so the Rust core never hand-types a round constant — the same rule the
 // Python reference follows (reference/python/gen_constants.mjs). Run: node scripts/gen-poseidon2-rs.mjs
@@ -34,5 +34,5 @@ const rs = [
   "];",
   "",
 ].join("\n");
-writeFileSync(join(here, "../privacy-core/src/poseidon2_constants.rs"), rs);
+writeFileSync(join(here, "../privacy-core/src/crypto/poseidon2_constants.rs"), rs);
 console.log(`wrote poseidon2_constants.rs (D=${D.length}, RC=${RC.length})`);

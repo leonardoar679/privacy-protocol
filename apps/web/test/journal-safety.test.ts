@@ -2,12 +2,12 @@
 // on an empty journal, persists nothing, reports the state — and is set aside (never deleted) only when
 // the user asks; the next journal write then persists. Every journal write notifies subscribers.
 import { describe, it, expect, beforeEach } from "vitest";
-import { WalletSession } from "../src/wallet/session";
-import { JOURNAL_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "../src/wallet/storage";
-import { decryptJournal, journalKey } from "../src/wallet/journal";
-import { noteStore } from "../src/wallet/notes";
-import { settings } from "../src/wallet/settings";
-import { recordActivity } from "../src/wallet/activity";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { JOURNAL_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
+import { decryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 

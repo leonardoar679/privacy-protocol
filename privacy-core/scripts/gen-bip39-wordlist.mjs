@@ -20,5 +20,5 @@ const rs = [
   "];",
   "",
 ].join("\n");
-writeFileSync(join(here, "../privacy-core/src/bip39_wordlist.rs"), rs);
+writeFileSync(join(here, "../privacy-core/src/wallet/bip39_wordlist.rs"), rs);
 console.log(`wrote bip39_wordlist.rs (2048 words, sha256 ${digest.slice(0, 16)}…)`);

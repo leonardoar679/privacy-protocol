@@ -2,7 +2,7 @@
 // large, we're using additional execution safeguards." with the four checks, then Continue. The checks are facts:
 // the destination (fresh, or in the book and verified), the route (the provider's health and the strict quote),
 // protected execution (the band's plan or the single hard quote), the limits (one in flight, the slippage cap).
-import { Button, Card } from "../../design-system";
+import { Button, Card } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 
 export interface ProtectedChecks { destination: boolean; route: boolean; execution: boolean; limits: boolean }

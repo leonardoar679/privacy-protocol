@@ -2,9 +2,9 @@
 // class, what did not complete, the three legs with their state, and the two options — Continue monitoring (the
 // tracker keeps polling) or Start the refund / recovery process (a refund-only job through the executor, or the
 // campaign's cancel) — never a blind Retry: a retry is a new quote or a tracked resume.
-import { Button, Card, StatusBadge, TransactionTimeline, type StepState } from "../../design-system";
+import { Button, Card, StatusBadge, TransactionTimeline, type StepState } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { OperationRecord } from "../../wallet/operationRecord";
+import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { actionsFor, verdict } from "./recovery";
 
 export interface RecoveryLegs { source: StepState; swap: StepState; destination: StepState }

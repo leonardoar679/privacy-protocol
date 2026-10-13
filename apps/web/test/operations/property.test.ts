@@ -3,10 +3,10 @@
 // COMPLETED is only ever reached through a settlement reference (I-O4), the state is one of the list and the last
 // history line is the state.
 import { describe, expect, it } from "vitest";
-import { transition } from "../../src/features/operations/reducer";
-import { CODES } from "../../src/features/operations/errors/catalog";
-import type { OperationEvent } from "../../src/features/operations/types";
-import { FAILURE_STATES, OPERATION_STATES, TERMINAL_STATES, type OperationRecord, type OperationState } from "../../src/wallet/operationRecord";
+import { transition } from "@privacy-wallet/sdk/operations/reducer";
+import { CODES } from "@privacy-wallet/sdk/operations/errors/catalog";
+import type { OperationEvent } from "@privacy-wallet/sdk/operations/types";
+import { FAILURE_STATES, OPERATION_STATES, TERMINAL_STATES, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { record } from "../helpers/operations";
 
 const seeded = (seed: number) => () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };

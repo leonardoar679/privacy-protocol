@@ -56,7 +56,7 @@ Order {
 
 *Implemented:* `Order` without `value` / `tier` / `preference` / `plan` / `approvedMin` /
 `destination.kind` (`types.ts:149`); `approvedMin` on the wallet side only
-(`apps/web/src/wallet/journal.ts`). *Stage 2* adds `value` / `tier` / `preference`; *Stage 3* adds
+(`packages/sdk/src/wallet/journal.ts`). *Stage 2* adds `value` / `tier` / `preference`; *Stage 3* adds
 `plan` and the server-side `approvedMin`; *Stage 5* adds `destination.kind`.
 
 ## 2. Quote object (plan V2 §6, §32, §137.2)
@@ -120,7 +120,7 @@ quote, applied to the one-time escrow flow of V1.1. Phase 2 is the only one that
   than reuse the phase 1 set.
 
 *Implemented (Stage 3):* the four calls and the wallet checks (`server.ts`, `engine.ts::prepareExecution`,
-`apps/web/src/sdk/{swapGuard,swapSign,providerCall}.ts`); `/prepare` takes `approvedMin`, answers 409
+`packages/sdk/src/{swapGuard,swapSign,providerCall}.ts`); `/prepare` takes `approvedMin`, answers 409
 `minimum_moved` below it and runs the price guard against a fresh competition from the enhanced tier;
 phase-1 quotes carry the placeholders of §5 (`placeholders.ts`; `privacy-flow.test.ts` pins that the
 fresh destination reaches no provider at phase 1).
@@ -192,7 +192,7 @@ Health        { provider; reachable; apiLatencyMs; halted; haltedChains: string[
 - The conceptual interface of plan §106 maps onto these methods: `quote()` = `quote`;
   `prepare()` = `prepareIngress`; **`validate()`** = the local decode-and-check that every
   `prepareIngress` performs on provider-supplied calldata (§6–§10), repeated independently by the
-  wallet (`apps/web/src/sdk/providerCall.ts`); `execute()` = the relayer's `deployAndExecute`
+  wallet (`packages/sdk/src/providerCall.ts`); `execute()` = the relayer's `deployAndExecute`
   (§20); `track()` = `track`; **`recover()`** = the escrow's `refund` / `refundToken` plus the
   provider's own refund path (`Quote.refundTarget`, V1.1 §7).
 - **Placeholder destination at phase 1.** When `req.source` is unset, the engine MUST pass each
@@ -434,7 +434,7 @@ higher tier always applies (§1).
 - Tiers apply to swaps, withdrawals and private transfers alike (the value of what leaves the
   wallet's control); shields are valued for display only.
 
-*Implemented (Stage 2):* `packages/protocol/src/wallet/valuation.ts`, `apps/web/src/sdk/prices.ts`,
+*Implemented (Stage 2):* `packages/protocol/src/wallet/valuation.ts`, `packages/sdk/src/prices.ts`,
 `packages/swap-engine/src/valuation.ts`. V3 extends this table with the protection columns — the tranche
 band, the in-flight cap, the settlement gate, diversification and the separate-device confirmation
 (`docs/high-value-protection-spec-v1.0.md` §14); a campaign's tier is the tier of the whole order, never
@@ -461,7 +461,7 @@ of a tranche.
 
 *Implemented (Stage 3):* the bounds, `priceGuard` wired into `/prepare` (`maxGapBpsFor(tier)`, a fresh
 competition from the enhanced tier), `approvedMin` checked server-side (`MinimumMovedError` → 409
-`minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `apps/web/src/sdk/{swapService,swapSign}.ts`).
+`minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `packages/sdk/src/{swapService,swapSign}.ts`).
 The guard's refusal is a typed answer, 409 `price_guard` with `gapBps`, `maxGapBps`, `provider` and `best`
 (`scoring.ts::PriceGuardError`), never a server fault: the wallet shows the gap, signs nothing, and the order can be
 confirmed later against a fresh quote or returned to the pool (the local-stack browser run exercised it).
@@ -485,7 +485,7 @@ confirmed later against a fresh quote or returned to the pool (the local-stack b
 - `minOutEncoded: false` routes are refused under every policy but `fastest`, with a warning.
 - Dust: a minimum below the destination chain's dust threshold (THORChain `dust_threshold`) is refused.
 
-*Implemented* (`apps/web/src/sdk/providerCall.ts`, `swapSign.ts`; the adapters). *Stage 5* adds the
+*Implemented* (`packages/sdk/src/providerCall.ts`, `swapSign.ts`; the adapters). *Stage 5* adds the
 streaming and DCA readings.
 
 ## 16. Provider health scoring (plan V2 §62–§64, §137.16)
@@ -519,7 +519,7 @@ The eight factors, weights and the cross-chain term of V1.1 §10 are unchanged. 
   for every asset);
 - `destinationFresh` MUST come from `destination.kind` (§21), not be assumed.
 The same function runs in the engine and the wallet (`packages/swap-engine/src/privacyScore.ts`,
-`apps/web/src/privacy/privacyScore.ts`); the execution plan does not change it (§12). Financial
+`packages/privacy-engine/src/privacyScore.ts`); the execution plan does not change it (§12). Financial
 privacy (who owns what, the private history) and execution privacy (order size, timing, intent) are
 reported separately (plan §67): the first by this score and the scorecard, the second by the plan
 and the public-settlement warning (§18).
@@ -558,7 +558,7 @@ journal and the scorecard facts, by one function shared by the wallet and the en
 
 *Implemented (Stage 5):* `packages/protocol/src/wallet/privacyLint.ts` (`lint(facts)`: the eleven
 items, `block` only from the high-value tier — a warning with the same text below — `acknowledged`,
-`unacknowledgedBlocks`, `HOLDERS_FLOOR` 16); the wallet's facts come from `apps/web/src/wallet/lintFacts.ts`
+`unacknowledgedBlocks`, `HOLDERS_FLOOR` 16); the wallet's facts come from `packages/sdk/src/wallet/lintFacts.ts`
 (settings, deployment, the quote set's links and competition record, what the wallet read in the
 provider call, the pool's deposit sizes through `sdk/poolDeposits.ts` for a piece above the common
 sizes — read on the user's input, never at launch); `components/PrivacyLint.tsx` renders the ✓ / ⚠ / ✖
@@ -600,7 +600,7 @@ where it gets its facts.
 *Implemented:* the machine, `recoverState`, `userStatus` (`order.ts`); *Stage 3*: `GET /track/:provider`
 (`server.ts`), `SwapJob.executionTx` (`apps/relayer/src/swapExecutor.ts`), `TrackStatus.refundedAmount`
 / `progress` and the partial mappings of THORChain and Chainflip; *Stage 7*: the wallet's tracker
-`apps/web/src/sdk/orderTracker.ts` — `deriveState(stored, facts)` (pure; the table above, from the
+`packages/sdk/src/orderTracker.ts` — `deriveState(stored, facts)` (pure; the table above, from the
 journal, the relayer job with its `executionTx`, the escrow balance agreed by every RPC endpoint and
 the tracker's read; PARTIAL carries both amounts and the stream's progress; FAILED says what sits in
 the escrow) and `trackOrder` (reads the facts, journals `executionTx` once, `executionRef` at
@@ -771,7 +771,7 @@ For tier ≥ `high-value` the Review screen is mandatory at both irreversible mo
 - Below `high-value`: `enhanced` shows the Review with the lint and a tap; `standard` keeps the
   one-tap flow with the destination card.
 
-*Implemented (Stage 5):* the pre-trade simulation — `apps/web/src/sdk/simulate.ts`
+*Implemented (Stage 5):* the pre-trade simulation — `packages/sdk/src/simulate.ts`
 (`simulateExecution`: `deployAndExecute(params, execution)` encoded exactly as the relayer sends it,
 `eth_call` then `eth_estimateGas` on every endpoint with the relayer's address as the tip recipient
 (`/info`) or a fixed non-zero one, every endpoint must succeed, an endpoint with no usable answer fails
@@ -808,7 +808,7 @@ without a new confirmation; a tranche outside them pauses the campaign and asks 
 
 ## 25. Local encrypted order history (plan V2 §49–§50, §83–§86, §137.25)
 
-Everything the wallet remembers lives in the encrypted journal (`apps/web/src/wallet/journal.ts`:
+Everything the wallet remembers lives in the encrypted journal (`packages/sdk/src/wallet/journal.ts`:
 XChaCha20-Poly1305 under `sha256("privacy-protocol/v1/journal-key" ‖ seed)`), never on a server.
 
 ```
@@ -855,7 +855,7 @@ piece while the count stays under 64, dust below the smallest bucket merged into
 it is worth less than a fee — as private self-transfers: a split (1-in/3-out: the piece, the rest, the
 relayer's fee note; `sdk/privateTx.ts planSplit` / `splitNote`) or a merge; every action pays a fee
 and the plan is simulated on a working copy. The extended alphabet is not adopted (the whale UTXO lab:
-a piece nobody else withdraws has no cover). `apps/web/src/wallet/housekeeping.ts` schedules one step
+a piece nobody else withdraws has no cover). `packages/sdk/src/wallet/housekeeping.ts` schedules one step
 at a time at a random time inside the policy window (never immediate), runs it from the App-level
 scheduler on any screen within the daily fee cap of `settings.housekeeping` (opt-out there), and
 schedules the next under a new id — or tomorrow's when the cap is reached; Home says what is planned.

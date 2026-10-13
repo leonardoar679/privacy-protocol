@@ -4,11 +4,11 @@
 // the estimate is unavailable: the screen then says "read at confirmation".
 import { availablePrice, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Address } from "viem";
-import type { Asset } from "../../sdk/assets";
-import type { Deployment } from "../../sdk/chain";
-import { activeProvider } from "../../sdk/injected";
-import { scratchShieldTx } from "../../sdk/privateTx";
-import type { PriceState } from "../../sdk/prices";
+import type { Asset } from "@privacy-wallet/sdk/assets";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
+import { scratchShieldTx } from "@privacy-wallet/sdk/privateTx";
+import type { PriceState } from "@privacy-wallet/sdk/prices";
 
 export interface NetworkEstimate { gas: bigint; feePerGasWei: bigint; wei: bigint }
 

@@ -6,7 +6,7 @@
 import {
   FEED_REGISTRY, SELECTOR, agreePrices, assess, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata,
   type Assessment, type FeedSpec, type PriceRead, type Prices, type Tier, type TierThresholds,
-} from "../../../packages/protocol/src/wallet/valuation";
+} from "@privacy-wallet/protocol/wallet/valuation";
 import type { AssetRef } from "./types";
 
 export interface Valuer { prices(now?: number): Promise<Prices | null> }

@@ -3,7 +3,7 @@
 // summary is collapsed by default, the amount input keeps a decimal string, the address input shows its checks.
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { AddressInput, AmountInput, BalanceCard, BottomNav, Button, Collapsible, FeeSummary, Field, Progress, Segmented, StatusBadge, TextInput, TransactionTimeline, cleanAmount } from "../../src/design-system";
+import { AddressInput, AmountInput, BalanceCard, BottomNav, Button, Collapsible, FeeSummary, Field, Progress, Segmented, StatusBadge, TextInput, TransactionTimeline, cleanAmount } from "@privacy-wallet/ui";
 
 describe("the design-system components (spec §5)", () => {
   it("Button: a label, a busy state that disables it, an icon", () => {

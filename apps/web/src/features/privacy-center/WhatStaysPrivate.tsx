@@ -2,7 +2,7 @@
 // public, the one sentence on the whole path, then the LIMITS of @ref/wallet/privacyCenter — the same words
 // everywhere. "100 % anonymous" never appears.
 import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import { Card, Page } from "../../design-system";
+import { Card, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 
 export function WhatStaysPrivate({ onBack }: { onBack?: () => void }) {

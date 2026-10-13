@@ -3,8 +3,8 @@
 // project id, the account and the chain, the wrong-network status and the switch, the provider's events, a refusal
 // that leaves the wallet disconnected, the provider the engine reads.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connection, discover, INJECTED_ID, shortAccount } from "../src/features/wallet/connection";
-import { activeProvider, setActiveProvider } from "../src/sdk/injected";
+import { connection, discover, INJECTED_ID, shortAccount } from "@privacy-wallet/wallet-engine/connection";
+import { activeProvider, setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
 
 type Handler = (...args: unknown[]) => void;
 function stubProvider(opts: { accounts?: string[]; chainId?: string; refuse?: boolean } = {}) {

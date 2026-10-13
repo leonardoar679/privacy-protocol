@@ -19,7 +19,8 @@ import { MemoryRouter } from "react-router-dom";
 
 afterEach(() => { cleanup(); setLocale("en"); prefs().reset(); });
 
-const SRC = join(__dirname, "..", "src");
+// the app and the packages whose code names a message key (the operation vocabulary and catalog live in the SDK: V6 Stage 4)
+const SRC = [join(__dirname, "..", "src"), join(__dirname, "..", "..", "..", "packages", "sdk", "src"), join(__dirname, "..", "..", "..", "packages", "ui", "src")];
 function sources(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
@@ -62,7 +63,7 @@ describe("the locale (spec §19)", () => {
     expect(applyLocale(), "the browser decides again (happy-dom: en-US)").toBe("en");
   });
   it("every English key is referenced by the sources (a literal or a template prefix): no dead key", () => {
-    const src = sources(SRC).join("\n");
+    const src = SRC.flatMap((d) => sources(d)).join("\n");
     // a key built from a template: `op.state.${state}` (recovery.ts) or t(`op.error.${code}.title`): its dotted prefix counts
     const prefixes = [...src.matchAll(/`([a-zA-Z0-9]+(?:\.[a-zA-Z0-9-]+)*\.)\$\{/g)].map((m) => m[1]);
     const dead = Object.keys(en).filter((k) => !src.includes(`"${k}"`) && !src.includes(`'${k}'`) && !prefixes.some((p) => k.startsWith(p)));

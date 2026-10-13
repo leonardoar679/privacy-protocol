@@ -22,15 +22,15 @@ import { Activity } from "../src/features/activity/Activity";
 import { Advanced } from "../src/features/more/Advanced";
 import { CampaignProgress, campaignStatus } from "../src/features/swap/protected/CampaignProgress";
 import { ExposureDashboard, exposureTimeline } from "../src/features/swap/protected/ExposureDashboard";
-import { controlsFor } from "../src/sdk/tiers";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { noteStore } from "../src/wallet/notes";
-import { putCampaign } from "../src/wallet/campaigns";
-import { recordActivity } from "../src/wallet/activity";
+import { controlsFor } from "@privacy-wallet/sdk/tiers";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { ADDRESS_LIKE, tradeSummary } from "../src/zkapi/tradeCheck";
-import type { StoredSwap } from "../src/wallet/journal";
-import type { Protection } from "../src/sdk/swapService";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import type { Protection } from "@privacy-wallet/sdk/swapService";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
@@ -339,7 +339,7 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     const s = tradeSummary({ from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: eth(400), usd: 1_000_000, tier: "high-value", protection: protection() });
     expect(s.protection).toEqual({ riskClass: "R5", custody: "tss-vaults", bandBps: [200, 200], capBps: 200, steps: 50, gate: "destination-final", concurrency: "sequential", elpfUsd: "4000", concentration: "single venue", staged: false });
     expect(JSON.stringify(s)).not.toMatch(ADDRESS_LIKE);
-    for (const f of ["../src/features/swap/protected/CampaignProgress.tsx", "../src/features/swap/Swap.tsx", "../src/features/swap/facts.ts", "../src/features/more/Advanced.tsx", "../src/wallet/campaigns.ts", "../src/wallet/campaignRunner.ts", "../src/wallet/alerts.ts", "../src/wallet/notifications.ts", "../src/sdk/swapExecute.ts"]) {
+    for (const f of ["../src/features/swap/protected/CampaignProgress.tsx", "../src/features/swap/Swap.tsx", "../src/features/swap/facts.ts", "../src/features/more/Advanced.tsx", "../../../packages/sdk/src/wallet/campaigns.ts", "../../../packages/sdk/src/wallet/campaignRunner.ts", "../../../packages/sdk/src/wallet/alerts.ts", "../../../packages/sdk/src/wallet/notifications.ts", "../../../packages/sdk/src/swapExecute.ts"]) {
       const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), f), "utf8");
       expect(src, f).not.toMatch(/anonymous|atomic/i);
     }

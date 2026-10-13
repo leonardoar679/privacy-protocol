@@ -9,9 +9,9 @@ import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 import { bytesToHex } from "@noble/hashes/utils";
 import { assertSecureShape, createPrefsStore, createSecureStore, idbEntriesForTest, JOURNAL_KEY, KEYSTORE_KEY, resetDbCache, UNREADABLE_JOURNAL_KEY } from "./helpers/storage";
-import { WalletSession } from "../src/wallet/session";
-import { noteStore } from "../src/wallet/notes";
-import { settings } from "../src/wallet/settings";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const keystoreJson = (ct = "11".repeat(48)) => JSON.stringify({ v: 1, kdf: { name: "scrypt", N: 4096, r: 8, p: 1, dkLen: 32 }, salt: "00".repeat(16), nonce: "00".repeat(24), ct });

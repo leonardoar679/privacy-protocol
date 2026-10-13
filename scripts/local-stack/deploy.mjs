@@ -33,7 +33,7 @@ const chain = { id: 1, name: "local (chain id 1)", nativeCurrency: { name: "Ethe
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const wallet = createWalletClient({ chain, transport: http(RPC), account });
 
-// the mainnet contracts the wallet pins (apps/web/src/sdk/providerCall.ts PINNED): their runtime code is placed at the
+// the mainnet contracts the wallet pins (packages/sdk/src/providerCall.ts PINNED): their runtime code is placed at the
 // same addresses. mainnet/<name>.hex holds a copy (eth_getCode on 2026-10-08); a missing file is fetched from a public RPC.
 const PINS = {
   weth9: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",

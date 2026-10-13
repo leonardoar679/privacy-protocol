@@ -3,14 +3,14 @@
 import { getAddress } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyConfig, configFromEnv, testConfig } from "../src/config";
-import { allowedHosts, isStrict, setStrict } from "../src/api/transport";
-import { defaultRelayerUrl, relayerFallbacks } from "../src/sdk/relayer";
-import { swapServiceUrl } from "../src/sdk/swapService";
-import { holdMs, reviewHoldMinutes } from "../src/sdk/tiers";
-import { PINNED, thornodeGateways, thornodeQuorum } from "../src/sdk/providerCall";
-import { beaconUrls, lcCheckpoint } from "../src/sdk/verifiedReads";
+import { allowedHosts, isStrict, setStrict } from "@privacy-wallet/privacy-engine/transport/http";
+import { defaultRelayerUrl, relayerFallbacks } from "@privacy-wallet/sdk/relayer";
+import { swapServiceUrl } from "@privacy-wallet/sdk/swapService";
+import { holdMs, reviewHoldMinutes } from "@privacy-wallet/sdk/tiers";
+import { PINNED, thornodeGateways, thornodeQuorum } from "@privacy-wallet/sdk/providerCall";
+import { beaconUrls, lcCheckpoint } from "@privacy-wallet/sdk/verifiedReads";
 import { artifactUrls } from "../src/prover/client";
-import { walletConnectAvailable } from "../src/features/wallet/walletConnect";
+import { walletConnectAvailable } from "@privacy-wallet/wallet-engine/walletConnect";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9";
 const VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";

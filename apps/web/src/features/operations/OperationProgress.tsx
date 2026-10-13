@@ -2,9 +2,9 @@
 // progress step (the prover runs in its worker; the main thread never blocks), the verdict card on a failure — the
 // first sentence by funds class, the catalog's reason, the actions the caller offers — and the completed badge.
 import type { ReactNode } from "react";
-import { ErrorCard, Progress, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "../../design-system";
+import { ErrorCard, Progress, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { isOpen, type OperationRecord, type OperationState } from "../../wallet/operationRecord";
+import { isOpen, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
 
 const SUBMITTED_OR_LATER: readonly OperationState[] = ["SUBMITTED", "RELAYER_EXECUTING", "NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "COMPLETED", "NETWORK_DELAYED", "PROVIDER_FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED"];

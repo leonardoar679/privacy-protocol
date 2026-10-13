@@ -5,13 +5,13 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
-import type { Deployment } from "../src/sdk/chain";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { noteStore } from "../src/wallet/notes";
-import { recordActivity } from "../src/wallet/activity";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { prefs } from "../src/storage/prefs";
-import { connection } from "../src/features/wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
 
 const fetchSpy = vi.fn(async () => new Response("{}", { status: 404 }));

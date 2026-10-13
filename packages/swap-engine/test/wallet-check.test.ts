@@ -1,4 +1,4 @@
-// LIVE: the wallet's own check (apps/web/src/sdk/providerCall.ts) of the calls this engine prepares from
+// LIVE: the wallet's own check (packages/sdk/src/providerCall.ts) of the calls this engine prepares from
 // real provider quotes. Two independent decoders must agree: every call the engine would hand the order
 // key passes the wallet's check, pays the fresh destination, refunds where the engine says, and the
 // minimum the wallet reads is the one the engine quoted (at least it, for LI.FI's Across facet, whose
@@ -10,7 +10,7 @@ import { defaultEngine } from "../src/config";
 import { MayanAdapter } from "../src/adapters/mayan";
 import { orderSignerAddress } from "../src/endpoints";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
-import { checkProviderCall, ProviderCallMismatch, type CheckedCall } from "../../../apps/web/src/sdk/providerCall";
+import { checkProviderCall, ProviderCallMismatch, type CheckedCall } from "@privacy-wallet/sdk/providerCall";
 
 const KEYS = { orderSigner: orderSignerAddress(sha256(new TextEncoder().encode("wallet-check order key"))), refundOwnerCommitment: 0x1234n, refundNoteSecret: 0x5678n, refundNoteDataHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };

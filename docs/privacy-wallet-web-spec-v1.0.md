@@ -334,7 +334,7 @@ primary action per screen. It MUST NOT use terminal-like black screens, neon, he
 dashboards, many panels on one screen, tiny text, jargon or dense tables. Personality: calm, premium,
 friendly, secure.
 
-Tokens (`apps/web/src/design-system/tokens.ts`, the source of truth; `tokens.css` is generated from it and
+Tokens (`packages/ui/src/tokens.ts`, the source of truth; `tokens.css` is generated from it and
 a test asserts they agree): colours `bg, surface, surface-2, border, fg, fg-muted, accent, accent-fg,
 accent-soft, shield, shield-soft, warn, warn-soft, danger, danger-soft, success` in a light and a dark set
 (`prefers-color-scheme` and `[data-theme]` from the prefs); type scale display 40/44 700 · title 28/32 700 ·
@@ -480,7 +480,7 @@ TIER_DEFAULTS = { large: 20_000, largeProtected: 50_000, enhanced: 100_000, high
 tierLabel: large → "Large transfer", large-protected → "Protected transfer"; the rest unchanged
 ```
 The two new tiers sit **below** `enhanced`, so every V2–V4 rule keyed on `enhanced` and above keeps its
-meaning and its tests. `controlsFor` (`apps/web/src/sdk/tiers.ts`):
+meaning and its tests. `controlsFor` (`packages/sdk/src/tiers.ts`):
 
 | From tier | Controls on |
 |---|---|
@@ -535,7 +535,7 @@ OperationState = DRAFT → QUOTING → QUOTE_READY → REVIEW → AWAITING_SIGNA
 ```
 `CANCELLED` is added to the plan's list (the wallet's "abandoned"). Records are journaled under
 `JournalData.operations?` (optional, never written by `emptyJournal()`) from `AWAITING_SIGNATURE` on;
-`DRAFT` … `REVIEW` stay in memory. `Code:` the record's types and sets in `apps/web/src/wallet/operationRecord.ts` (the journal's
+`DRAFT` … `REVIEW` stay in memory. `Code:` the record's types and sets in `packages/sdk/src/wallet/operationRecord.ts` (the journal's
 import), the reducer, the adapters, the catalog, the store and the recovery model under `apps/web/src/features/operations/`.
 The history is one line per state; a note (an approval's hash, a relayer retry) joins the current state's line.
 The mapping from every existing vocabulary (`features/operations/adapters.ts`):

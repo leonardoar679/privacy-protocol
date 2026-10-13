@@ -3,12 +3,12 @@
 // deployment whose chain has feeds and unspent notes to value.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { startMockCore, type MockFeed } from "./helpers/mockRpc";
-import { PriceStore, readPrices } from "../src/sdk/prices";
-import type { Deployment } from "../src/sdk/chain";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
-import { settings } from "../src/wallet/settings";
+import { PriceStore, readPrices } from "@privacy-wallet/sdk/prices";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import type { FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };

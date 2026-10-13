@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
-import { connection } from "../wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { Protect } from "./Protect";
 import { useConnection } from "../../hooks";
 

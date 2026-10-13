@@ -1,7 +1,2 @@
-// The three keys of the secure store (spec §8; docs/wallet-formats.md §2). No imports: the guard, the migration and
-// the wallet's storage adapter all read them from here.
-export const KEYSTORE_KEY = "pp.keystore";
-export const JOURNAL_KEY = "pp.journal";
-/** A journal that would not decrypt at unlock, set aside here (still encrypted) when the user chooses to start a fresh one; never overwritten silently. */
-export const UNREADABLE_JOURNAL_KEY = "pp.journal.unreadable";
-export const SECURE_KEYS: readonly string[] = [KEYSTORE_KEY, JOURNAL_KEY, UNREADABLE_JOURNAL_KEY];
+// The secure store's keys are the engine's (packages/sdk/src/wallet/storageKeys.ts, part of the wallet format; V6 Stage 4).
+export { JOURNAL_KEY, KEYSTORE_KEY, SECURE_KEYS, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storageKeys";

@@ -2,12 +2,12 @@
 // time stamp kept), updated, deleted; the labels never say "failed" for a funded swap; the journal's
 // optional field stays out of emptyJournal() so the pinned at-rest vectors hold.
 import { describe, it, expect, beforeEach } from "vitest";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
-import { emptyJournal } from "../src/wallet/journal";
-import { activityId, activityOf, activityStatusLabel, deleteActivity, isFinished, recordActivity, updateActivity } from "../src/wallet/activity";
-import { fmtUnits, parseUnitsSafe, shortRef } from "../src/sdk/format";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { emptyJournal } from "@privacy-wallet/sdk/wallet/journal";
+import { activityId, activityOf, activityStatusLabel, deleteActivity, isFinished, recordActivity, updateActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { fmtUnits, parseUnitsSafe, shortRef } from "@privacy-wallet/sdk/format";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 

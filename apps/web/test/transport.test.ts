@@ -2,7 +2,7 @@
 // whatever the caller asked; it is announced with its host and purpose; a strict (production) build refuses a host
 // outside the allowlist and allows the page's own origin; the fetch-shaped wrapper serves the modules that take one.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { allowHosts, allowedHosts, checkUrl, fetchFor, fetchJson, hostOf, isStrict, onRequest, secureFetch, setStrict, TransportRefusal, viemTransport, type RequestRecord } from "../src/api/transport";
+import { allowHosts, allowedHosts, checkUrl, fetchFor, fetchJson, hostOf, isStrict, onRequest, secureFetch, setStrict, TransportRefusal, viemTransport, type RequestRecord } from "@privacy-wallet/privacy-engine/transport/http";
 
 const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ ok: 1 }), { status: 200, headers: { "content-type": "application/json" } }));
 let records: RequestRecord[] = [];

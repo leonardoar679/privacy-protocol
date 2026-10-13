@@ -3,7 +3,7 @@
 // destination and a minimum output built locally — nothing but the destination leaves this process.
 import { describe, it, expect } from "vitest";
 import { ThorchainAdapter, UTXO_MEMO_BYTES } from "../src/adapters/thorchain";
-import { checkGuestInstruction } from "../../../apps/web/src/sdk/guestGuard";
+import { checkGuestInstruction } from "@privacy-wallet/sdk/guestGuard";
 import { categoryOf, type Ingress, type QuoteRequest } from "../src/types";
 import { recordFetch } from "./helpers/tamper";
 

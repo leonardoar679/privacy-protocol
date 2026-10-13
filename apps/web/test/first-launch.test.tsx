@@ -8,12 +8,12 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { peekFreshAddress } from "../src/keys/chainKeys";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { secureStore } from "../src/storage";
 import { prefs } from "../src/storage/prefs";
-import { connection } from "../src/features/wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
 
 const fetchSpy = vi.fn(async () => new Response("{}", { status: 404, headers: { "content-type": "application/json" } }));

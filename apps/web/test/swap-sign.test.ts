@@ -1,4 +1,4 @@
-// The last gate before the one-time order key signs (src/sdk/swapSign.ts), end to end through the swap
+// The last gate before the one-time order key signs (packages/sdk/src/swapSign.ts), end to end through the swap
 // service's real engine: the engine prepares a THORChain call from a stub adapter that uses the THORChain
 // adapter's own encoders (memo, depositWithExpiry). The wallet's gate passes the honest call, refuses each
 // way a dishonest service could bend the call between the escrow and the provider, refuses a call
@@ -9,14 +9,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { getAddress, type Hex } from "viem";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { checkBeforeSigning, type JournaledOrder } from "../src/sdk/swapSign";
-import { MinimumMoved, PINNED, ProviderCallMismatch, thorAsset, type InboundLookup } from "../src/sdk/providerCall";
-import { OrderMismatch } from "../src/sdk/swapGuard";
-import { deriveOrderKey, deriveRefundNote } from "../src/keys/swapKeys";
-import type { Prepared, ServiceOrder } from "../src/sdk/swapService";
-import { PrivateSwapEngine } from "../../../packages/swap-engine/src/engine";
-import { buildMemo, encodeDepositWithExpiry } from "../../../packages/swap-engine/src/adapters/thorchain";
-import type { AssetRef, Ingress, ProviderAdapter, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import { checkBeforeSigning, type JournaledOrder } from "@privacy-wallet/sdk/swapSign";
+import { MinimumMoved, PINNED, ProviderCallMismatch, thorAsset, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { OrderMismatch } from "@privacy-wallet/sdk/swapGuard";
+import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
+import type { Prepared, ServiceOrder } from "@privacy-wallet/sdk/swapService";
+import { PrivateSwapEngine } from "@privacy-wallet/swap-engine/engine";
+import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
+import type { AssetRef, Ingress, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const FACTORY = "0x00000000000000000000000000000000000000f1" as const;

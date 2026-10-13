@@ -5,7 +5,7 @@
 // straight to the inference provider with a short-lived key; the billing server never sees them.
 // Nothing here touches PrivacyCore, the pool notes or the swap engine (plan §85 rules 1, 11).
 // The pure parts (transport policy, pin gate, streaming) live in ./policy and are unit-tested.
-import { allowHosts, secureFetch } from "../api/transport";
+import { allowHosts, secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 allowHosts("openrouter.ai");
 import { configureBrowserSdk, CHAT_SPENDING_TIER_USD } from "@openanonymity/zkapi-browser-sdk";
 import client from "@openanonymity/zkapi-browser-sdk/client";

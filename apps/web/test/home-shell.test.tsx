@@ -6,10 +6,10 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { recordActivity } from "../src/wallet/activity";
-import { JOURNAL_KEY, UNREADABLE_JOURNAL_KEY } from "../src/wallet/storage";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { JOURNAL_KEY, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
 import { secureStore } from "../src/storage";
 import { prefs } from "../src/storage/prefs";
 import { renderApp } from "./helpers/render";

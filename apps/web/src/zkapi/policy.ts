@@ -1,7 +1,7 @@
 // Pure policy and protocol helpers of the Private AI integration — no SDK import, so they can be
 // tested in node: the transport policy (plan §5: runtime-key only, never proxy), the pin gate
 // (spec §3), the OpenAI-compatible streaming call to the provider, and session ids.
-import { fetchFor, secureFetch } from "../api/transport"; // V5 (spec §7): the one transport policy
+import { fetchFor, secureFetch } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): the one transport policy
 
 export type ZkapiTransport = (url: string, init: RequestInit, hints: { preferProxy?: boolean }) => Promise<Response>;
 

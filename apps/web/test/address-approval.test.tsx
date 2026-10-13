@@ -7,9 +7,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { APPROVAL_IDLE_MS, COOLING_OFF_MS } from "@privacy-wallet/protocol/wallet/addressBook";
 import { AddressBookPanel, DestinationStatus } from "../src/components/protection/AddressBook";
-import { addAddress, approveAddress, destinationCheck, findEntry, verifyAddress } from "../src/wallet/addressBook";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { addAddress, approveAddress, destinationCheck, findEntry, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;

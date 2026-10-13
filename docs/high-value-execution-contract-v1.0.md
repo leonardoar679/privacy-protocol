@@ -31,21 +31,21 @@ contract between the parties is the set of types in §3 and the state machines i
 | OrderClassifier | `packages/protocol/src/wallet/valuation.ts` (`tierOf`, the fail-safe at high-value when no price is available), `packages/swap-engine/src/valuation.ts`; *V4* `exposurePolicy.ts` (the value band → policy row, §2) | wallet + service (the higher tier applies) |
 | RiskEngine | `riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`), `packages/swap-engine/src/risk/{riskDb,security}.ts`; *V4* `exposurePolicy.ts` (`exposureTierOf`), `privacyAssessment.ts` | shared core + service |
 | ExposureManager | `campaign.ts` (`exposure`, `canRelease`, `canPrepare`; *V4* `ledger`, `byProvider`, invariant I6) | shared core, run by the wallet |
-| TrancheEngine | `campaign.ts` (`planTranches`, `replan`), `apps/web/src/wallet/campaigns.ts` (`buildCampaign`, `replanRemainder`) | shared core + wallet |
+| TrancheEngine | `campaign.ts` (`planTranches`, `replan`), `packages/sdk/src/wallet/campaigns.ts` (`buildCampaign`, `replanRemainder`) | shared core + wallet |
 | QuoteEngine | `packages/swap-engine/src/engine.ts` (`quoteAll`: every capable provider in parallel, the competition record); *V4* `normalize.ts` | service |
 | RouteEngine | `scoring.ts` (`scoreRoutes`, `chooseRoute`, `priceGuard`), `adapters/*` | service |
-| SimulationEngine | `apps/web/src/sdk/simulate.ts` (the provider call on every RPC endpoint before a signature), `packages/protocol/src/sim/campaignLab.ts` (the labs) | wallet + labs |
+| SimulationEngine | `packages/sdk/src/simulate.ts` (the provider call on every RPC endpoint before a signature), `packages/protocol/src/sim/campaignLab.ts` (the labs) | wallet + labs |
 | PrivacyEngine | `privacyLint.ts`, `packages/swap-engine/src/privacyScore.ts`, `privacyCenter.ts`; *V4* `privacyAssessment.ts` (§3.11) | shared core + service |
-| DestinationGuard | `addressBook.ts`, `destinations.ts`, `apps/web/src/wallet/addressBook.ts`, `apps/web/src/components/protection/AddressBook.tsx`, `DestinationCard.tsx` | shared core + wallet |
+| DestinationGuard | `addressBook.ts`, `destinations.ts`, `packages/sdk/src/wallet/addressBook.ts`, `apps/web/src/components/protection/AddressBook.tsx`, `DestinationCard.tsx` | shared core + wallet |
 | ProviderHealth | `packages/swap-engine/src/health.ts` (`ProviderHealthTracker`, the breaker), `GET /risk`, `GET /risk/:provider` | service |
-| SettlementMonitor | `apps/web/src/sdk/orderTracker.ts` (`deriveState`, `trackOrder`), the runner's `reconcileAndTrack`, `GET /track/:provider` | wallet + service (stateless) |
-| RecoveryEngine | the runner's reconcile (`apps/web/src/wallet/campaignRunner.ts`), `sdk/swapExecute.ts` (`returnOrderToBalance`), the relayer's refund-only jobs and late-refund watch, the escrow's `refund` / `refundToken` | wallet + relayer + chain |
-| PolicyEngine | `apps/web/src/wallet/settings.ts` (`protection`), `sdk/tiers.ts` (`controlsFor`); *V4* `exposurePolicy.ts` (`capBpsFor`) | wallet (software policy, no administrator: plan §129) |
+| SettlementMonitor | `packages/sdk/src/orderTracker.ts` (`deriveState`, `trackOrder`), the runner's `reconcileAndTrack`, `GET /track/:provider` | wallet + service (stateless) |
+| RecoveryEngine | the runner's reconcile (`packages/sdk/src/wallet/campaignRunner.ts`), `sdk/swapExecute.ts` (`returnOrderToBalance`), the relayer's refund-only jobs and late-refund watch, the escrow's `refund` / `refundToken` | wallet + relayer + chain |
+| PolicyEngine | `packages/sdk/src/wallet/settings.ts` (`protection`), `sdk/tiers.ts` (`controlsFor`); *V4* `exposurePolicy.ts` (`capBpsFor`) | wallet (software policy, no administrator: plan §129) |
 
 - **The wallet's journal** (plan §73) holds, encrypted: the campaign with its bounds, plan, tranches, risk
   snapshot, lint and alerts; each tranche's child order (`StoredSwap`) with its quote, params, funding and
   execution transactions, job id, settlement reads and history; the address book. `Code:`
-  `apps/web/src/wallet/journal.ts` (`campaigns?`, `addressBook?`, `StoredSwap.campaign?`), `docs/wallet-formats.md`.
+  `packages/sdk/src/wallet/journal.ts` (`campaigns?`, `addressBook?`, `StoredSwap.campaign?`), `docs/wallet-formats.md`.
 - **The server-side journal** (plan §74) is the relayer's job list — job id, escrow, state, transaction
   hashes, timestamps — behind `RELAYER_ADMIN_TOKEN`, and the service's stateless reads. No wallet identity,
   no notes, no master key, no financial history. `Code:` `apps/relayer/src/journal.ts`, `admin.ts`.
@@ -98,7 +98,7 @@ The effective cap is `min(band default, tier maximum, mode cap, the user's fract
 range)`; a fraction above the band's default is allowed only on an R0 / R1 route (V3 §14's "3 % only where the
 risk engine permits" kept). `Code:` `packages/protocol/src/wallet/exposurePolicy.ts` (`EXPOSURE_POLICY`,
 `exposureTierOf`, `capBpsFor`), `packages/swap-engine/src/risk/protection.ts` (`Protection.exposureTier`),
-`apps/web/src/wallet/settings.ts` (`capCeilingFor`).
+`packages/sdk/src/wallet/settings.ts` (`capCeilingFor`).
 
 ### 2.3 The market-impact limit (plan §80–§81)
 
@@ -204,7 +204,7 @@ commit → prepare → sign → hand-over (V3 §7). A hard quote that guarantees
 `minimumOutput` MUST NOT be signed (plan §108: the bounds, not the provider, decide); the price guard
 (`priceGuard`, 50 bps at ≥ high-value) refuses a re-quote far below the best live alternative; an expired
 quote never executes (the signed deadline). `Code:` `packages/swap-engine/src/engine.ts` (`prepareExecution`),
-`apps/web/src/sdk/swapExecute.ts` (`prepareAndSign`), `sdk/providerCall.ts`.
+`packages/sdk/src/swapExecute.ts` (`prepareAndSign`), `sdk/providerCall.ts`.
 
 ### 3.4 RiskAssessment → `Protection` + `ProviderRisk` (plan §5–§7, §41–§46, §88; V3 §10)
 
@@ -303,7 +303,7 @@ export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txH
 the V2 §5 one: `quote` = `quote`, `prepare` = `prepareIngress`, `validate` = the local decode-and-check of the
 provider call (the adapter's and, independently, the wallet's), `execute` = the relayer's `deployAndExecute`,
 `track` = `track`, `recover` = the escrow's refund plus the provider's own refund path. `Code:`
-`packages/swap-engine/src/types.ts`, `apps/web/src/sdk/relayer.ts`, `apps/relayer/src/swapExecutor.ts`.
+`packages/swap-engine/src/types.ts`, `packages/sdk/src/relayer.ts`, `apps/relayer/src/swapExecutor.ts`.
 
 ### 3.8 Settlement → `Tracked` + `TrackStatus` (plan §69–§70; V2 §19)
 
@@ -325,7 +325,7 @@ Finality is the provider's delivered state plus the destination chain's elapsed-
 Solana 1 min, EVM 15 min, lab-calibrated); no third-party explorer is ever asked (it would leak the
 destination). The gate per class: R5 bridge / MPC at destination final, R2 / R4 solver and intent at
 destination submitted, R1 at source final, Maximum Safety destination final everywhere (V3 §6). `Code:`
-`apps/web/src/sdk/orderTracker.ts`, `campaign.ts` (`settledBy`, `FINALITY_MARGIN_SECONDS`).
+`packages/sdk/src/orderTracker.ts`, `campaign.ts` (`settledBy`, `FINALITY_MARGIN_SECONDS`).
 
 ### 3.9 Recovery → the pause reasons and the reconcile rules (plan §31–§33, §71–§72, §84–§87)
 
@@ -399,7 +399,7 @@ used → settled → retired; a destination does not return to APPROVED after a 
 re-check (`canUse` refuses `stale`). The verification methods are V3 §12's; the test transaction warns that it
 creates observable activity (plan §21); the cooling-off is 24 h; the Immediate override takes the phrase, the
 hold and the second factor (the separate device at institutional). `Code:`
-`packages/protocol/src/wallet/addressBook.ts`, `apps/web/src/wallet/addressBook.ts`.
+`packages/protocol/src/wallet/addressBook.ts`, `packages/sdk/src/wallet/addressBook.ts`.
 
 ---
 

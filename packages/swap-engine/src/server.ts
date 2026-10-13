@@ -13,15 +13,15 @@ import { MinimumMovedError, type QuoteHint } from "./engine";
 import { riskDb } from "./risk/riskDb";
 import { securityBreakdown } from "./risk/security";
 import { incidents } from "./health";
-import { STALL_FACTOR, type ProtectionMode } from "../../../packages/protocol/src/wallet/campaign";
-import { riskModelOf } from "../../../packages/protocol/src/wallet/riskClasses";
+import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
+import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { userStatus } from "./order";
 import { maxGapBpsFor, PriceGuardError } from "./scoring";
 import { isPolicy, isPreference, type AssetRef, type Order, type OrderParams, type Policy, type Preference, type ProviderId, type QuoteRequest, type Tier, type TrackStatus, type UserStatus } from "./types";
 import type { PreparedExecution } from "./engine";
 import { isTier } from "./valuation";
 import { gatewayConfigFromEnv, gatewayHealth, gatewayQuote } from "./gateway";
-import { atLeast } from "../../../packages/protocol/src/wallet/valuation";
+import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 
 /** What a guest sees for a provider's tracking state (plan §33: never "atomic", always one of these). */
 export function guestStatus(s: TrackStatus["state"]): UserStatus {

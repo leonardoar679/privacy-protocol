@@ -1,7 +1,7 @@
 // Private AI under More (spec §2): the V1.1–V2 screen keeps its code and its test ids, mounted inside a Page; a
 // separate chunk loaded when the route opens (spec §20).
 import { useNavigate } from "react-router-dom";
-import { Page } from "../../design-system";
+import { Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";

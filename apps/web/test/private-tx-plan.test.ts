@@ -1,4 +1,4 @@
-// Withdrawal planning (src/sdk/privateTx.ts): from the session note store and the synced leaves,
+// Withdrawal planning (packages/sdk/src/privateTx.ts): from the session note store and the synced leaves,
 // pick ≤ 2 notes, keep the change as a new note of ours, pad with dummies, bind the payload hashes
 // and the tx domain — and produce a witness the reference builder accepts (every note opens its
 // leaf, value conserved). Pure: no network, no worker.
@@ -10,8 +10,8 @@ import { decryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope"
 import { MerkleTree, ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "@privacy-wallet/protocol/payload";
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
-import { noteStore } from "../src/wallet/notes";
-import { placeholderNoteData, planWithdrawal } from "../src/sdk/privateTx";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { placeholderNoteData, planWithdrawal } from "@privacy-wallet/sdk/privateTx";
 
 const seed = utf8ToBytes("frontend-plan-test-seed");
 const keys = deriveKeys(seed);

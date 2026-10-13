@@ -1,0 +1,18 @@
+{
+  "name": "@privacy-wallet/risk-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The risk assessment (doc §47–§48; spec v2.0 §13.4): assessRisk(facts) → {score, level, blockers, warnings}. Pure: the facts are gathered by the wallet and the API; one blocker stops the operation before a signature.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@privacy-wallet/protocol-types": "*"
+  }
+}

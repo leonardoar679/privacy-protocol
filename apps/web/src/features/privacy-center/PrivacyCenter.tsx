@@ -6,10 +6,10 @@
 // categories with their levels and "Why"), and what this wallet cannot promise — never hidden (plan V2 §69). The
 // numbers come from the privacy lab's model; nothing is fetched.
 import { useState } from "react";
-import { Button, Card, Collapsible, Page, StatusBadge } from "../../design-system";
+import { Button, Card, Collapsible, Page, StatusBadge } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import type { Deployment } from "../../sdk/chain";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { privacyRows, sessionFacts, type PrivacyRow } from "./status";
 import { useAddressBook, usePoolStats, usePosture, useSettings } from "../../hooks";
 

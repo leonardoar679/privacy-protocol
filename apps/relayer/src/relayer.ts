@@ -16,11 +16,11 @@
 // reverting (which covers the proof, the root and the nullifier set).
 import { createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { deriveKeys } from "../../../packages/protocol/src/keys";
-import { noteBody, ownerCommitmentOf } from "../../../packages/protocol/src/note";
-import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "../../../packages/protocol/src/payload";
-import { decryptNoteData, viewKeyPair, type ViewKeyPair } from "../../../packages/protocol/src/envelope";
-import { encodePrivacyAddress } from "../../../packages/protocol/src/address";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
+import { noteBody, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
+import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "@privacy-wallet/protocol/payload";
+import { decryptNoteData, viewKeyPair, type ViewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { encodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { coreAbi, encodeTransact, piFromStrings, type PublicInputs } from "./abi";
 import type { Journal } from "./journal";
 

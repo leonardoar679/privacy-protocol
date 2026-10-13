@@ -1,12 +1,14 @@
 // The build's environment → the engine's configuration (V6 Stage 3; Privacy Wallet Web spec v2.0 §4). The ONLY module
 // of the wallet that reads import.meta.env (lint enforces it): the values are validated here, once, and installed with
-// applyConfig() before the first render (main.tsx); every engine module reads them through src/sdk/config.ts. Tests
+// applyConfig() before the first render (main.tsx); every engine module reads them through packages/sdk/src/config.ts. Tests
 // install their own with applyConfig(testConfig()) (test/setup.ts).
 import { z } from "zod";
-import { allowHosts, setStrict } from "./api/transport";
-import { deploymentFromEnv } from "./sdk/chain";
-import { configure, defaultConfig, DEFAULTS, type SdkConfig } from "./sdk/config";
-import { feedsFromEnv } from "./sdk/prices";
+import { allowHosts, setStrict } from "@privacy-wallet/privacy-engine/transport/http";
+import { deploymentFromEnv } from "@privacy-wallet/sdk/chain";
+import { configure, defaultConfig, DEFAULTS, type SdkConfig } from "@privacy-wallet/sdk/config";
+import { feedsFromEnv } from "@privacy-wallet/sdk/prices";
+import { secureStore } from "./storage/secureStore";
+import { configureWalletConnect } from "@privacy-wallet/wallet-engine/walletConnect";
 
 type Env = Record<string, string | boolean | undefined>;
 
@@ -84,7 +86,10 @@ export function configFromEnv(raw: Env): SdkConfig {
 
 /** Installs a configuration: the engine's, the transport's allowlist (with the THORNode gateways) and its strictness. */
 export function applyConfig(c: SdkConfig): SdkConfig {
-  configure(c);
+  // the web platform's ports (V6 Stage 4): the IndexedDB container and the worker prover, unless the caller brings its own
+  // the prover module is loaded at the first proof (and a test that mocks it is honoured)
+  configure({ storage: secureStore, prover: async (inputs, onStatus) => (await import("./prover/client")).proveInBrowser(inputs, onStatus), ...c });
+  configureWalletConnect(c.walletConnectProjectId);
   allowHosts(...c.hosts, ...c.thornode.gateways);
   setStrict(c.production);
   return c;

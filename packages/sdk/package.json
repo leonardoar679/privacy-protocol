@@ -1,0 +1,28 @@
+{
+  "name": "@privacy-wallet/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The wallet SDK (doc §61; spec v2.0 §4, §8): the session with its encrypted keystore and journal, the notes, the private transactions, the swap orders and campaigns, the operation records and their catalog — behind one facade (src/index.ts). No React and no platform: the platform passes its store and its prover to configure().",
+  "exports": {
+    ".": "./src/index.ts",
+    "./lightclient": "./src/lightclient/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.1",
+    "@noble/hashes": "^1.4.0",
+    "@privacy-wallet/contracts": "*",
+    "@privacy-wallet/privacy-engine": "*",
+    "@privacy-wallet/protocol": "*",
+    "@privacy-wallet/wallet-engine": "*",
+    "@scure/base": "^1.2.6",
+    "@scure/bip39": "^1.6.0",
+    "viem": "^2.21.0"
+  }
+}

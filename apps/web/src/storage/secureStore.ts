@@ -5,7 +5,7 @@
 import { hasIndexedDb, idbDelete, idbEntries, idbPut } from "./idb";
 import { assertSecureShape } from "./guard";
 import { migrateFromLocalStorage, type MigrationReport } from "./migrate";
-import type { KeyValueStorage } from "../wallet/storage";
+import type { KeyValueStorage } from "@privacy-wallet/sdk/wallet/storage";
 
 export interface SecureStore extends KeyValueStorage {
   readonly backend: "indexeddb" | "memory";

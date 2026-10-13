@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copies the Rust core's WASM package (privacy-core/pkg/web, built by privacy-core/scripts/build-wasm.mjs)
-// into public/core so a production build serves it same-origin at /core/* (src/sdk/core.ts loads it
+// into public/core so a production build serves it same-origin at /core/* (packages/sdk/src/core.ts loads it
 // lazily on the first sync; without it the wallet runs the TypeScript reference). No network, no Rust.
 //   npm run core:assets
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";

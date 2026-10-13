@@ -1,10 +1,10 @@
 // The providers above every screen (spec §2): the deployment, the toasts, the locale (spec §19: the preference, else
 // the browser's languages; `?locale=` for development and the layout checks). The router sits above them in App.tsx.
 import { useEffect, useState, type ReactNode } from "react";
-import { setLabels, ToastProvider } from "../design-system";
-import type { Deployment } from "../sdk/chain";
-import { config } from "../sdk/config";
-import { connection, discover } from "../features/wallet/connection";
+import { setLabels, ToastProvider } from "@privacy-wallet/ui";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { config } from "@privacy-wallet/sdk/config";
+import { connection, discover } from "@privacy-wallet/wallet-engine/connection";
 import { prefs } from "../storage/prefs";
 import { DeploymentContext } from "./deployment";
 import { registerCatalogs } from "./i18n/catalogs";

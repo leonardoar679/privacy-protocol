@@ -2,13 +2,13 @@
 // afterwards. Artifacts: /artifacts/* served by the Vite plugin from ../circuits in dev, or the configuration's
 // artifactBase (VITE_ARTIFACT_BASE) in a deployed build. V5 (spec §20): the build's artifact pins (/artifacts.json, same origin)
 // travel with the request; the worker refuses a proving key that does not hash to its pin in a production build.
-import { secureFetch } from "../api/transport";
+import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import type { Hex } from "viem";
-import { publicInputsFromSignals, type PublicInputs } from "@privacy-wallet/protocol/prover";
+import { publicInputsFromSignals } from "@privacy-wallet/protocol/prover";
 import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
 import { pinsFromManifest, type ArtifactPins } from "./pins";
 import type { ProveRequest, ProveResponse } from "./worker";
-import { config } from "../sdk/config";
+import { config, type ProofResult } from "@privacy-wallet/sdk/config";
 
 /** Where the circuit artifacts are served from (the configuration's artifactBase; V6 Stage 3). */
 export function artifactUrls(): { wasm: string; zkey: string; verificationKey: string } {
@@ -19,7 +19,8 @@ export function artifactUrls(): { wasm: string; zkey: string; verificationKey: s
 export const PIN_URL = "/artifacts.json";
 
 export type ProveStatus = (message: string) => void;
-export interface BrowserProof { proof: Hex; publicInputs: PublicInputs; publicSignals: bigint[]; ms: number; verifiedLocally: boolean; /** V5: what the worker found for the proving key and the witness generator */ pins?: { zkey: string; wasm: string } }
+/** The engine's proof shape (packages/sdk/src/config.ts ProofResult): this module is the web platform's prover (V6 Stage 4). */
+export type BrowserProof = ProofResult;
 
 let seq = 0;
 let pinsCache: Promise<ArtifactPins> | null = null;

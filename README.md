@@ -17,12 +17,17 @@ stablecoin issuer's freeze can only ever touch its own vault.
 ```
 privacy-protocol/
 ├─ apps/
-│  ├─ web/          Vite+React+viem wallet rebuilt on its own design system (V5): Home / Swap / Activity / More, Protect / Send / Receive, one operation record per flow, the fee engine, the Privacy Center on computed facts, Classic Privacy on a mock pool, the encrypted IndexedDB container, client-side proving with pinned artifacts, the leakage / policy / pins / audit / locale / a11y gates — the V1.1–V4 engines underneath, unchanged
+│  ├─ web/          Vite+React wallet on the design system (V5): Home / Swap / Activity / More, Protect / Send / Receive, the operation words and recovery cards, the fee engine, the Privacy Center on computed facts, Classic Privacy on a mock pool; the platform (V6 Stage 4): the encrypted IndexedDB container (src/storage) and the proving worker with pinned artifacts (src/prover) passed to the engine through configure(); the leakage / policy / pins / audit / locale / a11y gates
 │  └─ relayer/      private submission (proven transact from its own key, paid by a private fee note) + swap-order executor (deploy/execute/refund escrows for the tip), ERC-20 fee vaults — 38 tests vs forge fixtures, durable journals, abuse limits; V2: `SwapJob.executionTx`; V3: the job list behind `RELAYER_ADMIN_TOKEN`   [tests ✅]
 ├─ packages/
 │  ├─ protocol-types/ the frozen types of spec v2.0 (assets, chains, deployments, quotes, the assessments, the operation states)
 │  ├─ config/       the chain and asset registries (the only place a network or a token is named)
 │  ├─ contracts/    forge's ABIs and creation code, the deployment check and its fingerprint
+│  ├─ sdk/          the wallet engine out of apps/web (V6 Stage 4): the session, keystore and encrypted journal, notes, private transactions, swap orders and campaigns, the operation records with their catalog and recovery logic — behind the doc §61 facade (src/index.ts); the platform passes its store and prover to configure()
+│  ├─ wallet-engine/ the public wallet's connection (EIP-6963, injected, WalletConnect on request) and the doc §15 names
+│  ├─ privacy-engine/ the one network edge: the HTTP transport's policy and the PrivacyTransport every chain read goes through (the only viem client constructor); the privacy score
+│  ├─ risk-engine/  assessRisk(facts) → {score, level, blockers, warnings}: the eight doc §48 blockers
+│  ├─ ui/           the design system out of apps/web: tokens and their stylesheet, icons, the wrapped Radix primitives, the components (React as a peer)
 │  ├─ protocol/     the TypeScript reference (vectors, witness builder, prover, envelope, chain keys, scorecard, reorg indexer, WASM cross-check; V2: valuation + tiers, the Privacy Center model, destinations, the privacy lint, the housekeeping planner; V3: the campaign core — the tranche splitter, the exposure accounting with its invariants, the settlement gates, pause detection and the reducer —, the risk classes, the address book; V4: the exposure policy — the §4 cap table, the exposure tiers R0–R4, the impact remedies, the velocity window —, the six-component privacy assessment, I6 and the ledger, the destination's approval step; the campaign lab's benchmark knobs and the policy benchmark)  [158/158 ✅]
 │  └─ swap-engine/  the private-swap engine (engine + six live adapters; V2: five policies, execution plans incl. THORChain streaming / Chainflip DCA / Mayan swap & lock, the competition record, health memory, the price guard, the valuer, tracking, the zkAPI gateway interface; V3: the risk database, the security breakdown, the breaker's triggers, the protection recommendation, the execution window)  (its HTTP layer becomes apps/api in V6 Stage 9)
 ├─ privacy-core/    privacy-core — the shared native crypto core (Poseidon2, notes, Merkle, envelope, address, keystore + BIP-39 + chain keys) for mobile / desktop / WASM, pinned to the same vectors; privacy-core-wasm — its wasm-bindgen package (incl. the two sync batches: every tree layer, note discovery over every payload), checked against the TypeScript from node; privacy-prover — the native witness (the circuit's WASM under a pure-Rust interpreter) + Groth16 prover over the same proving key, its proofs verified by the on-chain verifier; privacy-ffi — both behind UniFFI (Swift / Kotlin / Python generated)   [14 suites + prover 12 + Python bindings 11 ✅ · wasm32 ✅ · WASM == TS 9/9 ✅]
@@ -172,7 +177,7 @@ cd tools/zkapi-lab && npm install && node verify-mainnet.mjs mainnet
 
 ## How it answers the study's findings
 - **TC-01** mutable frontend / note-at-rest → frontend-independent client; raw secret never in
-  dapp-origin storage (`apps/web/src/keys`).
+  dapp-origin storage (`packages/sdk/src/keys`).
 - **TC-02 / TC-03 / TC-12 / TC-18** governance + bridge → removed from the V1 TCB (immutable core,
   L1 only; proven by the no-privilege bytecode scan, `contracts/test/invariants/NoPrivilege.t.sol`).
 - **TC-09 / TC-20** trusted setup → pluggable, immutable verifier; real ceremony later (`docs/crypto-spec.md`).

@@ -4,15 +4,15 @@
 // scheduled fundings that failed say so; Refresh tracks every open swap once; finished rows can be removed; a row
 // opens its detail.
 import { useState } from "react";
-import { Button, Card, Icon, IconButton, ListRow, Page, StatusBadge } from "../../design-system";
+import { Button, Card, Icon, IconButton, ListRow, Page, StatusBadge } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { Deployment } from "../../sdk/chain";
-import { shortRef } from "../../sdk/format";
-import { STEPS, trackOrder } from "../../sdk/orderTracker";
-import { isOpenSwap } from "../../sdk/swapFunding";
-import { deleteActivity } from "../../wallet/activity";
-import { session } from "../../wallet/session";
-import type { StoredSwap } from "../../wallet/journal";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { shortRef } from "@privacy-wallet/sdk/format";
+import { STEPS, trackOrder } from "@privacy-wallet/sdk/orderTracker";
+import { isOpenSwap } from "@privacy-wallet/sdk/swapFunding";
+import { deleteActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { buildRows, groupByDay, type ActivityRow } from "./rows";
 import { useAllOperations, useSchedulerStatus, useSession, useSettings } from "../../hooks";
 

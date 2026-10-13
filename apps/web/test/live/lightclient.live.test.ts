@@ -6,11 +6,11 @@
 // the bootstrap, a finality branch, a signer bit, a header field, a proof node.
 import { describe, it, expect } from "vitest";
 import { bytesToHex, encodeFunctionData, parseAbi, type Hex } from "viem";
-import { LightClient, LightClientError, MAINNET, SEPOLIA, ProofError, agreedFinalizedRoot, mappingSlot, provenStorage, syncLightClient, type BeaconChainSpec } from "../../src/sdk/lightclient";
-import { beaconApi, type LightClientBootstrap, type LightClientUpdate } from "../../src/sdk/lightclient/beacon";
-import { verifyHeader, verifyStorage } from "../../src/sdk/lightclient/execution";
-import { currentSlot, periodAtSlot } from "../../src/sdk/lightclient/spec";
-import { beaconBlockHeaderRoot } from "../../src/sdk/lightclient/ssz";
+import { LightClient, LightClientError, MAINNET, SEPOLIA, ProofError, agreedFinalizedRoot, mappingSlot, provenStorage, syncLightClient, type BeaconChainSpec } from "@privacy-wallet/sdk/lightclient";
+import { beaconApi, type LightClientBootstrap, type LightClientUpdate } from "@privacy-wallet/sdk/lightclient/beacon";
+import { verifyHeader, verifyStorage } from "@privacy-wallet/sdk/lightclient/execution";
+import { currentSlot, periodAtSlot } from "@privacy-wallet/sdk/lightclient/spec";
+import { beaconBlockHeaderRoot } from "@privacy-wallet/sdk/lightclient/ssz";
 
 const CHAINS: { spec: BeaconChainSpec; rpc: string[]; weth: Hex; fork: string }[] = [
   // eth_getProof at the finalized block is 64–96 blocks deep: some public RPCs cap their proof window below that

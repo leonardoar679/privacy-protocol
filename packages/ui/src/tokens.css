@@ -1,0 +1,130 @@
+/* Generated from packages/ui/src/tokens.ts by `npm run tokens` (packages/ui); edit the TypeScript, not this file. */
+:root {
+  color-scheme: light dark;
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef2f6;
+  --border: #e1e6ec;
+  --fg: #141a21;
+  --fg-muted: #5f6c7b;
+  --accent: #2457d6;
+  --accent-fg: #ffffff;
+  --accent-soft: #e4ebfb;
+  --shield: #1d8a5a;
+  --shield-soft: #e3f3ea;
+  --warn: #b4610d;
+  --warn-soft: #fbeedd;
+  --danger: #c0392b;
+  --danger-soft: #fbe4e1;
+  --success: #1d8a5a;
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --muted: var(--fg-muted);
+  --font-sans: -apple-system, "SF Pro Text", "Segoe UI", "IBM Plex Sans", system-ui, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-size: 40px;
+  --display-line: 44px;
+  --display-weight: 700;
+  --title-size: 28px;
+  --title-line: 32px;
+  --title-weight: 700;
+  --heading-size: 20px;
+  --heading-line: 26px;
+  --heading-weight: 600;
+  --body-size: 16px;
+  --body-line: 24px;
+  --body-weight: 400;
+  --label-size: 14px;
+  --label-line: 20px;
+  --label-weight: 500;
+  --caption-size: 12px;
+  --caption-line: 16px;
+  --caption-weight: 400;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-12: 48px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+  --radius: var(--radius-lg);
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --elevation-2: 0 4px 12px rgba(16, 24, 40, 0.10);
+  --elevation-3: 0 12px 32px rgba(16, 24, 40, 0.16);
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --z-nav: 10;
+  --z-sheet: 20;
+  --z-dialog: 30;
+  --z-toast: 40;
+  --nav-h: 64px;
+  --touch: 44px;
+  --content-max: 720px;
+  --wide-max: 1200px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216;
+    --surface: #171b21;
+    --surface-2: #1f252d;
+    --border: #2a313a;
+    --fg: #eef1f4;
+    --fg-muted: #9aa5b1;
+    --accent: #7a9fff;
+    --accent-fg: #0b1220;
+    --accent-soft: #1d2a4a;
+    --shield: #4cc38a;
+    --shield-soft: #15301f;
+    --warn: #e2b04a;
+    --warn-soft: #3a2d10;
+    --danger: #ff7b6b;
+    --danger-soft: #3f1d1a;
+    --success: #4cc38a;
+    --elevation-0: none;
+    --elevation-1: 0 0 0 1px var(--border);
+    --elevation-2: 0 0 0 1px var(--border);
+    --elevation-3: 0 0 0 1px var(--border), 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216;
+  --surface: #171b21;
+  --surface-2: #1f252d;
+  --border: #2a313a;
+  --fg: #eef1f4;
+  --fg-muted: #9aa5b1;
+  --accent: #7a9fff;
+  --accent-fg: #0b1220;
+  --accent-soft: #1d2a4a;
+  --shield: #4cc38a;
+  --shield-soft: #15301f;
+  --warn: #e2b04a;
+  --warn-soft: #3a2d10;
+  --danger: #ff7b6b;
+  --danger-soft: #3f1d1a;
+  --success: #4cc38a;
+  --elevation-0: none;
+  --elevation-1: 0 0 0 1px var(--border);
+  --elevation-2: 0 0 0 1px var(--border);
+  --elevation-3: 0 0 0 1px var(--border), 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

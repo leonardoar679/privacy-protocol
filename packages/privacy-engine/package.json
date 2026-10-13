@@ -1,0 +1,21 @@
+{
+  "name": "@privacy-wallet/privacy-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The wallet's network edge and privacy measures (doc §59, §65; spec v2.0 §14): the one HTTP transport and its policy, the PrivacyTransport every chain read and broadcast goes through, the privacy score.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

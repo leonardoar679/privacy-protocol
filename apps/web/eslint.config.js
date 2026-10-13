@@ -1,27 +1,23 @@
 // ESLint over all of src (spec §18, §21; Stage 11): typescript-eslint, the rules of hooks, jsx-a11y strict, and the house
-// rules — no storage API outside src/storage, no fetch outside src/api and src/sdk, no window.ethereum outside
-// src/features/wallet, no Radix outside the primitives, no inline style and no literal text on a screen, no forbidden
-// word anywhere a user reads. The V1.1–V4 engine and the components still mounted (LEGACY) type their RPC and provider
-// edges loosely and keep bare inputs: `no-explicit-any` and the label rule are off there until they are rebuilt.
+// rules — no storage API outside src/storage, no fetch (every request goes through the privacy engine's transport), no
+// window.ethereum (the wallet engine reads it), no Radix (the UI package wraps it), no inline style and no literal text
+// on a screen, no forbidden word anywhere a user reads. The engine and the design system are packages since V6 Stage 4,
+// linted by the root eslint.config.mjs under the rules they had here. The components still mounted (LEGACY) type their
+// RPC and provider edges loosely and keep bare inputs: `no-explicit-any` and the label rule are off there until rebuilt.
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import { house } from "../../eslint.house.mjs";
 
-const DESIGN_SYSTEM = ["src/design-system/**/*.{ts,tsx}"];
-const STORAGE_DIR = ["src/storage/**/*.{ts,tsx}"];
 const SCREENS = ["src/features/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"];
-const API = ["src/api/**/*.ts"];
-const CONFORMED = ["src/**/*.{ts,tsx}"]; // Stage 11: everywhere (DESIGN_SYSTEM, STORAGE_DIR, API and SCREENS keep their own blocks)
-const LEGACY = ["src/components/**", "src/sdk/**", "src/wallet/**", "src/keys/**", "src/prover/**", "src/zkapi/**", "src/*.ts", "src/*.tsx"];
+const CONFORMED = ["src/**/*.{ts,tsx}"]; // Stage 11: everywhere (STORAGE, WALLET and SCREENS keep their own blocks)
+const LEGACY = ["src/components/**", "src/prover/**", "src/zkapi/**", "src/*.ts", "src/*.tsx"];
 const STORAGE = ["src/storage/**"];
-const TRANSPORT = ["src/api/**", "src/sdk/**"];
 const WALLET = ["src/features/wallet/**"];
-const PRIMITIVES = ["src/design-system/primitives/**"];
 
 const FORBIDDEN = "\\b(anonymous|anonymity|mixer|untraceable|undetectable)\\b";
 const forbiddenWord = (selector) => ({ selector, message: "Spec §18: the wallet never says anonymous, mixer, untraceable or undetectable; say private, protected, shielded, reduced public linkage." });
-const ETHEREUM_RULE = { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by src/features/wallet." };
+const ETHEREUM_RULE = { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by the wallet engine (packages/wallet-engine/src/injected.ts)." };
 
 export default tseslint.config(
   { ignores: ["dist/**", "node_modules/**", "public/**", "scripts/**", "test/**", "*.config.*"] },
@@ -46,17 +42,16 @@ export default tseslint.config(
         forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`),
         { selector: 'MemberExpression[object.name="window"][property.name=/^(localStorage|sessionStorage)$/]', message: "Spec §8: only src/storage touches the browser's storage." },
         ETHEREUM_RULE,
-        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through src/api/transport.ts." },
+        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
       ],
     },
   },
-  { files: CONFORMED, ignores: [...PRIMITIVES], rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in src/design-system/primitives." }] }] } },
+  { files: CONFORMED, rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in the UI package's primitives (packages/ui/src/primitives)." }] }] } },
   // V6 Stage 3 (spec v2.0 §4): the build's environment is read by src/config.ts alone
   { files: CONFORMED, ignores: ["src/config.ts"], plugins: { house }, rules: { "house/no-build-env": "error" } },
   { files: STORAGE, rules: { "no-restricted-globals": "off" } },
   { files: LEGACY, rules: { "@typescript-eslint/no-explicit-any": "off" } },
   { files: ["src/components/**"], rules: { "jsx-a11y/label-has-associated-control": "off" } },
-  { files: TRANSPORT, rules: { "no-restricted-syntax": "off" } },
   {
     files: WALLET,
     rules: {
@@ -66,7 +61,7 @@ export default tseslint.config(
         forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`),
         { selector: 'JSXAttribute[name.name="style"]', message: "Spec §5: a screen composes the design system and carries no inline style." },
         { selector: "JSXText[value=/[A-Za-z]{3,}/]", message: "Spec §19: user-facing text comes from the message catalog (useT)." },
-        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through src/api/transport.ts." },
+        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
       ],
     },
   },
@@ -81,7 +76,7 @@ export default tseslint.config(
         { selector: 'JSXAttribute[name.name="style"]', message: "Spec §5: a screen composes the design system and carries no inline style." },
         { selector: "JSXText[value=/[A-Za-z]{3,}/]", message: "Spec §19: user-facing text comes from the message catalog (useT)." },
         { selector: 'MemberExpression[object.name="window"][property.name=/^(localStorage|sessionStorage)$/]', message: "Spec §8: only src/storage touches the browser's storage." },
-        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through src/api/transport.ts." },
+        { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
       ],
     },
   },

@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ENGINE_EVENT_ORDER, engineListener, fromEngineEvent, type EngineEvent } from "../../src/features/operations/engineEvents";
-import { transition } from "../../src/features/operations/reducer";
-import type { OperationEvent } from "../../src/features/operations/types";
-import type { OperationRecord } from "../../src/wallet/operationRecord";
+import { ENGINE_EVENT_ORDER, engineListener, fromEngineEvent, type EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
+import { transition } from "@privacy-wallet/sdk/operations/reducer";
+import type { OperationEvent } from "@privacy-wallet/sdk/operations/types";
+import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { record } from "../helpers/operations";
 
 const H1 = ("0x" + "a1".repeat(32)) as `0x${string}`;
@@ -82,7 +82,7 @@ describe("the documented sequences drive a record from the signature to COMPLETE
 
 describe("the engine emits beside its status strings", () => {
   it("sdk/privateTx.ts carries onEvent on Progress and an event at every milestone of a shield, a merge, a withdrawal and a transfer", () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "sdk", "privateTx.ts"), "utf8");
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "packages", "sdk", "src", "privateTx.ts"), "utf8");
     expect(src).toMatch(/export interface Progress \{ onStatus\?: ProveStatus;.*onEvent\?: OnEvent;/);
     const types = [...src.matchAll(/o\.onEvent\?\.\(\{ type: "([a-z-]+)"/g)].map((m) => m[1]);
     expect(new Set(types)).toEqual(new Set(["wallet-prompt", "submitted", "waiting-receipt", "mined", "approved", "proving", "proved", "submitting", "relayer-retry", "fee-terms", "syncing", "verifying", "merging"]));

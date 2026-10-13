@@ -4,9 +4,9 @@
 // updates it in place; the open and finished lists; the hooks' snapshots are stable until a change.
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { applyEvent, allOperations, finishedOperations, getOperation, newOperation, openOperations, operationsOf, removeOperation, resetOperationsMemory } from "../../src/features/operations/store";
-import { emptyJournal } from "../../src/wallet/journal";
-import { session } from "../../src/wallet/session";
+import { applyEvent, allOperations, finishedOperations, getOperation, newOperation, openOperations, operationsOf, removeOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { emptyJournal } from "@privacy-wallet/sdk/wallet/journal";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useOpenOperations, useOperation } from "../../src/hooks";
 
 const HASH = "0x" + "ef".repeat(32);

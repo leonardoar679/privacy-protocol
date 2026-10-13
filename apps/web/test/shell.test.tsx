@@ -5,10 +5,10 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../src/storage/prefs";
-import { connection } from "../src/features/wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
 
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });

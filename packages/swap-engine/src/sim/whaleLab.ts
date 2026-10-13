@@ -24,7 +24,7 @@ import { LifiAdapter } from "../adapters/lifi";
 import { AcrossAdapter } from "../adapters/across";
 
 // ---- Chainlink through public RPCs: the feed table the wallet and the engine pin (packages/protocol/src/wallet/valuation.ts) ----
-import { FEED_REGISTRY, SELECTOR, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, type FeedSpec } from "../../../../packages/protocol/src/wallet/valuation";
+import { FEED_REGISTRY, SELECTOR, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, type FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
 const RPCS = [process.env.LAB_RPC_URL, "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://1rpc.io/eth", "https://rpc.ankr.com/eth", "https://cloudflare-eth.com", "https://eth.llamarpc.com"].filter(Boolean) as string[];
 /** The mainnet table (BTC is resolved from the Feed Registry: the address Chainlink's docs once listed for BTC / USD, 0xF4030086522a5bEEa4988F8cA5B36dBAC08cBBAE, has no code today). */
 export const FEEDS: FeedSpec[] = feedsFor(1);

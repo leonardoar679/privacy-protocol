@@ -2,9 +2,9 @@
 // restore from the phrase or from a backup file. Nothing here talks to the network; the session does the work.
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Field, Page, Segmented, TextInput } from "../../design-system";
+import { Button, Card, Field, Page, Segmented, TextInput } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { session } from "../../wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks";
 
 export type LockMode = "unlock" | "create" | "restore";

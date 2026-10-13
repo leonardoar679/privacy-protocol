@@ -1,10 +1,10 @@
-import { secureFetch } from "../api/transport";
+import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
-import { swapServiceUrl, type AssetRef, type QuoteSet } from "../sdk/swapService";
-import { checkGuestInstruction, type CheckedGuest } from "../sdk/guestGuard";
-import { MinimumMoved } from "../sdk/providerCall";
-import { fmtUnits, parseUnitsSafe } from "../sdk/format";
+import { swapServiceUrl, type AssetRef, type QuoteSet } from "@privacy-wallet/sdk/swapService";
+import { checkGuestInstruction, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
+import { MinimumMoved } from "@privacy-wallet/sdk/providerCall";
+import { fmtUnits, parseUnitsSafe } from "@privacy-wallet/sdk/format";
 import { parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
 import { DestinationCard } from "./DestinationCard";
 

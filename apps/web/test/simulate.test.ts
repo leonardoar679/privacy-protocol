@@ -6,10 +6,10 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { encodeErrorResult, parseAbi, toFunctionSelector, type Hex } from "viem";
 import { startMockCore, type MockTx } from "./helpers/mockRpc";
-import { decodeRevert, encodeDeployAndExecute, SIMULATION_ACCOUNT, simulateExecution, swapFactoryAbi } from "../src/sdk/simulate";
-import { predictEscrow } from "../src/sdk/swapGuard";
-import type { Deployment } from "../src/sdk/chain";
-import type { ServiceOrderParams } from "../src/sdk/swapService";
+import { decodeRevert, encodeDeployAndExecute, SIMULATION_ACCOUNT, simulateExecution, swapFactoryAbi } from "@privacy-wallet/sdk/simulate";
+import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import type { ServiceOrderParams } from "@privacy-wallet/sdk/swapService";
 
 const FACTORY = "0x00000000000000000000000000000000000000f1";
 const PROVIDER = "0x00000000000000000000000000000000000000d1";

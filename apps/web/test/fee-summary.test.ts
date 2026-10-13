@@ -2,7 +2,7 @@
 // formatted by the unit the adapter stated. A fee whose unit is unknown is never shown as a base-unit figure (the
 // local-stack browser run showed "2047477191 Ethereum.USDC" for a 2,047.48 USDC network fee before this was fixed).
 import { describe, it, expect } from "vitest";
-import { feeSummary, type ServiceQuote } from "../src/sdk/swapService";
+import { feeSummary, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
 
 const quote = (fees: ServiceQuote["fees"]): ServiceQuote => ({ provider: "chainflip", category: "A", toAmount: "1", toAmountMin: "1", fees, etaSeconds: 60, expiresAt: 0, nativeAssets: true, minOutEncoded: true } as ServiceQuote);
 

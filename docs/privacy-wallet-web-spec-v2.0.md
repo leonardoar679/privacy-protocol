@@ -134,14 +134,18 @@ contracts/ circuits/ tests/ benchmarks/ docs/ scripts/ tools/zkapi-lab/
 ```
 
 Rules: npm scope `@privacy-wallet/*`, every package `private`; packages are consumed as TypeScript source (no build
-step; exports `{".": "./src/index.ts", "./*": "./src/*.ts"}`); one root lockfile for `apps/*` and `packages/*`
-(`circuits/`, `scripts/local-stack/`, `tools/zkapi-lab/` keep their own); **packages never import apps; engine
-packages never import React or `ui`; `ui` never imports the SDK** (`boundaries.test.ts`); `import.meta.env` is read
+step; exports `{".": "./src/index.ts", "./*": "./src/*.ts"}`, the UI naming its subpaths); one root lockfile for
+`apps/*` and `packages/*` (`circuits/`, `scripts/local-stack/`, `tools/zkapi-lab/` keep their own); **packages never
+import apps; engine packages never import React or `ui`; `ui` never imports the SDK; no relative import crosses a
+workspace; every `@privacy-wallet/*` import is declared and the graph is acyclic; only the privacy engine's chain
+transport makes a viem client and only the wallet engine's `injected.ts` reads `window.ethereum`**
+(`scripts/check-boundaries.mjs`, a verify-all step); `import.meta.env` is read
 only by `apps/web/src/config.ts`, which validates it into an `SdkConfig` and calls `configure()` before the first
 render — engine modules read the configuration through accessors and throw "not configured" when used before
 (`import-purity.test.ts`); React hooks live in `apps/web/src/hooks/` over the engines' `subscribe/get` stores;
-browser storage and the prover stay platform code (`apps/web/src/platform/`) injected through the configuration —
-the seam a React Native shell will implement later (doc §95). The Rust core keeps its crates; `privacy-core`'s
+browser storage and the prover stay platform code (`apps/web/src/storage/` — the IndexedDB container — and
+`apps/web/src/prover/` — the Web Worker over snarkjs) passed to `configure()` as the engine's `storage` and `prover`
+ports — the seam a React Native shell will implement later (doc §95). The Rust core keeps its crates; `privacy-core`'s
 modules are grouped as doc §60 lists (`crypto/ notes/ commitments/ nullifiers/ merkle/ encoding/ proof/ wallet/`)
 with every existing path re-exported, so `privacy-core-wasm` and `privacy-ffi` compile unchanged.
 
@@ -801,7 +805,10 @@ Simple (§7.7); the real ETA instead of "~2 min" (§13.1); "Your funds are safe.
 kept (§12.1); the Privacy Center at `/more/privacy` (§6); no server-side note indexer — the "Indexer" of doc §90 is
 the wallet's verified sync plus the API's `chain_state` (§15); Prettier on new code only; Korean for Simple screens,
 notices and errors (§18); the seed on the main thread (§14.3); the visual suite local only (§17); `packages/server-kit`
-added. Out of scope: the React Native apps and native shells (doc §95; `docs/mobile.md`), biometrics and
+added; the package boundaries checked by a verify-all script rather than a test file (§4); the suites that existed
+before Stage 4 stay in `apps/web/test` — they run under the web platform's configuration (`test/setup.ts`) — while
+each package carries the suites written for it; the fee math joins the SDK with the fee model (Stage 7), not with
+the carve-out. Out of scope: the React Native apps and native shells (doc §95; `docs/mobile.md`), biometrics and
 second-device confirmation (doc §51 "later"), web push delivery, the Classic contracts / circuit port / legal review,
 LI.FI and Chainflip same-chain routes, a private RPC or PIR transport behind §14.2's seam, a repository-wide
 reformat, the production ceremony, external audits, the testnet broadcast, and any change to PrivacyCore, the

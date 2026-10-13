@@ -3,13 +3,13 @@
 // the one vocabulary, with a catalog code on every failure; and I-O5: "Transaction failed" is never the words of a
 // provider that executed or a destination still confirming.
 import { describe, expect, it } from "vitest";
-import { ORDER_STATE_MAP, PAUSE_MAP, STORED_SWAP_MAP, SWAP_JOB_MAP, fromCampaign, fromStoredSwap, fromTranche } from "../../src/features/operations/adapters";
-import { CODES } from "../../src/features/operations/errors/catalog";
+import { ORDER_STATE_MAP, PAUSE_MAP, STORED_SWAP_MAP, SWAP_JOB_MAP, fromCampaign, fromStoredSwap, fromTranche } from "@privacy-wallet/sdk/operations/adapters";
+import { CODES } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { stateWords } from "../../src/features/operations/recovery";
 import { t } from "../../src/app/i18n/messages";
-import { OPERATION_STATES, type OperationState } from "../../src/wallet/operationRecord";
-import type { OrderState } from "../../src/sdk/orderTracker";
-import type { SwapJobState } from "../../src/sdk/relayer";
+import { OPERATION_STATES, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
+import type { OrderState } from "@privacy-wallet/sdk/orderTracker";
+import type { SwapJobState } from "@privacy-wallet/sdk/relayer";
 import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
 const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED"];

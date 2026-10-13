@@ -5,14 +5,14 @@
 // needs attention, with the refund through the executor (a refund-only job) or the monitoring.
 import { useState } from "react";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, IconButton, Page, StatusBadge } from "../../design-system";
+import { Button, Card, Collapsible, IconButton, Page, StatusBadge } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { Deployment } from "../../sdk/chain";
-import { shortRef } from "../../sdk/format";
-import { trackOrder } from "../../sdk/orderTracker";
-import { returnOrderToBalance } from "../../sdk/swapExecute";
-import { deleteActivity } from "../../wallet/activity";
-import { session } from "../../wallet/session";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { shortRef } from "@privacy-wallet/sdk/format";
+import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
+import { returnOrderToBalance } from "@privacy-wallet/sdk/swapExecute";
+import { deleteActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { needsAttention, stateWords } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
 import { syncSwapRecord } from "../swap/records";

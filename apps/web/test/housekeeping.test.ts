@@ -11,14 +11,14 @@ import { decryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope"
 import { MerkleTree } from "@privacy-wallet/protocol/merkle";
 import { txDomain } from "@privacy-wallet/protocol/payload";
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
-import { noteStore, type OwnedNote } from "../src/wallet/notes";
-import { ensureSpendable, HousekeepingNeeded, planSplit } from "../src/sdk/privateTx";
-import { housekeepingPlan, pendingHousekeeping, runHousekeepingStep, scheduleHousekeeping, spentToday } from "../src/wallet/housekeeping";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { settings } from "../src/wallet/settings";
-import { pendingActions } from "../src/wallet/schedule";
-import type { Deployment } from "../src/sdk/chain";
+import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
+import { ensureSpendable, HousekeepingNeeded, planSplit } from "@privacy-wallet/sdk/privateTx";
+import { housekeepingPlan, pendingHousekeeping, runHousekeepingStep, scheduleHousekeeping, spentToday } from "@privacy-wallet/sdk/wallet/housekeeping";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { pendingActions } from "@privacy-wallet/sdk/wallet/schedule";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 const seed = utf8ToBytes("frontend-housekeeping-test-seed");
 const keys = deriveKeys(seed);

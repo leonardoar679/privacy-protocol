@@ -3,14 +3,14 @@ import type { Address } from "viem";
 import { groupAddress, CHAIN_NAMES } from "@privacy-wallet/protocol/wallet/destinations";
 import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
 import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import type { Deployment } from "../../sdk/chain";
-import { assetsOf, formatAmount } from "../../sdk/assets";
-import { privateWithdrawal } from "../../sdk/privateTx";
-import { assertSecondFactor, verifyPassword, webauthnAvailable } from "../../sdk/secondFactor";
-import { addAddress, approveAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "../../wallet/addressBook";
-import { session } from "../../wallet/session";
-import { HoldButton } from "../../design-system";
-import { holdMs } from "../../sdk/tiers";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { assetsOf, formatAmount } from "@privacy-wallet/sdk/assets";
+import { privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
+import { assertSecondFactor, verifyPassword, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
+import { addAddress, approveAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "@privacy-wallet/sdk/wallet/addressBook";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { HoldButton } from "@privacy-wallet/ui";
+import { holdMs } from "@privacy-wallet/sdk/tiers";
 import { useAddressBook, useSettings } from "../../hooks";
 
 // The address book on the screens (High-Value Protection spec §12; plan V3 §35–§40, §126–§128): the Settings panel

@@ -4,10 +4,10 @@
 import { useCallback, useEffect } from "react";
 import { useDeployment } from "./deployment";
 import { mirrorExperience } from "./Gate";
-import { runScheduledAction } from "../sdk/swapFunding";
-import { runCampaignTick } from "../wallet/campaignRunner";
-import { scheduleHousekeeping } from "../wallet/housekeeping";
-import { session } from "../wallet/session";
+import { runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
+import { runCampaignTick } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useNotes, useScheduler, useSession, useSettings } from "../hooks";
 
 export function Background() {

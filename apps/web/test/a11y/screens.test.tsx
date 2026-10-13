@@ -8,10 +8,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import axe from "axe-core";
 import { renderApp } from "../helpers/render";
-import { session } from "../../src/wallet/session";
-import { settings } from "../../src/wallet/settings";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../../src/storage/prefs";
-import { connection } from "../../src/features/wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { resetClassicPools } from "../../src/features/classic-privacy/mockPool";
 
 afterEach(() => { cleanup(); session.forget(); settings.reset(); prefs().reset(); connection.reset(); resetClassicPools(); });

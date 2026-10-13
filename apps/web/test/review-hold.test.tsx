@@ -7,9 +7,9 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { HoldButton } from "../src/design-system";
+import { HoldButton } from "@privacy-wallet/ui";
 import { Review } from "../src/features/review/ReviewScreen";
-import { controlsFor } from "../src/sdk/tiers";
+import { controlsFor } from "@privacy-wallet/sdk/tiers";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const LABEL = "Confirm and start the protected execution (second confirmation next)";

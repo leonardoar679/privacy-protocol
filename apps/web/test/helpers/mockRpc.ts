@@ -6,7 +6,7 @@
 // runs against the mock end to end (the privacy leakage suite).
 import { createServer, type Server } from "node:http";
 import { encodeAbiParameters, encodeEventTopics, toFunctionSelector, toHex, type Hex } from "viem";
-import { coreAbi } from "../../src/sdk/privacyProtocol";
+import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
 
 /** A Chainlink-shaped feed the mock serves at an address (whale spec §13 tests): description(), latestRoundData(). */
 export interface MockFeed { description: string; answer: bigint; updatedAt: number; roundId?: bigint }

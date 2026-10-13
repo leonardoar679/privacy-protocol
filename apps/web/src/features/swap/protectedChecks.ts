@@ -2,8 +2,8 @@
 // the strict quote — the hard quote keeps at least MIN_QUOTE_TTL_S, the request's slippage is capped at
 // MAX_SLIPPAGE_BPS, the approved minimum is at least toAmount·(1 − 50 bps) —, the provider's health — breaker closed,
 // security ≥ 60, no incident within a day —, else the next route is quoted. Pure; the service's risk view is advice.
-import { PROTECTED_EXECUTION } from "../../sdk/tiers";
-import type { QuoteSet, RiskView, ServiceQuote } from "../../sdk/swapService";
+import { PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
+import type { QuoteSet, RiskView, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 
 export type CheckVerdict = { ok: true } | { ok: false; code: "quote_ttl_short" | "provider_unhealthy" | "slippage_too_wide"; detail: string };
 

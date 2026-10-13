@@ -1,0 +1,22 @@
+{
+  "name": "@privacy-wallet/wallet-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The public wallet's connection (doc §15; spec v2.0 §8): EIP-6963 discovery, the injected provider, WalletConnect on request; connect, disconnect, switchNetwork, getAddress, signMessage, requestSignature, detectWallet. It never touches the shielded keys.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@walletconnect/ethereum-provider": "^2.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "happy-dom": "^15.11.7"
+  }
+}

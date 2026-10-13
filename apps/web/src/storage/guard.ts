@@ -1,7 +1,7 @@
 // The TC-01 guard on both stores (spec §8): a key whose name looks like a secret is refused (the V1 rule from
 // keys/wallet.ts), a `secure` value that is not shaped like the encrypted keystore or the encrypted journal is
 // refused, and a prefs value outside its schema is refused (prefs.ts). Shapes only: no value is decrypted here.
-import { assertNotPersistingSecret } from "../keys/wallet";
+import { assertNotPersistingSecret } from "@privacy-wallet/sdk/keys/wallet";
 import { JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY } from "./keys";
 
 export { assertNotPersistingSecret };

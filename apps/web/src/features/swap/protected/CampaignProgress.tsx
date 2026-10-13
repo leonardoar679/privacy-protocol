@@ -7,10 +7,10 @@
 import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { levelOf, type Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button } from "../../../design-system";
+import { Button } from "@privacy-wallet/ui";
 import { useT } from "../../../app/i18n/useT";
-import { fmtUnits } from "../../../sdk/format";
-import { ALERT_TITLES, alertKindFor } from "../../../wallet/alerts";
+import { fmtUnits } from "@privacy-wallet/sdk/format";
+import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
 import { ExposureDashboard } from "./ExposureDashboard";
 
 export type CampaignStatus = { mark: "✓" | "⚠" | "●"; word: "Protected" | "Review" | "Processing" | "Completed" | "Returned" };

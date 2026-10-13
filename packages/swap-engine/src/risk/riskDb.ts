@@ -6,8 +6,8 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import type { Gate, RiskClass } from "../../../../packages/protocol/src/wallet/campaign";
-import type { Custody, RiskModelOverride } from "../../../../packages/protocol/src/wallet/riskClasses";
+import type { Gate, RiskClass } from "@privacy-wallet/protocol/wallet/campaign";
+import type { Custody, RiskModelOverride } from "@privacy-wallet/protocol/wallet/riskClasses";
 
 export interface Incident {
   provider: string;

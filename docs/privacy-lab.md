@@ -54,7 +54,7 @@ Single asset, one pool; users deposit from one address (pieces of one user are l
 shield); withdrawals go to fresh addresses as the wallet enforces; private hops are not modelled
 beyond their absence from the public surface; the observer's balance oracle is stronger than
 reality; network-layer channels (RPC, mempool, relayer — L3/L4) are outside this lab and are the
-reason the wallet's privacy score still discounts them (`apps/web/src/privacy/privacyScore.ts`).
+reason the wallet's privacy score still discounts them (`packages/privacy-engine/src/privacyScore.ts`).
 
 ## Cross-chain leg (plan §72, step 17) — `benchmarks/privacy/run-crosschain.mjs`
 **Question.** A private swap leaves the pool through a one-time escrow that pays the provider
@@ -192,7 +192,7 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
   pieces over the policy window when privacy is preferred over speed; the number of concurrent large
   holders bounds what any single large piece can hide behind. *Shipped in Stage 8:*
   `packages/protocol/src/wallet/noteStrategy.ts` (the planner: 100-unit then 10-unit pieces, dust
-  merged, fee-aware), `apps/web/src/wallet/housekeeping.ts` (one private self-transfer per step inside
+  merged, fee-aware), `packages/sdk/src/wallet/housekeeping.ts` (one private self-transfer per step inside
   the policy window, the daily fee cap, the opt-out); the lint's `large-piece` item counts the holders
   from the pool's public deposit sizes (`sdk/poolDeposits.ts`).
 

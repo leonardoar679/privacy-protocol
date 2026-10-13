@@ -31,8 +31,8 @@ import { BYTECODE } from "@privacy-wallet/contracts";
 import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
-import { executionDigest, predictEscrow, recoverExecutionSigner } from "../../../packages/swap-engine/src/endpoints";
-import type { OrderParams } from "../../../packages/swap-engine/src/types";
+import { executionDigest, predictEscrow, recoverExecutionSigner } from "@privacy-wallet/swap-engine/endpoints";
+import type { OrderParams } from "@privacy-wallet/swap-engine/types";
 
 const ORDER_PARAMS = "(bytes32 orderId, uint8 assetType, address asset, uint256 amount, address orderSigner, uint64 executeDeadline, uint64 refundAfter, address refundVault, uint256 refundOwnerCommitment, uint256 refundNoteSecret, bytes32 refundNoteDataHash, uint256 executorTip)";
 const EXECUTION = "(address provider, uint256 value, bytes providerCalldata, uint64 deadline, bytes signature)";

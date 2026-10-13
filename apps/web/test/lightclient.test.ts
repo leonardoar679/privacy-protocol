@@ -8,11 +8,11 @@
 import { describe, it, expect } from "vitest";
 import { bls12_381 } from "@noble/curves/bls12-381";
 import { bytesToHex, hexToBytes, keccak256, toRlp, type Hex } from "viem";
-import { LightClient, LightClientError } from "../src/sdk/lightclient/beacon";
-import type { LightClientBootstrap, LightClientHeader, LightClientUpdate } from "../src/sdk/lightclient/beacon";
-import { beaconBlockHeaderRoot, computeDomain, executionPayloadHeaderDenebRoot, hashPair, merkleize, signingRoot, syncCommitteeRoot, uintChunk, type SyncCommittee } from "../src/sdk/lightclient/ssz";
-import { BLS_DST, DOMAIN_SYNC_COMMITTEE, type BeaconChainSpec } from "../src/sdk/lightclient/spec";
-import { mptGet, ProofError, verifyHeader, verifyStorage } from "../src/sdk/lightclient/execution";
+import { LightClient, LightClientError } from "@privacy-wallet/sdk/lightclient/beacon";
+import type { LightClientBootstrap, LightClientHeader, LightClientUpdate } from "@privacy-wallet/sdk/lightclient/beacon";
+import { beaconBlockHeaderRoot, computeDomain, executionPayloadHeaderDenebRoot, hashPair, merkleize, signingRoot, syncCommitteeRoot, uintChunk, type SyncCommittee } from "@privacy-wallet/sdk/lightclient/ssz";
+import { BLS_DST, DOMAIN_SYNC_COMMITTEE, type BeaconChainSpec } from "@privacy-wallet/sdk/lightclient/spec";
+import { mptGet, ProofError, verifyHeader, verifyStorage } from "@privacy-wallet/sdk/lightclient/execution";
 
 const PERIOD_SLOTS = 8192;
 const spec: BeaconChainSpec = {

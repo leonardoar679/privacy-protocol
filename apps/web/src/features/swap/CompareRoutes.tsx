@@ -2,10 +2,10 @@
 // under Advanced only — the provider's name appears only here; elsewhere the word is "Best route". A route that
 // quoted can be chosen over the winner ("Use this route"); the ones that refused, timed out or were filtered say so.
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import { BottomSheet, Button } from "../../design-system";
+import { BottomSheet, Button } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { fmtUnits } from "../../sdk/format";
-import type { AssetRef, QuoteSet, RouteScore } from "../../sdk/swapService";
+import { fmtUnits } from "@privacy-wallet/sdk/format";
+import type { AssetRef, QuoteSet, RouteScore } from "@privacy-wallet/sdk/swapService";
 import { hours, riskWord, settlementWords } from "./targets";
 
 export function CompareRoutes({ open, onClose, quotes, to, advanced, onUse, busy }: { open: boolean; onClose: () => void; quotes: QuoteSet; to: AssetRef; advanced: boolean; onUse: (provider: string) => void; busy?: boolean }) {

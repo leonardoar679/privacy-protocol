@@ -11,9 +11,9 @@ import { utf8ToBytes } from "@noble/hashes/utils";
 import { privateKeyToAccount } from "viem/accounts";
 import { Relayer, RelayerError, relayerIdentity, type RelayerConfig, type SubmitRequest } from "../src/relayer";
 import { decodeTransact, encodeTransact, piFromStrings } from "../src/abi";
-import { encryptNoteData } from "../../../packages/protocol/src/envelope";
-import { noteBody } from "../../../packages/protocol/src/note";
-import { noteDataHash } from "../../../packages/protocol/src/payload";
+import { encryptNoteData } from "@privacy-wallet/protocol/envelope";
+import { noteBody } from "@privacy-wallet/protocol/note";
+import { noteDataHash } from "@privacy-wallet/protocol/payload";
 import { FIXTURE_ROOT, fixtureRequest, have } from "./fixture";
 
 const root = FIXTURE_ROOT;

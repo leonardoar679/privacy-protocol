@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { SwapExecutor, SwapJobError, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
-import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "../../../packages/swap-engine/src/endpoints";
+import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const vector = JSON.parse(readFileSync(join(root, "contracts/test/periphery/vectors/endpoint.json"), "utf8"));

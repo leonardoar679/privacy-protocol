@@ -12,23 +12,23 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, encodeErrorResult, getAddress, parseAbi, toFunctionSelector, type Hex } from "viem";
 import { Swap } from "../src/features/swap/Swap";
-import { session } from "../src/wallet/session";
-import { noteStore } from "../src/wallet/notes";
-import { priceStore } from "../src/sdk/prices";
-import { PINNED, thorAsset } from "../src/sdk/providerCall";
-import type { Deployment } from "../src/sdk/chain";
-import { PrivateSwapEngine, type PreparedExecution } from "../../../packages/swap-engine/src/engine";
-import { buildMemo, encodeDepositWithExpiry } from "../../../packages/swap-engine/src/adapters/thorchain";
-import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { priceStore } from "@privacy-wallet/sdk/prices";
+import { PINNED, thorAsset } from "@privacy-wallet/sdk/providerCall";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-engine/engine";
+import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
+import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
-import { allowedHosts } from "../src/api/transport";
+import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // the refund note recovery itself runs against a mock RPC in test/refunds.test.ts; here only the screen's use of it
 const refundHook = vi.hoisted(() => ({ calls: 0, result: [] as unknown[] }));
-vi.mock("../src/sdk/privateTx", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/privateTx")>()),
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   recoverSwapRefunds: async () => { refundHook.calls++; return refundHook.result; },
 }));
 

@@ -4,10 +4,10 @@
 // destination is isolated when no entered destination was used in the last 30 days) and the §31 rows from the
 // posture. Pure over the stores the wallet already keeps; nothing is fetched.
 import type { Posture } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import type { AddressBookEntry } from "../../wallet/addressBook";
-import type { Settings } from "../../wallet/settings";
-import type { Deployment } from "../../sdk/chain";
-import { specForChain } from "../../sdk/lightclient/spec";
+import type { AddressBookEntry } from "@privacy-wallet/sdk/wallet/addressBook";
+import type { Settings } from "@privacy-wallet/sdk/wallet/settings";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { specForChain } from "@privacy-wallet/sdk/lightclient/spec";
 
 export const FRESH_WINDOW_MS = 30 * 86_400_000;
 

@@ -3,7 +3,7 @@
 // guest swap, Activity — are separate chunks loaded when their route opens (spec §20).
 import { lazy } from "react";
 import { Navigate, useRouteError, type RouteObject } from "react-router-dom";
-import { Button, ErrorCard, Page } from "../design-system";
+import { Button, ErrorCard, Page } from "@privacy-wallet/ui";
 import { t } from "../app/i18n/messages";
 import { Providers } from "../app/Providers";
 import { RequireLocked, RequireUnlocked } from "../app/Gate";
@@ -17,7 +17,7 @@ import { ProtectRoute } from "../features/protect/ProtectRoute";
 import { SendRoute } from "../features/send/SendRoute";
 import { ReceiveRoute } from "../features/wallet/ReceiveRoute";
 import { Outlet } from "react-router-dom";
-import type { Deployment } from "../sdk/chain";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 /** React Router 6 with the v7 behaviours already on (relative splat paths, fetcher persistence, partial hydration …). */
 export const ROUTER_FUTURE = { v7_relativeSplatPath: true, v7_fetcherPersist: true, v7_normalizeFormMethod: true, v7_partialHydration: true, v7_skipActionErrorRevalidation: true } as const;
@@ -28,7 +28,7 @@ const ActivityRoute = lazy(() => import("../features/activity/ActivityRoute"));
 const ActivityDetailRoute = lazy(() => import("../features/activity/ActivityRoute").then((m) => ({ default: m.ActivityDetailRoute })));
 const AIRoute = lazy(() => import("../features/ai/AIRoute"));
 const GuestRoute = lazy(() => import("../features/guest/GuestRoute"));
-const Gallery = lazy(() => import("../design-system/Gallery").then((m) => ({ default: m.Gallery })));
+const Gallery = lazy(() => import("@privacy-wallet/ui/Gallery").then((m) => ({ default: m.Gallery })));
 
 function Root({ deployment }: { deployment?: Deployment | null }) {
   return <Providers deployment={deployment}><Outlet /></Providers>;

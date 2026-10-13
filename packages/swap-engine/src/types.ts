@@ -1,5 +1,5 @@
 // PrivateSwap engine types — docs/private-swap-spec-v1.1.md §2–§4, §9–§10; V2: docs/whale-execution-spec-v1.0.md §1–§2, §5.
-import type { Tier, Valuation } from "../../../packages/protocol/src/wallet/valuation";
+import type { Tier, Valuation } from "@privacy-wallet/protocol/wallet/valuation";
 import type { NormalizedQuote } from "./normalize";
 export type { Tier, Valuation };
 

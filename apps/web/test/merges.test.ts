@@ -1,4 +1,4 @@
-// Multi-note merges (src/sdk/privateTx.ts): the 2-input circuit spends at most two notes, so a spend
+// Multi-note merges (packages/sdk/src/privateTx.ts): the 2-input circuit spends at most two notes, so a spend
 // that needs more first merges pairs with private self-transfers, each paying the relayer fee. The
 // schedule accounts for those fees; a merge plan is a valid 2-in/3-out witness whose merged note is
 // ours and whose fee note is the relayer's. Pure: no network, no worker.
@@ -10,8 +10,8 @@ import { decryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope"
 import { MerkleTree, ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 import { txDomain } from "@privacy-wallet/protocol/payload";
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
-import { noteStore, type OwnedNote } from "../src/wallet/notes";
-import { mergeSchedule, placeholderNoteData, planMerge } from "../src/sdk/privateTx";
+import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
+import { mergeSchedule, placeholderNoteData, planMerge } from "@privacy-wallet/sdk/privateTx";
 
 const seed = utf8ToBytes("frontend-merge-test-seed");
 const keys = deriveKeys(seed);

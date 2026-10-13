@@ -2,9 +2,9 @@
 // I-O1 (a terminal state never changes), I-O2 (monotone timestamps), I-O3 (every failure carries a catalog reason),
 // I-O4 (COMPLETED needs a settlement reference), the field events, a delay that recovers, the cancel rule.
 import { describe, expect, it } from "vitest";
-import { ALLOWED, DEFAULT_CODES, replay, transition } from "../../src/features/operations/reducer";
-import { STATE_EVENT_TARGET, type OperationEvent } from "../../src/features/operations/types";
-import { FAILURE_STATES, OPERATION_STATES, TERMINAL_STATES, type OperationRecord, type OperationState } from "../../src/wallet/operationRecord";
+import { ALLOWED, DEFAULT_CODES, replay, transition } from "@privacy-wallet/sdk/operations/reducer";
+import { STATE_EVENT_TARGET, type OperationEvent } from "@privacy-wallet/sdk/operations/types";
+import { FAILURE_STATES, OPERATION_STATES, TERMINAL_STATES, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { record } from "../helpers/operations";
 
 const at = (rec: OperationRecord, state: OperationState): OperationRecord => record({ ...rec, state, history: [{ state, at: rec.updatedAt }] });

@@ -4,11 +4,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mnemonicToAccount } from "viem/accounts";
 import { bip39Seed, bitcoinAccount, evmAccount, solanaAccount } from "@privacy-wallet/protocol/wallet/chainKeys";
-import { consumeFreshAddress, dappAccount, lastFreshAddress, peekFreshAddress } from "../src/keys/chainKeys";
-import { seedToPhrase } from "../src/wallet/keystore";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
+import { consumeFreshAddress, dappAccount, lastFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { seedToPhrase } from "@privacy-wallet/sdk/wallet/keystore";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const seedBytes = Uint8Array.from({ length: 32 }, (_, i) => (i * 5 + 1) & 0xff);

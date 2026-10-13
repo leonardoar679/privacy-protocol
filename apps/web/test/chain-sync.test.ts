@@ -1,4 +1,4 @@
-// Tree sync and note discovery (src/sdk/chain.ts, src/sdk/privateTx.ts): the wallet rebuilds the
+// Tree sync and note discovery (packages/sdk/src/chain.ts, packages/sdk/src/privateTx.ts): the wallet rebuilds the
 // core's Merkle tree from NoteInserted events exactly as MerkleAccumulator inserts groups (a deposit
 // = commitment + 3 empty leaves, a transaction = 3 commitments + 1 empty), refuses a view whose root
 // is not the core's, and finds its own notes by opening the payloads encrypted to its view key —
@@ -13,10 +13,10 @@ import { txDomain } from "@privacy-wallet/protocol/payload";
 import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
-import { coreAbi } from "../src/sdk/privacyProtocol";
-import { clientFor, deploymentFromEnv, noteInsertedLogsQuorum, syncTree, syncTreeQuorum, txDomainOf, type Deployment } from "../src/sdk/chain";
-import { scanNotes } from "../src/sdk/privateTx";
-import { noteStore } from "../src/wallet/notes";
+import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
+import { clientFor, deploymentFromEnv, noteInsertedLogsQuorum, syncTree, syncTreeQuorum, txDomainOf, type Deployment } from "@privacy-wallet/sdk/chain";
+import { scanNotes } from "@privacy-wallet/sdk/privateTx";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9";
 const VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";

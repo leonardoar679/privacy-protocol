@@ -1,13 +1,13 @@
 // The operation record of a swap order (spec §12): one record per order, keyed `swap:<orderId>`, its state read from
 // the journaled order and the tracker's last derivation through the adapters, the refs and the failure code with it.
 // The engines keep their own states; the record follows them.
-import type { Tracked } from "../../sdk/orderTracker";
-import type { SwapJob } from "../../sdk/relayer";
-import type { StoredSwap } from "../../wallet/journal";
-import type { OperationRecord, OperationState } from "../../wallet/operationRecord";
-import { CATALOG } from "../operations/errors/catalog";
-import { fromStoredSwap } from "../operations/adapters";
-import { getOperation, putOperation } from "../operations/store";
+import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
+import type { SwapJob } from "@privacy-wallet/sdk/relayer";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import type { OperationRecord, OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { CATALOG } from "@privacy-wallet/sdk/operations/errors/catalog";
+import { fromStoredSwap } from "@privacy-wallet/sdk/operations/adapters";
+import { getOperation, putOperation } from "@privacy-wallet/sdk/operations/store";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export const swapRecordId = (orderId: string): string => `swap:${orderId.toLowerCase()}`;

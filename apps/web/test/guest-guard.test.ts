@@ -1,12 +1,12 @@
 // Walletless mode: the browser's own check of the deposit instruction the swap service hands a guest
-// (src/sdk/guestGuard.ts). Honest instructions are built with the swap service's OWN memo builder; a
+// (packages/sdk/src/guestGuard.ts). Honest instructions are built with the swap service's OWN memo builder; a
 // dishonest service that names another address, another destination or asset, a memo a UTXO chain
 // cannot carry, or a lower minimum is caught before anything is shown. Offline: THORNode answers stubbed.
 import { describe, it, expect } from "vitest";
-import { checkGuestInstruction, type GuestInstruction } from "../src/sdk/guestGuard";
-import { MinimumMoved, ProviderCallMismatch, thorAsset, thorAssetShort, thornodeInbound, type InboundLookup } from "../src/sdk/providerCall";
-import { buildMemo, thorAsset as engineThorAsset, thorAssetShort as engineThorAssetShort, UTXO_MEMO_BYTES } from "../../../packages/swap-engine/src/adapters/thorchain";
-import type { AssetRef } from "../src/sdk/swapService";
+import { checkGuestInstruction, type GuestInstruction } from "@privacy-wallet/sdk/guestGuard";
+import { MinimumMoved, ProviderCallMismatch, thorAsset, thorAssetShort, thornodeInbound, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { buildMemo, thorAsset as engineThorAsset, thorAssetShort as engineThorAssetShort, UTXO_MEMO_BYTES } from "@privacy-wallet/swap-engine/adapters/thorchain";
+import type { AssetRef } from "@privacy-wallet/sdk/swapService";
 
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };

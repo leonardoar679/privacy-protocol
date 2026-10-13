@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { mnemonicToSeedSync, entropyToMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
-import { createKeystore, seedToPhrase, unlockKeystore } from "../src/wallet/keystore";
-import { encryptJournal, journalKey, decryptJournal, emptyJournal } from "../src/wallet/journal";
+import { createKeystore, seedToPhrase, unlockKeystore } from "@privacy-wallet/sdk/wallet/keystore";
+import { encryptJournal, journalKey, decryptJournal, emptyJournal } from "@privacy-wallet/sdk/wallet/journal";
 
 const FILE = fileURLToPath(new URL("../../../packages/protocol/test/vectors/wallet.json", import.meta.url));
 const seed = hexToBytes("0f1e2d3c4b5a69788796a5b4c3d2e1f0f1e2d3c4b5a69788796a5b4c3d2e1f00");

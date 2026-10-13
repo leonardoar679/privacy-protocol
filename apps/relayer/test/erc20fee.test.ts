@@ -9,9 +9,9 @@ import { createPublicClient, createWalletClient, http, keccak256, type Hex } fro
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { privateKeyToAccount } from "viem/accounts";
 import { Relayer, relayerIdentity, type RelayerConfig, type SubmitRequest } from "../src/relayer";
-import { encryptNoteData } from "../../../packages/protocol/src/envelope";
-import { noteBody } from "../../../packages/protocol/src/note";
-import { noteDataHash, txDomain } from "../../../packages/protocol/src/payload";
+import { encryptNoteData } from "@privacy-wallet/protocol/envelope";
+import { noteBody } from "@privacy-wallet/protocol/note";
+import { noteDataHash, txDomain } from "@privacy-wallet/protocol/payload";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9";
 const ETH_VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";

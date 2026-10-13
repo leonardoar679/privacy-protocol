@@ -110,9 +110,9 @@ against zkAPI's local stack on a clean machine.
 ## Step 05 — Private RPC (plan §64): blocked upstream, partially covered
 The live zkAPI deployments lease **OpenRouter keys only** (`upstreams: ["openrouter"]`,
 `request_mode: direct_openrouter` in the manifest and SDK); there is no metered RPC upstream to
-authorize. What the wallet does today (`apps/web/src/sdk/chain.ts::clientFor`): no permanent API key anywhere
+authorize. What the wallet does today (`packages/sdk/src/chain.ts::clientFor`): no permanent API key anywhere
 (public RPC URL from env), JSON-RPC **batching** (a tree sync is a handful of round trips), no
 cookies and no cross-host redirects on the RPC transport, and the same `privateTransport` policy
 hook. The pool reads are also checked by the wallet's own light client on mainnet and Sepolia
-(`apps/web/src/sdk/lightclient/`, plan §38); the metered upstream remains to do once a zkAPI RPC
+(`packages/sdk/src/lightclient/`, plan §38); the metered upstream remains to do once a zkAPI RPC
 upstream exists.

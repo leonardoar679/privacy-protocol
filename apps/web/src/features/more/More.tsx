@@ -2,10 +2,10 @@
 // experience says so; the experience switch itself (it writes the preference and the journal's advanced flag). Each
 // row is a route.
 import { useNavigate } from "react-router-dom";
-import { Card, Icon, ListRow, Page } from "../../design-system";
+import { Card, Icon, ListRow, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
-import { settings } from "../../wallet/settings";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { usePrefs, useSettings } from "../../hooks";
 
 export function More() {

@@ -1,4 +1,4 @@
-import type { Asset } from "../sdk/assets";
+import type { Asset } from "@privacy-wallet/sdk/assets";
 
 /** The private asset an action works in (plan §36): ETH and every ERC-20 the deployment has a canonical vault for. */
 export function AssetSelect({ assets, value, onChange, label = "Asset" }: { assets: Asset[]; value: Asset; onChange: (a: Asset) => void; label?: string }) {

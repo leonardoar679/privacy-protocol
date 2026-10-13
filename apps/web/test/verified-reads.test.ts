@@ -1,13 +1,13 @@
-// Plan §38 in the wallet (src/sdk/verifiedReads.ts): a tree rebuilt from RPC logs is accepted only if
+// Plan §38 in the wallet (packages/sdk/src/verifiedReads.ts): a tree rebuilt from RPC logs is accepted only if
 // its first leaves are exactly the pool the light client proved at the latest finalized block. Offline:
 // the light client and the storage prover are stubbed here (both run live in test/live/lightclient).
 import { describe, it, expect, afterEach } from "vitest";
-import { treeLayers } from "../src/sdk/core";
-import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "../src/sdk/verifiedReads";
+import { treeLayers } from "@privacy-wallet/sdk/core";
+import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
 import { encodeAbiParameters, keccak256 } from "viem";
-import type { Deployment, TreeState } from "../src/sdk/chain";
-import { settings, defaultSettings } from "../src/wallet/settings";
-import { session } from "../src/wallet/session";
+import type { Deployment, TreeState } from "@privacy-wallet/sdk/chain";
+import { settings, defaultSettings } from "@privacy-wallet/sdk/wallet/settings";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 

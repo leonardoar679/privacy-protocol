@@ -3,14 +3,14 @@
 // journaled order's state is mirrored onto its Activity line, and the funding attempt itself refuses to
 // start without a deployment or a factory before any note is touched.
 import { describe, it, expect, beforeEach } from "vitest";
-import { WalletSession } from "../src/wallet/session";
-import { memoryStorage } from "../src/wallet/storage";
-import { noteStore } from "../src/wallet/notes";
-import { settings } from "../src/wallet/settings";
-import { pendingActions, scheduleAction } from "../src/wallet/schedule";
-import { activityId, recordActivity } from "../src/wallet/activity";
-import { abandonSwap, fundEscrow, isOpenSwap, patchSwap, runScheduledAction } from "../src/sdk/swapFunding";
-import type { StoredSwap } from "../src/wallet/journal";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
+import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { abandonSwap, fundEscrow, isOpenSwap, patchSwap, runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const seed = new Uint8Array(32).fill(7);

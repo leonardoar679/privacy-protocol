@@ -6,23 +6,23 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { getAddress } from "viem";
-import type { EngineEvent } from "../src/features/operations/engineEvents";
-import { finishedOperations, openOperations, resetOperationsMemory } from "../src/features/operations/store";
+import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
+import { finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { Protect } from "../src/features/protect/Protect";
-import { setActiveProvider } from "../src/sdk/injected";
-import type { Deployment } from "../src/sdk/chain";
+import { setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { prefs } from "../src/storage/prefs";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import { noteStore } from "../src/wallet/notes";
-import { activityOf } from "../src/wallet/activity";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { activityOf } from "@privacy-wallet/sdk/wallet/activity";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { native: unknown[]; erc20: unknown[] } = { native: [], erc20: [] };
 let nativeBehaviour: "ok" | "rejected" | "reverted" = "ok";
-vi.mock("../src/sdk/privateTx", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/privateTx")>()),
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   shieldNative: async (o: { amount: bigint; onEvent?: (e: EngineEvent) => void; onStatus?: (s: string) => void }) => {
     calls.native.push(o.amount);
     o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");

@@ -9,7 +9,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { getAddress } from "viem";
 import { Guest } from "../src/components/Guest";
-import { buildMemo } from "../../../packages/swap-engine/src/adapters/thorchain";
+import { buildMemo } from "@privacy-wallet/swap-engine/adapters/thorchain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 

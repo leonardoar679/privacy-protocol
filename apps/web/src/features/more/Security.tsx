@@ -5,13 +5,13 @@
 // typed confirmation in a dialog. Everything is journaled (encrypted); nothing is sent anywhere.
 import { useState } from "react";
 import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, TextInput } from "../../design-system";
+import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, TextInput } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import { registerSecondFactor, webauthnAvailable } from "../../sdk/secondFactor";
+import { registerSecondFactor, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
 import { prefs } from "../../storage/prefs";
-import { session } from "../../wallet/session";
-import { settings } from "../../wallet/settings";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { usePrefs, useSettings } from "../../hooks";
 
 const TIER_FIELDS: { key: keyof TierThresholds; label: MessageKey }[] = [

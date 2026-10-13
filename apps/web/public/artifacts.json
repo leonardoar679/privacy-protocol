@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "pinnedAt": "2026-10-09T03:58:59.939Z",
+  "pinnedAt": "2026-10-13T13:34:41.483Z",
   "setup": "circuits/setup/dev — the insecure single-party development setup; a production ceremony replaces the proving key and this pin",
   "files": {
     "transaction.wasm": {
@@ -16,8 +16,8 @@
       "bytes": 5311
     },
     "privacy_core_wasm_bg.wasm": {
-      "sha256": "48114797e5582f003871afdbf90c73195a6c9907fcb09d91aed6fc69877c3286",
-      "bytes": 555209
+      "sha256": "a91b2ac734819c98f5f0c2329dc1ba4c0958892d6d6c7c506b1d6ca72c61d7c1",
+      "bytes": 555825
     },
     "privacy_core_wasm.js": {
       "sha256": "0568c9bad0ccccef2bfa321e858cbb622c5b77e4d89481e7562af9cb73ec28f1",

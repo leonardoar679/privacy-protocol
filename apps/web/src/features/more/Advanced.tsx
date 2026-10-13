@@ -5,13 +5,13 @@
 // (encrypted) and nothing is sent anywhere.
 import { useState } from "react";
 import { formatEther, parseEther } from "viem";
-import { Button, Card, Field, Page, TextInput } from "../../design-system";
+import { Button, Card, Field, Page, TextInput } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { Deployment } from "../../sdk/chain";
-import { defaultRelayerUrl } from "../../sdk/relayer";
-import { registerSecondDevice, webauthnAvailable } from "../../sdk/secondFactor";
-import { requestSystemNotifications } from "../../wallet/notifications";
-import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type ProtectionMode } from "../../wallet/settings";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
+import { registerSecondDevice, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
+import { requestSystemNotifications } from "@privacy-wallet/sdk/wallet/notifications";
+import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type ProtectionMode } from "@privacy-wallet/sdk/wallet/settings";
 import { AddressBookPanel } from "../../components/protection/AddressBook";
 import { useStatusLines } from "./statusLines";
 import { useSettings } from "../../hooks";

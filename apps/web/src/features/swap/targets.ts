@@ -2,8 +2,8 @@
 // engine routes to, the asset reference of a vault asset, the provider's settlement words, the custody and gate words
 // of the risk model, the duration words. Pure.
 import { CHAINS, assetLabel, crossChainTargets } from "@privacy-wallet/config";
-import type { AssetRef } from "../../sdk/swapService";
-import type { Asset } from "../../sdk/assets";
+import type { AssetRef } from "@privacy-wallet/sdk/swapService";
+import type { Asset } from "@privacy-wallet/sdk/assets";
 
 export interface Target { id: string; ref: AssetRef; network: string }
 /** The cross-chain destinations, from the asset registry (V6 Stage 3: no token named in a component). */

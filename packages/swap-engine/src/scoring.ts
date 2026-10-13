@@ -2,8 +2,8 @@
 // itself. The V4 presets of the plan's §43 are configuration values, not protocol constants; PAES (plan §87) is reported
 // per route beside the total, never the chooser by itself.
 import type { Health, Policy, Preference, ProviderId, Quote, Tier } from "./types";
-import { atLeast } from "../../../packages/protocol/src/wallet/valuation";
-import type { ProtectionMode } from "../../../packages/protocol/src/wallet/campaign";
+import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
+import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 import { BASELINE_PRIVACY, chainHalted, reliabilityScore, securityScore } from "./health";
 
 export interface RouteScore {

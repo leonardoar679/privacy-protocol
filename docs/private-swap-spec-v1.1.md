@@ -46,21 +46,21 @@ Order {
 }
 ```
 The minimum output the user approved at commit (`approvedMin`, in destination units) is journaled
-by the wallet (`apps/web/src/wallet/journal.ts`); a provider call guaranteeing less is signed only
+by the wallet (`packages/sdk/src/wallet/journal.ts`); a provider call guaranteeing less is signed only
 after consent (below). It MUST be ≤ the quote's `toAmountMin` and is carried in the provider ingress
 where the provider supports a limit (§5). V2 §1 carries it in the order server-side too.
 `orderId` MUST NOT be derived from user identity. The wallet persists the order in its journal
 before any on-chain action (recovery, §3).
 
 The wallet MUST NOT take the service's word for anything it funds or signs
-(`apps/web/src/sdk/swapGuard.ts`): it recomputes the escrow address (§6) from its OWN factory
+(`packages/sdk/src/swapGuard.ts`): it recomputes the escrow address (§6) from its OWN factory
 address and the returned params, and checks that the params carry its one-time signer and refund
 note, the amount and asset it asked for, that asset's canonical vault for refunds, a tip within the
 1 % cap and a refund horizon of at most a week — before the order is journaled and again before the
 withdrawal funds the escrow. Before the order key signs, the wallet recomputes the execution digest
 from the provider, value, calldata and deadline it is shown, and checks the deadline against the
 order's and the value against what the escrow may forward. It then reads the provider call itself
-(`apps/web/src/sdk/providerCall.ts`, gate `swapSign.ts`), against its own journal: the target MUST be a
+(`packages/sdk/src/providerCall.ts`, gate `swapSign.ts`), against its own journal: the target MUST be a
 pinned provider contract, the receiver the wallet's fresh destination, provider refunds the escrow (or,
 where the provider can only refund at the destination, that address, §7), the amount exactly what the
 escrow forwards, and the minimum the call guarantees MUST be at least the minimum the user approved

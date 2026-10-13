@@ -1,25 +1,25 @@
 // The React hooks over the engine's stores (V6 Stage 3; spec v2.0 §4): the engine modules expose subscribe / get and
 // stable snapshots and import nothing from React, so they can live in packages/sdk; the screens read them through here.
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { priceStore, type PriceState } from "../sdk/prices";
-import { verifyStatus, type VerifyStatus } from "../sdk/verifiedReads";
-import { addressBookOf, type AddressBookEntry } from "../wallet/addressBook";
-import { campaignsSnapshot } from "../wallet/campaigns";
+import { priceStore, type PriceState } from "@privacy-wallet/sdk/prices";
+import { verifyStatus, type VerifyStatus } from "@privacy-wallet/sdk/verifiedReads";
+import { addressBookOf, type AddressBookEntry } from "@privacy-wallet/sdk/wallet/addressBook";
+import { campaignsSnapshot } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
-import { noteStore, type OwnedNote } from "../wallet/notes";
-import { notifications, type WalletNotification } from "../wallet/notifications";
-import { poolStats, type PoolStats } from "../wallet/poolStats";
-import { completeAction, isDue, pendingActions, schedulerStatus, type SchedulerStatus } from "../wallet/schedule";
-import type { ScheduledAction } from "../wallet/journal";
-import { session as defaultSession, type SessionState, type WalletSession } from "../wallet/session";
-import { settings, type Settings } from "../wallet/settings";
+import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
+import { notifications, type WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
+import { poolStats, type PoolStats } from "@privacy-wallet/sdk/wallet/poolStats";
+import { completeAction, isDue, pendingActions, schedulerStatus, type SchedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
+import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
+import { session as defaultSession, type SessionState, type WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { settings, type Settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs, type Prefs } from "../storage/prefs";
-import { operationsSnapshot, subscribeOperations } from "../features/operations/store";
-import type { OperationRecord } from "../wallet/operationRecord";
-import { connection, type ConnectionState } from "../features/wallet/connection";
-import { postureFacts } from "../wallet/posture";
+import { operationsSnapshot, subscribeOperations } from "@privacy-wallet/sdk/operations/store";
+import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { connection, type ConnectionState } from "@privacy-wallet/wallet-engine/connection";
+import { postureFacts } from "@privacy-wallet/sdk/wallet/posture";
 import { privacyPosture, type Posture } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import type { Deployment } from "../sdk/chain";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 export const usePrices = (): PriceState =>
   useSyncExternalStore(

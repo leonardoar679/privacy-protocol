@@ -7,8 +7,8 @@ import type { CompetitionEntry, Order, OrderParams, Policy, Preference, Provider
 import { CATEGORY_PREFERENCE, categoryOf } from "./types";
 import { chooseRoute, policyFor, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
-import { isBucketOf } from "../../../packages/protocol/src/wallet/amounts";
-import { atLeast, higherTier, type Assessment, type TierThresholds } from "../../../packages/protocol/src/wallet/valuation";
+import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
+import { atLeast, higherTier, type Assessment, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
 import { executionDigest, orderSignerAddress, predictEscrow, recoverExecutionSigner, signExecution } from "./endpoints";
 import { encodeCall } from "./abi";
 import { NO_VALUER, assessRequest, type Valuer } from "./valuation";
@@ -16,7 +16,7 @@ import { ProviderHealthTracker } from "./health";
 import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
 import { normalizeQuote } from "./normalize";
-import type { ProtectionMode } from "../../../packages/protocol/src/wallet/campaign";
+import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];

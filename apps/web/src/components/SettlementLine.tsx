@@ -1,4 +1,4 @@
-import { STEPS, type Tracked } from "../sdk/orderTracker";
+import { STEPS, type Tracked } from "@privacy-wallet/sdk/orderTracker";
 
 // The four-step line of plan §60 and the label of plan §61 (whale spec §19): shown for every swap, in
 // the Swap screen and in Activity. A partial fill says what arrived and what came back.

@@ -9,15 +9,15 @@ import { unacknowledgedBlocks, type LintItem } from "@privacy-wallet/protocol/wa
 import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
-import { formatAmount, isBucketFor, type Asset } from "../../sdk/assets";
-import { fmtUnits } from "../../sdk/format";
-import type { Policy, Preference, Protection, ProviderRiskView, QuoteSet, RouteScore, ServiceQuote, ServiceOrder, AssetRef } from "../../sdk/swapService";
-import type { Signed } from "../../sdk/swapExecute";
-import { IMPACT_CAP_BPS, planWords } from "../../sdk/tiers";
-import { feeSummary, planLabel } from "../../sdk/swapService";
-import { buildCampaign } from "../../wallet/campaigns";
-import type { DestinationCheck } from "../../wallet/addressBook";
-import type { StoredSwap } from "../../wallet/journal";
+import { formatAmount, isBucketFor, type Asset } from "@privacy-wallet/sdk/assets";
+import { fmtUnits } from "@privacy-wallet/sdk/format";
+import type { Policy, Preference, Protection, ProviderRiskView, QuoteSet, RouteScore, ServiceQuote, ServiceOrder, AssetRef } from "@privacy-wallet/sdk/swapService";
+import type { Signed } from "@privacy-wallet/sdk/swapExecute";
+import { IMPACT_CAP_BPS, planWords } from "@privacy-wallet/sdk/tiers";
+import { feeSummary, planLabel } from "@privacy-wallet/sdk/swapService";
+import { buildCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
 import { CUSTODY_WORDS, GATE_WORDS, durationWords, hours, providerKind, refOf, settlementWords, type Target } from "./targets";
 

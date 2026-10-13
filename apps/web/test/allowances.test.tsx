@@ -6,19 +6,19 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { decodeFunctionData, encodeAbiParameters, getAddress } from "viem";
-import { erc20Abi } from "../src/sdk/privacyProtocol";
-import { allowancesFor, readAllowance, revokeAllowance } from "../src/sdk/allowances";
-import { parseErc20Vaults } from "../src/sdk/assets";
+import { erc20Abi } from "@privacy-wallet/sdk/privacyProtocol";
+import { allowancesFor, readAllowance, revokeAllowance } from "@privacy-wallet/sdk/allowances";
+import { parseErc20Vaults } from "@privacy-wallet/sdk/assets";
 import { Wallet } from "../src/features/more/Wallet";
-import { connection } from "../src/features/wallet/connection";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { Protect } from "../src/features/protect/Protect";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
-import type { Deployment } from "../src/sdk/chain";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-vi.mock("../src/sdk/privateTx", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/sdk/privateTx")>()),
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   shieldERC20: async (o: any) => { o.onStatus?.("1/2 Approving…"); throw new Error("the deposit reverted after the approval"); },
 }));
 

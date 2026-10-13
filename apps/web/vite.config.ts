@@ -35,7 +35,7 @@ function circuitArtifacts(): Plugin {
 /**
  * Serves the Rust core's WASM package (`/core/*`) straight from ../privacy-core/pkg/web in dev (built by
  * privacy-core/scripts/build-wasm.mjs). A production build takes it from public/core (`npm run
- * core:assets`); when neither exists the wallet runs the TypeScript reference instead (src/sdk/core.ts).
+ * core:assets`); when neither exists the wallet runs the TypeScript reference instead (packages/sdk/src/core.ts).
  */
 function coreWasm(): Plugin {
   const dir = fileURLToPath(new URL("../../privacy-core/pkg/web", import.meta.url));
@@ -90,6 +90,8 @@ export default defineConfig(({ mode }) => {
       alias: [
         ...zkapi.alias,
       ],
+      // the design system is a package with React as a peer (V6 Stage 4): one React, whatever resolves it
+      dedupe: ["react", "react-dom"],
     },
     define: { __ZKAPI__: JSON.stringify(zkapi.bundled) },
     server: {

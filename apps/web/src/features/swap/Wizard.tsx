@@ -4,11 +4,11 @@
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import type { LintId, LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card } from "../../design-system";
+import { Button, Card } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { Deployment } from "../../sdk/chain";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
-import type { DestinationCheck } from "../../wallet/addressBook";
+import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";

@@ -13,12 +13,12 @@ import { Wallet } from "../src/features/more/Wallet";
 import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";
 import { WhatStaysPrivate } from "../src/features/privacy-center/WhatStaysPrivate";
 import { FRESH_WINDOW_MS, freshDestinations, privacyRows, sessionFacts } from "../src/features/privacy-center/status";
-import { addAddress, findEntry, markAddressUsed } from "../src/wallet/addressBook";
-import { session } from "../src/wallet/session";
-import { settings } from "../src/wallet/settings";
+import { addAddress, findEntry, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
+import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../src/storage/prefs";
-import { connection } from "../src/features/wallet/connection";
-import type { Deployment } from "../src/sdk/chain";
+import { connection } from "@privacy-wallet/wallet-engine/connection";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 afterEach(() => { cleanup(); session.forget(); settings.reset(); prefs().reset(); connection.reset(); vi.restoreAllMocks(); });
 const type = (el: Element, v: string) => fireEvent.change(el, { target: { value: v } });

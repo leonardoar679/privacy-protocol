@@ -2,7 +2,7 @@
 // form they could take, and the scan of a request body, a provider call or a console line for any of them — plus the
 // field names that must never travel. Shared by the leakage suite and the swap scenario.
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
-import { session } from "../../src/wallet/session";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { secureStore } from "../../src/storage";
 
 const hex = (b: Uint8Array): string => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");

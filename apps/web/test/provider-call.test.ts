@@ -1,4 +1,4 @@
-// The wallet's own check of the provider call the one-time order key signs (src/sdk/providerCall.ts).
+// The wallet's own check of the provider call the one-time order key signs (packages/sdk/src/providerCall.ts).
 // Honest calls are built with the swap service's OWN encoders (packages/swap-engine adapters), so the
 // two independent implementations must agree; then every way a dishonest service could bend a call —
 // another receiver, a refund that does not come back, another asset or amount, fees, a lowered
@@ -7,15 +7,15 @@
 // (packages/swap-engine/test/chainflip-unit.test.ts). Offline: THORNode answers are stubbed.
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, encodeFunctionData, getAddress, padHex, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
-import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeInbound, type CallExpectation, type InboundLookup } from "../src/sdk/providerCall";
-import { buildMemo, encodeDepositWithExpiry, thorAsset as engineThorAsset } from "../../../packages/swap-engine/src/adapters/thorchain";
-import { CF_ASSET_ID, CF_CHAIN_ID, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, SEL_X_SWAP_TOKEN, decodeVaultSwapCalldata, minOutFromPrice } from "../../../packages/swap-engine/src/adapters/chainflip";
-import { SPOKE_POOL, WETH as ENGINE_WETH, encodeDepositV3 } from "../../../packages/swap-engine/src/adapters/across";
-import { MAYAN_ETH_WRAPPER, MAYAN_FAST_MCTP, MAYAN_FORWARDER, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, SEL_WRAP, WETH_ETHEREUM, addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type SwiftOrder } from "../../../packages/swap-engine/src/adapters/mayan";
-import { LIFI_DIAMOND, SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP, SEL_MAYAN, SEL_MAYAN_SWAP, verifyLifiTransaction } from "../../../packages/swap-engine/src/adapters/lifi";
-import { ACROSS_EVENT_EMITTER, ACROSS_MULTICALL_HANDLER, ACROSS_PERIPHERY, SEL_SWAP_AND_BRIDGE, acrossSwapPins, verifyAcrossSwapCall } from "../../../packages/swap-engine/src/adapters/acrossSwap";
-import { encodeCall } from "../../../packages/swap-engine/src/abi";
-import type { AssetRef } from "../src/sdk/swapService";
+import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeInbound, type CallExpectation, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { buildMemo, encodeDepositWithExpiry, thorAsset as engineThorAsset } from "@privacy-wallet/swap-engine/adapters/thorchain";
+import { CF_ASSET_ID, CF_CHAIN_ID, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, SEL_X_SWAP_TOKEN, decodeVaultSwapCalldata, minOutFromPrice } from "@privacy-wallet/swap-engine/adapters/chainflip";
+import { SPOKE_POOL, WETH as ENGINE_WETH, encodeDepositV3 } from "@privacy-wallet/swap-engine/adapters/across";
+import { MAYAN_ETH_WRAPPER, MAYAN_FAST_MCTP, MAYAN_FORWARDER, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, SEL_WRAP, WETH_ETHEREUM, addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type SwiftOrder } from "@privacy-wallet/swap-engine/adapters/mayan";
+import { LIFI_DIAMOND, SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP, SEL_MAYAN, SEL_MAYAN_SWAP, verifyLifiTransaction } from "@privacy-wallet/swap-engine/adapters/lifi";
+import { ACROSS_EVENT_EMITTER, ACROSS_MULTICALL_HANDLER, ACROSS_PERIPHERY, SEL_SWAP_AND_BRIDGE, acrossSwapPins, verifyAcrossSwapCall } from "@privacy-wallet/swap-engine/adapters/acrossSwap";
+import { encodeCall } from "@privacy-wallet/swap-engine/abi";
+import type { AssetRef } from "@privacy-wallet/sdk/swapService";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const ESCROW = getAddress("0x2b8dc27605bf11214247ae11a013fcadf2c1cb65");

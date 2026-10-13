@@ -2,7 +2,7 @@
 // tokens.css, so a utility class and a `var(--…)` in a stylesheet always agree. Preflight is off: the legacy
 // stylesheet (styles.css) keeps its look until Stage 10, and base.css carries the small reset the new screens need.
 import type { Config } from "tailwindcss";
-import { BREAKPOINTS, MOTION, TYPE, Z, type ColorName, type TypeRole } from "./src/design-system/tokens";
+import { BREAKPOINTS, MOTION, TYPE, Z, type ColorName, type TypeRole } from "@privacy-wallet/ui/tokens";
 
 const v = (name: string) => `var(--${name})`;
 const COLOR_NAMES: ColorName[] = ["bg", "surface", "surface-2", "border", "fg", "fg-muted", "accent", "accent-fg", "accent-soft", "shield", "shield-soft", "warn", "warn-soft", "danger", "danger-soft", "success"];
@@ -10,7 +10,8 @@ const colors = Object.fromEntries(COLOR_NAMES.map((n) => [n, v(n)]));
 const fontSize = Object.fromEntries((Object.keys(TYPE) as TypeRole[]).map((r) => [r, [`${TYPE[r].size}px`, { lineHeight: `${TYPE[r].line}px`, fontWeight: `${TYPE[r].weight}` }]]));
 
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // the design system is a package (V6 Stage 4): its components' classes are generated with the app's
+  content: ["./index.html", "./src/**/*.{ts,tsx}", "../../packages/ui/src/**/*.{ts,tsx}"],
   corePlugins: { preflight: false },
   theme: {
     screens: Object.fromEntries(Object.entries(BREAKPOINTS).map(([k, px]) => [k, `${px}px`])),

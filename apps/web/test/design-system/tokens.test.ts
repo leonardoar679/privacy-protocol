@@ -3,11 +3,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { BREAKPOINTS, COLORS, ELEVATION, LAYOUT, MOTION, PRIMARY_VIEWPORT, SPACE_STEPS, SPACE_UNIT, TYPE, VIEWPORTS, Z, toCss, type TypeRole } from "../../src/design-system/tokens";
+import { BREAKPOINTS, COLORS, ELEVATION, LAYOUT, MOTION, PRIMARY_VIEWPORT, SPACE_STEPS, SPACE_UNIT, TYPE, VIEWPORTS, Z, toCss, type TypeRole } from "@privacy-wallet/ui/tokens";
 
 describe("design tokens (spec §4)", () => {
   it("tokens.css is the output of tokens.ts (`npm run tokens` regenerates it)", () => {
-    const css = readFileSync(fileURLToPath(new URL("../../src/design-system/tokens.css", import.meta.url)), "utf8");
+    const css = readFileSync(fileURLToPath(new URL("../../../../packages/ui/src/tokens.css", import.meta.url)), "utf8");
     expect(css).toBe(toCss());
   });
   it("the dark set names every light token; elevation has four levels in both", () => {

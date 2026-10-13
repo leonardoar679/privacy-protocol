@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import type { FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { useDeployment } from "../../app/deployment";
-import { feeTerms } from "../../sdk/privateTx";
+import { feeTerms } from "@privacy-wallet/sdk/privateTx";
 import { useSettings } from "../../hooks";
 
 export interface FeeTermsState { status: "idle" | "loading" | "ready" | "unavailable" | "public"; terms: FeeTerms | null; url: string | null; reason?: string }

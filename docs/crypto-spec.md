@@ -35,7 +35,7 @@ random owner commitment (no key, unspendable) and a random secret, so they are u
 ## Keys (spec §4)
 `masterSeed → {spendKey, viewKey, noteKey}` derived locally; `noteSecret = keccak(noteKey ‖ counter) mod p`
 for the wallet's own notes. The seed never leaves the device and is never persisted to dapp-origin
-storage (the TC-01 fix; `apps/web/src/keys/wallet.ts`).
+storage (the TC-01 fix; `packages/sdk/src/keys/wallet.ts`).
 
 ## Bindings (spec §11–§12)
 `txDomain = keccak256(abi.encode(keccak("…/TX_DOMAIN"), PROTOCOL_ID, chainId, core, CIRCUIT_ID)) mod p`

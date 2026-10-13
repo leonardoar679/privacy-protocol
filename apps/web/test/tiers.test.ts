@@ -2,7 +2,7 @@
 // controls from $100K up unchanged; the constants of protected execution; the words.
 import { describe, expect, it } from "vitest";
 import { tierLabel } from "@privacy-wallet/protocol/wallet/valuation";
-import { controlsFor, PROTECTED_EXECUTION } from "../src/sdk/tiers";
+import { controlsFor, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
 
 describe("the controls per tier (spec §11)", () => {
   it("standard: one tap, nothing else", () => {

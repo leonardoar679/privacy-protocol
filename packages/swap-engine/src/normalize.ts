@@ -10,9 +10,9 @@ import { IMPACT_CAP_BPS } from "./scoring";
 import { chainHalted } from "./health";
 import { daysSinceIncident } from "./risk/security";
 import { riskDb, type RiskDb } from "./risk/riskDb";
-import { riskModelOf } from "../../../packages/protocol/src/wallet/riskClasses";
-import { exposureTierOf, type ExposureTier } from "../../../packages/protocol/src/wallet/exposurePolicy";
-import type { RiskClass } from "../../../packages/protocol/src/wallet/campaign";
+import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
+import { exposureTierOf, type ExposureTier } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+import type { RiskClass } from "@privacy-wallet/protocol/wallet/campaign";
 
 export interface NormalizedQuote {
   provider: ProviderId;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { formatEther } from "viem";
 import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
-import { publicBalanceViaInjectedWallet, type Deployment } from "../sdk/chain";
-import { privacyAddress, scanNotes } from "../sdk/privateTx";
-import { assetByVault, assetsOf, formatAmount } from "../sdk/assets";
+import { publicBalanceViaInjectedWallet, type Deployment } from "@privacy-wallet/sdk/chain";
+import { privacyAddress, scanNotes } from "@privacy-wallet/sdk/privateTx";
+import { assetByVault, assetsOf, formatAmount } from "@privacy-wallet/sdk/assets";
 import { useNotes, usePrices, useSettings } from "../hooks";
 
 // The per-asset view behind Home's "Details" (spec §72, plan §36, plan V2 §43): the private balance per

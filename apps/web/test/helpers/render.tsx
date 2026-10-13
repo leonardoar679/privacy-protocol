@@ -2,8 +2,8 @@
 import { act, render } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { buildRoutes, PROVIDER_FUTURE, ROUTER_FUTURE } from "../../src/routes";
-import type { Deployment } from "../../src/sdk/chain";
-import { session } from "../../src/wallet/session";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 
 export async function renderApp(path = "/", opts: { dev?: boolean; deployment?: Deployment | null } = {}) {
   const router = createMemoryRouter(buildRoutes({ dev: opts.dev ?? false, deployment: opts.deployment }), { initialEntries: [path], future: ROUTER_FUTURE });

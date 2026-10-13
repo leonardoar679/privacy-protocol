@@ -7,7 +7,7 @@
 import * as snarkjs from "snarkjs";
 import { bytesToHex0x, proveInputs } from "@privacy-wallet/protocol/prover";
 import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
-import { secureFetch } from "../api/transport";
+import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { enforce, sha256Hex, verdictOf, type ArtifactPins } from "./pins";
 
 export interface ProveRequest { id: number; inputs: CircuitInputs; wasmUrl: string; zkeyUrl: string; verificationKey?: unknown; /** V5: the build's pins and whether a mismatch refuses */ pins?: ArtifactPins; production?: boolean }
