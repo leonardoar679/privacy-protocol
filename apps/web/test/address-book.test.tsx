@@ -14,7 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { ed25519 } from "@noble/curves/ed25519";
 import { base58 } from "@scure/base";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { selectable, COOLING_OFF_MS } from "@ref/wallet/addressBook";
+import { selectable, COOLING_OFF_MS } from "@privacy-wallet/protocol/wallet/addressBook";
 import { Swap } from "../src/features/swap/Swap";
 import { Send } from "../src/features/send/Send";
 import { Receive } from "../src/features/wallet/Receive";

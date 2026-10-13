@@ -3,9 +3,9 @@
 // line is matched through the record's transaction hashes), never two rows for one movement; a protected execution
 // is one row unless Advanced; the status word from the record's state where there is one, else the line's own
 // label; the groups by day in the user's locale. Pure.
-import { exposure } from "@ref/wallet/campaign";
-import { levelOf } from "@ref/wallet/privacyCenter";
-import { formatUsd } from "@ref/wallet/valuation";
+import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
+import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { formatUnits } from "viem";
 import type { IconName, StatusTone } from "../../design-system";
 import type { MessageKey } from "../../app/i18n/en";

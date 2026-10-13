@@ -5,12 +5,12 @@
 // needs more than eight merges says so truthfully, with the maintenance offer, instead of "insufficient".
 import { describe, it, expect, beforeEach } from "vitest";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { deriveKeys } from "@ref/keys";
-import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
-import { decryptNoteData, viewKeyPair } from "@ref/envelope";
-import { MerkleTree } from "@ref/merkle";
-import { txDomain } from "@ref/payload";
-import { TX_LEVELS, buildTxInputs } from "@ref/txInputs";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
+import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
+import { decryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { MerkleTree } from "@privacy-wallet/protocol/merkle";
+import { txDomain } from "@privacy-wallet/protocol/payload";
+import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
 import { noteStore, type OwnedNote } from "../src/wallet/notes";
 import { ensureSpendable, HousekeepingNeeded, planSplit } from "../src/sdk/privateTx";
 import { housekeepingPlan, pendingHousekeeping, runHousekeepingStep, scheduleHousekeeping, spentToday } from "../src/wallet/housekeeping";

@@ -2,7 +2,7 @@
 // reference, driven by the per-chain counters kept in the encrypted journal so an index is never
 // handed out twice. Every EVM network shares one account space (an address is valid on all of them);
 // Bitcoin and Solana have their own. Keys are re-derived on demand and never persisted.
-import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@ref/wallet/chainKeys";
+import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { seedToPhrase } from "../wallet/keystore";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { recordFreshAddress } from "../wallet/addressBook";

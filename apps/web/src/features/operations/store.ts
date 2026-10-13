@@ -1,13 +1,12 @@
 // The operation store (spec §12): drafts (DRAFT … REVIEW) in memory, every record from AWAITING_SIGNATURE on in the
 // encrypted journal under `operations` — it survives a lock, a reload and a backup like the Activity list. The hooks
 // read through useSyncExternalStore with a stable snapshot per change.
-import { useSyncExternalStore } from "react";
 import type { JournalData } from "../../wallet/journal";
 import { isDraft, isOpen, isTerminal, type OperationKind, type OperationRecord, type OperationState } from "../../wallet/operationRecord";
 import { session as defaultSession, type WalletSession } from "../../wallet/session";
 import { transition } from "./reducer";
 import type { OperationEvent, TransitionResult } from "./types";
-import type { Tier } from "@ref/wallet/valuation";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export const operationsOf = (j: JournalData): OperationRecord[] => j.operations ?? [];
 
@@ -107,7 +106,6 @@ function snapshot(s: WalletSession): { open: OperationRecord[]; all: OperationRe
   return cache;
 }
 
-export const useOperation = (id: string | null | undefined, s: WalletSession = defaultSession): OperationRecord | null =>
-  useSyncExternalStore((l) => subscribe(l, s), () => (id ? (snapshot(s).all.find((r) => r.id === id) ?? null) : null));
-export const useOpenOperations = (s: WalletSession = defaultSession): OperationRecord[] => useSyncExternalStore((l) => subscribe(l, s), () => snapshot(s).open);
-export const useAllOperations = (s: WalletSession = defaultSession): OperationRecord[] => useSyncExternalStore((l) => subscribe(l, s), () => snapshot(s).all);
+/** The store's change feed and its stable snapshot (src/hooks reads them for the screens). */
+export const subscribeOperations = (l: () => void, s: WalletSession = defaultSession): (() => void) => subscribe(l, s);
+export const operationsSnapshot = (s: WalletSession = defaultSession): { open: OperationRecord[]; all: OperationRecord[] } => snapshot(s);

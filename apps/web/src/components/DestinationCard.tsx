@@ -1,4 +1,4 @@
-import { groupAddress } from "@ref/wallet/destinations";
+import { groupAddress } from "@privacy-wallet/protocol/wallet/destinations";
 
 // The human-readable destination card (whale spec §21, plan V2 §58): Network, Asset, the address grouped in
 // fours, the amount in the asset and in USD — shown wherever an address is confirmed (Swap, Withdraw,

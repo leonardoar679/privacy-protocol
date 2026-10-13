@@ -9,9 +9,9 @@
 import { viemTransport } from "../api/transport";
 import { activeProvider } from "./injected";
 import { createPublicClient, getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
-import { ZERO_LEAF, type MerkleLayers } from "@ref/merkle";
-import { TX_LEVELS } from "@ref/txInputs";
-import { txDomain } from "@ref/payload";
+import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
+import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
+import { txDomain } from "@privacy-wallet/protocol/payload";
 import { coreAbi, type TxRequest } from "./privacyProtocol";
 import { parseErc20Vaults } from "./assets";
 import { treeLayers } from "./core";
@@ -19,7 +19,7 @@ import { treeLayers } from "./core";
 export interface Erc20VaultSpec { symbol: string; token: Address; vault: Address; decimals: number }
 export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[]; /** SwapOrderFactory: the wallet recomputes every escrow address from it (VITE_SWAP_FACTORY) */ swapFactory?: Address }
 
-export function deploymentFromEnv(env: Record<string, string | undefined> = (import.meta as any).env ?? {}): Deployment | null {
+export function deploymentFromEnv(env: Record<string, string | undefined>): Deployment | null {
   const urls = String(env.VITE_RPC_URLS ?? env.VITE_RPC_URL ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
   if (!urls.length || !env.VITE_CORE || !env.VITE_ETH_VAULT) return null;
   const swapFactory = env.VITE_SWAP_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_SWAP_FACTORY) ? (env.VITE_SWAP_FACTORY as Address) : undefined;

@@ -4,8 +4,8 @@
 // the simulation line, the settlement line from the tracker and the executor's job, the refund line — and the
 // recovery card from the operation record when the order needs attention.
 import type { Hex } from "viem";
-import { levelOf } from "@ref/wallet/privacyCenter";
-import type { LintItem } from "@ref/wallet/privacyLint";
+import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { Button, Card, Collapsible } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { formatAmount, type Asset } from "../../sdk/assets";

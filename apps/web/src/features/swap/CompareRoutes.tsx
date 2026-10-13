@@ -1,7 +1,7 @@
 // Compare routes (spec §3.6; plan §37): the table Route | Receive | Time | Risk | Privacy from the competition record,
 // under Advanced only — the provider's name appears only here; elsewhere the word is "Best route". A route that
 // quoted can be chosen over the winner ("Use this route"); the ones that refused, timed out or were filtered say so.
-import { levelOf } from "@ref/wallet/privacyCenter";
+import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { BottomSheet, Button } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { fmtUnits } from "../../sdk/format";

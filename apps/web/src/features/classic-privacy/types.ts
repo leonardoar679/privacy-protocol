@@ -2,7 +2,7 @@
 // never mixed with PrivacyCore. The pool interface the screens are built on, the deposit record the journal keeps
 // (optional field `classic?`), the status words. This pass ships the screens on a devnet mock pool; the contracts, the
 // circuit port, the proving keys and the legal review are a later pass.
-import type { ClassicNote } from "@ref/classic/note";
+import type { ClassicNote } from "@privacy-wallet/protocol/classic/note";
 
 export type { ClassicStatus, ClassicDepositRecord } from "../../wallet/classicRecord";
 import type { ClassicDepositRecord, ClassicStatus } from "../../wallet/classicRecord";

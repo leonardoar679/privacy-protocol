@@ -8,8 +8,8 @@
 // (plan §78): this module imports nothing that signs or submits, and a test pins that.
 import { chatStream, type ChatMessage, type InferenceAccess } from "./policy";
 import type { CompetitionEntry, ExecutionPlan, Protection, RouteScore } from "../sdk/swapService";
-import type { LintItem } from "@ref/wallet/privacyLint";
-import type { Tier } from "@ref/wallet/valuation";
+import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export interface TradeSummary {
   kind: "privacy-protocol/trade-check/v1";

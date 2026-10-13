@@ -4,7 +4,7 @@
 // state, Recovery state — read from the record's refs; Refresh tracks a swap once; the recovery card when the record
 // needs attention, with the refund through the executor (a refund-only job) or the monitoring.
 import { useState } from "react";
-import { formatUsd } from "@ref/wallet/valuation";
+import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, Card, Collapsible, IconButton, Page, StatusBadge } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "../../sdk/chain";
@@ -12,13 +12,12 @@ import { shortRef } from "../../sdk/format";
 import { trackOrder } from "../../sdk/orderTracker";
 import { returnOrderToBalance } from "../../sdk/swapExecute";
 import { deleteActivity } from "../../wallet/activity";
-import { session, useSession } from "../../wallet/session";
-import { useSettings } from "../../wallet/settings";
-import { useAllOperations } from "../operations/store";
+import { session } from "../../wallet/session";
 import { needsAttention, stateWords } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
 import { syncSwapRecord } from "../swap/records";
 import { buildRows, type ActivityRow } from "./rows";
+import { useAllOperations, useSession, useSettings } from "../../hooks";
 
 export interface DetailProps { id: string; deployment?: Deployment | null; onBack: () => void; onNewQuote?: () => void }
 

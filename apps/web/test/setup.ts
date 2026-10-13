@@ -2,6 +2,10 @@
 // and the small pieces of the platform happy-dom and jsdom lack that the wrapped Radix primitives expect.
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
+import { applyConfig, testConfig } from "../src/config";
+
+// the engine's configuration for every suite (V6 Stage 3): no deployment, a cheap scrypt, a 40 ms hold
+applyConfig(testConfig());
 
 afterEach(async () => {
   if (typeof document !== "undefined") (await import("@testing-library/react")).cleanup();

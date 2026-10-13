@@ -11,9 +11,9 @@ import { request as httpRequest } from "node:http";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { decodeFunctionData, getAddress, type Hex } from "viem";
-import { expectedPublicSignals, publicInputsFromSignals } from "@ref/prover";
-import { TX_LEVELS, ZERO_LEAF, type CircuitInputs } from "@ref/txInputs";
-import { noteBody, noteCommitment } from "@ref/note";
+import { expectedPublicSignals, publicInputsFromSignals } from "@privacy-wallet/protocol/prover";
+import { TX_LEVELS, ZERO_LEAF, type CircuitInputs } from "@privacy-wallet/protocol/txInputs";
+import { noteBody, noteCommitment } from "@privacy-wallet/protocol/note";
 import { allowedHosts, onRequest, type RequestRecord } from "../src/api/transport";
 import { connection } from "../src/features/wallet/connection";
 import { allOperations, finishedOperations, resetOperationsMemory } from "../src/features/operations/store";
@@ -21,7 +21,7 @@ import type { Deployment } from "../src/sdk/chain";
 import { treeLayers } from "../src/sdk/core";
 import { nativeVaultAbi } from "../src/sdk/privacyProtocol";
 import { privacyAddress } from "../src/sdk/privateTx";
-import { DEFAULT_RELAYER_URL } from "../src/sdk/relayer";
+import { defaultRelayerUrl } from "../src/sdk/relayer";
 import { secureStore } from "../src/storage";
 import { prefs } from "../src/storage/prefs";
 import { noteStore } from "../src/wallet/notes";
@@ -35,7 +35,7 @@ import { renderApp } from "./helpers/render";
 // public signals comes back, so the engine's planning, submission and tracking run unchanged
 const prover = vi.hoisted(() => ({ inputs: [] as CircuitInputs[] }));
 vi.mock("../src/prover/client", () => ({
-  ARTIFACT_URLS: { wasm: "/artifacts/transaction.wasm", zkey: "/artifacts/transaction_final.zkey", verificationKey: "/artifacts/verification_key.json" },
+  artifactUrls: () => ({ wasm: "/artifacts/transaction.wasm", zkey: "/artifacts/transaction_final.zkey", verificationKey: "/artifacts/verification_key.json" }),
   PIN_URL: "/artifacts.json",
   loadPins: async () => ({}),
   resetPins: () => {},
@@ -53,7 +53,7 @@ const OWNER = getAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
 const ETH_VAULT = getAddress("0x00000000000000000000000000000000000000e7");
 const CORE = getAddress("0x00000000000000000000000000000000000000c0");
 const RELAYER_EOA = getAddress("0x00000000000000000000000000000000000000ee");
-const RELAYER = DEFAULT_RELAYER_URL.replace(/\/$/, "");
+const RELAYER = defaultRelayerUrl().replace(/\/$/, "");
 const relayerSeed = Uint8Array.from({ length: 32 }, (_, i) => 200 + i);
 
 const requests: { url: string; method: string; body: string | null }[] = [];

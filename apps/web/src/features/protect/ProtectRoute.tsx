@@ -2,8 +2,9 @@
 import { useNavigate } from "react-router-dom";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
-import { connection, useConnection } from "../wallet/connection";
+import { connection } from "../wallet/connection";
 import { Protect } from "./Protect";
+import { useConnection } from "../../hooks";
 
 export function ProtectRoute() {
   const navigate = useNavigate();

@@ -2,7 +2,7 @@
 // that wallet's provider at render time with a scratch note — never a constant, never through this wallet's RPCs
 // (no address ↔ endpoint link) — and converted with the wallet's price read. Null when the provider, the account or
 // the estimate is unavailable: the screen then says "read at confirmation".
-import { availablePrice, usdOf } from "@ref/wallet/valuation";
+import { availablePrice, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Address } from "viem";
 import type { Asset } from "../../sdk/assets";
 import type { Deployment } from "../../sdk/chain";

@@ -2,7 +2,7 @@
 // destination changed, route changed, execution delayed, chain congested, security incident, paused, step settled —
 // journaled on the campaign (the local audit trail of §9) and delivered through wallet/notifications.ts. Pure here:
 // the runner journals the campaign it gets back and calls notify itself.
-import type { AlertKind, Campaign, CampaignAlert, PauseReason } from "@ref/wallet/campaign";
+import type { AlertKind, Campaign, CampaignAlert, PauseReason } from "@privacy-wallet/protocol/wallet/campaign";
 
 export const ALERT_TITLES: Record<AlertKind, string> = {
   "provider-degraded": "Provider degraded",

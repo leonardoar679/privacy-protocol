@@ -7,10 +7,8 @@ import { mirrorExperience } from "./Gate";
 import { runScheduledAction } from "../sdk/swapFunding";
 import { runCampaignTick } from "../wallet/campaignRunner";
 import { scheduleHousekeeping } from "../wallet/housekeeping";
-import { useNotes } from "../wallet/notes";
-import { useScheduler } from "../wallet/schedule";
-import { session, useSession } from "../wallet/session";
-import { useSettings } from "../wallet/settings";
+import { session } from "../wallet/session";
+import { useNotes, useScheduler, useSession, useSettings } from "../hooks";
 
 export function Background() {
   const deployment = useDeployment();

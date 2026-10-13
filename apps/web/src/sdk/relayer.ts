@@ -3,15 +3,15 @@
 // a funded escrow, refund after the window). Any URL works; the wallet keeps a list of relayers and
 // self-submission as fallbacks (plan §85 rule 5). The relayer never receives keys — only proofs,
 // public inputs, payloads, the fee note's opening (its own note), signed executions and refund payloads.
-import { feeForDelivered } from "@ref/wallet/fees";
+import { feeForDelivered } from "@privacy-wallet/protocol/wallet/fees";
 import { fetchFor } from "../api/transport"; // V5 (spec §7): the policy fetch is the default implementation
 const relayerFetch: typeof fetch = fetchFor("relayer");
 import type { Address, Hex } from "viem";
+import { config } from "./config";
 
-const envList = (v: unknown): string[] => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-export const DEFAULT_RELAYER_URL: string = (import.meta as any).env?.VITE_RELAYER_URL ?? envList((import.meta as any).env?.VITE_RELAYER_URLS)[0] ?? "http://127.0.0.1:8790";
+export const defaultRelayerUrl = (): string => config().relayer.url;
 /** Further relayers to try when the first is unreachable (VITE_RELAYER_URLS, comma-separated; the first entry is the default). */
-export const RELAYER_FALLBACKS: string[] = envList((import.meta as any).env?.VITE_RELAYER_URLS).filter((u) => u !== DEFAULT_RELAYER_URL);
+export const relayerFallbacks = (): string[] => config().relayer.fallbacks.filter((u) => u !== defaultRelayerUrl());
 
 export interface RelayerFeeVault { vault: Address; symbol: string; decimals: number; minFee: string }
 export interface RelayerInfo {

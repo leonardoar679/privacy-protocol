@@ -5,7 +5,8 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Page, RadioGroup } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
-import { connection, shortAccount, useConnection } from "../wallet/connection";
+import { connection, shortAccount } from "../wallet/connection";
+import { useConnection } from "../../hooks";
 
 export function Welcome() {
   const t = useT();

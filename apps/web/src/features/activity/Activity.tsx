@@ -11,12 +11,10 @@ import { shortRef } from "../../sdk/format";
 import { STEPS, trackOrder } from "../../sdk/orderTracker";
 import { isOpenSwap } from "../../sdk/swapFunding";
 import { deleteActivity } from "../../wallet/activity";
-import { session, useSession } from "../../wallet/session";
-import { useSchedulerStatus } from "../../wallet/schedule";
-import { useSettings } from "../../wallet/settings";
+import { session } from "../../wallet/session";
 import type { StoredSwap } from "../../wallet/journal";
-import { useAllOperations } from "../operations/store";
 import { buildRows, groupByDay, type ActivityRow } from "./rows";
+import { useAllOperations, useSchedulerStatus, useSession, useSettings } from "../../hooks";
 
 export interface ActivityProps { deployment?: Deployment | null; onOpen?: (rowId: string) => void; onBack?: () => void }
 

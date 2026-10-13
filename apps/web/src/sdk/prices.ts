@@ -5,23 +5,23 @@
 // user). Read only when there is something to value: a deployment with feeds for its chain and unspent
 // notes in the wallet — never at first launch (apps/web/test/first-launch.test.tsx), never from a bare
 // mount. The last good read is kept in the encrypted journal (`prices`) for the fail-safe of spec §13.
-import { useSyncExternalStore } from "react";
 import type { Hex, PublicClient } from "viem";
 import {
   SELECTOR, agreePrices, assess, availablePrice, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, FEED_REGISTRY, parsePrices, serializePrices, usdOf,
   type Assessment, type FeedSpec, type PriceRead, type Prices, type TierThresholds,
-} from "@ref/wallet/valuation";
+} from "@privacy-wallet/protocol/wallet/valuation";
 import { clientsFor, type Deployment } from "./chain";
 import type { Asset } from "./assets";
 import { noteStore } from "../wallet/notes";
 import { session, type WalletSession } from "../wallet/session";
 import { settings } from "../wallet/settings";
+import { config } from "./config";
 
 export type PriceStatus = "idle" | "not-configured" | "loading" | "ready" | "unavailable";
 export interface PriceState { status: PriceStatus; prices: Prices | null; reason?: string; at?: number }
 
 /** A deployment's own feed list (VITE_PRICE_FEEDS: JSON array of FeedSpec) for devnets and tests; the table covers mainnet and Sepolia. */
-export function feedsFromEnv(env: Record<string, string | undefined> = (import.meta as any).env ?? {}): FeedSpec[] | null {
+export function feedsFromEnv(env: Record<string, string | undefined>): FeedSpec[] | null {
   const raw = env.VITE_PRICE_FEEDS;
   if (!raw) return null;
   const list = JSON.parse(raw) as FeedSpec[];
@@ -80,13 +80,13 @@ export class PriceStore {
   reset(): void { this.set({ status: "idle", prices: null }); }
 
   /** Whether a read is warranted: feeds for this chain, and unspent notes to value (spec §13: never at first launch). */
-  eligible(d: Deployment | null, feeds: FeedSpec[] | null = feedsFromEnv()): boolean {
+  eligible(d: Deployment | null, feeds: FeedSpec[] | null = config().priceFeeds): boolean {
     return !!d && feedsFor(d.chainId, feeds).length > 0 && noteStore.unspent().length > 0;
   }
 
   /** Read if eligible and not fresh. Never throws: a failure is the `unavailable` state with its reason. */
   async refresh(d: Deployment | null, o: { force?: boolean; feeds?: FeedSpec[] | null; now?: number } = {}): Promise<void> {
-    const feeds = o.feeds === undefined ? feedsFromEnv() : o.feeds;
+    const feeds = o.feeds === undefined ? config().priceFeeds : o.feeds;
     if (!d || !feedsFor(d.chainId, feeds).length) { this.set({ status: "not-configured", prices: null, reason: d ? `no price feeds for chain ${d.chainId}` : "no deployment" }); return; }
     if (!noteStore.unspent().length) return; // nothing to value; stay as we are
     if (!o.force && this.st.status === "ready" && this.st.at && Date.now() - this.st.at < this.maxAgeMs) return;
@@ -115,10 +115,9 @@ export class PriceStore {
 }
 
 export const priceStore = new PriceStore();
-export const usePrices = (): PriceState => useSyncExternalStore((l) => priceStore.subscribe(l), () => priceStore.state());
 
 /** Whether valuation is configured at all for this deployment (spec §13: without feeds for the chain the wallet shows no USD and the tiers are off). */
-export const feedsConfigured = (d: Deployment | null, feeds: FeedSpec[] | null = feedsFromEnv()): boolean => !!d && feedsFor(d.chainId, feeds).length > 0;
+export const feedsConfigured = (d: Deployment | null, feeds: FeedSpec[] | null = config().priceFeeds): boolean => !!d && feedsFor(d.chainId, feeds).length > 0;
 
 /** The USD value of balances under a price state: the total of what could be valued, how many assets that is, and the symbols left unpriced. */
 export function valueOfBalances(st: PriceState, lines: { symbol: string; decimals: number; units: bigint }[]): { usd: number; valued: number; unpriced: string[] } {

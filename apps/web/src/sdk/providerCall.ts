@@ -12,19 +12,22 @@
 // refused. A minimum it cannot read (LI.FI into Mayan) is accepted only under the Fastest policy (§9).
 // Written independently of packages/swap-engine's adapters; the tests check both decoders agree on
 // real provider calls.
-import { allowHosts, fetchFor } from "../api/transport";
+import { fetchFor } from "../api/transport";
 import { base58 } from "@scure/base";
 import { bytesToHex, decodeAbiParameters, decodeFunctionData, getAddress, hexToBytes, isAddress, padHex, parseAbi, type Address, type Hex } from "viem";
 import type { AssetRef, Policy } from "./swapService";
+import { config } from "./config";
 
 const ZERO: Address = "0x0000000000000000000000000000000000000000";
-const env: Record<string, string | undefined> = (import.meta as any).env ?? {};
 const pinned = (value: string | undefined, fallback: string): Address => getAddress(value && isAddress(value) ? value : fallback);
 
 /** Provider contracts on Ethereum, where every escrow lives. A call to any other address is refused. */
 export const PINNED = {
   /** THORChain Router v4.1.1 (the router the gateways report; VITE_THORCHAIN_ROUTER after a router upgrade) */
-  thorchainRouter: pinned(env.VITE_THORCHAIN_ROUTER, "0xd37bbe5744d730a1d98d8dc97c42f0ca46ad7146"),
+  // read at use: the configured router after an upgrade, the pin otherwise (V6 Stage 3)
+  get thorchainRouter(): Address {
+    return pinned(config().thorchainRouter, "0xd37bbe5744d730a1d98d8dc97c42f0ca46ad7146");
+  },
   chainflipVault: getAddress("0xf5e10380213880111522dd0efd3dbb45b9f62bcc"),
   lifiDiamond: getAddress("0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae"),
   mayanForwarder: getAddress("0x337685fdab40d39bd02028545a4ffa7d287cc3e2"),
@@ -175,10 +178,9 @@ export const from1e8 = (v: bigint, decimals: number) => (v * 10n ** BigInt(decim
 
 // ---- THORNode gateways: the inbound vault, confirmed from this wallet -----------------------------
 
-export const THORNODE_GATEWAYS: string[] = (env.VITE_THORNODE_URLS ?? "https://gateway.liquify.com/chain/thorchain_api,https://rest.cosmos.directory/thorchain,https://thorchain-thornode-lb-1.thorwallet.org")
-  .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
-export const THORNODE_QUORUM = Math.max(2, Number(env.VITE_THORNODE_QUORUM ?? 2));
-allowHosts(...THORNODE_GATEWAYS); // V5 (spec §7): the gateways are endpoints of this deployment
+/** The gateways and their quorum from the configuration (V6 Stage 3); the platform allowlists them (spec §7). */
+export const thornodeGateways = (): string[] => config().thornode.gateways.map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+export const thornodeQuorum = (): number => Math.max(2, config().thornode.quorum);
 
 /**
  * The inbound vault + router for `chain` (THORChain notation, e.g. "ETH"), as at least `quorum` gateways
@@ -186,7 +188,7 @@ allowHosts(...THORNODE_GATEWAYS); // V5 (spec §7): the gateways are endpoints o
  * same for every user (all chains, no amounts, no addresses), and carries no cookie or referrer.
  */
 export async function thornodeInbound(chain: string, opts: { gateways?: string[]; quorum?: number; fetchFn?: typeof fetch; timeoutMs?: number } = {}): Promise<InboundVault> {
-  const gateways = opts.gateways ?? THORNODE_GATEWAYS, quorum = opts.quorum ?? THORNODE_QUORUM, fetchFn = opts.fetchFn ?? fetchFor("thornode");
+  const gateways = opts.gateways ?? thornodeGateways(), quorum = opts.quorum ?? thornodeQuorum(), fetchFn = opts.fetchFn ?? fetchFor("thornode");
   const answers = await Promise.all(gateways.map(async (base) => {
     try {
       const r = await fetchFn(`${base}/thorchain/inbound_addresses`, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });

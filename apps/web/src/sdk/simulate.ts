@@ -9,7 +9,7 @@
 // Before funding, an ETH order can be previewed with a balance override on the predicted escrow. The
 // signature never leaves the wallet until the simulation passes; the relayer's own estimateGas gate stays.
 import { decodeErrorResult, encodeFunctionData, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
-import { abi as escrowJsonAbi } from "../../../../contracts/abi/periphery/SwapOrderEscrow.json";
+import { ABI } from "@privacy-wallet/contracts";
 import { clientsFor, type Deployment } from "./chain";
 import { predictEscrow } from "./swapGuard";
 import type { ServiceOrderParams } from "./swapService";
@@ -51,7 +51,7 @@ export function encodeDeployAndExecute(p: ServiceOrderParams, x: Execution): Hex
 }
 
 /** The escrow's custom errors by selector (all without arguments), plus Error(string) and Panic(uint256). */
-const ESCROW_ERRORS: Record<string, string> = Object.fromEntries((escrowJsonAbi as { type: string; name?: string; inputs?: unknown[] }[]).filter((x) => x.type === "error" && x.name && !(x.inputs ?? []).length).map((x) => [toFunctionSelector(`${x.name}()`), x.name!]));
+const ESCROW_ERRORS: Record<string, string> = Object.fromEntries((ABI.swapOrderEscrow as unknown as { type: string; name?: string; inputs?: unknown[] }[]).filter((x) => x.type === "error" && x.name && !(x.inputs ?? []).length).map((x) => [toFunctionSelector(`${x.name}()`), x.name!]));
 const ERROR_ABI = parseAbi(["error Error(string message)", "error Panic(uint256 code)"]);
 const ERROR_MEANING: Record<string, string> = {
   NotFunded: "the escrow does not hold the order's amount yet",

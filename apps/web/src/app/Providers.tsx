@@ -2,7 +2,8 @@
 // the browser's languages; `?locale=` for development and the layout checks). The router sits above them in App.tsx.
 import { useEffect, useState, type ReactNode } from "react";
 import { setLabels, ToastProvider } from "../design-system";
-import { deploymentFromEnv, type Deployment } from "../sdk/chain";
+import type { Deployment } from "../sdk/chain";
+import { config } from "../sdk/config";
 import { connection, discover } from "../features/wallet/connection";
 import { prefs } from "../storage/prefs";
 import { DeploymentContext } from "./deployment";
@@ -24,7 +25,7 @@ export function applyLocale(): string {
 }
 
 export function Providers({ children, deployment }: { children: ReactNode; deployment?: Deployment | null }) {
-  const [fromEnv] = useState(() => (deployment === undefined ? deploymentFromEnv() : deployment));
+  const [fromEnv] = useState(() => (deployment === undefined ? config().deployment : deployment));
   useEffect(() => { connection.configure({ expectedChainId: fromEnv?.chainId ?? null }); discover(); }, [fromEnv]);
   useEffect(() => { applyLocale(); return prefs().subscribe(applyLocale); }, []);
   return (

@@ -2,9 +2,9 @@
 // and what the wallet checked in the provider call. The engine's score and this list agree because both
 // read the same inputs; nothing here is fetched (the pool's deposit sizes come from sdk/poolDeposits.ts
 // when a piece exceeds the common sizes, on the user's input, never at launch).
-import { bucketsFor } from "@ref/wallet/amounts";
-import { lint, type LintFacts, type LintId, type LintItem } from "@ref/wallet/privacyLint";
-import type { Tier } from "@ref/wallet/valuation";
+import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
+import { lint, type LintFacts, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "../sdk/chain";
 import { specForChain } from "../sdk/lightclient/spec";
 import type { QuoteSet } from "../sdk/swapService";

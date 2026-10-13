@@ -10,16 +10,16 @@
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
 import type { Address, Hex } from "viem";
-import { formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@ref/wallet/valuation";
-import { levelOf } from "@ref/wallet/privacyCenter";
-import { parseDestination, looksLikeChain } from "@ref/wallet/destinations";
-import { unacknowledgedBlocks, type LintId, type LintItem } from "@ref/wallet/privacyLint";
-import { maximumLossModel } from "@ref/wallet/campaign";
+import { formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
+import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, StatusBadge, type AddressCheck, type AssetOption, type QuoteView } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "../../sdk/swapService";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../../sdk/swapExecute";
-import { controlsFor, exportOrderReview, issuerLine, planWords, REVIEW_HOLD_MINUTES, routeKind, PROTECTED_EXECUTION } from "../../sdk/tiers";
+import { controlsFor, exportOrderReview, issuerLine, planWords, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "../../sdk/tiers";
 import { downloadText } from "../../sdk/download";
 import { feedsConfigured, priceStore } from "../../sdk/prices";
 import { trackOrder, type Tracked } from "../../sdk/orderTracker";
@@ -36,8 +36,8 @@ import { fmtUnits } from "../../sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "../../sdk/policy";
 import { holdersAbove } from "../../sdk/poolDeposits";
 import { abandonSwap, assetOfStored, fundEscrow, isOpenSwap, patchSwap, swapFactoryOf } from "../../sdk/swapFunding";
-import { settings, useSettings } from "../../wallet/settings";
-import { session, useSession } from "../../wallet/session";
+import { settings } from "../../wallet/settings";
+import { session } from "../../wallet/session";
 import type { StoredSwap } from "../../wallet/journal";
 import { activityId, recordActivity } from "../../wallet/activity";
 import { topBucket, walletLint } from "../../wallet/lintFacts";
@@ -51,7 +51,6 @@ import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review, type ReviewProps } from "../review/ReviewScreen";
 import { swapFees } from "../fees/feeEngine";
 import { classify } from "../operations/errors/catalog";
-import { useOperation } from "../operations/store";
 import { CampaignProgress } from "./protected/CampaignProgress";
 import { CompareRoutes } from "./CompareRoutes";
 import { OrderPanel } from "./OrderPanel";
@@ -61,6 +60,7 @@ import { alternativesOf, campaignFacts, campaignLines, commitDetails, commitExec
 import { cappedSlippageBps, providerHealthy, strictQuote } from "./protectedChecks";
 import { swapRecordId, syncSwapRecord } from "./records";
 import { TARGETS, durationWords, hours, refOf, settlementWords, type Target } from "./targets";
+import { useOperation, useSession, useSettings } from "../../hooks";
 
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
 type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed } | { moment: "campaign"; provider: string } | { moment: "reroute"; campaignId: string };
@@ -203,7 +203,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
     const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chain).address; // reserve the fresh address now
     const req = { ...request(), destination: dest };
     const committedLint = lintItems, competition = quotes?.competition;
-    const reviewHoldUntil = controls.reviewHold ? Date.now() + REVIEW_HOLD_MINUTES * 60_000 : undefined; // institutional (spec §24)
+    const reviewHoldUntil = controls.reviewHold ? Date.now() + reviewHoldMinutes() * 60_000 : undefined; // institutional (spec §24)
     const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil } }));
     if (!res) return;
     reset();
@@ -322,7 +322,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
       quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps,
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
       confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
-      reviewHoldUntil: [controls.reviewHold ? now + REVIEW_HOLD_MINUTES * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,
+      reviewHoldUntil: [controls.reviewHold ? now + reviewHoldMinutes() * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,
     }));
     if (!c) return;
     reset(); setQuotes(null); setCampaignView(c.id);
@@ -346,7 +346,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
         to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: `${fmtUnits(quote.toAmountMin, dec)} ${sym}`, execution: commitExecution(ctx, quote),
         privacy: { level: levelOf(score.components.privacy), score: score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: commitLines(ctx, prov, quote, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerLine(fromAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(fromAsset), to.ref, quote.nativeAssets), crossChain: to.ref.chain !== refOf(fromAsset).chain, details: commitDetails(ctx, prov, quote, score),
-        advanced, reviewHold: controls.reviewHold ? { minutes: REVIEW_HOLD_MINUTES } : null, onExport: controls.export ? exportNow : undefined, secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
+        advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined, secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
         tradeCheck: tradeCheckFor(prov, quote, score, q.links?.[prov]?.public, lintItems, units, to.ref), busy, error, protectedExecution: controls.protectedExecution,
       };
       onConfirm = () => commit(prov);
@@ -380,7 +380,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
         privacy: { level: f.verdict.privacy, score: f.score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: campaignLines(ctx, f, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerLine(fromAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets), maximumLoss: f.maximumLoss, verdict: f.verdict, protectionDetails: f.details, crossChain: to.ref.chain !== refOf(fromAsset).chain,
         details: { provider: review.provider, mode: f.quote.plan?.mode ?? "single", parts: f.quote.plan?.parts, fees: feeSummary(f.quote), expectedOutput: t("swap.expectedWhole", { amount: `${fmtUnits(f.quote.toAmount, dec)} ${sym}` }), settlement: settlementWords(review.provider), alternatives: alternativesOf(q, review.provider), score: `${f.score.total}` },
-        advanced, reviewHold: controls.reviewHold ? { minutes: REVIEW_HOLD_MINUTES } : null, onExport: controls.export ? exportNow : undefined,
+        advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined,
         secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null, secondDevice: controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
         tradeCheck: tradeCheckFor(review.provider, f.quote, f.score, q.links?.[review.provider]?.public, lintItems, units, to.ref, f.p), busy, error, protectedExecution: true,
       };

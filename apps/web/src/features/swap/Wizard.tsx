@@ -1,13 +1,13 @@
 // The wizard before a protected execution (High-Value Protection spec §14–§15; plan V3 §44 screen states): risk
 // analysis → privacy analysis → destination check, then the Review. Nothing is journaled here. The first-time
 // explanation (plan §127) is shown once and remembered in Settings.
-import { maximumLossModel } from "@ref/wallet/campaign";
-import type { LintId, LintItem } from "@ref/wallet/privacyLint";
-import type { Tier } from "@ref/wallet/valuation";
+import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
+import type { LintId, LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, Card } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "../../sdk/chain";
-import type { ChainKind } from "@ref/wallet/chainKeys";
+import type { ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import type { DestinationCheck } from "../../wallet/addressBook";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";

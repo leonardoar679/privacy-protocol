@@ -8,14 +8,14 @@
 // high-value-secondary, the separate device at institutional (no password fallback), the review hold and the export
 // at institutional. Same props and test ids as the V2–V4 screen; the words come from the message catalog.
 import { useState, type ReactNode } from "react";
-import type { Level } from "@ref/wallet/privacyCenter";
-import { unacknowledgedBlocks, type LintId, type LintItem } from "@ref/wallet/privacyLint";
-import { tierLabel, type Tier } from "@ref/wallet/valuation";
+import type { Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import { tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, Collapsible, HoldButton, TextInput } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { assertSecondFactor, verifyPassword, webauthnAvailable } from "../../sdk/secondFactor";
-import { HOLD_MS, type Controls } from "../../sdk/tiers";
+import { holdMs, type Controls } from "../../sdk/tiers";
 import type { TradeCheck } from "../../zkapi/tradeCheck";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
@@ -240,7 +240,7 @@ export function Review(p: ReviewProps) {
 
       <div className="ds-actions ds-review-actions">
         {factor !== "password" ? (p.controls.hold
-          ? <HoldButton label={confirmLabel} holdMs={HOLD_MS} onConfirm={() => void confirm()} disabled={!ready || asking} hint={t("review.holdHint")} holdingLabel={t("review.holding")} />
+          ? <HoldButton label={confirmLabel} holdMs={holdMs()} onConfirm={() => void confirm()} disabled={!ready || asking} hint={t("review.holdHint")} holdingLabel={t("review.holding")} />
           : <Button size="lg" full onClick={() => void confirm()} disabled={!ready || asking} data-testid="confirm-tap">{confirmLabel}</Button>) : null}
         <Button variant="ghost" onClick={p.onCancel} disabled={!!p.busy}>{t("review.back")}</Button>
       </div>

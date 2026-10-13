@@ -13,12 +13,12 @@
 // What stays with the service (and its adapters' local calldata checks): that the provider call pays the
 // right receiver with an acceptable minimum. Run the service yourself or use one you trust for that.
 import { concat, encodeAbiParameters, getAddress, isAddress, keccak256, slice, stringToBytes, type Address, type Hex } from "viem";
-import { bytecode } from "../../../../contracts/abi/periphery/SwapOrderEscrow.json";
+import { BYTECODE } from "@privacy-wallet/contracts";
 import type { Asset } from "./assets";
 import type { Prepared, ServiceOrder, ServiceOrderParams } from "./swapService";
 
 /** SwapOrderEscrow's creation code (constructor arguments are the abi-encoded OrderParams). */
-export const ESCROW_CREATION_CODE = bytecode as Hex;
+export const ESCROW_CREATION_CODE: Hex = BYTECODE.swapOrderEscrow;
 export const EXECUTE_TAG = keccak256(stringToBytes("privacy-protocol/v1.1/swap-order/execute"));
 export const TIP_DIVISOR = 100n; // SwapOrderTypes.TIP_DIVISOR: executorTip <= amount / 100
 export const MAX_REFUND_HORIZON_SECONDS = 7 * 24 * 3600; // a failed order must be refundable within a week

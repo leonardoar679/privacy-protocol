@@ -1,15 +1,6 @@
 # Documentation paths that do not exist on purpose (scripts/check-doc-paths.mjs). One per line: <path>  # <reason>.
 # planned: named by docs/privacy-wallet-web-spec-v2.0.md; the line goes when its V6 stage lands.
-apps/web/src/config.ts  # planned: V6 Stage 3
-apps/web/src/hooks/  # planned: V6 Stage 3
 apps/web/src/platform/  # planned: V6 Stage 4
-packages/protocol-types  # planned: V6 Stage 3
-packages/protocol-types/src/assets.ts  # planned: V6 Stage 3
-packages/protocol-types/src/operations.ts  # planned: V6 Stage 3
-packages/config  # planned: V6 Stage 3
-packages/config/src/assets.ts  # planned: V6 Stage 3
-packages/config/src/chains.ts  # planned: V6 Stage 3
-packages/contracts  # planned: V6 Stage 3
 packages/sdk  # planned: V6 Stage 4
 packages/wallet-engine  # planned: V6 Stage 4
 packages/privacy-engine  # planned: V6 Stage 4

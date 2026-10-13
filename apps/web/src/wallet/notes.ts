@@ -2,9 +2,8 @@
 // discovered on chain (payloads encrypted to the view key, spec §12), each with the leaf index the
 // chain assigned. Held in memory while the wallet is unlocked and persisted through the encrypted
 // journal (wallet/journal.ts) — never in the clear (TC-01). A rescan of the chain rebuilds it.
-import { useSyncExternalStore } from "react";
 import type { Hex } from "viem";
-import type { Note } from "@ref/note";
+import type { Note } from "@privacy-wallet/protocol/note";
 
 export interface OwnedNote {
   note: Note;
@@ -91,7 +90,3 @@ export class NoteStore {
 
 export const noteStore = new NoteStore();
 
-/** React view of the store (re-renders on every change). */
-export function useNotes(): OwnedNote[] {
-  return useSyncExternalStore((l) => noteStore.subscribe(l), () => noteStore.all());
-}

@@ -3,7 +3,7 @@
 // swap or cross-chain swap (the executor tip as the privacy fee, the provider's and the network's costs beside it),
 // a protect (no fee note; the network cost at the live price). Every figure arrives in base units or USD from the
 // engine; nothing here reads the network.
-import { bpsLabel, exactInput, exactOutput, feeBreakdown, type FeeTerms } from "@ref/wallet/fees";
+import { bpsLabel, exactInput, exactOutput, feeBreakdown, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
 

@@ -1,7 +1,7 @@
 // The privacy leakage helpers (Privacy Wallet Web spec §20–§21; Stage 11): the secrets of a session in every textual
 // form they could take, and the scan of a request body, a provider call or a console line for any of them — plus the
 // field names that must never travel. Shared by the leakage suite and the swap scenario.
-import { deriveKeys } from "@ref/keys";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { session } from "../../src/wallet/session";
 import { secureStore } from "../../src/storage";
 

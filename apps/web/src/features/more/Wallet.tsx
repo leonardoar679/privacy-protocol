@@ -10,8 +10,9 @@ import { allowancesFor, revokeAllowance, type AllowanceLine } from "../../sdk/al
 import { formatAmount } from "../../sdk/assets";
 import type { Deployment } from "../../sdk/chain";
 import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "../../sdk/policy";
-import { PREFERENCES, settings, useSettings, type Preference } from "../../wallet/settings";
-import { connection, shortAccount, useConnection } from "../wallet/connection";
+import { PREFERENCES, settings, type Preference } from "../../wallet/settings";
+import { connection, shortAccount } from "../wallet/connection";
+import { useConnection, useSettings } from "../../hooks";
 
 export function Wallet({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {
   const t = useT();

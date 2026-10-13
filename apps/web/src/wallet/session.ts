@@ -4,13 +4,13 @@
 // V2 (Stage 4): every journal write notifies the screens (the scheduler patches orders from any tab),
 // and a journal that fails to decrypt is kept, never overwritten — the wallet opens read-only on an
 // empty journal and says so until the user restores a backup or sets the unreadable one aside.
-import { useSyncExternalStore } from "react";
 import { generateMasterSeed } from "../keys/wallet";
 import { createKeystore, KDF_DEFAULT, phraseToSeed, seedToPhrase, unlockKeystore, type KdfParams, type Keystore } from "./keystore";
 import { decryptJournal, emptyJournal, encryptJournal, journalKey, type EncryptedJournal, type JournalData } from "./journal";
 import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "./storage";
 import { noteStore } from "./notes";
 import { settings, type Settings } from "./settings";
+import { config } from "../sdk/config";
 
 export type SessionStatus = "none" | "locked" | "unlocked";
 export interface SessionState {
@@ -38,7 +38,7 @@ export class WalletSession {
   /** resolves once the store has hydrated and the status reflects the device (V5) */
   readonly ready: Promise<void>;
 
-  constructor(private readonly storage: KeyValueStorage = browserStorage(), private readonly kdf: KdfParams = KDF_DEFAULT) {
+  constructor(private readonly storage: KeyValueStorage = browserStorage(), private readonly kdf: KdfParams | (() => KdfParams) = KDF_DEFAULT) {
     this.snapshot = { status: this.hasKeystore() ? "locked" : "none", seed: null, pendingPhrase: null, journalUnreadable: false, ready: false };
     this.ready = Promise.resolve(storage.ready).then(() => { this.readyFlag = true; this.emit(); }, () => { this.readyFlag = true; this.emit(); });
     // mirror the in-memory stores into the journal while unlocked
@@ -58,7 +58,7 @@ export class WalletSession {
   /** New wallet: a fresh seed, encrypted under `password`; returns the recovery phrase to show once. */
   async create(password: string, seed: Uint8Array = generateMasterSeed()): Promise<string> {
     const own = seed.slice(); // the session owns (and later zeroes) its own copy
-    const ks = await createKeystore(own, password, this.kdf);
+    const ks = await createKeystore(own, password, typeof this.kdf === "function" ? this.kdf() : this.kdf);
     this.storage.set(KEYSTORE_KEY, JSON.stringify(ks));
     this.storage.remove(JOURNAL_KEY);
     this.unreadable = false;
@@ -180,11 +180,10 @@ export class WalletSession {
   }
 }
 
-/** Tests and dev builds may lower the scrypt cost (VITE_KDF_LOG2N, 12…20); production keeps the default. */
-function kdfFromEnv(): KdfParams {
-  const raw = Number((import.meta as any).env?.VITE_KDF_LOG2N ?? NaN);
+/** Tests and dev builds may lower the scrypt cost (the configuration's kdfLog2N, 12…20); production keeps the default. */
+function kdfFromConfig(): KdfParams {
+  const raw = config().kdfLog2N ?? NaN;
   return Number.isInteger(raw) && raw >= 12 && raw <= 20 ? { ...KDF_DEFAULT, N: 1 << raw } : KDF_DEFAULT;
 }
 
-export const session = new WalletSession(browserStorage(), kdfFromEnv());
-export const useSession = (): SessionState => useSyncExternalStore((l) => session.subscribe(l), () => session.state());
+export const session = new WalletSession(browserStorage(), kdfFromConfig);

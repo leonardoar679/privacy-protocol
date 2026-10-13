@@ -3,8 +3,8 @@
 // Both derive from the master seed; nothing here is ever persisted to dapp-origin storage (TC-01).
 import { hexToBytes, keccak256, type Hex } from "viem";
 import { privateKeyToAddress, sign } from "viem/accounts";
-import { deriveKeys, deriveNoteSecret } from "@ref/keys";
-import { ownerCommitmentOf } from "@ref/note";
+import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { ownerCommitmentOf } from "@privacy-wallet/protocol/note";
 
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const enc = new TextEncoder();

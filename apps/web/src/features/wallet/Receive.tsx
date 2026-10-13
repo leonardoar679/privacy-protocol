@@ -4,13 +4,14 @@
 // the QR alone is never the confirmation. The address book says when a fresh address was used.
 import { useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
-import type { ChainAccount, ChainKind } from "@ref/wallet/chainKeys";
+import type { ChainAccount, ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { Button, Page, Segmented } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { privacyAddress } from "../../sdk/privateTx";
 import { consumeFreshAddress, lastFreshAddress } from "../../keys/chainKeys";
-import { findEntry, useAddressBook } from "../../wallet/addressBook";
+import { findEntry } from "../../wallet/addressBook";
 import { DestinationCard } from "../../components/DestinationCard";
+import { useAddressBook } from "../../hooks";
 
 type Kind = "private-eth" | "bitcoin" | "solana" | "evm";
 const CHAIN: Record<Kind, ChainKind | null> = { "private-eth": null, bitcoin: "bitcoin", solana: "solana", evm: "evm" };

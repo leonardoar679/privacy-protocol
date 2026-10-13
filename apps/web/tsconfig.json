@@ -9,22 +9,9 @@
     ],
     "jsx": "react-jsx",
     "noUnusedLocals": false,
-    "isolatedModules": true,
-    "baseUrl": ".",
-    "paths": {
-      "@ref/*": [
-        "../../packages/protocol/src/*"
-      ]
-    }
+    "isolatedModules": true
   },
   "include": [
-    "src",
-    "../../packages/protocol/src/keys.ts",
-    "../../packages/protocol/src/note.ts",
-    "../../packages/protocol/src/prover.ts",
-    "../../packages/protocol/src/txInputs.ts",
-    "../../packages/protocol/src/merkle.ts",
-    "../../packages/protocol/src/payload.ts",
-    "../../packages/protocol/src/wallet/amounts.ts"
+    "src"
   ]
 }

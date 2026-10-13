@@ -2,8 +2,8 @@
 // maximum allowed, the provider and its exposure, the remaining amount, the exposure timeline (what was outside the
 // private balance and unsettled at every hand-over and settlement — never above the cap, I1), the per-step table, the
 // pause history and the expected loss per failure. Everything comes from the journaled campaign; nothing is fetched.
-import { exposure, ledger, providerShares, type Campaign, type Tranche } from "@ref/wallet/campaign";
-import { formatUsd } from "@ref/wallet/valuation";
+import { exposure, ledger, providerShares, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
+import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { useT } from "../../../app/i18n/useT";
 import { fmtUnits } from "../../../sdk/format";
 import { ALERT_TITLES } from "../../../wallet/alerts";

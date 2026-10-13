@@ -7,10 +7,10 @@
 // privateWithdrawal); the Review is the V2–V4 screen, replaced in Stage 8.
 import { useEffect, useMemo, useState } from "react";
 import type { Address } from "viem";
-import { decodePrivacyAddress } from "@ref/address";
-import { looksLikeChain, parseDestination } from "@ref/wallet/destinations";
-import { unacknowledgedBlocks, type LintId } from "@ref/wallet/privacyLint";
-import { formatUsd, type Tier } from "@ref/wallet/valuation";
+import { decodePrivacyAddress } from "@privacy-wallet/protocol/address";
+import { looksLikeChain, parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
+import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
+import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { AddressInput, AmountInput, AssetSelector, Button, Card, ListRow, Page, Segmented, StatusBadge, FeeSummary, type AddressCheck, type AssetOption, type BookEntryView, type FeeLine } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "../../sdk/assets";
@@ -21,10 +21,9 @@ import { feedsConfigured, priceStore } from "../../sdk/prices";
 import { holdersAbove } from "../../sdk/poolDeposits";
 import { controlsFor, issuerLine } from "../../sdk/tiers";
 import { downloadText } from "../../sdk/download";
-import { destinationCheck, useAddressBook } from "../../wallet/addressBook";
+import { destinationCheck } from "../../wallet/addressBook";
 import { scheduleHousekeeping } from "../../wallet/housekeeping";
-import { noteStore, useNotes } from "../../wallet/notes";
-import { useSettings } from "../../wallet/settings";
+import { noteStore } from "../../wallet/notes";
 import { topBucket, walletLint } from "../../wallet/lintFacts";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
@@ -32,10 +31,11 @@ import { Review, type ReviewLine } from "../review/ReviewScreen";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { sendFees, type FeeView } from "../fees/feeEngine";
 import { useFeeTerms } from "../fees/useFeeTerms";
-import { applyEvent, newOperation, useOperation } from "../operations/store";
+import { applyEvent, newOperation } from "../operations/store";
 import { engineListener } from "../operations/engineEvents";
 import { classify } from "../operations/errors/catalog";
 import { OperationProgress } from "../operations/OperationProgress";
+import { useAddressBook, useNotes, useOperation, useSettings } from "../../hooks";
 
 export type SendMode = "private" | "public";
 export interface SendProps {

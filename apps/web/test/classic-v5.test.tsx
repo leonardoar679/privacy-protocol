@@ -6,7 +6,7 @@
 // and the Advanced rows only under the advanced experience.
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { formatNote, generateNote } from "@ref/classic/note";
+import { formatNote, generateNote } from "@privacy-wallet/protocol/classic/note";
 import { ClassicHome, ClassicPoolScreen, classicDeposits } from "../src/features/classic-privacy/Classic";
 import { DEVNET_NET_ID, resetClassicPools } from "../src/features/classic-privacy/mockPool";
 import { emptyJournal } from "../src/wallet/journal";

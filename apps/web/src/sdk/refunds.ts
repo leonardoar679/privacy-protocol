@@ -6,8 +6,8 @@
 // lying endpoint can hide a refund, never invent or resize one. refund() re-shields whatever arrives,
 // so one order can be refunded more than once: every match is kept.
 import type { Hex } from "viem";
-import { deriveNoteSecret, type WalletKeys } from "@ref/keys";
-import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
+import { deriveNoteSecret, type WalletKeys } from "@privacy-wallet/protocol/keys";
+import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import type { DepositedLog, NoteInsertedLog } from "./chain";
 import type { StoredSwap } from "../wallet/journal";
 import { refundPayload } from "../keys/swapKeys";

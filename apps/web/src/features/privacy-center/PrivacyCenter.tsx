@@ -10,11 +10,8 @@ import { Button, Card, Collapsible, Page, StatusBadge } from "../../design-syste
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Deployment } from "../../sdk/chain";
-import { useAddressBook } from "../../wallet/addressBook";
-import { usePoolStats } from "../../wallet/poolStats";
-import { usePosture } from "../../wallet/posture";
-import { useSettings } from "../../wallet/settings";
 import { privacyRows, sessionFacts, type PrivacyRow } from "./status";
+import { useAddressBook, usePoolStats, usePosture, useSettings } from "../../hooks";
 
 const ROW_KEY: Record<PrivacyRow["id"], MessageKey> = { protection: "privacyCenter.row.protection", walletData: "privacyCenter.row.walletData", analytics: "privacyCenter.row.analytics", privateRpc: "privacyCenter.row.privateRpc", shielded: "privacyCenter.row.shielded", freshDestination: "privacyCenter.row.freshDestination" };
 

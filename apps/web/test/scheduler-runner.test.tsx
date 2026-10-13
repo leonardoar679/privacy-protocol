@@ -6,8 +6,9 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { session } from "../src/wallet/session";
-import { backoffMs, BACKOFF_BASE_MS, BACKOFF_MAX_MS, cancelAction, completeAction, isDue, pendingActions, scheduleAction, schedulerStatus, useScheduler } from "../src/wallet/schedule";
+import { backoffMs, BACKOFF_BASE_MS, BACKOFF_MAX_MS, cancelAction, completeAction, isDue, pendingActions, scheduleAction, schedulerStatus } from "../src/wallet/schedule";
 import type { ScheduledAction } from "../src/wallet/journal";
+import { useScheduler } from "../src/hooks";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;

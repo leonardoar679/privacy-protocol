@@ -2,8 +2,8 @@
 import { useNavigate } from "react-router-dom";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
-import { useConnection } from "../wallet/connection";
 import { Swap } from "./Swap";
+import { useConnection } from "../../hooks";
 
 export function SwapRoute() {
   const navigate = useNavigate();

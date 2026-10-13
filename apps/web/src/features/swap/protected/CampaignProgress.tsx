@@ -4,9 +4,9 @@
 // ✓ Protected / ⚠ Review / ● Processing, the §3.8 checks, the pause with its reason and the Resume, the reroute
 // waiting for its Review, Pause and "Return the rest", the per-step lines (Advanced only: "Tranche #1/40" and
 // "Step k of n" never appear outside Advanced), the last alerts, and the one sentence about leaving the screen.
-import { exposure, type Campaign } from "@ref/wallet/campaign";
-import { levelOf, type Level } from "@ref/wallet/privacyCenter";
-import { formatUsd } from "@ref/wallet/valuation";
+import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import { levelOf, type Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button } from "../../../design-system";
 import { useT } from "../../../app/i18n/useT";
 import { fmtUnits } from "../../../sdk/format";

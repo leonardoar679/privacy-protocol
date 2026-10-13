@@ -3,10 +3,11 @@
 // anything else, whatever the route. The redirects are declarative, so the browser's back button stays honest.
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Skeleton } from "../design-system";
-import { prefs, usePrefs } from "../storage/prefs";
-import { useSession, type SessionState } from "../wallet/session";
+import { prefs } from "../storage/prefs";
+import { type SessionState } from "../wallet/session";
 import { settings } from "../wallet/settings";
 import { Phrase } from "../features/onboarding/Phrase";
+import { usePrefs, useSession } from "../hooks";
 
 export function Splash() {
   return <main className="ds-main" data-testid="splash" aria-busy="true"><Skeleton height={120} /></main>;

@@ -35,7 +35,11 @@ const ledgerFile = argv.includes("--ledger") ? argv[argv.indexOf("--ledger") + 1
 const ci = argv.includes("--ci");
 // V6 Stage 2: Prettier checks the code V6 adds (the earlier passes keep their style until a one-shot reformat); each stage
 // appends its new files and directories here
-const PRETTIER_FILES = [".github/workflows/ci.yml", ".prettierrc.json", "tsconfig.base.json", "scripts/check-lockfile.mjs", "scripts/dependency-review.mjs", "scripts/check-import-case.mjs", "scripts/check-doc-paths.mjs", "apps/web/src/zkapi/unavailable.ts"];
+const PRETTIER_FILES = [".github/workflows/ci.yml", ".prettierrc.json", "tsconfig.base.json", "scripts/check-lockfile.mjs", "scripts/dependency-review.mjs", "scripts/check-import-case.mjs", "scripts/check-doc-paths.mjs", "apps/web/src/zkapi/unavailable.ts",
+  // Stage 3
+  "packages/protocol-types", "packages/config", "packages/contracts", "eslint.house.mjs", "eslint.config.mjs", "apps/web/src/config.ts", "apps/web/src/sdk/config.ts", "apps/web/src/hooks/index.ts", "apps/web/test/config.test.ts", "apps/web/test/import-purity.test.ts"];
+// V6 Stage 3: the packages V6 adds — typechecked, linted (eslint.config.mjs) and tested one after the other
+const V6_PACKAGES = ["packages/protocol-types", "packages/config", "packages/contracts"];
 // V6 Stage 1: a suite that skips while its artifact is missing must FAIL when the artifact exists and its path is wrong —
 // read at the step's start (the --rust steps build the WASM package first)
 const wasmCore = () => existsSync(join(root, "privacy-core/pkg/node/privacy_core_wasm.js"));
@@ -58,6 +62,11 @@ const steps = [
   { name: "import case (every relative import of apps/, packages/, tests/ and scripts/ names its file with the exact case)", cwd: ".", cmd: process.execPath, args: ["scripts/check-import-case.mjs"] },
   { name: "prettier (the code V6 adds: scripts/verify-all.mjs PRETTIER_FILES)", cwd: ".", cmd: npx, args: ["prettier", "--check", ...PRETTIER_FILES] },
   { name: "packages/protocol typecheck (tsc --noEmit)", cwd: "packages/protocol", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
+  // V6 Stage 3 (spec v2.0 §4, §9–§10): the frozen types (in step with the spec's lists), the chain and asset registries (the V5 swap
+  // destinations reproduced), the contract boundary (forge's ABIs and creation code, the deployment check and its fingerprint)
+  ...V6_PACKAGES.map((p) => ({ name: `${p} typecheck (tsc --noEmit)`, cwd: p, cmd: npx, args: ["tsc", "--noEmit", "-p", "."] })),
+  { name: "V6 packages lint (eslint.config.mjs: typescript-eslint, no build environment, no React in an engine package)", cwd: ".", cmd: npx, args: ["eslint", ...V6_PACKAGES] },
+  ...V6_PACKAGES.map((p) => ({ name: `${p} (vitest)`, cwd: p, cmd: npx, args: ["vitest", "run"] })),
   { name: "packages/protocol (149 + 9 WASM-vs-TypeScript when privacy-core/pkg exists: the classic note's vectors (V5); primitives, witness, layered tree, prover vs real artifacts, envelope + address, reorg, chain keys, scorecard, the sync batches; V2: valuation + tiers, the Privacy Center model, destinations, the privacy lint, the housekeeping planner; V3: the campaign core — splitter, exposure, gates, pause detection, reducer —, risk classes, the address book, the lint additions, the campaign lab invariants; V4: the exposure policy, the privacy assessment, I6 and the ledger, the approval step and staleness)", cwd: "packages/protocol", cmd: npx, args: ["vitest", "run"], env: () => ({ ...requireWasm(), ...(proverArtifacts ? { REQUIRE_CIRCUIT_ARTIFACTS: "1" } : {}) }) },
   // V4 (High-Value Execution Engine plan §116–§118; contract §5): the tests tree over the pure modules — the bounds, the quote lifecycle and
   // normalization, the ledger with the §117 property test, the splitter, the RFQ interface, streaming, eligibility / the breaker /

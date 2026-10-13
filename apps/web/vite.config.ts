@@ -88,8 +88,6 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: { include: ["snarkjs"] },
     resolve: {
       alias: [
-        // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is
-        { find: "@ref", replacement: fileURLToPath(new URL("../../packages/protocol/src", import.meta.url)) },
         ...zkapi.alias,
       ],
     },

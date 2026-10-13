@@ -27,9 +27,7 @@
 // its floor (ETH and WETH twice their gas cost, the order's own token 1% of the order, a listed token
 // the floor the wallet stated for it); a token goes only into a vault its pool already has. What is
 // left stays re-shieldable by anyone: refund() and refundToken() are permissionless.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { BYTECODE } from "@privacy-wallet/contracts";
 import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
@@ -81,9 +79,9 @@ const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed"];
 
+/** The escrow's creation code, as forge exported it (@privacy-wallet/contracts; part of every escrow's CREATE2 address). */
 export function loadEscrowCreationCode(): Hex {
-  const p = join(dirname(fileURLToPath(import.meta.url)), "../../../contracts/abi/periphery/SwapOrderEscrow.json");
-  return JSON.parse(readFileSync(p, "utf8")).bytecode as Hex;
+  return BYTECODE.swapOrderEscrow;
 }
 
 export function toEngineParams(p: SwapParamsJson): OrderParams {

@@ -3,7 +3,7 @@
 // self-transfer per scheduled step at a random time inside the policy window, each paying the relayer's
 // fee note, bounded by the daily fee cap in Settings and switched off by the opt-out. The scheduler at the
 // App level runs the steps on any screen while the wallet is unlocked; Home says what is planned.
-import { planHousekeeping, shapeSummary, type HousekeepingAction, type ShapeReport } from "@ref/wallet/noteStrategy";
+import { planHousekeeping, shapeSummary, type HousekeepingAction, type ShapeReport } from "@privacy-wallet/protocol/wallet/noteStrategy";
 import type { Deployment } from "../sdk/chain";
 import { assetsOf, type Asset } from "../sdk/assets";
 import { feeTerms, mergeNotes, splitNote } from "../sdk/privateTx";

@@ -1,6 +1,5 @@
 // What the wallet knows about the pool's size (the anonymity set an observer must search), learned
 // from the last tree sync or rescan. Feeds the privacy scorecard; unknown until the first sync.
-import { useSyncExternalStore } from "react";
 
 export interface PoolStats { notes: number; leaves: number; at: number }
 
@@ -16,4 +15,3 @@ class PoolStatsStore {
 }
 
 export const poolStats = new PoolStatsStore();
-export const usePoolStats = (): PoolStats | null => useSyncExternalStore((l) => poolStats.subscribe(l), () => poolStats.get());

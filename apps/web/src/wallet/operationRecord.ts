@@ -3,7 +3,7 @@
 // (`JournalData.operations?`, optional and never written by emptyJournal()). The engines keep their own states;
 // features/operations/adapters.ts reads them into this one. Pure types and constants: the reducer, the adapters,
 // the catalog and the store live under src/features/operations.
-import type { Tier } from "@ref/wallet/valuation";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export type OperationKind = "protect" | "send" | "withdraw" | "swap" | "cross-chain" | "classic-deposit" | "classic-withdraw";
 

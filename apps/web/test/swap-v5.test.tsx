@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAddress } from "viem";
-import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@ref/wallet/campaign";
+import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { RiskDb, RISK_DB_DIR } from "../../../packages/swap-engine/src/risk/riskDb";
 import { recommendProtection } from "../../../packages/swap-engine/src/risk/protection";
 import type { QuoteSet as EngineQuoteSet } from "../../../packages/swap-engine/src/engine";

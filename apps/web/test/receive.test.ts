@@ -3,7 +3,7 @@
 // and — for EVM — equal to an independent BIP-44 implementation (viem's mnemonicToAccount).
 import { describe, it, expect, beforeEach } from "vitest";
 import { mnemonicToAccount } from "viem/accounts";
-import { bip39Seed, bitcoinAccount, evmAccount, solanaAccount } from "@ref/wallet/chainKeys";
+import { bip39Seed, bitcoinAccount, evmAccount, solanaAccount } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { consumeFreshAddress, dappAccount, lastFreshAddress, peekFreshAddress } from "../src/keys/chainKeys";
 import { seedToPhrase } from "../src/wallet/keystore";
 import { WalletSession } from "../src/wallet/session";

@@ -7,7 +7,7 @@
 // "anonymous".
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { LIMITS } from "@ref/wallet/privacyCenter";
+import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { Security } from "../src/features/more/Security";
 import { Wallet } from "../src/features/more/Wallet";
 import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";

@@ -6,10 +6,10 @@ import { treeLayers } from "../src/sdk/core";
 import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "../src/sdk/verifiedReads";
 import { encodeAbiParameters, keccak256 } from "viem";
 import type { Deployment, TreeState } from "../src/sdk/chain";
-import { settings, DEFAULT_SETTINGS } from "../src/wallet/settings";
+import { settings, defaultSettings } from "../src/wallet/settings";
 import { session } from "../src/wallet/session";
-import { TX_LEVELS } from "@ref/txInputs";
-import { ZERO_LEAF } from "@ref/merkle";
+import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
+import { ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 
 const leaves = (n: number) => Array.from({ length: n }, (_, i) => (i % 4 === 3 ? ZERO_LEAF : BigInt(1000 + i)));
 async function tree(n: number): Promise<TreeState> { const ls = leaves(n); const layers = await treeLayers(ls, TX_LEVELS); return { leaves: ls, root: layers.root, nextLeafIndex: n, notes: n, layers }; }
@@ -18,7 +18,7 @@ const dep = (chainId: number): Deployment => ({ chainId, core: "0x00000000000000
 const stubSync = (slot: number) => (async () => ({ finalizedSlot: slot, snapshot: () => ({ finalized: { beacon: { slot: String(slot) } }, finalizedFork: "fulu", current: { pubkeys: [], aggregate_pubkey: "0x" } }) })) as any;
 const stubProver = (count: bigint, root: bigint, seen?: { slots?: string[] }) => (async (_lc: unknown, _rpc: string[], _core: string, slots: string[]) => { if (seen) seen.slots = slots; return { header: { number: 26_000_000n, hash: "0x", stateRoot: "0x", timestamp: 0n }, account: {}, values: [count, root] }; }) as any;
 
-afterEach(() => { settings.set(DEFAULT_SETTINGS); verifyStatus.set({ kind: "idle" }); resetLightClient(); session.forget(); });
+afterEach(() => { settings.set(defaultSettings()); verifyStatus.set({ kind: "idle" }); resetLightClient(); session.forget(); });
 
 describe("the synced tree against the proven pool", () => {
   it("accepts a tree whose first leaves hash to the proven root, including one that grew since finality", async () => {

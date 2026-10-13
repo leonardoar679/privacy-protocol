@@ -12,10 +12,10 @@ import {
   canRelease, detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState, checkWithinBounds, rateE18,
   FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
-} from "@ref/wallet/campaign";
-import { velocityExceeded } from "@ref/wallet/exposurePolicy";
-import { availablePrice } from "@ref/wallet/valuation";
-import { atLeast } from "@ref/wallet/valuation";
+} from "@privacy-wallet/protocol/wallet/campaign";
+import { velocityExceeded } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
+import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "../sdk/chain";
 import { assetsOf, type Asset } from "../sdk/assets";
 import { escrowBalance, trackOrder, type Tracked } from "../sdk/orderTracker";

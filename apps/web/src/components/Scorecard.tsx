@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { scorecard, type ActionKind, type ScorecardFacts } from "@ref/wallet/scorecard";
-import { usePoolStats } from "../wallet/poolStats";
+import { scorecard, type ActionKind, type ScorecardFacts } from "@privacy-wallet/protocol/wallet/scorecard";
+import { usePoolStats } from "../hooks";
 
 // The privacy scorecard (plan §78) every action shows before it runs: six 0–100 scores from the
 // lab-calibrated model in packages/protocol/src/wallet/scorecard.ts, the overall, and — on

@@ -2,21 +2,23 @@
 // (VITE_WC_PROJECT_ID). Its relay sees the session's metadata and the IPs of both ends — said on the "What stays
 // private" screen (spec §3.13), not mitigated here. The connector is an EIP-1193 provider like the others.
 import type { Eip1193Provider } from "../../sdk/injected";
+import { config } from "../../sdk/config";
 
-const env: Record<string, string | undefined> = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {});
-export const WC_PROJECT_ID: string | undefined = env.VITE_WC_PROJECT_ID;
-export const walletConnectAvailable = (): boolean => !!WC_PROJECT_ID;
+/** WalletConnect's project id from the configuration (V6 Stage 3): the connector exists only with one. */
+export const walletConnectProjectId = (): string | undefined => config().walletConnectProjectId;
+export const walletConnectAvailable = (): boolean => !!walletConnectProjectId();
 
 interface WcProvider extends Eip1193Provider { disconnect(): Promise<void> }
 
 let cached: WcProvider | null = null;
 
 export async function walletConnectProvider(chainId: number): Promise<WcProvider | null> {
-  if (!WC_PROJECT_ID) return null;
+  const projectId = walletConnectProjectId();
+  if (!projectId) return null;
   if (cached) return cached;
   const mod = await import("@walletconnect/ethereum-provider");
   const provider = await mod.EthereumProvider.init({
-    projectId: WC_PROJECT_ID,
+    projectId,
     chains: [chainId],
     showQrModal: true,
     metadata: { name: "Privacy Wallet", description: "A private wallet", url: typeof location === "undefined" ? "https://localhost" : location.origin, icons: [] },

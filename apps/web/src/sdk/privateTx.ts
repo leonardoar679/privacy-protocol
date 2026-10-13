@@ -11,16 +11,16 @@
 import type { SwapFunding } from "./relayer";
 import type { OnEvent } from "../features/operations/engineEvents";
 import type { Address, Hex } from "viem";
-import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@ref/keys";
-import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
-import { noteDataHash } from "@ref/payload";
-import { FIELD } from "@ref/field";
-import { selectInputs } from "@ref/wallet/amounts";
-import { buildTxInputs, type SpendNote, type TxSpec } from "@ref/txInputs";
-import { dummyNoteData, encryptNoteData, viewKeyPair } from "@ref/envelope";
-import { decodePrivacyAddress, encodePrivacyAddress } from "@ref/address";
-import { nullifier } from "@ref/nullifier";
-import { MerkleLayers } from "@ref/merkle";
+import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@privacy-wallet/protocol/keys";
+import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
+import { noteDataHash } from "@privacy-wallet/protocol/payload";
+import { FIELD } from "@privacy-wallet/protocol/field";
+import { selectInputs } from "@privacy-wallet/protocol/wallet/amounts";
+import { buildTxInputs, type SpendNote, type TxSpec } from "@privacy-wallet/protocol/txInputs";
+import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/protocol/address";
+import { nullifier } from "@privacy-wallet/protocol/nullifier";
+import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { discoverNotes } from "./core";
 import { noteStore, type OwnedNote } from "../wallet/notes";
 import { settings, type Submission } from "../wallet/settings";
@@ -29,7 +29,7 @@ import { buildApprove, buildShieldERC20, buildShieldNative, buildTransact, coreA
 import { clientFor, depositedLogsQuorum, noteInsertions, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchRefunds, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "../wallet/session";
-import { feeInVault, isRefusal, pickRelayer, relayerSubmit, RELAYER_FALLBACKS, type RelayerInfo } from "./relayer";
+import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerSubmit, type RelayerInfo } from "./relayer";
 import { poolStats } from "../wallet/poolStats";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "../wallet/activity";
@@ -186,7 +186,7 @@ export function planWithdrawal(masterSeed: Uint8Array, tree: TreeArg, vaultId: b
  * Rule 5: the configured relayer first, then the fallbacks (VITE_RELAYER_URLS); the first one that answers,
  * serves this chain / core and takes fees in this vault is used, and the fee note is built for it.
  */
-export async function feeTerms(deployment: Deployment, submission: Submission, vault: Address, fallbacks: string[] = RELAYER_FALLBACKS, opts: { /** V5 (spec §10): the amount delivered, for the percentage fee */ delivered?: bigint; /** the recipient is a swap escrow: the minimum only */ escrow?: boolean } = {}): Promise<{ url: string; info: RelayerInfo; fee: FeeTerms } | null> {
+export async function feeTerms(deployment: Deployment, submission: Submission, vault: Address, fallbacks: string[] = relayerFallbacks(), opts: { /** V5 (spec §10): the amount delivered, for the percentage fee */ delivered?: bigint; /** the recipient is a swap escrow: the minimum only */ escrow?: boolean } = {}): Promise<{ url: string; info: RelayerInfo; fee: FeeTerms } | null> {
   if (submission.kind !== "relayer") return null;
   const candidates = [submission.url, ...fallbacks];
   const errors: string[] = [];

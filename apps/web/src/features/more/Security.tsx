@@ -4,14 +4,15 @@
 // transfer thresholds (the two consumer bands and the V2–V4 tiers, user-adjustable, increasing), and Forget behind a
 // typed confirmation in a dialog. Everything is journaled (encrypted); nothing is sent anywhere.
 import { useState } from "react";
-import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@ref/wallet/valuation";
+import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, TextInput } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { registerSecondFactor, webauthnAvailable } from "../../sdk/secondFactor";
-import { prefs, usePrefs } from "../../storage/prefs";
+import { prefs } from "../../storage/prefs";
 import { session } from "../../wallet/session";
-import { settings, useSettings } from "../../wallet/settings";
+import { settings } from "../../wallet/settings";
+import { usePrefs, useSettings } from "../../hooks";
 
 const TIER_FIELDS: { key: keyof TierThresholds; label: MessageKey }[] = [
   { key: "large", label: "security.tier.large" }, { key: "largeProtected", label: "security.tier.largeProtected" }, { key: "enhanced", label: "security.tier.enhanced" },

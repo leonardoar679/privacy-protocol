@@ -3,10 +3,10 @@
 // screen says instead of guessing a fee.
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
-import type { FeeTerms } from "@ref/wallet/fees";
+import type { FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { useDeployment } from "../../app/deployment";
 import { feeTerms } from "../../sdk/privateTx";
-import { useSettings } from "../../wallet/settings";
+import { useSettings } from "../../hooks";
 
 export interface FeeTermsState { status: "idle" | "loading" | "ready" | "unavailable" | "public"; terms: FeeTerms | null; url: string | null; reason?: string }
 

@@ -4,7 +4,7 @@
 // "USDC:0xtoken:0xvault:6,USDT:0xtoken:0xvault:6". Amount formatting and the public bucket alphabet
 // follow the asset's decimals.
 import { formatUnits, parseUnits, type Address } from "viem";
-import { bucketsFor, isBucketOf } from "@ref/wallet/amounts";
+import { bucketsFor, isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
 import type { Deployment } from "./chain";
 
 export interface Asset {

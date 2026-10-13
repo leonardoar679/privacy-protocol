@@ -5,8 +5,8 @@
 // V5 (spec §20): the proving key and the witness generator are fetched here, hashed and checked against the build's
 // pins before snarkjs reads them (src/prover/pins.ts: a mismatch refuses in production, warns in dev).
 import * as snarkjs from "snarkjs";
-import { bytesToHex0x, proveInputs } from "@ref/prover";
-import type { CircuitInputs } from "@ref/txInputs";
+import { bytesToHex0x, proveInputs } from "@privacy-wallet/protocol/prover";
+import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
 import { secureFetch } from "../api/transport";
 import { enforce, sha256Hex, verdictOf, type ArtifactPins } from "./pins";
 

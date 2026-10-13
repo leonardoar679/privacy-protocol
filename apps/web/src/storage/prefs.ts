@@ -2,7 +2,6 @@
 // backup timestamps, the last connector, the first-launch flag — and nothing else: no amount, no pair, no address,
 // no operation time. Persisted in the `prefs` store under one key; a value outside the schema is refused, and a
 // stored value that no longer parses is replaced by the defaults (the wallet never fails to start over a preference).
-import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { hasIndexedDb, idbGet, idbPut } from "./idb";
 
@@ -72,4 +71,3 @@ export function createPrefsStore(): PrefsStore {
 let shared: PrefsStore | null = null;
 export function prefs(): PrefsStore { return (shared ??= createPrefsStore()); }
 export function resetPrefsStore(): void { shared = null; }
-export const usePrefs = (): Prefs => useSyncExternalStore((l) => prefs().subscribe(l), () => prefs().get(), () => prefs().get());

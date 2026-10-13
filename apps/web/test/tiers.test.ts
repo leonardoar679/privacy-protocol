@@ -1,7 +1,7 @@
 // The controls per tier (spec §11): the Review and the lint from $20K, protected execution from $50K, the V2–V4
 // controls from $100K up unchanged; the constants of protected execution; the words.
 import { describe, expect, it } from "vitest";
-import { tierLabel } from "@ref/wallet/valuation";
+import { tierLabel } from "@privacy-wallet/protocol/wallet/valuation";
 import { controlsFor, PROTECTED_EXECUTION } from "../src/sdk/tiers";
 
 describe("the controls per tier (spec §11)", () => {

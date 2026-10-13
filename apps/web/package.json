@@ -16,6 +16,10 @@
     "tokens": "vite-node scripts/build-tokens.ts"
   },
   "dependencies": {
+    "@privacy-wallet/config": "*",
+    "@privacy-wallet/contracts": "*",
+    "@privacy-wallet/protocol": "*",
+    "@privacy-wallet/protocol-types": "*",
     "@radix-ui/react-dialog": "^1.2.0",
     "@radix-ui/react-radio-group": "^1.4.8",
     "@radix-ui/react-slot": "^1.4.0",

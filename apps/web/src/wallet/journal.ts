@@ -7,8 +7,8 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha";
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, bytesToUtf8, concatBytes, hexToBytes, randomBytes, utf8ToBytes } from "@noble/hashes/utils";
 import type { SerializedNote } from "./notes";
-import type { Campaign } from "@ref/wallet/campaign";
-import type { AddressBookEntry } from "@ref/wallet/addressBook";
+import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import type { AddressBookEntry } from "@privacy-wallet/protocol/wallet/addressBook";
 import type { OperationRecord } from "./operationRecord";
 import type { ClassicDepositRecord } from "./classicRecord";
 

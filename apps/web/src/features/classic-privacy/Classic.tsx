@@ -4,14 +4,14 @@
 // commitment, the Merkle root, the root age, the relayer, its fee, the proof status. The module keeps its own state
 // (the journal's optional `classic` field) and never touches the protected balance.
 import { useState } from "react";
-import { formatNote, generateNote, parseNote, validateNote, type ClassicNote } from "@ref/classic/note";
+import { formatNote, generateNote, parseNote, validateNote, type ClassicNote } from "@privacy-wallet/protocol/classic/note";
 import { Button, Card, Collapsible, Field, ListRow, Page, StatusBadge, TextInput } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import { session, useSession } from "../../wallet/session";
-import { useSettings } from "../../wallet/settings";
+import { session } from "../../wallet/session";
 import { classicPools, poolById } from "./mockPool";
 import { CLASSIC_DISCLOSURE_KEYS, type ClassicDepositRecord, type ClassicPool } from "./types";
+import { useSession, useSettings } from "../../hooks";
 
 const randomBytes = (n: number): Uint8Array => { const b = new Uint8Array(n); crypto.getRandomValues(b); return b; };
 const EMPTY: ClassicDepositRecord[] = [];

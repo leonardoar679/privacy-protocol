@@ -13,10 +13,10 @@ export interface RequestRecord { url: string; host: string; method: string; purp
 /** The policy every request carries; a caller's own `credentials` or `redirect` never overrides it. */
 export const POLICY = { credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer" } as const;
 
-const env: Record<string, string | undefined> = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {});
 const listeners = new Set<(r: RequestRecord) => void>();
 const allowed = new Set<string>();
-let strict = env.PROD === "true" || (env.PROD as unknown) === true;
+// a production build turns strict on through the platform's configuration (apps/web/src/config.ts applyConfig, V6 Stage 3)
+let strict = false;
 
 export class TransportRefusal extends Error {
   constructor(readonly host: string) { super(`refused a request to ${host}: not an endpoint of this deployment`); }
@@ -98,6 +98,5 @@ export function viemTransport(url: string): HttpTransport {
   });
 }
 
-// the deployment's own endpoints, from the environment (spec §7)
-allowHosts(env.VITE_RPC_URLS, env.VITE_RPC_URL, env.VITE_RELAYER_URL, env.VITE_RELAYER_URLS, env.VITE_SWAP_SERVICE, env.VITE_BEACON_URLS, env.VITE_THORNODE_URLS, env.VITE_ARTIFACT_BASE);
+// the deployment's own endpoints come from the configuration (apps/web/src/config.ts applyConfig; spec §7)
 allowHosts("127.0.0.1", "localhost"); // the local stack's defaults (sdk/relayer.ts, sdk/swapService.ts)

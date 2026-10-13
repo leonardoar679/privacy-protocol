@@ -4,7 +4,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Field, Page, Segmented, TextInput } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
-import { session, useSession } from "../../wallet/session";
+import { session } from "../../wallet/session";
+import { useSession } from "../../hooks";
 
 export type LockMode = "unlock" | "create" | "restore";
 

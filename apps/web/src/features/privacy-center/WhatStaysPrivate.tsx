@@ -1,7 +1,7 @@
 // "What stays private?" (spec §3.13; plan §56): what is not stored as plain public blockchain data, what remains
 // public, the one sentence on the whole path, then the LIMITS of @ref/wallet/privacyCenter — the same words
 // everywhere. "100 % anonymous" never appears.
-import { LIMITS } from "@ref/wallet/privacyCenter";
+import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { Card, Page } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 

@@ -1,24 +1,22 @@
 // Main-thread client of the proving worker (src/prover/worker.ts). One worker per proof, terminated
-// afterwards. Artifacts: /artifacts/* served by the Vite plugin from ../circuits in dev, or
-// VITE_ARTIFACT_BASE in a deployed build. V5 (spec §20): the build's artifact pins (/artifacts.json, same origin)
+// afterwards. Artifacts: /artifacts/* served by the Vite plugin from ../circuits in dev, or the configuration's
+// artifactBase (VITE_ARTIFACT_BASE) in a deployed build. V5 (spec §20): the build's artifact pins (/artifacts.json, same origin)
 // travel with the request; the worker refuses a proving key that does not hash to its pin in a production build.
 import { secureFetch } from "../api/transport";
 import type { Hex } from "viem";
-import { publicInputsFromSignals, type PublicInputs } from "@ref/prover";
-import type { CircuitInputs } from "@ref/txInputs";
+import { publicInputsFromSignals, type PublicInputs } from "@privacy-wallet/protocol/prover";
+import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
 import { pinsFromManifest, type ArtifactPins } from "./pins";
 import type { ProveRequest, ProveResponse } from "./worker";
+import { config } from "../sdk/config";
 
-const env = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env ?? {};
-const base: string = typeof env.VITE_ARTIFACT_BASE === "string" ? env.VITE_ARTIFACT_BASE : "/artifacts";
-export const ARTIFACT_URLS = {
-  wasm: `${base}/transaction.wasm`,
-  zkey: `${base}/transaction_final.zkey`,
-  verificationKey: `${base}/verification_key.json`,
-};
+/** Where the circuit artifacts are served from (the configuration's artifactBase; V6 Stage 3). */
+export function artifactUrls(): { wasm: string; zkey: string; verificationKey: string } {
+  const base = config().artifactBase;
+  return { wasm: `${base}/transaction.wasm`, zkey: `${base}/transaction_final.zkey`, verificationKey: `${base}/verification_key.json` };
+}
 /** The pin file ships beside the app (public/artifacts.json), whatever host serves the artifacts themselves. */
 export const PIN_URL = "/artifacts.json";
-const PRODUCTION = env.PROD === true;
 
 export type ProveStatus = (message: string) => void;
 export interface BrowserProof { proof: Hex; publicInputs: PublicInputs; publicSignals: bigint[]; ms: number; verifiedLocally: boolean; /** V5: what the worker found for the proving key and the witness generator */ pins?: { zkey: string; wasm: string } }
@@ -43,14 +41,14 @@ export function resetPins(): void { pinsCache = null; }
 export async function proveInBrowser(inputs: CircuitInputs, onStatus?: ProveStatus): Promise<BrowserProof> {
   let verificationKey: unknown;
   try {
-    const r = await secureFetch(ARTIFACT_URLS.verificationKey, {}, "artifacts");
+    const r = await secureFetch(artifactUrls().verificationKey, {}, "artifacts");
     if (r.ok) verificationKey = await r.json();
   } catch { /* no local verification; the chain verifies anyway */ }
   const pins = await loadPins();
   onStatus?.(verificationKey ? "Proving locally in a Web Worker (the proof is verified locally before submission)…" : "Proving locally in a Web Worker…");
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   const id = ++seq;
-  const req: ProveRequest = { id, inputs, wasmUrl: ARTIFACT_URLS.wasm, zkeyUrl: ARTIFACT_URLS.zkey, verificationKey, pins, production: PRODUCTION };
+  const req: ProveRequest = { id, inputs, wasmUrl: artifactUrls().wasm, zkeyUrl: artifactUrls().zkey, verificationKey, pins, production: config().production };
   return new Promise<BrowserProof>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<ProveResponse>) => {
       if (e.data.id !== id) return;

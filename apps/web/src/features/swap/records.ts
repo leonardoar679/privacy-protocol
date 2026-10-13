@@ -8,7 +8,7 @@ import type { OperationRecord, OperationState } from "../../wallet/operationReco
 import { CATALOG } from "../operations/errors/catalog";
 import { fromStoredSwap } from "../operations/adapters";
 import { getOperation, putOperation } from "../operations/store";
-import type { Tier } from "@ref/wallet/valuation";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export const swapRecordId = (orderId: string): string => `swap:${orderId.toLowerCase()}`;
 

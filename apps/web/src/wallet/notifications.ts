@@ -1,8 +1,7 @@
 // Notifications (High-Value Protection spec §15; plan V3 §76, §144–§146): in-app always (a store the screens read),
 // the browser's Notification API only when the user enabled it and the tab is hidden, with the generic text "Your
 // private operation has updated" unless amount previews are allowed. No push server, no native shell (out of scope).
-import { useSyncExternalStore } from "react";
-import type { AlertKind } from "@ref/wallet/campaign";
+import type { AlertKind } from "@privacy-wallet/protocol/wallet/campaign";
 import { settings as defaultSettings, type ProtectionSettings } from "./settings";
 
 export interface WalletNotification { id: string; at: number; kind: AlertKind | "info"; title: string; body: string; campaignId?: string; read?: boolean }
@@ -27,7 +26,6 @@ class NotificationStore {
   clear(): void { this.list = []; this.emit(); }
 }
 export const notifications = new NotificationStore();
-export const useNotifications = (): WalletNotification[] => useSyncExternalStore((l) => notifications.subscribe(l), () => notifications.all());
 
 export interface NotifyDeps {
   settings?: ProtectionSettings["notifications"];

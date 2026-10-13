@@ -1,7 +1,7 @@
 // The adapters (spec §12, the mapping table): every existing vocabulary — a journaled swap order and the tracker's
 // OrderState, the executor's SwapJobState, a campaign and its tranches with the pause reasons — read into the one
 // operation vocabulary with the catalog code a failure carries. Pure; the engines are untouched.
-import type { Campaign, CampaignState, PauseReason, TrancheState } from "@ref/wallet/campaign";
+import type { Campaign, CampaignState, PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 import type { OrderState, Tracked } from "../../sdk/orderTracker";
 import type { SwapJobState } from "../../sdk/relayer";
 import type { StoredSwap } from "../../wallet/journal";

@@ -3,7 +3,7 @@
 // ciphertext in the secure store; a private operation is a relayer submission paid with a private note; the
 // destination is isolated when no entered destination was used in the last 30 days) and the §31 rows from the
 // posture. Pure over the stores the wallet already keeps; nothing is fetched.
-import type { Posture } from "@ref/wallet/privacyCenter";
+import type { Posture } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import type { AddressBookEntry } from "../../wallet/addressBook";
 import type { Settings } from "../../wallet/settings";
 import type { Deployment } from "../../sdk/chain";

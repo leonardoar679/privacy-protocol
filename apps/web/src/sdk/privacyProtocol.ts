@@ -2,7 +2,7 @@
 // (public shields) and the private `transact` call are built here; the proof behind `transact` is
 // generated locally in a Web Worker (src/prover) — never by shipping a secret to a server.
 import { type Address, type Hex, encodeFunctionData, parseAbi } from "viem";
-import type { PublicInputs } from "@ref/prover";
+import type { PublicInputs } from "@privacy-wallet/protocol/prover";
 
 /** Fixed-size encrypted output payload (spec §12). */
 export const NOTE_DATA_BYTES = 169;

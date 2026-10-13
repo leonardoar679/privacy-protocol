@@ -8,12 +8,13 @@ import { formatEther, parseEther } from "viem";
 import { Button, Card, Field, Page, TextInput } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "../../sdk/chain";
-import { DEFAULT_RELAYER_URL } from "../../sdk/relayer";
+import { defaultRelayerUrl } from "../../sdk/relayer";
 import { registerSecondDevice, webauthnAvailable } from "../../sdk/secondFactor";
 import { requestSystemNotifications } from "../../wallet/notifications";
-import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, useSettings, type ProtectionMode } from "../../wallet/settings";
+import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type ProtectionMode } from "../../wallet/settings";
 import { AddressBookPanel } from "../../components/protection/AddressBook";
 import { useStatusLines } from "./statusLines";
+import { useSettings } from "../../hooks";
 
 export function Advanced({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {
   const t = useT();
@@ -84,7 +85,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
             {toggle(s.verifyReads, (v) => settings.set({ verifyReads: v }), t("advanced.verifyReads"), "verify-reads")}
             <p className="ds-note" data-testid="reads-line">{readsLine}</p>
             <Field label={t("advanced.submission")} htmlFor="submission">
-              <select id="submission" className="ds-input" value={s.submission.kind} onChange={(e) => settings.set({ submission: e.target.value === "relayer" ? { kind: "relayer", url: s.submission.kind === "relayer" ? s.submission.url : DEFAULT_RELAYER_URL } : { kind: "wallet" } })} data-testid="submission">
+              <select id="submission" className="ds-input" value={s.submission.kind} onChange={(e) => settings.set({ submission: e.target.value === "relayer" ? { kind: "relayer", url: s.submission.kind === "relayer" ? s.submission.url : defaultRelayerUrl() } : { kind: "wallet" } })} data-testid="submission">
                 <option value="relayer">{t("advanced.submission.relayer")}</option>
                 <option value="wallet">{t("advanced.submission.wallet")}</option>
               </select>

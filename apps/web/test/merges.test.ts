@@ -4,12 +4,12 @@
 // ours and whose fee note is the relayer's. Pure: no network, no worker.
 import { describe, it, expect, beforeEach } from "vitest";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { deriveKeys, deriveNoteSecret } from "@ref/keys";
-import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@ref/note";
-import { decryptNoteData, viewKeyPair } from "@ref/envelope";
-import { MerkleTree, ZERO_LEAF } from "@ref/merkle";
-import { txDomain } from "@ref/payload";
-import { TX_LEVELS, buildTxInputs } from "@ref/txInputs";
+import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
+import { decryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { MerkleTree, ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
+import { txDomain } from "@privacy-wallet/protocol/payload";
+import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
 import { noteStore, type OwnedNote } from "../src/wallet/notes";
 import { mergeSchedule, placeholderNoteData, planMerge } from "../src/sdk/privateTx";
 

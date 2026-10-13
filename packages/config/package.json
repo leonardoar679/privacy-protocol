@@ -1,0 +1,21 @@
+{
+  "name": "@privacy-wallet/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Privacy Wallet's registries (spec v2.0 §9): the chains and the assets — the only place a network or a token is named.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@privacy-wallet/protocol-types": "*"
+  },
+  "devDependencies": {
+    "viem": "^2.21.0"
+  }
+}

@@ -6,9 +6,8 @@
 // V2 (Stage 4): the runner lives at the App level (any tab, while unlocked), runs one action at a time
 // (two due actions could otherwise spend the same notes), retries a failed action with a growing delay
 // (10 min, doubling, at most 6 h) instead of every poll, and an abandoned order's action is removed.
-import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ScheduledAction } from "./journal";
-import { session as defaultSession, useSession, type WalletSession } from "./session";
+import { session as defaultSession, type WalletSession } from "./session";
 
 /** A uniform draw inside [min, max] seconds from `now` (ms), from the CSPRNG. */
 export function sampleDueAt(window: [number, number], now = Date.now(), uniform = cryptoUniform): number {
@@ -70,34 +69,4 @@ class SchedulerStatusStore {
   reset(): void { this.set({ running: null, lastError: null }); }
 }
 export const schedulerStatus = new SchedulerStatusStore();
-export const useSchedulerStatus = (): SchedulerStatus => useSyncExternalStore((l) => schedulerStatus.subscribe(l), () => schedulerStatus.get());
 
-/**
- * Runs due actions while the wallet is unlocked (checked every `pollMs`), one at a time: a tick that
- * finds the runner busy does nothing. `run` throws to fail an action (recorded with backoff) and may
- * cancel it itself when it no longer applies.
- */
-export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs = 10_000, s: WalletSession = defaultSession): void {
-  const st = useSession();
-  const busy = useRef(false);
-  useEffect(() => {
-    if (st.status !== "unlocked") return;
-    const tick = async () => {
-      if (busy.current) return;
-      busy.current = true;
-      try {
-        for (const a of pendingActions(s)) {
-          if (!isDue(a) || !s.isUnlocked()) continue;
-          // done unless the run re-scheduled the same action for later (a campaign tick plans its own next tick under its id)
-          try { await run(a); const again = pendingActions(s).find((x) => x.id === a.id); if (again && again.dueAt === a.dueAt) completeAction(a.id, undefined, s); }
-          catch (e: any) { const message = e?.message ?? String(e); completeAction(a.id, message, s); schedulerStatus.failed(a.id, message); }
-        }
-      } finally {
-        busy.current = false;
-      }
-    };
-    void tick();
-    const t = setInterval(tick, pollMs);
-    return () => clearInterval(t);
-  }, [st.status, run, pollMs, s]);
-}

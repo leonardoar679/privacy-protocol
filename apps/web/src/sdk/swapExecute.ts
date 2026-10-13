@@ -6,8 +6,8 @@
 // here, the simulation on every endpoint), the hand-over (finalize, the executor), and the refund-only return.
 // Nothing here renders; the screen keeps its state in sync from the journal.
 import type { Address, Hex } from "viem";
-import { higherTier, type Tier } from "@ref/wallet/valuation";
-import type { LintItem } from "@ref/wallet/privacyLint";
+import { higherTier, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Deployment } from "./chain";
 import type { Asset } from "./assets";
 import { simulateExecution, type Simulation } from "./simulate";

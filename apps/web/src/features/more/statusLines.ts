@@ -3,9 +3,8 @@
 import { useSyncExternalStore } from "react";
 import { coreStatus, subscribeCore } from "../../sdk/core";
 import { specForChain } from "../../sdk/lightclient/spec";
-import { useVerifyStatus } from "../../sdk/verifiedReads";
-import { useSettings } from "../../wallet/settings";
 import type { Deployment } from "../../sdk/chain";
+import { useSettings, useVerifyStatus } from "../../hooks";
 
 export function useStatusLines(deployment: Deployment | null): { readsLine: string; coreLine: string; advanced: boolean } {
   const { advanced, verifyReads } = useSettings();

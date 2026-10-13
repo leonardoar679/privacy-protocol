@@ -1,4 +1,4 @@
-import { lintSummary, type LintItem } from "@ref/wallet/privacyLint";
+import { lintSummary, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 
 // The privacy lint as plan §48's ✓ / ⚠ lines (whale spec §18): one line per item with its category; a
 // block item (tier ≥ high-value) shows "I understand" until acknowledged, and the confirmation stays

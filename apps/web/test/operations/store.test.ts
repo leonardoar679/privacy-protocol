@@ -4,9 +4,10 @@
 // updates it in place; the open and finished lists; the hooks' snapshots are stable until a change.
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { applyEvent, allOperations, finishedOperations, getOperation, newOperation, openOperations, operationsOf, removeOperation, resetOperationsMemory, useOpenOperations, useOperation } from "../../src/features/operations/store";
+import { applyEvent, allOperations, finishedOperations, getOperation, newOperation, openOperations, operationsOf, removeOperation, resetOperationsMemory } from "../../src/features/operations/store";
 import { emptyJournal } from "../../src/wallet/journal";
 import { session } from "../../src/wallet/session";
+import { useOpenOperations, useOperation } from "../../src/hooks";
 
 const HASH = "0x" + "ef".repeat(32);
 const draft = (kind: "send" | "protect" = "send") => newOperation({ kind, amounts: { asset: "ETH", decimals: 18, input: "1000" }, destination: { kind: "privacy-address", display: "pp1q…", chain: "ethereum" }, tier: "standard" }, 10_000);

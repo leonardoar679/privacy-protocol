@@ -2,15 +2,13 @@
 // Review with the lint from enhanced, the simulation and the hold-to-confirm from high-value, the second
 // factor from high-value-secondary, the review hold and the export at institutional. The words for an
 // execution plan, the issuer line (plan §71) and the route kind (plan §72) live here too.
-import { atLeast, type Tier } from "@ref/wallet/valuation";
+import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { AssetRef, CompetitionEntry, ExecutionPlan } from "./swapService";
 import type { StoredSwap } from "../wallet/journal";
-import type { LintItem } from "@ref/wallet/privacyLint";
+import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Simulation } from "./simulate";
+import { config } from "./config";
 
-// Vite's env in the browser; under vitest the VITE_ keys live on process.env only (looked up through globalThis: no `process` in a browser, no node types here)
-const nodeEnv = ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}) as Record<string, string | undefined>;
-const env: Record<string, string | undefined> = { ...nodeEnv, ...((import.meta as any).env ?? {}) };
 
 export interface Controls {
   review: boolean; lint: boolean; simulation: boolean; hold: boolean; secondFactor: boolean; reviewHold: boolean; export: boolean; twoQuotes: boolean;
@@ -58,9 +56,9 @@ export const PROTECTED_EXECUTION = { MIN_QUOTE_TTL_S: 60, MAX_SLIPPAGE_BPS: 50, 
 /** The impact cap of spec §4 (lab-calibrated, Stage 1): a single-shot plan above it is refused by the engine when a stream exists; the Review repeats the figure. */
 export const IMPACT_CAP_BPS = 50;
 /** The pointer hold a high-value confirmation takes (plan §12: a tap is never enough); tests shorten it through VITE_HOLD_MS. */
-export const HOLD_MS = Math.max(20, Number(env.VITE_HOLD_MS ?? 1500));
+export const holdMs = (): number => Math.max(20, config().holdMs);
 /** The institutional review hold: funding is scheduled no earlier than this cancel window (spec §24). */
-export const REVIEW_HOLD_MINUTES = Math.max(1, Number(env.VITE_REVIEW_HOLD_MINUTES ?? 30));
+export const reviewHoldMinutes = (): number => Math.max(1, config().reviewHoldMinutes);
 
 /** The execution in the user's words (spec §24, item 4): never the provider's vocabulary. */
 export function planWords(plan: ExecutionPlan | undefined): string {

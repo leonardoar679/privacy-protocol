@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { getAddress } from "viem";
-import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@ref/wallet/campaign";
+import { createCampaign, withCampaignState, withTrancheState, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { MemoryRouter } from "react-router-dom";
 import { Review } from "../src/features/review/ReviewScreen";
 import { Providers } from "../src/app/Providers";

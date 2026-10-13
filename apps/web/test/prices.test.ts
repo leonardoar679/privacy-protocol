@@ -9,7 +9,7 @@ import { WalletSession } from "../src/wallet/session";
 import { memoryStorage } from "../src/wallet/storage";
 import { noteStore } from "../src/wallet/notes";
 import { settings } from "../src/wallet/settings";
-import type { FeedSpec } from "@ref/wallet/valuation";
+import type { FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const CORE = "0x00000000000000000000000000000000000c0de0";

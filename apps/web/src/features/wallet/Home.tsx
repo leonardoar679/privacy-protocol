@@ -5,25 +5,22 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatUnits } from "viem";
-import { availablePrice, formatUsd, usdOf } from "@ref/wallet/valuation";
+import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
 import { AssetRow, BalanceCard, Button, Card, Collapsible, Icon, IconButton, ListRow, Page, ProtectionBadge, SecurityCard, StatusBadge, type StatusTone } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
 import { useStatusLines } from "../more/statusLines";
 import { assetsOf } from "../../sdk/assets";
-import { priceStore, usePrices, valueOfBalances } from "../../sdk/prices";
+import { priceStore, valueOfBalances } from "../../sdk/prices";
 import { activityOf, activityStatusLabel, KIND_LABELS } from "../../wallet/activity";
 import { activeCampaigns, progressLine } from "../../wallet/campaigns";
 import { housekeepingPlan, housekeepingSummary, pendingHousekeeping, plannedSteps } from "../../wallet/housekeeping";
-import { useNotes } from "../../wallet/notes";
-import { usePosture } from "../../wallet/posture";
-import { useSchedulerStatus } from "../../wallet/schedule";
-import { session, useSession } from "../../wallet/session";
-import { PROTECTION_DEFAULTS, settings, useSettings } from "../../wallet/settings";
+import { session } from "../../wallet/session";
+import { PROTECTION_DEFAULTS, settings } from "../../wallet/settings";
 import { campaignStatus } from "../swap/protected/CampaignProgress";
 import { PrivateBalance } from "../../components/PrivateBalance";
-import { useConnection } from "./connection";
+import { useConnection, useNotes, usePosture, usePrices, useSchedulerStatus, useSession, useSettings } from "../../hooks";
 
 const toneOf = (status: string): StatusTone => (/completed|settled|refunded/i.test(status) ? (/refunded/i.test(status) ? "neutral" : "ok") : /fail|attention|cancel/i.test(status) ? "warn" : "pending");
 

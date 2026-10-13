@@ -3,10 +3,10 @@
 // maximum-loss model, the combined verdict, the protection details) and the quote's view. Pure builders over the
 // quote set, the service's recommendation and the wallet's own bounds; every sentence comes from the message
 // catalog through `t`.
-import { assessPrivacy } from "@ref/wallet/privacyAssessment";
-import { maximumLossModel, type Campaign, type DestinationPolicy } from "@ref/wallet/campaign";
-import { unacknowledgedBlocks, type LintItem } from "@ref/wallet/privacyLint";
-import { formatUsd, type Tier } from "@ref/wallet/valuation";
+import { assessPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessment";
+import { maximumLossModel, type Campaign, type DestinationPolicy } from "@privacy-wallet/protocol/wallet/campaign";
+import { unacknowledgedBlocks, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
 import { formatAmount, isBucketFor, type Asset } from "../../sdk/assets";

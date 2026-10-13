@@ -5,7 +5,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HoldButton } from "../src/design-system";
-import { HOLD_MS } from "../src/sdk/tiers";
+import { holdMs } from "../src/sdk/tiers";
+const HOLD_MS = holdMs(); // 40 ms under test (test/setup.ts)
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;

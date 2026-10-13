@@ -4,13 +4,12 @@
 // recommendation and the user's confirmation, and takes the user's four decisions during it: pause, resume (reassess →
 // requote → reroute Review), accept or decline a reroute, cancel (return the rest). Everything lives in the encrypted
 // journal (`campaigns?`, optional); nothing here is sent anywhere.
-import { useSyncExternalStore } from "react";
 import {
   createCampaign, exposure, planTranches, rateE18, replan, withCampaignState, withTrancheState, RATE_SCALE,
   type Campaign, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type Tranche, type TranchePlan,
-} from "@ref/wallet/campaign";
-import type { LintItem } from "@ref/wallet/privacyLint";
-import type { Tier } from "@ref/wallet/valuation";
+} from "@privacy-wallet/protocol/wallet/campaign";
+import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Asset } from "../sdk/assets";
 import { mergeSchedule } from "../sdk/privateTx";
 import type { AssetRef, Policy, Preference, Protection, QuoteSet, ServiceQuote } from "../sdk/swapService";
@@ -21,7 +20,7 @@ import { noteStore } from "./notes";
 import { cancelAction, scheduleAction } from "./schedule";
 import { session as defaultSession, type WalletSession } from "./session";
 import { PROTECTION_DEFAULTS } from "./settings";
-import { capBpsFor, type ExposureTier } from "@ref/wallet/exposurePolicy";
+import { capBpsFor, type ExposureTier } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 
 /** The tier's slippage inside the price bound (§3): the confirmation quote's minimum per unit, less this. */
 export const BOUNDS_SLIPPAGE_BPS = 50;
@@ -43,7 +42,8 @@ export function putCampaign(c: Campaign, s: WalletSession = defaultSession): voi
   s.update((j) => { j.campaigns = [...(j.campaigns ?? []).filter((x) => x.id !== c.id), c].sort((a, b) => a.createdAt - b.createdAt); });
   updateActivity(activityId("campaign", c.id), { status: c.state, note: progressLine(c) }, s);
 }
-export const useCampaigns = (s: WalletSession = defaultSession): Campaign[] => useSyncExternalStore((l) => s.subscribe(l), () => (s.isUnlocked() ? campaignsOf(s.journal()) : EMPTY));
+/** The session's campaigns (a stable snapshot: the same empty array while locked); src/hooks reads it for the screens. */
+export const campaignsSnapshot = (s: WalletSession = defaultSession): Campaign[] => (s.isUnlocked() ? campaignsOf(s.journal()) : EMPTY);
 /** The child order of a tranche (its own StoredSwap), if committed. */
 export const childOrder = (t: Tranche, s: WalletSession = defaultSession): StoredSwap | null => (t.orderId && s.isUnlocked() ? s.journal().swaps.find((x) => x.orderId.toLowerCase() === t.orderId!.toLowerCase()) ?? null : null);
 

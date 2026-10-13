@@ -10,7 +10,7 @@ import { t } from "../../src/app/i18n/messages";
 import { OPERATION_STATES, type OperationState } from "../../src/wallet/operationRecord";
 import type { OrderState } from "../../src/sdk/orderTracker";
 import type { SwapJobState } from "../../src/sdk/relayer";
-import type { PauseReason, TrancheState } from "@ref/wallet/campaign";
+import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
 const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED"];
 const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed"];

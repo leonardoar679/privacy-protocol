@@ -5,9 +5,8 @@
 // minutes) still rest on the RPC quorum alone, and the status says how many leaves are proven. Chains
 // this light client does not serve (a local devnet) are reported as such; the check can be switched off
 // under Advanced.
-import { useSyncExternalStore } from "react";
 import { keccak256, type Hex } from "viem";
-import { TX_LEVELS } from "@ref/txInputs";
+import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import type { LightClient, StoreSnapshot } from "./lightclient";
 import type { provenStorage as ProvenStorage, syncLightClient as SyncLightClient } from "./lightclient";
 import { periodAtSlot, currentSlot, specForChain } from "./lightclient/spec";
@@ -15,6 +14,7 @@ import { treeLayers } from "./core";
 import type { Deployment, TreeState } from "./chain";
 import { settings } from "../wallet/settings";
 import { session } from "../wallet/session";
+import { config } from "./config";
 
 /** PrivacyCore storage (MerkleAccumulator, `forge inspect`): pinned by contracts/test/core/StorageLayout.t.sol. */
 export const POOL_SLOTS = { nextLeafIndex: "0x0" as Hex, currentRoot: "0x1" as Hex, /** mapping(uint256 => bool) spentNullifier */ spentNullifierMapping: 8 };
@@ -26,10 +26,10 @@ export const MAX_SNAPSHOT_AGE_PERIODS = 12;
  *  finalized root stays well inside the core's root history. */
 export const LC_REUSE_MS = 20 * 60_000;
 
-const env: Record<string, string | undefined> = (import.meta as any).env ?? {};
 const list = (v?: string) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-export const BEACON_URLS = list(env.VITE_BEACON_URLS);
-export const LC_CHECKPOINT: Hex | undefined = /^0x[0-9a-fA-F]{64}$/.test(env.VITE_LC_CHECKPOINT ?? "") ? (env.VITE_LC_CHECKPOINT as Hex) : undefined;
+/** The light client's beacon APIs and trusted checkpoint from the configuration (V6 Stage 3). */
+export const beaconUrls = (): string[] => list(config().beaconUrls.join(","));
+export const lcCheckpoint = (): Hex | undefined => config().lcCheckpoint;
 
 export interface PoolProof { blockNumber: bigint; slot: number; nextLeafIndex: number; root: bigint }
 export class TreeNotProven extends Error {}
@@ -47,7 +47,6 @@ class StatusStore {
   subscribe(l: () => void): () => void { this.ls.add(l); return () => this.ls.delete(l); }
 }
 export const verifyStatus = new StatusStore();
-export const useVerifyStatus = (): VerifyStatus => useSyncExternalStore((l) => verifyStatus.subscribe(l), () => verifyStatus.get());
 
 let live: { chainId: bigint; lc: LightClient; syncedAt: number } | null = null;
 /** Forget the in-memory light client (tests; a lock). */
@@ -67,7 +66,7 @@ async function provenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Pr
   let lc: LightClient;
   if (live?.chainId === spec.chainId && Date.now() - live.syncedAt < LC_REUSE_MS) lc = live.lc;
   else {
-    lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: BEACON_URLS, checkpoint: LC_CHECKPOINT, snapshot, fetchFn: o.fetchFn });
+    lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: beaconUrls(), checkpoint: lcCheckpoint(), snapshot, fetchFn: o.fetchFn });
     live = { chainId: spec.chainId, lc, syncedAt: Date.now() };
     if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: lc.snapshot() }; });
   }

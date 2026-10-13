@@ -12,7 +12,7 @@ import { Receive } from "../src/features/wallet/Receive";
 import { session } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
 import { peekFreshAddress } from "../src/keys/chainKeys";
-import { groupAddress } from "@ref/wallet/destinations";
+import { groupAddress } from "@privacy-wallet/protocol/wallet/destinations";
 import type { Deployment } from "../src/sdk/chain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

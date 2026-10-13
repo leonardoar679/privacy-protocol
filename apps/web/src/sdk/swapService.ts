@@ -8,8 +8,10 @@
 import { secureFetch } from "../api/transport"; // V5 (spec §7): every request under the one transport policy
 import type { Address, Hex } from "viem";
 import { fmtUnits } from "./format";
+import { config } from "./config";
 
-export const SWAP_SERVICE = (import.meta as any).env?.VITE_SWAP_SERVICE ?? "http://127.0.0.1:8787";
+/** The swap service from the configuration (V6 Stage 3). */
+export const swapServiceUrl = (): string => config().swapService;
 
 export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution" | "best-execution" | "high-privacy";
 export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
@@ -74,7 +76,7 @@ export class ServiceMinimumMoved extends Error {
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const r = await secureFetch(SWAP_SERVICE + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}, "swap-service");
+  const r = await secureFetch(swapServiceUrl() + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}, "swap-service");
   const j = await r.json();
   if (!r.ok) {
     if (r.status === 409 && j?.code === "minimum_moved") throw new ServiceMinimumMoved(BigInt(j.approvedMin), BigInt(j.newMin));

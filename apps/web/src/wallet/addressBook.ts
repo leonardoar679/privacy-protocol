@@ -4,14 +4,13 @@
 // must be verified — the grouped address re-typed, a signed message the wallet checks, or a test transaction — before
 // an operation at ≥ high-value may pay it, and waits 24 h after it is added unless the Immediate override was confirmed.
 // The rules are the shared core's (packages/protocol/src/wallet/addressBook.ts); this module journals them.
-import { useSyncExternalStore } from "react";
 import { recoverMessageAddress, type Hex } from "viem";
 import { approveEntry,
   addEntry, canUse, challengeMessage, markSettled, markUsed, overrideCooling, retire, selectable, useStatus as entryStatus, verifyEntry, verifySolanaMessage,
   type AddressBookEntry, type AddressChain, type VerificationMethod,
-} from "@ref/wallet/addressBook";
-import { parseDestination } from "@ref/wallet/destinations";
-import { atLeast, type Tier } from "@ref/wallet/valuation";
+} from "@privacy-wallet/protocol/wallet/addressBook";
+import { parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
+import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { JournalData } from "./journal";
 import { session as defaultSession, type WalletSession } from "./session";
 
@@ -21,7 +20,8 @@ export { challengeMessage, selectable, entryStatus as useStatus };
 const EMPTY: AddressBookEntry[] = [];
 /** The book of a journal (the same empty array while there is none: a stable snapshot for the screens). */
 export const bookOf = (j: JournalData): AddressBookEntry[] => j.addressBook ?? EMPTY;
-export const useAddressBook = (s: WalletSession = defaultSession): AddressBookEntry[] => useSyncExternalStore((l) => s.subscribe(l), () => (s.isUnlocked() ? bookOf(s.journal()) : EMPTY));
+/** The book of the session (a stable snapshot: the same empty array while locked); src/hooks reads it for the screens. */
+export const addressBookOf = (s: WalletSession = defaultSession): AddressBookEntry[] => (s.isUnlocked() ? bookOf(s.journal()) : EMPTY);
 
 /** One entry per chain and canonical address (EIP-55 differs only in case: the id is lowercase). */
 export const entryIdFor = (chain: AddressChain, normalized: string): string => `${chain}:${normalized.toLowerCase()}`;

@@ -6,11 +6,11 @@
 // `npm run core:assets`), never at first launch (plan §39): the first sync or rescan loads it, and a
 // sync already talks to the RPC endpoints. The core sees exactly what the TypeScript path sees: the
 // public leaves, the payloads, and the view key for discovery — the spending key never crosses.
-import { MerkleLayers } from "@ref/merkle";
-import { noteFromPayload, viewKeyPair } from "@ref/envelope";
-import { ownerCommitmentOf, type Note } from "@ref/note";
-import { NOTE_DATA_BYTES } from "@ref/payload";
-import type { WalletKeys } from "@ref/keys";
+import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
+import { noteFromPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
+import { NOTE_DATA_BYTES } from "@privacy-wallet/protocol/payload";
+import type { WalletKeys } from "@privacy-wallet/protocol/keys";
 
 export interface CoreModule {
   /** layers 1..levels over k 32-byte leaves, concatenated (layer l has ceil(size(l-1)/2) words) */

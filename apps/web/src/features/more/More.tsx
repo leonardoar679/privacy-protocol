@@ -4,8 +4,9 @@
 import { useNavigate } from "react-router-dom";
 import { Card, Icon, ListRow, Page } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
-import { prefs, usePrefs } from "../../storage/prefs";
-import { settings, useSettings } from "../../wallet/settings";
+import { prefs } from "../../storage/prefs";
+import { settings } from "../../wallet/settings";
+import { usePrefs, useSettings } from "../../hooks";
 
 export function More() {
   const t = useT();

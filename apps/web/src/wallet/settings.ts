@@ -1,9 +1,8 @@
 // Wallet-wide settings. In memory, mirrored into the encrypted journal while the wallet is unlocked.
-import { useSyncExternalStore } from "react";
-import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } from "@ref/wallet/valuation";
-import { DEFAULT_RELAYER_URL } from "../sdk/relayer";
-import type { ProtectionMode, Sizing } from "@ref/wallet/campaign";
-import { EXPOSURE_POLICY } from "@ref/wallet/exposurePolicy";
+import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
+import { defaultRelayerUrl } from "../sdk/relayer";
+import type { ProtectionMode, Sizing } from "@privacy-wallet/protocol/wallet/campaign";
+import { EXPOSURE_POLICY } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 
 /** Private by default: a relayer submits and is paid by a private fee note; the connected wallet is the public fallback. */
 export type Submission = { kind: "relayer"; url: string } | { kind: "wallet" };
@@ -68,22 +67,24 @@ export const PROTECTION_DEFAULTS: Record<ProtectionMode, { capBps: number; sizin
 };
 export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseLargeOperations: false, autoReroute: false, notifications: { inApp: true, system: false, generic: true }, secondDevice: { enabled: false }, enabled: true, protectFromEnhanced: false };
 
-export const DEFAULT_SETTINGS: Settings = {
-  submission: { kind: "relayer", url: DEFAULT_RELAYER_URL }, advanced: false, verifyReads: true,
+/** The defaults, built at the moment of use: the configured relayer is known only after configure() (V6 Stage 3). */
+export const defaultSettings = (): Settings => ({
+  submission: { kind: "relayer", url: defaultRelayerUrl() }, advanced: false, verifyReads: true,
   tiers: { ...TIER_DEFAULTS }, preference: "balanced", housekeeping: { enabled: true, dailyFeeCapWei: (5n * 10n ** 15n).toString() }, secondFactor: { enabled: false },
   protection: { ...DEFAULT_PROTECTION, notifications: { ...DEFAULT_PROTECTION.notifications }, secondDevice: { ...DEFAULT_PROTECTION.secondDevice } },
-};
+});
 
 /** A journal written by an earlier wallet lacks the newer fields: fill them with the defaults (and refuse nonsense thresholds). */
 export function healSettings(stored: Partial<Settings> | undefined): Settings {
-  const s: Settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+  const defaults = defaultSettings();
+  const s: Settings = { ...defaults, ...(stored ?? {}) };
   // V5: the two consumer bands are filled under a stored V2–V4 object's `enhanced` (fillThresholds), never reset over it
   const { large: _l, largeProtected: _lp, ...v4Defaults } = TIER_DEFAULTS;
   s.tiers = fillThresholds({ ...v4Defaults, ...(stored?.tiers ?? {}) });
   try { checkThresholds(s.tiers); } catch { s.tiers = { ...TIER_DEFAULTS }; }
   if (!PREFERENCES.includes(s.preference)) s.preference = "balanced";
-  s.housekeeping = { ...DEFAULT_SETTINGS.housekeeping, ...(stored?.housekeeping ?? {}) };
-  s.secondFactor = { ...DEFAULT_SETTINGS.secondFactor, ...(stored?.secondFactor ?? {}) };
+  s.housekeeping = { ...defaults.housekeeping, ...(stored?.housekeeping ?? {}) };
+  s.secondFactor = { ...defaults.secondFactor, ...(stored?.secondFactor ?? {}) };
   s.protection = healProtection(stored?.protection);
   return s;
 }
@@ -108,14 +109,15 @@ export function healProtection(p: Partial<ProtectionSettings> | undefined): Prot
 }
 
 class SettingsStore {
-  private state: Settings = DEFAULT_SETTINGS;
+  private state: Settings | null = null;
   private listeners = new Set<() => void>();
-  get(): Settings { return this.state; }
+  // created on first read, then stable between changes (useSyncExternalStore needs the same object)
+  get(): Settings { return (this.state ??= defaultSettings()); }
   set(patch: Partial<Settings>): void {
-    this.state = healSettings({ ...this.state, ...patch });
+    this.state = healSettings({ ...this.get(), ...patch });
     for (const l of this.listeners) l();
   }
-  reset(): void { this.set(DEFAULT_SETTINGS); }
+  reset(): void { this.set(defaultSettings()); }
   subscribe(l: () => void): () => void {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
@@ -123,4 +125,3 @@ class SettingsStore {
 }
 
 export const settings = new SettingsStore();
-export const useSettings = (): Settings => useSyncExternalStore((l) => settings.subscribe(l), () => settings.get());

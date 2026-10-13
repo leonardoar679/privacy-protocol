@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { formatEther } from "viem";
-import { availablePrice, formatUsd, usdOf } from "@ref/wallet/valuation";
+import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
 import { publicBalanceViaInjectedWallet, type Deployment } from "../sdk/chain";
 import { privacyAddress, scanNotes } from "../sdk/privateTx";
 import { assetByVault, assetsOf, formatAmount } from "../sdk/assets";
-import { usePrices } from "../sdk/prices";
-import { useNotes } from "../wallet/notes";
-import { useSettings } from "../wallet/settings";
+import { useNotes, usePrices, useSettings } from "../hooks";
 
 // The per-asset view behind Home's "Details" (spec §72, plan §36, plan V2 §43): the private balance per
 // asset (the sum of our unspent notes in that asset's vault — created here or discovered on chain, spec

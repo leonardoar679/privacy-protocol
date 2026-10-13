@@ -1,7 +1,7 @@
 // The devnet mock of a classic pool (spec §16): three ETH pools with a size, a deposit count and a root age; a deposit
 // returns a record at the next leaf; a withdrawal returns a placeholder labelled "proof generation arrives with the
 // circuit port". No chain, no funds; the mock's state lives in memory for the session.
-import { formatNote, leBigInt, type ClassicNote } from "@ref/classic/note";
+import { formatNote, leBigInt, type ClassicNote } from "@privacy-wallet/protocol/classic/note";
 import type { ClassicDepositRecord, ClassicPool, ClassicPoolStats, ClassicStatus, ClassicWithdrawal } from "./types";
 
 const hex32 = (x: bigint): string => "0x" + (x % (1n << 256n)).toString(16).padStart(64, "0");

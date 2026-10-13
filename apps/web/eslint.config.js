@@ -6,6 +6,7 @@
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
+import { house } from "../../eslint.house.mjs";
 
 const DESIGN_SYSTEM = ["src/design-system/**/*.{ts,tsx}"];
 const STORAGE_DIR = ["src/storage/**/*.{ts,tsx}"];
@@ -50,6 +51,8 @@ export default tseslint.config(
     },
   },
   { files: CONFORMED, ignores: [...PRIMITIVES], rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in src/design-system/primitives." }] }] } },
+  // V6 Stage 3 (spec v2.0 §4): the build's environment is read by src/config.ts alone
+  { files: CONFORMED, ignores: ["src/config.ts"], plugins: { house }, rules: { "house/no-build-env": "error" } },
   { files: STORAGE, rules: { "no-restricted-globals": "off" } },
   { files: LEGACY, rules: { "@typescript-eslint/no-explicit-any": "off" } },
   { files: ["src/components/**"], rules: { "jsx-a11y/label-has-associated-control": "off" } },

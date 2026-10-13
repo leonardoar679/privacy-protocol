@@ -7,8 +7,8 @@
 // can be revoked here.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { bucketsFor } from "@ref/wallet/amounts";
-import { availablePrice, formatUsd, usdOf } from "@ref/wallet/valuation";
+import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
+import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
 import { AmountInput, AssetSelector, Button, Card, Collapsible, ConfirmSheet, FeeSummary, ListRow, Page, SecurityCard, StatusBadge, type AssetOption } from "../../design-system";
 import { useT } from "../../app/i18n/useT";
 import { readAllowance, revokeAllowance } from "../../sdk/allowances";
@@ -16,18 +16,17 @@ import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type 
 import type { Deployment } from "../../sdk/chain";
 import { activeProvider } from "../../sdk/injected";
 import { shieldERC20, shieldNative } from "../../sdk/privateTx";
-import { priceStore, usePrices, feedsConfigured } from "../../sdk/prices";
-import { usePrefs } from "../../storage/prefs";
-import { useSettings } from "../../wallet/settings";
+import { priceStore, feedsConfigured } from "../../sdk/prices";
 import { protectFees } from "../fees/feeEngine";
 import { useFeeTerms } from "../fees/useFeeTerms";
 import { shortAccount } from "../wallet/connection";
-import { applyEvent, newOperation, useOperation } from "../operations/store";
+import { applyEvent, newOperation } from "../operations/store";
 import { engineListener } from "../operations/engineEvents";
 import { classify } from "../operations/errors/catalog";
 import { OperationProgress } from "../operations/OperationProgress";
 import { estimateShieldCost, estimateUsd, type NetworkEstimate } from "./estimate";
 import { readPublicBalance } from "./publicBalance";
+import { useOperation, usePrefs, usePrices, useSettings } from "../../hooks";
 
 export interface ProtectProps {
   masterSeed: Uint8Array;

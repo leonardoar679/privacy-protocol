@@ -17,7 +17,8 @@ import { settings } from "../src/wallet/settings";
 import { noteStore } from "../src/wallet/notes";
 import { priceStore } from "../src/sdk/prices";
 import { PINNED, thorAsset } from "../src/sdk/providerCall";
-import { REVIEW_HOLD_MINUTES } from "../src/sdk/tiers";
+import { reviewHoldMinutes } from "../src/sdk/tiers";
+const REVIEW_HOLD_MINUTES = reviewHoldMinutes();
 import type { Deployment } from "../src/sdk/chain";
 import { PrivateSwapEngine, type PreparedExecution } from "../../../packages/swap-engine/src/engine";
 import { buildMemo, encodeDepositWithExpiry } from "../../../packages/swap-engine/src/adapters/thorchain";
@@ -133,7 +134,7 @@ afterEach(() => {
 const button = (c: HTMLElement, text: string | RegExp) => [...c.querySelectorAll("button")].find((b) => (typeof text === "string" ? b.textContent?.trim() === text : text.test(b.textContent ?? ""))) as HTMLButtonElement | undefined;
 const setValue = (el: HTMLInputElement, v: string) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); };
 const line = (c: HTMLElement, id: string) => c.querySelector(`[data-line="${id}"]`)!;
-/** Press and hold the confirmation (VITE_HOLD_MS is 40 ms under test). */
+/** Press and hold the confirmation (the hold is 40 ms under test: test/setup.ts). */
 async function hold(c: HTMLElement) {
   const b = c.querySelector('[data-testid="hold-to-confirm"]') as HTMLButtonElement;
   expect(b, "a hold, never a tap").toBeTruthy();

@@ -3,8 +3,8 @@
 // id is configured; the account and the chain from the provider, its `accountsChanged` / `chainChanged` /
 // `disconnect` events followed; a wrong network named and switchable, never reinterpreted. The two security
 // domains never meet: nothing here touches the shielded keys.
-import { useSyncExternalStore } from "react";
 import { activeProvider, injectedProvider, setActiveProvider, type Eip1193Provider } from "../../sdk/injected";
+import { walletConnectAvailable } from "./walletConnect";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "wrong-network" | "unavailable";
 export interface ConnectorInfo { id: string; name: string; icon?: string; kind: "eip6963" | "injected" | "walletconnect" }
@@ -21,7 +21,6 @@ export interface ConnectionState {
 
 interface Eip6963Detail { info: { uuid: string; name: string; icon: string; rdns: string }; provider: Eip1193Provider }
 
-const WC_PROJECT_ID = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {}).VITE_WC_PROJECT_ID;
 export const INJECTED_ID = "injected";
 export const WALLETCONNECT_ID = "walletconnect";
 
@@ -37,7 +36,7 @@ const set = (patch: Partial<ConnectionState>) => { state = { ...state, ...patch 
 function connectorList(): ConnectorInfo[] {
   const out: ConnectorInfo[] = [...discovered.values()].map((d) => ({ id: d.info.rdns, name: d.info.name, icon: d.info.icon, kind: "eip6963" as const }));
   if (!out.length && injectedProvider()) out.push({ id: INJECTED_ID, name: "Browser wallet", kind: "injected" });
-  if (WC_PROJECT_ID) out.push({ id: WALLETCONNECT_ID, name: "WalletConnect", kind: "walletconnect" });
+  if (walletConnectAvailable()) out.push({ id: WALLETCONNECT_ID, name: "WalletConnect", kind: "walletconnect" });
   return out;
 }
 
@@ -123,7 +122,5 @@ export const connection = {
   provider: (): Eip1193Provider | null => activeProvider(),
 };
 
-export const useConnection = (): ConnectionState => useSyncExternalStore(connection.subscribe, connection.get, connection.get);
-export const useAccount = (): string | null => useConnection().account;
 /** `0x7A…91F2` (spec §1). */
 export const shortAccount = (account: string): string => `${account.slice(0, 4)}…${account.slice(-4)}`;

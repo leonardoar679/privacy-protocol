@@ -5,8 +5,9 @@ import { Suspense } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AppShell, BottomNav, Button, Skeleton, type NavItem } from "../design-system";
 import { useT } from "./i18n/useT";
-import { session, useSession } from "../wallet/session";
+import { session } from "../wallet/session";
 import { Background } from "./Background";
+import { useSession } from "../hooks";
 
 export function Shell() {
   const t = useT();
