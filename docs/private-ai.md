@@ -49,8 +49,12 @@ and Sepolia `/health`, `/v2/billing/quote` and `/config.json` reachable and cons
 OpenRouter's public catalog lists 465 models. The wallet enables zkAPI only when `pin-check.json`
 reports zero failures and is less than a week old (`zkapiEnabled`), never silently (plan §87).
 
-The SDK is the pinned sibling clone (`E:\Code\Tornado\zkapi`, commit `045b444`, LF checkout) as a
-`file:` dependency; its 309 tests and the reproduction log are in `docs/zkapi/reproduction.md`.
+The SDK is the pinned sibling clone (`E:\Code\Tornado\zkapi`, commit `045b444`, LF checkout); its 309 tests and the
+reproduction log are in `docs/zkapi/reproduction.md`. Since V6 Stage 2 it is not an npm dependency (the lockfile names
+registry packages only): `apps/web/vite.config.ts` aliases `@openanonymity/zkapi-browser-sdk` to the clone that
+`ZKAPI_SDK_DIR` names (default: the clone beside this repository), and `apps/web/scripts/build-zkapi-assets.mjs` /
+`apps/web/scripts/check-zkapi-pins.mjs` load it from there. Without a clone — the CI runner, a fresh checkout — the build takes
+`apps/web/src/zkapi/unavailable.ts` (the same exports) and the Private AI screen says it is not included in this build.
 `apps/web/public/zkapi/` is generated (gitignored).
 
 ## Offline tests of the wallet's glue (`cd apps/web && npm test`, 17 vitest, node)

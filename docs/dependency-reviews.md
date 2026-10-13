@@ -1,0 +1,28 @@
+# Dependency reviews
+
+The record `scripts/dependency-review.mjs` reads (Privacy Wallet Web spec v2.0 §17; doc §69: "Do not casually add
+crypto-related npm dependencies. Crypto dependencies require manual review."). verify-all and CI compare the lockfile
+with a base revision; a cryptography-sensitive package — `@noble/*`, `@scure/*`, `snarkjs`, `ffjavascript`,
+`circomlibjs`, `viem`, `ox`, `@walletconnect/*` — that is added or changes version, or any package that brings an
+install script, fails the gate until a dated line below names it as `` `name@version` ``.
+
+A review line says what was checked: the publisher and repository, the changelog between the two versions, the
+lockfile's sha512 integrity, the absence of an install script, and which of the package's functions the code calls.
+
+## Baseline — 2026-10-13 (the gate introduced, V6 Stage 2)
+
+The versions locked when the gate was introduced. They were chosen in earlier passes (V1.0 to V5) and exercised by the
+suites since; this baseline records them so the gate starts from a known state. It is not a fresh audit of their
+code.
+
+| Package | Locked | Used for |
+|---|---|---|
+| `@noble/hashes@1.8.0`, `@noble/hashes@1.7.0`, `@noble/hashes@1.4.0` — 2026-10-13 | root (1.7.0 and 1.4.0 nested under other packages) | sha256, keccak, scrypt, HKDF (the keystore, the journal key, the domains) |
+| `@noble/curves@1.9.1`, `@noble/curves@1.9.7`, `@noble/curves@1.8.0` — 2026-10-13 | root (1.9.7 and 1.8.0 nested) | secp256k1 (EVM keys), ed25519 (Solana), bls12-381 (the light client), x25519 (the payload envelope) |
+| `@noble/ciphers@1.3.0` — 2026-10-13 | root | XChaCha20-Poly1305 (the keystore, the journal, the payload envelope) |
+| `@scure/base@1.2.6`, `@scure/bip32@1.7.0`, `@scure/bip39@1.6.0` — 2026-10-13 | root | bech32 / base58 encodings, BIP-32 derivation, the 24-word phrase |
+| `snarkjs@0.7.6`, `ffjavascript@0.3.1`, `ffjavascript@0.3.0` — 2026-10-13 | root (0.3.0 nested) | Groth16 proving in the browser's worker; verification in tests |
+| `viem@2.57.3`, `ox@0.14.45`, `ox@0.9.3`, `ox@0.6.9` — 2026-10-13 | root (ox nested under viem and WalletConnect) | RPC, ABI encoding, transaction building |
+| `@walletconnect/ethereum-provider@2.26.0` and its `@walletconnect/*` closure (2.26.0, 2.23.7 nested, the 1.x helpers) — 2026-10-13 | root | the lazily loaded WalletConnect connector |
+
+## Reviews

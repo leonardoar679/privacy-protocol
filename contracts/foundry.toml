@@ -16,8 +16,9 @@ evm_version = "paris"
 via_ir = false
 bytecode_hash = "none"
 cbor_metadata = false
-# Only the e2e fixture generator writes files (E2E_DUMP=true; see circuits/scripts/e2e-fixture.sh).
-fs_permissions = [{ access = "write", path = "./test/e2e" }, { access = "write", path = "./test/periphery/vectors" }]
+# Only the e2e fixture generator writes files (E2E_DUMP=true; see circuits/scripts/e2e-fixture.sh); the e2e suite reads
+# back the committed test/e2e/deployment.json (test_E2E_DeploymentJsonIsCurrent).
+fs_permissions = [{ access = "read-write", path = "./test/e2e" }, { access = "write", path = "./test/periphery/vectors" }]
 
 [fuzz]
 runs = 128

@@ -6,7 +6,6 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 contracts/.gas-snapshot
-contracts/test/e2e/deployment.json
 # misc
 .DS_Store
 *.log

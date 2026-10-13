@@ -57,23 +57,46 @@ function coreWasm(): Plugin {
   };
 }
 
+/**
+ * The zkAPI browser SDK (Private AI) is a separate clone, not an npm dependency (V6 Stage 2: the lockfile names only
+ * registry packages). ZKAPI_SDK_DIR points at it (default: the clone beside this repository, ../zkapi from the repository
+ * root); without one the build takes src/zkapi/unavailable.ts — the same exports — and `__ZKAPI__` is false, so the
+ * Private AI screen says it is not in this build.
+ */
+export function zkapiSdk(): { bundled: boolean; alias: { find: RegExp; replacement: string }[] } {
+  const dir = process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url));
+  const bundled = existsSync(join(dir, "package.json")) && existsSync(join(dir, "sdk", "index.js"));
+  const stub = fileURLToPath(new URL("./src/zkapi/unavailable.ts", import.meta.url));
+  return {
+    bundled,
+    alias: [
+      { find: /^@openanonymity\/zkapi-browser-sdk\/client$/, replacement: bundled ? join(dir, "sdk", "services", "zkapiClient.js") : stub },
+      { find: /^@openanonymity\/zkapi-browser-sdk$/, replacement: bundled ? join(dir, "sdk", "index.js") : stub },
+    ],
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const root = fileURLToPath(new URL(".", import.meta.url));
   // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
   const env = loadEnv(mode, root, "VITE_");
+  const zkapi = zkapiSdk();
   return {
     plugins: [react(), circuitArtifacts(), coreWasm(), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json")))],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },
     resolve: {
-      alias: {
+      alias: [
         // the normative wallet crypto (Poseidon2, notes, key derivation) — one implementation, used as-is
-        "@ref": fileURLToPath(new URL("../../packages/protocol/src", import.meta.url)),
-      },
+        { find: "@ref", replacement: fileURLToPath(new URL("../../packages/protocol/src", import.meta.url)) },
+        ...zkapi.alias,
+      ],
     },
+    define: { __ZKAPI__: JSON.stringify(zkapi.bundled) },
     server: {
-      fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },
+      // the repository, and the zkAPI clone beside it when the build carries the SDK
+      fs: { allow: [fileURLToPath(new URL("../..", import.meta.url)), ...(zkapi.bundled ? [process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url))] : [])] },
       // the zkAPI SDK expects its deployment manifest behind a same-origin rewrite (sdk/README.md);
       // in dev it is proxied to the pinned protocol server of the network the assets were built for
       proxy: { "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") } },

@@ -18,6 +18,7 @@ interface Vm {
     function addr(uint256) external pure returns (address);
     function envOr(string calldata name, bool defaultValue) external view returns (bool);
     function writeFile(string calldata path, string calldata data) external;
+    function readFile(string calldata path) external view returns (string memory);
     function toString(address) external pure returns (string memory);
     function toString(uint256) external pure returns (string memory);
     function toString(bytes32) external pure returns (string memory);

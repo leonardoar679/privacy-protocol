@@ -4,12 +4,16 @@
 // so the wallet's Private AI tab can load them same-origin. The helper verifies every source
 // artifact hash and both proving-key pins before writing. No credentials, no network, no Rust.
 // Usage: ZKAPI_NETWORK=sepolia|mainnet node scripts/build-zkapi-assets.mjs   (default: sepolia)
+// The SDK is the clone ZKAPI_SDK_DIR names (default: the clone beside this repository; V6 Stage 2), not an npm dependency.
 import { build } from "esbuild";
-import { buildBrowserSdkAssets } from "@openanonymity/zkapi-browser-sdk/build";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const sdkDir = process.env.ZKAPI_SDK_DIR ?? resolve(here, "../../../../zkapi");
+if (!existsSync(join(sdkDir, "sdk", "build.mjs"))) { console.error(`no zkAPI SDK at ${sdkDir} — clone it there or set ZKAPI_SDK_DIR (docs/private-ai.md)`); process.exit(2); }
+const { buildBrowserSdkAssets } = await import(pathToFileURL(join(sdkDir, "sdk", "build.mjs")).href);
 const network = process.env.ZKAPI_NETWORK ?? "sepolia";
 const outDir = join(here, "..", "public", "zkapi");
 const result = await buildBrowserSdkAssets({ outDir, publicPath: "/zkapi/", network, build });

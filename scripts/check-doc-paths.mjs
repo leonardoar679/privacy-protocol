@@ -15,15 +15,25 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TOP = ["apps", "packages", "privacy-core", "contracts", "circuits", "tests", "scripts", "docs", "benchmarks", "tools", "reference"];
-const GENERATED = [/^circuits\/build\//, /^privacy-core\/(target|pkg)\//, /^apps\/web\/(dist|public\/(core|zkapi))\//, /^scripts\/local-stack\/(run|results)\//, /\/node_modules\//, /^contracts\/(out|cache|broadcast)\//, /^tests\/visual\/run\//];
+// generated outputs: the directory itself or anything below it (a clean checkout has none of them)
+const GENERATED = [
+  /^circuits\/build(\/|$)/,
+  /^privacy-core\/(target|pkg)(\/|$)/,
+  /^apps\/web\/(dist|public\/(core|zkapi))(\/|$)/,
+  /^scripts\/local-stack\/(run|results)(\/|$)/,
+  /(^|\/)node_modules(\/|$)/,
+  /^contracts\/(out|cache|broadcast)(\/|$)/,
+  /^tests\/visual\/run(\/|$)/,
+];
 const OLD = /(?<![\w.-])(frontend\/|services\/(private-swap|relayer|zkapi-lab)|core\/rust|reference\/typescript)/;
 
 const allow = new Map();
 const allowFile = join(root, "scripts/doc-paths-allowlist.txt");
-if (existsSync(allowFile)) for (const line of readFileSync(allowFile, "utf8").split("\n")) {
-  const m = line.match(/^(\S+)\s+#\s*(.+)$/);
-  if (m) allow.set(m[1], m[2]);
-}
+if (existsSync(allowFile))
+  for (const line of readFileSync(allowFile, "utf8").split("\n")) {
+    const m = line.match(/^(\S+)\s+#\s*(.+)$/);
+    if (m) allow.set(m[1], m[2]);
+  }
 
 function docs(dir, out = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -54,7 +64,11 @@ for (const file of docs(root)) {
     }
     for (const m of line.matchAll(/`([^`\s]+)`/g)) {
       if (wasBefore(m.index + 1)) continue; // a historical name, said to be one
-      let token = m[1].replace(/[),.;]+$/, "").replace(/::.*$/, "").replace(/:\d+(-\d+)?(:\d+)?$/, "").replace(/#.*$/, "");
+      let token = m[1]
+        .replace(/[),.;]+$/, "")
+        .replace(/::.*$/, "")
+        .replace(/:\d+(-\d+)?(:\d+)?$/, "")
+        .replace(/#.*$/, "");
       if (!TOP.some((t) => token === t || token.startsWith(t + "/"))) continue;
       if (/[*?<>]|\.\.\.|…/.test(token)) continue; // globs and placeholders
       for (const p of expand(token)) {

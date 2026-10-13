@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // The dependency audit (Privacy Wallet Web spec §20–§21; Stage 11): `npm audit --omit=dev --audit-level=high` over every
-// package that ships code — the root workspaces (packages/protocol, frontend), packages/swap-engine and
-// apps/relayer. A high or critical finding fails the gate with its name, unless scripts/audit-allowlist.json
+// package that ships code — since V6 Stage 2 every one of them (apps/*, packages/*) is a workspace of the one root
+// lockfile, so the root audit covers them all. A high or critical finding fails the gate with its name, unless scripts/audit-allowlist.json
 // accepts it: an entry names the advisory's package, the reason (where it sits in the tree, why it cannot reach the
 // shipped code) and a date after which it must be looked at again — an expired acceptance fails. An unreachable
 // registry is reported as "skipped (offline)" and passes: the audit is a network check, never a build dependency.
-//   node scripts/audit.mjs          the three packages
+//   node scripts/audit.mjs          the root lockfile (every workspace)
 //   node scripts/audit.mjs --json   the raw reports to stdout
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const PACKAGES = [".", "packages/swap-engine", "apps/relayer"];
+const PACKAGES = ["."];
 const OFFLINE = /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ECONNRESET|socket hang up|audit endpoint returned an error|request to .+ failed|ERR_SOCKET|fetch failed|getaddrinfo/i;
 const wantJson = process.argv.includes("--json");
 
@@ -68,7 +68,7 @@ if (wantJson) {
 } else {
   for (const r of results) {
     const mark = r.status === "findings" ? "FAIL" : r.status === "skipped" ? "SKIP" : "PASS";
-    const where = r.pkg === "." ? "root workspaces (packages/protocol, frontend)" : r.pkg;
+    const where = r.pkg === "." ? "the workspaces (apps/*, packages/*)" : r.pkg;
     console.log(`${mark}  ${where}  — ${r.status === "findings" ? `open: ${r.names.join(", ") || r.note}` : r.note}${r.ms ? `  (${(r.ms / 1000).toFixed(1)} s)` : ""}`);
     for (const a of r.accepted ?? []) console.log(`      accepted  ${a}`);
   }

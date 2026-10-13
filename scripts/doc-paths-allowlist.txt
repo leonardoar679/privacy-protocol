@@ -29,10 +29,6 @@ apps/api/test/logs.test.ts  # planned: V6 Stage 9
 packages/server-kit  # planned: V6 Stage 9
 contracts/src/periphery/shield/  # planned: V6 Stage 12
 docs/classic-privacy-review.md  # planned: V6 Stage 14
-scripts/check-lockfile.mjs  # planned: V6 Stage 2
-scripts/dependency-review.mjs  # planned: V6 Stage 2
-scripts/check-import-case.mjs  # planned: V6 Stage 2
-docs/dependency-reviews.md  # planned: V6 Stage 2
 scripts/scan-bundle.mjs  # planned: V6 Stage 15
 scripts/check-budget.mjs  # planned: V6 Stage 16
 docs/definition-of-done-v6.md  # planned: V6 Stage 17

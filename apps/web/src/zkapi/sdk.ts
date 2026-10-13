@@ -13,6 +13,9 @@ import { privateTransport, ZKAPI_PUBLIC_PATH, type BrowserConfig, type PinCheck 
 
 export * from "./policy";
 
+/** false when the build took the stub for the SDK (vite.config.ts zkapiSdk; src/zkapi/unavailable.ts) */
+export const zkapiBundled: boolean = __ZKAPI__;
+
 /** The SDK's Sepolia shared-password dialog contract (sdk/README.md "Sepolia shared password"). */
 export interface TestnetPasswordRequest { authenticate: (value: string, o?: { signal?: AbortSignal }) => Promise<void>; signal?: AbortSignal }
 

@@ -8,6 +8,8 @@
 //                                               #   client on mainnet and Sepolia. LI.FI allows an anonymous caller 75
 //                                               #   quotes per 2 h: one run uses about 30
 //   node scripts/verify-all.mjs --forge <solc>  # + forge test with that solc binary (FOUNDRY_OFFLINE)
+//   node scripts/verify-all.mjs --ci            # the CI form (.github/workflows/ci.yml): forge may download its solc,
+//                                               #   the dependency review compares with the parent commit
 //   node scripts/verify-all.mjs --ledger <file> # + a JSON ledger of every step's passed / failed / skipped counts (the
 //                                               #   monorepo move compares two ledgers step by step: a path that broke never hides as a skip)
 //   node scripts/verify-all.mjs --rust          # + cargo test of privacy-core (incl. the native prover against the circuit's
@@ -30,6 +32,10 @@ const cargo = process.env.CARGO ?? "cargo";
 // the native prover's tests need the circuit build (zkey) and the snarkjs witnesses; with them, they must run
 const circuitsBuilt = existsSync(join(root, "circuits/build/setup/transaction_final.zkey")) && existsSync(join(root, "circuits/build/transaction_js/transaction.wasm"));
 const ledgerFile = argv.includes("--ledger") ? argv[argv.indexOf("--ledger") + 1] : null;
+const ci = argv.includes("--ci");
+// V6 Stage 2: Prettier checks the code V6 adds (the earlier passes keep their style until a one-shot reformat); each stage
+// appends its new files and directories here
+const PRETTIER_FILES = [".github/workflows/ci.yml", ".prettierrc.json", "tsconfig.base.json", "scripts/check-lockfile.mjs", "scripts/dependency-review.mjs", "scripts/check-import-case.mjs", "scripts/check-doc-paths.mjs", "apps/web/src/zkapi/unavailable.ts"];
 // V6 Stage 1: a suite that skips while its artifact is missing must FAIL when the artifact exists and its path is wrong —
 // read at the step's start (the --rust steps build the WASM package first)
 const wasmCore = () => existsSync(join(root, "privacy-core/pkg/node/privacy_core_wasm.js"));
@@ -45,6 +51,13 @@ const steps = [
     { name: "privacy-core (cargo build --target wasm32-unknown-unknown, the workspace minus the native-only FFI crates)", cwd: "privacy-core", cmd: cargo, args: ["build", "--target", "wasm32-unknown-unknown", "--workspace", "--exclude", "privacy-ffi", "--exclude", "uniffi-bindgen"] },
     { name: "privacy-core WASM package (release + wasm-bindgen → pkg/node, pkg/web)", cwd: "privacy-core", cmd: process.execPath, args: ["scripts/build-wasm.mjs"] },
   ] : []),
+  // V6 Stage 2 (spec v2.0 §17; doc §69): what npm ci installs is what the registry published; relative imports keep their
+  // exact case (the CI runner's file system is case-sensitive); every TypeScript workspace typechecks
+  { name: "lockfile (v3; every package from the npm registry with a sha512 integrity; @privacy-wallet/* only as workspace links; no file: / git / http dependency; nested lockfiles only in the tool directories)", cwd: ".", cmd: process.execPath, args: ["scripts/check-lockfile.mjs"] },
+  { name: `dependency review (the lockfile against ${ci ? "the parent commit" : "HEAD"}: added, changed and removed packages; a cryptography-sensitive package or an install script needs a dated line in docs/dependency-reviews.md)`, cwd: ".", cmd: process.execPath, args: ["scripts/dependency-review.mjs", "--base", ci ? "HEAD~1" : "HEAD"] },
+  { name: "import case (every relative import of apps/, packages/, tests/ and scripts/ names its file with the exact case)", cwd: ".", cmd: process.execPath, args: ["scripts/check-import-case.mjs"] },
+  { name: "prettier (the code V6 adds: scripts/verify-all.mjs PRETTIER_FILES)", cwd: ".", cmd: npx, args: ["prettier", "--check", ...PRETTIER_FILES] },
+  { name: "packages/protocol typecheck (tsc --noEmit)", cwd: "packages/protocol", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
   { name: "packages/protocol (149 + 9 WASM-vs-TypeScript when privacy-core/pkg exists: the classic note's vectors (V5); primitives, witness, layered tree, prover vs real artifacts, envelope + address, reorg, chain keys, scorecard, the sync batches; V2: valuation + tiers, the Privacy Center model, destinations, the privacy lint, the housekeeping planner; V3: the campaign core — splitter, exposure, gates, pause detection, reducer —, risk classes, the address book, the lint additions, the campaign lab invariants; V4: the exposure policy, the privacy assessment, I6 and the ledger, the approval step and staleness)", cwd: "packages/protocol", cmd: npx, args: ["vitest", "run"], env: () => ({ ...requireWasm(), ...(proverArtifacts ? { REQUIRE_CIRCUIT_ARTIFACTS: "1" } : {}) }) },
   // V4 (High-Value Execution Engine plan §116–§118; contract §5): the tests tree over the pure modules — the bounds, the quote lifecycle and
   // normalization, the ledger with the §117 property test, the splitter, the RFQ interface, streaming, eligibility / the breaker /
@@ -65,7 +78,7 @@ const steps = [
   { name: "apps/web artifact pins (public/artifacts.json vs the circuit artifacts and the core WASM on this machine; dist/index.html carries the content security policy and ships the pin file)", cwd: "apps/web", cmd: process.execPath, args: ["scripts/check-artifact-pins.mjs"], env: () => (circuitsBuilt && wasmCore() ? { REQUIRE_PINNED_ARTIFACTS: "1" } : {}) },
   { name: "documentation paths (every backticked repository path in README.md, docs/ and the READMEs exists — planned and historical ones listed in scripts/doc-paths-allowlist.txt —; no path of the pre-V6 layout)", cwd: ".", cmd: process.execPath, args: ["scripts/check-doc-paths.mjs"] },
   { name: "dependency audit (npm audit --omit=dev --audit-level=high over the root workspaces, packages/swap-engine and apps/relayer; an unreachable registry is skipped)", cwd: ".", cmd: process.execPath, args: ["scripts/audit.mjs"] },
-  ...(solc ? [{ name: "contracts (forge: 107 incl. real-proof e2e, swap periphery with USDT-like orders and refundToken (WETH and ETH at an ERC-20 order re-shield as ETH), native-prover proofs on the verifier)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: { FOUNDRY_OFFLINE: "true" } }] : []),
+  ...(solc ? [{ name: "contracts (forge: 107 incl. real-proof e2e, swap periphery with USDT-like orders and refundToken (WETH and ETH at an ERC-20 order re-shield as ETH), native-prover proofs on the verifier)", cwd: "contracts", cmd: process.env.FORGE ?? "forge", args: ["test", "--use", solc], env: ci ? {} : { FOUNDRY_OFFLINE: "true" } }] : []),
 ];
 
 /** passed / failed / skipped of one step's output: vitest's "Tests" line, cargo's result lines, Python's unittest, forge */
@@ -119,6 +132,6 @@ if (ledgerFile) {
   console.log(`ledger: ${ledgerFile}`);
 }
 const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} steps passed${live ? " (incl. live)" : ""}${solc ? " (incl. forge)" : ""}${rust ? " (incl. rust)" : ""}.`);
+console.log(`\n${results.length - failed.length}/${results.length} steps passed${live ? " (incl. live)" : ""}${solc ? " (incl. forge)" : ""}${rust ? " (incl. rust)" : ""}${ci ? " (CI form)" : ""}.`);
 for (const f of failed) console.log(`  FAILED: ${f.name} — ${f.note}`);
 process.exit(failed.length ? 1 : 0);

@@ -1,0 +1,14 @@
+{
+  "//": "The compiler options every TypeScript workspace shares (V6 Stage 2); each workspace's tsconfig extends this and adds its own (DOM and JSX for apps/web, node types for the services).",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  }
+}

@@ -1,9 +1,9 @@
 {
-  "name": "privacy-relayer",
+  "name": "@privacy-wallet/relayer",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Private submission for the shielded pool (plan \u00a776, \u00a781, \u00a785 rule 5): submits a wallet's proven `PrivacyCore.transact` from its own key, paid by a private fee note inside the transaction. Replaceable; the wallet keeps self-submission and any other relayer as fallbacks.",
+  "description": "Private submission for the shielded pool (plan §76, §81, §85 rule 5): submits a wallet's proven `PrivacyCore.transact` from its own key, paid by a private fee note inside the transaction. Replaceable; the wallet keeps self-submission and any other relayer as fallbacks.",
   "scripts": {
     "test": "vitest run",
     "serve": "tsx src/server.ts",

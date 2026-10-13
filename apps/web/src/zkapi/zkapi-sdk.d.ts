@@ -1,3 +1,6 @@
+/** true when the build carries the zkAPI SDK clone (vite.config.ts zkapiSdk), false with the stub (src/zkapi/unavailable.ts) */
+declare const __ZKAPI__: boolean;
+
 // Ambient types for the zkAPI browser SDK (plain ESM, no bundled types). Only the host-facing
 // surface this wallet uses is declared; everything else is `any` on purpose.
 declare module "@openanonymity/zkapi-browser-sdk" {

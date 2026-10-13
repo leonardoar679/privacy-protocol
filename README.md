@@ -136,19 +136,26 @@ multi-device approval stay deferred (spec §23).
 # contracts (local solc + offline — see contracts/README.md for why)
 cd contracts && FOUNDRY_OFFLINE=true forge test --use <solc-0.8.24> -vv
 
+# one install for every workspace (apps/*, packages/*: one root lockfile, checked by scripts/check-lockfile.mjs)
+npm ci
+
 # references
-cd packages/protocol && npm install && npm test && npm run vectors && npm run fixtures
+cd packages/protocol && npm test && npm run vectors && npm run fixtures
 cd reference/python && python test_vectors.py
 
 # circuit — needs a circom 2.x binary; full pipeline in circuits/README.md
 cd circuits && npm install
 
-# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts, --rust for the core, the native prover and the FFI): 17/17 here (V5 adds the leakage gate, the artifact pins and the dependency audit), 19/19 with --live (V4 adds the tests tree)
+# everything offline in one go (+ --live for the provider suites, --forge <solc> for the contracts, --rust for the core, the native prover and the FFI,
+# --ledger <file> for the per-step counts): 24/24 with --forge --rust (V6 Stage 2 adds the lockfile, dependency review, import case, Prettier and
+# protocol typecheck steps; Stage 1 the documentation paths)
 node scripts/verify-all.mjs --forge $SOLC --rust    # CARGO / WASM_BINDGEN env point at the offline toolchain (docs/mobile.md)
+# the CI form (.github/workflows/ci.yml, on every push and pull request): node scripts/check-lockfile.mjs && npm ci && node scripts/verify-all.mjs --ci --forge 0.8.24
 # run order for a workstation with a browser and a chain: docs/local-run.md (.env.example in apps/web/, apps/relayer/, packages/swap-engine/)
 
-# frontend (+ the local swap service the Swap tab talks to)
-cd apps/web && npm install && npm run build
+# the wallet (+ the local swap service the Swap tab talks to); Private AI needs the zkAPI clone beside this repository
+# (or ZKAPI_SDK_DIR), else the build carries a stub that says so (docs/private-ai.md)
+cd apps/web && npm run build
 cd packages/swap-engine && npm run serve
 
 # benchmarks
@@ -156,7 +163,7 @@ node benchmarks/gas/cost.mjs          # live gas price × measured gas
 node benchmarks/privacy/run.mjs       # the study's adversary vs the shipped wallet policy (~1 min)
 
 # V1.1 services
-cd packages/swap-engine && npm install && npm test && npx tsx src/cli.ts 1 BTC best-privacy
+cd packages/swap-engine && npm test && npx tsx src/cli.ts 1 BTC best-privacy
 cd tools/zkapi-lab && npm install && node verify-mainnet.mjs mainnet
 ```
 

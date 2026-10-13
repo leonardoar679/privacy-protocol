@@ -1,0 +1,12 @@
+# Prettier formats the code V6 adds (verify-all checks the list in scripts/verify-all.mjs PRETTIER_FILES); the code of
+# earlier passes keeps its own style until a one-shot reformat. Never formatted: generated and vendored files.
+node_modules/
+dist/
+privacy-core/target/
+privacy-core/pkg/
+circuits/build/
+contracts/out/
+contracts/cache/
+scripts/local-stack/run/
+scripts/local-stack/results/
+package-lock.json

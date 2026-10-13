@@ -4,12 +4,15 @@
   "private": true,
   "description": "Immutable, non-custodial Ethereum L1 shielded pool (V1 scaffold). Contracts are a separate Foundry project under contracts/.",
   "workspaces": [
-    "packages/protocol",
-    "apps/web"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "test:reference": "npm --workspace packages/protocol run test",
     "vectors": "npm --workspace packages/protocol run vectors",
     "dev:web": "npm --workspace apps/web run dev"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10"
   }
 }

@@ -129,8 +129,14 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     fireEvent.click(within(nav).getByRole("link", { name: "More" }));
     fireEvent.click(await screen.findByTestId("more-ai"));
     await screen.findByTestId("sheet-ai", {}, LAZY);
-    await waitFor(() => expect(fetchSpy.mock.calls.length).toBeGreaterThan(0));
-    for (const c of fetchSpy.mock.calls) expect(String(c[0]), "same-origin relative URL").toMatch(/^\/zkapi\//);
+    if (__ZKAPI__) {
+      await waitFor(() => expect(fetchSpy.mock.calls.length).toBeGreaterThan(0));
+      for (const c of fetchSpy.mock.calls) expect(String(c[0]), "same-origin relative URL").toMatch(/^\/zkapi\//);
+    } else {
+      // a build without the zkAPI clone (the CI runner, V6 Stage 2): the screen says so and asks for nothing
+      expect(await screen.findByTestId("private-ai-unavailable")).toBeInTheDocument();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    }
 
     // lock (Settings) → the unlock route; nothing persisted in the clear (spec §8)
     fireEvent.click(within(nav).getByRole("link", { name: "More" }));

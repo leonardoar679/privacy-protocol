@@ -7,7 +7,7 @@ import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { aiSession } from "../zkapi/aiSession";
 import { session } from "../wallet/session";
-import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
+import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
 // Private AI (plan §4, §63): one private credit account (zkAPI, native ETH, expiring service credit)
 // pays for inference with short-lived provider keys. Funding comes from a FRESH wallet-derived
@@ -19,7 +19,13 @@ const FEE_RESERVE_ETH = "0.0005"; // gas for the deposit (and later the withdraw
 
 interface PasswordDialog extends TestnetPasswordRequest { resolve: () => void; reject: (e: Error) => void; error: string }
 
-export function PrivateAI({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {
+/** The build without the zkAPI SDK clone (V6 Stage 2: CI, a fresh checkout) says so instead of failing on first use. */
+export function PrivateAI(props: { masterSeed: Uint8Array; deployment: Deployment | null }) {
+  if (!zkapiBundled) return <p className="muted" data-testid="private-ai-unavailable">Private AI is not included in this build: the zkAPI SDK clone was not present when it was built.</p>;
+  return <PrivateAIScreen {...props} />;
+}
+
+function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; deployment: Deployment | null }) {
   const [pin, setPin] = useState<PinCheck | null | undefined>(undefined);
   const [cfg, setCfg] = useState<BrowserConfig | null>(null);
   const [enabled, setEnabled] = useState(false);

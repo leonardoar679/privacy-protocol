@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const network = process.env.ZKAPI_NETWORK ?? "sepolia";
-const zkapi = resolve(here, "../../../../zkapi"); // the pinned clone (docs/zkapi/mainnet-verification.md)
+const zkapi = process.env.ZKAPI_SDK_DIR ?? resolve(here, "../../../../zkapi"); // the pinned clone (docs/zkapi/mainnet-verification.md)
 const pub = join(here, "..", "public", "zkapi");
 const items = [];
 const check = (name, ok, detail = "") => { items.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  — ${detail}` : ""}`); };

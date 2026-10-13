@@ -1,5 +1,5 @@
 {
-  "name": "privacy-protocol-wallet",
+  "name": "@privacy-wallet/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,6 @@
     "tokens": "vite-node scripts/build-tokens.ts"
   },
   "dependencies": {
-    "@openanonymity/zkapi-browser-sdk": "file:../../../zkapi",
     "@radix-ui/react-dialog": "^1.2.0",
     "@radix-ui/react-radio-group": "^1.4.8",
     "@radix-ui/react-slot": "^1.4.0",

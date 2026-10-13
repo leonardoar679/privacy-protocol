@@ -1,5 +1,5 @@
 {
-  "name": "private-swap",
+  "name": "@privacy-wallet/swap-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",

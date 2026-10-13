@@ -71,20 +71,28 @@ contract RealProofE2ETest is Test {
         p.executorTip = F.SWAP_TIP;
     }
 
-    /// Pass 1 of fixture generation (E2E_DUMP=true): what the wallet must know about the deployment.
+    /// What the wallet and the relayer's suite must know about the deployment (test/e2e/deployment.json).
+    function _deploymentJson() internal view returns (string memory) {
+        return string.concat(
+            '{"vault":"', vm.toString(address(vault)),
+            '","core":"', vm.toString(address(core)),
+            '","chainId":', vm.toString(block.chainid),
+            ',"txDomain":"', vm.toString(core.TX_DOMAIN()),
+            '","swapFactory":"', vm.toString(address(swapFactory)),
+            '","orderSigner":"', vm.toString(vm.addr(ORDER_KEY)), '"}\n'
+        );
+    }
+
+    /// Pass 1 of fixture generation (E2E_DUMP=true): writes test/e2e/deployment.json.
     function test_E2E_DumpDeployment() public {
         if (!vm.envOr("E2E_DUMP", false)) return;
-        vm.writeFile(
-            "test/e2e/deployment.json",
-            string.concat(
-                '{"vault":"', vm.toString(address(vault)),
-                '","core":"', vm.toString(address(core)),
-                '","chainId":', vm.toString(block.chainid),
-                ',"txDomain":"', vm.toString(core.TX_DOMAIN()),
-                '","swapFactory":"', vm.toString(address(swapFactory)),
-                '","orderSigner":"', vm.toString(vm.addr(ORDER_KEY)), '"}\n'
-            )
-        );
+        vm.writeFile("test/e2e/deployment.json", _deploymentJson());
+    }
+
+    /// The committed test/e2e/deployment.json — read by the relayer's suite and by CI on a clean checkout (V6 Stage 2) —
+    /// is this deployment: a stale copy fails here, never later in another package's tests.
+    function test_E2E_DeploymentJsonIsCurrent() public view {
+        assertEq(vm.readFile("test/e2e/deployment.json"), _deploymentJson(), "test/e2e/deployment.json is stale: run circuits/scripts/e2e-fixture.sh");
     }
 
     function _shield() internal {

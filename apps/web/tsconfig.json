@@ -1,20 +1,30 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-jsx",
-    "strict": true,
     "noUnusedLocals": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
     "baseUrl": ".",
-    "paths": { "@ref/*": ["../../packages/protocol/src/*"] }
+    "paths": {
+      "@ref/*": [
+        "../../packages/protocol/src/*"
+      ]
+    }
   },
-  "include": ["src", "../../packages/protocol/src/keys.ts", "../../packages/protocol/src/note.ts", "../../packages/protocol/src/prover.ts", "../../packages/protocol/src/txInputs.ts", "../../packages/protocol/src/merkle.ts", "../../packages/protocol/src/payload.ts", "../../packages/protocol/src/wallet/amounts.ts"]
+  "include": [
+    "src",
+    "../../packages/protocol/src/keys.ts",
+    "../../packages/protocol/src/note.ts",
+    "../../packages/protocol/src/prover.ts",
+    "../../packages/protocol/src/txInputs.ts",
+    "../../packages/protocol/src/merkle.ts",
+    "../../packages/protocol/src/payload.ts",
+    "../../packages/protocol/src/wallet/amounts.ts"
+  ]
 }
