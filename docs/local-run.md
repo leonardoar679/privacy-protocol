@@ -9,7 +9,7 @@ Web spec: Welcome → the experience → Create, Protect, Send, Swap, Activity, 
 screens at 360×800, 390×844, 412×915, 768×1024 and 1280×800 with no horizontal scroll and 44 px controls, once more under the
 pseudo-locale — and the leakage twin (every request body read for the phrase and the password, localStorage empty, the two
 ciphertext blobs in IndexedDB). The V2–V4 run: 35 checks (36 when the hard quote asks for consent), last run 2026-10-08
-(`results/report-2026-10-08.json`); the V5 run: **166/166** checks on 2026-10-08 (`results/report-2026-10-08-v5.json`), the viewports 1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024. The one difference from a testnet: there the light client
+(`results/report-2026-10-08.json`); the V5 run: **166/166** checks on 2026-10-08 (`results/report-2026-10-08-v5.json`), the viewports 1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024; the follow-up run of 2026-10-13, after the relayer executor's fix: **167/167** (`results/report-2026-10-13-v5.json`). The one difference from a testnet: there the light client
 stays on; on the devnet the run switches it off under More → Advanced (no beacon chain to follow).
 `VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
 

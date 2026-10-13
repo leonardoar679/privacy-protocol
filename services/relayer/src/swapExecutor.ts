@@ -376,8 +376,22 @@ export class SwapExecutor {
     this.persist();
   }
 
-  /** One pass over every open job: read the escrow balance and the clock, act exactly once per state change. */
+  private ticking: Promise<void> | null = null;
+  private tickAgain = false;
+  /**
+   * One pass over every open job, never two at once. The server asks for a tick on every hand-over and refund request
+   * while the interval runs its own; two passes over the same funded escrow each sent deployAndExecute, and the second,
+   * refused on the nonce, marked the mined execution failed (the V5 local-stack run, 2026-10-13). A tick asked for
+   * during a pass runs one more pass after it, so a job added meanwhile is still acted on at once.
+   */
   async tick(): Promise<void> {
+    if (this.ticking) { this.tickAgain = true; return this.ticking; }
+    this.ticking = (async () => { try { do { this.tickAgain = false; await this.pass(); } while (this.tickAgain); } finally { this.ticking = null; } })();
+    return this.ticking;
+  }
+
+  /** One pass over every open job: read the escrow balance and the clock, act exactly once per state change. */
+  private async pass(): Promise<void> {
     const now = this.now();
     for (const job of this.jobs.values()) {
       const p = job.params;

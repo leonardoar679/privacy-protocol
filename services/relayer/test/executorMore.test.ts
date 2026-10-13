@@ -482,3 +482,27 @@ describe("journals", () => {
     receiptStatus = null;
   });
 });
+
+describe("one pass at a time (the hand-over's tick and the interval's; the V5 local-stack run, 2026-10-13)", () => {
+  it("three ticks asked for at once over a funded escrow send deployAndExecute once; a job added during a pass is still acted on by that tick", async () => {
+    clock = 1000; receiptStatus = null; raws.length = 0; factoryWrappedNative = null;
+    const ex = executorWith();
+    const req = makeRequest(("0x" + "7a".repeat(32)) as Hex, 1500);
+    ethBalance = BigInt(req.params.amount);
+    const job = ex.add(req);
+    await Promise.all([ex.tick(), ex.tick(), ex.tick()]);
+    expect(raws.length, "one deployAndExecute for one funded escrow, however many ticks ask").toBe(1);
+    expect(job.state).toBe("executing");
+    expect(job.error).toBeUndefined();
+    expect(job.executionTx).toBe(job.txHash);
+    // the executing job waits for its receipt; a second order added while a pass runs is executed by the same tick
+    raws.length = 0;
+    const running = ex.tick();
+    const job2 = ex.add(makeRequest(("0x" + "7b".repeat(32)) as Hex, 1500));
+    await Promise.all([running, ex.tick()]);
+    expect(job2.state).toBe("executing");
+    expect(raws.length).toBe(1);
+    expect(job.state, "the first order's execution is not sent again").toBe("executing");
+    receiptStatus = null; ethBalance = 0n; raws.length = 0;
+  });
+});

@@ -33,7 +33,9 @@ const HASH = "0x" + "ab".repeat(32);
 const ORDER = "0x" + "0a".repeat(32);
 const ETH = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
-const NOW = Date.now();
+// anchored at local noon: the rows sit at ± a few hours around NOW, NOW - DAY and NOW - 9 DAY, and the groups are
+// calendar days, so a run in the first hour after midnight must not push "yesterday minus an hour" two days back
+const NOW = new Date().setHours(12, 0, 0, 0);
 const DAY = 86_400_000;
 beforeEach(async () => { await session.create("a strong password"); session.acknowledgePhrase(); });
 afterEach(() => { cleanup(); session.forget(); settings.reset(); resetOperationsMemory(); trackCalls.length = 0; refundCalls.length = 0; trackedState = "DESTINATION_SUBMITTED"; });

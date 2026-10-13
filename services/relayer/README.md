@@ -65,7 +65,8 @@ which a later request can only raise), and a token only into a vault its pool al
 anything past the budget stay in the escrow, where anyone can re-shield them. A failed gas estimate
 is an answer only when the call reverts: an RPC failure is retried next tick, never ends the watch
 and never drops a listed token.
-`SWAP_POLL_MS` (15 s) sets the cadence. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
+`SWAP_POLL_MS` (15 s) sets the cadence; a request's tick and the interval's never run at once — a tick asked for during a pass runs
+one more pass after it, so a job added meanwhile is still acted on at once and a funded escrow is never executed twice. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
 late refunds and foreign tokens.
 
 ## Run

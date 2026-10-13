@@ -40,7 +40,7 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under More → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (166/166 checks on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
+## What a run checks (167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
 
 V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
 More → Advanced for the light client and More → Wallet for the connection; Protect through the connected wallet's own provider; Send (public),
@@ -87,6 +87,13 @@ first-time explanation. What a devnet cannot show stays with the vitest flows an
 The devnet keeps state across runs (each run makes a new wallet and new deposits); restart `npm run chain` and
 `npm run deploy` for a clean chain. The relayer's journal lives in `run/relayer-journal`.
 
+**Expected log lines.** During the protected swap the log shows `console error: Failed to load resource: … 404` once per
+ten-second tick while step 1 is funded or signed and not yet handed over (27 on the follow-up run, whose step waited through
+three price consents), each preceded by the request behind it (`http 404 GET /swap/0x…`): the runner asks the relayer for a job
+by the step's order id at the start of each such tick, and once more right before the hand-over, so a hand-over interrupted
+before its journal entry is found instead of repeated. With no job yet the relayer answers `unknown swap job`, Chrome prints
+every 404 as a console error, and no check depends on it.
+
 ## Found by this run (fixed in the tree)
 
 - the fee line showed base units with raw asset ids ("2047477191 Ethereum.USDC"): fees now carry `decimals` (spec §2);
@@ -100,8 +107,17 @@ The devnet keeps state across runs (each run makes a new wallet and new deposits
   `http://localhost:5173/`, where the separate device registers through the virtual authenticator;
 - (V3) with Advanced on, the Shield screen names the leaf ("Shielded 500 ETH — note at leaf N") instead of "Added …":
   the run accepts either.
+- (V5, 2026-10-13) the relayer's swap executor ran two passes at once — the one a hand-over request triggers and the
+  interval's — and both sent `deployAndExecute` for the same funded escrow: the second was refused on the nonce and marked
+  the mined execution `execute-failed`, so the order panel never reported the execution and the run stopped at 32/33.
+  One pass at a time now (`services/relayer/src/swapExecutor.ts`; `test/executorMore.test.ts` drives three ticks at once).
 
 ## Notes for this machine
+
+The private-swap service, four days old, died during a run with exit code 3221226505 (0xC0000409, a native abort; nothing
+on stderr, no Windows error report) at the moment the campaign asked it for a step's fresh quote; the wallet paused
+`Liquidity dropped` on every tick until the run ended. The VPN client's Winsock layered provider is the suspect (git's
+network helper crashes under it too). Restarted with `node start-services.mjs service`, the service answered the whole next run.
 
 `anvil` (Foundry) segfaults here (a Winsock LSP; see `docs/local-run.md`), which is why the devnet is Hardhat's. Playwright
 1.64 drives the installed Chrome 154 with its old headless shell (`--headless=old`, set by `e2e.mjs` for

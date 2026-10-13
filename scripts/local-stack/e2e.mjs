@@ -409,6 +409,9 @@ context.on("request", (r) => requests.push({ phase, url: r.url(), method: r.meth
 const page = await context.newPage();
 page.on("pageerror", (e) => log(`page error: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error") log(`console error: ${m.text().slice(0, 200)}`); });
+// a 4xx/5xx answer is what Chrome prints as "Failed to load resource": name the request behind it (the path only)
+page.on("response", (r) => { if (r.status() >= 400) log(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`); });
+page.on("requestfailed", (r) => { const u = new URL(r.url()); log(`request failed ${r.method()} ${u.host}${u.pathname}: ${r.failure()?.errorText ?? "?"}`); });
 let phrase = "";
 
 try {
