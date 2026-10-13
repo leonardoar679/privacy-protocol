@@ -4,7 +4,7 @@
 // scheduled fundings that failed say so; Refresh tracks every open swap once; finished rows can be removed; a row
 // opens its detail.
 import { useState } from "react";
-import { Button, Card, Icon, IconButton, ListRow, Page, StatusBadge } from "@privacy-wallet/ui";
+import { Card, Icon, IconButton, ListRow, Page, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { shortRef } from "@privacy-wallet/sdk/format";
@@ -57,7 +57,7 @@ export function Activity({ deployment = null, onOpen, onBack }: ActivityProps) {
         <ListRow leading={<Icon name={r.icon} size={22} />} title={<><b>{r.title}</b> <span className="ds-note">· {new Date(r.at).toLocaleTimeString()}</span></>} subtitle={`${r.amount}${r.note ? ` · ${r.note}` : ""}`}
           trailing={<StatusBadge tone={r.tone}>{r.status}</StatusBadge>}
           onPress={onOpen ? () => onOpen(r.id) : undefined} testId={`activity-row-${r.id}`} />
-        {r.finished ? <div className="ds-row-actions"><Button variant="ghost" onClick={() => deleteActivity(r.id)} data-testid="activity-remove">{t("activity.remove")}</Button></div> : null}{/* outside the pressable row: a button never nests in a button */}
+        {r.finished ? <div className="ds-row-actions"><TextButton onClick={() => deleteActivity(r.id)} data-testid="activity-remove">{t("activity.remove")}</TextButton></div> : null}{/* outside the pressable row: a button never nests in a button */}
         {steps ? <div className="ds-checks-line ds-note" data-testid="activity-steps">{STEPS.map((name, i) => <span key={name} data-ok={steps[i] ? "1" : "0"}>{steps[i] ? "✓" : "○"} {name}</span>)}</div> : null}
         {r.swap?.track?.label === "Partial" ? <p className="ds-note">{t("activity.partial", { delivered: r.swap.track.deliveredAmount ?? "?", returned: r.swap.track.refundedAmount ?? "?" })}</p> : null}
         {r.campaignLine ? <p className="ds-note" data-testid="activity-campaign">{r.campaignLine}</p> : null}

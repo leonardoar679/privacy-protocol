@@ -6,7 +6,7 @@
 import type { Hex } from "viem";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
-import { Button, Card, Collapsible } from "@privacy-wallet/ui";
+import { Button, Card, Collapsible, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { formatAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
@@ -92,7 +92,7 @@ export function OrderPanel(p: OrderPanelProps) {
               <p className="ds-note">{t("order.priceMovedNote", { time: refundAfter })}</p>
               <div className="ds-actions">
                 <Button variant="secondary" onClick={() => p.onSign(p.moved!.minOut)} disabled={!!p.busy}>{t("order.confirmNewMinimum")}</Button>
-                <Button variant="ghost" onClick={p.onReturn} disabled={!!p.busy}>{t("order.returnInstead")}</Button>
+                <TextButton onClick={p.onReturn} disabled={!!p.busy}>{t("order.returnInstead")}</TextButton>
               </div>
             </div>
           );

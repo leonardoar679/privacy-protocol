@@ -1,23 +1,60 @@
-/* The base stylesheet of the design system (spec §4): Tailwind's layers over the tokens, a small reset that leaves
-   the legacy stylesheet (styles.css, until Stage 10) intact, the focus ring, reduced motion, and the keyframes the
-   components animate with. Loaded after tokens.css and before styles.css (main.tsx). */
+/* The base stylesheet of the design system (spec v2.0 §5): the keyframes, Tailwind's layers over the tokens, a small
+   reset that leaves the legacy stylesheet (styles.css, until the screens are rebuilt) intact, the focus ring, reduced
+   motion. Loaded after fonts.css and tokens.css, before components.css and patterns.css (apps/web/src/main.tsx). */
+@import "./animations/keyframes.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; font-family: var(--font-sans); font-size: var(--body-size); line-height: var(--body-line); }
-html, body { margin: 0; min-height: 100%; }
-body { background: var(--bg); color: var(--fg); }
-
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
 }
 
-@keyframes ds-sheet-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes ds-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ds-spin { to { transform: rotate(360deg); } }
-@keyframes ds-shimmer { from { background-position: -200px 0; } to { background-position: 200px 0; } }
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

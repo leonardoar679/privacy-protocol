@@ -15,7 +15,7 @@ import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
-import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, StatusBadge, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
+import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, StatusBadge, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "@privacy-wallet/sdk/swapExecute";
@@ -531,7 +531,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
               const a = assetOf(s);
               return (
                 <ListRow key={s.orderId} title={`${formatAmount(a, BigInt((s.params as { amount: string }).amount))} ${a.symbol} → ${(s.request as { to: { symbol: string } }).to.symbol}`} subtitle={`${s.state}${s.dueAt && !s.fundedTx ? ` · ${t("swap.fundingAt", { time: new Date(s.dueAt).toLocaleString() })}` : ""}`}
-                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!s.fundedTx ? <Button variant="ghost" onClick={() => abandonSwap(s.orderId)}>{t("swap.abandon")}</Button> : null}</span>} />
+                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!s.fundedTx ? <TextButton onClick={() => abandonSwap(s.orderId)}>{t("swap.abandon")}</TextButton> : null}</span>} />
               );
             })}
           </Card>
@@ -543,7 +543,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
             {error ? <p className="ds-note-warn" data-testid="swap-error">{error}</p> : null}
             <OrderPanel order={order} stored={stored} orderAsset={orderAsset} target={orderTarget(stored, to, TARGETS)} destination={String((stored?.request as { destination?: string } | undefined)?.destination ?? destination)} destinationEdited={destinationEdited} orderKeyAddress={orderKey?.address} job={job} tracked={tracked} record={record} signed={signed} checked={checked} moved={moved} refundLine={refundLine} signLint={signLint} advanced={advanced} busy={busy} submission={submission} holdActive={holdActive} canExport={executeControls.export}
               onFundNow={() => void fundNow()} onSign={(acceptMin) => void signAndHand(acceptMin)} onReturn={() => void returnToBalance()} onExport={() => stored && downloadText(`privacy-wallet-order-${stored.orderId.slice(2, 10)}.json`, exportOrderReview(stored, { lint: signLint }))} onMonitor={() => setTick((n) => n + 1)} />
-            <Button variant="ghost" onClick={() => { reset(); setQuotes(null); }} data-testid="swap-new">{t("swap.newSwap")}</Button>
+            <TextButton onClick={() => { reset(); setQuotes(null); }} data-testid="swap-new">{t("swap.newSwap")}</TextButton>
           </>
         ) : null}
       </div>

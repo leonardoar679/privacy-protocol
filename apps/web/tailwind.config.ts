@@ -1,13 +1,13 @@
-// Tailwind over the design tokens (spec §4): every colour, radius, shadow, duration and layer is a CSS variable of
-// tokens.css, so a utility class and a `var(--…)` in a stylesheet always agree. Preflight is off: the legacy
-// stylesheet (styles.css) keeps its look until Stage 10, and base.css carries the small reset the new screens need.
+// Tailwind over the design tokens (spec v2.0 §5): every colour, type role, radius, shadow, duration and layer is a CSS
+// variable of tokens.css, so a utility class and a `var(--…)` in a stylesheet always agree. Preflight is off: the
+// legacy stylesheet (styles.css) keeps its look until the screens are rebuilt, and base.css carries the small reset.
 import type { Config } from "tailwindcss";
-import { BREAKPOINTS, MOTION, TYPE, Z, type ColorName, type TypeRole } from "@privacy-wallet/ui/tokens";
+import { BREAKPOINTS, COLOR_NAMES, MOTION, TYPE_ROLES, Z } from "@privacy-wallet/ui/tokens";
 
 const v = (name: string) => `var(--${name})`;
-const COLOR_NAMES: ColorName[] = ["bg", "surface", "surface-2", "border", "fg", "fg-muted", "accent", "accent-fg", "accent-soft", "shield", "shield-soft", "warn", "warn-soft", "danger", "danger-soft", "success"];
 const colors = Object.fromEntries(COLOR_NAMES.map((n) => [n, v(n)]));
-const fontSize = Object.fromEntries((Object.keys(TYPE) as TypeRole[]).map((r) => [r, [`${TYPE[r].size}px`, { lineHeight: `${TYPE[r].line}px`, fontWeight: `${TYPE[r].weight}` }]]));
+// every role through its variables, so a high-contrast or a larger-text override reaches the utilities too
+const fontSize = Object.fromEntries(TYPE_ROLES.map((r) => [r, [v(`${r}-size`), { lineHeight: v(`${r}-line`), fontWeight: v(`${r}-weight`), letterSpacing: v(`${r}-tracking`) }]]));
 
 export default {
   // the design system is a package (V6 Stage 4): its components' classes are generated with the app's

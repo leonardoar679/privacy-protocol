@@ -5,7 +5,7 @@
 // (encrypted) and nothing is sent anywhere.
 import { useState } from "react";
 import { formatEther, parseEther } from "viem";
-import { Button, Card, Field, Page, TextInput } from "@privacy-wallet/ui";
+import { Button, Card, Field, Page, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
@@ -91,7 +91,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
               </select>
             </Field>
             {s.submission.kind === "relayer" ? (
-              <Field label={t("advanced.relayerUrl")} htmlFor="relayer-url"><TextInput id="relayer-url" value={s.submission.url} onChange={(e) => settings.set({ submission: { kind: "relayer", url: e.target.value } })} data-testid="relayer-url" /></Field>
+              <Field label={t("advanced.relayerUrl")} htmlFor="relayer-url"><Input id="relayer-url" value={s.submission.url} onChange={(e) => settings.set({ submission: { kind: "relayer", url: e.target.value } })} data-testid="relayer-url" /></Field>
             ) : null}
           </div>
         </Card>
@@ -100,7 +100,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
           <div className="ds-stack-sm">
             <h2 className="ds-review-title">{t("advanced.maintenanceTitle")}</h2>
             {toggle(s.housekeeping.enabled, (v) => settings.set({ housekeeping: { ...s.housekeeping, enabled: v } }), t("advanced.maintenanceToggle"), "maintenance-enabled")}
-            <Field label={t("advanced.feeCap")} htmlFor="fee-cap" hint={t("advanced.feeCapNote")}><TextInput id="fee-cap" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyCap} data-testid="fee-cap" /></Field>
+            <Field label={t("advanced.feeCap")} htmlFor="fee-cap" hint={t("advanced.feeCapNote")}><Input id="fee-cap" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyCap} data-testid="fee-cap" /></Field>
           </div>
         </Card>
 
@@ -113,7 +113,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
               <div className="ds-note-warn" data-testid="protection-off-warning">
                 <p><b>{t("advanced.protection.offWarningTitle")}</b> {t("advanced.protection.offWarning")}</p>
                 <div className="ds-actions">
-                  <Button variant="danger" onClick={() => { settings.set({ protection: { ...p, enabled: false } }); setOffAsk(false); }} data-testid="protection-off-confirm">{t("advanced.protection.offConfirm")}</Button>
+                  <Button variant="destructive" onClick={() => { settings.set({ protection: { ...p, enabled: false } }); setOffAsk(false); }} data-testid="protection-off-confirm">{t("advanced.protection.offConfirm")}</Button>
                   <Button variant="secondary" onClick={() => setOffAsk(false)}>{t("advanced.protection.keepOn")}</Button>
                 </div>
               </div>
@@ -129,13 +129,13 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
               ))}
             </div>
             <Field label={t("advanced.protection.exposure", { min: CAP_BPS_RANGE[0] / 100, max: CAP_BPS_RANGE[1] / 100 })} htmlFor="exposure" error={exposureError || undefined}>
-              <TextInput id="exposure" inputMode="decimal" value={exposure} onChange={(e) => setExposure(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyExposure} invalid={!!exposureError} data-testid="exposure-input" />
+              <Input id="exposure" inputMode="decimal" value={exposure} onChange={(e) => setExposure(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyExposure} invalid={!!exposureError} data-testid="exposure-input" />
             </Field>
             {toggle(p.pauseLargeOperations, (v) => settings.set({ protection: { ...p, pauseLargeOperations: v } }), t("advanced.protection.pause"), "pause-large-operations")}
             {toggle(p.autoReroute, (v) => settings.set({ protection: { ...p, autoReroute: v } }), t("advanced.protection.autoReroute"), "auto-reroute")}
             <p className="ds-note"><b>{t("advanced.protection.advancedWord")}</b> {t("advanced.protection.advancedNote")}</p>
-            <Field label={t("advanced.protection.concentration")} htmlFor="concentration"><TextInput id="concentration" inputMode="decimal" value={share} onChange={(e) => setShare(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyShare} data-testid="concentration-input" /></Field>
-            <Field label={t("advanced.protection.velocity")} htmlFor="velocity" error={knobError || undefined}><TextInput id="velocity" inputMode="numeric" value={velocity} onChange={(e) => setVelocity(e.target.value.replace(/[^0-9]/g, ""))} onBlur={applyVelocity} data-testid="velocity-input" /></Field>
+            <Field label={t("advanced.protection.concentration")} htmlFor="concentration"><Input id="concentration" inputMode="decimal" value={share} onChange={(e) => setShare(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyShare} data-testid="concentration-input" /></Field>
+            <Field label={t("advanced.protection.velocity")} htmlFor="velocity" error={knobError || undefined}><Input id="velocity" inputMode="numeric" value={velocity} onChange={(e) => setVelocity(e.target.value.replace(/[^0-9]/g, ""))} onBlur={applyVelocity} data-testid="velocity-input" /></Field>
             {toggle(p.notifications.inApp, (v) => settings.set({ protection: { ...p, notifications: { ...p.notifications, inApp: v } } }), t("advanced.protection.inApp"), "notify-in-app")}
             {toggle(p.notifications.system, (v) => void enableSystemNotifications(v), t("advanced.protection.system"), "notify-system")}
             {toggle(p.notifications.generic, (v) => settings.set({ protection: { ...p, notifications: { ...p.notifications, generic: v } } }), t("advanced.protection.generic"), "notify-generic")}

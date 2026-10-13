@@ -1,12 +1,14 @@
-// The inputs (spec §3.4–§3.6, §5): a labelled field, the amount in large tabular digits with the common-size chips
-// and Max, the address with its four checks and the address book, a segmented choice, a switch row.
+// The inputs (spec v2.0 §5; doc §9, §56): a labelled field, the amount in large tabular digits with the common-size
+// chips and Max, the address with its four checks and the address book, a segmented choice, the asset and network
+// pickers. Amounts are typed with inputmode="decimal", addresses with inputmode="text" and no autocorrection — never
+// type="number".
 import { useLabels } from "../labels";
 import { useState, type ChangeEvent, type InputHTMLAttributes, type ReactNode } from "react";
 import { cx, nextId } from "../cx";
 import { AssetMonogram, Icon } from "../icons";
-import { Dialog } from "../primitives/Dialog";
 import { Button, IconButton } from "./Button";
 import type { AssetView } from "./Money";
+import { BottomSheet } from "./Sheets";
 
 export function Field({ label, htmlFor, hint, error, children, testId }: { label: ReactNode; htmlFor: string; hint?: ReactNode; error?: ReactNode; children: ReactNode; testId?: string }) {
   return (
@@ -18,7 +20,7 @@ export function Field({ label, htmlFor, hint, error, children, testId }: { label
   );
 }
 
-export function TextInput({ className, invalid, ...rest }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+export function Input({ className, invalid, ...rest }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
   return <input className={cx("ds-input", className)} aria-invalid={invalid || undefined} {...rest} />;
 }
 
@@ -71,7 +73,7 @@ export function AddressInput({ id, label, value, onChange, checks, status, onPas
     <Field label={label} htmlFor={id} error={error} testId={testId}>
       <div className="ds-address">
         <div className="ds-address-row">
-          <input id={id} className="ds-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoComplete="off" spellCheck={false} aria-invalid={error ? true : undefined} data-testid={`${testId}-input`} />
+          <input id={id} className="ds-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode="text" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} aria-invalid={error ? true : undefined} data-testid={`${testId}-input`} />
           <IconButton label={pasteLabel ?? L.paste} icon="paste" onClick={() => void paste()} data-testid={`${testId}-paste`} />
         </div>
         {checks.length ? (
@@ -117,7 +119,7 @@ export function AssetSelector({ open, onClose, assets, value, onChange, title, s
   const [id] = useState(() => nextId("asset-search"));
   const shown = assets.filter((a) => `${a.symbol} ${a.name} ${a.chain ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }} title={heading} variant="sheet" testId={testId}>
+    <BottomSheet open={open} onClose={onClose} title={heading} testId={testId} id={testId}>
       <label htmlFor={id} className="sr-only">{search}</label>
       <input id={id} className="ds-input" placeholder={search} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" data-testid={`${testId}-search`} />
       <div role="listbox" aria-label={heading}>
@@ -129,6 +131,74 @@ export function AssetSelector({ open, onClose, assets, value, onChange, title, s
           </button>
         ))}
       </div>
-    </Dialog>
+    </BottomSheet>
+  );
+}
+
+export interface ChainOption {
+  id: string;
+  name: string;
+  /** a short fact under the name ("Fees ≈ $0.40", "Recommended") */
+  detail?: string;
+  /** false: listed and explained, not selectable (spec §9: temporarily unavailable) */
+  available?: boolean;
+  unavailableReason?: string;
+}
+
+/** The network picker (doc §9, §55): a sheet on a phone, a centred dialog from 1024 px; an unavailable network says why. */
+export function ChainSelector({
+  open,
+  onClose,
+  chains,
+  value,
+  onChange,
+  title,
+  testId = "chain-selector",
+}: {
+  open: boolean;
+  onClose: () => void;
+  chains: ChainOption[];
+  value?: string;
+  onChange: (id: string) => void;
+  title?: string;
+  testId?: string;
+}) {
+  const L = useLabels();
+  const heading = title ?? L.chooseNetwork;
+  return (
+    <BottomSheet open={open} onClose={onClose} title={heading} testId={testId} id={testId}>
+      <div role="listbox" aria-label={heading}>
+        {chains.map((c) => {
+          const off = c.available === false;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="option"
+              aria-selected={c.id === value}
+              aria-disabled={off || undefined}
+              className="ds-asset-row ds-chain-row"
+              onClick={() => {
+                if (off) return;
+                onChange(c.id);
+                onClose();
+              }}
+              data-testid={`${testId}-option`}
+              data-chain={c.id}
+              data-available={off ? "false" : "true"}
+            >
+              <span className="ds-chain-mark" aria-hidden>
+                <Icon name="globe" size={20} />
+              </span>
+              <span className="ds-asset-main">
+                <span>{c.name}</span>
+                {off || c.detail ? <span className="ds-asset-name">{off ? (c.unavailableReason ?? L.unavailable) : c.detail}</span> : null}
+              </span>
+              {c.id === value ? <Icon name="check" size={18} /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </BottomSheet>
   );
 }

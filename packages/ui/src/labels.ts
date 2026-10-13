@@ -10,6 +10,7 @@ export interface Labels {
   paste: string; search: string; max: string; commonSizes: string; addressBook: string; chooseAsset: string;
   totalFees: string; viewFeeDetails: string; compareRoutes: string;
   loading: string; notifications: string; mainNav: string;
+  skipToContent: string; chooseNetwork: string; unavailable: string; switchDirection: string; copy: string; copied: string;
 }
 
 export const DEFAULT_LABELS: Readonly<Labels> = Object.freeze({
@@ -18,6 +19,8 @@ export const DEFAULT_LABELS: Readonly<Labels> = Object.freeze({
   paste: "Paste", search: "Search", max: "Max", commonSizes: "Common sizes", addressBook: "Address book", chooseAsset: "Choose asset",
   totalFees: "Total fees", viewFeeDetails: "View fee details", compareRoutes: "Compare routes",
   loading: "Loading…", notifications: "Notifications", mainNav: "Main",
+  skipToContent: "Skip to content", chooseNetwork: "Choose network", unavailable: "Temporarily unavailable", switchDirection: "Switch direction",
+  copy: "Copy", copied: "Copied",
 });
 
 let current: Labels = { ...DEFAULT_LABELS };

@@ -7,7 +7,7 @@
 import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { levelOf, type Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button } from "@privacy-wallet/ui";
+import { Button, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../../app/i18n/useT";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
@@ -66,7 +66,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
         <b>{t("campaign.title", { from: sym, to: c.request.to.symbol })}</b>
         <b className={statusClass} data-testid="campaign-status">{status.mark} {status.word}</b>
       </div>
-      <div className="ds-review-amount" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? t("campaign.stepOf", { step, total }) : t("campaign.executing")}</div>
+      <div className="ds-review-amount-v5" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? t("campaign.stepOf", { step, total }) : t("campaign.executing")}</div>
       {valued !== null && !terminal ? <p className="ds-note" data-testid="campaign-headline">{t("campaign.headline", { usd: formatUsd(valued) })}</p> : null}
       <p className="ds-note">{terminal ? (c.state === "completed" ? t("campaign.everySettled") : t("campaign.restReturned")) : `${t("campaign.counts", { settled, executing: e.inFlightCount, remaining })}${unknown ? ` · ${t("campaign.unknownCount", { n: unknown })}` : ""}${privacy ? ` · ${t("campaign.privacyLevel", { level: privacy })}` : ""}`}</p>
       <svg className="ds-protection-bar" data-testid="protection-bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label={t("campaign.barLabel")}>
@@ -100,7 +100,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
         {c.state === "paused" ? <Button onClick={onResume} data-testid="campaign-resume-button">{t("campaign.resume")}</Button> : null}
         {c.state === "rerouting" && onReviewReroute ? <Button onClick={onReviewReroute} data-testid="campaign-reroute-button">{t("campaign.reviewRoute")}</Button> : null}
         {!terminal && c.state !== "winding-down" ? <Button variant="secondary" onClick={onCancel} data-testid="campaign-cancel-button" title={t("campaign.cancelHint")}>{t("campaign.cancel")}</Button> : null}
-        {onBack ? <Button variant="ghost" onClick={onBack}>{t("campaign.back")}</Button> : null}
+        {onBack ? <TextButton onClick={onBack}>{t("campaign.back")}</TextButton> : null}
       </div>
       {!terminal ? <p className="ds-note">{t("campaign.leaveNote")}</p> : null}
 

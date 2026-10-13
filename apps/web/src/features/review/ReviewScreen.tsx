@@ -11,7 +11,7 @@ import { useState, type ReactNode } from "react";
 import type { Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Collapsible, HoldButton, TextInput } from "@privacy-wallet/ui";
+import { Button, Collapsible, HoldButton, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { assertSecondFactor, verifyPassword, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
@@ -134,7 +134,7 @@ export function Review(p: ReviewProps) {
       <h2 className="ds-review-title">{title}</h2>
       <p className="ds-note">{what} {tierLabel[p.tier]}.</p>
       <div className="ds-numeral ds-review-usd" data-testid="review-usd">{p.usd ?? "—"}</div>
-      <div className="ds-review-amount">{p.amount}</div>
+      <div className="ds-review-amount-v5">{p.amount}</div>
       <Row label={t("review.from")}>{p.from}</Row>
       <DestinationCard title={t("review.to")} network={p.to.network} asset={p.to.asset} address={p.to.address} kind={p.to.kind} />
       {p.receiveMin ? <Row label={t("review.receiveAtLeast")}>{p.receiveMin}</Row> : null}
@@ -228,7 +228,7 @@ export function Review(p: ReviewProps) {
       {factor === "password" ? (
         <div className="ds-review-block" data-testid="second-factor-password">
           <div className="ds-note">{p.secondFactor?.credentialId ? t("review.factor.passwordAfterDecline") : t("review.factor.passwordNoAuthenticator")}</div>
-          <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void confirmWithPassword(); }} autoComplete="current-password" aria-label={t("review.factor.passwordLabel")} />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void confirmWithPassword(); }} autoComplete="current-password" aria-label={t("review.factor.passwordLabel")} />
           <Button onClick={() => void confirmWithPassword()} disabled={!password || !!p.busy}>{t("review.factor.confirmWithPassword")}</Button>
         </div>
       ) : null}
@@ -242,7 +242,7 @@ export function Review(p: ReviewProps) {
         {factor !== "password" ? (p.controls.hold
           ? <HoldButton label={confirmLabel} holdMs={holdMs()} onConfirm={() => void confirm()} disabled={!ready || asking} hint={t("review.holdHint")} holdingLabel={t("review.holding")} />
           : <Button size="lg" full onClick={() => void confirm()} disabled={!ready || asking} data-testid="confirm-tap">{confirmLabel}</Button>) : null}
-        <Button variant="ghost" onClick={p.onCancel} disabled={!!p.busy}>{t("review.back")}</Button>
+        <TextButton onClick={p.onCancel} disabled={!!p.busy}>{t("review.back")}</TextButton>
       </div>
       {!ready && !p.busy ? <p className="ds-note">{blocks.length ? t("review.ackLint") : pendingLines.length ? t("review.waitingOn", { lines: pendingLines.map((l) => l.label).join(", ") }) : ""}</p> : null}
     </div>

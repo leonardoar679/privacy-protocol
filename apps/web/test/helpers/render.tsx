@@ -5,8 +5,8 @@ import { buildRoutes, PROVIDER_FUTURE, ROUTER_FUTURE } from "../../src/routes";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 
-export async function renderApp(path = "/", opts: { dev?: boolean; deployment?: Deployment | null } = {}) {
-  const router = createMemoryRouter(buildRoutes({ dev: opts.dev ?? false, deployment: opts.deployment }), { initialEntries: [path], future: ROUTER_FUTURE });
+export async function renderApp(path = "/", opts: { preview?: boolean; deployment?: Deployment | null } = {}) {
+  const router = createMemoryRouter(buildRoutes({ preview: opts.preview ?? false, deployment: opts.deployment }), { initialEntries: [path], future: ROUTER_FUTURE });
   const utils = render(<RouterProvider router={router} future={PROVIDER_FUTURE} />);
   await act(async () => { await session.ready; });
   return { router, ...utils, pathname: () => router.state.location.pathname };

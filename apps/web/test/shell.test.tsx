@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-// The application shell (spec §2, §3.1, §6): the gate's redirects, the first-launch copy and the Simple default, the
-// experience preference mirrored into the journal, the More menu, the lazy routes, the gallery in dev only, the
-// Classic entry, Connect Wallet on the welcome screen, an unknown path back to Home.
+// The application shell (spec §2, §3.1, §6; v2.0 §6): the gate's redirects, the first-launch copy and the Simple
+// default, the experience preference mirrored into the journal, the More menu and — from 1024 px — the Wallet menu with
+// the same entries (doc §88), the lazy routes, the component preview in the dev and fixtures builds only, the Classic
+// entry, Connect Wallet on the welcome screen, an unknown path back to Home.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -89,6 +90,28 @@ describe("the application shell (spec §2)", () => {
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("more");
   });
+  it("from 1024 px: the top bar (Home · Swap · Activity · Wallet) above the content; the Wallet menu holds the connection and every More entry (doc §88)", async () => {
+    (globalThis as { __TEST_VIEWPORT_WIDTH__?: number }).__TEST_VIEWPORT_WIDTH__ = 1440;
+    try {
+      await unlockedWallet();
+      const { pathname } = await renderApp("/");
+      await screen.findByTestId("home");
+      expect(screen.queryByTestId("bottom-navigation")).toBeNull();
+      const top = screen.getByTestId("top-navigation");
+      expect([...top.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["Home", "Swap", "Activity"]);
+      expect(screen.getByTestId("app-bar").compareDocumentPosition(screen.getByRole("main")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      fireEvent.click(screen.getByTestId("nav-wallet"));
+      const panel = screen.getByTestId("nav-wallet-panel");
+      expect(within(panel).getByTestId("menu-connection")).toHaveTextContent("Not connected");
+      // the same entries as the phone's More screen, Advanced only in the advanced experience
+      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-privacy", "menu-security", "menu-wallet", "menu-classic", "menu-ai"]);
+      fireEvent.click(within(panel).getByTestId("menu-security"));
+      expect(pathname()).toBe("/more/security");
+      expect(screen.queryByTestId("nav-wallet-panel")).toBeNull();
+    } finally {
+      delete (globalThis as { __TEST_VIEWPORT_WIDTH__?: number }).__TEST_VIEWPORT_WIDTH__;
+    }
+  });
   it("the Swap route is a separate chunk that resolves through the shell's loading state", async () => {
     await unlockedWallet();
     const { pathname } = await renderApp("/");
@@ -98,15 +121,16 @@ describe("the application shell (spec §2)", () => {
     expect(await screen.findByTestId("swap", {}, LAZY)).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Swap" })).toHaveAttribute("aria-current", "page");
   });
-  it("the gallery route exists in dev builds only", async () => {
+  it("the component preview exists only where the build carries it (dev and fixtures), outside the wallet's gates", async () => {
     await unlockedWallet();
-    const a = await renderApp("/gallery", { dev: false });
+    const a = await renderApp("/__preview", { preview: false });
     await screen.findByTestId("home");
     expect(a.pathname()).toBe("/");
     a.unmount();
-    const b = await renderApp("/gallery", { dev: true });
-    expect(await screen.findByTestId("gallery", {}, LAZY)).toBeInTheDocument();
-    expect(b.pathname()).toBe("/gallery");
+    session.lock();
+    const b = await renderApp("/__preview", { preview: true });
+    expect(await screen.findByTestId("preview", {}, LAZY)).toBeInTheDocument();
+    expect(b.pathname()).toBe("/__preview");
   });
   it("Connect Wallet on the welcome screen uses the injected provider and shows the short account", async () => {
     (window as unknown as Record<string, unknown>).ethereum = { request: async ({ method }: { method: string }) => (method === "eth_requestAccounts" ? ["0x7A0000000000000000000000000000000000091F2"] : null) };

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
 import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
-import { AmountInput, AssetSelector, Button, Card, Collapsible, ConfirmSheet, FeeSummary, ListRow, Page, SecurityCard, StatusBadge, type AssetOption } from "@privacy-wallet/ui";
+import { AmountInput, AssetSelector, Button, Card, Collapsible, ConfirmSheet, FeeSummary, ListRow, Page, SecurityCard, StatusBadge, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { readAllowance, revokeAllowance } from "@privacy-wallet/sdk/allowances";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
@@ -152,7 +152,7 @@ export function Protect(p: ProtectProps) {
     <SecurityCard title={t("backup.title")} body={t("backup.body")} testId="backup-nudge" action={
       <div className="ds-actions">
         <Button variant="secondary" onClick={() => { nudgeDismissed = true; setNudge(false); p.onBackup?.(); }} data-testid="backup-now">{t("backup.now")}</Button>
-        <Button variant="ghost" onClick={() => { nudgeDismissed = true; setNudge(false); }} data-testid="backup-later">{t("backup.later")}</Button>
+        <TextButton onClick={() => { nudgeDismissed = true; setNudge(false); }} data-testid="backup-later">{t("backup.later")}</TextButton>
       </div>
     } />
   ) : null;

@@ -2,7 +2,7 @@
 // restore from the phrase or from a backup file. Nothing here talks to the network; the session does the work.
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Field, Page, Segmented, TextInput } from "@privacy-wallet/ui";
+import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks";
@@ -25,10 +25,10 @@ function ModeLinks({ mode }: { mode: LockMode }) {
   const s = useSession();
   return (
     <div className="ds-chips">
-      {s.status === "locked" && mode !== "unlock" ? <Button variant="ghost" onClick={() => navigate("/unlock")}>{t("lock.toUnlock")}</Button> : null}
-      {mode !== "create" ? <Button variant="ghost" onClick={() => navigate("/create")} data-testid="to-create">{s.status === "locked" ? t("lock.createReplacing") : t("lock.create")}</Button> : null}
-      {mode !== "restore" ? <Button variant="ghost" onClick={() => navigate("/restore")} data-testid="to-restore">{t("lock.restorePhrase")}</Button> : null}
-      <Button variant="ghost" onClick={() => navigate("/guest")} data-testid="to-guest">{t("lock.guest")}</Button>
+      {s.status === "locked" && mode !== "unlock" ? <TextButton onClick={() => navigate("/unlock")}>{t("lock.toUnlock")}</TextButton> : null}
+      {mode !== "create" ? <TextButton onClick={() => navigate("/create")} data-testid="to-create">{s.status === "locked" ? t("lock.createReplacing") : t("lock.create")}</TextButton> : null}
+      {mode !== "restore" ? <TextButton onClick={() => navigate("/restore")} data-testid="to-restore">{t("lock.restorePhrase")}</TextButton> : null}
+      <TextButton onClick={() => navigate("/guest")} data-testid="to-guest">{t("lock.guest")}</TextButton>
     </div>
   );
 }
@@ -44,7 +44,7 @@ export function Unlock() {
         <Card padding="lg">
           <form onSubmit={submit} className="ds-page-body">
             <Field label={t("lock.password")} htmlFor="unlock-password" error={error || undefined}>
-              <TextInput id="unlock-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+              <Input id="unlock-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
             </Field>
             <Button size="lg" full type="submit" disabled={busy || !password} data-testid="unlock">{t("lock.unlock")}</Button>
           </form>
@@ -60,7 +60,7 @@ function ReplaceConfirm({ value, onChange }: { value: string; onChange: (v: stri
   return (
     <div className="notice">
       <p>{t("lock.replaceWarning")}</p>
-      <TextInput value={value} onChange={(e) => onChange(e.target.value)} placeholder={t("lock.replacePlaceholder")} autoComplete="off" data-testid="replace-confirm" aria-label={t("lock.replacePlaceholder")} />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={t("lock.replacePlaceholder")} autoComplete="off" data-testid="replace-confirm" aria-label={t("lock.replacePlaceholder")} />
     </div>
   );
 }
@@ -81,8 +81,8 @@ export function Create() {
         <Card padding="lg">
           <p className="ds-field-hint">{t("lock.createIntro")}</p>
           <form onSubmit={submit} className="ds-page-body">
-            <Field label={t("lock.passwordNew")} htmlFor="create-password"><TextInput id="create-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>
-            <Field label={t("lock.passwordConfirm")} htmlFor="create-confirm" error={error || undefined}><TextInput id="create-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
+            <Field label={t("lock.passwordNew")} htmlFor="create-password"><Input id="create-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>
+            <Field label={t("lock.passwordConfirm")} htmlFor="create-confirm" error={error || undefined}><Input id="create-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
             {replacing ? <ReplaceConfirm value={replace} onChange={setReplace} /> : null}
             <Button size="lg" full type="submit" disabled={busy || !ok} data-testid="create">{t("lock.create")}</Button>
           </form>
@@ -120,14 +120,14 @@ export function Restore() {
           <form onSubmit={submit} className="ds-page-body">
             {kind === "phrase" ? (
               <>
-                <Field label={t("lock.phraseLabel")} htmlFor="restore-words" hint={t("lock.phraseRescan")}><TextInput id="restore-words" value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("lock.phrasePlaceholder")} autoComplete="off" spellCheck={false} /></Field>
-                <Field label={t("lock.passwordNew")} htmlFor="restore-password"><TextInput id="restore-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>
-                <Field label={t("lock.passwordConfirm")} htmlFor="restore-confirm" error={error || undefined}><TextInput id="restore-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
+                <Field label={t("lock.phraseLabel")} htmlFor="restore-words" hint={t("lock.phraseRescan")}><Input id="restore-words" value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("lock.phrasePlaceholder")} autoComplete="off" spellCheck={false} /></Field>
+                <Field label={t("lock.passwordNew")} htmlFor="restore-password"><Input id="restore-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>
+                <Field label={t("lock.passwordConfirm")} htmlFor="restore-confirm" error={error || undefined}><Input id="restore-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
               </>
             ) : (
               <>
-                <Field label={t("lock.fileLabel")} htmlFor="restore-json"><TextInput id="restore-json" value={file} onChange={(e) => setFile(e.target.value)} autoComplete="off" spellCheck={false} /></Field>
-                <Field label={t("lock.passwordBackup")} htmlFor="restore-file-password" error={error || undefined}><TextInput id="restore-file-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></Field>
+                <Field label={t("lock.fileLabel")} htmlFor="restore-json"><Input id="restore-json" value={file} onChange={(e) => setFile(e.target.value)} autoComplete="off" spellCheck={false} /></Field>
+                <Field label={t("lock.passwordBackup")} htmlFor="restore-file-password" error={error || undefined}><Input id="restore-file-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></Field>
               </>
             )}
             {replacing ? <ReplaceConfirm value={replace} onChange={setReplace} /> : null}

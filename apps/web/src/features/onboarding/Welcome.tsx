@@ -2,7 +2,7 @@
 // The choice is a preference (spec §8), written here and mirrored into the journal at unlock.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Page, RadioGroup } from "@privacy-wallet/ui";
+import { Button, Card, Page, RadioGroup, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
 import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
@@ -30,7 +30,7 @@ export function Welcome() {
             {conn.status === "connected" ? <Button size="lg" full onClick={() => setStep("experience")} data-testid="welcome-continue">{t("common.continue")}</Button>
               : <Button size="lg" full loading={conn.status === "connecting"} onClick={() => void connection.connect()} data-testid="welcome-connect">{t("welcome.connect")}</Button>}
             <p className="ds-field-hint">{t("welcome.noAccount")}</p>
-            {conn.status !== "connected" ? <Button variant="ghost" full onClick={() => setStep("experience")} data-testid="welcome-skip">{t("welcome.skip")}</Button> : null}
+            {conn.status !== "connected" ? <TextButton onClick={() => setStep("experience")} data-testid="welcome-skip">{t("welcome.skip")}</TextButton> : null}
           </Card>
         </Page>
       </main>

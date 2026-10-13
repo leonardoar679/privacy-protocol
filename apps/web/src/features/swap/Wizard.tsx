@@ -4,7 +4,7 @@
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import type { LintId, LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card } from "@privacy-wallet/ui";
+import { Button, Card, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
@@ -76,7 +76,7 @@ export function Wizard(p: WizardProps) {
         ) : null}
         <div className="ds-actions">
           <Button onClick={p.onNext} disabled={p.step === 2 && !destinationOk} data-testid="wizard-next" title={p.step === 2 && p.ctx.destinationEdited && !(p.destCheck?.verified ?? false) ? t("wizard.verifyFirst") : undefined}>{p.step < 2 ? t("wizard.continue") : t("wizard.continueToReview")}</Button>
-          <Button variant="ghost" onClick={p.onBack}>{t("campaign.back")}</Button>
+          <TextButton onClick={p.onBack}>{t("campaign.back")}</TextButton>
         </div>
       </div>
     </Card>

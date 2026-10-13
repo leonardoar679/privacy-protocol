@@ -3,17 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The design system (doc §8–§12; spec v2.0 §5): the tokens and their stylesheet, the icons, the wrapped Radix primitives and the component inventory every screen is composed from. Presentation only: it never imports the SDK or an engine.",
+  "description": "The design system (doc §6–§12, §55–§57; spec v2.0 §5): the tokens and their stylesheet, the self-hosted Inter, the icons, the wrapped Radix primitives, the component inventory of doc §9 and the patterns every screen is composed from. Presentation only: it never imports the SDK or an engine.",
   "exports": {
     ".": "./src/index.ts",
-    "./tokens": "./src/tokens.ts",
+    "./tokens": "./src/tokens/index.ts",
+    "./tokens.css": "./src/tokens/tokens.css",
     "./labels": "./src/labels.ts",
     "./cx": "./src/cx.ts",
-    "./Gallery": "./src/Gallery.tsx",
+    "./format": "./src/format.ts",
+    "./Preview": "./src/Preview.tsx",
     "./icons": "./src/icons/index.tsx",
     "./primitives": "./src/primitives/index.ts",
     "./primitives/*": "./src/primitives/*.tsx",
     "./components/*": "./src/components/*.tsx",
+    "./patterns": "./src/patterns/index.ts",
+    "./patterns/*": "./src/patterns/*.tsx",
+    "./animations": "./src/animations/index.ts",
     "./*.css": "./src/*.css"
   },
   "scripts": {
@@ -22,6 +27,7 @@
     "tokens": "vite-node scripts/build-tokens.ts"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@radix-ui/react-dialog": "^1.2.0",
     "@radix-ui/react-radio-group": "^1.4.8",
     "@radix-ui/react-slot": "^1.4.0",
@@ -35,7 +41,13 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.5",
     "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0"
+    "@types/react-dom": "^18.3.0",
+    "axe-core": "^4.14.0",
+    "happy-dom": "^15.11.7",
+    "jsdom": "^30.1.2"
   }
 }

@@ -66,9 +66,13 @@ export function FeeSummary({ receive, pay, total, totalLabel, detailsLabel, line
 
 export type ProtectionLevel = "High" | "Reduced" | "Off";
 
+/** A shield or a check mark that a catalog string may still carry: the badge draws the one mark itself. */
+const OWN_MARK = /^[\u{1F6E1}️✓✔\s]+|[\s✓✔]+$/gu;
+
+/** The protection mark (doc §35): exactly one icon, whatever the label carries (V5 drew the shield twice on Home). */
 export function ProtectionBadge({ level, label, onPress, testId = "protection-badge" }: { level: ProtectionLevel; label: string; onPress?: () => void; testId?: string }) {
   const cls = cx("ds-badge", `ds-badge-${level.toLowerCase()}`);
-  const inner = <><Icon name={level === "Off" ? "shield" : "shield-check"} size={18} /><span>{label}</span></>;
+  const inner = <><Icon name={level === "Off" ? "shield" : "shield-check"} size={18} /><span>{label.replace(OWN_MARK, "")}</span></>;
   return onPress
     ? <button type="button" className={cls} onClick={onPress} data-testid={testId} data-level={level}>{inner}</button>
     : <span className={cls} data-testid={testId} data-level={level}>{inner}</span>;
@@ -87,7 +91,7 @@ export function QuoteCard({ quote, labels, onCompare, compareLabel, testId = "qu
   return (
     <Card elevation={1} testId={testId}>
       <div className="ds-quote">
-        <div className="ds-quote-head"><span>{quote.route}</span><ProtectionBadge level={quote.protection} label={quote.protection === "High" ? `${labels.protection} ✓` : labels.protection} /></div>
+        <div className="ds-quote-head"><span>{quote.route}</span><ProtectionBadge level={quote.protection} label={labels.protection} /></div>
         <dl className="ds-quote-rows">
           <dt>{labels.pay}</dt><dd className="ds-numeral">{quote.pay}</dd>
           <div className="ds-quote-receive" style={{ display: "contents" }}><dt>{labels.receive}</dt><dd className="ds-numeral" data-testid={`${testId}-receive`}>{quote.receive}</dd></div>

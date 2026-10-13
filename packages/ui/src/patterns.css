@@ -1,0 +1,76 @@
+/* The patterns' styles (spec v2.0 §5): the flow card, the fee lines, the review, the four screen states, the address
+   chip, the amounts and the sticky primary action. Every value a token. */
+
+/* AmountText */
+.ds-amount-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-amount-text-large { font-size: var(--numeric-large-size); line-height: var(--numeric-large-line); font-weight: var(--numeric-large-weight); letter-spacing: var(--numeric-large-tracking); }
+.ds-amount-text-medium { font-size: var(--numeric-medium-size); line-height: var(--numeric-medium-line); font-weight: var(--numeric-medium-weight); letter-spacing: var(--numeric-medium-tracking); }
+
+/* AddressChip: 0x43…82C1 */
+.ds-address-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 2px var(--space-1) 2px var(--space-2); border-radius: var(--radius-full); background: var(--surface-2); font-family: var(--font-mono); font-size: var(--body-small-size); white-space: nowrap; }
+.ds-address-chip-copy { display: inline-flex; align-items: center; justify-content: center; width: var(--touch); height: var(--touch); margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; border: none; border-radius: var(--radius-full); background: transparent; color: var(--fg-muted); cursor: pointer; }
+.ds-address-chip-copy:hover { color: var(--fg); background: var(--surface); }
+
+/* FlowCard: what you have → what you want */
+.ds-flow { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--elevation-1); min-width: 0; }
+.ds-flow-side { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); min-width: 0; }
+.ds-flow-label { color: var(--fg-muted); font-size: var(--body-small-size); font-weight: var(--weight-medium); }
+.ds-flow-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.ds-flow-amount { flex: 1 1 auto; min-width: 0; font-size: var(--numeric-medium-size); line-height: var(--numeric-medium-line); font-weight: var(--numeric-medium-weight); font-variant-numeric: tabular-nums; }
+.ds-flow-amount .ds-amount-input { font-size: var(--numeric-large-size); }
+.ds-flow-asset { display: inline-flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; min-height: var(--touch); padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface-2); color: var(--fg); font: inherit; cursor: pointer; }
+.ds-flow-asset-static { cursor: default; }
+.ds-flow-asset .ds-monogram { width: 32px; height: 32px; flex-basis: 32px; }
+.ds-flow-asset-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
+.ds-flow-asset-symbol { font-size: var(--body-size); font-weight: var(--weight-semibold); }
+.ds-flow-network { color: var(--fg-muted); font-size: var(--caption-size); font-weight: var(--caption-weight); white-space: nowrap; }
+.ds-flow-sub { color: var(--fg-muted); font-size: var(--body-small-size); font-variant-numeric: tabular-nums; }
+.ds-flow-divider { position: relative; height: 1px; background: var(--border); margin: 0 var(--space-4); }
+.ds-flow-arrow, .ds-flow-switch { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ds-flow-arrow { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface); color: var(--fg-muted); }
+.ds-flow-switch { background: var(--surface); border: 1px solid var(--border); }
+.ds-flow-switch:hover { background: var(--surface-2); }
+
+/* FeeLines */
+.ds-fee-lines { margin: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--body-small-size); }
+.ds-fee-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); }
+.ds-fee-row dt { display: flex; flex-direction: column; color: var(--fg-muted); min-width: 0; }
+.ds-fee-row dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-fee-hint { font-size: var(--caption-size); color: var(--fg-muted); }
+.ds-fee-row-receive { padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.ds-fee-row-receive dt { color: var(--fg); font-weight: var(--weight-semibold); font-size: var(--body-size); }
+.ds-fee-row-receive dd { font-size: var(--numeric-medium-size); line-height: var(--numeric-medium-line); font-weight: var(--numeric-medium-weight); }
+.ds-fee-row-total { padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.ds-fee-row-total dt, .ds-fee-row-total dd { color: var(--fg); font-weight: var(--weight-semibold); }
+
+/* ReviewLayout */
+.ds-review-layout { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.ds-review-amount { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-4) 0; text-align: center; }
+.ds-review-amount-label { color: var(--fg-muted); font-size: var(--body-small-size); }
+.ds-review-amount-primary { font-size: var(--numeric-large-size); line-height: var(--numeric-large-line); font-weight: var(--numeric-large-weight); letter-spacing: var(--numeric-large-tracking); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ds-review-amount-secondary { color: var(--fg-muted); font-size: var(--body-size); font-variant-numeric: tabular-nums; }
+.ds-review-section-title { margin: 0 0 var(--space-3); font-size: var(--body-size); line-height: var(--body-line); font-weight: var(--weight-semibold); }
+.ds-review-rows { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-review-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); font-size: var(--body-small-size); }
+.ds-review-row dt { color: var(--fg-muted); min-width: 0; }
+.ds-review-row dd { margin: 0; text-align: right; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+.ds-review-row-positive dd { color: var(--shield); }
+.ds-review-row-warn dd { color: var(--warn); }
+.ds-review-notices { display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-review-secondary { display: flex; justify-content: center; }
+
+/* StateScreen */
+.ds-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-10) var(--space-4); text-align: center; }
+.ds-state-mark { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--fg-muted); }
+.ds-state-done .ds-state-mark { background: var(--success-soft); color: var(--success); }
+.ds-state-error .ds-state-mark { background: var(--warn-soft); color: var(--warn); }
+.ds-state-empty .ds-state-mark { background: var(--shield-soft); color: var(--shield); }
+.ds-state-title { margin: 0; font-size: var(--title-size); line-height: var(--title-line); font-weight: var(--title-weight); }
+.ds-state-body { max-width: 34ch; color: var(--fg-muted); font-size: var(--body-small-size); line-height: var(--body-small-line); }
+.ds-state-actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); width: 100%; max-width: 320px; margin-top: var(--space-2); }
+
+/* StickyAction: above the bottom bar, or above the keyboard when it is higher (doc §56) */
+.ds-sticky-action { position: sticky; bottom: max(calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)), var(--keyboard-inset, 0px)); z-index: 5; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0; background: linear-gradient(to top, var(--bg) 78%, transparent); }
+@media (min-width: 1024px) {
+  .ds-sticky-action { bottom: var(--keyboard-inset, 0px); padding-bottom: var(--space-4); }
+}

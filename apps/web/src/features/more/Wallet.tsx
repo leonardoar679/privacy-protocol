@@ -3,7 +3,7 @@
 // route and when they are funded; saved here only, never on chain), and the token allowances of the connected wallet
 // toward the vaults, read and revoked through that wallet's own provider — never this wallet's endpoints.
 import { useState } from "react";
-import { Button, Card, Page, StatusBadge } from "@privacy-wallet/ui";
+import { Button, Card, Page, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { allowancesFor, revokeAllowance, type AllowanceLine } from "@privacy-wallet/sdk/allowances";
@@ -67,7 +67,7 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
             {allowances?.map((l) => (
               <div key={l.asset.symbol} className="ds-kv" data-testid="allowance-line" data-asset={l.asset.symbol}>
                 <span className="ds-kv-label">{t("wallet.allowances.line", { symbol: l.asset.symbol })}</span>
-                <b className="ds-kv-value">{l.allowance === null ? t("wallet.allowances.unreadable") : `${formatAmount(l.asset, l.allowance)} ${l.asset.symbol}`}{l.allowance !== null && l.allowance > 0n ? <Button variant="ghost" onClick={() => void revoke(l)} data-testid="revoke-allowance">{t("wallet.allowances.revoke")}</Button> : null}</b>
+                <b className="ds-kv-value">{l.allowance === null ? t("wallet.allowances.unreadable") : `${formatAmount(l.asset, l.allowance)} ${l.asset.symbol}`}{l.allowance !== null && l.allowance > 0n ? <TextButton onClick={() => void revoke(l)} data-testid="revoke-allowance">{t("wallet.allowances.revoke")}</TextButton> : null}</b>
               </div>
             ))}
             {allowances && allowances.length === 0 ? <p className="ds-note">{t("wallet.allowances.none")}</p> : null}

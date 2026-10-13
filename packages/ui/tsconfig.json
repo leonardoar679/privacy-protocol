@@ -6,10 +6,15 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src",
-    "scripts"
+    "scripts",
+    "test",
+    "vitest.config.ts"
   ]
 }

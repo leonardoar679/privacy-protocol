@@ -5,7 +5,7 @@
 // needs attention, with the refund through the executor (a refund-only job) or the monitoring.
 import { useState } from "react";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, IconButton, Page, StatusBadge } from "@privacy-wallet/ui";
+import { Card, Collapsible, IconButton, Page, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { shortRef } from "@privacy-wallet/sdk/format";
@@ -66,7 +66,7 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
             {privacyFee ? <Row label={t("activity.privacyFee")}>{privacyFee.value}</Row> : null}
             {relayerFee ? <Row label={t("activity.relayer")}>{relayerFee.value}</Row> : null}
             {advanced && (swap?.provider ?? rec?.refs.provider) ? <Row label={t("activity.provider")} testId="detail-provider">{swap?.provider ?? rec?.refs.provider}</Row> : null}
-            {txs.length ? <Row label={t("activity.transaction")} testId="detail-tx"><code className="ds-mono-break">{txs[txs.length - 1]}</code> <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(txs[txs.length - 1])} data-testid="detail-copy">{t("receive.copy")}</Button></Row> : null}
+            {txs.length ? <Row label={t("activity.transaction")} testId="detail-tx"><code className="ds-mono-break">{txs[txs.length - 1]}</code> <TextButton onClick={() => navigator.clipboard?.writeText(txs[txs.length - 1])} data-testid="detail-copy">{t("receive.copy")}</TextButton></Row> : null}
           </div>
         </Card>
         <Collapsible summary={t("activity.advancedDetails")} testId="detail-advanced">
@@ -86,7 +86,7 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
         {busy ? <p className="ds-note" data-testid="detail-busy">{busy}</p> : null}
         {error ? <p className="ds-note-warn" data-testid="detail-error">{error}</p> : null}
         {rec && needsAttention(rec) ? <Recovery record={rec} onMonitor={swap ? () => void refresh() : undefined} onRefund={swap && swap.fundedTx ? () => void refund() : undefined} onNewQuote={onNewQuote} /> : null}
-        {row.finished && row.activity ? <Button variant="ghost" onClick={() => { deleteActivity(row.activity!.id); onBack(); }} data-testid="detail-remove">{t("activity.remove")}</Button> : null}
+        {row.finished && row.activity ? <TextButton onClick={() => { deleteActivity(row.activity!.id); onBack(); }} data-testid="detail-remove">{t("activity.remove")}</TextButton> : null}
       </div>
     </Page>
   );

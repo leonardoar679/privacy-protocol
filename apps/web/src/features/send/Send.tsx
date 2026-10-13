@@ -11,7 +11,7 @@ import { decodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { looksLikeChain, parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { AddressInput, AmountInput, AssetSelector, Button, Card, ListRow, Page, Segmented, StatusBadge, FeeSummary, type AddressCheck, type AssetOption, type BookEntryView, type FeeLine } from "@privacy-wallet/ui";
+import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, Segmented, StatusBadge, TextButton, type AddressCheck, type AssetOption, type BookEntryView, type FeeLine } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -231,7 +231,7 @@ export function Send(p: SendProps) {
           <OperationProgress record={record} actions={step === "failed" ? (
             <>
               <Button variant="secondary" onClick={() => { setStep("review"); setStatus(""); }} data-testid="send-back-review">{t("send.backToReview")}</Button>
-              <Button variant="ghost" onClick={() => { setStep("form"); setStatus(""); }} data-testid="send-edit">{t("send.edit")}</Button>
+              <TextButton onClick={() => { setStep("form"); setStatus(""); }} data-testid="send-edit">{t("send.edit")}</TextButton>
               {consolidate ? <Button variant="secondary" data-testid="consolidate-now" onClick={() => { const ok = scheduleHousekeeping(p.deployment, { now: true }); setStatus(ok ? t("send.consolidateScheduled") : t("send.consolidateNotScheduled")); }}>{t("send.consolidateNow")}</Button> : null}
             </>
           ) : undefined} />

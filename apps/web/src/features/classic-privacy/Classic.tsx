@@ -5,7 +5,7 @@
 // (the journal's optional `classic` field) and never touches the protected balance.
 import { useState } from "react";
 import { formatNote, generateNote, parseNote, validateNote, type ClassicNote } from "@privacy-wallet/protocol/classic/note";
-import { Button, Card, Collapsible, Field, ListRow, Page, StatusBadge, TextInput } from "@privacy-wallet/ui";
+import { Button, Card, Collapsible, Field, ListRow, Page, StatusBadge, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -149,8 +149,8 @@ export function ClassicPoolScreen({ poolId, onBack }: { poolId: string; onBack: 
           <Card testId="classic-withdraw-form">
             <div className="ds-stack-sm">
               <h2 className="ds-review-title">{t("classic.withdraw.title")}</h2>
-              <Field label={t("classic.withdraw.note")} htmlFor="classic-note-input"><TextInput id="classic-note-input" value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="tornado-eth-1-31337-0x…" autoComplete="off" spellCheck={false} data-testid="classic-note-input" /></Field>
-              <Field label={t("classic.withdraw.recipient")} htmlFor="classic-recipient"><TextInput id="classic-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} data-testid="classic-recipient" /></Field>
+              <Field label={t("classic.withdraw.note")} htmlFor="classic-note-input"><Input id="classic-note-input" value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="tornado-eth-1-31337-0x…" autoComplete="off" spellCheck={false} data-testid="classic-note-input" /></Field>
+              <Field label={t("classic.withdraw.recipient")} htmlFor="classic-recipient"><Input id="classic-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} data-testid="classic-recipient" /></Field>
               {error ? <p className="ds-field-error" data-testid="classic-error">{error}</p> : null}
               <Button size="lg" full onClick={prepare} data-testid="classic-prepare">{t("classic.withdraw.prepare")}</Button>
               {withdrawal ? (

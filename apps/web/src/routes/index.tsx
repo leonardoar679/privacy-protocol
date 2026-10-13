@@ -1,7 +1,8 @@
-// The route table (spec §2): the onboarding routes behind RequireLocked, the shell routes behind RequireUnlocked,
-// the gallery in dev builds only, every unknown path back to Home. The heavy screens — Swap, Private AI, the
-// guest swap, Activity — are separate chunks loaded when their route opens (spec §20).
-import { lazy } from "react";
+// The route table (spec v2.0 §6): the onboarding routes behind RequireLocked, the shell routes behind RequireUnlocked,
+// the component preview (/__preview) in the dev and fixtures builds only and outside the gates (no wallet needed),
+// every unknown path back to Home. The heavy screens — Swap, Private AI, the guest swap, Activity — are separate chunks
+// loaded when their route opens.
+import { lazy, Suspense } from "react";
 import { Navigate, useRouteError, type RouteObject } from "react-router-dom";
 import { Button, ErrorCard, Page } from "@privacy-wallet/ui";
 import { t } from "../app/i18n/messages";
@@ -28,7 +29,8 @@ const ActivityRoute = lazy(() => import("../features/activity/ActivityRoute"));
 const ActivityDetailRoute = lazy(() => import("../features/activity/ActivityRoute").then((m) => ({ default: m.ActivityDetailRoute })));
 const AIRoute = lazy(() => import("../features/ai/AIRoute"));
 const GuestRoute = lazy(() => import("../features/guest/GuestRoute"));
-const Gallery = lazy(() => import("@privacy-wallet/ui/Gallery").then((m) => ({ default: m.Gallery })));
+// __PREVIEW__ is a build constant (vite.config.ts): a production build drops this branch and the preview's chunk with it
+const Preview = __PREVIEW__ ? lazy(() => import("@privacy-wallet/ui/Preview").then((m) => ({ default: m.Preview }))) : null;
 
 function Root({ deployment }: { deployment?: Deployment | null }) {
   return <Providers deployment={deployment}><Outlet /></Providers>;
@@ -46,7 +48,8 @@ function RouteError() {
   );
 }
 
-export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: Deployment | null }): RouteObject[] {
+/** `preview`: the component preview's route (the dev and fixtures builds pass __PREVIEW__; a production build has no Preview to route to). */
+export function buildRoutes({ preview = false, deployment }: { preview?: boolean; deployment?: Deployment | null } = {}): RouteObject[] {
   const shellChildren: RouteObject[] = [
     { index: true, element: <Home /> },
     { path: "protect/*", element: <ProtectRoute /> },
@@ -66,7 +69,6 @@ export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: De
     { path: "more/ai", element: <AIRoute /> },
     { path: "more/classic", element: <ClassicRoute /> },
     { path: "more/classic/:poolId", element: <ClassicPoolRoute /> },
-    ...(dev ? [{ path: "gallery", element: <Gallery /> }] : []),
     { path: "*", element: <Navigate to="/" replace /> },
   ];
   return [
@@ -74,6 +76,7 @@ export function buildRoutes({ dev, deployment }: { dev: boolean; deployment?: De
       element: <Root deployment={deployment} />,
       errorElement: <RouteError />,
       children: [
+        ...(preview && Preview ? [{ path: "/__preview", element: <Suspense fallback={null}><Preview /></Suspense> }] : []),
         { element: <RequireLocked />, children: [
           { path: "/welcome", element: <Welcome /> },
           { path: "/create", element: <Create /> },

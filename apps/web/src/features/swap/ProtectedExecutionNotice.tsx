@@ -2,7 +2,7 @@
 // large, we're using additional execution safeguards." with the four checks, then Continue. The checks are facts:
 // the destination (fresh, or in the book and verified), the route (the provider's health and the strict quote),
 // protected execution (the band's plan or the single hard quote), the limits (one in flight, the slippage cap).
-import { Button, Card } from "@privacy-wallet/ui";
+import { Button, Card, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 
 export interface ProtectedChecks { destination: boolean; route: boolean; execution: boolean; limits: boolean }
@@ -22,7 +22,7 @@ export function ProtectedExecutionNotice({ checks, onContinue, onBack, testId = 
         {!allOk ? <p className="ds-note-warn">{t("protectedExec.notAllOk")}</p> : null}
         <div className="ds-actions">
           <Button size="lg" full onClick={onContinue} data-testid={`${testId}-continue`}>{t("protectedExec.continue")}</Button>
-          <Button variant="ghost" onClick={onBack}>{t("campaign.back")}</Button>
+          <TextButton onClick={onBack}>{t("campaign.back")}</TextButton>
         </div>
       </div>
     </Card>

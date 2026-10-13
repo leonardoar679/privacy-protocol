@@ -1,5 +1,6 @@
-// Status on screen (spec §3.10–§3.12, §5): the timeline of an operation, the error card with the sentence about the
-// funds, the security card, the collapsible, the progress bar, the skeleton and a list row.
+// Status on screen (spec v2.0 §5, §7; doc §9): the timeline of an operation, the error card with the sentence about the
+// funds, the warning and success cards, the security card, the collapsible, the progress indicator, the skeleton and a
+// list row.
 import { useState, type ReactNode } from "react";
 import { cx, nextId } from "../cx";
 import { Icon, type IconName } from "../icons";
@@ -35,6 +36,43 @@ export function ErrorCard({ title, fundsLine, fundsState, reason, actions, testI
   );
 }
 
+/** A caution that does not stop anything (doc §9): amber, a title, one or two sentences, an optional action. */
+export function WarningCard({ title, body, action, testId = "warning" }: { title: string; body?: ReactNode; action?: ReactNode; testId?: string }) {
+  return (
+    <Card elevation={0} className="ds-warning-card" testId={testId} as="section">
+      <div className="ds-callout">
+        <span className="ds-callout-icon ds-callout-icon-warn">
+          <Icon name="warning" size={22} />
+        </span>
+        <div className="ds-callout-text">
+          <h2 className="ds-callout-title">{title}</h2>
+          {body ? <div className="ds-callout-body">{body}</div> : null}
+          {action ? <div className="ds-error-actions">{action}</div> : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** A finished operation (doc §9, §58): the protection's green, a title, the facts, the next actions. */
+export function SuccessCard({ title, body, details, actions, testId = "success" }: { title: string; body?: ReactNode; details?: ReactNode; actions?: ReactNode; testId?: string }) {
+  return (
+    <Card elevation={1} className="ds-success-card" testId={testId} as="section">
+      <div className="ds-callout">
+        <span className="ds-callout-icon ds-callout-icon-success">
+          <Icon name="check-circle" size={22} />
+        </span>
+        <div className="ds-callout-text">
+          <h2 className="ds-callout-title">{title}</h2>
+          {body ? <div className="ds-callout-body">{body}</div> : null}
+        </div>
+      </div>
+      {details ? <div className="ds-success-details">{details}</div> : null}
+      {actions ? <div className="ds-error-actions">{actions}</div> : null}
+    </Card>
+  );
+}
+
 export function SecurityCard({ icon = "shield-check", title, body, action, testId }: { icon?: IconName; title: string; body: ReactNode; action?: ReactNode; testId?: string }) {
   return (
     <Card elevation={1} testId={testId} as="section">
@@ -63,8 +101,8 @@ export function Collapsible({ summary, children, defaultOpen = false, testId = "
   );
 }
 
-/** A determinate bar for 0…1, indeterminate for null (plan §47 while the step has no fraction). */
-export function Progress({ value, label, testId = "progress" }: { value: number | null; label: string; testId?: string }) {
+/** A determinate bar for 0…1, indeterminate for null (while the step has no fraction; doc §58). */
+export function ProgressIndicator({ value, label, testId = "progress" }: { value: number | null; label: string; testId?: string }) {
   const pct = value === null ? undefined : Math.round(Math.max(0, Math.min(1, value)) * 100);
   return (
     <div className={cx("ds-progress", value === null && "ds-progress-indeterminate")} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} data-testid={testId}>

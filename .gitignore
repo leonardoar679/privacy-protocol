@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-fixtures/
 build/
 # foundry
 contracts/out/
@@ -24,3 +25,6 @@ apps/web/tsconfig.tsbuildinfo
 # Rust core build output
 privacy-core/target/
 privacy-core/pkg/
+
+# the screenshot harness: actual images, diffs and the report (tests/visual/run.mjs)
+tests/visual/run/

@@ -2,7 +2,7 @@
 // progress step (the prover runs in its worker; the main thread never blocks), the verdict card on a failure — the
 // first sentence by funds class, the catalog's reason, the actions the caller offers — and the completed badge.
 import type { ReactNode } from "react";
-import { ErrorCard, Progress, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "@privacy-wallet/ui";
+import { ErrorCard, ProgressIndicator, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { isOpen, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
@@ -43,7 +43,7 @@ export function OperationProgress({ record, actions, testId = "operation-progres
   return (
     <div className="ds-stack" data-testid={testId} data-state={record.state}>
       <TransactionTimeline steps={timelineOf(record, t)} />
-      {headline ? <Progress value={null} label={headline} testId={`${testId}-bar`} /> : null}
+      {headline ? <ProgressIndicator value={null} label={headline} testId={`${testId}-bar`} /> : null}
       {record.state === "COMPLETED" ? <StatusBadge tone="ok" testId={`${testId}-completed`}>{stateWords("COMPLETED", t)}</StatusBadge> : null}
       {v ? <ErrorCard title={v.title} fundsLine={v.headline} fundsState={v.fundsClass} reason={v.reason} actions={actions} testId={`${testId}-error`} /> : null}
     </div>

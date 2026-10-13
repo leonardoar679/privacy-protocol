@@ -4,7 +4,7 @@ import { useLabels } from "../labels";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx } from "../cx";
 import { Dialog } from "../primitives/Dialog";
-import { Button } from "./Button";
+import { Button, TextButton } from "./Button";
 
 /** While a sheet is open the history holds one extra entry, so the browser's back button closes the sheet first (spec §2). */
 export function useBackClose(open: boolean, onClose: () => void, id: string): void {
@@ -81,7 +81,7 @@ export function ConfirmSheet({ open, onCancel, onConfirm, title, summary, mode, 
       {mode === "hold"
         ? <HoldButton label={holdLabel ?? L.holdToConfirm} holdMs={holdMs} onConfirm={onConfirm} disabled={!!disabledReason} />
         : <Button size="lg" full onClick={onConfirm} disabled={!!disabledReason} data-testid="confirm-tap" icon="check">{confirmLabel ?? L.confirm}</Button>}
-      <Button variant="ghost" full onClick={onCancel} data-testid={`${testId}-cancel`}>{cancelLabel ?? L.cancel}</Button>
+      <div className="ds-confirm-cancel"><TextButton onClick={onCancel} data-testid={`${testId}-cancel`}>{cancelLabel ?? L.cancel}</TextButton></div>
     </BottomSheet>
   );
 }

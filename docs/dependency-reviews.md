@@ -26,3 +26,10 @@ code.
 | `@walletconnect/ethereum-provider@2.26.0` and its `@walletconnect/*` closure (2.26.0, 2.23.7 nested, the 1.x helpers) — 2026-10-13 | root | the lazily loaded WalletConnect connector |
 
 ## Reviews
+
+- 2026-10-13 (V6 Stage 5) — `@fontsource-variable/inter@5.3.0` (OFL-1.1; packages/ui): the variable Inter's woff2 files;
+  the design system serves the latin one from its own origin (`packages/ui/src/fonts.css`). `playwright-core@1.64.0`
+  (Apache-2.0), `pixelmatch@8.0.0` (ISC), `pngjs@7.0.0` (MIT; root devDependencies): the screenshot harness
+  (`tests/visual/run.mjs`), local only; playwright-core drives the installed Chrome and downloads no browser. None is
+  cryptography-sensitive; none has an install script (the lockfile's `hasInstallScript` is unset); each locked with its
+  sha512 integrity from the registry. `pngjs@5.0.0` stays nested under `qrcode`, unchanged.

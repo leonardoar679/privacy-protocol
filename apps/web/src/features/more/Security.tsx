@@ -5,7 +5,7 @@
 // typed confirmation in a dialog. Everything is journaled (encrypted); nothing is sent anywhere.
 import { useState } from "react";
 import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, TextInput } from "@privacy-wallet/ui";
+import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { registerSecondFactor, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
@@ -81,7 +81,7 @@ export function Security({ onBack }: { onBack?: () => void }) {
               <div className="ds-stack-sm" data-testid="phrase-panel">
                 {phrase ? <code className="ds-mono-break" data-testid="phrase-words">{phrase}</code> : (
                   <>
-                    <Field label={t("security.phrase.password")} htmlFor="phrase-password"><TextInput id="phrase-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></Field>
+                    <Field label={t("security.phrase.password")} htmlFor="phrase-password"><Input id="phrase-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></Field>
                     <Button variant="secondary" onClick={() => void reveal()} disabled={!password} data-testid="reveal-phrase">{t("security.phrase.reveal")}</Button>
                   </>
                 )}
@@ -111,7 +111,7 @@ export function Security({ onBack }: { onBack?: () => void }) {
             <p className="ds-note">{t("security.tiers.body")}</p>
             {TIER_FIELDS.map((f) => (
               <Field key={f.key} label={t(f.label)} htmlFor={`tier-${f.key}`}>
-                <TextInput id={`tier-${f.key}`} inputMode="numeric" value={tiers[f.key]} onChange={(e) => setTiers({ ...tiers, [f.key]: e.target.value.replace(/[^0-9]/g, "") })} onBlur={applyTiers} data-testid={`tier-${f.key}`} />
+                <Input id={`tier-${f.key}`} inputMode="numeric" value={tiers[f.key]} onChange={(e) => setTiers({ ...tiers, [f.key]: e.target.value.replace(/[^0-9]/g, "") })} onBlur={applyTiers} data-testid={`tier-${f.key}`} />
               </Field>
             ))}
             {tierError ? <p className="ds-field-error" data-testid="tier-error">{tierError}</p> : null}
@@ -121,11 +121,11 @@ export function Security({ onBack }: { onBack?: () => void }) {
 
         <Collapsible summary={t("security.forget.title")} testId="forget-section">
           <p className="ds-note">{t("security.forget.body")}</p>
-          <Button variant="danger" onClick={() => setForgetOpen(true)} data-testid="forget-open">{t("security.forget.open")}</Button>
+          <Button variant="destructive" onClick={() => setForgetOpen(true)} data-testid="forget-open">{t("security.forget.open")}</Button>
         </Collapsible>
         <Modal open={forgetOpen} onClose={() => { setForgetOpen(false); setForget(""); }} title={t("security.forget.title")} description={t("security.forget.body")} danger testId="forget-modal">
-          <Field label={t("security.forget.typeWord")} htmlFor="forget-word"><TextInput id="forget-word" value={forget} onChange={(e) => setForget(e.target.value)} placeholder="FORGET" autoComplete="off" data-testid="forget-input" /></Field>
-          <Button variant="danger" full disabled={forget !== "FORGET"} onClick={() => session.forget()} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
+          <Field label={t("security.forget.typeWord")} htmlFor="forget-word"><Input id="forget-word" value={forget} onChange={(e) => setForget(e.target.value)} placeholder="FORGET" autoComplete="off" data-testid="forget-input" /></Field>
+          <Button variant="destructive" full disabled={forget !== "FORGET"} onClick={() => session.forget()} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
         </Modal>
       </div>
     </Page>

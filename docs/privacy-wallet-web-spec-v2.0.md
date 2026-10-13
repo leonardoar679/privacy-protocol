@@ -187,13 +187,22 @@ spellcheck off, whole numbers `inputmode="numeric"`; never `type="number"`.
 **Sheets** (doc §55): asset selection, network selection, route comparison, advanced details and the fee breakdown
 are bottom sheets on a phone and centred dialogs from 1024 px; the browser's back closes an open sheet first.
 
-The component preview page is `/__preview` (dev and fixtures builds only).
+The component preview page is `/__preview` (dev and fixtures builds only: the route and its chunk exist where the build
+constant `__PREVIEW__` is true, i.e. every mode but production; the screenshot fixtures are a second entry,
+`apps/web/fixtures.html`, built and served in `vite --mode fixtures` only; `apps/web/scripts/check-dist.mjs` proves a
+production build carries neither — no sentinel of either, no `fixtures.html`, no source map — and carries the
+self-hosted typeface).
+
+Code: `packages/ui/src/{tokens,components,patterns,animations}/`, `packages/ui/src/format.ts` (amounts from base units,
+USD from integer cents, short addresses — bigint only), `packages/ui/src/Preview.tsx`, `apps/web/src/fixtures/`,
+`tests/visual/run.mjs`.
 
 ## 6. The shell, the routes and the layouts (doc §11–§12, §53–§54, §88) — *Stage 5, Stage 16*
 
 Mobile: Header on top, content, **BottomNavigation `Home · Swap · Activity · More`** — four items, never more.
 From 1024 px: one top bar **`Logo · Home Swap Activity · Wallet`** (the Wallet menu holds the connection status
-and every More entry) and no bottom bar; content max width 1200–1280 px, centred. The same routes and components
+and every More entry — one list with the More screen, `apps/web/src/features/more/entries.ts`) and no bottom bar;
+exactly one bar exists at a time, chosen at the 1024 px breakpoint, so assistive technology meets one navigation; content max width 1200–1280 px, centred. The same routes and components
 reflow — there is no separate desktop application, and everything on mobile is reachable on desktop (doc §88, a
 parity test). Design canvas 390 × 844; validated at 360×800, 375×812, 390×844, 393×852, 412×915, 430×932,
 768×1024, 1024×768, 1280+ and 1440+ (no horizontal scroll, 44 px targets).
@@ -807,7 +816,8 @@ the wallet's verified sync plus the API's `chain_state` (§15); Prettier on new 
 notices and errors (§18); the seed on the main thread (§14.3); the visual suite local only (§17); `packages/server-kit`
 added; the package boundaries checked by a verify-all script rather than a test file (§4); the suites that existed
 before Stage 4 stay in `apps/web/test` — they run under the web platform's configuration (`test/setup.ts`) — while
-each package carries the suites written for it; the fee math joins the SDK with the fee model (Stage 7), not with
+each package carries the suites written for it (the design system's moved to `packages/ui/test` with the V6 design
+system in Stage 5); the fee math joins the SDK with the fee model (Stage 7), not with
 the carve-out. Out of scope: the React Native apps and native shells (doc §95; `docs/mobile.md`), biometrics and
 second-device confirmation (doc §51 "later"), web push delivery, the Classic contracts / circuit port / legal review,
 LI.FI and Chainflip same-chain routes, a private RPC or PIR transport behind §14.2's seam, a repository-wide

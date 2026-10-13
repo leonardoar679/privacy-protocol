@@ -1,0 +1,218 @@
+/* Generated from packages/ui/src/tokens/index.ts by `npm run tokens` (packages/ui); edit the TypeScript, not this file. */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #e3e7ec;
+  --border-strong: #c5ccd5;
+  --fg: #14181f;
+  --fg-muted: #5a6472;
+  --accent: #2b59c3;
+  --accent-fg: #ffffff;
+  --accent-soft: #e8eefb;
+  --shield: #1b6e4c;
+  --shield-soft: #e4f3ec;
+  --warn: #9a5200;
+  --warn-soft: #fdf1e1;
+  --danger: #b42318;
+  --danger-soft: #fdeceb;
+  --success: #1b6e4c;
+  --success-soft: #e4f3ec;
+  --focus: #2b59c3;
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --muted: var(--fg-muted);
+  --font-sans: "Inter Variable", -apple-system, "SF Pro Text", "Segoe UI", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display-size: 32px;
+  --display-line: 38px;
+  --display-weight: 700;
+  --display-tracking: -0.02em;
+  --heading-size: 24px;
+  --heading-line: 30px;
+  --heading-weight: 700;
+  --heading-tracking: -0.01em;
+  --title-size: 18px;
+  --title-line: 24px;
+  --title-weight: 600;
+  --title-tracking: normal;
+  --body-size: 16px;
+  --body-line: 24px;
+  --body-weight: 400;
+  --body-tracking: normal;
+  --body-small-size: 14px;
+  --body-small-line: 20px;
+  --body-small-weight: 400;
+  --body-small-tracking: normal;
+  --caption-size: 12px;
+  --caption-line: 16px;
+  --caption-weight: 500;
+  --caption-tracking: normal;
+  --numeric-large-size: 36px;
+  --numeric-large-line: 42px;
+  --numeric-large-weight: 600;
+  --numeric-large-tracking: -0.02em;
+  --numeric-medium-size: 20px;
+  --numeric-medium-line: 26px;
+  --numeric-medium-weight: 600;
+  --numeric-medium-tracking: -0.01em;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-12: 48px;
+  --space-13: 52px;
+  --space-14: 56px;
+  --space-15: 60px;
+  --space-16: 64px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+  --radius: var(--radius-lg);
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --elevation-2: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --elevation-3: 0 16px 40px rgba(16, 24, 40, 0.16);
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --z-nav: 10;
+  --z-header: 15;
+  --z-menu: 25;
+  --z-sheet: 20;
+  --z-dialog: 30;
+  --z-toast: 40;
+  --header-h: 56px;
+  --nav-h: 64px;
+  --touch: 44px;
+  --content-max: 600px;
+  --wide-max: 1240px;
+  --keyboard-inset: 0px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116;
+    --surface: #161a21;
+    --surface-2: #1d222a;
+    --border: #2a3039;
+    --border-strong: #3d4651;
+    --fg: #edf0f3;
+    --fg-muted: #9ea8b4;
+    --accent: #8aabff;
+    --accent-fg: #0b1220;
+    --accent-soft: #1c2946;
+    --shield: #5cc596;
+    --shield-soft: #14301f;
+    --warn: #e9b85a;
+    --warn-soft: #382b10;
+    --danger: #ff8a7d;
+    --danger-soft: #3d1c19;
+    --success: #5cc596;
+    --success-soft: #14301f;
+    --focus: #8aabff;
+    --elevation-0: none;
+    --elevation-1: 0 0 0 1px var(--border);
+    --elevation-2: 0 0 0 1px var(--border);
+    --elevation-3: 0 0 0 1px var(--border), 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116;
+  --surface: #161a21;
+  --surface-2: #1d222a;
+  --border: #2a3039;
+  --border-strong: #3d4651;
+  --fg: #edf0f3;
+  --fg-muted: #9ea8b4;
+  --accent: #8aabff;
+  --accent-fg: #0b1220;
+  --accent-soft: #1c2946;
+  --shield: #5cc596;
+  --shield-soft: #14301f;
+  --warn: #e9b85a;
+  --warn-soft: #382b10;
+  --danger: #ff8a7d;
+  --danger-soft: #3d1c19;
+  --success: #5cc596;
+  --success-soft: #14301f;
+  --focus: #8aabff;
+  --elevation-0: none;
+  --elevation-1: 0 0 0 1px var(--border);
+  --elevation-2: 0 0 0 1px var(--border);
+  --elevation-3: 0 0 0 1px var(--border), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+@media (prefers-contrast: more) {
+  :root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f2f2f2;
+    --border: #4a4a4a;
+    --border-strong: #000000;
+    --fg: #000000;
+    --fg-muted: #333333;
+    --accent: #0a3a9e;
+    --accent-fg: #ffffff;
+    --accent-soft: #dbe5ff;
+    --shield: #0a5535;
+    --shield-soft: #d7f0e2;
+    --warn: #6e3a00;
+    --warn-soft: #fde9cc;
+    --danger: #8a1108;
+    --danger-soft: #fde0dd;
+    --success: #0a5535;
+    --success-soft: #d7f0e2;
+    --focus: #000000;
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+    --surface: #0b0b0b;
+    --surface-2: #161616;
+    --border: #bdbdbd;
+    --border-strong: #ffffff;
+    --fg: #ffffff;
+    --fg-muted: #d6d6d6;
+    --accent: #a9c2ff;
+    --accent-fg: #000000;
+    --accent-soft: #1a2547;
+    --shield: #7ee0b0;
+    --shield-soft: #0f2a1c;
+    --warn: #ffcf70;
+    --warn-soft: #2e2209;
+    --danger: #ffa39a;
+    --danger-soft: #3a1513;
+    --success: #7ee0b0;
+    --success-soft: #0f2a1c;
+    --focus: #ffffff;
+  }
+}
+@media (forced-colors: active) {
+  :root {
+    --border: CanvasText;
+    --border-strong: CanvasText;
+    --focus: Highlight;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

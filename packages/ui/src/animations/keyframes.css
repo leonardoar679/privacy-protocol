@@ -1,0 +1,33 @@
+/* The motion of the design system (spec v2.0 §5): sheets rise, overlays fade, spinners turn, skeletons shimmer — at the
+   token durations (120 / 200 / 320 ms), all of them 0 under prefers-reduced-motion (tokens.css and base.css). */
+@keyframes ds-sheet-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes ds-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ds-shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}

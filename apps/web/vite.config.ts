@@ -76,13 +76,32 @@ export function zkapiSdk(): { bundled: boolean; alias: { find: RegExp; replaceme
   };
 }
 
+/**
+ * The screenshot fixtures (spec v2.0 §6, §19; tests/visual): `vite --mode fixtures` serves fixtures.html, a second entry
+ * that renders the component preview and the screens' Views from fixtures — never the wallet. In any other mode the dev
+ * server answers it 404 and a build leaves it out (apps/web/scripts/check-dist.mjs proves both sentinels absent from dist).
+ */
+function fixturesOnly(mode: string): Plugin {
+  return {
+    name: "fixtures-only",
+    configureServer(server) {
+      if (mode === "fixtures") return;
+      server.middlewares.use((req, res, next) => {
+        if ((req.url ?? "").split("?")[0] !== "/fixtures.html") return next();
+        res.statusCode = 404;
+        res.end("the fixtures are served in fixtures mode only (vite --mode fixtures)");
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const root = fileURLToPath(new URL(".", import.meta.url));
   // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
   const env = loadEnv(mode, root, "VITE_");
   const zkapi = zkapiSdk();
   return {
-    plugins: [react(), circuitArtifacts(), coreWasm(), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json")))],
+    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json")))],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },
@@ -93,7 +112,10 @@ export default defineConfig(({ mode }) => {
       // the design system is a package with React as a peer (V6 Stage 4): one React, whatever resolves it
       dedupe: ["react", "react-dom"],
     },
-    define: { __ZKAPI__: JSON.stringify(zkapi.bundled) },
+    // __PREVIEW__: the component preview (/__preview) and its chunk exist in every mode but a production build (spec v2.0 §6)
+    define: { __ZKAPI__: JSON.stringify(zkapi.bundled), __PREVIEW__: JSON.stringify(mode !== "production") },
+    // the fixtures build has a second entry; every other build has the wallet's page only
+    ...(mode === "fixtures" ? { build: { outDir: "dist-fixtures", rollupOptions: { input: { main: join(root, "index.html"), fixtures: join(root, "fixtures.html") } } } } : {}),
     server: {
       // the repository, and the zkAPI clone beside it when the build carries the SDK
       fs: { allow: [fileURLToPath(new URL("../..", import.meta.url)), ...(zkapi.bundled ? [process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url))] : [])] },

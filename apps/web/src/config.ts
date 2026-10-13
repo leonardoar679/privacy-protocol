@@ -100,8 +100,5 @@ const env = (import.meta as unknown as { env?: Env }).env ?? {};
 /** The build's own configuration, installed (main.tsx, before the first render). */
 export const configureFromBuild = (): SdkConfig => applyConfig(configFromEnv(env));
 
-/** A dev build (the component gallery's route). */
-export const DEV_BUILD = env.DEV === true || env.DEV === "true";
-
 /** The configuration of the test suites: no deployment, a cheap scrypt, a short hold (test/setup.ts). */
 export const testConfig = (overrides: Partial<SdkConfig> = {}): SdkConfig => defaultConfig({ holdMs: 40, kdfLog2N: 12, ...overrides });

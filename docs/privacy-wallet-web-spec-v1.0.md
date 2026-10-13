@@ -334,7 +334,7 @@ primary action per screen. It MUST NOT use terminal-like black screens, neon, he
 dashboards, many panels on one screen, tiny text, jargon or dense tables. Personality: calm, premium,
 friendly, secure.
 
-Tokens (`packages/ui/src/tokens.ts`, the source of truth; `tokens.css` is generated from it and
+Tokens (`packages/ui/src/tokens/index.ts`, the source of truth; `tokens.css` is generated from it and
 a test asserts they agree): colours `bg, surface, surface-2, border, fg, fg-muted, accent, accent-fg,
 accent-soft, shield, shield-soft, warn, warn-soft, danger, danger-soft, success` in a light and a dark set
 (`prefers-color-scheme` and `[data-theme]` from the prefs); type scale display 40/44 700 · title 28/32 700 ·
@@ -686,7 +686,7 @@ their feature opens (plan §77). Proof generation stays in its worker with the �
 | Gate | What it checks | Where |
 |---|---|---|
 | unit | every package's suites | `scripts/verify-all.mjs` steps as today |
-| design system | tokens agree, each component per state, axe on the gallery | `apps/web/test/design-system/` |
+| design system | tokens agree, each component per state, axe on the gallery | `packages/ui/test/` |
 | privacy leakage | create → protect → send → swap on mocks: no seed, phrase, note secret, view key or witness byte in any request; no address, amount or destination in the console; ciphertext-only storage; every host allowlisted | `apps/web/test/privacy-leakage.test.tsx`; its Playwright twin |
 | lint | typescript-eslint, react-hooks, jsx-a11y, the house rules (§5, §7, §18) | `npm run lint` |
 | artifact pins | the sha256 records of §20 | `apps/web/scripts/check-artifact-pins.mjs` |
