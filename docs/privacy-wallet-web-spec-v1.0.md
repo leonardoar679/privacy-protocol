@@ -735,5 +735,7 @@ TypeScript → lint → unit → crypto → contracts → privacy leakage → bu
 
 ## 24. Addendum — plan §89 onward
 
-Reserved. The owner's paste ended inside §88; the sections that follow are recorded here when received, each
-mapped to a section above or to a new stage of `docs/roadmap.md`.
+Superseded (2026-10-13). The owner pasted the complete document as a rewrite ("Privacy Wallet Web V1 — Core
+Product → UX → Application → Privacy → Swap → Security → Production", §1–§96, new numbering). Its frozen contracts
+are `docs/privacy-wallet-web-spec-v2.0.md`, which supersedes this document for everything the user sees; this one
+stays as the record of the V5 pass. The V6 stages are in `docs/roadmap.md`.
