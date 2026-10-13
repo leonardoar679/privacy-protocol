@@ -121,7 +121,7 @@ async function unlock(page) {
 async function protect(page, amount, expectVault) {
   await nav(page, "Home");
   await byId(page, "home").waitFor({ timeout: 30_000 });
-  if (await byId(page, "protect-cta").count()) await clickId(page, "protect-cta"); else await clickId(page, "add-funds"); // the card of an empty balance, else Home's row
+  await clickId(page, "protect-cta"); // Home's "Protect your assets" card, always there (spec v2.0 §7.1)
   await byId(page, "protect").waitFor({ timeout: 30_000 });
   if (await byId(page, "protect-connect").count()) { await clickId(page, "protect-connect"); await textAppears(page, "Connected"); }
   await fillId(page, "protect-amount-input", String(amount));
@@ -203,6 +203,9 @@ async function campaignRun(page) {
     if (!lineText) { log(`quote attempt ${attempt}: no protection line — ${(await text(byId(page, "quote"))).slice(0, 200)}`); await page.waitForTimeout(5000); }
   }
   check("the protection line under the quote: steps, one at a time, at most $X at risk, the duration", /Protected execution: about \d+ steps of ≈ \$[\d.,]+[KM]? · one at a time · at most \$[\d.,]+[KM]? at risk · about .+/.test(lineText), lineText);
+  // a sentence in a badge (never wrapping since V6 Stage 5) overflowed here once: the phone zoomed out and clicks missed
+  const campaignLayout = await layoutProbe(page);
+  check("the institutional quote fits the phone: no horizontal scroll", campaignLayout.scrollWidth <= page.viewportSize().width, `${campaignLayout.scrollWidth} px wide on a ${page.viewportSize().width} px screen${campaignLayout.wide.length ? `: ${campaignLayout.wide.join(", ")}` : ""}`);
   await snap(page, "campaign-quote");
   await acknowledgeAll(page);
   await clickId(page, "swap-review");
@@ -285,13 +288,15 @@ async function campaignRun(page) {
   const dashboard = (await byId(page, "exposure-dashboard").count()) ? await text(byId(page, "exposure-dashboard")) : "";
   check("the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF", /Maximum allowed/.test(dashboard) && /Provider exposure/.test(dashboard) && /Expected/.test(dashboard), dashboard.slice(0, 200));
   await snap(page, "campaign-executing");
-  // the global switch: every campaign's automation pauses; the executed step is still tracked
-  await nav(page, "Home");
+  // the global switch: every campaign's automation pauses; the executed step is still tracked (V6: the switch and the
+  // campaign line are the operation's detail, no longer Home's — spec v2.0 §7.1)
+  await nav(page, "Activity");
+  await page.locator('[data-testid^="activity-row-campaign:"]').first().click();
   await byId(page, "campaign-line").waitFor({ timeout: 30_000 });
   await byId(page, "pause-large-operations").first().check();
-  let homeLine = "";
-  for (let i = 0; i < 30 && !/⚠ Review/.test(homeLine); i++) { await page.waitForTimeout(2000); homeLine = await text(byId(page, "campaign-line")); }
-  check("Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review", /⚠ Review/.test(homeLine), homeLine.slice(0, 160));
+  let detailLine = "";
+  for (let i = 0; i < 30 && !/⚠ Review/.test(detailLine); i++) { await page.waitForTimeout(2000); detailLine = await text(byId(page, "campaign-line")); }
+  check("Pause large operations (the operation's detail): the campaign pauses on the next tick and the detail says ⚠ Review", /⚠ Review/.test(detailLine), detailLine.slice(0, 160));
   await snap(page, "campaign-paused-by-switch");
   await byId(page, "pause-large-operations").first().uncheck();
   // Return the rest: the planned steps are skipped; the executed step finishes on its own
@@ -318,7 +323,11 @@ async function campaignRun(page) {
   await nav(page, "Activity");
   await byId(page, "activity").waitFor();
   const activity = await text(byId(page, "activity"));
-  check("Activity: one row for the protected swap (its steps under Advanced), never a bare failed", /Protected swap/.test(activity) && !/\bfailed\b/i.test(activity), activity.match(/Protected swap[^·]{0,80}/)?.[0] ?? activity.slice(0, 120));
+  // V6 (spec v2.0 §7.8): the protected execution's row reads like any swap — "ETH → BTC", the USD value confirmed at its
+  // Review, one status word; its steps are rows of their own under Advanced only
+  const campaignRows = page.locator('[data-testid^="activity-row-campaign:"]');
+  const campaignRow = (await campaignRows.count()) === 1 ? await text(campaignRows.first()) : "";
+  check("Activity: one row for the protected swap — ETH → BTC at the value confirmed at its Review (its steps under Advanced) — never a bare failed", /ETH → BTC/.test(campaignRow) && /\$[\d,]+\.\d\d/.test(campaignRow) && !/\bfailed\b/i.test(activity), `${campaignRow || "no single campaign row"} | ${activity.slice(0, 160)}`);
   await snap(page, "campaign-activity");
 }
 
@@ -437,13 +446,13 @@ try {
   await page.locator('input[type="checkbox"]').first().check();
   await clickId(page, "phrase-continue");
   await byId(page, "home").waitFor({ timeout: 60_000 });
-  check("Home shows no USD before any balance", (await byId(page, "private-usd").textContent()).trim() === "—");
+  check("Home shows $0 before any balance (spec v2.0 §7.1)", (await byId(page, "private-usd").textContent()).trim() === "$0");
   await snap(page, "home-empty");
   for (const [link, id] of [["Swap", "swap"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
-  await clickButton(page, "Send"); await byId(page, "send-tab").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
-  await clickButton(page, "Receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickId(page, "home-send"); await byId(page, "send-tab").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await nav(page, "More"); await clickId(page, "more-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await nav(page, "Home"); await byId(page, "home").waitFor(); // V6: Receive is More's
   await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
-  await clickButton(page, "Settings"); await byId(page, "settings").waitFor(); await snap(page, "security"); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "security"); await clickId(page, "back"); await byId(page, "home").waitFor();
   const offOrigin = requests.filter((r) => r.phase === "first-launch" && !r.url.startsWith(WALLET));
   check("first launch: no request left the page's origin (creating a wallet, every route and screen)", offOrigin.length === 0, offOrigin.length ? offOrigin.slice(0, 5).map((r) => r.url).join(", ") : `${requests.length} same-origin loads`);
 
@@ -540,6 +549,8 @@ try {
   }
   check("the quote card: the best protected route, the estimate and the minimum", /Best (protected )?route/.test(quoteText) && (await byId(page, "quote-minimum").count()) === 1, quoteText.slice(0, 160));
   check("the fee summary is collapsed to one number with the privacy fee inside", (await byId(page, "swap-fees").count()) === 1, await text(byId(page, "swap-fees")).then((t) => t.slice(0, 120)));
+  const quoteLayout = await layoutProbe(page);
+  check("the quoted Swap fits the phone: no horizontal scroll", quoteLayout.scrollWidth <= page.viewportSize().width, `${quoteLayout.scrollWidth} px wide on a ${page.viewportSize().width} px screen${quoteLayout.wide.length ? `: ${quoteLayout.wide.join(", ")}` : ""}`);
   await snap(page, "swap-quote");
   const ackBefore = await acknowledgeAll(page);
   log(`acknowledged ${ackBefore} privacy items before the Review`);

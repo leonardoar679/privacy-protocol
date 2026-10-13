@@ -37,6 +37,9 @@ export interface ActivityRow {
   swap?: StoredSwap;
   /** V4 (plan §100): a protected execution's summary line */
   campaignLine?: string;
+  /** V6 (spec v2.0 §7.8): a protected execution's target asset and the USD value it was confirmed at */
+  target?: string;
+  quotedUsd?: number;
 }
 
 export const KIND_ICON: Record<RowKind, IconName> = { shield: "shield", protect: "shield", transfer: "send", send: "send", withdraw: "upload", swap: "swap", "cross-chain": "swap", refund: "recovery", housekeeping: "refresh", campaign: "shield", "classic-deposit": "lock", "classic-withdraw": "unlock" };
@@ -74,6 +77,15 @@ export function campaignLine(ref: string, decimals: number, asset: string, now =
   return `Execution: ${planWords(snap.quote?.plan as never)} · Protection: ${capUsd} max exposure · Privacy: ${typeof snap.privacyScore === "number" ? levelOf(snap.privacyScore) : "—"} · Duration: ${dur}`;
 }
 
+/** A protected execution's row facts: its summary line, the asset it buys, the USD value confirmed at its Review. */
+function campaignFacts(line: ActivityRecord, now: number): Pick<ActivityRow, "campaignLine" | "target" | "quotedUsd"> {
+  const c = campaignById(line.ref);
+  if (!c) return {};
+  const l = campaignLine(line.ref, line.decimals, line.asset, now);
+  const usd = (c.value as { usd?: unknown } | undefined)?.usd;
+  return { ...(l ? { campaignLine: l } : {}), target: c.request.to.symbol, ...(typeof usd === "number" && Number.isFinite(usd) ? { quotedUsd: usd } : {}) };
+}
+
 /** The record that belongs to an activity line: the same id (a swap), the line's id in the refs, or the line's reference among the hashes. */
 export function recordFor(line: ActivityRecord, records: OperationRecord[]): OperationRecord | undefined {
   const ref = line.ref.toLowerCase();
@@ -96,7 +108,7 @@ export function buildRows(j: JournalData | null, records: OperationRecord[], adv
       id: line.id, kind: line.kind, at: line.at, title: t(KIND_KEY[line.kind]), amount: amountOf(line.amount, line.decimals, line.asset), status: label, tone: record ? toneOfRecord(record) : toneOfLabel(label), ref: line.ref,
       ...(line.note ? { note: line.note.replace(/ · (Preparing|Waiting for source|Executing|Waiting for destination|Partial|Refunding|Refunded|Completed|Not started|Needs attention)$/, "") } : {}),
       finished: record ? isTerminal(record.state) : isFinished(line), icon: KIND_ICON[line.kind], activity: line, ...(record ? { record } : {}), ...(swap ? { swap } : {}),
-      ...(line.kind === "campaign" ? (() => { const l = campaignLine(line.ref, line.decimals, line.asset, now); return l ? { campaignLine: l } : {}; })() : {}),
+      ...(line.kind === "campaign" ? campaignFacts(line, now) : {}),
     });
   }
   // records without a line of their own (a protect or a send that failed before it was recorded, an order not yet in the list)

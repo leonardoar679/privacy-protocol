@@ -38,11 +38,14 @@ export function Card({
   );
 }
 
-/** A screen's header: the back control, the title, the actions (doc §11). */
+/** A screen's header: the back control, a leading mark (Home's protection badge), the title, the actions (doc §11). A
+ *  hidden title stays the page's heading for assistive technology. */
 export function Header({
   title,
   back,
   backLabel,
+  leading,
+  titleHidden,
   actions,
   status,
   testId,
@@ -50,6 +53,8 @@ export function Header({
   title: ReactNode;
   back?: () => void;
   backLabel?: string;
+  leading?: ReactNode;
+  titleHidden?: boolean;
   actions?: ReactNode;
   status?: ReactNode;
   testId?: string;
@@ -58,7 +63,9 @@ export function Header({
   return (
     <header className="ds-header" data-testid={testId}>
       {back ? <IconButton label={backLabel ?? L.back} icon="chevron-left" onClick={back} data-testid="back" /> : null}
-      <h1 className="ds-header-title">{title}</h1>
+      {leading}
+      <h1 className={cx("ds-header-title", titleHidden && "sr-only")}>{title}</h1>
+      {titleHidden ? <span className="ds-header-spacer" /> : null}
       {actions || status ? (
         <div className="ds-header-actions">
           {status}
@@ -76,6 +83,8 @@ export function Page({
   backLabel,
   actions,
   status,
+  leading,
+  titleHidden,
   primaryAction,
   width = "phone",
   children,
@@ -86,6 +95,8 @@ export function Page({
   backLabel?: string;
   actions?: ReactNode;
   status?: ReactNode;
+  leading?: ReactNode;
+  titleHidden?: boolean;
   primaryAction?: ReactNode;
   width?: "phone" | "wide";
   children: ReactNode;
@@ -93,7 +104,7 @@ export function Page({
 }) {
   return (
     <div className={cx("ds-page", width === "wide" && "ds-page-wide")} data-testid={testId}>
-      <Header title={title} back={back} backLabel={backLabel} actions={actions} status={status} />
+      <Header title={title} back={back} backLabel={backLabel} actions={actions} status={status} leading={leading} titleHidden={titleHidden} />
       <div className="ds-page-body">{children}</div>
       {primaryAction ? <StickyAction>{primaryAction}</StickyAction> : null}
     </div>

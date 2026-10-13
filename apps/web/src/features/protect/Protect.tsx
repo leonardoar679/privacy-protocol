@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
 import { availablePrice, formatUsd, usdOf } from "@privacy-wallet/protocol/wallet/valuation";
-import { AmountInput, AssetSelector, Button, Card, Collapsible, ConfirmSheet, FeeSummary, ListRow, Page, SecurityCard, StatusBadge, TextButton, type AssetOption } from "@privacy-wallet/ui";
+import { AmountInput, AssetSelector, Button, Card, Collapsible, ConfirmSheet, FeeSummary, ListRow, Page, SecurityCard, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { readAllowance, revokeAllowance } from "@privacy-wallet/sdk/allowances";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
@@ -178,14 +178,17 @@ export function Protect(p: ProtectProps) {
           <OperationProgress record={record} actions={step === "failed" ? <Button variant="secondary" onClick={() => setStep("form")} data-testid="protect-back">{t("protect.backToForm")}</Button> : undefined} />
           {status && step === "progress" ? <p className="ds-note" data-testid="protect-status">{status}</p> : null}
           {done ? (
-            <Card testId="protect-done">
-              <StatusBadge tone="ok">{t("protect.done", { amount: formatAmount(asset!, units), symbol: asset!.symbol })}</StatusBadge>
-              {advanced ? <p className="ds-note">{t("protect.doneAdvanced", { amount: formatAmount(asset!, units), symbol: asset!.symbol, leaf: result!.leafIndex, hash: `${result!.txHash.slice(0, 10)}…` })}</p> : null}
-              <div className="ds-actions">
-                <Button onClick={() => p.onDone?.()} data-testid="protect-finish">{t("protect.doneButton")}</Button>
-                <Button variant="secondary" onClick={() => { setStep("form"); setAmount(""); setResult(null); setOpId(null); }} data-testid="protect-again">{t("protect.again")}</Button>
-              </div>
-            </Card>
+            <SuccessCard
+              testId="protect-done"
+              title={t("protect.done", { amount: formatAmount(asset!, units), symbol: asset!.symbol })}
+              body={advanced ? <p className="ds-note">{t("protect.doneAdvanced", { amount: formatAmount(asset!, units), symbol: asset!.symbol, leaf: result!.leafIndex, hash: `${result!.txHash.slice(0, 10)}…` })}</p> : undefined}
+              actions={
+                <>
+                  <Button onClick={() => p.onDone?.()} data-testid="protect-finish">{t("protect.doneButton")}</Button>
+                  <Button variant="secondary" onClick={() => { setStep("form"); setAmount(""); setResult(null); setOpId(null); }} data-testid="protect-again">{t("protect.again")}</Button>
+                </>
+              }
+            />
           ) : null}
           {step === "failed" ? leftoverNotice : null}
           {advanced && (result || record.refs.txHashes.length) ? (

@@ -227,6 +227,16 @@ Every string is a catalog key (§18); the English below is verbatim. Each screen
 (`apps/web/src/features/<screen>/{View.tsx, model.ts, fixtures.ts}`); Views import no store or SDK module, so the
 §19 fixtures render them exactly.
 
+Code (Stage 6): the Views `apps/web/src/features/{home,protect,send,swap,review,progress,activity}/View.tsx` (the
+activity's holds the detail too) over the shared `apps/web/src/features/viewKit.tsx` (an amount in its display
+decimals, a USD value in integer cents, the status words and tones) and `apps/web/src/features/amounts.ts` (the
+engine's records → amounts and statuses); their words under `screen.<screen>.*`, `operation.*`, `home.*` and
+`activity.*`. `apps/web/eslint.config.js` refuses a View, the view kit or a fixture importing the SDK, an engine,
+the protocol package, viem, the hooks, the storage, the platform or a model. The registry
+`apps/web/src/fixtures/registry.tsx` (29 screen states and the component preview) feeds `tests/visual/run.mjs`.
+Home and Activity (with the detail) read the engine through `home/model.ts` and `activity/model.ts`; Protect,
+Send, Swap, Review and Progress are wired to the engine in Stages 10–11.
+
 ### 7.1 Home (doc §13–§14, §38)
 ```
 🛡 Protected                                   ⚙
@@ -420,8 +430,8 @@ Enabled`, `Fresh destination Enabled`, each computed from a fact (V5 §15), "Dat
 the transport's purpose registry and the API's field list.
 
 ### 7.11 More, Classic Privacy, offline (doc §36, §52–§53, §75)
-More lists Privacy Center, Classic Privacy, Security, Wallet, Networks, Advanced, Language (and Private AI where
-the build has it). Classic Privacy (§11.3) keeps its own screens: pool selection, deposit, deposit recovery,
+More lists Receive (no longer on Home, §7.1), Privacy Center, Classic Privacy, Security, Wallet, Networks,
+Advanced, Language (and Private AI where the build has it); the desktop's Wallet menu holds the same list (§6). Classic Privacy (§11.3) keeps its own screens: pool selection, deposit, deposit recovery,
 withdrawal, relayer, status. A lost connection shows, over every screen:
 ```
 Connection interrupted
@@ -719,6 +729,14 @@ is translated (test-enforced); an Advanced-only string may fall back to English 
 and relative times through `Intl`. Accessibility: roles and names, labels linked, live regions for state changes,
 keyboard paths for Protect / Send / Swap, focus trapped and restored in sheets, 44 px targets, reduced motion, high
 contrast and forced colors, 200 % text without clipping, axe clean on every fixture state.
+
+Code (Stage 6): `protect.title`, `swap.receive`, `swap.minimumReceive`, `swap.privacyFee`, `swap.relayerFee`,
+`operation.executing` and `operation.completed` name the strings the new screens show (with `operation.preparing`,
+`operation.actionNeeded`, `operation.refunded`, `operation.failed`, `operation.cancelled` for the other status words);
+neither the doc's §22 nor §7.3 gives the Protect screen a subtitle, so `protect.subtitle` waits for a screen that
+shows one. The other words of the new screens sit under `screen.<screen>.*` while the V5 screens they replace are
+still mounted with their own `protect.*`, `send.*` and `swap.*` keys; Stages 10–11 delete those screens and move
+`screen.<screen>.*` to `<screen>.*`.
 
 ## 19. Gates (doc §79–§88) — *Stages 1–17*
 

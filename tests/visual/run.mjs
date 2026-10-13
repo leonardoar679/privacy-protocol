@@ -8,7 +8,13 @@
 //   - checks the layout at the ten sizes of spec §6: no horizontal scroll; the shell's one bar — from 1024 px the top bar
 //     above <main> and no bottom bar, below it the bottom bar at the bottom of the viewport and no top bar (V5 drew the
 //     desktop navigation after the content); a "screen" fixture shows at most one primary action and never a destructive
-//     button beside a confirmation (doc §57); every control is at least 44 px tall.
+//     button beside a confirmation (doc §57); every control is at least 44 px tall;
+//   - and the acceptance checks of doc §86–§92: the vocabulary of every Simple screen (no Router, Calldata, Gas, Merkle,
+//     root, Nullifier, Proof, Provider ID, escrow, commitment, witness, nonce, wei / gwei, tranche, memo, slippage, no
+//     full 0x-40 address, no amount past its display decimals) and of every fixture (never anonymous, mixer, impossible to
+//     trace, untraceable, invisible or undetectable — spec v2.0 §1); the $10,000 Review's ten items (§86); the $80,000
+//     protected execution — the four checks, Hold to Confirm, no mode to choose (§87); every action of a 390 px screen
+//     present at 1440 px (§88); the primary action visible with the amount focused above a keyboard (390 x 508, §56).
 // UPDATE_BASELINES=1 writes the baselines (review every image before committing it). Diffs, the actual images and the
 // report land in tests/visual/run/ (git-ignored). The suite is local: baselines are bound to a platform's rendering.
 //   node tests/visual/run.mjs [--only <fixture-id>]
@@ -145,6 +151,105 @@ async function layout(page, fixture) {
   }, fixture.kind);
 }
 
+/** Doc §92: the words a Simple screen never shows (the visible text only: a closed Advanced section is not rendered). */
+const BANNED = [
+  ["Router", /\brouter\b/i],
+  ["Calldata", /\bcalldata\b/i],
+  ["Gas", /\bgas\b/i],
+  ["Merkle", /\bmerkle\b/i],
+  ["root", /\broot\b/i],
+  ["Nullifier", /\bnullifier/i],
+  ["Proof", /\bproofs?\b/i],
+  ["Provider ID", /\bprovider id\b/i],
+  ["escrow", /\bescrow/i],
+  ["commitment", /\bcommitment/i],
+  ["witness", /\bwitness/i],
+  ["nonce", /\bnonce\b/i],
+  ["wei / gwei", /\bg?wei\b/i],
+  ["tranche", /\btranche/i],
+  ["memo", /\bmemo\b/i],
+  ["slippage", /\bslippage\b/i],
+  ["a full 0x-40 address", /\b0x[0-9a-fA-F]{40}\b/],
+  ["an amount past its display decimals", /\d\.\d{9,}/],
+];
+// the claims the wallet never makes, on any screen (spec v2.0 §1, §7.10)
+const NEVER = [
+  ["anonymous", /\banonym/i],
+  ["mixer", /\bmixers?\b/i],
+  ["impossible to trace", /\bimpossible to trace\b/i],
+  ["untraceable", /\buntraceable\b/i],
+  ["invisible", /\binvisible\b/i],
+  ["undetectable", /\bundetectable\b/i],
+];
+async function vocabulary(page, simple) {
+  const text = await page.evaluate(() => document.body.innerText);
+  return [
+    ...(simple ? BANNED.filter(([, rx]) => rx.test(text)).map(([word]) => `the Simple screen shows "${word}" (doc §92)`) : []),
+    ...NEVER.filter(([, rx]) => rx.test(text)).map(([word]) => `the screen says "${word}" (spec v2.0 §1)`),
+  ];
+}
+
+/** Doc §86 and §87, on the two Review fixtures. */
+async function acceptance(page, which) {
+  const text = await page.evaluate(() => document.body.innerText);
+  const has = (s) => text.includes(s);
+  const problems = [];
+  if (which === "§86") {
+    const items = [
+      "$10,000.00",
+      "10,000 USDC",
+      "≈ 2.886 ETH",
+      "2.857 ETH",
+      "Privacy fee",
+      "$100.00",
+      "Relayer/network",
+      "Swap/provider",
+      "Total fees",
+      "Your protected balance",
+      "High protection",
+    ];
+    for (const i of items) if (!has(i)) problems.push(`doc §86: the Review lacks "${i}"`);
+    if (!(await page.locator('[data-testid="review-confirm"]').isVisible())) problems.push("doc §86: no Confirm");
+  } else if (which === "§87") {
+    for (const i of ["Protected execution", "Destination verified", "Quote locked", "Route health checked", "Execution limits enabled"])
+      if (!has(i)) problems.push(`doc §87: the Review lacks "${i}"`);
+    if (!(await page.locator('[data-testid="hold-to-confirm"]').isVisible())) problems.push("doc §87: no Hold to Confirm");
+    if ((await page.locator('[role="radiogroup"], [data-testid="protection-mode"]').count()) > 0)
+      problems.push("doc §87: a mode to choose (protection is automatic)");
+  }
+  return problems;
+}
+
+/** The actions of a screen by test id (doc §88 compares 390 px with 1440 px; the bars map onto each other). */
+async function actions(page) {
+  const ids = await page.evaluate(() =>
+    [...document.querySelectorAll("button[data-testid], a[data-testid], input[data-testid]")]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      })
+      .map((el) => el.getAttribute("data-testid")),
+  );
+  const BAR = { "nav-home": "top-nav-home", "nav-swap": "top-nav-swap", "nav-activity": "top-nav-activity", "nav-more": "nav-wallet" };
+  return [...new Set(ids.map((id) => BAR[id] ?? id))];
+}
+
+/** Doc §56: with the amount focused on a phone whose keyboard leaves 508 px, the primary action is still on screen. */
+async function keyboard(page) {
+  await page.setViewportSize({ width: 390, height: 508 });
+  const input = page.locator('[data-testid="amount-input"]').first();
+  await input.focus();
+  await page.waitForTimeout(150);
+  return page.evaluate(() => {
+    const p = [...document.querySelectorAll('[data-variant="primary"]')].find((el) => el.getBoundingClientRect().width > 0);
+    if (!p) return ["no primary action to keep visible"];
+    const r = p.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= window.innerHeight
+      ? []
+      : [`with the amount focused at 390x508 the primary action is off screen (top ${Math.round(r.top)}, bottom ${Math.round(r.bottom)})`];
+  });
+}
+
 function compare(name, png) {
   const file = join(BASELINES, `${name}.png`);
   mkdirSync(RUN, { recursive: true });
@@ -170,7 +275,15 @@ function compare(name, png) {
 
 const vite = await startVite();
 const browser = await chromium.launch({ channel: "chrome", headless: true });
-const report = { at: new Date().toISOString(), platform: PLATFORM, shots: [], layout: [] };
+const report = { at: new Date().toISOString(), platform: PLATFORM, shots: [], layout: [], acceptance: [] };
+const seen = new Map(); // fixture → { 390: actions, 1440: actions } for doc §88
+const fail = (where, problems) => {
+  report.acceptance.push({ where, problems });
+  if (problems.length) {
+    failures++;
+    console.log(`FAIL  ${where}: ${problems.join("; ")}`);
+  }
+};
 let failures = 0;
 try {
   const probe = await browser.newPage();
@@ -201,6 +314,8 @@ try {
         if (SHOTS.some(([sw, sh]) => sw === w && sh === h)) {
           const shots = f.parts.length ? f.parts : [["page", null]];
           for (const [part, selector] of shots) {
+            // a full-page image draws the phone's fixed bottom bar in the flow (after the layout checks placed it at the viewport's bottom)
+            if (!selector) await page.addStyleTag({ content: ".ds-bottomnav, .ds-sticky-action { position: static !important; }" });
             const png = selector
               ? await page.locator(selector).screenshot({ animations: "disabled", caret: "hide" })
               : await page.screenshot({ fullPage: true, animations: "disabled", caret: "hide" });
@@ -212,10 +327,23 @@ try {
             }
           }
         }
+        if (f.kind === "screen" && (w === 390 || w === 1440) && h === (w === 390 ? 844 : 900))
+          seen.set(f.id, { ...(seen.get(f.id) ?? {}), [w]: await actions(page) });
+        if (w === 390 && h === 844) {
+          fail(`vocabulary ${f.id}`, await vocabulary(page, !!f.simple));
+          if (f.accept) fail(`acceptance ${f.id} (${f.accept})`, await acceptance(page, f.accept));
+          if (f.keyboard) fail(`keyboard ${f.id}`, await keyboard(page));
+        }
       }
       await page.close();
     }
     await context.close();
+  }
+  // doc §88: everything a 390 px screen offers is there at 1440 px (the bottom bar's items become the top bar and the Wallet menu)
+  for (const [id, by] of seen) {
+    if (!by[390] || !by[1440]) continue;
+    const missing = by[390].filter((a) => !by[1440].includes(a));
+    fail(`parity ${id} (§88)`, missing.length ? [`at 1440 px the screen lacks ${missing.join(", ")}`] : []);
   }
 } finally {
   await browser.close();
@@ -227,6 +355,6 @@ writeFileSync(join(HERE, "run", "report.json"), JSON.stringify(report, null, 2) 
 const written = report.shots.filter((s) => s.status === "written").length;
 const matched = report.shots.filter((s) => s.status === "match").length;
 console.log(
-  `visual: ${report.shots.length} screenshots (${UPDATE ? `${written} baselines written` : `${matched} match`}), ${report.layout.length} layout checks at ${SIZES.length} sizes; ${failures} failure(s)`,
+  `visual: ${report.shots.length} screenshots (${UPDATE ? `${written} baselines written` : `${matched} match`}), ${report.layout.length} layout checks at ${SIZES.length} sizes, ${report.acceptance.length} acceptance checks; ${failures} failure(s)`,
 );
 process.exit(failures ? 1 : 0);

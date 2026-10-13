@@ -75,11 +75,11 @@ describe("the application shell (spec §2)", () => {
     expect(settings.get().advanced).toBe(false);
     expect(prefs().get().experience).toBe("simple");
   });
-  it("More lists the Privacy Center, Security, Wallet, Classic Privacy and Private AI; Advanced only under the advanced experience", async () => {
+  it("More lists Receive, the Privacy Center, Security, Wallet, Classic Privacy and Private AI; Advanced only under the advanced experience", async () => {
     await unlockedWallet();
     await renderApp("/more");
     await screen.findByTestId("more");
-    for (const id of ["more-privacy", "more-security", "more-wallet", "more-classic", "more-ai"]) expect(screen.getByTestId(id)).toBeInTheDocument();
+    for (const id of ["more-receive", "more-privacy", "more-security", "more-wallet", "more-classic", "more-ai"]) expect(screen.getByTestId(id)).toBeInTheDocument();
     expect(screen.queryByTestId("more-advanced")).toBeNull();
     prefs().update({ experience: "advanced" });
     expect(await screen.findByTestId("more-advanced")).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe("the application shell (spec §2)", () => {
       const panel = screen.getByTestId("nav-wallet-panel");
       expect(within(panel).getByTestId("menu-connection")).toHaveTextContent("Not connected");
       // the same entries as the phone's More screen, Advanced only in the advanced experience
-      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-privacy", "menu-security", "menu-wallet", "menu-classic", "menu-ai"]);
+      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-receive", "menu-privacy", "menu-security", "menu-wallet", "menu-classic", "menu-ai"]);
       fireEvent.click(within(panel).getByTestId("menu-security"));
       expect(pathname()).toBe("/more/security");
       expect(screen.queryByTestId("nav-wallet-panel")).toBeNull();

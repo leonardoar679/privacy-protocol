@@ -101,6 +101,7 @@
 .ds-header { display: flex; align-items: center; gap: var(--space-2); min-height: var(--header-h); }
 .ds-header-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: var(--title-size); line-height: var(--title-line); font-weight: var(--title-weight); }
 .ds-header-actions { display: flex; align-items: center; gap: var(--space-2); }
+.ds-header-spacer { flex: 1 1 auto; }
 @media (min-width: 1024px) {
   /* a single-column screen keeps a readable column on a desktop; a wide one (the desktop Home) takes the width */
   .ds-page:not(.ds-page-wide) { width: 100%; max-width: var(--content-max); margin: 0 auto; }
@@ -116,6 +117,7 @@
 .ds-balance-amount { font-size: var(--numeric-large-size); line-height: var(--numeric-large-line); font-weight: var(--numeric-large-weight); letter-spacing: var(--numeric-large-tracking); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .ds-balance-label { color: var(--fg-muted); font-size: var(--body-small-size); }
 .ds-balance-sub { color: var(--fg-muted); font-size: var(--caption-size); }
+.ds-balance > .ds-badge { align-self: flex-start; }
 .ds-numeral { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .ds-asset-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) 0; border: none; background: none; color: inherit; font: inherit; text-align: left; cursor: default; }
 button.ds-asset-row { cursor: pointer; }
@@ -169,7 +171,7 @@ button.ds-asset-row[aria-disabled="true"] { cursor: not-allowed; opacity: 0.6; }
 .ds-quote-receive dd { font-size: var(--numeric-medium-size); font-weight: var(--weight-bold); }
 
 /* badges, status (a status never wraps: V5's "Compl/eted"), timeline */
-.ds-badge { display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-2); min-height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); border: 1px solid transparent; font: inherit; font-size: var(--body-small-size); font-weight: var(--weight-semibold); white-space: nowrap; cursor: default; }
+.ds-badge { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); border: 1px solid transparent; font: inherit; font-size: var(--body-small-size); font-weight: var(--weight-semibold); white-space: nowrap; cursor: default; }
 button.ds-badge { cursor: pointer; }
 .ds-badge-high { background: var(--shield-soft); color: var(--shield); }
 .ds-badge-reduced { background: var(--warn-soft); color: var(--warn); }
@@ -286,6 +288,26 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-swatch { display: flex; flex-direction: column; gap: 2px; font-size: var(--caption-size); }
 .ds-swatch span:first-child { height: 40px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .ds-type-sample { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); border-bottom: 1px solid var(--border); padding: var(--space-2) 0; }
+
+/* the V6 screens' small layouts (spec v2.0 §7) */
+.ds-card-title { margin: 0 0 var(--space-2); font-size: var(--body-size); line-height: var(--body-line); font-weight: var(--weight-semibold); }
+.ds-card-action { margin-top: var(--space-4); }
+.ds-row-end { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; }
+.ds-op-card { display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); align-items: center; }
+.ds-op-card > .ds-status { grid-column: 1 / -1; justify-self: start; }
+.ds-op-title { font-weight: var(--weight-semibold); }
+.ds-op-amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+.ds-op-funds { grid-column: 1 / -1; color: var(--fg-muted); font-size: var(--body-small-size); }
+.ds-op-card > .ds-text-btn { grid-column: 1 / -1; justify-self: start; padding-left: 0; }
+.ds-checks-block { flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); font-size: var(--body-small-size); color: var(--shield); }
+.ds-checks-block li[data-state="fail"] { color: var(--danger); }
+.ds-progress-title { margin: 0 0 var(--space-4); font-weight: var(--weight-semibold); }
+.ds-flow-source { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.ds-group-title { margin: var(--space-2) 0 0; color: var(--fg-muted); font-size: var(--body-small-size); font-weight: var(--weight-semibold); }
+.ds-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: 0 0 40px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--fg-muted); }
+.ds-detail-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.ds-detail-amount { font-size: var(--numeric-large-size); line-height: var(--numeric-large-line); font-weight: var(--numeric-large-weight); letter-spacing: var(--numeric-large-tracking); font-variant-numeric: tabular-nums; }
+.ds-detail-rows { padding-top: var(--space-3); border-top: 1px solid var(--border); }
 
 /* the V5 screens' small layouts (kept until each screen is rebuilt) */
 .ds-stack { display: flex; flex-direction: column; gap: var(--space-3); }

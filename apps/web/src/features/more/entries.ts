@@ -15,6 +15,7 @@ export interface MoreEntry {
 }
 
 export const MORE_ENTRIES: readonly MoreEntry[] = [
+  { to: "/receive", title: "route.receive", subtitle: "more.receiveWhy", icon: "receive", id: "receive" },
   { to: "/more/privacy", title: "route.privacy", subtitle: "more.privacyWhy", icon: "shield", id: "privacy" },
   { to: "/more/security", title: "route.security", subtitle: "more.securityWhy", icon: "lock", id: "security" },
   { to: "/more/wallet", title: "route.wallet", subtitle: "more.walletWhy", icon: "wallet", id: "wallet" },

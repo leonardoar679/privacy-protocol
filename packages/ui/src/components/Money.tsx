@@ -21,7 +21,7 @@ export function BalanceCard({ label, amountUsd, subline, status, onStatus, statu
 
 export interface AssetView { symbol: string; name: string; decimals?: number; address?: string }
 
-export function AssetRow({ asset, amount, usd, onPress, trailing, testId }: { asset: AssetView; amount: string; usd?: string | null; onPress?: () => void; trailing?: ReactNode; testId?: string }) {
+export function AssetRow({ asset, amount, usd, onPress, trailing, testId }: { asset: AssetView; amount: ReactNode; usd?: ReactNode | null; onPress?: () => void; trailing?: ReactNode; testId?: string }) {
   const body = (
     <>
       <AssetMonogram symbol={asset.symbol} />

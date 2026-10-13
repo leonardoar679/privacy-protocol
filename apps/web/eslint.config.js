@@ -14,9 +14,13 @@ const CONFORMED = ["src/**/*.{ts,tsx}"]; // Stage 11: everywhere (STORAGE, WALLE
 const LEGACY = ["src/components/**", "src/prover/**", "src/zkapi/**", "src/*.ts", "src/*.tsx"];
 const STORAGE = ["src/storage/**"];
 const WALLET = ["src/features/wallet/**"];
+// V6 Stage 6 (spec v2.0 §7): a screen's View is pure — a view-model in, callbacks out; its model.ts reads the engine
+const VIEWS = ["src/features/**/View.tsx", "src/features/viewKit.tsx", "src/features/**/fixtures.ts", "src/features/fixtureAmounts.ts", "src/features/flowFixtures.ts"];
 
 const FORBIDDEN = "\\b(anonymous|anonymity|mixer|untraceable|undetectable)\\b";
 const forbiddenWord = (selector) => ({ selector, message: "Spec §18: the wallet never says anonymous, mixer, untraceable or undetectable; say private, protected, shielded, reduced public linkage." });
+const RADIX = { group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in the UI package's primitives (packages/ui/src/primitives)." };
+const PURE = "Spec v2.0 §7: a View is pure — a view-model in, callbacks out; the screen's model.ts reads the engine and the stores.";
 const ETHEREUM_RULE = { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by the wallet engine (packages/wallet-engine/src/injected.ts)." };
 
 export default tseslint.config(
@@ -46,7 +50,23 @@ export default tseslint.config(
       ],
     },
   },
-  { files: CONFORMED, rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in the UI package's primitives (packages/ui/src/primitives)." }] }] } },
+  { files: CONFORMED, rules: { "no-restricted-imports": ["error", { patterns: [RADIX] }] } },
+  {
+    files: VIEWS,
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            RADIX,
+            { group: ["@privacy-wallet/*", "!@privacy-wallet/ui", "!@privacy-wallet/protocol-types"], message: PURE },
+            { group: ["@privacy-wallet/ui/*", "@privacy-wallet/protocol-types/*", "viem", "viem/*"], message: PURE },
+            { regex: "(^|/)(hooks|storage|platform|model)(/|$)", message: PURE },
+          ],
+        },
+      ],
+    },
+  },
   // V6 Stage 3 (spec v2.0 §4): the build's environment is read by src/config.ts alone
   { files: CONFORMED, ignores: ["src/config.ts"], plugins: { house }, rules: { "house/no-build-env": "error" } },
   { files: STORAGE, rules: { "no-restricted-globals": "off" } },

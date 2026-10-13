@@ -19,6 +19,7 @@ import { Review } from "../src/features/review/ReviewScreen";
 import { Providers } from "../src/app/Providers";
 import { Home } from "../src/features/wallet/Home";
 import { Activity } from "../src/features/activity/Activity";
+import { Detail } from "../src/features/activity/Detail";
 import { Advanced } from "../src/features/more/Advanced";
 import { CampaignProgress, campaignStatus } from "../src/features/swap/protected/CampaignProgress";
 import { ExposureDashboard, exposureTimeline } from "../src/features/swap/protected/ExposureDashboard";
@@ -243,7 +244,7 @@ describe("the campaign progress panel (spec §15)", () => {
 });
 
 describe("Home, Activity and Settings (spec §14, §15)", () => {
-  it("Home shows the campaign line with the global switch; Activity shows one row and hides the steps unless Advanced", async () => {
+  it("Activity shows one row (the steps only under Advanced); its detail holds the campaign line and the global switch (V6: moved from Home)", async () => {
     await session.create("pw"); session.acknowledgePhrase();
     const c0 = campaign();
     putCampaign(c0);
@@ -253,27 +254,41 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
       session.update((j) => { j.swaps = [...j.swaps, stored]; });
       recordActivity({ id: `swap:0x${i}`, kind: "swap", asset: "ETH", decimals: 18, amount: eth(50).toString(), status: "executing", ref: `0x${i}`, note: "→ BTC · step" });
     }
+    putCampaign(c0); // the runner's update keeps the line's "→ BTC ·" (V6 Stage 6: it used to drop it, and the row its target)
+    expect(session.journal().activity!.find((l) => l.id === `campaign:${c0.id}`)!.note).toMatch(/^→ BTC · /);
     const home = await mount(<MemoryRouter><Providers deployment={null}><Home /></Providers></MemoryRouter>); // V5: the Home of spec §3.3 reads the session, the deployment context and the connection store
-    const line = home.querySelector('[data-testid="campaign-line"]')!;
+    expect(home.querySelector('[data-testid="campaign-line"]'), "V6 §7.1: no campaign card on Home").toBeNull();
+    const cards = home.querySelectorAll('[data-testid="operation-card"]');
+    expect(cards, "V6 §7.1: the protected execution in flight raises one card (its steps none)").toHaveLength(1);
+    expect(cards[0].textContent).toContain("Executing");
+    expect(cards[0].textContent).toContain("ETH → BTC");
+    expect(cards[0].textContent, "the value confirmed at its Review, as Activity shows it").toContain("$10,000,000.00");
+    expect(cards[0].textContent).toContain("View progress");
+    expect(home.querySelector('[data-testid="pause-large-operations"]'), "V6 §7.1: the switch is the detail's").toBeNull();
+    expect(home.querySelector('[data-testid="privacy-badge"]')!.textContent, "the badge reads the privacy posture, not the protection mode").toMatch(/^(Protected|Medium protection|Low protection)$/);
+    let activity = await mount(<Activity />);
+    let rows = [...activity.querySelectorAll('[data-testid="activity-row"]')];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("ETH → BTC");
+    expect(rows[0].textContent, "the value confirmed at its Review, never re-priced").toContain("$10,000,000.00");
+    expect(rows[0].textContent).toContain("Executing");
+    expect(rows[0].textContent).not.toContain("Remove");
+    const detail = await mount(<MemoryRouter><Detail id={`campaign:${c0.id}`} onBack={() => {}} /></MemoryRouter>);
+    const line = detail.querySelector('[data-testid="campaign-line"]')!;
     expect(line.textContent).toContain("● Processing");
     expect(line.textContent, "plan §98").toContain("Executing in protected steps");
-    expect(home.querySelector('[data-testid="protection-badge"]')!.textContent, "plan §94").toContain("Protection: Balanced ✓");
+    expect(line.querySelector('[data-testid="activity-campaign"]'), "the summary line is Advanced's").toBeNull();
     const sw = line.querySelector('[data-testid="pause-large-operations"]') as HTMLInputElement;
     expect(sw.checked).toBe(false);
     await act(async () => { sw.click(); });
     expect(settings.get().protection.pauseLargeOperations).toBe(true);
     expect((session.journal().settings as any).protection.pauseLargeOperations, "journaled").toBe(true);
-    let activity = await mount(<Activity />);
-    let rows = [...activity.querySelectorAll('[data-testid="activity-row"]')];
-    expect(rows).toHaveLength(1);
-    expect(rows[0].textContent).toContain("Protected swap");
-    expect(rows[0].textContent).toContain("In progress");
-    expect(rows[0].textContent).not.toContain("Remove");
-    expect(rows[0].querySelector('[data-testid="activity-campaign"]')!.textContent, "plan §100").toMatch(/^Execution: .+ · Protection: \$200K max exposure · Privacy: Good · Duration: \d+[hm] /);
     settings.set({ advanced: true });
     activity = await mount(<Activity />);
     rows = [...activity.querySelectorAll('[data-testid="activity-row"]')];
     expect(rows).toHaveLength(4);
+    const advancedDetail = await mount(<MemoryRouter><Detail id={`campaign:${c0.id}`} onBack={() => {}} /></MemoryRouter>);
+    expect(advancedDetail.querySelector('[data-testid="activity-campaign"]')!.textContent, "plan §100").toMatch(/^Execution: .+ · Protection: \$200K max exposure · Privacy: Good · Duration: \d+[hm] /);
   });
   it("Settings → Protected execution: the mode, the exposure fraction inside 2–3 %, the switch, notifications, the separate device registered cross-platform", async () => {
     await session.create("pw"); session.acknowledgePhrase();

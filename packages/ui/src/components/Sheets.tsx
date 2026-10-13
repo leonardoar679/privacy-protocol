@@ -59,7 +59,7 @@ export function HoldButton({ label, holdingLabel, hint, holdMs, onConfirm, disab
   // shrank under the pointer made the browser fire pointerleave and cancel the hold within a frame (the local-stack run
   // found it on the campaign Review's three-line label); the pointer is captured so a layout shift cannot end a hold.
   return (
-    <button type="button" className={cx("ds-btn", "ds-btn-primary", "ds-btn-lg", "ds-btn-full", "ds-hold")} disabled={disabled} title={hintText} data-testid={testId} aria-label={`${label} (${hintText})`}
+    <button type="button" className={cx("ds-btn", "ds-btn-primary", "ds-btn-lg", "ds-btn-full", "ds-hold")} data-variant="primary" disabled={disabled} title={hintText} data-testid={testId} aria-label={`${label} (${hintText})`}
       onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* a synthetic event without a pointer: nothing to capture */ } begin(); }} onPointerUp={() => stop()} onPointerLeave={() => stop()} onPointerCancel={() => stop()}
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); begin(); } }} onKeyUp={(e) => { if (e.key === "Enter" || e.key === " ") stop(); }}>
       <span aria-hidden className="ds-hold-ring" style={{ background: `conic-gradient(var(--accent-fg) ${deg}deg, rgba(255, 255, 255, 0.3) ${deg}deg)` }} data-progress={progress.toFixed(2)} />

@@ -62,7 +62,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     expect(await screen.findByTestId("home")).toBeInTheDocument();
     expect(pathname()).toBe("/");
     expect(document.body.textContent).toContain("Protected balance");
-    expect(screen.getByTestId("private-usd").textContent).toBe("—"); // nothing to value, nothing read
+    expect(screen.getByTestId("private-usd").textContent).toBe("$0"); // nothing protected yet, nothing read (spec v2.0 §7.1)
     expect(session.state().status).toBe("unlocked");
     expect(fetchSpy, "Home").not.toHaveBeenCalled();
 
@@ -101,9 +101,11 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     expect(pathname()).toBe("/protect");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
-    fireEvent.click(screen.getByRole("button", { name: "Receive" }));
+    fireEvent.click(screen.getByTestId("nav-more")); // V6: Receive is an entry of More (and of the desktop's Wallet menu)
+    fireEvent.click(await screen.findByTestId("more-receive"));
     expect((await screen.findByTestId("sheet-receive")).querySelector("svg"), "the Receive QR is inline, no image request").toBeTruthy();
     fireEvent.click(screen.getByTestId("back"));
+    fireEvent.click(await screen.findByTestId("nav-home"));
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("privacy-badge"));
     const center = await screen.findByTestId("privacy-center");

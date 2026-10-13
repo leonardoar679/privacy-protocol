@@ -16,10 +16,28 @@ export const FIXTURE_SENTINEL = "pw-fixture-sentinel";
 
 declare global {
   interface Window {
-    __PW_FIXTURES__?: { id: string; title: string; kind: string; parts: readonly (readonly [string, string])[]; before?: string }[];
+    __PW_FIXTURES__?: {
+      id: string;
+      title: string;
+      kind: string;
+      simple: boolean;
+      keyboard: boolean;
+      accept?: string;
+      parts: readonly (readonly [string, string])[];
+      before?: string;
+    }[];
   }
 }
-window.__PW_FIXTURES__ = FIXTURES.map((f) => ({ id: f.id, title: f.title, kind: f.kind, parts: f.parts ?? [], before: f.before }));
+window.__PW_FIXTURES__ = FIXTURES.map((f) => ({
+  id: f.id,
+  title: f.title,
+  kind: f.kind,
+  simple: !!f.simple,
+  keyboard: !!f.keyboard,
+  accept: f.accept,
+  parts: f.parts ?? [],
+  before: f.before,
+}));
 
 const current = () => decodeURIComponent(location.hash.slice(1));
 

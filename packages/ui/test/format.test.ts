@@ -23,6 +23,15 @@ describe("formatAmount", () => {
     expect(formatAmount(4_100_000n, USDC)).toBe("4.10");
   });
 
+  it("money-like (pad): a fraction keeps both decimals, a whole amount shows none", () => {
+    const money = { decimals: 6, displayDecimals: 2, pad: true };
+    expect(formatAmount(2_470_900_000n, money)).toBe("2,470.90");
+    expect(formatAmount(4_100_000n, money)).toBe("4.10");
+    expect(formatAmount(4_950_000_000n, money)).toBe("4,950");
+    expect(formatAmount(25_000_000n, money)).toBe("25");
+    expect(formatAmount(2_470_900_000n, { decimals: 6, displayDecimals: 2 })).toBe("2,470.9");
+  });
+
   it("rounding: half up for nearest, a carry into the whole part, up for a fee, down for a balance", () => {
     expect(formatAmount(1_005n, { decimals: 3, displayDecimals: 2 })).toBe("1.01");
     expect(formatAmount(1_004n, { decimals: 3, displayDecimals: 2 })).toBe("1");

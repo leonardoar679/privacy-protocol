@@ -11,7 +11,7 @@ import { decodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { looksLikeChain, parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, Segmented, StatusBadge, TextButton, type AddressCheck, type AssetOption, type BookEntryView, type FeeLine } from "@privacy-wallet/ui";
+import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, Segmented, SuccessCard, TextButton, type AddressCheck, type AssetOption, type BookEntryView, type FeeLine } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -237,14 +237,17 @@ export function Send(p: SendProps) {
           ) : undefined} />
           {status && step !== "done" ? <p className="ds-note" data-testid="send-status">{status}</p> : null}
           {step === "done" && result ? (
-            <Card testId="send-done">
-              <StatusBadge tone="ok">{mode === "private" ? t("send.donePrivate", { amount: formatAmount(asset, delivered), symbol: asset.symbol }) : t("send.donePublic", { amount: formatAmount(asset, delivered), symbol: asset.symbol, address: `${record.destination.display.slice(0, 8)}…` })}</StatusBadge>
-              {advanced ? <p className="ds-note">{t("send.doneAdvanced", { hash: `${result.txHash.slice(0, 10)}…`, seconds: (result.proofMs / 1000).toFixed(1), verified: result.verifiedLocally ? t("send.verifiedLocally") : "", leaf: result.leafIndex !== undefined ? t("send.recipientLeaf", { leaf: result.leafIndex }) : "" })}</p> : null}
-              <div className="ds-actions">
-                <Button onClick={() => p.onDone?.()} data-testid="send-finish">{t("send.doneButton")}</Button>
-                <Button variant="secondary" onClick={() => { setStep("form"); setAmount(""); setResult(null); setOpId(null); setStatus(""); }} data-testid="send-again">{t("send.again")}</Button>
-              </div>
-            </Card>
+            <SuccessCard
+              testId="send-done"
+              title={mode === "private" ? t("send.donePrivate", { amount: formatAmount(asset, delivered), symbol: asset.symbol }) : t("send.donePublic", { amount: formatAmount(asset, delivered), symbol: asset.symbol, address: `${record.destination.display.slice(0, 8)}…` })}
+              body={advanced ? <p className="ds-note">{t("send.doneAdvanced", { hash: `${result.txHash.slice(0, 10)}…`, seconds: (result.proofMs / 1000).toFixed(1), verified: result.verifiedLocally ? t("send.verifiedLocally") : "", leaf: result.leafIndex !== undefined ? t("send.recipientLeaf", { leaf: result.leafIndex }) : "" })}</p> : undefined}
+              actions={
+                <>
+                  <Button onClick={() => p.onDone?.()} data-testid="send-finish">{t("send.doneButton")}</Button>
+                  <Button variant="secondary" onClick={() => { setStep("form"); setAmount(""); setResult(null); setOpId(null); setStatus(""); }} data-testid="send-again">{t("send.again")}</Button>
+                </>
+              }
+            />
           ) : null}
         </div>
       </Page>
@@ -279,7 +282,7 @@ export function Send(p: SendProps) {
             <button type="button" className="ds-chip" aria-pressed={exactOutput} onClick={() => setExactOutput((v) => !v)} data-testid="send-exact-output">{t("send.exactOutput")}</button>
           </>
         ) : null}
-        {assessment && tier !== "standard" ? <StatusBadge tone="pending" testId="send-large">{assessment.failSafe ? t("send.largeNoticeFailSafe") : t("send.largeNotice")}</StatusBadge> : null}
+        {assessment && tier !== "standard" ? <p className="ds-note-warn" data-testid="send-large">{assessment.failSafe ? t("send.largeNoticeFailSafe") : t("send.largeNotice")}</p> : null}
         {lint ? <PrivacyLint items={lint} compact={mode === "private"} onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} /> : null}
         {status ? <p className="ds-note-warn" data-testid="send-status">{status}</p> : null}
         {consolidate ? <Button variant="secondary" data-testid="consolidate-now" onClick={() => { const ok = scheduleHousekeeping(p.deployment, { now: true }); setStatus(ok ? t("send.consolidateScheduled") : t("send.consolidateNotScheduled")); }}>{t("send.consolidateNow")}</Button> : null}

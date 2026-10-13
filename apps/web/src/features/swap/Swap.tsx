@@ -15,7 +15,7 @@ import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
-import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, StatusBadge, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
+import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "@privacy-wallet/sdk/swapExecute";
@@ -477,7 +477,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
             </Card>
             <AmountInput id="swap-amount" label={t("swap.amount")} asset={fromAsset} value={amount} onChange={(v) => { setAmount(v); setQuotes(null); reset(); }} usd={usd !== null ? `≈ ${formatUsd(usd)}` : null} testId="swap-amount"
               hint={units > 0n && !isBucketFor(fromAsset, units) ? <>{t("send.exactFingerprint")} {bucket ? <button type="button" className="ds-chip" onClick={() => { setAmount(formatAmount(fromAsset, bucket)); setQuotes(null); reset(); }} data-testid="swap-use-bucket">{t("swap.useBucket", { amount: formatAmount(fromAsset, bucket), symbol: fromAsset.symbol })}</button> : t("swap.chooseLarger")}</> : undefined} />
-            {assessment && assessment.tier !== "standard" ? <StatusBadge tone="pending" testId="swap-large">{assessment.failSafe ? t("swap.largeFailSafe") : `${tierLabel[assessment.tier]}: `}{t("swap.largeNotice")}</StatusBadge> : null}
+            {assessment && assessment.tier !== "standard" ? <p className="ds-note-warn" data-testid="swap-large">{assessment.failSafe ? t("swap.largeFailSafe") : `${tierLabel[assessment.tier]}: `}{t("swap.largeNotice")}</p> : null}
             <AddressInput id="swap-destination" label={destinationEdited ? t("swap.receiveAtOwn") : t("swap.receiveAtFresh")} value={destination} onChange={changeDestination} checks={checks} error={destinationError || undefined} placeholder={t("swap.destinationPlaceholder")} pasteLabel={t("send.paste")} testId="swap-destination"
               status={destinationEdited ? (
                 <>

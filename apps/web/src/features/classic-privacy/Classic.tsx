@@ -136,7 +136,7 @@ export function ClassicPoolScreen({ poolId, onBack }: { poolId: string; onBack: 
                 </>
               ) : (
                 <>
-                  <StatusBadge tone="ok" testId="classic-deposited">{t("classic.deposit.done", { amount: pool.denomination, symbol, leaf: deposited.leafIndex })}</StatusBadge>
+                  <h2 className="ds-review-title" data-testid="classic-deposited">{t("classic.deposit.done", { amount: pool.denomination, symbol, leaf: deposited.leafIndex })}</h2>
                   <p className="ds-note">{t("classic.deposit.doneNote")}</p>
                   <Button onClick={() => setMode("pool")}>{t("classic.backToPool")}</Button>
                 </>

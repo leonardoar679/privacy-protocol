@@ -71,7 +71,7 @@ describe("the rows (spec §14)", () => {
 });
 
 describe("the screens (spec §3.10)", () => {
-  it("the list: day headings, the icon and the status per row, a row opens its detail; Refresh tracks the open swaps; Remove drops a finished line", async () => {
+  it("the list (spec v2.0 §7.8): day headings, an icon, the title and one status word per row, a row opens its detail; Refresh tracks the open swaps; no Remove in the list", async () => {
     session.update((j) => { j.swaps = [storedSwap()]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
     recordActivity({ id: "shield:0x1", kind: "shield", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "completed", ref: "0x1", at: NOW - DAY - 1000 });
@@ -80,18 +80,17 @@ describe("the screens (spec §3.10)", () => {
     expect(screen.getAllByTestId("activity-day").map((h) => h.textContent)).toEqual(["Today", "Yesterday"]);
     const rows = screen.getAllByTestId("activity-row");
     expect(rows).toHaveLength(2);
-    expect(rows[0].getAttribute("data-label")).toBe("Funded");
-    expect(rows[0].textContent).toContain("Swap");
-    expect(rows[0].textContent).toContain("1 ETH");
-    expect(within(rows[0]).queryByTestId("activity-remove")).toBeNull();
+    expect(rows[0].getAttribute("data-status")).toBe("executing");
+    expect(rows[0].textContent).toContain("ETH → BTC");
+    expect(rows[0].textContent, "the USD value the order recorded at its quote").toContain("$2,500.00");
+    expect(rows[0].textContent).toContain("Executing");
+    expect(rows[1].textContent).toContain("Protected ETH");
     expect(rows[0].querySelector("svg")).toBeTruthy();
-    fireEvent.click(within(rows[0]).getByRole("button", { name: /Swap/ }));
+    expect(screen.queryByText("Remove"), "Remove lives in the detail's Advanced").toBeNull();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /ETH → BTC/ }));
     expect(onOpen).toHaveBeenCalledWith(`swap:${ORDER}`);
     fireEvent.click(screen.getByTestId("activity-refresh"));
     await waitFor(() => expect(trackCalls).toEqual([ORDER]));
-    fireEvent.click(within(rows[1]).getByTestId("activity-remove"));
-    await waitFor(() => expect(screen.getAllByTestId("activity-row")).toHaveLength(1));
-    expect(session.journal().activity!.map((r) => r.id)).toEqual([`swap:${ORDER}`]);
   });
   it("the detail: the pair and the value, the status, the source, the verified destination, the transaction, the advanced list from the refs; Refresh tracks the order and the record follows", async () => {
     const stored = storedSwap();
@@ -100,18 +99,17 @@ describe("the screens (spec §3.10)", () => {
     putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "NETWORK_CONFIRMING", createdAt: NOW - 1000, updatedAt: NOW - 1000, refs: { txHashes: [stored.fundedTx!], orderId: ORDER, quoteId: "q-7", executionRef: "thor-123", provider: "thorchain" }, fees: [{ label: "Privacy fee (0.25 %)", value: "0.0025 ETH" }, { label: "Relayer / network", value: "0.001 ETH" }], destination: { kind: "fresh", display: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", chain: "bitcoin" }, history: [{ state: "NETWORK_CONFIRMING", at: NOW - 1000 }] }));
     settings.set({ advanced: true });
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
-    expect(screen.getByTestId("detail-pair").textContent).toBe("ETH → BTC");
-    expect(screen.getByTestId("detail-value").textContent).toBe("$2,500");
-    expect(screen.getByTestId("detail-status").textContent).toContain("Confirming on the network");
-    expect(document.body.textContent).toContain("Protected ETH");
-    expect(screen.getByTestId("detail-destination").textContent).toContain("✓ Verified");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("ETH → BTC");
+    expect(screen.getByTestId("detail-value").textContent).toBe("$2,500.00");
+    expect(screen.getByTestId("detail-status").textContent).toContain("Executing");
+    expect(screen.getByTestId("detail-destination").textContent).toContain("Verified");
     expect(document.body.textContent).toContain("Privacy fee");
     expect(document.body.textContent).toContain("0.0025 ETH");
-    expect(screen.getByTestId("detail-provider").textContent).toContain("thorchain");
-    expect(screen.getByTestId("detail-tx").textContent).toContain(stored.fundedTx);
+    expect(screen.getByTestId("detail-timeline")).toBeInTheDocument();
+    expect(document.body.textContent, "Simple: the transaction lives in Advanced").not.toContain(stored.fundedTx!);
     fireEvent.click(screen.getByTestId("detail-advanced-toggle"));
     const list = screen.getByTestId("detail-advanced-list").textContent ?? "";
-    for (const word of ["Execution ID", ORDER, "Quote ID", "q-7", "Nullifier status", "Provider execution ID", "thor-123", "Confirmation state", "Recovery state"]) expect(list).toContain(word);
+    for (const word of ["Operation ID", "Provider", "thorchain", "Execution ID", ORDER, "Quote ID", "q-7", "Transaction", stored.fundedTx!, "Nullifier status", "Provider execution ID", "thor-123", "Confirmation state", "Recovery state"]) expect(list).toContain(word);
     trackedState = "COMPLETED";
     fireEvent.click(screen.getByTestId("detail-refresh"));
     await waitFor(() => expect(trackCalls).toEqual([ORDER]));
@@ -137,8 +135,8 @@ describe("the screens (spec §3.10)", () => {
     const rec = newOperation({ kind: "protect", amounts: { asset: "ETH", decimals: 18, input: (10n ** 18n).toString() }, destination: { kind: "privacy-address", display: "Your protected balance", chain: "ethereum" }, tier: "standard" }, NOW - 500);
     putOperation({ ...rec, state: "SIGNATURE_REJECTED", failure: { code: "user_rejected", class: "not-moved" }, history: [...rec.history, { state: "SIGNATURE_REJECTED", at: NOW - 400 }] });
     render(<Detail id={rec.id} onBack={() => {}} />);
-    expect(screen.getByTestId("detail-pair").textContent).toBe("Protect");
-    expect(screen.getByTestId("detail-status").textContent).toContain("Not signed");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Protected ETH");
+    expect(screen.getByTestId("detail-status").textContent).toContain("Cancelled");
     expect(screen.queryByTestId("detail-refresh")).toBeNull();
     cleanup();
     render(<Detail id="nothing:here" onBack={() => {}} />);

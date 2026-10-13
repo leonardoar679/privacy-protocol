@@ -13,6 +13,8 @@ export interface AmountFormat {
   minDecimals?: number;
   /** a balance or a receive amount rounds down (never show more than there is), a fee rounds up; nearest otherwise */
   rounding?: Rounding;
+  /** money-like: a fraction keeps every display decimal ("2,470.90"), a whole amount shows none ("4,950") */
+  pad?: boolean;
   locale?: string;
 }
 
@@ -60,7 +62,8 @@ export function formatAmount(value: bigint, f: AmountFormat): string {
     return `${negative ? MINUS : ""}< ${smallest}`;
   }
   let fraction = shown === 0 ? "" : digits.toString().padStart(shown, "0");
-  while (fraction.length > keep && fraction.endsWith("0")) fraction = fraction.slice(0, -1);
+  const padded = f.pad && digits > 0n;
+  while (!padded && fraction.length > keep && fraction.endsWith("0")) fraction = fraction.slice(0, -1);
   const body = group(whole, locale) + (fraction ? decimalMark(locale) + fraction : "");
   return negative && (whole > 0n || digits > 0n) ? MINUS + body : body;
 }

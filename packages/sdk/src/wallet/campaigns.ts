@@ -37,10 +37,11 @@ export function campaignById(id: string, s: WalletSession = defaultSession): Cam
   return s.isUnlocked() ? campaignsOf(s.journal()).find((c) => c.id === id) ?? null : null;
 }
 export const activeCampaigns = (s: WalletSession = defaultSession): Campaign[] => (s.isUnlocked() ? campaignsOf(s.journal()).filter((c) => !TERMINAL_STATES.includes(c.state)) : []);
-/** Journal a campaign (replacing the one with its id) and mirror its state onto its Activity line. */
+/** Journal a campaign (replacing the one with its id) and mirror its state onto its Activity line (the note keeps the
+ *  "→ BTC ·" it was created with, as a swap's line does). */
 export function putCampaign(c: Campaign, s: WalletSession = defaultSession): void {
   s.update((j) => { j.campaigns = [...(j.campaigns ?? []).filter((x) => x.id !== c.id), c].sort((a, b) => a.createdAt - b.createdAt); });
-  updateActivity(activityId("campaign", c.id), { status: c.state, note: progressLine(c) }, s);
+  updateActivity(activityId("campaign", c.id), { status: c.state, note: `→ ${c.request.to.symbol} · ${progressLine(c)}` }, s);
 }
 /** The session's campaigns (a stable snapshot: the same empty array while locked); apps/web/src/hooks reads it for the screens. */
 export const campaignsSnapshot = (s: WalletSession = defaultSession): Campaign[] => (s.isUnlocked() ? campaignsOf(s.journal()) : EMPTY);

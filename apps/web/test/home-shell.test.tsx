@@ -67,8 +67,8 @@ describe("the shell", () => {
   it("the Privacy badge shows the overall level and opens the Center; Activity renders the journal and removes finished rows", async () => {
     await mountUnlocked();
     const badge = screen.getByTestId("privacy-badge");
-    expect(badge).toHaveAttribute("data-level"); // High or Reduced from the posture (spec §3.3); the level words live in the Center
-    expect(badge.textContent).toContain("Protected");
+    expect(badge).toHaveAttribute("data-level"); // from the posture (spec v2.0 §7.1); the level's reasons live in the Center
+    expect(["Protected", "Medium protection", "Low protection"]).toContain(badge.textContent);
     fireEvent.click(badge);
     await screen.findByTestId("privacy-center");
     fireEvent.click(screen.getByTestId("privacy-advanced-toggle")); // V5: the six categories sit under "Advanced privacy settings"
@@ -82,13 +82,17 @@ describe("the shell", () => {
     fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Activity" }));
     const rows = await screen.findAllByTestId("activity-row", {}, LAZY);
     expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toContain("Swap"); // newest first
+    expect(rows[0].textContent).toContain("ETH → BTC"); // newest first (spec v2.0 §7.8)
     expect(rows[0].textContent).toContain("0.5 ETH");
-    expect(rows[0].textContent).toContain("Funded");
-    expect(rows[0].textContent).not.toContain("Remove"); // still moving
-    expect(rows[1].textContent).toContain("Added funds");
+    expect(rows[0].textContent).toContain("Executing");
+    expect(rows[1].textContent).toContain("Protected ETH");
     expect(rows[1].textContent).toContain("1.5 ETH");
-    fireEvent.click(within(rows[1]).getByRole("button", { name: "Remove" }));
+    expect(document.body.textContent, "Simple: no Remove on a row").not.toContain("Remove");
+    // a finished line goes from the detail's Advanced section
+    fireEvent.click(within(rows[1]).getByRole("button"));
+    await screen.findByTestId("activity-detail", {}, LAZY);
+    fireEvent.click(screen.getByTestId("detail-advanced-toggle"));
+    fireEvent.click(screen.getByTestId("detail-remove"));
     await waitFor(() => expect(screen.getAllByTestId("activity-row")).toHaveLength(1));
     expect(session.journal().activity!.map((r) => r.id)).toEqual(["swap:0xdef"]);
   }, 60_000);
