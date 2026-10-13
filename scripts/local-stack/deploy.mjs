@@ -33,7 +33,7 @@ const chain = { id: 1, name: "local (chain id 1)", nativeCurrency: { name: "Ethe
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const wallet = createWalletClient({ chain, transport: http(RPC), account });
 
-// the mainnet contracts the wallet pins (frontend/src/sdk/providerCall.ts PINNED): their runtime code is placed at the
+// the mainnet contracts the wallet pins (apps/web/src/sdk/providerCall.ts PINNED): their runtime code is placed at the
 // same addresses. mainnet/<name>.hex holds a copy (eth_getCode on 2026-10-08); a missing file is fetched from a public RPC.
 const PINS = {
   weth9: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -43,7 +43,7 @@ const PINS = {
 const PUBLIC_RPCS = ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"];
 const FEED_REGISTRY = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf";
 const BTC_FEED = "0x1111111111111111111111111111111111111B7c"; // a devnet address: mainnet resolves BTC / USD through the registry
-// the mainnet proxies the wallet's table pins (reference/typescript/src/wallet/valuation.ts) and the mock prices
+// the mainnet proxies the wallet's table pins (packages/protocol/src/wallet/valuation.ts) and the mock prices
 const FEEDS = [
   { symbol: "ETH", description: "ETH / USD", heartbeatSeconds: 3600, proxy: "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419", usd: Number(process.env.ETH_USD ?? 4250) },
   { symbol: "BTC", description: "BTC / USD", heartbeatSeconds: 3600, proxy: BTC_FEED, usd: Number(process.env.BTC_USD ?? 118000) },

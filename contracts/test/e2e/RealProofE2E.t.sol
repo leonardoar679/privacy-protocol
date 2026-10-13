@@ -55,7 +55,7 @@ contract RealProofE2ETest is Test {
         vm.warp(1_900_000_000); // the fixture's order deadlines are absolute (2_000_000_000 / 2_000_100_000)
     }
 
-    /// The order the wallet pre-committed (constants shared with reference/typescript genE2EInputs.ts).
+    /// The order the wallet pre-committed (constants shared with packages/protocol genE2EInputs.ts).
     function _swapParams() internal view returns (T.OrderParams memory p) {
         p.orderId = bytes32(F.ORDER_ID);
         p.assetType = T.ASSET_ETH;

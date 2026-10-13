@@ -20,4 +20,4 @@ before calling either library (canonical encoding, spec §1).
 Related vendored files, same instance: `circuits/lib/poseidon2/{poseidon2,poseidon2_constants}.circom`
 from `@taceo/circom-lib` 0.9.0 (MIT; sha256 `b990042c…9687fe` / `a2d2cb63…6fdc07`, verbatim; only the
 `Poseidon2(4)` permutation is used, the Noir sponge is `circuits/lib/poseidon2_hash.circom`) and
-`reference/typescript/src/poseidon2.ts` from UseArclite `ts/poseidon2.ts` (sha256 `c089dc1e…0e5f96`, verbatim).
+`packages/protocol/src/poseidon2.ts` from UseArclite `ts/poseidon2.ts` (sha256 `c089dc1e…0e5f96`, verbatim).

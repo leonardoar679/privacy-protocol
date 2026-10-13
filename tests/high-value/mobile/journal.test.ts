@@ -3,7 +3,7 @@
 // reducer continues from the journaled state (the chain and the executor are asked by the runner, never a second
 // send); an unreadable state keeps its exposure ("Unknown / reconnecting", never "failed").
 import { describe, it, expect } from "vitest";
-import { createCampaign, exposure, nextAction, withTrancheState, withCampaignState, replan } from "../../../reference/typescript/src/wallet/campaign";
+import { createCampaign, exposure, nextAction, withTrancheState, withCampaignState, replan } from "../../../packages/protocol/src/wallet/campaign";
 import { campaign, bounds, plan, ETH, ETH_REF, BTC_REF, REF_RATE } from "../helpers";
 
 describe("the journal (plan §73)", () => {

@@ -1,7 +1,7 @@
 # Privacy benchmarks
 
 The Tornado study's multi-channel adversary, applied to this protocol with the wallet policy that
-ships (`reference/typescript/src/wallet/amounts.ts`). Results and reading: `docs/privacy-lab.md`.
+ships (`packages/protocol/src/wallet/amounts.ts`). Results and reading: `docs/privacy-lab.md`.
 
 ```
 node run.mjs                         # 8,000 users, 10/h, seed 4242 (≈1 min); writes results.json

@@ -8,7 +8,7 @@ import {TransactionVerifierDev} from "../../src/verifier/dev/TransactionVerifier
 import {NativeProofFixtures as N} from "./NativeProofFixtures.sol";
 import {DevProofFixtures as S} from "./DevProofFixtures.sol";
 
-/// Proofs made by the NATIVE Rust prover (core/rust/privacy-prover: the snarkjs proving key read
+/// Proofs made by the NATIVE Rust prover (privacy-core/privacy-prover: the snarkjs proving key read
 /// natively, arkworks Groth16 with the snarkjs QAP reduction) checked by the same on-chain verifier
 /// PrivacyCore calls. The mobile / desktop wallets (plan §40) prove with that crate; this closes its
 /// loop to the EVM exactly as Groth16RealProof does for snarkjs. The Rust test

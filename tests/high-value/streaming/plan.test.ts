@@ -2,13 +2,13 @@
 // transaction size — a tranche a provider executes as a stream of many parts is ONE exposure; a stream on a bridge route
 // is the R2 exposure tier; the step's time scales with the piece in the recommendation.
 import { describe, it, expect } from "vitest";
-import { exposure, withTrancheState } from "../../../reference/typescript/src/wallet/campaign";
-import { exposureTierOf } from "../../../reference/typescript/src/wallet/exposurePolicy";
-import { RiskDb, RISK_DB_DIR } from "../../../services/private-swap/src/risk/riskDb";
-import { recommendProtection } from "../../../services/private-swap/src/risk/protection";
-import type { QuoteSet } from "../../../services/private-swap/src/engine";
-import type { Health, ProviderId, Quote, QuoteRequest } from "../../../services/private-swap/src/types";
-import type { RouteScore } from "../../../services/private-swap/src/scoring";
+import { exposure, withTrancheState } from "../../../packages/protocol/src/wallet/campaign";
+import { exposureTierOf } from "../../../packages/protocol/src/wallet/exposurePolicy";
+import { RiskDb, RISK_DB_DIR } from "../../../packages/swap-engine/src/risk/riskDb";
+import { recommendProtection } from "../../../packages/swap-engine/src/risk/protection";
+import type { QuoteSet } from "../../../packages/swap-engine/src/engine";
+import type { Health, ProviderId, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import type { RouteScore } from "../../../packages/swap-engine/src/scoring";
 import { campaign, ETH, soon, ETH_REF, BTC_REF, DEST_BTC } from "../helpers";
 
 const q = (provider: ProviderId, amount: bigint, over: Partial<Quote> = {}): Quote => ({ provider, category: "A", toAmount: amount / 30n + 100n, toAmountMin: amount / 30n, fees: [], etaSeconds: 1400, expiresAt: soon(), nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: null, obtainedAt: Date.now(), plan: { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 }, ...over });

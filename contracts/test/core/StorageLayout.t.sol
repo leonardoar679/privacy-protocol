@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {PPTestBase} from "../PPTestBase.sol";
 
 /// The wallet reads the pool by storage proof under a light-client-verified header
-/// (frontend/src/sdk/verifiedReads.ts): slot 0 holds nextLeafIndex (uint32, the low bytes), slot 1
+/// (apps/web/src/sdk/verifiedReads.ts): slot 0 holds nextLeafIndex (uint32, the low bytes), slot 1
 /// currentRoot, and a nullifier's spent flag sits at keccak256(nullifier ‖ 8) (mapping spentNullifier).
 /// PrivacyCore is immutable, so this layout never changes; this test ties the wallet's constants to it.
 contract StorageLayoutTest is PPTestBase {

@@ -30,7 +30,7 @@ function start(name, cwd, args, env) {
   console.log(`[${name}] pid ${p.pid} in ${cwd}: ${args.join(" ")}`);
 }
 
-start("service", "services/private-swap", ["tsx", "src/server.ts"], {
+start("service", "packages/swap-engine", ["tsx", "src/server.ts"], {
   PORT: "8787",
   ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173",
   CHAIN_ID: "1",
@@ -40,7 +40,7 @@ start("service", "services/private-swap", ["tsx", "src/server.ts"], {
   THORCHAIN_ROUTER: stack.pins.thorchainRouter,
 });
 
-start("relayer", "services/relayer", ["tsx", "src/server.ts"], {
+start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
   RPC_URL: stack.rpc,
   CHAIN_ID: "1",
   CORE: stack.core,
@@ -62,7 +62,7 @@ start("relayer", "services/relayer", ["tsx", "src/server.ts"], {
   HOST: "127.0.0.1",
 });
 
-start("wallet", "frontend", ["vite", "--port", "5173", "--strictPort", "--host", "127.0.0.1"], {
+start("wallet", "apps/web", ["vite", "--port", "5173", "--strictPort", "--host", "127.0.0.1"], {
   VITE_RPC_URLS: `${stack.rpc},${stack.rpc.replace("127.0.0.1", "localhost")}`, // two endpoints: the quorum paths run
   VITE_CHAIN_ID: "1",
   VITE_CORE: stack.core,

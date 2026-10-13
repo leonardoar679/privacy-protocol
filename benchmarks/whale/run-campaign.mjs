@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Runs the campaign lab (reference/typescript/src/sim/campaignLab.ts, High-Value Protection spec §18) on the measured
+// Runs the campaign lab (packages/protocol/src/sim/campaignLab.ts, High-Value Protection spec §18) on the measured
 // quotes of execution.json and writes campaign.json and campaign.md next to this file, with gas priced at the LIVE
 // gas price and ETH/USD fetched by benchmarks/gas/cost.mjs when this runs (never a constant). Then it writes the route
-// risk models the service's risk database reads (services/private-swap/risk/routes/<provider>-<pair>.json) from the
+// risk models the service's risk database reads (packages/swap-engine/risk/routes/<provider>-<pair>.json) from the
 // same measured rows, dated. Usage: node run-campaign.mjs [--seed 4242] [--no-live]
 import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const ref = join(root, "reference", "typescript");
+const ref = join(root, "packages", "protocol");
 const argv = process.argv.slice(2);
 const noLive = argv.includes("--no-live");
 
@@ -29,7 +29,7 @@ if (r.status !== 0) process.exit(r.status ?? 1);
 
 // the route risk models (spec §10): one file per measured provider × pair, from the execution rows
 const execution = JSON.parse(readFileSync(join(here, "execution.json"), "utf8"));
-const outDir = join(root, "services", "private-swap", "risk", "routes");
+const outDir = join(root, "packages", "swap-engine", "risk", "routes");
 mkdirSync(outDir, { recursive: true });
 const CLASS = { thorchain: "R5", chainflip: "R5", mayan: "R5", "near-intents": "R2", lifi: "R5", "uniswap-across": "R5" };
 const byRoute = new Map();
@@ -56,5 +56,5 @@ for (const e of byRoute.values()) {
   writeFileSync(file, JSON.stringify(doc, null, 2) + "\n");
   n++;
 }
-console.log(`${n} route risk models written to services/private-swap/risk/routes/`);
+console.log(`${n} route risk models written to packages/swap-engine/risk/routes/`);
 if (!existsSync(join(here, "campaign.md"))) process.exit(1);

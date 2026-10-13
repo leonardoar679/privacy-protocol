@@ -1,11 +1,11 @@
 # Wallet at-rest formats and key derivations — interoperability specification (V1.1)
 
-Normative for every wallet of this protocol (web `frontend/`, the native wallets built on
-`core/rust/privacy-core`): a backup made by one must open in another, the recovery phrase must give
+Normative for every wallet of this protocol (web `apps/web/`, the native wallets built on
+`privacy-core/privacy-core`): a backup made by one must open in another, the recovery phrase must give
 the same seed everywhere, and the same addresses must come out on every chain. Pinned by
-`reference/typescript/test/vectors/wallet.json` and `chainkeys.json`, which both the TypeScript and
-the Rust implementations reproduce byte for byte (`frontend/test/wallet-vectors.test.ts`,
-`core/rust/privacy-core/tests/wallet.rs`).
+`packages/protocol/test/vectors/wallet.json` and `chainkeys.json`, which both the TypeScript and
+the Rust implementations reproduce byte for byte (`apps/web/test/wallet-vectors.test.ts`,
+`privacy-core/privacy-core/tests/wallet.rs`).
 
 ## 1. Master seed and recovery phrase (plan §44)
 - The master seed is 32 bytes from the platform CSPRNG. Every key derives from it (`keys.ts` / `keys.rs`:

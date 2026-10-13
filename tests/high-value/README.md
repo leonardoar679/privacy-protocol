@@ -2,9 +2,9 @@
 
 The High-Value Execution Engine plan (§116–§118) asks for one test tree per concern. Each file names the invariants of
 the plan's §113 (high-value), §114 (privacy) and §115 (security) it pins — the contract's §5 lists which test executes
-which. Everything here runs on the pure modules (`reference/typescript/src/wallet/*`, the service's engine and risk layer,
-`reference/typescript/src/sim/campaignLab.ts`) with no browser and no network; the wallet's runner and screens are
-pinned by `frontend/test/campaign-*.test.tsx`, the live providers by `services/private-swap/test/*-live.test.ts`.
+which. Everything here runs on the pure modules (`packages/protocol/src/wallet/*`, the service's engine and risk layer,
+`packages/protocol/src/sim/campaignLab.ts`) with no browser and no network; the wallet's runner and screens are
+pinned by `apps/web/test/campaign-*.test.tsx`, the live providers by `packages/swap-engine/test/*-live.test.ts`.
 
 ```
 node node_modules/vitest/vitest.mjs run --root tests/high-value      # from the repository root (scripts/verify-all.mjs runs it)

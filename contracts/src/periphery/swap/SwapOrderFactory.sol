@@ -6,7 +6,7 @@ import {SwapOrderEscrow} from "./SwapOrderEscrow.sol";
 
 /// @title SwapOrderFactory — counterfactual CREATE2 deployer for SwapOrderEscrow (spec §6)
 /// @notice Permissionless, ownerless, stateless. The escrow address is a pure function of the order
-/// parameters, so a wallet can compute it off-chain (services/private-swap/src/endpoints.ts), fund it
+/// parameters, so a wallet can compute it off-chain (packages/swap-engine/src/endpoints.ts), fund it
 /// with a private withdrawal, and let any relayer deploy + execute or deploy + refund later.
 contract SwapOrderFactory {
     event OrderEscrowDeployed(bytes32 indexed orderId, address escrow);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs the policy benchmark (reference/typescript/src/sim/policyBenchmark.ts; High-Value Execution Engine plan §119–§123)
+// Runs the policy benchmark (packages/protocol/src/sim/policyBenchmark.ts; High-Value Execution Engine plan §119–§123)
 // on the measured quotes of execution.json and the whale UTXO lab's rows (utxo-10m.json), with gas priced at the LIVE
 // gas price and ETH/USD fetched by benchmarks/gas/cost.mjs when this runs (never a constant). Writes policy.json next to
 // this file and docs/HighValuePolicyBenchmark.md. Usage: node run-policy.mjs [--seed 4242] [--no-live]
@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const ref = join(root, "reference", "typescript");
+const ref = join(root, "packages", "protocol");
 const argv = process.argv.slice(2);
 const noLive = argv.includes("--no-live");
 

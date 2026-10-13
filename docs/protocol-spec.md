@@ -12,7 +12,7 @@ specified exactly in [`protocol-spec-v1.0.md`](protocol-spec-v1.0.md). Nothing m
 | `Poseidon2Hasher` | the protocol hash on-chain (spec §2) | `contracts/src/hasher/` |
 | `IProofVerifier` / `Groth16Verifier` | pluggable, immutable proof verifier | `contracts/src/verifier/` |
 | circuit | 2-in/3-out transaction proof (spec §10) | `circuits/` |
-| wallet references | keys, notes, witness builder, amount policy, reorg indexer | `reference/typescript/`, `reference/python/` |
+| wallet references | keys, notes, witness builder, amount policy, reorg indexer | `packages/protocol/`, `reference/python/` |
 
 ## Core principle
 The privacy state is **unified** (one global commitment tree for all assets) but monetary custody is

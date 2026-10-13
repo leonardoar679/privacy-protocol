@@ -3,10 +3,10 @@
 // one; the policy follows the protection mode from high-value; PAES is reported beside the total; every quote
 // normalizes to the eight fields; the per-tranche execution window is clamped into the policy's budget.
 import { describe, it, expect } from "vitest";
-import { POLICIES, type Health, type ProviderId, type Quote } from "../../../services/private-swap/src/types";
-import { WEIGHTS, paesOf, policyFor, scoreRoutes, chooseRoute } from "../../../services/private-swap/src/scoring";
-import { DELAY_BUDGET, EXECUTE_WINDOW_MIN_SECONDS, executeWindowFor } from "../../../services/private-swap/src/engine";
-import { normalizeQuote } from "../../../services/private-swap/src/normalize";
+import { POLICIES, type Health, type ProviderId, type Quote } from "../../../packages/swap-engine/src/types";
+import { WEIGHTS, paesOf, policyFor, scoreRoutes, chooseRoute } from "../../../packages/swap-engine/src/scoring";
+import { DELAY_BUDGET, EXECUTE_WINDOW_MIN_SECONDS, executeWindowFor } from "../../../packages/swap-engine/src/engine";
+import { normalizeQuote } from "../../../packages/swap-engine/src/normalize";
 import { ETH_REF, BTC_REF, soon } from "../helpers";
 
 const q = (provider: ProviderId, toMin: bigint, over: Partial<Quote> = {}): Quote => ({ provider, category: "A", toAmount: toMin + 100n, toAmountMin: toMin, fees: [], etaSeconds: 600, expiresAt: soon(), nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: null, obtainedAt: Date.now(), ...over });

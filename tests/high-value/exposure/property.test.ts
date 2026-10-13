@@ -3,7 +3,7 @@
 // (providerExposure ≤ providerLimit) and the accounting identity. The releases go through canRelease exactly as the
 // runner's reducer admits them; the world (settled / partial / refund / failure / unknown) is drawn at random.
 import { describe, it, expect } from "vitest";
-import { canPrepare, canRelease, exposure, planTranches, providerLimit, withTrancheState, IN_FLIGHT, type Campaign, type TrancheState } from "../../../reference/typescript/src/wallet/campaign";
+import { canPrepare, canRelease, exposure, planTranches, providerLimit, withTrancheState, IN_FLIGHT, type Campaign, type TrancheState } from "../../../packages/protocol/src/wallet/campaign";
 import { campaign, seeded } from "../helpers";
 
 const PROVIDERS = ["thorchain", "chainflip", "mayan", "near-intents"];

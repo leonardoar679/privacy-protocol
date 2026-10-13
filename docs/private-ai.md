@@ -20,11 +20,11 @@ wallet tab ──(1) private withdrawal, bucket + fee reserve──▶ fresh fun
           ──(4) chat/completions straight to openrouter.ai with that key; stream back; release() → settlement of actual usage
           ──(5) withdraw("mutual", destination = the fresh address) before expiry; next note → index i+1
 ```
-- **Runtime-key mode only.** The SDK's `transport` is `privateTransport` (`frontend/src/zkapi/sdk.ts`):
+- **Runtime-key mode only.** The SDK's `transport` is `privateTransport` (`apps/web/src/zkapi/sdk.ts`):
   it refuses the `preferProxy` hint, sends with `credentials: "omit"` and `redirect: "error"`. The
   billing server sees proofs and leases; the provider sees the prompt and a key tied to OA's org
   (`require_oa_key_source: true`), never the funding address. Proxy mode does not exist in this wallet.
-- **Fresh funding address (spec §4, §6).** `frontend/src/zkapi/freshAccountProvider.ts` derives key
+- **Fresh funding address (spec §4, §6).** `apps/web/src/zkapi/freshAccountProvider.ts` derives key
   #i from the master seed (`keccak(seed ‖ "/zkapi/funding/i")`) and exposes it to the SDK as an
   EIP-1193 provider: accounts/chain, `eth_sendTransaction` signed locally with viem, every read
   forwarded to the pinned RPC. The pool funds it with an ordinary private withdrawal
@@ -37,9 +37,9 @@ wallet tab ──(1) private withdrawal, bucket + fee reserve──▶ fresh fun
 
 ## Build and verify (what ran here)
 ```
-cd frontend
+cd apps/web
 ZKAPI_NETWORK=sepolia npm run zkapi:assets   # buildBrowserSdkAssets → public/zkapi (config, worker, wasm, 2 proving keys; hashes verified by the helper)
-ZKAPI_NETWORK=sepolia npm run zkapi:pins     # spec §3: 12 local checks + services/zkapi-lab/verify-mainnet.mjs (23 chain/manifest/bytecode/key/feed checks) → public/zkapi/pin-check.json
+ZKAPI_NETWORK=sepolia npm run zkapi:pins     # spec §3: 12 local checks + tools/zkapi-lab/verify-mainnet.mjs (23 chain/manifest/bytecode/key/feed checks) → public/zkapi/pin-check.json
 npm run build                                # tsc -b + vite build (522 modules; the SDK is bundled, its worker/wasm/keys stay static)
 npm run dev                                  # /zkapi-deployment/* is proxied to the pinned protocol server of ZKAPI_NETWORK
 ```
@@ -51,9 +51,9 @@ reports zero failures and is less than a week old (`zkapiEnabled`), never silent
 
 The SDK is the pinned sibling clone (`E:\Code\Tornado\zkapi`, commit `045b444`, LF checkout) as a
 `file:` dependency; its 309 tests and the reproduction log are in `docs/zkapi/reproduction.md`.
-`frontend/public/zkapi/` is generated (gitignored).
+`apps/web/public/zkapi/` is generated (gitignored).
 
-## Offline tests of the wallet's glue (`cd frontend && npm test`, 17 vitest, node)
+## Offline tests of the wallet's glue (`cd apps/web && npm test`, 17 vitest, node)
 | Suite | What it proves without a browser or funds |
 |---|---|
 | `test/zkapi-policy.test.ts` | the transport refuses the proxy hint, sends `credentials: omit` + `redirect: error`; the pin gate enables only a clean (local + lab), recent, sane check; the provider SSE stream is parsed across chunks and stops at `[DONE]`; `chatStream` hits `<lease base>/chat/completions` with the lease headers and surfaces non-2xx |
@@ -73,7 +73,7 @@ against zkAPI's local stack on a clean machine.
 ## "Check this trade" and the quote gateway (V2 Stage 9, whale spec §22)
 - **Check this trade** (plan V2 §77–§79): with a private chat open here, the Review screen of a large
   swap, send or withdrawal offers "Check this trade (Private AI)". What leaves the wallet is the
-  sanitized summary of `frontend/src/zkapi/tradeCheck.ts` — assets, amounts rounded to three
+  sanitized summary of `apps/web/src/zkapi/tradeCheck.ts` — assets, amounts rounded to three
   significant digits, the value tier, the preference, the chosen route's plan and score components,
   the competition record (address-like reasons masked), the privacy-check items by id / level /
   category, and (V3, spec §16) for a large order the protection plan — risk class, custody, tranche
@@ -84,10 +84,10 @@ against zkAPI's local stack on a clean machine.
   before sending if any string looks like an address, a hash or a
   privacy address. The answer shows as best route / alternative / estimated savings / privacy /
   execution / risk. The assistant recommends and warns; it signs nothing, withdraws nothing, changes
-  no destination and overrides no check (plan §78): `frontend/test/trade-check.test.ts` pins that the
+  no destination and overrides no check (plan §78): `apps/web/test/trade-check.test.ts` pins that the
   module imports only the transport policy and types. The fresh funding index of this screen is kept
   in the encrypted journal (`aiFunding`).
-- **The quote gateway** (`services/private-swap/src/gateway.ts`; `GET /gateway/health`,
+- **The quote gateway** (`packages/swap-engine/src/gateway.ts`; `GET /gateway/health`,
   `POST /gateway/quote`): the same engine behind a zkAPI capability — `Authorization: zkapi <runtime
   key>`, a random 16-byte request id per request, no account, no cookie. **Blocked upstream:** the live
   zkAPI deployments lease OpenRouter keys only; until a deployment registers an upstream of this
@@ -106,9 +106,9 @@ against zkAPI's local stack on a clean machine.
 ## Step 05 — Private RPC (plan §64): blocked upstream, partially covered
 The live zkAPI deployments lease **OpenRouter keys only** (`upstreams: ["openrouter"]`,
 `request_mode: direct_openrouter` in the manifest and SDK); there is no metered RPC upstream to
-authorize. What the wallet does today (`frontend/src/sdk/chain.ts::clientFor`): no permanent API key anywhere
+authorize. What the wallet does today (`apps/web/src/sdk/chain.ts::clientFor`): no permanent API key anywhere
 (public RPC URL from env), JSON-RPC **batching** (a tree sync is a handful of round trips), no
 cookies and no cross-host redirects on the RPC transport, and the same `privateTransport` policy
 hook. The pool reads are also checked by the wallet's own light client on mainnet and Sepolia
-(`frontend/src/sdk/lightclient/`, plan §38); the metered upstream remains to do once a zkAPI RPC
+(`apps/web/src/sdk/lightclient/`, plan §38); the metered upstream remains to do once a zkAPI RPC
 upstream exists.

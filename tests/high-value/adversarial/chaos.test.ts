@@ -3,8 +3,8 @@
 // over exactly once, the campaign completed or cancelled (never stuck), the maximum loss at most one step, and the same
 // seed giving the same run.
 import { describe, it, expect } from "vitest";
-import { FAULTS, SIZES_USD, simulateCampaign, type FaultKind } from "../../../reference/typescript/src/sim/campaignLab";
-import type { ProtectionMode, Sizing } from "../../../reference/typescript/src/wallet/campaign";
+import { FAULTS, SIZES_USD, simulateCampaign, type FaultKind } from "../../../packages/protocol/src/sim/campaignLab";
+import type { ProtectionMode, Sizing } from "../../../packages/protocol/src/wallet/campaign";
 import { labRoutes, seeded } from "../helpers";
 
 const MODES: ProtectionMode[] = ["balanced", "max-privacy", "max-safety", "best-execution"];

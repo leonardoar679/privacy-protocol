@@ -1,6 +1,6 @@
 # zkAPI — mainnet & Sepolia deployment verification (plan V1.1 §62)
 
-Executed 2026-10-06 with `services/zkapi-lab/verify-mainnet.mjs` (read-only JSON-RPC via the pinned
+Executed 2026-10-06 with `tools/zkapi-lab/verify-mainnet.mjs` (read-only JSON-RPC via the pinned
 public RPCs; no keys, no funds). **Every pin the plan lists matched**, and both contracts were rebuilt
 **byte-for-byte, metadata included**, from the source commit the live manifest names.
 
@@ -51,7 +51,7 @@ ETH/USD oracle may lag.
 git clone https://github.com/ethereum/zkapi ../zkapi && git -C ../zkapi config core.autocrlf false && git -C ../zkapi checkout -- .
 git -C ../zkapi worktree add ../zkapi-deployed 95b022fd339a391321481d31dffa4b947954b0a6
 (cd ../zkapi-deployed/demo/contracts && forge build)            # solc 0.8.28, via_ir, 200 runs
-cd services/zkapi-lab && npm install && node verify-mainnet.mjs mainnet && node verify-mainnet.mjs sepolia
+cd tools/zkapi-lab && npm install && node verify-mainnet.mjs mainnet && node verify-mainnet.mjs sepolia
 ```
 Raw output of both runs follows.
 

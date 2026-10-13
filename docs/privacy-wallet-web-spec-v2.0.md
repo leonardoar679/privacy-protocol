@@ -115,7 +115,7 @@ API logs `fee.deviation` (no amounts).
 ```
 apps/web              the React/Vite wallet (was frontend/)
 apps/relayer          the private submission + swap executor + shield executor (was services/relayer/)
-apps/api              Express 5 + node:sqlite: the /v1 API (the HTTP layer of services/private-swap)
+apps/api              Express 5 + node:sqlite: the /v1 API (the HTTP layer of what was services/private-swap)
 packages/protocol     the TypeScript reference implementation (was reference/typescript/)
 packages/protocol-types  the frozen types: Asset, ChainConfig, ProtocolDeployment, QuoteRequest, Quote,
                       PrivacyAssessment, RiskAssessment, OperationState, settlement states, Store<T>

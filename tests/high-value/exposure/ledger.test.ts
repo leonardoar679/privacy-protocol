@@ -3,7 +3,7 @@
 // bounded (I6). Pins I-HV 1 (inFlight ≤ maxExternalExposure), 2 (providerExposure ≤ providerLimit), 10 (completed
 // value is never counted as in-flight) and 11 (failed value is not assumed settled).
 import { describe, it, expect } from "vitest";
-import { canRelease, exposure, ledger, providerLimit, withTrancheState, type TrancheState } from "../../../reference/typescript/src/wallet/campaign";
+import { canRelease, exposure, ledger, providerLimit, withTrancheState, type TrancheState } from "../../../packages/protocol/src/wallet/campaign";
 import { campaign, USDC, sum } from "../helpers";
 
 const K = 1_000n * USDC;

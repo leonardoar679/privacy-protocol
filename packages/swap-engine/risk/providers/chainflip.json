@@ -1,0 +1,43 @@
+{
+  "provider": "chainflip",
+  "class": "R5",
+  "custody": "mpc-vault",
+  "bridgeModel": "one MPC vault per chain whose key is held by the validator set; vault swaps encode the destination in calldata",
+  "validatorModel": "FLIP-bonded validators (150 authority set), key rotations by epoch",
+  "upgradeability": "governance",
+  "pFailPrior": 0.02,
+  "bandBps": [
+    100,
+    250
+  ],
+  "audits": [
+    {
+      "firm": "Trail of Bits",
+      "date": "2023-04-30",
+      "scope": "the cryptography and the product (the State Chain and the Ethereum contracts), 12 engineer-weeks, April 2023 (reviews/2023-04-chainflip-securityreview.pdf)",
+      "url": "https://github.com/trailofbits/publications"
+    },
+    {
+      "firm": "Zellic",
+      "date": "2023-12-08",
+      "scope": "Chainflip Backend (the State Chain pallets), engagement 2023-11-06 → 2023-12-08: one critical, found and fixed by the team during the engagement, and two low",
+      "url": "https://reports.zellic.io/publications/chainflip-backend"
+    },
+    {
+      "firm": "Zellic",
+      "date": "2024-08-01",
+      "scope": "the Solana integration, engagement 2024-07-29 → 2024-08-01: informational findings only",
+      "url": "https://github.com/Zellic/publications"
+    }
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the vault-swap calldata encodes the destination address (decoded locally before signing)",
+      "effect": "link-public",
+      "source": "packages/swap-engine/src/adapters/chainflip.ts"
+    }
+  ],
+  "notes": "audits taken from the auditors' publications on 2026-10-08 (a date known only to the month is recorded as the month's last day); Chainflip also cites a Kudelski review of the multisig TSS in Q1 2022, not seen and not listed; the last published audit (2024-08) is older than two years, which the security score counts as stale (−3); bug bounty at Chainflip Labs' discretion, paid in FLIP, no published maximum (github.com/chainflip-io/security)"
+}

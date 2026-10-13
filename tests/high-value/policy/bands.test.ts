@@ -3,10 +3,10 @@
 // the band's own (four sequential steps of a quarter), unmoved by the exposure tier and the mode of the high-value
 // layer, with the enhanced row unchanged from $100K.
 import { describe, it, expect } from "vitest";
-import { TIERS, TIER_DEFAULTS, atLeast, checkThresholds, tierOf, tierRank } from "../../../reference/typescript/src/wallet/valuation";
-import { EXPOSURE_POLICY, capBpsFor, type ExposureTier } from "../../../reference/typescript/src/wallet/exposurePolicy";
-import { planTranches } from "../../../reference/typescript/src/wallet/campaign";
-import type { ProtectionMode } from "../../../reference/typescript/src/wallet/campaign";
+import { TIERS, TIER_DEFAULTS, atLeast, checkThresholds, tierOf, tierRank } from "../../../packages/protocol/src/wallet/valuation";
+import { EXPOSURE_POLICY, capBpsFor, type ExposureTier } from "../../../packages/protocol/src/wallet/exposurePolicy";
+import { planTranches } from "../../../packages/protocol/src/wallet/campaign";
+import type { ProtectionMode } from "../../../packages/protocol/src/wallet/campaign";
 import { ETH, USDC, seeded, sum } from "../helpers";
 
 describe("the ladder (spec §11)", () => {

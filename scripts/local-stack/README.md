@@ -40,7 +40,7 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under More → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
+## What a run checks (165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
 
 V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
 More → Advanced for the light client and More → Wallet for the connection; Protect through the connected wallet's own provider; Send (public),
@@ -110,7 +110,7 @@ every 404 as a console error, and no check depends on it.
 - (V5, 2026-10-13) the relayer's swap executor ran two passes at once — the one a hand-over request triggers and the
   interval's — and both sent `deployAndExecute` for the same funded escrow: the second was refused on the nonce and marked
   the mined execution `execute-failed`, so the order panel never reported the execution and the run stopped at 32/33.
-  One pass at a time now (`services/relayer/src/swapExecutor.ts`; `test/executorMore.test.ts` drives three ticks at once).
+  One pass at a time now (`apps/relayer/src/swapExecutor.ts`; `test/executorMore.test.ts` drives three ticks at once).
 
 ## Notes for this machine
 

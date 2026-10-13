@@ -11,8 +11,8 @@ unchanged by this document**: every rule here is engine (replaceable), relayer (
 `docs/high-value-protection-spec-v1.0.md` (V3) extends this document: a large order executed as tranches
 under an in-flight exposure cap.
 
-Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `services/private-swap/`,
-`services/relayer/`, `frontend/src/`, `reference/typescript/src/wallet/`, `benchmarks/whale/`.
+Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `packages/swap-engine/`,
+`apps/relayer/`, `apps/web/src/`, `packages/protocol/src/wallet/`, `benchmarks/whale/`.
 
 Status (2026-10-07): a section marked *Implemented* describes `main` at `9bb3e0f`; a section marked
 *Stage N* is built by the V2 pass in that stage, in order (the roadmap tracks completion). Constants
@@ -22,7 +22,7 @@ marked *lab-calibrated* take their final value from Stage 1 (`benchmarks/whale/`
 
 ## 1. Order object (plan V2 §8, §112, §137.1)
 
-The V1.1 `Order` (`services/private-swap/src/types.ts`) gains the value, the tier, the plan and the
+The V1.1 `Order` (`packages/swap-engine/src/types.ts`) gains the value, the tier, the plan and the
 destination's provenance. Everything that was there stays.
 
 ```
@@ -56,7 +56,7 @@ Order {
 
 *Implemented:* `Order` without `value` / `tier` / `preference` / `plan` / `approvedMin` /
 `destination.kind` (`types.ts:149`); `approvedMin` on the wallet side only
-(`frontend/src/wallet/journal.ts`). *Stage 2* adds `value` / `tier` / `preference`; *Stage 3* adds
+(`apps/web/src/wallet/journal.ts`). *Stage 2* adds `value` / `tier` / `preference`; *Stage 3* adds
 `plan` and the server-side `approvedMin`; *Stage 5* adds `destination.kind`.
 
 ## 2. Quote object (plan V2 §6, §32, §137.2)
@@ -120,7 +120,7 @@ quote, applied to the one-time escrow flow of V1.1. Phase 2 is the only one that
   than reuse the phase 1 set.
 
 *Implemented (Stage 3):* the four calls and the wallet checks (`server.ts`, `engine.ts::prepareExecution`,
-`frontend/src/sdk/{swapGuard,swapSign,providerCall}.ts`); `/prepare` takes `approvedMin`, answers 409
+`apps/web/src/sdk/{swapGuard,swapSign,providerCall}.ts`); `/prepare` takes `approvedMin`, answers 409
 `minimum_moved` below it and runs the price guard against a fresh competition from the enhanced tier;
 phase-1 quotes carry the placeholders of §5 (`placeholders.ts`; `privacy-flow.test.ts` pins that the
 fresh destination reaches no provider at phase 1).
@@ -192,7 +192,7 @@ Health        { provider; reachable; apiLatencyMs; halted; haltedChains: string[
 - The conceptual interface of plan §106 maps onto these methods: `quote()` = `quote`;
   `prepare()` = `prepareIngress`; **`validate()`** = the local decode-and-check that every
   `prepareIngress` performs on provider-supplied calldata (§6–§10), repeated independently by the
-  wallet (`frontend/src/sdk/providerCall.ts`); `execute()` = the relayer's `deployAndExecute`
+  wallet (`apps/web/src/sdk/providerCall.ts`); `execute()` = the relayer's `deployAndExecute`
   (§20); `track()` = `track`; **`recover()`** = the escrow's `refund` / `refundToken` plus the
   provider's own refund path (`Quote.refundTarget`, V1.1 §7).
 - **Placeholder destination at phase 1.** When `req.source` is unset, the engine MUST pass each
@@ -367,7 +367,7 @@ ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; par
 
 *Implemented (Stages 3 and 5):* the engine, the adapters and the service tests (Stage 3), the wallet
 decoders (Stage 5). The constants were calibrated by `benchmarks/whale/run-execution.mjs`
-(`services/private-swap/src/sim/whaleLab.ts`, Stage 1); the 2026-10-07 probes gave THORChain
+(`packages/swap-engine/src/sim/whaleLab.ts`, Stage 1); the 2026-10-07 probes gave THORChain
 2,000 ETH → BTC at 19 bps slippage over ≤ 1,062 sub-swaps and Chainflip 400 ETH → BTC as a
 103-chunk DCA, while Chainflip refused 2,000 ETH outright. V3 executes a large order as tranches,
 each one stream (`docs/high-value-protection-spec-v1.0.md` §4).
@@ -387,14 +387,14 @@ the service, through its RPC. No price API, no new endpoint, nothing user-specif
 | USDT / USD | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | — | 24 h |
 | SOL / USD | `0x4ffC43a60e009B551865A93d232E33Fce9f01507` | — | 24 h |
 
-The table is `reference/typescript/src/wallet/valuation.ts` (`FEEDS`), shared by the wallet, the
+The table is `packages/protocol/src/wallet/valuation.ts` (`FEEDS`), shared by the wallet, the
 engine and the lab; every address answered its `description()` from here on 2026-10-07/08, and every
 read checks it again before the price is used. A deployment on another chain names its own feeds
 (`VITE_PRICE_FEEDS`, a JSON list of the same shape); without any, valuation is *not configured* and
 the wallet shows no USD. Endpoints agree when every answer is within 0.5 % of the median and no round
 is more than one behind the newest; the newest read is used. A price older than **2 × heartbeat** is
 *unavailable*. The wallet reads prices only once it holds unspent notes on a chain with feeds (never
-at first launch; `frontend/test/first-launch.test.tsx` pins it; `test/prices.test.ts` the rest),
+at first launch; `apps/web/test/first-launch.test.tsx` pins it; `test/prices.test.ts` the rest),
 caches a read for five minutes and journals the last good one (`journal.prices`, JSON form, §25) as
 the memory of the fail-safe. The service reads through its own `RPC_URLS` and applies the default
 thresholds: a wallet's thresholds can lower its own tiers only above the service's floor, since the
@@ -434,8 +434,8 @@ higher tier always applies (§1).
 - Tiers apply to swaps, withdrawals and private transfers alike (the value of what leaves the
   wallet's control); shields are valued for display only.
 
-*Implemented (Stage 2):* `reference/typescript/src/wallet/valuation.ts`, `frontend/src/sdk/prices.ts`,
-`services/private-swap/src/valuation.ts`. V3 extends this table with the protection columns — the tranche
+*Implemented (Stage 2):* `packages/protocol/src/wallet/valuation.ts`, `apps/web/src/sdk/prices.ts`,
+`packages/swap-engine/src/valuation.ts`. V3 extends this table with the protection columns — the tranche
 band, the in-flight cap, the settlement gate, diversification and the separate-device confirmation
 (`docs/high-value-protection-spec-v1.0.md` §14); a campaign's tier is the tier of the whole order, never
 of a tranche.
@@ -461,7 +461,7 @@ of a tranche.
 
 *Implemented (Stage 3):* the bounds, `priceGuard` wired into `/prepare` (`maxGapBpsFor(tier)`, a fresh
 competition from the enhanced tier), `approvedMin` checked server-side (`MinimumMovedError` → 409
-`minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `frontend/src/sdk/{swapService,swapSign}.ts`).
+`minimum_moved`), consent in the wallet (`engine.ts`, `server.ts`, `apps/web/src/sdk/{swapService,swapSign}.ts`).
 The guard's refusal is a typed answer, 409 `price_guard` with `gapBps`, `maxGapBps`, `provider` and `best`
 (`scoring.ts::PriceGuardError`), never a server fault: the wallet shows the gap, signs nothing, and the order can be
 confirmed later against a fresh quote or returned to the pool (the local-stack browser run exercised it).
@@ -485,7 +485,7 @@ confirmed later against a fresh quote or returned to the pool (the local-stack b
 - `minOutEncoded: false` routes are refused under every policy but `fastest`, with a warning.
 - Dust: a minimum below the destination chain's dust threshold (THORChain `dust_threshold`) is refused.
 
-*Implemented* (`frontend/src/sdk/providerCall.ts`, `swapSign.ts`; the adapters). *Stage 5* adds the
+*Implemented* (`apps/web/src/sdk/providerCall.ts`, `swapSign.ts`; the adapters). *Stage 5* adds the
 streaming and DCA readings.
 
 ## 16. Provider health scoring (plan V2 §62–§64, §137.16)
@@ -518,8 +518,8 @@ The eight factors, weights and the cross-chain term of V1.1 §10 are unchanged. 
 - `amountIsBucket` MUST be `isBucketOf(amount, decimals)` (the engine used the 18-decimal series
   for every asset);
 - `destinationFresh` MUST come from `destination.kind` (§21), not be assumed.
-The same function runs in the engine and the wallet (`services/private-swap/src/privacyScore.ts`,
-`frontend/src/privacy/privacyScore.ts`); the execution plan does not change it (§12). Financial
+The same function runs in the engine and the wallet (`packages/swap-engine/src/privacyScore.ts`,
+`apps/web/src/privacy/privacyScore.ts`); the execution plan does not change it (§12). Financial
 privacy (who owns what, the private history) and execution privacy (order size, timing, intent) are
 reported separately (plan §67): the first by this score and the scorecard, the second by the plan
 and the public-settlement warning (§18).
@@ -531,7 +531,7 @@ and the public-settlement warning (§18).
 
 A per-transaction checklist computed before commit and again before signing, from the order, the
 journal and the scorecard facts, by one function shared by the wallet and the engine
-(`reference/typescript/src/wallet/privacyLint.ts`):
+(`packages/protocol/src/wallet/privacyLint.ts`):
 
 | Item | ok when | otherwise | Category (plan §10) |
 |---|---|---|---|
@@ -556,9 +556,9 @@ journal and the scorecard facts, by one function shared by the wallet and the en
 - The wallet MUST NOT say "anonymous" or "100 % private" anywhere; the Privacy Center states the
   limits of plan §69.
 
-*Implemented (Stage 5):* `reference/typescript/src/wallet/privacyLint.ts` (`lint(facts)`: the eleven
+*Implemented (Stage 5):* `packages/protocol/src/wallet/privacyLint.ts` (`lint(facts)`: the eleven
 items, `block` only from the high-value tier — a warning with the same text below — `acknowledged`,
-`unacknowledgedBlocks`, `HOLDERS_FLOOR` 16); the wallet's facts come from `frontend/src/wallet/lintFacts.ts`
+`unacknowledgedBlocks`, `HOLDERS_FLOOR` 16); the wallet's facts come from `apps/web/src/wallet/lintFacts.ts`
 (settings, deployment, the quote set's links and competition record, what the wallet read in the
 provider call, the pool's deposit sizes through `sdk/poolDeposits.ts` for a piece above the common
 sizes — read on the user's input, never at launch); `components/PrivacyLint.tsx` renders the ✓ / ⚠ / ✖
@@ -598,9 +598,9 @@ where it gets its facts.
 - "Atomic" MUST NOT appear anywhere (V1.1 §3).
 
 *Implemented:* the machine, `recoverState`, `userStatus` (`order.ts`); *Stage 3*: `GET /track/:provider`
-(`server.ts`), `SwapJob.executionTx` (`services/relayer/src/swapExecutor.ts`), `TrackStatus.refundedAmount`
+(`server.ts`), `SwapJob.executionTx` (`apps/relayer/src/swapExecutor.ts`), `TrackStatus.refundedAmount`
 / `progress` and the partial mappings of THORChain and Chainflip; *Stage 7*: the wallet's tracker
-`frontend/src/sdk/orderTracker.ts` — `deriveState(stored, facts)` (pure; the table above, from the
+`apps/web/src/sdk/orderTracker.ts` — `deriveState(stored, facts)` (pure; the table above, from the
 journal, the relayer job with its `executionTx`, the escrow balance agreed by every RPC endpoint and
 the tracker's read; PARTIAL carries both amounts and the stream's progress; FAILED says what sits in
 the escrow) and `trackOrder` (reads the facts, journals `executionTx` once, `executionRef` at
@@ -611,7 +611,7 @@ open swap; a wide screen or Advanced adds the provider and the transaction hashe
 
 ## 20. Refund state machine (plan V2 §61, §105, §137.20)
 
-V1.1 §7 holds in full. Restated with the executor's job states (`services/relayer/src/swapExecutor.ts`):
+V1.1 §7 holds in full. Restated with the executor's job states (`apps/relayer/src/swapExecutor.ts`):
 
 ```
 waiting-funding ─▶ executing ─▶ executed ──(late-refund watch, 24 h past refundAfter)──▶ completed
@@ -645,7 +645,7 @@ waiting-funding ─▶ executing ─▶ executed ──(late-refund watch, 24 h 
   destination chain (BIP-44 EVM, BIP-84 `bc1q`, SLIP-0010 Solana; reserved only on confirm) —
   `kind: "fresh"`. An entered address is allowed, `kind: "entered"`, and the lint flags it (§18);
   the connected public wallet's own address is blocked until acknowledged.
-- **Formats** (`reference/typescript/src/wallet/destinations.ts`): EVM — 20 bytes hex, EIP-55
+- **Formats** (`packages/protocol/src/wallet/destinations.ts`): EVM — 20 bytes hex, EIP-55
   checked when mixed-case; Bitcoin — bech32 `bc1q` (v0, 20 or 32 bytes), bech32m `bc1p` (v1, 32
   bytes), base58check P2PKH (0x00) and P2SH (0x05), mainnet only; Solana — base58, 32 bytes. An
   address that parses on another chain is refused with that chain's name ("this looks like an
@@ -658,7 +658,7 @@ waiting-funding ─▶ executing ─▶ executed ──(late-refund watch, 24 h 
   ≥ `high-value`, together with the QR (plan §57: the QR alone is never the confirmation).
 
 *Implemented:* the escrow source, fresh destinations, the receiver checks; *(Stage 5)*
-`reference/typescript/src/wallet/destinations.ts` (`parseEvm` / `parseBitcoin` / `parseSolana`,
+`packages/protocol/src/wallet/destinations.ts` (`parseEvm` / `parseBitcoin` / `parseSolana`,
 `parseDestination(chain, text)` with the wrong-chain refusal by name, `looksLikeChain`, `groupAddress`;
 vectors: the chain-key derivations, BIP-173 / BIP-350, base58check, testnet refused),
 `components/DestinationCard.tsx` on Swap (with the quote and on the order), Withdraw (with the USD
@@ -667,13 +667,13 @@ and says why.
 
 ## 22. zkAPI quote-service integration (plan V2 §33–§37, §77–§81, §137.22)
 
-- **Interface** (`services/private-swap/src/gateway.ts`): the same engine behind a zkAPI
+- **Interface** (`packages/swap-engine/src/gateway.ts`): the same engine behind a zkAPI
   capability — `POST /quote` with `Authorization: zkapi <runtime key>` (runtime-key mode only,
   V1.1 zkAPI spec §2), a random 16-byte request id per request (never reused, never derived from
   the user), no account, no cookie, metered per request within zkAPI's charge cap. The payment side
   learns that a lease paid for N requests; the gateway sees the request (assets, amount, the
   placeholder destination) and the caller's IP — zkAPI does not hide network metadata (plan §37),
-  so the wallet's transport policy (`frontend/src/zkapi/policy.ts`: no proxy, pinned configuration)
+  so the wallet's transport policy (`apps/web/src/zkapi/policy.ts`: no proxy, pinned configuration)
   applies and Tor / mixnet remain native-host work.
 - **Status: blocked upstream.** The live zkAPI deployments lease OpenRouter keys only. The gateway
   becomes live when a zkAPI deployment registers an upstream of this service's kind; until then
@@ -690,11 +690,11 @@ and says why.
   permanent identity → wallet map, a portfolio or an address list.
 
 *Implemented:* Private AI, runtime-key mode, pins (`docs/private-ai.md`); *(Stage 9)* the gateway
-interface `services/private-swap/src/gateway.ts` (`GET /gateway/health`: capability `zkapi`, auth
+interface `packages/swap-engine/src/gateway.ts` (`GET /gateway/health`: capability `zkapi`, auth
 `runtime-key`, `available: false` with the reason while `ZKAPI_UPSTREAM` is unset; `POST /gateway/quote`:
 `Authorization: zkapi <runtime key>` parsed strictly, a random 16-byte request id per request, 401
 without a key, 503 "not available upstream" with the request id, the engine's indicative competition
-once an upstream exists, the key never echoed), and "Check this trade" — `frontend/src/zkapi/tradeCheck.ts`
+once an upstream exists, the key never echoed), and "Check this trade" — `apps/web/src/zkapi/tradeCheck.ts`
 builds the sanitized summary (assets, amounts to three significant digits, the tier, the preference,
 the chosen route's plan and components, the competition record with any address-like reason masked,
 the lint items by id / level / category) and refuses any address-, hash- or identity-shaped string
@@ -722,11 +722,11 @@ Normative content of the Swap screen (plan §44) and of the app around it:
   warning colour; rounded cards, large numerals, no provider logos, no jargon, light and dark.
 - Trade preference (plan §97) lives in Settings, never on the Swap screen and never on chain.
 
-*Implemented (Stage 4):* `frontend/src/App.tsx` (the four tabs; from 1024 px the side column adds Private
+*Implemented (Stage 4):* `apps/web/src/App.tsx` (the four tabs; from 1024 px the side column adds Private
 assets, Privacy Center and Advanced; Add funds, Receive, the Privacy Center, Settings and Private AI are
 sheets over Home; the scheduler runs at this level from any tab), `components/Home.tsx` (the USD numeral
 from `sdk/prices.ts`, "Details" for the per-asset lines, the 🛡 badge with the overall level),
-`components/PrivacyCenter.tsx` on `reference/typescript/src/wallet/privacyCenter.ts` (the six categories
+`components/PrivacyCenter.tsx` on `packages/protocol/src/wallet/privacyCenter.ts` (the six categories
 with Excellent ≥ 85 / Good ≥ 60 / Reduced, the explanations, the plan §69 limits; the overall is the
 weakest known level), `components/Settings.tsx` (preference, tiers, housekeeping, light client,
 submission, Advanced, backup, lock, forget with a typed confirmation), `components/Swap.tsx` ("Best
@@ -771,7 +771,7 @@ For tier ≥ `high-value` the Review screen is mandatory at both irreversible mo
 - Below `high-value`: `enhanced` shows the Review with the lint and a tap; `standard` keeps the
   one-tap flow with the destination card.
 
-*Implemented (Stage 5):* the pre-trade simulation — `frontend/src/sdk/simulate.ts`
+*Implemented (Stage 5):* the pre-trade simulation — `apps/web/src/sdk/simulate.ts`
 (`simulateExecution`: `deployAndExecute(params, execution)` encoded exactly as the relayer sends it,
 `eth_call` then `eth_estimateGas` on every endpoint with the relayer's address as the tip recipient
 (`/info`) or a fixed non-zero one, every endpoint must succeed, an endpoint with no usable answer fails
@@ -780,7 +780,7 @@ provider's reason recovered by a second call from the escrow on `ProviderCallFai
 the pre-funding preview through a balance override on the predicted escrow); the Swap screen runs it
 after signing and before `/finalize` — a failure keeps the signature in the wallet and is journaled
 (`StoredSwap.simulation`). The lint (§18) and the card (§21) are in place.
-*Implemented (Stage 6):* `frontend/src/components/Review.tsx` at the commit and execute moments of a swap
+*Implemented (Stage 6):* `apps/web/src/components/Review.tsx` at the commit and execute moments of a swap
 (`Swap.tsx`: `startCommit` → the Review → `commit`; `signAndHand` → prepare, check, sign, simulate →
 the Review → `handOver`) and before a large send or withdrawal (`Send.tsx`, `Withdraw.tsx`): the USD
 numeral and the asset amount, From and To with the card, Receive at least, the execution in words
@@ -808,7 +808,7 @@ without a new confirmation; a tranche outside them pauses the campaign and asks 
 
 ## 25. Local encrypted order history (plan V2 §49–§50, §83–§86, §137.25)
 
-Everything the wallet remembers lives in the encrypted journal (`frontend/src/wallet/journal.ts`:
+Everything the wallet remembers lives in the encrypted journal (`apps/web/src/wallet/journal.ts`:
 XChaCha20-Poly1305 under `sha256("privacy-protocol/v1/journal-key" ‖ seed)`), never on a server.
 
 ```
@@ -826,7 +826,7 @@ ActivityRecord { id, kind: "shield" | "transfer" | "withdraw" | "swap" | "refund
 JournalData += { activity?: ActivityRecord[], prices?: { pair: { usd, at } } }
 ```
 - New fields are optional and are not written by `emptyJournal()`, so the pinned at-rest vectors
-  (`reference/typescript/test/vectors/wallet.json`) and old journals stay valid; readers default
+  (`packages/protocol/test/vectors/wallet.json`) and old journals stay valid; readers default
   them (`?? []`).
 - The Activity screen (plan §49) is this list: date, asset, amount, status, the private reference
   (order id / tx hash / leaf index); finished records can be deleted by the user; the backup file
@@ -849,13 +849,13 @@ persists nothing, and sets the blob aside under `pp.journal.unreadable` only whe
 (`wallet/session.ts`). *Stage 5* (`lint`, `simulation`), *Stage 7* (`track`, `history`, `executionTx`).
 *Implemented (Stage 8, plan §73–§74 — note management for large balances):* the `housekeeping`
 Activity records and `JournalData.housekeeping` (what today's steps spent on fees). The planner
-`reference/typescript/src/wallet/noteStrategy.ts` keeps a balance in the shipped alphabet's pieces —
+`packages/protocol/src/wallet/noteStrategy.ts` keeps a balance in the shipped alphabet's pieces —
 no note above the 16th bucket (100 ETH / 100,000 USDC), the 13th (10 ETH / 10,000 USDC) as the ideal
 piece while the count stays under 64, dust below the smallest bucket merged into its neighbour unless
 it is worth less than a fee — as private self-transfers: a split (1-in/3-out: the piece, the rest, the
 relayer's fee note; `sdk/privateTx.ts planSplit` / `splitNote`) or a merge; every action pays a fee
 and the plan is simulated on a working copy. The extended alphabet is not adopted (the whale UTXO lab:
-a piece nobody else withdraws has no cover). `frontend/src/wallet/housekeeping.ts` schedules one step
+a piece nobody else withdraws has no cover). `apps/web/src/wallet/housekeeping.ts` schedules one step
 at a time at a random time inside the policy window (never immediate), runs it from the App-level
 scheduler on any screen within the daily fee cap of `settings.housekeeping` (opt-out there), and
 schedules the next under a new id — or tomorrow's when the cap is reached; Home says what is planned.

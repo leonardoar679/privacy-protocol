@@ -8,7 +8,7 @@ amount, and their multiplicative combination)?
 **Method.** The study's simulation (`research/09-testing/privacy-sim/combined_linkability.js`: Poisson
 arrivals, exponential delays, Bayesian posterior per withdrawal, effective set = 2^H, guess-hit with
 tie-breaking, seeded) ported to the UTXO design and driven by the **shipped wallet logic**
-(`reference/typescript/src/wallet/amounts.ts`: 1-2-5 bucket alphabet, bucketed shields and withdrawals,
+(`packages/protocol/src/wallet/amounts.ts`: 1-2-5 bucket alphabet, bucketed shields and withdrawals,
 delay floor + randomized delay, fresh address per piece, relayer fee paid as a private note).
 Adversary strength is the study's upper bound: it knows the delay law and which users still hold a
 shielded balance. Real observers do worse. Run: `node benchmarks/privacy/run.mjs` (≈1 min).
@@ -54,7 +54,7 @@ Single asset, one pool; users deposit from one address (pieces of one user are l
 shield); withdrawals go to fresh addresses as the wallet enforces; private hops are not modelled
 beyond their absence from the public surface; the observer's balance oracle is stronger than
 reality; network-layer channels (RPC, mempool, relayer — L3/L4) are outside this lab and are the
-reason the wallet's privacy score still discounts them (`frontend/src/privacy/privacyScore.ts`).
+reason the wallet's privacy score still discounts them (`apps/web/src/privacy/privacyScore.ts`).
 
 ## Cross-chain leg (plan §72, step 17) — `benchmarks/privacy/run-crosschain.mjs`
 **Question.** A private swap leaves the pool through a one-time escrow that pays the provider
@@ -62,7 +62,7 @@ reason the wallet's privacy score still discounts them (`frontend/src/privacy/pr
 escrow address ties the withdrawal to the provider ingress by construction, so the pool side is the
 lab above; what remains is: can an observer tell WHICH destination arrival belongs to WHICH ingress?
 
-**Method.** `services/private-swap/src/sim/crossChainLab.ts`: Poisson provider traffic (background
+**Method.** `packages/swap-engine/src/sim/crossChainLab.ts`: Poisson provider traffic (background
 users with the study's amount law; a share of 0.2 are this wallet's users),
 three provider classes (ETA / spread / fee / execution noise), a random-walk market rate, and the
 study's Bayesian observer with a lognormal ETA likelihood and a log-amount likelihood whose tolerance
@@ -154,7 +154,7 @@ privacy score does not change with the plan (spec V2 §12, §17).
 
 **Question.** A wallet holding $1M–$10M wants to withdraw 1,330 ETH (≈ $3.4M at the probe's price).
 One withdrawal of the exact amount, one piece of an extended bucket alphabet (1,000 / 2,000 / 5,000 ETH),
-or many pieces of the alphabet that ships, each at its own random delay? `reference/typescript/src/sim/whaleUtxoLab.ts`:
+or many pieces of the alphabet that ships, each at its own random delay? `packages/protocol/src/sim/whaleUtxoLab.ts`:
 8,000 ordinary users at 10/h on the standard policy, 24 whales arriving uniformly, the privacy lab's
 oracle-strength observer (delay law + remaining balances), seed 4242.
 
@@ -191,8 +191,8 @@ oracle-strength observer (delay law + remaining balances), seed 4242.
   10 ETH) by the housekeeping planner, so that a withdrawal to the user's own addresses can leave as
   pieces over the policy window when privacy is preferred over speed; the number of concurrent large
   holders bounds what any single large piece can hide behind. *Shipped in Stage 8:*
-  `reference/typescript/src/wallet/noteStrategy.ts` (the planner: 100-unit then 10-unit pieces, dust
-  merged, fee-aware), `frontend/src/wallet/housekeeping.ts` (one private self-transfer per step inside
+  `packages/protocol/src/wallet/noteStrategy.ts` (the planner: 100-unit then 10-unit pieces, dust
+  merged, fee-aware), `apps/web/src/wallet/housekeeping.ts` (one private self-transfer per step inside
   the policy window, the daily fee cap, the opt-out); the lint's `large-piece` item counts the holders
   from the pool's public deposit sizes (`sdk/poolDeposits.ts`).
 
@@ -202,11 +202,11 @@ law for every candidate; no clustering of a whale's pieces.
 
 ## The policy benchmark (V4) — added 2026-10-08
 
-`benchmarks/whale/run-policy.mjs` (→ `reference/typescript/src/sim/policyBenchmark.ts`) runs the campaign lab over the cap
+`benchmarks/whale/run-policy.mjs` (→ `packages/protocol/src/sim/policyBenchmark.ts`) runs the campaign lab over the cap
 variants the High-Value Execution Engine plan asks to compare (§121: one execution vs 5 % vs 2.5 % vs 1 %), the §119
 conditions and the §120 privacy matrix, and writes `docs/HighValuePolicyBenchmark.md` with the plan's §122 columns. Its
 §123 rule keeps 2.5 % (contract §9). The privacy columns come from the whale UTXO lab below and the six-component
-assessment (`reference/typescript/src/wallet/privacyAssessment.ts`); nothing new is measured there — the matrix maps the
+assessment (`packages/protocol/src/wallet/privacyAssessment.ts`); nothing new is measured there — the matrix maps the
 plan's four configurations onto what these labs already quantify and says which column is a measurement and which a score.
 
 ## High-value protection (V3: tranches under an in-flight cap) — added 2026-10-08
@@ -215,7 +215,7 @@ V3 (`docs/high-value-protection-spec-v1.0.md`) executes a large order as a seque
 execution risk boundary, with at most the cap unsettled at any time. The labs below measure what that costs and what
 it reveals; they decided the constants marked *lab-calibrated* in the spec (its §4, §6, §10, §14, §18). Three runs,
 all read-only and seeded: the **campaign lab** (`benchmarks/whale/run-campaign.mjs` →
-`reference/typescript/src/sim/campaignLab.ts`: the reducer of `wallet/campaign.ts` against a simulated clock fed by
+`packages/protocol/src/sim/campaignLab.ts`: the reducer of `wallet/campaign.ts` against a simulated clock fed by
 the measured quotes of `execution.json`), the **whale UTXO lab** with two campaign strategies
 (`benchmarks/whale/utxo.json` at 1,330 ETH and `utxo-10m.json` at 3,894 ETH ≈ $10M at the probe's price) and the
 **cross-chain observer lab** with campaign rows (`benchmarks/privacy/crosschain.json`).

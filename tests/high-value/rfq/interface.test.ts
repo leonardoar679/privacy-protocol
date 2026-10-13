@@ -2,10 +2,10 @@
 // is the R1 exposure tier with its own band; the hard quote's expiry rules hold whatever the venue; UniswapX stays a
 // deferred interface — a class in the shared risk model, no adapter, no record in the risk database.
 import { describe, it, expect } from "vitest";
-import { TIER_RANGES, capBpsFor, exposureTierOf, impactRemedy } from "../../../reference/typescript/src/wallet/exposurePolicy";
-import { PROVIDER_RISK, riskModelOf } from "../../../reference/typescript/src/wallet/riskClasses";
-import { checkWithinBounds } from "../../../reference/typescript/src/wallet/campaign";
-import { riskDb } from "../../../services/private-swap/src/risk/riskDb";
+import { TIER_RANGES, capBpsFor, exposureTierOf, impactRemedy } from "../../../packages/protocol/src/wallet/exposurePolicy";
+import { PROVIDER_RISK, riskModelOf } from "../../../packages/protocol/src/wallet/riskClasses";
+import { checkWithinBounds } from "../../../packages/protocol/src/wallet/campaign";
+import { riskDb } from "../../../packages/swap-engine/src/risk/riskDb";
 import { bounds, ETH, REF_RATE } from "../helpers";
 
 describe("R1 — controlled RFQ (plan §6, §10–§12)", () => {

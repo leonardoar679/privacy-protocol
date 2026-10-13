@@ -1,5 +1,5 @@
 // Known-answer test: compute the KAT circuit's witness and compare every output to the nargo
-// Poseidon2 vectors and to vectors/primitives.json (produced by reference/typescript).
+// Poseidon2 vectors and to vectors/primitives.json (produced by packages/protocol).
 // Prereq: circom test/kat.circom --wasm -l node_modules -o build
 import { readFileSync } from "fs";
 import { createRequire } from "module";

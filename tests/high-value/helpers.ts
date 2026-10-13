@@ -3,8 +3,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCampaign, rateE18, withTrancheState, type AssetRefLike, type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState } from "../../reference/typescript/src/wallet/campaign";
-import { routesFromExecution, type RouteSpec } from "../../reference/typescript/src/sim/campaignLab";
+import { createCampaign, rateE18, withTrancheState, type AssetRefLike, type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState } from "../../packages/protocol/src/wallet/campaign";
+import { routesFromExecution, type RouteSpec } from "../../packages/protocol/src/sim/campaignLab";
 
 export const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = join(HERE, "..", "..");

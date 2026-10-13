@@ -1,9 +1,9 @@
 # High-Value Execution Engine — Implementation Contract V1.0
 
-Normative. This is the implementation contract between the **Privacy Wallet** (`frontend/`, with the pure
-modules it shares under `reference/typescript/src/wallet/`), the **HighValueProtectionEngine** (the campaign
+Normative. This is the implementation contract between the **Privacy Wallet** (`apps/web/`, with the pure
+modules it shares under `packages/protocol/src/wallet/`), the **HighValueProtectionEngine** (the campaign
 core and its three users: the wallet's runner, the service's recommendation and the labs) and the
-**PrivateSwapEngine** (`services/private-swap/`, `services/relayer/`). It is the "immediate next document"
+**PrivateSwapEngine** (`packages/swap-engine/`, `apps/relayer/`). It is the "immediate next document"
 asked for by the High-Value Execution Engine plan §133 (the "plan" below; its §1–§133 are the authority for
 the V4 pass): it freezes the twelve types the plan names and their state transitions, maps the plan's
 thirteen engines (§8) onto the modules that exist, and states section by section what the V4 pass changes.
@@ -28,28 +28,28 @@ contract between the parties is the set of types in §3 and the state machines i
 
 | Plan §8 engine | Code | Party |
 |---|---|---|
-| OrderClassifier | `reference/typescript/src/wallet/valuation.ts` (`tierOf`, the fail-safe at high-value when no price is available), `services/private-swap/src/valuation.ts`; *V4* `exposurePolicy.ts` (the value band → policy row, §2) | wallet + service (the higher tier applies) |
-| RiskEngine | `riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`), `services/private-swap/src/risk/{riskDb,security}.ts`; *V4* `exposurePolicy.ts` (`exposureTierOf`), `privacyAssessment.ts` | shared core + service |
+| OrderClassifier | `packages/protocol/src/wallet/valuation.ts` (`tierOf`, the fail-safe at high-value when no price is available), `packages/swap-engine/src/valuation.ts`; *V4* `exposurePolicy.ts` (the value band → policy row, §2) | wallet + service (the higher tier applies) |
+| RiskEngine | `riskClasses.ts` (`riskModelOf`, `narrowedBand`, `expectedLossPerFailure`), `packages/swap-engine/src/risk/{riskDb,security}.ts`; *V4* `exposurePolicy.ts` (`exposureTierOf`), `privacyAssessment.ts` | shared core + service |
 | ExposureManager | `campaign.ts` (`exposure`, `canRelease`, `canPrepare`; *V4* `ledger`, `byProvider`, invariant I6) | shared core, run by the wallet |
-| TrancheEngine | `campaign.ts` (`planTranches`, `replan`), `frontend/src/wallet/campaigns.ts` (`buildCampaign`, `replanRemainder`) | shared core + wallet |
-| QuoteEngine | `services/private-swap/src/engine.ts` (`quoteAll`: every capable provider in parallel, the competition record); *V4* `normalize.ts` | service |
+| TrancheEngine | `campaign.ts` (`planTranches`, `replan`), `apps/web/src/wallet/campaigns.ts` (`buildCampaign`, `replanRemainder`) | shared core + wallet |
+| QuoteEngine | `packages/swap-engine/src/engine.ts` (`quoteAll`: every capable provider in parallel, the competition record); *V4* `normalize.ts` | service |
 | RouteEngine | `scoring.ts` (`scoreRoutes`, `chooseRoute`, `priceGuard`), `adapters/*` | service |
-| SimulationEngine | `frontend/src/sdk/simulate.ts` (the provider call on every RPC endpoint before a signature), `reference/typescript/src/sim/campaignLab.ts` (the labs) | wallet + labs |
-| PrivacyEngine | `privacyLint.ts`, `services/private-swap/src/privacyScore.ts`, `privacyCenter.ts`; *V4* `privacyAssessment.ts` (§3.11) | shared core + service |
-| DestinationGuard | `addressBook.ts`, `destinations.ts`, `frontend/src/wallet/addressBook.ts`, `frontend/src/components/protection/AddressBook.tsx`, `DestinationCard.tsx` | shared core + wallet |
-| ProviderHealth | `services/private-swap/src/health.ts` (`ProviderHealthTracker`, the breaker), `GET /risk`, `GET /risk/:provider` | service |
-| SettlementMonitor | `frontend/src/sdk/orderTracker.ts` (`deriveState`, `trackOrder`), the runner's `reconcileAndTrack`, `GET /track/:provider` | wallet + service (stateless) |
-| RecoveryEngine | the runner's reconcile (`frontend/src/wallet/campaignRunner.ts`), `sdk/swapExecute.ts` (`returnOrderToBalance`), the relayer's refund-only jobs and late-refund watch, the escrow's `refund` / `refundToken` | wallet + relayer + chain |
-| PolicyEngine | `frontend/src/wallet/settings.ts` (`protection`), `sdk/tiers.ts` (`controlsFor`); *V4* `exposurePolicy.ts` (`capBpsFor`) | wallet (software policy, no administrator: plan §129) |
+| SimulationEngine | `apps/web/src/sdk/simulate.ts` (the provider call on every RPC endpoint before a signature), `packages/protocol/src/sim/campaignLab.ts` (the labs) | wallet + labs |
+| PrivacyEngine | `privacyLint.ts`, `packages/swap-engine/src/privacyScore.ts`, `privacyCenter.ts`; *V4* `privacyAssessment.ts` (§3.11) | shared core + service |
+| DestinationGuard | `addressBook.ts`, `destinations.ts`, `apps/web/src/wallet/addressBook.ts`, `apps/web/src/components/protection/AddressBook.tsx`, `DestinationCard.tsx` | shared core + wallet |
+| ProviderHealth | `packages/swap-engine/src/health.ts` (`ProviderHealthTracker`, the breaker), `GET /risk`, `GET /risk/:provider` | service |
+| SettlementMonitor | `apps/web/src/sdk/orderTracker.ts` (`deriveState`, `trackOrder`), the runner's `reconcileAndTrack`, `GET /track/:provider` | wallet + service (stateless) |
+| RecoveryEngine | the runner's reconcile (`apps/web/src/wallet/campaignRunner.ts`), `sdk/swapExecute.ts` (`returnOrderToBalance`), the relayer's refund-only jobs and late-refund watch, the escrow's `refund` / `refundToken` | wallet + relayer + chain |
+| PolicyEngine | `apps/web/src/wallet/settings.ts` (`protection`), `sdk/tiers.ts` (`controlsFor`); *V4* `exposurePolicy.ts` (`capBpsFor`) | wallet (software policy, no administrator: plan §129) |
 
 - **The wallet's journal** (plan §73) holds, encrypted: the campaign with its bounds, plan, tranches, risk
   snapshot, lint and alerts; each tranche's child order (`StoredSwap`) with its quote, params, funding and
   execution transactions, job id, settlement reads and history; the address book. `Code:`
-  `frontend/src/wallet/journal.ts` (`campaigns?`, `addressBook?`, `StoredSwap.campaign?`), `docs/wallet-formats.md`.
+  `apps/web/src/wallet/journal.ts` (`campaigns?`, `addressBook?`, `StoredSwap.campaign?`), `docs/wallet-formats.md`.
 - **The server-side journal** (plan §74) is the relayer's job list — job id, escrow, state, transaction
   hashes, timestamps — behind `RELAYER_ADMIN_TOKEN`, and the service's stateless reads. No wallet identity,
-  no notes, no master key, no financial history. `Code:` `services/relayer/src/journal.ts`, `admin.ts`.
-- **Mobile architecture** (plan §59–§61): the Rust core (`core/rust`, with the UniFFI and WASM bindings) is the
+  no notes, no master key, no financial history. `Code:` `apps/relayer/src/journal.ts`, `admin.ts`.
+- **Mobile architecture** (plan §59–§61): the Rust core (`privacy-core`, with the UniFFI and WASM bindings) is the
   crypto / prover layer; the engine runs above it in TypeScript. A native shell is out of scope here (§10);
   the web wallet runs campaigns while unlocked and resumes at unlock.
 
@@ -96,9 +96,9 @@ never stored as policy:
 
 The effective cap is `min(band default, tier maximum, mode cap, the user's fraction clipped to the band's
 range)`; a fraction above the band's default is allowed only on an R0 / R1 route (V3 §14's "3 % only where the
-risk engine permits" kept). `Code:` `reference/typescript/src/wallet/exposurePolicy.ts` (`EXPOSURE_POLICY`,
-`exposureTierOf`, `capBpsFor`), `services/private-swap/src/risk/protection.ts` (`Protection.exposureTier`),
-`frontend/src/wallet/settings.ts` (`capCeilingFor`).
+risk engine permits" kept). `Code:` `packages/protocol/src/wallet/exposurePolicy.ts` (`EXPOSURE_POLICY`,
+`exposureTierOf`, `capBpsFor`), `packages/swap-engine/src/risk/protection.ts` (`Protection.exposureTier`),
+`apps/web/src/wallet/settings.ts` (`capCeilingFor`).
 
 ### 2.3 The market-impact limit (plan §80–§81)
 
@@ -153,7 +153,7 @@ commit and by the pause facts before every hand-over. A provider never gets more
 balance, a different destination, a lower minimum, a later deadline or a larger fee (V1.1 D1 per tranche).
 Unbounded slippage is prohibited (plan §14): `minimumOutput` is derived from the confirmation quote's minimum
 less the tier's tolerance (50 bps at ≥ high-value), never from a percentage the user types. `Code:`
-`reference/typescript/src/wallet/campaign.ts`.
+`packages/protocol/src/wallet/campaign.ts`.
 
 ### 3.2 Quote → `Quote` + `NormalizedQuote` (plan §11–§12, §41–§42; V2 §2)
 
@@ -183,7 +183,7 @@ export interface NormalizedQuote {
 ```
 
 Indicative quotes (phase 1) carry a placeholder destination (V2 §5); the hard quote at `/prepare` carries the
-chosen provider only. `Code:` `services/private-swap/src/types.ts`, `normalize.ts` (*V4*).
+chosen provider only. `Code:` `packages/swap-engine/src/types.ts`, `normalize.ts` (*V4*).
 
 ### 3.3 HardQuote → the prepared order (plan §11, §108; V2 §3, §14)
 
@@ -203,8 +203,8 @@ The lifecycle INDICATIVE → USER REVIEW → USER SIGN → HARD RFQ → FINAL EX
 commit → prepare → sign → hand-over (V3 §7). A hard quote that guarantees less per unit than
 `minimumOutput` MUST NOT be signed (plan §108: the bounds, not the provider, decide); the price guard
 (`priceGuard`, 50 bps at ≥ high-value) refuses a re-quote far below the best live alternative; an expired
-quote never executes (the signed deadline). `Code:` `services/private-swap/src/engine.ts` (`prepareExecution`),
-`frontend/src/sdk/swapExecute.ts` (`prepareAndSign`), `sdk/providerCall.ts`.
+quote never executes (the signed deadline). `Code:` `packages/swap-engine/src/engine.ts` (`prepareExecution`),
+`apps/web/src/sdk/swapExecute.ts` (`prepareAndSign`), `sdk/providerCall.ts`.
 
 ### 3.4 RiskAssessment → `Protection` + `ProviderRisk` (plan §5–§7, §41–§46, §88; V3 §10)
 
@@ -227,7 +227,7 @@ export interface ProviderRisk { model: RiskModel; security: SecurityBreakdown; i
 ```
 
 The wallet keeps the service's recommendation as `Campaign.riskSnapshot` (advice) and recomputes its own
-bounds and accounting from the shared core. `Code:` `services/private-swap/src/risk/protection.ts`,
+bounds and accounting from the shared core. `Code:` `packages/swap-engine/src/risk/protection.ts`,
 `riskClasses.ts` (`RiskModel`), `risk/security.ts` (`SecurityBreakdown`).
 
 ### 3.5 ExposureLedger → `ledger(c)` + `Exposure` (plan §25–§27, §65–§68) — *V4*
@@ -251,7 +251,7 @@ Invariants (V3 §5, extended): **I1** a tranche is handed over only if `inFlight
 netted; **I6** (*V4*, plan §67) `byProvider[p].inFlight + amount ≤ byProvider[p].limit` for the tranche's
 provider; bridge, solver and provider exposure of one route are one boundary (plan §68). The §25 example
 (THORChain $100K + Chainflip $80K + Mayan $70K under a $250K cap: admitted; $250K each: refused) is pinned.
-`Code:` `reference/typescript/src/wallet/campaign.ts` (`exposure`, `ledger`, `canRelease(c, size, provider)`).
+`Code:` `packages/protocol/src/wallet/campaign.ts` (`exposure`, `ledger`, `canRelease(c, size, provider)`).
 
 ### 3.6 Tranche → `Tranche` (plan §22–§24, §70; V3 §7)
 
@@ -303,7 +303,7 @@ export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txH
 the V2 §5 one: `quote` = `quote`, `prepare` = `prepareIngress`, `validate` = the local decode-and-check of the
 provider call (the adapter's and, independently, the wallet's), `execute` = the relayer's `deployAndExecute`,
 `track` = `track`, `recover` = the escrow's refund plus the provider's own refund path. `Code:`
-`services/private-swap/src/types.ts`, `frontend/src/sdk/relayer.ts`, `services/relayer/src/swapExecutor.ts`.
+`packages/swap-engine/src/types.ts`, `apps/web/src/sdk/relayer.ts`, `apps/relayer/src/swapExecutor.ts`.
 
 ### 3.8 Settlement → `Tracked` + `TrackStatus` (plan §69–§70; V2 §19)
 
@@ -325,7 +325,7 @@ Finality is the provider's delivered state plus the destination chain's elapsed-
 Solana 1 min, EVM 15 min, lab-calibrated); no third-party explorer is ever asked (it would leak the
 destination). The gate per class: R5 bridge / MPC at destination final, R2 / R4 solver and intent at
 destination submitted, R1 at source final, Maximum Safety destination final everywhere (V3 §6). `Code:`
-`frontend/src/sdk/orderTracker.ts`, `campaign.ts` (`settledBy`, `FINALITY_MARGIN_SECONDS`).
+`apps/web/src/sdk/orderTracker.ts`, `campaign.ts` (`settledBy`, `FINALITY_MARGIN_SECONDS`).
 
 ### 3.9 Recovery → the pause reasons and the reconcile rules (plan §31–§33, §71–§72, §84–§87)
 
@@ -355,7 +355,7 @@ export interface SecurityBreakdown { provider: string; baseline: number; inciden
 Eligibility (plan §44): healthy, a fresh quote, liquidity for the size, destination and asset supported, the
 security threshold (70 narrows the band, 60 refuses). The breaker (plan §45) opens on 3 consecutive failures,
 6 in an hour, 2 settlement stalls, 3 quote divergences or an incident < 24 h, closes on a success, and allows one
-probe after it expires. `Code:` `services/private-swap/src/health.ts`, `risk/security.ts`, `server.ts`.
+probe after it expires. `Code:` `packages/swap-engine/src/health.ts`, `risk/security.ts`, `server.ts`.
 
 ### 3.11 PrivacyAssessment → `privacyAssessment.ts` (plan §7, §48–§54, §112, §114) — *V4*
 
@@ -378,7 +378,7 @@ escrow → destination link public (1 − the cover-traffic effective set in bit
 kept private (0). Cross-chain: the lab's effective-set fit (`crossChainEffectiveSet`). The level is
 `levelOf(score)` (`privacyCenter.ts`), the figure the Review and the Home badge show; "Safe to execute" is never
 shown without it (V3 §15). The plan's §112 pattern test (equal pieces on a fixed cadence) MUST flag amount and
-timing together. `Code:` `reference/typescript/src/wallet/privacyAssessment.ts`, `privacyLint.ts`.
+timing together. `Code:` `packages/protocol/src/wallet/privacyAssessment.ts`, `privacyLint.ts`.
 
 ### 3.12 DestinationRecord → `AddressBookEntry` (plan §16–§21; V3 §12)
 
@@ -399,7 +399,7 @@ used → settled → retired; a destination does not return to APPROVED after a 
 re-check (`canUse` refuses `stale`). The verification methods are V3 §12's; the test transaction warns that it
 creates observable activity (plan §21); the cooling-off is 24 h; the Immediate override takes the phrase, the
 hold and the second factor (the separate device at institutional). `Code:`
-`reference/typescript/src/wallet/addressBook.ts`, `frontend/src/wallet/addressBook.ts`.
+`packages/protocol/src/wallet/addressBook.ts`, `apps/web/src/wallet/addressBook.ts`.
 
 ---
 
@@ -468,13 +468,13 @@ FAILED            refund-window → REFUND_PENDING
 terminal: COMPLETED, EXPIRED, CANCELLED, REFUNDED
 ```
 
-`Code:` `services/private-swap/src/order.ts` (`nextState`: anything else throws).
+`Code:` `packages/swap-engine/src/order.ts` (`nextState`: anything else throws).
 
 ### 4.4 The relayer's job (V2 §20, unchanged)
 
 `waiting-funding → executing → executed → completed`; `waiting-funding → expired`; `refund-only → refunding →
 refunded`; `executing → execute-failed`; `refunding → refund-failed`; the late-refund watch after `executed`.
-`Code:` `services/relayer/src/swapExecutor.ts`.
+`Code:` `apps/relayer/src/swapExecutor.ts`.
 
 ### 4.5 The destination (plan §19) — *V4*
 
@@ -501,11 +501,11 @@ maps the directories) beside the package suites named below.
 | 2 | `providerExposure[i] ≤ providerLimit[i]` | `canRelease` (I6, *V4*) | `exposure/ledger.test.ts`, `exposure/property.test.ts` |
 | 3 | `minimumOutput` is never relaxed | `checkWithinBounds`, the `price-deviation` pause | `order/envelope.test.ts` |
 | 4 | `maximumFee` is never exceeded | `checkWithinBounds` (`maxFeeBps`) | `order/envelope.test.ts` |
-| 5 | the destination never changes after signing | the escrow's call (receiver check), `checkWithinBounds`, `unexpected-destination` | `order/envelope.test.ts`, `frontend/test/swap-guard.test.ts` |
+| 5 | the destination never changes after signing | the escrow's call (receiver check), `checkWithinBounds`, `unexpected-destination` | `order/envelope.test.ts`, `apps/web/test/swap-guard.test.ts` |
 | 6 | the chain never changes after signing | `ExecutionBounds.chainOut`; the child order's request is the bounds' | `order/envelope.test.ts` |
 | 7 | the asset never changes after signing | `ExecutionBounds.assetOut`; the escrow's asset | `order/envelope.test.ts` |
 | 8 | an expired quote never executes | the signed deadline, `quoteExpiresAt > expiry` refused | `quote/lifecycle.test.ts`, `contracts` (forge: executeDeadline) |
-| 9 | an unknown transaction state never auto-retries | I3, the `reconcile` pause, `fundedTx` / `jobId` checks | `recovery/rules.test.ts`, `frontend/test/campaign-runner.test.tsx` |
+| 9 | an unknown transaction state never auto-retries | I3, the `reconcile` pause, `fundedTx` / `jobId` checks | `recovery/rules.test.ts`, `apps/web/test/campaign-runner.test.tsx` |
 | 10 | completed value is never counted as in-flight | `exposure` (I5) | `exposure/ledger.test.ts` |
 | 11 | failed value is not assumed settled | `exposure` (`failed` is pending, never completed) | `exposure/ledger.test.ts` |
 | 12 | a provider incident pauses the affected routes | `detectPause` (`security-incident`), the breaker | `provider-failure/scenarios.test.ts` |
@@ -514,27 +514,27 @@ maps the directories) beside the package suites named below.
 
 | # | Invariant | Enforced in | Test |
 |---|---|---|---|
-| 1 | a permanent wallet identity is not required for private execution | the one-time escrow funded by a private withdrawal; placeholders at phase 1 | `privacy/assessment.test.ts`, `services/private-swap/test/privacy-flow.test.ts` (live) |
-| 2 | fresh high-value execution addresses are preferred | `DestinationPolicy` `fresh-per-tranche` default; one-time order keys | `privacy/assessment.test.ts`, `reference/typescript/test/chainkeys.test.ts` |
-| 3 | destination reuse is discouraged | the lint `destination-fresh` / `tranche-link`; fresh addresses retire after one use | `privacy/assessment.test.ts`, `reference/typescript/test/addressBook.test.ts` |
+| 1 | a permanent wallet identity is not required for private execution | the one-time escrow funded by a private withdrawal; placeholders at phase 1 | `privacy/assessment.test.ts`, `packages/swap-engine/test/privacy-flow.test.ts` (live) |
+| 2 | fresh high-value execution addresses are preferred | `DestinationPolicy` `fresh-per-tranche` default; one-time order keys | `privacy/assessment.test.ts`, `packages/protocol/test/chainkeys.test.ts` |
+| 3 | destination reuse is discouraged | the lint `destination-fresh` / `tranche-link`; fresh addresses retire after one use | `privacy/assessment.test.ts`, `packages/protocol/test/addressBook.test.ts` |
 | 4 | identical tranche patterns are discouraged | `varied` sizing, the lint `same-size-consecutive` | `tranche/sizing.test.ts` |
 | 5 | the timing fingerprint is measured | `PrivacyAssessment.components.timing`, the lint `exact-cadence` | `privacy/assessment.test.ts` |
 | 6 | the amount fingerprint is measured | `PrivacyAssessment.components.amount`, the lint `amount-fingerprint` | `privacy/assessment.test.ts` |
 | 7 | provider correlation is measured | `PrivacyAssessment.components.provider`, `crossChain` | `privacy/assessment.test.ts` |
-| 8 | the user receives a privacy assessment before signing | the Review's paired verdict (never "Safe to execute" without the level) | `frontend/test/campaign-screens.test.tsx` |
+| 8 | the user receives a privacy assessment before signing | the Review's paired verdict (never "Safe to execute" without the level) | `apps/web/test/campaign-screens.test.tsx` |
 
 ### 5.3 Security invariants (plan §115)
 
 | # | Invariant | Enforced in | Test |
 |---|---|---|---|
-| 1 | no company custody | funds sit only in the pool or a one-time escrow the user's key controls | `contracts` (forge e2e), `frontend/test/swap-guard.test.ts` (the escrow recomputed) |
-| 2 | no unlimited token approval | exact approvals; the escrow's approve bounded by D1 (V3 §13); allowances read and revoked | `frontend/test/allowances.test.tsx`, `contracts` |
-| 3 | no AI signing | the AI gets a sanitized summary and no keys | `frontend/test/trade-check.test.ts`, `campaign-screens.test.tsx` |
-| 4 | no admin route override | the service has no order-changing endpoint; the relayer's admin token lists only | `services/relayer/test/admin.test.ts`, `services/private-swap/test/adversarial.test.ts` (live) |
-| 5 | no hidden destination change | the wallet reads the receiver from the calldata before signing | `frontend/test/swap-sign.test.ts`, `order/envelope.test.ts` |
+| 1 | no company custody | funds sit only in the pool or a one-time escrow the user's key controls | `contracts` (forge e2e), `apps/web/test/swap-guard.test.ts` (the escrow recomputed) |
+| 2 | no unlimited token approval | exact approvals; the escrow's approve bounded by D1 (V3 §13); allowances read and revoked | `apps/web/test/allowances.test.tsx`, `contracts` |
+| 3 | no AI signing | the AI gets a sanitized summary and no keys | `apps/web/test/trade-check.test.ts`, `campaign-screens.test.tsx` |
+| 4 | no admin route override | the service has no order-changing endpoint; the relayer's admin token lists only | `apps/relayer/test/admin.test.ts`, `packages/swap-engine/test/adversarial.test.ts` (live) |
+| 5 | no hidden destination change | the wallet reads the receiver from the calldata before signing | `apps/web/test/swap-sign.test.ts`, `order/envelope.test.ts` |
 | 6 | no blind retry | §5.1 #9 | `recovery/rules.test.ts` |
 | 7 | no single mandatory provider | the competition, the breaker, the reroute Review | `provider-failure/scenarios.test.ts`, `routing/eligibility.test.ts` |
-| 8 | no single mandatory RPC | the RPC quorum on every read, the light client on the pool | `frontend/test/verified-reads.test.ts`, `lightclient.test.ts` |
+| 8 | no single mandatory RPC | the RPC quorum on every read, the light client on the pool | `apps/web/test/verified-reads.test.ts`, `lightclient.test.ts` |
 
 ---
 
@@ -580,7 +580,7 @@ compare one trade against the cap fractions — the plan's Route A / Route B exa
   liquidity → streaming → multi-provider → AMM only when justified) are the filters and the order the
   competition applies at every step's size.
 
-`Code:` `services/private-swap/src/{scoring,normalize}.ts`, `risk/protection.ts`.
+`Code:` `packages/swap-engine/src/{scoring,normalize}.ts`, `risk/protection.ts`.
 
 ---
 
@@ -625,7 +625,7 @@ compare one trade against the cap fractions — the plan's Route A / Route B exa
 | 18 | destination guard | §3.12 (V3 Stage 6; approval and staleness *V4* Stage 1, 4) |
 | 19 | settlement / recovery | §3.8, §8 (V3 Stage 4; the confirmed state, the reorg and outage rules *V4* Stage 3) |
 | 20 | mobile UX | the web screens (V3 Stage 5; the *V4* Stage 4 items of plan §55, §69, §94, §98, §100, §127–§128); native shells deferred |
-| 21–23 | $1M / $5M / $10M simulation | `frontend/test/campaign-flow.test.tsx`, the campaign lab, the local-stack run (V3); the §119 matrix *V4* Stage 5 |
+| 21–23 | $1M / $5M / $10M simulation | `apps/web/test/campaign-flow.test.tsx`, the campaign lab, the local-stack run (V3); the §119 matrix *V4* Stage 5 |
 | 24 | chaos testing | the lab's 13 faults (V3); random fault sequences *V4* Stage 5 |
 | 25 | privacy benchmark | `docs/privacy-lab.md` (V2, V3); the §120 rows *V4* Stage 5 |
 | 26 | security audit | out of scope (`docs/audit-package.md`) |

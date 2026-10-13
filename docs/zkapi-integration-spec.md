@@ -28,7 +28,7 @@ OUR PRIVATE POOL (PrivacyCore + vaults)      zkAPI (service credit)
   path, it is exposed only behind an explicit "the relay sees your traffic" warning.
 
 ## 3. Deployment-pin check before first use (plan §62) — MUST pass, every session
-The wallet runs the same checks as `services/zkapi-lab/verify-mainnet.mjs` against its pinned copy of
+The wallet runs the same checks as `tools/zkapi-lab/verify-mainnet.mjs` against its pinned copy of
 `sdk/assets/config/<network>.json`: chain id; vault immutables (`stateSigningKey`,
 `clearanceSigningKey`, `requestChargeCap`, `PROTOCOL_VERSION`, `MERKLE_DEPTH`, `billingToken == 0`);
 `proofAdapter()`; sha256 of the packaged `request.pk`/`withdrawal.pk` and WASM; the live manifest
@@ -37,7 +37,7 @@ Any mismatch → zkAPI features disabled with a "deployment changed" notice; nev
 (plan §87). The wallet pins `deployment_manifest_url` and its allow-list; it MUST NOT follow redirects
 to other hosts.
 
-*Implemented:* `frontend/scripts/check-zkapi-pins.mjs` (runs at build: emitted config == pinned
+*Implemented:* `apps/web/scripts/check-zkapi-pins.mjs` (runs at build: emitted config == pinned
 profile, allow-listed manifest URL, https only, OA key source, circuit, emitted key/WASM hashes ==
 pins, then `verify-mainnet.mjs` with zero failures) writes `public/zkapi/pin-check.json`; the tab
 enables zkAPI only when it reports zero failures and is under a week old (`zkapiEnabled`).
@@ -45,7 +45,7 @@ enables zkAPI only when it reports zero failures and is under a week old (`zkapi
 ## 4. Credit lifecycle in the wallet
 | Step | Wallet action | Source of truth |
 |---|---|---|
-| fund | deposit native ETH from a **fresh wallet-derived address** (never the permanent address), amount in whole gwei, bucketed like a pool shield (§6 of the swap spec) — *implemented:* `frontend/src/zkapi/freshAccountProvider.ts` (EIP-1193 over a seed-derived key #i; a new index per note) + credit buckets 0.005 / 0.01 / 0.02 ETH | `ZkApiVault.deposit` |
+| fund | deposit native ETH from a **fresh wallet-derived address** (never the permanent address), amount in whole gwei, bucketed like a pool shield (§6 of the swap spec) — *implemented:* `apps/web/src/zkapi/freshAccountProvider.ts` (EIP-1193 over a seed-derived key #i; a new index per note) + credit buckets 0.005 / 0.01 / 0.02 ETH | `ZkApiVault.deposit` |
 | keep | note secret, blinding, signed state `(E(B), τ, σ)` and the recovery journal in the wallet's encrypted store — same rule as pool notes (TC-01: never dapp-origin storage, never a server) | SDK wallet |
 | spend | quote → proof → lease → provider call → retire; the SDK's exact-retry journal is kept | server + SDK |
 | cap | per-session USD budget ≤ `request_charge_cap` × N requests chosen by the user; per-note deposit SHOULD stay small (expiring credit): default ≤ 0.02 ETH, high-privacy ≤ 0.005 ETH per note | wallet policy |
@@ -58,7 +58,7 @@ the user is in standard or high privacy: Tor (fresh circuit per session and per 
 configured mixnet/private relay. The SDK's `transport` option is the injection point
 (`configureBrowserSdk({ transport })`). Plain network access is allowed only in the explicit
 "custom" mode with a warning. IP exposure to the gateway is the limitation zkAPI itself documents.
-*Implemented as a policy hook:* `frontend/src/zkapi/sdk.ts::privateTransport` (no proxy hint honoured,
+*Implemented as a policy hook:* `apps/web/src/zkapi/sdk.ts::privateTransport` (no proxy hint honoured,
 `credentials: "omit"`, `redirect: "error"`); Tor / mixnet is a native-host concern, not done in the web build.
 
 ## 6. Pool → service credit (plan §55) — built in the wallet (Private AI tab: "Fund the fresh address from the pool" → "Deposit as credit")
@@ -83,7 +83,7 @@ notes; learn which pool user holds which credit; forge withdrawals without the s
 secrets. Our caps (§4) bound the exposure to the small, expiring credit the user chose to hold.
 
 ## 9. What we borrow into OUR service layer (plan §9) — and where
-request-ID + payload-hash binding and frozen quotes → `services/private-swap` order object and the
+request-ID + payload-hash binding and frozen quotes → `packages/swap-engine` order object and the
 quote gateway (§52 of the plan); short-lived capped capabilities → zkAPI leases as-is; actual-usage
 settlement and durable recovery journal → the swap engine's journal; deployment pins checked before
 use → §3 above and `verify-mainnet.mjs`.

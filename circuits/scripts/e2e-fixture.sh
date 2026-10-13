@@ -12,5 +12,5 @@ FORGE=${FORGE:-forge}
 # The e2e test imports the fixture, so a stub must exist before the first compile.
 [ -f ../contracts/test/e2e/E2EFixture.sol ] || node test/prove-e2e.mjs --stub
 (cd ../contracts && E2E_DUMP=true "$FORGE" test --match-test test_E2E_DumpDeployment ${FORGE_FLAGS:-} > /dev/null)
-(cd ../reference/typescript && npx tsx src/genE2EInputs.ts)
+(cd ../packages/protocol && npx tsx src/genE2EInputs.ts)
 node test/prove-e2e.mjs

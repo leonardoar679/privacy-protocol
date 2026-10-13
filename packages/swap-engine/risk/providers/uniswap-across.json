@@ -1,0 +1,49 @@
+{
+  "provider": "uniswap-across",
+  "class": "R5",
+  "custody": "relayer-bridge",
+  "bridgeModel": "Across: relayers front the fill on the destination chain and are repaid by the HubPool after UMA's optimistic verification",
+  "validatorModel": "UMA optimistic oracle; relayer inventory",
+  "upgradeability": "multisig",
+  "pFailPrior": 0.015,
+  "bandBps": [
+    100,
+    250
+  ],
+  "audits": [
+    {
+      "firm": "OpenZeppelin",
+      "date": "2022-05-11",
+      "scope": "Across v2: HubPool, the Ethereum / Arbitrum / Optimism / Polygon SpokePools and the chain adapters",
+      "url": "https://www.openzeppelin.com/news/uma-across-v2-audit"
+    },
+    {
+      "firm": "OpenZeppelin",
+      "date": "2024-10-30",
+      "scope": "across-protocol/contracts, 2024-10-07 → 2024-10-30 (report 2025-05-12): L3 support, ZkStack, predictable relay hashes, ERC-7683, World Chain — one critical (access control on setDestinationSettler), two high and eight medium, resolved",
+      "url": "https://www.openzeppelin.com/news/across-audit"
+    },
+    {
+      "firm": "OpenZeppelin",
+      "date": "2026-03-02",
+      "scope": "the deposit flow (the counterfactual deposit contracts, the transfer proxy, periphery) at commit 47c1bea9, 2026-02-23 → 2026-03-02 (report 2026-04-02): one medium acknowledged (EIP-712 signatures not bound to Merkle leaves), one low",
+      "url": "https://www.openzeppelin.com/news/deposit-flow-audit"
+    },
+    {
+      "firm": "OpenZeppelin",
+      "date": "2026-07-22",
+      "scope": "Across v5: SpokePool and its periphery, the Gateway and the Executor, the HyperCore / CCTP / OFT adapters, the counterfactual execution framework, 2026-07-06 → 2026-07-22 (report 2026-08-17): two medium resolved, seven low",
+      "url": "https://www.openzeppelin.com/news/across-protocol-v5-bridging-system-audit"
+    }
+  ],
+  "lastReviewed": "2026-10-08",
+  "privacyEvents": [
+    {
+      "date": "2026-10-07",
+      "title": "the deposit event publishes the recipient; the swap leg's message names the fresh address",
+      "effect": "link-public",
+      "source": "packages/swap-engine/src/adapters/across.ts"
+    }
+  ],
+  "notes": "upgradeability: HubPool / SpokePool admin by the Across DAO multisig; audits taken from OpenZeppelin's published reports on 2026-10-08 — its further Across reviews (2023, 2024-07, 2024-08, 2025-05) are listed at openzeppelin.com/security-audits; the Uniswap swap leg's contracts (the Universal Router) are audited separately and not listed here; bug bounty: no published maximum"
+}

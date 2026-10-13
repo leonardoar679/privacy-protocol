@@ -1,0 +1,61 @@
+{
+  "_source": "apps/web/test/wallet-vectors.test.ts (web wallet implementation); keystore = scrypt(NFKD(password)) + XChaCha20-Poly1305 with aad privacy-protocol/v1/keystore; journal key = sha256(privacy-protocol/v1/journal-key || seed), aad privacy-protocol/v1/journal",
+  "keystore": {
+    "seed": "0f1e2d3c4b5a69788796a5b4c3d2e1f0f1e2d3c4b5a69788796a5b4c3d2e1f00",
+    "password": "correct horse battery staple",
+    "kdf": {
+      "name": "scrypt",
+      "N": 4096,
+      "r": 8,
+      "p": 1,
+      "dkLen": 32
+    },
+    "salt": "00112233445566778899aabbccddeeff",
+    "nonce": "101112131415161718191a1b1c1d1e1f2021222324252627",
+    "keystore": {
+      "v": 1,
+      "kdf": {
+        "name": "scrypt",
+        "N": 4096,
+        "r": 8,
+        "p": 1,
+        "dkLen": 32
+      },
+      "salt": "00112233445566778899aabbccddeeff",
+      "nonce": "101112131415161718191a1b1c1d1e1f2021222324252627",
+      "ct": "a05a17fb96d9cb7afabf2f7c0cc58b72f5132a2a94b04255845024c355beff7af7d3fe42212724575d8fe98da3b706ae"
+    },
+    "phrase": "audit vapor excuse note pledge rough bundle start regular burden reveal tiger bullet hazard barrel regular nurse duck fold repair sense novel lab body"
+  },
+  "journal": {
+    "seed": "0f1e2d3c4b5a69788796a5b4c3d2e1f0f1e2d3c4b5a69788796a5b4c3d2e1f00",
+    "key": "95f3cfd45ef34d84e23b9a8fd4d499e9510ba107db2fb1d35025dc1584e11648",
+    "nonce": "303132333435363738393a3b3c3d3e3f4041424344454647",
+    "plaintext": "{\"v\":1,\"notes\":[{\"vaultId\":\"171\",\"amount\":\"1000000000000000000\",\"ownerCommitment\":\"6296251118823642552905479752093160106216242361714863370242727181463510312526\",\"noteSecret\":\"11501897306810649921226615145916377511217047860362527109580516595403634051394\",\"leafIndex\":0,\"noteData\":\"0x01\",\"counter\":0,\"spent\":false,\"label\":\"shield\"}],\"noteCounter\":1,\"chainIndexes\":{\"bitcoin\":2},\"swaps\":[],\"schedule\":[]}",
+    "encrypted": {
+      "v": 1,
+      "nonce": "303132333435363738393a3b3c3d3e3f4041424344454647",
+      "ct": "da1e8f17d8e757833bce4c4c5af0d28bfccbe10635d26030c38868b4f2e10e6a9704edf7b5880dcba1cfd18064344e56f546e9d30e285b492073b3d0b7c9aa85b7dd8f74781f181ec0878af54a72e51bef704ed3543de0162dffd690cc19ffc15e83064d0d8052e27b85280a21c7432baaccd299a0241770120093db006cb6cfd4e6db19489c5abfc92af4968a22bb48ee5827658a7567b76642f7e3d1809356a196684ec510e0243e8599c3fbb8b185c3bd3caa0d3660b0ff99cc6b8860747160b567cefc31fe857c7db9a696155246fd98eebba9b04d2dc81045b086cb021e0d396011973ee4de0ef8dfdcec01b25aa2896a3aa1d587995d614873d13a78da778411bf4ae18400def4779eaf0068bb46523b6cb8b38202c84a75ccd736d5430bebfc394bfb8f7bda2af1252df5810b65b9955e63effc0b80bd508a219bbd8a2ed2dee5351c1d65fb5ee427a5ad0202fd92d7786ae56266b82452a9c8a78f7c0a8b6b0e864a855b2cc6270c70fca217590302b3d30bb3eab26b4d31651945e5812a5cebe696dc48ac4a8b03f36700c007b9039b905ca4d0baf4ef99ed8b231abe"
+    }
+  },
+  "bip39": [
+    {
+      "entropy": "00000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "seed": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+      "seedWithPassphrase": "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
+    },
+    {
+      "entropy": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+      "seed": "408b285c123836004f4b8842c89324c1f01382450c0d439af345ba7fc49acf705489c6fc77dbd4e3dc1dd8cc6bc9f043db8ada1e243c4a0eafb290d399480840",
+      "seedWithPassphrase": "bda85446c68413707090a52022edd26a1c9462295029f2e60cd7c4f2bbd3097170af7a4d73245cafa9c3cca8d561a7c3de6f5d4a10be8ed2a5e608d68f92fcc8"
+    },
+    {
+      "entropy": "0f1e2d3c4b5a69788796a5b4c3d2e1f0f1e2d3c4b5a69788796a5b4c3d2e1f00",
+      "mnemonic": "audit vapor excuse note pledge rough bundle start regular burden reveal tiger bullet hazard barrel regular nurse duck fold repair sense novel lab body",
+      "seed": "8a4fa53d19f119541060c2b9ccdc682ee29ffc7a2ef9613521e787ba4bd1fa8a333484ecfcc0221b1f87002c71867a77f15b37d84240170f582a818ea8effbb5",
+      "seedWithPassphrase": "a62c2eef1d28988c0d122568e817e10b8dd0ce4cd2f9a05a46aac4ddda512195d46d503a627d65951e32ceb0c8a35fe457b46b5ff6da9e7a907a05e57915d729"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # zkAPI v2 — protocol as implemented (plan V1.1 §61)
 
-Condensed from `protocol/PROTOCOL.md`, `protocol/SPEC.md`, `docs/native-eth-billing.md`,
-`docs/note-bound-commitments.md`, `docs/api-spec.md` and the vault source at the deployed commit.
+Condensed from `protocol/PROTOCOL.md`, `protocol/SPEC.md`, `zkapi/docs/native-eth-billing.md`,
+`zkapi/docs/note-bound-commitments.md`, `zkapi/docs/api-spec.md` and the vault source at the deployed commit.
 Exact public statements: `protocol/SPEC.md`.
 
 ## Primitives

@@ -18,14 +18,14 @@ are the V1.1 order machine, the relayer's job machine and the V2–V4 engines ex
 recommends and warns and never signs (plan V3 §92); the wallet never claims atomicity and never says
 "anonymous" (§18 here).
 
-Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `frontend/src/` (`app/`, `routes/`,
+Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `apps/web/src/` (`app/`, `routes/`,
 `design-system/`, `features/`, `storage/`, `api/` are new in this pass; `sdk/` and `wallet/` stay),
-`reference/typescript/src/wallet/`, `services/relayer/` (fee terms only), `scripts/local-stack/`,
+`packages/protocol/src/wallet/`, `apps/relayer/` (fee terms only), `scripts/local-stack/`,
 `scripts/verify-all.mjs`.
 
 Status (2026-10-08): a section marked *Stage N* is built by the V5 pass in that stage, in order Every stage (0–12) landed on `main` on 2026-10-08 (`docs/roadmap.md`, the V5 table); §89 onward awaits the owner's addendum (§24).
 (`docs/roadmap.md` tracks completion). The owner's decisions this document rests on: the rebuild happens
-inside `frontend/` (the plan's §81 monorepo layout is a later mechanical pass); the privacy fee is the
+inside `apps/web/` (the plan's §81 monorepo layout is a later mechanical pass); the privacy fee is the
 relayer's percentage term paid through the fee note that already exists, and the executor tip on swaps; the
 consumer bands sit below the V4 bands, which stay as they are from $100K; Classic Privacy lands as a module
 boundary and screens on a pool interface, its contracts and legal review later; the UI stack is the lean one
@@ -334,7 +334,7 @@ primary action per screen. It MUST NOT use terminal-like black screens, neon, he
 dashboards, many panels on one screen, tiny text, jargon or dense tables. Personality: calm, premium,
 friendly, secure.
 
-Tokens (`frontend/src/design-system/tokens.ts`, the source of truth; `tokens.css` is generated from it and
+Tokens (`apps/web/src/design-system/tokens.ts`, the source of truth; `tokens.css` is generated from it and
 a test asserts they agree): colours `bg, surface, surface-2, border, fg, fg-muted, accent, accent-fg,
 accent-soft, shield, shield-soft, warn, warn-soft, danger, danger-soft, success` in a light and a dark set
 (`prefers-color-scheme` and `[data-theme]` from the prefs); type scale display 40/44 700 · title 28/32 700 ·
@@ -480,7 +480,7 @@ TIER_DEFAULTS = { large: 20_000, largeProtected: 50_000, enhanced: 100_000, high
 tierLabel: large → "Large transfer", large-protected → "Protected transfer"; the rest unchanged
 ```
 The two new tiers sit **below** `enhanced`, so every V2–V4 rule keyed on `enhanced` and above keeps its
-meaning and its tests. `controlsFor` (`frontend/src/sdk/tiers.ts`):
+meaning and its tests. `controlsFor` (`apps/web/src/sdk/tiers.ts`):
 
 | From tier | Controls on |
 |---|---|
@@ -535,8 +535,8 @@ OperationState = DRAFT → QUOTING → QUOTE_READY → REVIEW → AWAITING_SIGNA
 ```
 `CANCELLED` is added to the plan's list (the wallet's "abandoned"). Records are journaled under
 `JournalData.operations?` (optional, never written by `emptyJournal()`) from `AWAITING_SIGNATURE` on;
-`DRAFT` … `REVIEW` stay in memory. `Code:` the record's types and sets in `frontend/src/wallet/operationRecord.ts` (the journal's
-import), the reducer, the adapters, the catalog, the store and the recovery model under `frontend/src/features/operations/`.
+`DRAFT` … `REVIEW` stay in memory. `Code:` the record's types and sets in `apps/web/src/wallet/operationRecord.ts` (the journal's
+import), the reducer, the adapters, the catalog, the store and the recovery model under `apps/web/src/features/operations/`.
 The history is one line per state; a note (an approval's hash, a relayer retry) joins the current state's line.
 The mapping from every existing vocabulary (`features/operations/adapters.ts`):
 
@@ -615,7 +615,7 @@ chain; the wallet chooses another valid route (plan §58).
 A legacy compatibility module with its own state, never mixed with `PrivacyCore`:
 `features/classic-privacy/`; `ClassicNote` = `tornado-<currency>-<amount>-<netId>-0x<124 hex>` (62 bytes:
 a 31-byte nullifier then a 31-byte secret, little-endian), parsed and formatted by
-`reference/typescript/src/classic/note.ts`; `interface ClassicPool { id; currency; denomination; stats():
+`packages/protocol/src/classic/note.ts`; `interface ClassicPool { id; currency; denomination; stats():
 { size, deposits, rootAge }; deposit(note): ClassicDepositRecord; prepareWithdrawal(note, recipient, relayer):
 ClassicWithdrawal; status(ref): ClassicStatus }`; the classic relayer API as zod schemas (`GET /v1/status`,
 `POST /v1/tornadoWithdraw`, `GET /v1/jobs/:id`; states QUEUED / ACCEPTED / SENT / MINED / CONFIRMED / FAILED);
@@ -629,7 +629,7 @@ arrives with the circuit port".
 
 ## 17. The SDK facade (plan §19, §36, §64) — *Stage 7*
 
-`frontend/src/sdk/facade.ts` re-exports the existing engine under the plan's names:
+`apps/web/src/sdk/facade.ts` re-exports the existing engine under the plan's names:
 
 | Plan name | Code |
 |---|---|
@@ -686,15 +686,15 @@ their feature opens (plan §77). Proof generation stays in its worker with the �
 | Gate | What it checks | Where |
 |---|---|---|
 | unit | every package's suites | `scripts/verify-all.mjs` steps as today |
-| design system | tokens agree, each component per state, axe on the gallery | `frontend/test/design-system/` |
-| privacy leakage | create → protect → send → swap on mocks: no seed, phrase, note secret, view key or witness byte in any request; no address, amount or destination in the console; ciphertext-only storage; every host allowlisted | `frontend/test/privacy-leakage.test.tsx`; its Playwright twin |
+| design system | tokens agree, each component per state, axe on the gallery | `apps/web/test/design-system/` |
+| privacy leakage | create → protect → send → swap on mocks: no seed, phrase, note secret, view key or witness byte in any request; no address, amount or destination in the console; ciphertext-only storage; every host allowlisted | `apps/web/test/privacy-leakage.test.tsx`; its Playwright twin |
 | lint | typescript-eslint, react-hooks, jsx-a11y, the house rules (§5, §7, §18) | `npm run lint` |
-| artifact pins | the sha256 records of §20 | `frontend/scripts/check-artifact-pins.mjs` |
+| artifact pins | the sha256 records of §20 | `apps/web/scripts/check-artifact-pins.mjs` |
 | dependency audit | `npm audit --omit=dev --audit-level=high` × 3, skipped with a note offline | `scripts/audit.mjs` |
 | viewports | the money flow once, then the shell on 360×800, 390×844, 412×915, 768×1024, 1280×800: no horizontal scroll, 44 px targets, screenshots | `scripts/local-stack/e2e.mjs` |
-| accessibility | axe per screen, focus order, roles and names | `frontend/test/a11y/` |
+| accessibility | axe per screen, focus order, roles and names | `apps/web/test/a11y/` |
 
-verify-all gains the steps `frontend lint`, `frontend privacy leakage`, `frontend artifact pins`,
+verify-all gains the steps `apps/web lint`, `apps/web privacy leakage`, `apps/web artifact pins`,
 `dependency audit`; the viewport matrix stays in the local stack (it needs the chain). CI order (plan §73):
 TypeScript → lint → unit → crypto → contracts → privacy leakage → build → Playwright → audit → artefact pins.
 
@@ -720,7 +720,7 @@ TypeScript → lint → unit → crypto → contracts → privacy leakage → bu
 
 ## 23. Out of scope (plan §81, §39–§43, §26, §32, §75, §78–§80)
 
-- **The §81 monorepo layout** (`apps/`, `packages/`): a later mechanical pass; the rebuild lives in `frontend/`.
+- **The §81 monorepo layout** (`apps/`, `packages/`): a later mechanical pass; the rebuild lives in `apps/web/`.
 - **Express + SQLite services** (plan §39–§43): recorded as the target topology; this pass changes only the
   relayer's fee terms. The two `node:http` services keep holding no per-user state.
 - **Native shells, push notifications, background execution, biometrics**: `docs/mobile.md`; the web wallet

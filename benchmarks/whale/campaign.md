@@ -1,6 +1,6 @@
 # Campaign lab — tranches, time, gas and faults (High-Value Protection spec §18)
 
-Measured quotes: `benchmarks/whale/execution.json` (ETH $2568, BTC $83279, SOL $117, USDC $1); the reducer of `reference/typescript/src/wallet/campaign.ts` against a simulated clock; gates per class with the finality margins (BTC 60 min, SOL 1 min, EVM 15 min); the user reassesses a pause after 10 min; a failed step comes back at its refund window (quote TTL 10 min + the 2 h execution window). Gas in USD at the price fetched when this ran: 0.173 gwei, ETH $2558 (never a constant).
+Measured quotes: `benchmarks/whale/execution.json` (ETH $2568, BTC $83279, SOL $117, USDC $1); the reducer of `packages/protocol/src/wallet/campaign.ts` against a simulated clock; gates per class with the finality margins (BTC 60 min, SOL 1 min, EVM 15 min); the user reassesses a pause after 10 min; a failed step comes back at its refund window (quote TTL 10 min + the 2 h execution window). Gas in USD at the price fetched when this ran: 0.173 gwei, ETH $2558 (never a constant).
 
 ## Campaigns
 

@@ -3,7 +3,7 @@
 // signing), 6 and 7 (chain and asset are fields of the bounds and nothing else names them), 8 (an expired quote never
 // executes) and the plan's §108 (a provider that changes the price after commitment is refused by the bounds).
 import { describe, it, expect } from "vitest";
-import { checkWithinBounds, rateE18 } from "../../../reference/typescript/src/wallet/campaign";
+import { checkWithinBounds, rateE18 } from "../../../packages/protocol/src/wallet/campaign";
 import { bounds, ETH, REF_RATE } from "../helpers";
 
 const b = bounds({ destination: { kind: "entered", address: "bc1qentered" } });

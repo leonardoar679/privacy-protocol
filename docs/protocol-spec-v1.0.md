@@ -99,8 +99,8 @@ NOTE_BODY, NOTE_COMMITMENT, OWNER_COMMITMENT, NULLIFIER, PHANTOM_NULLIFIER, OUTP
 ```
 
 Decimal values are in `circuits/vectors/primitives.json → domains` and MUST be identical in
-`DomainSeparators.sol`, `reference/typescript/src/domains.ts`, `circuits/lib/domains.circom`,
-`reference/python/domains.py`. `OUTPUT_BINDING` and `TX_DOMAIN` are used with keccak (see §5, §9), the
+`DomainSeparators.sol`, `packages/protocol/src/domains.ts`, `circuits/lib/domains.circom`,
+`reference/python/primitives.py`. `OUTPUT_BINDING` and `TX_DOMAIN` are used with keccak (see §5, §9), the
 others as the first Poseidon2 input of their object. No two semantic objects share a domain.
 
 ---
@@ -529,7 +529,7 @@ Vault solvency:   actualBalance ≥ accountedDeposits + totalClaimable, for ever
 | Deposit zoo: standard / fee / rebase / blacklist / pause / reentrant / false-return / no-return / malformed / burn | `contracts/test/vault`, `adversarial` |
 | Issuer isolation across ETH + two ERC-20 vaults | `contracts/test/issuer-risk` |
 | Reentrancy (release→token→release; recipient→claim) | `contracts/test/adversarial` |
-| Reorg / root window; root stress 10…10⁴ (forge), 10⁵ + reorg (TS) | `contracts/test/reorg`, `reference/typescript/test` |
+| Reorg / root window; root stress 10…10⁴ (forge), 10⁵ + reorg (TS) | `contracts/test/reorg`, `packages/protocol/test` |
 | No privileged path (bytecode + ABI scan) | `contracts/test/invariants/NoPrivilege.t.sol` |
 | Stateful fuzz invariants (core holds nothing; solvency) | `contracts/test/invariants` |
 

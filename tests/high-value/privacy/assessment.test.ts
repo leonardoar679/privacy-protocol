@@ -3,9 +3,9 @@
 // patterns discouraged, 5 the timing fingerprint measured, 6 the amount fingerprint measured, 7 provider correlation
 // measured, 8 the assessment exists before signing (its level is what the Review shows); the plan's §112 test.
 import { describe, it, expect } from "vitest";
-import { assessPrivacy } from "../../../reference/typescript/src/wallet/privacyAssessment";
-import { lint, type LintFacts } from "../../../reference/typescript/src/wallet/privacyLint";
-import { addEntry, markSettled, markUsed, selectable } from "../../../reference/typescript/src/wallet/addressBook";
+import { assessPrivacy } from "../../../packages/protocol/src/wallet/privacyAssessment";
+import { lint, type LintFacts } from "../../../packages/protocol/src/wallet/privacyLint";
+import { addEntry, markSettled, markUsed, selectable } from "../../../packages/protocol/src/wallet/addressBook";
 
 const base = { sourceIsPool: true, amount: { kind: "bucket" as const }, delaySeconds: 6 * 3600, destination: "fresh-per-tranche" as const, steps: 40, provider: { linkPublic: true, kind: "deposit-address" as const, coverPerHour: 60, etaSeconds: 1200 }, crossChain: true };
 const lintFacts = (campaign: NonNullable<LintFacts["campaign"]>): LintFacts => ({ action: "swap", tier: "high-value", sourceIsPool: true, destinationKind: "fresh", destinationIsPublicWallet: false, linkPublic: true, providerIdentityDetached: true, delaySeconds: 3600, amountIsBucket: true, minOutVerified: true, privateSubmission: true, rpcEndpoints: 2, lightClient: true, largePiece: null, campaign });

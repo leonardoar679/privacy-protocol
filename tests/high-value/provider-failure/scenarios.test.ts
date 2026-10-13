@@ -3,15 +3,15 @@
 // on that leg and that vault only (plan §106); a provider that changes the price after commitment is refused by the
 // bounds and by the price guard (plan §108).
 import { describe, it, expect } from "vitest";
-import { detectPause, checkWithinBounds } from "../../../reference/typescript/src/wallet/campaign";
-import { riskModelOf } from "../../../reference/typescript/src/wallet/riskClasses";
-import { exposureTierOf } from "../../../reference/typescript/src/wallet/exposurePolicy";
-import { PrivateSwapEngine } from "../../../services/private-swap/src/engine";
-import { ProviderHealthTracker } from "../../../services/private-swap/src/health";
-import { priceGuard, PriceGuardError } from "../../../services/private-swap/src/scoring";
-import { riskDb } from "../../../services/private-swap/src/risk/riskDb";
-import { NO_VALUER } from "../../../services/private-swap/src/valuation";
-import type { Capabilities, Health, Ingress, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "../../../services/private-swap/src/types";
+import { detectPause, checkWithinBounds } from "../../../packages/protocol/src/wallet/campaign";
+import { riskModelOf } from "../../../packages/protocol/src/wallet/riskClasses";
+import { exposureTierOf } from "../../../packages/protocol/src/wallet/exposurePolicy";
+import { PrivateSwapEngine } from "../../../packages/swap-engine/src/engine";
+import { ProviderHealthTracker } from "../../../packages/swap-engine/src/health";
+import { priceGuard, PriceGuardError } from "../../../packages/swap-engine/src/scoring";
+import { riskDb } from "../../../packages/swap-engine/src/risk/riskDb";
+import { NO_VALUER } from "../../../packages/swap-engine/src/valuation";
+import type { Capabilities, Health, Ingress, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "../../../packages/swap-engine/src/types";
 import { campaign, bounds, ETH, REF_RATE, soon, DEST_BTC, USDT_REF, USDC_REF, ETH_REF, BTC_REF } from "../helpers";
 
 const q = (provider: ProviderId, toMin: bigint, over: Partial<Quote> = {}): Quote => ({ provider, category: "A", toAmount: toMin + 100n, toAmountMin: toMin, fees: [], etaSeconds: 600, expiresAt: soon(), nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: null, obtainedAt: Date.now(), ...over });

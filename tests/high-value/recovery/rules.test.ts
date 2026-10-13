@@ -3,8 +3,8 @@
 // (a possible reorganization); a paused campaign only tracks; a crash resumes from the journaled state; the lab's crash,
 // reorg and disconnect faults fund and hand over every step exactly once.
 import { describe, it, expect } from "vitest";
-import { detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState } from "../../../reference/typescript/src/wallet/campaign";
-import { simulateCampaign } from "../../../reference/typescript/src/sim/campaignLab";
+import { detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState } from "../../../packages/protocol/src/wallet/campaign";
+import { simulateCampaign } from "../../../packages/protocol/src/sim/campaignLab";
 import { campaign, ETH, labRoutes } from "../helpers";
 
 describe("unknown ≠ failed (plan §71–§72, §110)", () => {

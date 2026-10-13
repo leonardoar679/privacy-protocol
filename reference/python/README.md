@@ -9,5 +9,5 @@ used if installed). Only the round constants are shared, generated from the vend
 
 ```
 python test_vectors.py     # 31/31: nargo Poseidon2 vectors + circuits/vectors/primitives.json
-node gen_constants.mjs     # regenerate poseidon2_constants.py from reference/typescript/src/poseidon2.ts
+node gen_constants.mjs     # regenerate poseidon2_constants.py from packages/protocol/src/poseidon2.ts
 ```

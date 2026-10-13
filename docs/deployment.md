@@ -1,14 +1,14 @@
 # Deploying the web wallet — static hosting, headers, the artifacts (Privacy Wallet Web spec §20)
 
-The wallet is a static build (`cd frontend && npm run build` → `frontend/dist`): HTML, JavaScript, CSS, the WASM of the
+The wallet is a static build (`cd apps/web && npm run build` → `apps/web/dist`): HTML, JavaScript, CSS, the WASM of the
 Rust core, the circuit artifacts and the pin file. It needs no server-side code. What a host must do is serve the
 files with the right headers, fall back to `index.html` for the client-side routes, and serve nothing else. The
-wallet makes requests only to the hosts the build was configured with (`VITE_*`, see `frontend/.env.example`); the
+wallet makes requests only to the hosts the build was configured with (`VITE_*`, see `apps/web/.env.example`); the
 content security policy below names them and refuses every other destination.
 
 ## The policy and the headers
 
-`frontend/scripts/csp.mjs` builds the policy from the build's environment and writes it into `dist/index.html` as a
+`apps/web/scripts/csp.mjs` builds the policy from the build's environment and writes it into `dist/index.html` as a
 `<meta http-equiv="Content-Security-Policy">` (the first tag of `<head>`), so a host that cannot set headers still
 ships it. A host that can set headers sends the same policy as a header (a header reaches the browser before any
 byte of the page) plus `frame-ancestors 'none'`, which a meta tag cannot carry. `npm run preview` sends every
@@ -107,14 +107,14 @@ wallet.example {
 ## What the host never sees
 
 No request of the wallet carries a seed, a phrase, a spending or viewing key, a note secret or the keystore; the
-privacy leakage suite (`frontend/test/privacy-leakage.test.tsx`, verify-all's "frontend privacy leakage" step)
+privacy leakage suite (`apps/web/test/privacy-leakage.test.tsx`, verify-all's "apps/web privacy leakage" step)
 drives the create → protect → send flows and the swap scenario and reads every request body. The host serves files;
 the balance, the notes and the journal live encrypted in the browser's IndexedDB (`docs/wallet-formats.md`).
 
 ## Checks before a release
 
 1. `node scripts/verify-all.mjs` (every suite, the lint, the leakage gate, the artifact pins, the dependency audit, the build).
-2. `cd frontend && npm run build && npm run preview`, open the preview: the console shows no CSP violation on first
+2. `cd apps/web && npm run build && npm run preview`, open the preview: the console shows no CSP violation on first
    launch, Protect, Send, Swap, the Privacy Center.
 3. `node scripts/check-artifact-pins.mjs` on the build machine; `docs/build-hashes.md --dist` for the record.
 4. The local stack's browser run (`docs/local-run.md`) against the build when the services are reachable.

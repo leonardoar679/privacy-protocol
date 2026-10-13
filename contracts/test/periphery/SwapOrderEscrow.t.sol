@@ -394,7 +394,7 @@ contract SwapOrderEscrowTest is PPTestBase {
 
     /// A deposit-address provider for a token (a 1Click / inbound-address style route): the order key
     /// signs a call to the TOKEN itself, transfer(depositAddress, amount - tip) - what the engine's
-    /// escrowCall builds (services/private-swap/src/engine.ts). The escrow's approval of the token
+    /// escrowCall builds (packages/swap-engine/src/engine.ts). The escrow's approval of the token
     /// contract it calls is harmless; the tokens land at the deposit address and nowhere else.
     function test_ERC20Order_PlainDepositAddress_PaidWithTokenTransfer() public {
         ERC20Mock tok = new ERC20Mock();
@@ -665,7 +665,7 @@ contract SwapOrderEscrowTest is PPTestBase {
 
     /// Cross-implementation vector (SWAP_VECTOR=true): the TypeScript engine must predict the same
     /// escrow address and compute the same execution digest for these exact inputs
-    /// (services/private-swap/test/endpoints.test.ts).
+    /// (packages/swap-engine/test/endpoints.test.ts).
     function test_EmitEndpointVector() public {
         if (!vm.envOr("SWAP_VECTOR", false)) return;
         T.OrderParams memory p = _ethParams();

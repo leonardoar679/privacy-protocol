@@ -138,7 +138,7 @@ public inputs (`chainId` → `txDomain`, spec §11).
 
 ## Reproduce
 ```
-cd reference/typescript && npm test && npm run vectors && npm run fixtures
+cd packages/protocol && npm test && npm run vectors && npm run fixtures
 cd ../python && python test_vectors.py                 # 31/31
 cd ../../circuits
 circom transaction.circom --r1cs --wasm --sym --O2 -l node_modules -o build

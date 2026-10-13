@@ -3,8 +3,8 @@
 // (I-P 4: identical tranche patterns are discouraged); randomness alone is never the privacy argument — the pattern
 // is measured (privacy/). Over many seeds, sizes and decimals.
 import { describe, it, expect } from "vitest";
-import { planTranches } from "../../../reference/typescript/src/wallet/campaign";
-import { bucketsFor } from "../../../reference/typescript/src/wallet/amounts";
+import { planTranches } from "../../../packages/protocol/src/wallet/campaign";
+import { bucketsFor } from "../../../packages/protocol/src/wallet/amounts";
 import { seeded, sum, ETH, USDC } from "../helpers";
 
 const bucketish = (x: bigint, d: number): boolean => { const a = bucketsFor(d); return a.includes(x) || a.some((p) => a.some((q) => q * 10n >= p && p + q === x)); };

@@ -1,4 +1,4 @@
-// Prove the end-to-end witnesses (test/fixtures/e2e, built by reference/typescript genE2EInputs.ts
+// Prove the end-to-end witnesses (test/fixtures/e2e, built by packages/protocol genE2EInputs.ts
 // for the forge deployment) and emit contracts/test/e2e/E2EFixture.sol: four transactions (Alice's
 // withdrawal with a private relayer-fee note; the relayer spending it; Alice's change note exiting to a
 // swap-order escrow; Alice spending the order's refund note), their payloads, the order and the roots.

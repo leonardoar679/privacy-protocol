@@ -1,0 +1,1530 @@
+{
+  "startedAt": "2026-10-13T11:54:42.678Z",
+  "stack": {
+    "rpc": "http://127.0.0.1:8546",
+    "core": "0x7a2088a1bfc9d81c55368ae168c2c02570cb814f",
+    "swapFactory": "0xc5a5c42992decbae36851359345fe25997f5c42d"
+  },
+  "steps": [
+    "11:54:42 browser 155.0.8059.40 (chrome, headless)",
+    "11:54:44 welcome shown",
+    "11:54:44 PASS the welcome says the plan's words",
+    "11:54:44 PASS the recovery phrase has 24 words",
+    "11:54:44 PASS Home shows no USD before any balance",
+    "11:54:45 PASS first launch: no request left the page's origin (creating a wallet, every route and screen) — 272 same-origin loads",
+    "11:54:46 PASS More → Advanced: the light client is off and says so",
+    "11:55:16 PASS More → Wallet: the funding wallet is connected through its own provider",
+    "11:55:17 deposit 1: 500 ETH protected (vault 61146.596131726794 ETH)",
+    "11:55:18 deposit 2: 500 ETH protected (vault 61646.596131726794 ETH)",
+    "11:55:18 PASS the ETH vault received the two deposits — 60646.5961317268 → 61646.596131726794 ETH",
+    "11:55:18 PASS Home values the protected balance through the RPC quorum: ≈ $4,250,000",
+    "11:55:19 PASS exact-input by default (spec §10): the recipient receives what you send minus the privacy fee and the relayer's — 0.197623999980992 ETH of 0.2",
+    "11:55:19 PASS a $850 send is the plain flow (a Review with a tap, no lint block, no hold)",
+    "11:55:21 PASS the fresh recipient received exactly the summary's \"Recipient receives\" from the vault, submitted by the relayer — 0x3584167082bB427152BAbd477C912fF210Ba818A: 0.197623999980992 ETH (summary 0.197623999980992)",
+    "11:55:21 PASS the next send pre-fills the next fresh address — 0x95DDaFB465480B0DAD387ceAB2c53c503908B6Ee",
+    "11:55:21 PASS the enhanced Review shows the USD numeral — $119,000",
+    "11:55:21 PASS the enhanced Review carries the privacy lint",
+    "11:55:21 PASS V5 (spec §11): from $50K the confirmation is a hold, never a tap",
+    "11:55:26 PASS the second fresh recipient received the summary's figure (28 ETH minus the fees) — 0x95DDaFB465480B0DAD387ceAB2c53c503908B6Ee: 27.722772277227726 ETH (summary 27.722772277227723)",
+    "11:55:26 PASS the destination is a fresh Bitcoin address of this wallet — bc1qr039w98krr0n5g43szf4swrccynxxs39ummq82",
+    "11:55:30 quote attempt 1: two or more quotes — Best protected routeProtection ✓You pay200 ETH · ≈ $850,000You receive≈ 5.989393 BTCMinimum≈ 5.959450 BTCFees498.732763 USDC + 0.00000576 BTCTime~13 min after the scheduled funding",
+    "11:55:30 PASS the quote card: the best protected route, the estimate and the minimum — Best protected routeProtection ✓You pay200 ETH · ≈ $850,000You receive≈ 5.989393 BTCMinimum≈ 5.959450 BTCFees498.732763 USDC + 0.00000576 BTCTime~13 min after t",
+    "11:55:30 PASS the fee summary is collapsed to one number with the privacy fee inside — You'll receive at least5.959450 BTCEstimated receive5.989393 BTCTotal fees 0.5 ETH · View fee details",
+    "11:55:30 acknowledged 0 privacy items before the Review",
+    "11:55:30 PASS enhanced: the commit goes through a Review (no protection line below $1M)",
+    "11:55:30 PASS the Review is the commit moment",
+    "11:55:30 PASS the Review shows $850,000 — $850,000",
+    "11:55:30 PASS the five lines are there — Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromProtected ETHToNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82A fresh address of this wallet, used once.Receive at leas",
+    "11:55:30 acknowledged 0 items inside the Review",
+    "11:55:30 PASS V5 (spec §11): the $850K commit is a hold (from $50K), never a tap",
+    "11:55:34 PASS the funding is scheduled at a random time inside the policy window — DestinationNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82Amount5.989992 BTCA fresh address of this wallet, used once.PrivacyExcellentFunding scheduled10/14/2026, 1:1",
+    "11:55:34 committed: the order is journaled and its funding scheduled",
+    "11:55:34 PASS Fund now is offered (no institutional hold at this tier)",
+    "11:55:36 PASS the escrow is funded by a private withdrawal (the confirmation enabled)",
+    "11:55:36 after funding: Fundedtx 0x97e72ebf…",
+    "11:55:39 PASS the Review is the execute moment",
+    "11:55:39 PASS the signed execution was simulated on every RPC endpoint before the hand-over — ✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,811,564 gas",
+    "11:55:39 PASS the price line states the guaranteed minimum — ✓Price protected · the provider call guarantees at least 5.960046 BTC, read from its calldata; the service's price guard ran at the hard quote",
+    "11:56:06 PASS the order panel reports the execution — Executing",
+    "11:56:06 PASS the executor's deployAndExecute is mined on the devnet — 0x3920ad7b346c0160d5adec8fa8bf60989bf75768334aa5b717714a1164609d42 in block 288 (3 logs)",
+    "11:56:06 PASS the one-time escrow is empty after the execution — 0xa76c059e1058e9c2d2d34a736df755a8bbf68b23: 0 ETH",
+    "11:56:11 PASS after a reload and unlock the open order and its line come back from the journal — DestinationNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82Amount5.991190 BTCA fresh address of this wallet, used once.PrivacyE",
+    "11:56:11 PASS Activity lists every money flow (two deposits, two sends, one swap) — 5 rows",
+    "11:56:11 PASS the swap row never says a bare failed — ActivityTodaySwap · 4:55:33 AM200 ETH · → BTCConfirming on the network✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalizedWithdrawn · 4:55:24 AM27.722772277227722772 ETH · to 0x95DDaFB465480B0DAD387ceAB2c53c503908B6EeCompletedRemoveWithdrawn · 4:55:21 AM0.197623999980992 ETH · t",
+    "11:56:11 PASS More → Advanced → Protected execution: the four modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator) — Protected executionA large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your protected balance and unsettled at any time. The mode sets the",
+    "11:56:12 campaign deposit 1: 500 ETH protected",
+    "11:56:13 campaign deposit 2: 500 ETH protected",
+    "11:56:14 campaign deposit 3: 500 ETH protected",
+    "11:56:14 campaign deposit 4: 500 ETH protected",
+    "11:56:15 campaign deposit 5: 500 ETH protected",
+    "11:56:20 PASS the protection line under the quote: steps, one at a time, at most $X at risk, the duration — Protected execution: about 117 steps of ≈ $140K · one at a time · at most $200K at risk · about 10 days.",
+    "11:56:20 PASS the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step) — Routethorchain · class R5 · threshold-signed vaultsSecurity⚠ Reviewsecurity 69/100 (baseline 84, incidents -14.62) · rel | PrivacyGoodSource: your private balance pays a one-time escrow; your permanent a | The first step paysNetworkBitcoinAssetBTCAddressbc1q 7jyq yhhm m2fs pd9w apu6 82",
+    "11:56:20 PASS the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm — Maximum-loss modelOrder2353 ETH (≈ $10M)In-flight cap47.06 ETH (≈ $200K)Maximum external exposure47.06 ETH (≈ $200K)Rema | SecurityReviewPrivacyGoodExecutionOnly routesecurity 69/100 (baseline 84, incidents -14.62) · reliability 95/100 · 1 inc",
+    "11:56:26 PASS the campaign is journaled and shown: step 1, ✓ Protected, Completed 0, In progress 0, the rest protected — {\"completed\":0,\"in-flight\":0,\"protected\":2305.94,\"remaining\":2353}",
+    "11:57:26 step 1: Step 1 · 20 ETHwaiting · not before 4:57:25 AM · ✓ Protected",
+    "11:57:30 reroute 1: The route changed to chainflip.A route change on a large operation is reviewed, never adopted quietly. The steps already",
+    "11:57:30 PASS a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again) — Review the new routeThe route changed while the operation was paused. Confirming continues the remaining steps on the new route under the same bounds you approv",
+    "11:57:56 http 404 GET /swap/0xb22c8e1e59fbb229b61509b074bc0598704e5bda9685fa2100963e723ea639df",
+    "11:57:56 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "11:58:06 http 404 GET /swap/0xb22c8e1e59fbb229b61509b074bc0598704e5bda9685fa2100963e723ea639df",
+    "11:58:06 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "11:58:06 http 404 GET /swap/0xb22c8e1e59fbb229b61509b074bc0598704e5bda9685fa2100963e723ea639df",
+    "11:58:06 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "11:58:11 PASS step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty — Step 1 · 20 ETH · chainflipexecuting · handed over 4:58:06 AM | 0xc6b32bd88e20e9b0a7e4a2186419fd780dee88c85eb1508e296a84888e4e54e9",
+    "11:58:11 PASS step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing — Step 2 · 20 ETHwaiting | {\"completed\":0,\"in-flight\":20,\"protected\":2305.94,\"remaining\":2333}",
+    "11:58:11 PASS the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF — Order2353 ETH (≈ $10M)In flight (handed over, unsettled)20 ETH (≈ $85K)Prepared (in our escrows, not yet handed over)0 ETH (≈ $0)Maximum allowed at once47.06 ETH (≈ $200K) (2 %)Max loss right now40 ET",
+    "11:58:33 PASS Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review — ⚠ Review · Protected swap ETH → BTC: Step 1 of ~117 · 0 ETH completed · 20 ETH in flight · 2305.94 ETH protectedPause large operations",
+    "11:58:34 PASS Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles — winding-down, 116 skipped",
+    "11:58:35 PASS after a reload and unlock the campaign, its steps and its state come back from the encrypted journal — step 1, winding-down",
+    "11:58:35 PASS Activity: one row for the protected swap (its steps under Advanced), never a bare failed — Protected swap: checking every open step…TodaySwap ",
+    "11:58:36 PASS 360x800 home: no horizontal scroll — 360 ≤ 360",
+    "11:58:36 PASS 360x800 home: the controls are 44 px tall",
+    "11:58:36 PASS 360x800 protect: no horizontal scroll — 360 ≤ 360",
+    "11:58:36 PASS 360x800 protect: the controls are 44 px tall",
+    "11:58:37 PASS 360x800 send: no horizontal scroll — 360 ≤ 360",
+    "11:58:37 PASS 360x800 send: the controls are 44 px tall",
+    "11:58:37 PASS 360x800 swap: no horizontal scroll — 360 ≤ 360",
+    "11:58:37 PASS 360x800 swap: the controls are 44 px tall",
+    "11:58:37 PASS 360x800 activity: no horizontal scroll — 360 ≤ 360",
+    "11:58:37 PASS 360x800 activity: the controls are 44 px tall",
+    "11:58:38 PASS 360x800 more: no horizontal scroll — 360 ≤ 360",
+    "11:58:38 PASS 360x800 more: the controls are 44 px tall",
+    "11:58:38 PASS 360x800 privacy-center: no horizontal scroll — 360 ≤ 360",
+    "11:58:38 PASS 360x800 privacy-center: the controls are 44 px tall",
+    "11:58:38 PASS 360x800 security: no horizontal scroll — 360 ≤ 360",
+    "11:58:38 PASS 360x800 security: the controls are 44 px tall",
+    "11:58:39 PASS 390x844 home: no horizontal scroll — 390 ≤ 390",
+    "11:58:39 PASS 390x844 home: the controls are 44 px tall",
+    "11:58:40 PASS 390x844 protect: no horizontal scroll — 390 ≤ 390",
+    "11:58:40 PASS 390x844 protect: the controls are 44 px tall",
+    "11:58:40 PASS 390x844 send: no horizontal scroll — 390 ≤ 390",
+    "11:58:40 PASS 390x844 send: the controls are 44 px tall",
+    "11:58:40 PASS 390x844 swap: no horizontal scroll — 390 ≤ 390",
+    "11:58:40 PASS 390x844 swap: the controls are 44 px tall",
+    "11:58:41 PASS 390x844 activity: no horizontal scroll — 390 ≤ 390",
+    "11:58:41 PASS 390x844 activity: the controls are 44 px tall",
+    "11:58:41 PASS 390x844 more: no horizontal scroll — 390 ≤ 390",
+    "11:58:41 PASS 390x844 more: the controls are 44 px tall",
+    "11:58:41 PASS 390x844 privacy-center: no horizontal scroll — 390 ≤ 390",
+    "11:58:41 PASS 390x844 privacy-center: the controls are 44 px tall",
+    "11:58:42 PASS 390x844 security: no horizontal scroll — 390 ≤ 390",
+    "11:58:42 PASS 390x844 security: the controls are 44 px tall",
+    "11:58:42 PASS 412x915 home: no horizontal scroll — 412 ≤ 412",
+    "11:58:42 PASS 412x915 home: the controls are 44 px tall",
+    "11:58:43 PASS 412x915 protect: no horizontal scroll — 412 ≤ 412",
+    "11:58:43 PASS 412x915 protect: the controls are 44 px tall",
+    "11:58:43 PASS 412x915 send: no horizontal scroll — 412 ≤ 412",
+    "11:58:43 PASS 412x915 send: the controls are 44 px tall",
+    "11:58:44 PASS 412x915 swap: no horizontal scroll — 412 ≤ 412",
+    "11:58:44 PASS 412x915 swap: the controls are 44 px tall",
+    "11:58:44 PASS 412x915 activity: no horizontal scroll — 412 ≤ 412",
+    "11:58:44 PASS 412x915 activity: the controls are 44 px tall",
+    "11:58:44 PASS 412x915 more: no horizontal scroll — 412 ≤ 412",
+    "11:58:44 PASS 412x915 more: the controls are 44 px tall",
+    "11:58:45 PASS 412x915 privacy-center: no horizontal scroll — 412 ≤ 412",
+    "11:58:45 PASS 412x915 privacy-center: the controls are 44 px tall",
+    "11:58:45 PASS 412x915 security: no horizontal scroll — 412 ≤ 412",
+    "11:58:45 PASS 412x915 security: the controls are 44 px tall",
+    "11:58:46 PASS 768x1024 home: no horizontal scroll — 768 ≤ 768",
+    "11:58:46 PASS 768x1024 home: the controls are 44 px tall",
+    "11:58:46 PASS 768x1024 protect: no horizontal scroll — 768 ≤ 768",
+    "11:58:46 PASS 768x1024 protect: the controls are 44 px tall",
+    "11:58:46 PASS 768x1024 send: no horizontal scroll — 768 ≤ 768",
+    "11:58:46 PASS 768x1024 send: the controls are 44 px tall",
+    "11:58:47 PASS 768x1024 swap: no horizontal scroll — 768 ≤ 768",
+    "11:58:47 PASS 768x1024 swap: the controls are 44 px tall",
+    "11:58:47 PASS 768x1024 activity: no horizontal scroll — 768 ≤ 768",
+    "11:58:47 PASS 768x1024 activity: the controls are 44 px tall",
+    "11:58:48 PASS 768x1024 more: no horizontal scroll — 768 ≤ 768",
+    "11:58:48 PASS 768x1024 more: the controls are 44 px tall",
+    "11:58:48 PASS 768x1024 privacy-center: no horizontal scroll — 768 ≤ 768",
+    "11:58:48 PASS 768x1024 privacy-center: the controls are 44 px tall",
+    "11:58:48 PASS 768x1024 security: no horizontal scroll — 768 ≤ 768",
+    "11:58:48 PASS 768x1024 security: the controls are 44 px tall",
+    "11:58:49 PASS 1280x800 home: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:49 PASS 1280x800 home: the controls are 44 px tall",
+    "11:58:49 PASS 1280x800 protect: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:49 PASS 1280x800 protect: the controls are 44 px tall",
+    "11:58:50 PASS 1280x800 send: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:50 PASS 1280x800 send: the controls are 44 px tall",
+    "11:58:50 PASS 1280x800 swap: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:50 PASS 1280x800 swap: the controls are 44 px tall",
+    "11:58:51 PASS 1280x800 activity: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:51 PASS 1280x800 activity: the controls are 44 px tall",
+    "11:58:51 PASS 1280x800 more: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:51 PASS 1280x800 more: the controls are 44 px tall",
+    "11:58:51 PASS 1280x800 privacy-center: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:51 PASS 1280x800 privacy-center: the controls are 44 px tall",
+    "11:58:52 PASS 1280x800 security: no horizontal scroll — 1280 ≤ 1280",
+    "11:58:52 PASS 1280x800 security: the controls are 44 px tall",
+    "11:58:53 PASS 1440x900 home: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:53 PASS 1440x900 home: the controls are 44 px tall",
+    "11:58:53 PASS 1440x900 protect: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:53 PASS 1440x900 protect: the controls are 44 px tall",
+    "11:58:53 PASS 1440x900 send: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:53 PASS 1440x900 send: the controls are 44 px tall",
+    "11:58:54 PASS 1440x900 swap: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:54 PASS 1440x900 swap: the controls are 44 px tall",
+    "11:58:54 PASS 1440x900 activity: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:54 PASS 1440x900 activity: the controls are 44 px tall",
+    "11:58:55 PASS 1440x900 more: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:55 PASS 1440x900 more: the controls are 44 px tall",
+    "11:58:55 PASS 1440x900 privacy-center: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:55 PASS 1440x900 privacy-center: the controls are 44 px tall",
+    "11:58:55 PASS 1440x900 security: no horizontal scroll — 1440 ≤ 1440",
+    "11:58:55 PASS 1440x900 security: the controls are 44 px tall",
+    "11:58:56 PASS 360x800-pseudo home: no horizontal scroll — 360 ≤ 360",
+    "11:58:56 PASS 360x800-pseudo home: the controls are 44 px tall",
+    "11:58:56 PASS 360x800-pseudo protect: no horizontal scroll — 360 ≤ 360",
+    "11:58:56 PASS 360x800-pseudo protect: the controls are 44 px tall",
+    "11:58:57 PASS 360x800-pseudo send: no horizontal scroll — 360 ≤ 360",
+    "11:58:57 PASS 360x800-pseudo send: the controls are 44 px tall",
+    "11:58:57 PASS 360x800-pseudo swap: no horizontal scroll — 360 ≤ 360",
+    "11:58:57 PASS 360x800-pseudo swap: the controls are 44 px tall",
+    "11:58:58 PASS 360x800-pseudo activity: no horizontal scroll — 360 ≤ 360",
+    "11:58:58 PASS 360x800-pseudo activity: the controls are 44 px tall",
+    "11:58:58 PASS 360x800-pseudo more: no horizontal scroll — 360 ≤ 360",
+    "11:58:58 PASS 360x800-pseudo more: the controls are 44 px tall",
+    "11:58:58 PASS 360x800-pseudo privacy-center: no horizontal scroll — 360 ≤ 360",
+    "11:58:58 PASS 360x800-pseudo privacy-center: the controls are 44 px tall",
+    "11:58:59 PASS 360x800-pseudo security: no horizontal scroll — 360 ≤ 360",
+    "11:58:59 PASS 360x800-pseudo security: the controls are 44 px tall",
+    "11:58:59 PASS 360x800-pseudo: the pseudo-locale renders (accented, bracketed words) — [Šéçúříţý ~~~][Řéçóṽéřý ƀáçķúþ ~~~ ~~~][Ñóţ ƀáçķéđ úþ ýéţ ~~~ ~~~][Ţĥé ƀáçķúþ ƒí",
+    "11:58:59 PASS no request body carries the password or the phrase (153 bodies read)",
+    "11:58:59 PASS localStorage holds nothing of ours; the secure store holds the two ciphertext blobs — {\"localStorage\":0,\"secure\":[\"pp.journal\",\"pp.keystore\"],\"shapes\":[\"ct,nonce,v\",\"ct,kdf,nonce,salt,v\"]}",
+    "11:58:59 PASS the stored blobs are ciphertext envelopes (a keystore with its KDF parameters, a journal {v, nonce, ct}) — ct,nonce,v | ct,kdf,nonce,salt,v",
+    "11:58:59 hosts contacted after first launch: localhost:5173, 127.0.0.1:8546, 127.0.0.1:8790, localhost:8546, 127.0.0.1:8787"
+  ],
+  "checks": [
+    {
+      "name": "the welcome says the plan's words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the recovery phrase has 24 words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Home shows no USD before any balance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "first launch: no request left the page's origin (creating a wallet, every route and screen)",
+      "ok": true,
+      "detail": "272 same-origin loads"
+    },
+    {
+      "name": "More → Advanced: the light client is off and says so",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "More → Wallet: the funding wallet is connected through its own provider",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the ETH vault received the two deposits",
+      "ok": true,
+      "detail": "60646.5961317268 → 61646.596131726794 ETH"
+    },
+    {
+      "name": "Home values the protected balance through the RPC quorum: ≈ $4,250,000",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "exact-input by default (spec §10): the recipient receives what you send minus the privacy fee and the relayer's",
+      "ok": true,
+      "detail": "0.197623999980992 ETH of 0.2"
+    },
+    {
+      "name": "a $850 send is the plain flow (a Review with a tap, no lint block, no hold)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fresh recipient received exactly the summary's \"Recipient receives\" from the vault, submitted by the relayer",
+      "ok": true,
+      "detail": "0x3584167082bB427152BAbd477C912fF210Ba818A: 0.197623999980992 ETH (summary 0.197623999980992)"
+    },
+    {
+      "name": "the next send pre-fills the next fresh address",
+      "ok": true,
+      "detail": "0x95DDaFB465480B0DAD387ceAB2c53c503908B6Ee"
+    },
+    {
+      "name": "the enhanced Review shows the USD numeral",
+      "ok": true,
+      "detail": "$119,000"
+    },
+    {
+      "name": "the enhanced Review carries the privacy lint",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "V5 (spec §11): from $50K the confirmation is a hold, never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the second fresh recipient received the summary's figure (28 ETH minus the fees)",
+      "ok": true,
+      "detail": "0x95DDaFB465480B0DAD387ceAB2c53c503908B6Ee: 27.722772277227726 ETH (summary 27.722772277227723)"
+    },
+    {
+      "name": "the destination is a fresh Bitcoin address of this wallet",
+      "ok": true,
+      "detail": "bc1qr039w98krr0n5g43szf4swrccynxxs39ummq82"
+    },
+    {
+      "name": "the quote card: the best protected route, the estimate and the minimum",
+      "ok": true,
+      "detail": "Best protected routeProtection ✓You pay200 ETH · ≈ $850,000You receive≈ 5.989393 BTCMinimum≈ 5.959450 BTCFees498.732763 USDC + 0.00000576 BTCTime~13 min after t"
+    },
+    {
+      "name": "the fee summary is collapsed to one number with the privacy fee inside",
+      "ok": true,
+      "detail": "You'll receive at least5.959450 BTCEstimated receive5.989393 BTCTotal fees 0.5 ETH · View fee details"
+    },
+    {
+      "name": "enhanced: the commit goes through a Review (no protection line below $1M)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review is the commit moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review shows $850,000",
+      "ok": true,
+      "detail": "$850,000"
+    },
+    {
+      "name": "the five lines are there",
+      "ok": true,
+      "detail": "Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromProtected ETHToNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82A fresh address of this wallet, used once.Receive at leas"
+    },
+    {
+      "name": "V5 (spec §11): the $850K commit is a hold (from $50K), never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the funding is scheduled at a random time inside the policy window",
+      "ok": true,
+      "detail": "DestinationNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82Amount5.989992 BTCA fresh address of this wallet, used once.PrivacyExcellentFunding scheduled10/14/2026, 1:1"
+    },
+    {
+      "name": "Fund now is offered (no institutional hold at this tier)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the escrow is funded by a private withdrawal (the confirmation enabled)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review is the execute moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the signed execution was simulated on every RPC endpoint before the hand-over",
+      "ok": true,
+      "detail": "✓Route checked · simulated on 2 RPC endpoints: it executes, about 1,811,564 gas"
+    },
+    {
+      "name": "the price line states the guaranteed minimum",
+      "ok": true,
+      "detail": "✓Price protected · the provider call guarantees at least 5.960046 BTC, read from its calldata; the service's price guard ran at the hard quote"
+    },
+    {
+      "name": "the order panel reports the execution",
+      "ok": true,
+      "detail": "Executing"
+    },
+    {
+      "name": "the executor's deployAndExecute is mined on the devnet",
+      "ok": true,
+      "detail": "0x3920ad7b346c0160d5adec8fa8bf60989bf75768334aa5b717714a1164609d42 in block 288 (3 logs)"
+    },
+    {
+      "name": "the one-time escrow is empty after the execution",
+      "ok": true,
+      "detail": "0xa76c059e1058e9c2d2d34a736df755a8bbf68b23: 0 ETH"
+    },
+    {
+      "name": "after a reload and unlock the open order and its line come back from the journal",
+      "ok": true,
+      "detail": "DestinationNetworkBitcoinAssetBTCAddressbc1q r039 w98k rr0n 5g43 szf4 swrc cynx xs39 ummq 82Amount5.991190 BTCA fresh address of this wallet, used once.PrivacyE"
+    },
+    {
+      "name": "Activity lists every money flow (two deposits, two sends, one swap)",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "name": "the swap row never says a bare failed",
+      "ok": true,
+      "detail": "ActivityTodaySwap · 4:55:33 AM200 ETH · → BTCConfirming on the network✓ Quote locked✓ Source confirmed○ Destination sent○ Destination finalizedWithdrawn · 4:55:24 AM27.722772277227722772 ETH · to 0x95DDaFB465480B0DAD387ceAB2c53c503908B6EeCompletedRemoveWithdrawn · 4:55:21 AM0.197623999980992 ETH · t"
+    },
+    {
+      "name": "More → Advanced → Protected execution: the four modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)",
+      "ok": true,
+      "detail": "Protected executionA large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your protected balance and unsettled at any time. The mode sets the"
+    },
+    {
+      "name": "the protection line under the quote: steps, one at a time, at most $X at risk, the duration",
+      "ok": true,
+      "detail": "Protected execution: about 117 steps of ≈ $140K · one at a time · at most $200K at risk · about 10 days."
+    },
+    {
+      "name": "the wizard: risk analysis (class, security, steps, at most at risk, ELPF, concentration) → privacy analysis (what a protected execution reveals, the lint) → destination check (a fresh address per step)",
+      "ok": true,
+      "detail": "Routethorchain · class R5 · threshold-signed vaultsSecurity⚠ Reviewsecurity 69/100 (baseline 84, incidents -14.62) · rel | PrivacyGoodSource: your private balance pays a one-time escrow; your permanent a | The first step paysNetworkBitcoinAssetBTCAddressbc1q 7jyq yhhm m2fs pd9w apu6 82"
+    },
+    {
+      "name": "the campaign Review: the maximum-loss model, the paired SECURITY + PRIVACY verdict, the Exposure and Security lines, the review hold, a hold to confirm",
+      "ok": true,
+      "detail": "Maximum-loss modelOrder2353 ETH (≈ $10M)In-flight cap47.06 ETH (≈ $200K)Maximum external exposure47.06 ETH (≈ $200K)Rema | SecurityReviewPrivacyGoodExecutionOnly routesecurity 69/100 (baseline 84, incidents -14.62) · reliability 95/100 · 1 inc"
+    },
+    {
+      "name": "the campaign is journaled and shown: step 1, ✓ Protected, Completed 0, In progress 0, the rest protected",
+      "ok": true,
+      "detail": "{\"completed\":0,\"in-flight\":0,\"protected\":2305.94,\"remaining\":2353}"
+    },
+    {
+      "name": "a route change at the step's size goes through the reroute Review (the same bounds, the new route's class and gate, a hold, the second factor and the separate device again)",
+      "ok": true,
+      "detail": "Review the new routeThe route changed while the operation was paused. Confirming continues the remaining steps on the new route under the same bounds you approv"
+    },
+    {
+      "name": "step 1 funded, signed and handed over by the runner: the executor's deployAndExecute is mined, the one-time escrow is empty",
+      "ok": true,
+      "detail": "Step 1 · 20 ETH · chainflipexecuting · handed over 4:58:06 AM | 0xc6b32bd88e20e9b0a7e4a2186419fd780dee88c85eb1508e296a84888e4e54e9"
+    },
+    {
+      "name": "step 2 waits while step 1 is unsettled: In progress = one step ≤ the cap, Completed 0, Protected = the rest; ● Processing",
+      "ok": true,
+      "detail": "Step 2 · 20 ETHwaiting | {\"completed\":0,\"in-flight\":20,\"protected\":2305.94,\"remaining\":2333}"
+    },
+    {
+      "name": "the exposure dashboard (Advanced): order, in flight, maximum allowed, provider exposure, the per-step table, ELPF",
+      "ok": true,
+      "detail": "Order2353 ETH (≈ $10M)In flight (handed over, unsettled)20 ETH (≈ $85K)Prepared (in our escrows, not yet handed over)0 ETH (≈ $0)Maximum allowed at once47.06 ETH (≈ $200K) (2 %)Max loss right now40 ET"
+    },
+    {
+      "name": "Pause large operations (Home): the campaign pauses on the next tick and Home says ⚠ Review",
+      "ok": true,
+      "detail": "⚠ Review · Protected swap ETH → BTC: Step 1 of ~117 · 0 ETH completed · 20 ETH in flight · 2305.94 ETH protectedPause large operations"
+    },
+    {
+      "name": "Return the rest: the campaign winds down, the planned steps are skipped, the executed step is tracked until it settles",
+      "ok": true,
+      "detail": "winding-down, 116 skipped"
+    },
+    {
+      "name": "after a reload and unlock the campaign, its steps and its state come back from the encrypted journal",
+      "ok": true,
+      "detail": "step 1, winding-down"
+    },
+    {
+      "name": "Activity: one row for the protected swap (its steps under Advanced), never a bare failed",
+      "ok": true,
+      "detail": "Protected swap: checking every open step…TodaySwap "
+    },
+    {
+      "name": "360x800 home: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 send: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 more: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 security: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 home: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 send: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 more: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 security: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 home: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 send: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 more: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 security: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 home: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 send: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 more: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 security: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 home: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 send: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 more: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 security: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 home: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 send: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 more: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 security: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo home: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo protect: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo send: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo swap: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo activity: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo more: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo security: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo: the pseudo-locale renders (accented, bracketed words)",
+      "ok": true,
+      "detail": "[Šéçúříţý ~~~][Řéçóṽéřý ƀáçķúþ ~~~ ~~~][Ñóţ ƀáçķéđ úþ ýéţ ~~~ ~~~][Ţĥé ƀáçķúþ ƒí"
+    },
+    {
+      "name": "no request body carries the password or the phrase (153 bodies read)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "localStorage holds nothing of ours; the secure store holds the two ciphertext blobs",
+      "ok": true,
+      "detail": "{\"localStorage\":0,\"secure\":[\"pp.journal\",\"pp.keystore\"],\"shapes\":[\"ct,nonce,v\",\"ct,kdf,nonce,salt,v\"]}"
+    },
+    {
+      "name": "the stored blobs are ciphertext envelopes (a keystore with its KDF parameters, a journal {v, nonce, ct})",
+      "ok": true,
+      "detail": "ct,nonce,v | ct,kdf,nonce,salt,v"
+    }
+  ],
+  "failures": [],
+  "outcome": {
+    "priceGuardRefusals": 0,
+    "execution": {
+      "orderId": "0x4027646884f0d1aef7291aaf3bbe5f83267fe5a1c6f3b2763f471dd5d8312af0",
+      "escrow": "0xa76c059e1058e9c2d2d34a736df755a8bbf68b23",
+      "executionTx": "0x3920ad7b346c0160d5adec8fa8bf60989bf75768334aa5b717714a1164609d42",
+      "provider": null
+    },
+    "reroutes": 1
+  },
+  "viewports": [
+    {
+      "viewport": "360x800",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "37-shell-360x800-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "38-shell-360x800-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "39-shell-360x800-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "40-shell-360x800-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "41-shell-360x800-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "42-shell-360x800-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "43-shell-360x800-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "44-shell-360x800-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "390x844",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "45-shell-390x844-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "46-shell-390x844-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "47-shell-390x844-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "48-shell-390x844-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "49-shell-390x844-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "50-shell-390x844-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "51-shell-390x844-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "52-shell-390x844-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "412x915",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "53-shell-412x915-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "54-shell-412x915-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "55-shell-412x915-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "56-shell-412x915-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "57-shell-412x915-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "58-shell-412x915-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "59-shell-412x915-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "60-shell-412x915-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "768x1024",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "61-shell-768x1024-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "62-shell-768x1024-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "63-shell-768x1024-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "64-shell-768x1024-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "65-shell-768x1024-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "66-shell-768x1024-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "67-shell-768x1024-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "68-shell-768x1024-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "1280x800",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "69-shell-1280x800-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "70-shell-1280x800-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "71-shell-1280x800-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "72-shell-1280x800-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "73-shell-1280x800-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "74-shell-1280x800-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "75-shell-1280x800-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "76-shell-1280x800-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "1440x900",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "77-shell-1440x900-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "78-shell-1440x900-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "79-shell-1440x900-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "80-shell-1440x900-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "81-shell-1440x900-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "82-shell-1440x900-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "83-shell-1440x900-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "84-shell-1440x900-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "360x800-pseudo",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "85-shell-360x800-pseudo-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "86-shell-360x800-pseudo-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "87-shell-360x800-pseudo-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "88-shell-360x800-pseudo-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "89-shell-360x800-pseudo-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "90-shell-360x800-pseudo-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "91-shell-360x800-pseudo-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "92-shell-360x800-pseudo-security.png"
+        }
+      ]
+    }
+  ],
+  "hosts": [
+    "localhost:5173",
+    "127.0.0.1:8546",
+    "127.0.0.1:8790",
+    "localhost:8546",
+    "127.0.0.1:8787"
+  ],
+  "finishedAt": "2026-10-13T11:58:59.287Z",
+  "requests": 3419
+}

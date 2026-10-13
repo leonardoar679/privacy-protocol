@@ -17,7 +17,7 @@ interface VmPeriphery {
 /// core neither knows nor needs it (plan §85 rules 2–4, 10). Nothing here is upgradeable; a new
 /// escrow version is a new factory, and old orders keep their old escrows.
 ///
-/// The engine (services/private-swap) needs two values from this run: the factory address
+/// The engine (packages/swap-engine) needs two values from this run: the factory address
 /// (SWAP_FACTORY) and the escrow creation-code hash, which must equal keccak256 of the `bytecode`
 /// in contracts/abi/periphery/SwapOrderEscrow.json — the address prediction in endpoints.ts is only
 /// valid for that exact creation code.

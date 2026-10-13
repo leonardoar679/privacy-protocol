@@ -26,7 +26,7 @@ C1–C13). Groth16 over BN254 (V1 baseline, pluggable), **Poseidon2** (spec §2)
   `Poseidon2Hash(n)`; `lib/domains.circom` — domain constants (identical to Solidity / TS / Python).
 - `note.circom` (`OwnerCommitment`, `NoteBody` (5 inputs), `NoteCommitment`), `nullifier.circom`
   (`NullifierHasher`, `PhantomNullifier`), `merkle.circom`.
-- `vectors/primitives.json` — known answers from `reference/typescript` (`npm run vectors`).
+- `vectors/primitives.json` — known answers from `packages/protocol` (`npm run vectors`).
 - `test/kat.circom` + `kat.mjs` — the hash and every primitive must reproduce the vectors.
 - `test/fixtures/` — witness fixtures from the reference (`npm run fixtures`, `npm run e2e`);
   `v0-draft/` is static and reproduces PP-C01 on `test/regressions/transaction_v0_draft.circom`
@@ -37,7 +37,7 @@ C1–C13). Groth16 over BN254 (V1 baseline, pluggable), **Poseidon2** (spec §2)
 circom 2.x is a standalone binary (`circom-windows-amd64.exe` etc. from the iden3/circom releases).
 ```
 npm install                                   # circomlib (bitify + the draft regression) + snarkjs
-(cd ../reference/typescript && npm run vectors && npm run fixtures)
+(cd ../packages/protocol && npm run vectors && npm run fixtures)
 
 circom transaction.circom --r1cs --wasm --sym --O2 -l node_modules -o build
 circom test/kat.circom --wasm -l node_modules -o build

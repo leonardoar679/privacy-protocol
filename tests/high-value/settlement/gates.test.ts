@@ -3,9 +3,9 @@
 // status never says "atomic", the gate follows the class and Maximum Safety raises it, finality is the delivered
 // state plus the destination chain's elapsed-time margin.
 import { describe, it, expect } from "vitest";
-import { IN_FLIGHT, PREPARED, TERMINAL, FINALITY_MARGIN_SECONDS, gateFor, settledBy, type TrancheState } from "../../../reference/typescript/src/wallet/campaign";
-import { nextState, userStatus, TERMINAL as ORDER_TERMINAL } from "../../../services/private-swap/src/order";
-import type { OrderState } from "../../../services/private-swap/src/types";
+import { IN_FLIGHT, PREPARED, TERMINAL, FINALITY_MARGIN_SECONDS, gateFor, settledBy, type TrancheState } from "../../../packages/protocol/src/wallet/campaign";
+import { nextState, userStatus, TERMINAL as ORDER_TERMINAL } from "../../../packages/swap-engine/src/order";
+import type { OrderState } from "../../../packages/swap-engine/src/types";
 
 describe("the §70 names on the tranche machine (contract §4.2)", () => {
   it("every §70 state has a tranche state; delivered-but-not-final is in flight; funded / signed / failed are pending; settled / refunded / skipped are terminal", () => {

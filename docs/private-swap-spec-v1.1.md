@@ -6,7 +6,7 @@ the money core's trust model** (plan V1.1 §13–§34, §85 Rules 2–4, 10). `P
 are unchanged by this document; everything here is periphery (replaceable) or wallet (replaceable).
 
 Status words MUST / MUST NOT / SHOULD are RFC-2119. Code: `contracts/src/periphery/swap/`,
-`services/private-swap/`. Extended by `docs/whale-execution-spec-v1.0.md` (V2: value tiers, execution
+`packages/swap-engine/`. Extended by `docs/whale-execution-spec-v1.0.md` (V2: value tiers, execution
 plans, the RFQ lifecycle, the lint, the wallet screens), which restates nothing here it does not change.
 Errata of 2026-10-07 (the text conformed to the code): §2 Order fields, §4 adapter signature and
 `Capabilities`, §5 the signed deadline, §8 the delay windows per policy, §9 reliability, §11 test count.
@@ -46,21 +46,21 @@ Order {
 }
 ```
 The minimum output the user approved at commit (`approvedMin`, in destination units) is journaled
-by the wallet (`frontend/src/wallet/journal.ts`); a provider call guaranteeing less is signed only
+by the wallet (`apps/web/src/wallet/journal.ts`); a provider call guaranteeing less is signed only
 after consent (below). It MUST be ≤ the quote's `toAmountMin` and is carried in the provider ingress
 where the provider supports a limit (§5). V2 §1 carries it in the order server-side too.
 `orderId` MUST NOT be derived from user identity. The wallet persists the order in its journal
 before any on-chain action (recovery, §3).
 
 The wallet MUST NOT take the service's word for anything it funds or signs
-(`frontend/src/sdk/swapGuard.ts`): it recomputes the escrow address (§6) from its OWN factory
+(`apps/web/src/sdk/swapGuard.ts`): it recomputes the escrow address (§6) from its OWN factory
 address and the returned params, and checks that the params carry its one-time signer and refund
 note, the amount and asset it asked for, that asset's canonical vault for refunds, a tip within the
 1 % cap and a refund horizon of at most a week — before the order is journaled and again before the
 withdrawal funds the escrow. Before the order key signs, the wallet recomputes the execution digest
 from the provider, value, calldata and deadline it is shown, and checks the deadline against the
 order's and the value against what the escrow may forward. It then reads the provider call itself
-(`frontend/src/sdk/providerCall.ts`, gate `swapSign.ts`), against its own journal: the target MUST be a
+(`apps/web/src/sdk/providerCall.ts`, gate `swapSign.ts`), against its own journal: the target MUST be a
 pinned provider contract, the receiver the wallet's fresh destination, provider refunds the escrow (or,
 where the provider can only refund at the destination, that address, §7), the amount exactly what the
 escrow forwards, and the minimum the call guarantees MUST be at least the minimum the user approved
@@ -100,7 +100,7 @@ User-visible labels: Pending (QUOTED…SOURCE_FINAL), Executing, Completed, Part
 (REFUND_PENDING), Refunded, Failed. The UI MUST NOT say "atomic" (plan §33).
 
 Recovery: on restart the wallet re-derives the state from the journal + chain (escrow balance,
-events, adapter status) — the same pattern as the reorg-aware indexer (`reference/typescript/src/indexer.ts`).
+events, adapter status) — the same pattern as the reorg-aware indexer (`packages/protocol/src/indexer.ts`).
 
 ## 4. Provider adapter interface (plan §23)
 ```ts
@@ -284,7 +284,7 @@ otherwise the route is quoted for information and filtered from selection.
   `best-privacy` `[6 h, 72 h]`, `best-price` `[1 h, 24 h]`, `fastest` `[0, 0]` (`engine.ts::DELAY_BUDGET`;
   V2 §4 adds `balanced` and `privacy-execution` at `[1 h, 24 h]`). `executeDeadline` MUST be re-quoted
   if the scheduled time passes the quote's expiry.
-- **Amount normalization**: the withdrawn amount SHOULD be a bucket (`reference/typescript/src/wallet/amounts.ts`)
+- **Amount normalization**: the withdrawn amount SHOULD be a bucket (`packages/protocol/src/wallet/amounts.ts`)
   with the odd remainder kept private; the swap amount is then the bucket minus tip. This MUST stay
   within the user's minimum-output requirement (re-quote the bucketed amount).
 - The wallet MUST show the computed cross-chain privacy score (§10), never a flat "Private".
@@ -359,7 +359,7 @@ the order-key-signed provider call, the core's balance stays 0 and the vault's a
 `test_E2E_SwapOrderRefund_ReShieldsAndIsSpendableWithRealProof` — the same order's refund branch
 re-shields exactly the pre-committed note (the on-chain root equals the wallet's) and a second real proof
 spends it. The wallet side predicts the escrow with the CREATE2 formula over `abi.encode(OrderParams)`
-(`reference/typescript/src/genE2EInputs.ts`), i.e. the integration point with `PrivacyCore` is nothing
+(`packages/protocol/src/genE2EInputs.ts`), i.e. the integration point with `PrivacyCore` is nothing
 but a withdrawal recipient.
 
 ## 12. Out of scope here

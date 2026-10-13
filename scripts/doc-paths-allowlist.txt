@@ -1,0 +1,42 @@
+# Documentation paths that do not exist on purpose (scripts/check-doc-paths.mjs). One per line: <path>  # <reason>.
+# planned: named by docs/privacy-wallet-web-spec-v2.0.md; the line goes when its V6 stage lands.
+apps/web/src/config.ts  # planned: V6 Stage 3
+apps/web/src/hooks/  # planned: V6 Stage 3
+apps/web/src/platform/  # planned: V6 Stage 4
+packages/protocol-types  # planned: V6 Stage 3
+packages/protocol-types/src/assets.ts  # planned: V6 Stage 3
+packages/protocol-types/src/operations.ts  # planned: V6 Stage 3
+packages/config  # planned: V6 Stage 3
+packages/config/src/assets.ts  # planned: V6 Stage 3
+packages/config/src/chains.ts  # planned: V6 Stage 3
+packages/contracts  # planned: V6 Stage 3
+packages/sdk  # planned: V6 Stage 4
+packages/wallet-engine  # planned: V6 Stage 4
+packages/privacy-engine  # planned: V6 Stage 4
+packages/privacy-engine/src/transport/  # planned: V6 Stage 4
+packages/risk-engine  # planned: V6 Stage 4
+packages/ui  # planned: V6 Stage 4
+packages/ui/src/tokens/  # planned: V6 Stage 5
+packages/ui/src/components/  # planned: V6 Stage 5
+packages/ui/src/patterns/  # planned: V6 Stage 5
+packages/ui/src/icons/  # planned: V6 Stage 5
+packages/ui/src/animations/  # planned: V6 Stage 5
+tests/visual/  # planned: V6 Stage 5
+contracts/src/periphery/protect/ProtectRouter.sol  # planned: V6 Stage 7
+packages/swap-engine/src/tips.ts  # planned: V6 Stage 7
+apps/api  # planned: V6 Stage 9
+apps/api/test/logs.test.ts  # planned: V6 Stage 9
+packages/server-kit  # planned: V6 Stage 9
+contracts/src/periphery/shield/  # planned: V6 Stage 12
+docs/classic-privacy-review.md  # planned: V6 Stage 14
+scripts/check-lockfile.mjs  # planned: V6 Stage 2
+scripts/dependency-review.mjs  # planned: V6 Stage 2
+scripts/check-import-case.mjs  # planned: V6 Stage 2
+docs/dependency-reviews.md  # planned: V6 Stage 2
+scripts/scan-bundle.mjs  # planned: V6 Stage 15
+scripts/check-budget.mjs  # planned: V6 Stage 16
+docs/definition-of-done-v6.md  # planned: V6 Stage 17
+contracts/deployments/sepolia.json  # planned: written by the Sepolia deployment (roadmap stage 13, not run)
+# historical: named by a record of an earlier pass on purpose.
+apps/web/src/sdk/facade.ts  # historical: the V5 spec's facade, never built; the doc §61 facade is packages/sdk (V6 Stage 4)
+apps/web/src/components/Review.tsx  # historical: the V2 Review, replaced by apps/web/src/features/review/ReviewScreen.tsx in V5 Stage 8

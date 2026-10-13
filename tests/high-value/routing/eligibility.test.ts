@@ -3,14 +3,14 @@
 // more venues quote the size no provider carries more than 30 % of the order; a single venue is disclosed, never
 // diversified for appearance. Pins I-S 7 (no single mandatory provider).
 import { describe, it, expect } from "vitest";
-import { IMPACT_CAP_BPS, chooseRoute, scoreRoutes } from "../../../services/private-swap/src/scoring";
-import { ProviderHealthTracker } from "../../../services/private-swap/src/health";
-import { PROVIDER_SHARE_CAP_BPS, recommendProtection } from "../../../services/private-swap/src/risk/protection";
-import { RiskDb, RISK_DB_DIR } from "../../../services/private-swap/src/risk/riskDb";
-import type { QuoteSet } from "../../../services/private-swap/src/engine";
-import type { Health, ProviderId, Quote, QuoteRequest } from "../../../services/private-swap/src/types";
-import type { RouteScore } from "../../../services/private-swap/src/scoring";
-import { providerLimit } from "../../../reference/typescript/src/wallet/campaign";
+import { IMPACT_CAP_BPS, chooseRoute, scoreRoutes } from "../../../packages/swap-engine/src/scoring";
+import { ProviderHealthTracker } from "../../../packages/swap-engine/src/health";
+import { PROVIDER_SHARE_CAP_BPS, recommendProtection } from "../../../packages/swap-engine/src/risk/protection";
+import { RiskDb, RISK_DB_DIR } from "../../../packages/swap-engine/src/risk/riskDb";
+import type { QuoteSet } from "../../../packages/swap-engine/src/engine";
+import type { Health, ProviderId, Quote, QuoteRequest } from "../../../packages/swap-engine/src/types";
+import type { RouteScore } from "../../../packages/swap-engine/src/scoring";
+import { providerLimit } from "../../../packages/protocol/src/wallet/campaign";
 import { campaign, ETH, soon, DEST_BTC } from "../helpers";
 
 const q = (provider: ProviderId, toMin: bigint, over: Partial<Quote> = {}): Quote => ({ provider, category: "A", toAmount: toMin + 100n, toAmountMin: toMin, fees: [], etaSeconds: 600, expiresAt: soon(), nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: null, obtainedAt: Date.now(), ...over });

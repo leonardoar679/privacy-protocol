@@ -31,7 +31,7 @@ Then record the five core addresses + the factory in `contracts/deployments/sepo
 and point the tooling at it:
 ```
 # engine / local service
-cd services/private-swap
+cd packages/swap-engine
 CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm run serve
 # wallet (frontend): VITE_SWAP_SERVICE as usual; the shield/withdraw screens take the core address from the deployment file
 ```
@@ -54,7 +54,7 @@ CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm run serve
 1. `forge verify-contract` for each address with the pinned build settings (`foundry.toml`:
    solc 0.8.24, optimizer 200, paris, no metadata hash) — the runtime code must match byte for byte.
 2. `cast code <factory> | keccak` and `cast call <factory> "initCodeHash(...)"` against the TS
-   prediction (`services/private-swap/test/endpoints.test.ts` vector) — a mismatch means the engine
+   prediction (`packages/swap-engine/test/endpoints.test.ts` vector) — a mismatch means the engine
    would predict wrong escrow addresses.
 3. Core invariants from `docs/security-invariants.md` hold by construction; the only configuration is
    the constructor (verifier, hasher, depth), so compare `PrivacyCore.VERIFIER()/HASHER()/LEVELS()`
