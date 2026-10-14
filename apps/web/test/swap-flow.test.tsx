@@ -22,6 +22,7 @@ import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/
 import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
+import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,7 +42,7 @@ const LIMIT = 3_000_000n;
 const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: ETH_VAULT, rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY };
 
 // ---- the swap service: the real engine, a THORChain adapter on the real encoders, `bend` = dishonesty
-const engine = new PrivateSwapEngine({ adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n, refundVaults: { native: ETH_VAULT }, tipBps: 25, refundWindowSeconds: 7200 });
+const engine = new PrivateSwapEngine({ adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n, refundVaults: { native: ETH_VAULT }, tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */, refundWindowSeconds: 7200 });
 let bend: { dest?: string; limit?: bigint } = {};
 const now = () => Math.floor(Date.now() / 1000);
 const thorQuote = (): Quote => ({ provider: "thorchain", category: "A", toAmount: LIMIT + 30_000n, toAmountMin: LIMIT, fees: [], etaSeconds: 600, expiresAt: now() + 600, nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: {}, obtainedAt: Date.now() });
@@ -91,7 +92,7 @@ async function service(path: string, body: any): Promise<Response> {
   switch (path) {
     case "/quote": return json({ quotes: [thorQuote()], scores: [score], errors: {}, chosen: score, links: { thorchain: { public: true, evidence: "memo" } } });
     case "/order": {
-      const order = engine.buildOrder(request(body), body.policy, thorQuote(), { orderSigner: body.orderSigner, refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash });
+      const order = engine.buildOrder(request(body), body.policy, { ...thorQuote(), executorTip: BigInt(request(body).amount) / 400n }, { orderSigner: body.orderSigner, refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash });
       orders.set(order.orderId, { order });
       return json({ order, scores: [score], status: "Pending" });
     }
@@ -129,7 +130,7 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)
   if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
   if (u.host === "127.0.0.1:8790") {
-    if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: "", minFeeWei: "0", gasPriceWei: "0", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
+    if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: privacyAddress(new Uint8Array(32).fill(0x5e)) /* the relayer's, for its fee note (V6: the escrow funding pays the percentage) */, minFeeWei: "0", gasPriceWei: "0", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/refund") { relayerBodies.push(body); jobs.set(String(body.params.orderId).toLowerCase(), "refund-only"); }
     if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
     const id = String(body?.params?.orderId ?? u.pathname.slice("/swap/".length)).toLowerCase();

@@ -29,6 +29,7 @@ import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-
 import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
 import { recommendProtection } from "@privacy-wallet/swap-engine/risk/protection";
 import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
+import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // the private withdrawal that funds a step is covered by the funding tests; here it stands in and records the escrow it pays (fundEscrow's own checks — the balance, the recomputed escrow — still run)
@@ -53,7 +54,7 @@ const RATE = 3_000_000n; // sats per ETH
 const minFor = (amount: bigint) => { const out = (amount * RATE) / 10n ** 18n; return { toAmount: out, toAmountMin: out - out / 200n }; };
 const net = (a: bigint) => a - (a * 25n) / 10000n;
 
-const engine = new PrivateSwapEngine({ adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n, refundVaults: { native: ETH_VAULT }, tipBps: 25, refundWindowSeconds: 7200 });
+const engine = new PrivateSwapEngine({ adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n, refundVaults: { native: ETH_VAULT }, tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */, refundWindowSeconds: 7200 });
 const now = () => Math.floor(Date.now() / 1000);
 const thorQuote = (amount: bigint): Quote => ({ provider: "thorchain", category: "A", ...minFor(amount), fees: [], etaSeconds: 1400, expiresAt: now() + 600, nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: {}, obtainedAt: Date.now(), plan: { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 }, impactBps: 9, limits: {} } as Quote);
 const thorchain: ProviderAdapter = {
@@ -91,7 +92,7 @@ async function service(path: string, body: any): Promise<Response> {
     case "/quote": return json(quoteSetFor(body));
     case "/order": {
       const req = request(body);
-      const order = engine.buildOrder(req, body.policy, thorQuote(net(req.amount)), { orderSigner: body.orderSigner, refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash }, undefined, undefined, { executeWindowSeconds: body.executeWindowSeconds });
+      const order = engine.buildOrder(req, body.policy, { ...thorQuote(net(req.amount)), executorTip: req.amount / 400n }, { orderSigner: body.orderSigner, refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash }, undefined, undefined, { executeWindowSeconds: body.executeWindowSeconds });
       orders.set(order.orderId, { order });
       const set = quoteSetFor(body);
       return json({ order: { ...order, tier: set.tier, value: set.value }, scores: [score], status: "Pending", competition: set.competition, protection: (set as any).protection });
@@ -143,7 +144,7 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body));
   if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
   if (u.host === "127.0.0.1:8790") {
-    if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: "", minFeeWei: "1000000000000000", gasPriceWei: "20000000000", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
+    if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: privacyAddress(new Uint8Array(32).fill(0x5e)) /* the relayer's, for its fee note (V6: the escrow funding pays the percentage) */, minFeeWei: "1000000000000000", gasPriceWei: "20000000000", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
     const id = String(body?.params?.orderId ?? u.pathname.slice("/swap/".length)).toLowerCase();
     if (!jobs.has(id)) return json({ error: "unknown swap job" }, 404);

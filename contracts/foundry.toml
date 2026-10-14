@@ -17,8 +17,9 @@ via_ir = false
 bytecode_hash = "none"
 cbor_metadata = false
 # Only the e2e fixture generator writes files (E2E_DUMP=true; see circuits/scripts/e2e-fixture.sh); the e2e suite reads
-# back the committed test/e2e/deployment.json (test_E2E_DeploymentJsonIsCurrent).
-fs_permissions = [{ access = "read-write", path = "./test/e2e" }, { access = "write", path = "./test/periphery/vectors" }]
+# back the committed test/e2e/deployment.json (test_E2E_DeploymentJsonIsCurrent); the periphery's vectors are written on
+# request (SWAP_VECTOR, PROTECT_VECTOR) and the protect-fee vector read back (test_ProtectFeeVectorIsCurrent).
+fs_permissions = [{ access = "read-write", path = "./test/e2e" }, { access = "read-write", path = "./test/periphery/vectors" }]
 
 [fuzz]
 runs = 128

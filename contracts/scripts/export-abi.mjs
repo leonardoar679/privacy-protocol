@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Export ABIs from forge artifacts: the frozen core set (abi/*.json + SHA256SUMS, spec v1.0 §14) and
 // the periphery (abi/periphery/*.json, with creation bytecode so the TypeScript engine can compute
-// CREATE2 escrow addresses). Run after `forge build`:  node scripts/export-abi.mjs
+// CREATE2 escrow addresses and the local stack can deploy). Run after `forge build`:  node scripts/export-abi.mjs
 import { createHash } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -20,8 +20,9 @@ for (const c of CORE) {
 writeFileSync(join(root, "abi", "SHA256SUMS"), sums.join("\n") + "\n");
 
 mkdirSync(join(root, "abi", "periphery"), { recursive: true });
-for (const c of ["SwapOrderEscrow", "SwapOrderFactory"]) {
+const PERIPHERY = ["SwapOrderEscrow", "SwapOrderFactory", "ProtectRouter"];
+for (const c of PERIPHERY) {
   const a = art(c);
   writeFileSync(join(root, "abi", "periphery", `${c}.json`), JSON.stringify({ abi: a.abi, bytecode: a.bytecode.object }, null, 2) + "\n");
 }
-console.log(`exported ${CORE.length} frozen core ABIs (+SHA256SUMS) and 2 periphery artifacts with bytecode`);
+console.log(`exported ${CORE.length} frozen core ABIs (+SHA256SUMS) and ${PERIPHERY.length} periphery artifacts with bytecode`);

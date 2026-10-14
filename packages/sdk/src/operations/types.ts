@@ -1,6 +1,6 @@
 // The operation vocabulary of the screens (spec §12): the record and its constants from the wallet layer, and the
 // events the reducer consumes. One module re-exports both so a feature imports from one place.
-import type { FundsClass, OperationState, ProgressStep, SettlementRef } from "../wallet/operationRecord";
+import type { FundsClass, OperationCosts, OperationState, ProgressStep, SettlementRef } from "../wallet/operationRecord";
 
 export type { DestinationKind, FeeLine, FundsClass, OperationKind, OperationPhase, OperationRecord, OperationState, ProgressStep, RecoveryState, SettlementRef } from "../wallet/operationRecord";
 export { DRAFT_STATES, FAILURE_STATES, OPERATION_STATES, PROGRESS_STATES, TERMINAL_STATES, isDraft, isFailure, isOpen, isTerminal } from "../wallet/operationRecord";
@@ -34,7 +34,9 @@ export type OperationEvent =
   /** a post-signature return to an open state (a campaign resuming after a requote, a tracked resume that found the transaction) */
   | ({ type: "resume"; to: OperationState } & EventRefs)
   | { type: "monitor"; at?: number }
-  | { type: "note"; note: string };
+  | { type: "note"; note: string }
+  /** V6 (spec v2.0 §3): the network cost, recorded before the completion freezes the record (I-O1) */
+  | { type: "costs"; costs: OperationCosts };
 
 export type OperationEventType = OperationEvent["type"];
 
@@ -52,5 +54,5 @@ export const STATE_EVENT_TARGET: Record<OperationEventType, OperationState | nul
   quote: "QUOTING", quoted: "QUOTE_READY", review: "REVIEW", edit: "DRAFT", confirm: "AWAITING_SIGNATURE", progress: null, signed: "SIGNED", submitted: "SUBMITTED",
   "relayer-executing": "RELAYER_EXECUTING", confirming: "NETWORK_CONFIRMING", verifying: "SETTLEMENT_VERIFYING", completed: "COMPLETED", "quote-expired": "QUOTE_EXPIRED",
   rejected: "SIGNATURE_REJECTED", "submission-failed": "SUBMISSION_FAILED", delayed: "NETWORK_DELAYED", "provider-failed": "PROVIDER_FAILED", "recovery-required": "RECOVERY_REQUIRED",
-  refunding: "REFUNDING", refunded: "REFUNDED", cancel: "CANCELLED", resume: null, monitor: null, note: null,
+  refunding: "REFUNDING", refunded: "REFUNDED", cancel: "CANCELLED", resume: null, monitor: null, note: null, costs: null,
 };

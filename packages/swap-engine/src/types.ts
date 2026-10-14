@@ -70,6 +70,9 @@ export interface Quote {
   minOutEncoded: boolean; // the provider ingress carries toAmountMin
   /** false when the adapter could NOT confirm the minimum output inside the calldata it will sign (the provider's claim only); filtered under strict policies (spec §5, §9) */
   minOutVerified?: boolean;
+  /** V6 (Privacy Wallet Web spec v2.0 §3): the executor tip this quote is net of — the execution's gas in the order's
+   *  asset; PrivateSwapEngine.quoteAll stamps it and buildOrder commits exactly it */
+  executorTip?: bigint;
   /** where a provider-level refund lands: the escrow (re-shieldable) or the fresh destination address (spec §7) */
   refundTarget?: "escrow" | "destination";
   hops: string[];

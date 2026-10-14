@@ -10,6 +10,7 @@ import { PrivateSwapEngine, escrowCall } from "../src/engine";
 import { executionDigest, orderSignerAddress, signExecution } from "../src/endpoints";
 import { decodeParams, hexBuf, selectorHex } from "../src/abi";
 import type { Ingress, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "../src/types";
+import { shareTips } from "./helpers/tips";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
@@ -17,12 +18,12 @@ const DEPOSIT = "0x00000000000000000000000000000000de9051de";
 const ROUTER = "0x00000000000000000000000000000000000c0de1";
 const engine = new PrivateSwapEngine({
   adapters: [], factory: "0x00000000000000000000000000000000000000f1", escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n,
-  refundVaults: { native: "0x00000000000000000000000000000000000000e7", [USDC]: "0x00000000000000000000000000000000000ca5de" }, tipBps: 25, refundWindowSeconds: 7200,
+  refundVaults: { native: "0x00000000000000000000000000000000000000e7", [USDC]: "0x00000000000000000000000000000000000ca5de" }, tips: shareTips(25n), refundWindowSeconds: 7200,
 });
 const ORDER_KEY = new Uint8Array(32).fill(7);
 const keys = { orderSigner: orderSignerAddress(ORDER_KEY), refundOwnerCommitment: 7n, refundNoteSecret: 9n, refundNoteDataHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
 const now = () => Math.floor(Date.now() / 1000);
-const quote = (provider: Quote["provider"]): Quote => ({ provider, category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 600, expiresAt: now() + 600, nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: {}, obtainedAt: Date.now() });
+const quote = (provider: Quote["provider"]): Quote => ({ provider, category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 600, expiresAt: now() + 600, nativeAssets: true, minOutEncoded: true, minOutVerified: true, hops: [], raw: {}, obtainedAt: Date.now(), executorTip: 1_000n });
 const usdcReq: QuoteRequest = { from: { chain: "ethereum", asset: USDC, decimals: 6, symbol: "USDC" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: 1_000_000_000n, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50 };
 const ethReq: QuoteRequest = { ...usdcReq, from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, amount: 10n ** 18n };
 const ingress = (kind: Ingress["kind"], to: string, value = 0n, calldata: `0x${string}` = "0x"): Ingress => ({ kind, to, calldata, value, expiresAt: now() + 600, minOutEncoded: true });

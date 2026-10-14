@@ -16,6 +16,7 @@ import { EXECUTE_WINDOW_MIN_SECONDS, DELAY_BUDGET, PrivateSwapEngine, executeWin
 import type { AssetRef, Health, ProviderId, Quote, QuoteRequest } from "../src/types";
 import type { RouteScore } from "../src/scoring";
 import { NO_VALUER } from "../src/valuation";
+import { shareTips } from "./helpers/tips";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
@@ -29,7 +30,7 @@ const score = (provider: ProviderId, filtered?: string): RouteScore => ({ provid
 /** A competition where every listed quote scored and the first one was chosen. */
 function setOf(quotes: Quote[], policy: QuoteSet["policy"] = "balanced"): QuoteSet {
   const scores = quotes.map((x) => score(x.provider));
-  return { quotes, errors: {}, health: Object.fromEntries(quotes.map((x) => [x.provider, ok(x.provider)])) as Record<ProviderId, Health>, scores, chosen: scores[0], links: {}, policy, competition: [] };
+  return { quotes, errors: {}, health: Object.fromEntries(quotes.map((x) => [x.provider, ok(x.provider)])) as Record<ProviderId, Health>, scores, chosen: scores[0], links: {}, policy, competition: [], executorTip: 0n };
 }
 const ETH_USD = 4000;
 const eth = (n: number) => BigInt(n) * 10n ** 18n;
@@ -321,8 +322,8 @@ describe("the per-tranche execution window (spec §3)", () => {
     expect(executeWindowFor("best-privacy", 7200.9)).toBe(7200);
     expect(executeWindowFor("fastest", 7200)).toBe(0);
     expect(executeWindowFor("balanced", Number.NaN)).toBe(86_400);
-    const engine = new PrivateSwapEngine({ adapters: [], factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tipBps: 25, refundWindowSeconds: 7200, valuer: NO_VALUER });
-    const quote = q("thorchain", eth(50));
+    const engine = new PrivateSwapEngine({ adapters: [], factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tips: shareTips(25n), refundWindowSeconds: 7200, valuer: NO_VALUER });
+    const quote = q("thorchain", eth(50), { executorTip: eth(50) / 400n });
     const keys = { orderSigner: "0x00000000000000000000000000000000000000a1", refundOwnerCommitment: 1n, refundNoteSecret: 2n, refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}` };
     const short = engine.buildOrder(reqEthBtc(eth(50)), "balanced", quote, keys, undefined, undefined, { executeWindowSeconds: 7200 });
     expect(short.params.executeDeadline).toBe(quote.expiresAt + 7200);

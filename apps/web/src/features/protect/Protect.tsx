@@ -15,10 +15,10 @@ import { readAllowance, revokeAllowance } from "@privacy-wallet/sdk/allowances";
 import { assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
-import { shieldERC20, shieldNative } from "@privacy-wallet/sdk/privateTx";
+import { protectNet, shieldERC20, shieldNative } from "@privacy-wallet/sdk/privateTx";
 import { priceStore, feedsConfigured } from "@privacy-wallet/sdk/prices";
 import { protectFees } from "../fees/feeEngine";
-import { useFeeTerms } from "../fees/useFeeTerms";
+import { PRIVACY_FEE_BPS } from "@privacy-wallet/protocol/wallet/fees";
 import { shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
@@ -42,7 +42,6 @@ export interface ProtectProps {
 }
 
 type Step = "form" | "progress" | "done" | "failed";
-const PRODUCT_FEE_BPS = 100;
 let nudgeDismissed = false; // once per session (spec §3.2: once on the Protect review)
 
 /** The common sizes offered as chips: the alphabet's buckets around one whole unit of the asset. */
@@ -73,7 +72,6 @@ export function Protect(p: ProtectProps) {
   const [revoked, setRevoked] = useState<string | null>(null);
   const [nudge, setNudge] = useState(!nudgeDismissed);
   const record = useOperation(opId);
-  const terms = useFeeTerms(asset && parseAmount(asset, amount) > 0n ? asset.vault : null); // read once an amount is typed: no request before the user acts
   const units = asset ? parseAmount(asset, amount) : 0n;
   const priced = feedsConfigured(p.deployment);
   useEffect(() => { if (priced) void priceStore.refresh(p.deployment); }, [p.deployment, priced]);
@@ -101,7 +99,9 @@ export function Protect(p: ProtectProps) {
   const amountUsd = asset && assetPrice && units > 0n ? formatUsd(usdOf(units, asset.decimals, assetPrice.usd1e8)) : null;
   const balanceUsd = asset && assetPrice && publicBalance !== null ? formatUsd(usdOf(publicBalance, asset.decimals, assetPrice.usd1e8)) : null;
   const networkUsd = estimateUsd(estimate, prices);
-  const fees = asset ? protectFees({ amount: units, feePercentBps: terms.terms?.feePercentBps ?? PRODUCT_FEE_BPS, networkUsd, format: (u) => `${formatAmount(asset, u)} ${asset.symbol}`, formatUsd, t }) : null;
+  // V6 (spec v2.0 §3, §11.1): 1 % through ProtectRouter — no relayer is involved, the fee is the contract's constant
+  const routed = p.deployment && units > 0n ? protectNet(p.deployment, units) : { fee: 0n, net: units };
+  const fees = asset ? protectFees({ amount: units, fee: routed.fee, feePercentBps: PRIVACY_FEE_BPS, networkUsd, format: (u) => `${formatAmount(asset, u)} ${asset.symbol}`, formatUsd, t }) : null;
   const bucket = asset && units > 0n && !isBucketFor(asset, units) ? bucketBelowFor(asset, units) : null;
   const chips = asset ? chipBuckets(asset.decimals).map((b) => ({ label: `${formatUnits(b, asset.decimals)} ${asset.symbol}`, value: formatUnits(b, asset.decimals) })) : [];
   const options: AssetOption[] = assets.map((a) => ({ id: a.vault, symbol: a.symbol, name: a.symbol, decimals: a.decimals, ...(a.token ? { address: a.token } : {}) }));
@@ -112,12 +112,12 @@ export function Protect(p: ProtectProps) {
     const eth = activeProvider();
     const [from] = (eth ? await eth.request({ method: "eth_accounts" }).catch(() => []) : []) as `0x${string}`[];
     if (!from) { setLeftover("unknown"); return; }
-    const a = await readAllowance(asset.token, from, asset.vault);
+    const a = await readAllowance(asset.token, from, p.deployment?.protectRouter ?? asset.vault); // V6: the router pulls a protect's tokens
     setLeftover(a === null ? "unknown" : a);
   }, [asset]);
   async function revokeLeftover() {
     if (!asset?.token) return;
-    try { const tx = await revokeAllowance(asset.token, asset.vault); setRevoked(tx); setLeftover(0n); } catch (e) { setStatus(classify(e).detail); }
+    try { const tx = await revokeAllowance(asset.token, p.deployment?.protectRouter ?? asset.vault); setRevoked(tx); setLeftover(0n); } catch (e) { setStatus(classify(e).detail); }
   }
 
   async function run() {
@@ -132,8 +132,8 @@ export function Protect(p: ProtectProps) {
     const onEvent = engineListener((ev) => { applyEvent(rec.id, ev); });
     try {
       const r = asset.token
-        ? await shieldERC20({ masterSeed: p.masterSeed, deployment, token: asset.token, vault: asset.vault, amount: units, onStatus: setStatus, onEvent })
-        : await shieldNative({ masterSeed: p.masterSeed, deployment, amount: units, onStatus: setStatus, onEvent });
+        ? await shieldERC20({ masterSeed: p.masterSeed, deployment, token: asset.token, vault: asset.vault, amount: units, estimatedWei: estimate?.wei, onStatus: setStatus, onEvent })
+        : await shieldNative({ masterSeed: p.masterSeed, deployment, amount: units, estimatedWei: estimate?.wei, onStatus: setStatus, onEvent });
       setResult(r);
       setStep("done");
     } catch (e) {

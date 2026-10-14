@@ -17,13 +17,14 @@ import { parseErc20Vaults } from "./assets";
 import { treeLayers } from "./core";
 
 export interface Erc20VaultSpec { symbol: string; token: Address; vault: Address; decimals: number }
-export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[]; /** SwapOrderFactory: the wallet recomputes every escrow address from it (VITE_SWAP_FACTORY) */ swapFactory?: Address }
+export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[]; /** SwapOrderFactory: the wallet recomputes every escrow address from it (VITE_SWAP_FACTORY) */ swapFactory?: Address; /** V6 (spec v2.0 §11.1): ProtectRouter — a protect pays its 1 % through it (VITE_PROTECT_ROUTER) */ protectRouter?: Address }
 
 export function deploymentFromEnv(env: Record<string, string | undefined>): Deployment | null {
   const urls = String(env.VITE_RPC_URLS ?? env.VITE_RPC_URL ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
   if (!urls.length || !env.VITE_CORE || !env.VITE_ETH_VAULT) return null;
   const swapFactory = env.VITE_SWAP_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_SWAP_FACTORY) ? (env.VITE_SWAP_FACTORY as Address) : undefined;
-  return { chainId: Number(env.VITE_CHAIN_ID ?? 31337), core: env.VITE_CORE as Address, ethVault: env.VITE_ETH_VAULT as Address, rpcUrl: urls[0], rpcUrls: urls, fromBlock: BigInt(env.VITE_FROM_BLOCK ?? 0), erc20Vaults: parseErc20Vaults(env.VITE_ERC20_VAULTS), swapFactory };
+  const protectRouter = env.VITE_PROTECT_ROUTER && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_PROTECT_ROUTER) ? (env.VITE_PROTECT_ROUTER as Address) : undefined;
+  return { chainId: Number(env.VITE_CHAIN_ID ?? 31337), core: env.VITE_CORE as Address, ethVault: env.VITE_ETH_VAULT as Address, rpcUrl: urls[0], rpcUrls: urls, fromBlock: BigInt(env.VITE_FROM_BLOCK ?? 0), erc20Vaults: parseErc20Vaults(env.VITE_ERC20_VAULTS), swapFactory, ...(protectRouter ? { protectRouter } : {}) };
 }
 
 /**
@@ -158,9 +159,15 @@ export async function sendViaInjectedWallet(tx: TxRequest): Promise<Hex> {
 
 /** Wait for a transaction and return the leaves it inserted (leaf index + commitment). */
 export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{ leafIndex: number; commitment: bigint }[]> {
+  return (await minedTx(client, hash)).inserted;
+}
+
+/** A mined transaction of ours: the notes it inserted and what it really cost (V6, spec v2.0 §3: gasUsed × effectiveGasPrice). */
+export async function minedTx(client: PublicClient, hash: Hex): Promise<{ inserted: { leafIndex: number; commitment: bigint }[]; costWei: bigint }> {
   const receipt = await client.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted`);
-  return parseEventLogs({ abi: coreAbi, logs: receipt.logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
+  const inserted = parseEventLogs({ abi: coreAbi, logs: receipt.logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
+  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n) }; // an RPC that omits the price: no cost known
 }
 
 /** The connected account's public balance, read through the injected wallet's OWN provider (never our RPCs: no address ↔ endpoint link). */

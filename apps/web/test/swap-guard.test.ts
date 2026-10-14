@@ -27,7 +27,7 @@ const ETH: Asset = { symbol: "ETH", decimals: 18, vault: ETH_VAULT, token: null 
 const USDC_ASSET: Asset = { symbol: "USDC", decimals: 6, vault: USDC_VAULT, token: USDC };
 const engine = new PrivateSwapEngine({
   adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n,
-  refundVaults: { native: ETH_VAULT, [USDC]: USDC_VAULT }, tipBps: 25, refundWindowSeconds: 7200,
+  refundVaults: { native: ETH_VAULT, [USDC]: USDC_VAULT }, tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */, refundWindowSeconds: 7200,
 });
 const seed = utf8ToBytes("swap-guard-test-seed");
 const now = () => Math.floor(Date.now() / 1000);
@@ -38,7 +38,7 @@ function honest(asset: Asset = ETH, amount = 10n ** 18n) {
   const key = deriveOrderKey(seed, ("0x" + "ab".repeat(32)) as `0x${string}`);
   const refund = deriveRefundNote(seed, 7);
   const req: QuoteRequest = { from: { chain: "ethereum", asset: asset.token ?? "native", decimals: asset.decimals, symbol: asset.symbol }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50 };
-  const order = engine.buildOrder(req, "best-privacy", quote(), { orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment, refundNoteSecret: refund.noteSecret, refundNoteDataHash: refund.noteDataHash });
+  const order = engine.buildOrder(req, "best-privacy", { ...quote(), executorTip: req.amount / 400n }, { orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment, refundNoteSecret: refund.noteSecret, refundNoteDataHash: refund.noteDataHash });
   const expectation = { factory: FACTORY as `0x${string}`, orderSigner: key.address, refund, amount, asset };
   return { order, svc: wire(order) as ServiceOrder, expectation, key, req };
 }

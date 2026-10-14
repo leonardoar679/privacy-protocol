@@ -110,6 +110,19 @@ every job (`/status/:txHash`, `/swap/:orderId`); the wallet reads its receipts i
 actual cost above 1.5 × the estimate, or a charge at least 3 × the actual cost, adds a note to the operation and the
 API logs `fee.deviation` (no amounts).
 
+Code (Stage 7): the formulas `packages/protocol/src/wallet/fees.ts` (`privacyFee`, `exactInput`, `exactOutput`,
+`swapFunding`, `feeForWithdrawal`, `feeMeetsTerms`, `protectSplit`; bigint only, a source scan refuses floating point;
+`packages/protocol/test/fees-v2.test.ts` checks them against ProtectRouter's own fee through forge's vector
+`contracts/test/periphery/vectors/protect-fee.json`). The relayer's rule in `apps/relayer/src/relayer.ts`, the receipt's
+cost on `Job` and `SwapJob`, and the executor waiting while an ETH order's execution would cost more than its tip
+(`apps/relayer/src/swapExecutor.ts`). The tip `packages/swap-engine/src/tips.ts` over the gas units and the formula of
+`packages/contracts/src/gas.ts` (pinned by `contracts/test/gas/PeripheryGasBench.t.sol` through
+`contracts/test/periphery/vectors/gas.json`), the wallet's own ceiling `packages/sdk/src/executionCost.ts` (a tip above
+3 × its estimate is refused by `swapGuard.checkOrder`). The costs on the record `packages/sdk/src/operations/costs.ts`
+(the `costs` event, recorded before the completion freezes the record), the detail's Advanced lines. A swap's quote reads
+the relayer's terms when the user asks for it and quotes W; a swap or a send funded by the connected wallet pays no
+relayer and no fee note. The `fee.deviation` log arrives with the API (Stage 9).
+
 ## 4. The monorepo (doc §6, §15, §20, §27, §34, §42, §44, §47, §60–§61, §65, §70, §72, §89 Step 2) — *Stages 1–4*
 
 ```
@@ -503,6 +516,14 @@ one); `AmountMismatch` when `gross − fee ≠ expectedNet` (the note is built f
 `transferFrom` with a balance-difference check, the fee by a strict transfer to `FEE_RECIPIENT`, an exact approval
 and `vault.deposit(net, …)`; `Protected(asset, vault, gross, fee, leafIndex)`. The fee recipient is public; the
 deposit was public already.
+
+Code (Stage 7): `contracts/src/periphery/protect/ProtectRouter.sol` (`feeOf` exact for every uint256: quotient and
+remainder by 10,000), `contracts/test/periphery/ProtectRouter.t.sol` (the ETH and token paths, the ceilings at 1 / 99 /
+100 / 101 / 2^200 / the largest uint256, fee-on-transfer, false-return and no-return tokens, a blacklisted or reverting
+fee recipient, no vault, re-entry, the fuzzed `fee + net == gross`, the vector), the NoPrivilege scan, the gas bench,
+`contracts/script/DeployProtectRouter.s.sol`; the wallet's `prepareShield` goes through the router when the deployment
+names one (`VITE_PROTECT_ROUTER`), approving it for exactly the gross; the allowance list knows it as a spender; the
+local stack deploys it with a 6-decimal USDC at the mainnet address and its vault.
 
 ### 11.2 `ShieldReceiver` + `ShieldReceiverFactory` (`contracts/src/periphery/shield/`)
 A one-time CREATE2 receiver per same-chain swap: the provider pays its predicted address (THORChain's 2300-gas

@@ -59,6 +59,8 @@ export interface QuoteSet {
   value?: ServiceValuation; tier?: Tier; policy?: Policy; competition?: CompetitionEntry[];
   /** V3: the recommendation and the risk view per provider, from the enhanced tier */
   protection?: Protection; risk?: Record<string, ProviderRiskView>;
+  /** V6 (spec v2.0 §3): the executor tip every quote is net of — the execution's gas, in the input's base units */
+  executorTip?: string;
 }
 /** The on-chain OrderParams (SwapOrderTypes.OrderParams) as the service serialises them (bigints as strings). */
 export interface ServiceOrderParams { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }

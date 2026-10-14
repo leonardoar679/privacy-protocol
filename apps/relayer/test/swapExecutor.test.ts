@@ -2,8 +2,9 @@
 // on a mock chain: the predicted escrow equals the forge prediction; a job is accepted only with the
 // committed refund payload and an execution signed by the one-time order key; the executor sends
 // deployAndExecute exactly once when the escrow is funded before the signed deadline, deployAndRefund
-// with the committed payload once refundAfter is reached with a balance, marks expiry, and spends no
-// gas when the call would revert. No real chain, no funds.
+// with the committed payload once refundAfter is reached with a balance, marks expiry, spends no
+// gas when the call would revert, waits while executing would cost more than the tip (V6: the tip is the execution's
+// gas), and records each receipt's actual cost. No real chain, no funds.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
@@ -26,6 +27,7 @@ const raws: Hex[] = [];
 let escrowBalance = 0n;
 let revertSimulation = false;
 let receiptStatus: "0x1" | "0x0" | null = null;
+let gasPrice = "0x3b9aca00"; // 1 gwei
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
 function handle(req: { id: number; method: string; params: any[] }) {
   const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
@@ -33,12 +35,13 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_chainId": return res(toHex(CHAIN_ID));
     case "eth_blockNumber": return res("0x10");
     case "eth_getBlockByNumber": return res(block);
-    case "eth_gasPrice": case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
+    case "eth_gasPrice": return res(gasPrice);
+    case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(escrowBalance));
     case "eth_estimateGas": return revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: BadSignature()" } } : res("0x7a120");
     case "eth_sendRawTransaction": raws.push(req.params[0]); return res(keccak256(req.params[0]));
-    case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1", gasUsed: "0x1", effectiveGasPrice: "0x1", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
+    case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1", gasUsed: "0x7a120", effectiveGasPrice: "0x3b9aca00", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
     default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };
   }
 }
@@ -121,6 +124,8 @@ describe("execution", () => {
     receiptStatus = "0x1";
     await executor.tick();
     expect(executor.get(request.params.orderId)!.state).toBe("executed");
+    expect(executor.get(request.params.orderId)!.gasUsed).toBe("500000");
+    expect(executor.get(request.params.orderId)!.actualNetworkWei, "V6: gasUsed × effectiveGasPrice from the receipt").toBe("500000000000000");
     receiptStatus = null;
   });
   it("a provider refund that lands in the escrow is re-shielded after refundAfter with the committed payload; then completed", async () => {
@@ -175,6 +180,28 @@ describe("execution", () => {
       expect(raws.length).toBe(3);
     } finally {
       revertSimulation = false;
+    }
+  });
+  it("V6 (spec v2.0 §3): while executing would cost more than the tip the executor waits and sends nothing; it executes once the cost is back under", async () => {
+    const dear: SwapJobRequest = { ...request, params: { ...request.params, orderId: ("0x" + "03".repeat(32)) as Hex } };
+    const escrow = predictEscrow(dear.factory, creationCode, { ...dear.params, assetType: 0, amount: BigInt(dear.params.amount), refundOwnerCommitment: BigInt(dear.params.refundOwnerCommitment), refundNoteSecret: BigInt(dear.params.refundNoteSecret), executorTip: BigInt(dear.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, dear.params.orderId, dear.execution.provider, BigInt(dear.execution.value), dear.execution.providerCalldata, dear.execution.deadline);
+    dear.execution = { ...dear.execution, signature: signExecution(ORDER_KEY, digest) };
+    clock = 1000; escrowBalance = BigInt(dear.params.amount);
+    const job = executor.add(dear);
+    const before = raws.length;
+    gasPrice = "0x12a05f200"; // 5 gwei: 500,000 gas × 5 gwei = 0.0025 ETH, above the 0.002 ETH tip
+    try {
+      await executor.tick();
+      expect(job.state).toBe("waiting-funding");
+      expect(job.error).toMatch(/waiting: executing now costs 2500000000000000 wei, above the order's 2000000000000000 wei tip/);
+      expect(raws.length, "nothing sent below cost").toBe(before);
+      gasPrice = "0xee6b2800"; // 4 gwei: 0.002 ETH, exactly the tip
+      await executor.tick();
+      expect(job.state).toBe("executing");
+      expect(raws.length).toBe(before + 1);
+    } finally {
+      gasPrice = "0x3b9aca00";
     }
   });
 });

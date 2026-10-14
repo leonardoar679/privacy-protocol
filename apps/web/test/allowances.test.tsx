@@ -77,6 +77,10 @@ describe("allowances through the injected wallet", () => {
     expect(await readAllowance(USDC, OWNER, USDC_VAULT, eth)).toBe(0n);
     const lines = await allowancesFor(deployment, OWNER, eth);
     expect(lines.map((l) => [l.asset.symbol, l.allowance])).toEqual([["USDC", 0n]]);
+    // V6 (spec v2.0 §11.1): with ProtectRouter the router is a spender too — a protect approves it, not the vault
+    const ROUTER = "0x00000000000000000000000000000000000000f7" as const;
+    const routed = await allowancesFor({ ...deployment, protectRouter: ROUTER }, OWNER, eth);
+    expect(routed.map((l) => [l.asset.symbol, l.via, l.spender])).toEqual([["USDC", "vault", USDC_VAULT], ["USDC", "router", ROUTER]]);
     expect(await allowancesFor({ ...deployment, erc20Vaults: [] }, OWNER, eth)).toEqual([]);
   });
 

@@ -17,6 +17,7 @@ import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
 import { normalizeQuote } from "./normalize";
 import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
+import type { TipSource } from "./tips";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];
@@ -24,7 +25,8 @@ export interface EngineConfig {
   escrowCreationCode: string; // from contracts/abi/periphery/SwapOrderEscrow.json
   chainId: bigint;
   refundVaults: Record<string, string>; // asset ("native" or token address) -> canonical vault
-  tipBps: number; // executor tip in bps of amount (<= 100)
+  /** V6 (Privacy Wallet Web spec v2.0 §3): the executor tip — the execution's gas in the order's asset (./tips.ts gasTips), never a percentage */
+  tips: TipSource;
   refundWindowSeconds: number; // refundAfter = executeDeadline + this
   /** cover traffic per provider (swaps/hour on a typical pair): it counts only for a provider that keeps the escrow → destination link private (spec §10) */
   providerThroughput?: Partial<Record<ProviderId, number>>;
@@ -65,6 +67,8 @@ export interface QuoteSet {
   tier?: Tier;
   /** the policy the routes were scored under (given, or derived from the preference and the tier) */
   policy: Policy;
+  /** V6 (spec v2.0 §3): the executor tip every quote here is net of (the wallet's "Relayer/network" line adds it) */
+  executorTip: bigint;
   /** whale spec §2: every capable provider and what it answered */
   competition: CompetitionEntry[];
   /** High-Value Protection spec §10: the recommendation for the chosen route and the risk view of every provider that quoted, from the enhanced tier (advice: the wallet keeps its own accounting) */
@@ -143,11 +147,8 @@ export class PrivateSwapEngine {
   }
 
   /** The executor tip comes out of the escrow balance, so providers are quoted for the net amount. */
-  tip(amount: bigint): bigint {
-    return (amount * BigInt(Math.min(this.cfg.tipBps, 100))) / 10000n;
-  }
-  net(req: QuoteRequest): QuoteRequest {
-    return { ...req, amount: req.amount - this.tip(req.amount) };
+  net(req: QuoteRequest, executorTip: bigint): QuoteRequest {
+    return { ...req, amount: req.amount - executorTip };
   }
 
   /** The gross amount's USD value and tier by the service's own read (whale spec §13); a wallet's hint can only raise the tier. */
@@ -175,7 +176,9 @@ export class PrivateSwapEngine {
     const preference = typeof policyOrPreference === "string" ? hint.preference : policyOrPreference.preference;
     const policy: Policy = typeof policyOrPreference === "string" ? policyOrPreference : policyFor(policyOrPreference.preference, tier, hint.mode);
     const preferNative = hint.preferNative ?? preference === "native";
-    const req = this.net(gross);
+    // V6 (spec v2.0 §3): the execution's gas at today's fees, in the order's asset; refused when the escrow could not pay it
+    const executorTip = await this.cfg.tips.tipFor(gross.from, gross.amount);
+    const req = this.net(gross, executorTip);
     // phase 1: the fresh destination goes only to the chosen provider at prepare (whale spec §5)
     const indicative: QuoteRequest = { ...req, destination: req.source ? req.destination : (placeholderDestination(req.to.chain) ?? req.destination), tier, plan: req.plan ?? (atLeast(tier, "enhanced") ? "stream" : undefined), preferNative };
     const category = categoryOf(req.from, req.to);
@@ -205,7 +208,7 @@ export class PrivateSwapEngine {
         return { id: a.id, health, quote: undefined, error: msg };
       }
     }));
-    const quotes = results.flatMap((r) => (r.quote ? [r.quote] : []));
+    const quotes = results.flatMap((r) => (r.quote ? [{ ...r.quote, executorTip }] : []));
     const health = Object.fromEntries(results.map((r) => [r.id, r.health])) as Record<ProviderId, Health>;
     const errors = Object.fromEntries(results.filter((r) => r.error).map((r) => [r.id, r.error])) as Partial<Record<ProviderId, string>>;
     const unexecutable = Object.fromEntries(ordered.filter((a) => a.capabilities().contractSender === false).map((a) => [a.id, "ingress from a contract sender unconfirmed by the provider"])) as Partial<Record<ProviderId, string>>;
@@ -220,7 +223,7 @@ export class PrivateSwapEngine {
       const quote = quotes.find((x) => x.provider === c.provider), s = scores.find((x) => x.provider === c.provider);
       if (quote && s) c.normalized = normalizeQuote(quote, { req: gross, score: s, health: health[c.provider], breakerOpen: !!skipped[c.provider], linkPublic: this.linkPublic(c.provider), now });
     }
-    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition };
+    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition, executorTip };
     // V3 (High-Value Protection spec §10): the recommendation rides on the competition from the enhanced tier; the USD per source unit comes from the same valuation as the tier
     const units = Number(gross.amount) / 10 ** gross.from.decimals;
     const usdPerUnit = "usd" in assessment.value && units > 0 ? assessment.value.usd / units : null;
@@ -247,7 +250,8 @@ export class PrivateSwapEngine {
     if (!orderSigner) throw new Error("buildOrder needs the one-time order signer (address) or its key");
     const orderId = ("0x" + randomBytes(32).toString("hex")) as `0x${string}`;
     const amount = req.amount; // gross: what the private withdrawal funds
-    const executorTip = this.tip(amount);
+    const executorTip = quote.executorTip; // the tip the quote is net of (quoteAll)
+    if (executorTip === undefined) throw new Error("buildOrder: the quote names no executor tip (quote through quoteAll)");
     const [dMin, dMax] = DELAY_BUDGET[policy];
     const executeDeadline = quote.expiresAt + executeWindowFor(policy, opts.executeWindowSeconds); // the quote is refreshed at submission: the policy's budget, or a campaign tranche's short window (V3 §3)
     const params: OrderParams = {
@@ -298,7 +302,7 @@ export class PrivateSwapEngine {
    */
   async prepareExecution(order: Order, adapter: ProviderAdapter, guard?: { alternatives: Quote[]; maxGapBps: number }, approvedMin?: bigint): Promise<PreparedExecution> {
     const plan = order.plan ?? order.quote.plan;
-    const req: QuoteRequest = { ...this.net(order.request), source: order.endpoint, tier: order.tier, plan: plan ? (plan.mode === "single" ? "single" : "stream") : undefined, destinationKind: order.destination?.kind }; // net of the tip, escrow as sender
+    const req: QuoteRequest = { ...this.net(order.request, order.params.executorTip), source: order.endpoint, tier: order.tier, plan: plan ? (plan.mode === "single" ? "single" : "stream") : undefined, destinationKind: order.destination?.kind }; // net of the tip, escrow as sender
     const quote = await adapter.quote(req); // re-quote with the escrow as sender (spec §5)
     if (quote.minOutVerified === false && order.policy !== "fastest") throw new Error(`${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
     if (approvedMin !== undefined && quote.toAmountMin < approvedMin) throw new MinimumMovedError(approvedMin, quote.toAmountMin);

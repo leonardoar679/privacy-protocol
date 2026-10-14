@@ -26,7 +26,7 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
     try { setAllowances(await allowancesFor(deployment, conn.account as `0x${string}`)); setStatus(""); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
   }
   async function revoke(line: AllowanceLine) {
-    try { const tx = await revokeAllowance(line.asset.token as `0x${string}`, line.asset.vault as `0x${string}`); setStatus(t("wallet.revoked", { hash: `${tx.slice(0, 10)}…` })); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
+    try { const tx = await revokeAllowance(line.asset.token as `0x${string}`, line.spender); setStatus(t("wallet.revoked", { hash: `${tx.slice(0, 10)}…` })); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
   }
   const tone = conn.status === "connected" ? "ok" : conn.status === "wrong-network" ? "warn" : conn.status === "connecting" ? "pending" : "neutral";
   return (
@@ -65,8 +65,8 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
             <p className="ds-note">{t("wallet.allowances.body")}</p>
             <div className="ds-actions"><Button variant="secondary" onClick={() => void readAllowances()} data-testid="read-allowances">{t("wallet.allowances.read")}</Button></div>
             {allowances?.map((l) => (
-              <div key={l.asset.symbol} className="ds-kv" data-testid="allowance-line" data-asset={l.asset.symbol}>
-                <span className="ds-kv-label">{t("wallet.allowances.line", { symbol: l.asset.symbol })}</span>
+              <div key={`${l.asset.symbol}:${l.via}`} className="ds-kv" data-testid="allowance-line" data-asset={l.asset.symbol} data-via={l.via}>
+                <span className="ds-kv-label">{t(l.via === "router" ? "wallet.allowances.router" : "wallet.allowances.line", { symbol: l.asset.symbol })}</span>
                 <b className="ds-kv-value">{l.allowance === null ? t("wallet.allowances.unreadable") : `${formatAmount(l.asset, l.allowance)} ${l.asset.symbol}`}{l.allowance !== null && l.allowance > 0n ? <TextButton onClick={() => void revoke(l)} data-testid="revoke-allowance">{t("wallet.allowances.revoke")}</TextButton> : null}</b>
               </div>
             ))}

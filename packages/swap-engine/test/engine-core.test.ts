@@ -117,7 +117,7 @@ describe("cross-chain privacy score (spec §10)", () => {
       expect(c.linkEvidence.length, a.id).toBeGreaterThan(20);
       expect(engine.linkPublic(a.id)).toBe(c.destinationLinkPublic);
     }
-    const quote: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 600, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: {}, obtainedAt: Date.now() };
+    const quote: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 600, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: {}, executorTip: 10n ** 15n, obtainedAt: Date.now() };
     const order = engine.buildOrder({ from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: 10n ** 18n, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50 }, "best-privacy", quote, { orderSigner: "0x000000000000000000000000000000000000a11c", refundOwnerCommitment: 1n, refundNoteSecret: 2n, refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}` });
     expect(order.privacy.destinationLinkPublic).toBe(true);
     expect(order.privacy.score).toBe(privacyScore({ sourceIsPool: true, destinationFresh: true, amountIsBucket: true, amountUniqueness: 0.5, delaySeconds: order.privacy.delaySeconds[0], providerKind: "deposit-address", nativeAssets: true, oneTimeEndpoints: true, privateSubmission: true }));

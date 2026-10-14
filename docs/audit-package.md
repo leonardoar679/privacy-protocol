@@ -156,6 +156,18 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     viewport matrix in one Chromium build; the leakage gate's swap leg runs the service's engine behind a fetch mock and a
     mocked prover (the proof itself is public data); the locale catalogs beside English are partial (the shell and the first
     screens) and fall back key by key.
+30. **V6 — the protect fee is paid only through ProtectRouter** (`contracts/src/periphery/protect/ProtectRouter.sol`): the vaults'
+    `deposit` stays public and fee-free, so a direct deposit skips the 1 % (the official wallet always uses the router; the
+    core and the vaults are unchanged). The router holds nothing between calls and has no privileged path (NoPrivilege).
+31. **V6 — the percentage on a private transfer is the wallet's to pay** (as gap 25): the relayer checks `f ≥ m` there; and
+    an operation funded by the connected wallet (no relayer) pays no fee note at all — the privacy fee is then unpaid.
+32. **V6 — the executor tip is the execution's gas, not the refund's**: a refund-only job (deploy + re-shield) costs about
+    1.8 × the tip at the same gas price (forge: 3.28M against 1.81M units), and an ERC-20 order's tip, valued by the service
+    when it was committed, is not re-valued by the executor; the executor waits while an ETH order's execution would cost
+    more than its tip. Small orders are refused when the gas exceeds the escrow's 1 % cap (`amount_too_small`).
+33. **V6 — the gas pins are a toolchain's measurement** (`contracts/test/periphery/vectors/gas.json`, forge's production
+    configuration): another compiler, EVM version or provider call moves them; the wallet uses them only as a fallback beside
+    `eth_estimateGas`, and the tip's ×1.2 margin and the executor's below-cost wait absorb a provider call above its allowance.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

@@ -5,6 +5,7 @@
 // flows feed events in.
 import { FAILURE_STATES, TERMINAL_STATES, type FundsClass, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { CATALOG, hasCode } from "./errors/catalog";
+import { costNotes } from "./costs";
 import { STATE_EVENT_TARGET, type EventRefs, type OperationEvent, type TransitionRefused, type TransitionResult } from "./types";
 
 /** The legal next states (the spec's §12 table read as a graph). */
@@ -57,6 +58,13 @@ const hasSettlementRef = (ref: { leafIndex?: number; txHash?: string; destinatio
   !!ref && (ref.leafIndex !== undefined || !!ref.txHash || !!ref.destinationTx || ref.tracker === true);
 
 /** Apply one event; the record is never mutated. */
+/** A note joins the current state's history line (the history is one line per state). */
+function withNote(rec: OperationRecord, note: string, at: number): OperationRecord {
+  const last = rec.history[rec.history.length - 1];
+  const line = last ? { ...last, note: last.note ? `${last.note}; ${note}` : note } : { state: rec.state, at, note };
+  return { ...rec, updatedAt: at, history: last ? [...rec.history.slice(0, -1), line] : [line] };
+}
+
 export function transition(rec: OperationRecord, ev: OperationEvent, now = Date.now()): TransitionResult {
   const at = Math.max(now, rec.updatedAt); // I-O2
   if (TERMINAL_STATES.includes(rec.state)) return { ok: false, record: rec, reason: "terminal" }; // I-O1
@@ -68,11 +76,12 @@ export function transition(rec: OperationRecord, ev: OperationEvent, now = Date.
       const since = rec.recovery?.since ?? at;
       return { ok: true, changed: true, record: { ...rec, updatedAt: at, recovery: { ...(rec.recovery ?? {}), state: rec.recovery?.state ?? "monitoring", since, lastCheckedAt: ev.at ?? at } } };
     }
-    if (ev.type === "note") {
-      // a note joins the current state's history line (the history is one line per state)
-      const last = rec.history[rec.history.length - 1];
-      const line = last ? { ...last, note: last.note ? `${last.note}; ${ev.note}` : ev.note } : { state: rec.state, at, note: ev.note };
-      return { ok: true, changed: true, record: { ...rec, updatedAt: at, history: last ? [...rec.history.slice(0, -1), line] : [line] } };
+    if (ev.type === "note") return { ok: true, changed: true, record: withNote(rec, ev.note, at) };
+    if (ev.type === "costs") {
+      // V6 (spec v2.0 §3): the costs merge; a deviation joins the history as a note
+      const costs = { ...(rec.costs ?? {}), ...ev.costs };
+      const next = costNotes(costs).reduce<OperationRecord>((r, n) => withNote(r, n, at), { ...rec, updatedAt: at, costs });
+      return { ok: true, changed: true, record: next };
     }
     return { ok: true, changed: false, record: rec };
   }

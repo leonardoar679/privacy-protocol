@@ -3,7 +3,8 @@
 // On the Hardhat devnet (chain id 1) this deploys, from the forge artifacts in contracts/out, exactly what Deploy.s.sol
 // and DeploySwapPeriphery.s.sol deploy: the dev-setup Groth16 verifier (the real circuit's key, an insecure setup), its
 // adapter, the Poseidon2 hasher, PrivacyCore (which creates its own vault factory), the ETH vault and the
-// SwapOrderFactory. Then it places, with hardhat_setCode, the mainnet bytecode of the contracts the wallet pins
+// SwapOrderFactory, and (V6) DeployProtectRouter.s.sol's ProtectRouter with a 6-decimal USDC at the mainnet address and
+// its vault. Then it places, with hardhat_setCode, the mainnet bytecode of the contracts the wallet pins
 // (THORChain's router, Chainflip's vault, WETH9) at their mainnet addresses, and mock Chainlink feeds at the mainnet
 // proxy addresses, so the wallet's and the service's valuation read a price through the RPC and a signed execution is
 // simulated against real provider code. Output: run/stack.json, read by start-services.mjs and e2e.mjs.
@@ -116,6 +117,22 @@ const escrowJson = JSON.parse(readFileSync(join(ROOT, "contracts/abi/periphery/S
 const escrowCode = typeof escrowJson.bytecode === "string" ? escrowJson.bytecode : escrowJson.bytecode.object;
 console.log(`${"escrow creation hash".padEnd(24)} ${keccak256(escrowCode)} (contracts/abi/periphery/SwapOrderEscrow.json)`);
 
+// 3b. V6 (spec v2.0 §3, §11.1): the protect router — 1 % of every protect to the fee recipient (account #2 here) — and a
+// 6-decimal USDC at the mainnet address (the wallet's registry and the USDC / USD feed apply) with its canonical vault;
+// the funding wallet holds 1,000,000 USDC
+const feeRecipient = privateKeyToAccount(KEYS[2]).address;
+const router = await deploy("ProtectRouter", [core.address, feeRecipient]);
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+await rpc("hardhat_setCode", [USDC, "0x" + readFileSync(join(HERE, "contracts/out/MockUSDC.bin-runtime"), "utf8").trim()]);
+const usdcSim = await pub.simulateContract({ address: vaultFactory, abi: factoryAbi, functionName: "getOrCreateERC20Vault", args: [USDC], account });
+await pub.waitForTransactionReceipt({ hash: await wallet.writeContract(usdcSim.request) });
+const usdcVault = await pub.readContract({ address: vaultFactory, abi: factoryAbi, functionName: "vaultOf", args: [USDC] });
+const usdcAbi = JSON.parse(readFileSync(join(HERE, "contracts/out/MockUSDC.abi"), "utf8"));
+await pub.waitForTransactionReceipt({ hash: await wallet.writeContract({ address: USDC, abi: usdcAbi, functionName: "mint", args: [privateKeyToAccount(KEYS[1]).address, 1_000_000n * 10n ** 6n] }) });
+const routerCore = await pub.readContract({ address: router.address, abi: router.abi, functionName: "CORE" });
+if (routerCore.toLowerCase() !== core.address.toLowerCase() || usdcVault === "0x0000000000000000000000000000000000000000") throw new Error("the protect router or the USDC vault is not in place");
+console.log(`${"USDC (6 decimals)".padEnd(24)} ${USDC}  vault ${usdcVault}; fee recipient ${feeRecipient}`);
+
 // 4. the price feeds: the mock's runtime at every proxy, the answer in slot 0, the description in slot 1
 const feedRuntime = "0x" + readFileSync(join(HERE, "contracts/out/MockFeed.bin-runtime"), "utf8").trim();
 const registryRuntime = "0x" + readFileSync(join(HERE, "contracts/out/MockRegistry.bin-runtime"), "utf8").trim();
@@ -145,6 +162,9 @@ const stack = {
   vaultFactory,
   ethVault,
   swapFactory: swapFactory.address,
+  protectRouter: router.address,
+  feeRecipient,
+  usdc: { token: USDC, vault: usdcVault, decimals: 6 },
   verifier: verifier.address,
   innerVerifier: inner.address,
   hasher: hasher.address,

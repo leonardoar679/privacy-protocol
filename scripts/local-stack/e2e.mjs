@@ -117,6 +117,9 @@ async function unlock(page) {
   await clickId(page, "unlock");
   await byId(page, "home").waitFor({ timeout: 60_000 });
 }
+/** V6 (spec v2.0 §3, §11.1): what a 500 ETH protect leaves in the vault — ProtectRouter keeps 1 % for its fee recipient */
+const NET_PROTECT = stackHasRouter() ? 495 : 500;
+function stackHasRouter() { return !!stack.protectRouter; }
 /** Protect: `amount` ETH through the connected wallet; waits until the vault holds it and the screen reports the note */
 async function protect(page, amount, expectVault) {
   await nav(page, "Home");
@@ -186,7 +189,7 @@ async function campaignRun(page) {
   // five more deposits: the protected balance reaches the order
   const before = await balanceEth(stack.ethVault);
   for (const i of [1, 2, 3, 4, 5]) {
-    await protect(page, 500, before + 500 * i);
+    await protect(page, 500, before + NET_PROTECT * i);
     log(`campaign deposit ${i}: 500 ETH protected`);
   }
   // the quote: the protection line
@@ -481,16 +484,21 @@ try {
   // 2. protect: two public deposits of 500 ETH --------------------------------------------------------------------------
   phase = "protect";
   const vaultBefore = await balanceEth(stack.ethVault); // the devnet keeps earlier runs' deposits
+  const feeRecipientBefore = stack.feeRecipient ? await balanceEth(stack.feeRecipient) : 0;
   for (const i of [1, 2]) {
-    await protect(page, 500, vaultBefore + 500 * i);
+    await protect(page, 500, vaultBefore + NET_PROTECT * i);
     log(`deposit ${i}: 500 ETH protected (vault ${await balanceEth(stack.ethVault)} ETH)`);
     if (i === 1) await snap(page, "protected-500");
   }
   const vaultBalance = await balanceEth(stack.ethVault);
-  check("the ETH vault received the two deposits", Math.abs(vaultBalance - vaultBefore - 1000) < 1e-9, `${vaultBefore} → ${vaultBalance} ETH`);
+  check("the ETH vault received the two deposits net of the privacy fee (V6: 2 × 495 ETH)", Math.abs(vaultBalance - vaultBefore - 2 * NET_PROTECT) < 1e-9, `${vaultBefore} → ${vaultBalance} ETH`);
+  if (stack.feeRecipient) {
+    const feeRecipientAfter = await balanceEth(stack.feeRecipient);
+    check("V6 (spec v2.0 §3, §11.1): ProtectRouter paid exactly 1 % of each protect to the fee recipient (2 × 5 ETH)", Math.abs(feeRecipientAfter - feeRecipientBefore - 10) < 1e-9, `${feeRecipientBefore} → ${feeRecipientAfter} ETH`);
+  }
   await nav(page, "Home");
-  await page.getByText(usdRe(1000 * PRICE)).first().waitFor({ timeout: 60_000 });
-  check(`Home values the protected balance through the RPC quorum: ≈ ${usd(1000 * PRICE)}`, true);
+  await page.getByText(usdRe(2 * NET_PROTECT * PRICE)).first().waitFor({ timeout: 60_000 });
+  check(`Home values the protected balance through the RPC quorum: ≈ ${usd(2 * NET_PROTECT * PRICE)}`, true);
   await snap(page, "home-funded");
 
   // 3. a $1K public send: the standard flow ------------------------------------------------------------------------------

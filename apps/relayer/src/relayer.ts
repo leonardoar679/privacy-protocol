@@ -21,6 +21,7 @@ import { noteBody, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
 import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "@privacy-wallet/protocol/payload";
 import { decryptNoteData, viewKeyPair, type ViewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { encodePrivacyAddress } from "@privacy-wallet/protocol/address";
+import { bpsLabel, feeMeetsTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { coreAbi, encodeTransact, piFromStrings, type PublicInputs } from "./abi";
 import type { Journal } from "./journal";
 
@@ -40,16 +41,17 @@ export interface RelayerConfig {
   rpcUrl: string;
   requireReadableFeePayload: boolean; // refuse a fee whose payload the relayer cannot decrypt (recovery without the journal)
   journal?: Journal<Job>; // durable submissions: in-flight nullifiers and fee notes survive a restart
-  /** V5 (Privacy Wallet Web spec §10): the privacy fee, basis points of a withdrawal's public amount (the floor still applies; a transfer's amount is hidden, so only the floor can be enforced there); absent or 0: none */
+  /** V6 (Privacy Wallet Web spec v2.0 §3): the privacy fee, basis points of what a withdrawal takes out of the pool (its
+   *  public amount plus the fee note), on top of the minimum — a swap's escrow funding included; a transfer's amount is
+   *  hidden, so only the minimum can be enforced there; absent or 0: none */
   feePercentBps?: number;
-  /** V5: the escrow an order's params create under a factory — a withdrawal to it funds a swap and pays the floor only */
-  escrowFor?: (swap: { factory: Address; params: unknown }) => Address;
 }
 
 /** The fee note's opening; `vault` defaults to the ETH vault (older wallets omit it). */
 export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address }
-export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening; /** V5: the swap order this withdrawal funds */ swap?: { factory: Address; params: unknown } }
-export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" }
+export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening }
+/** V6 (spec v2.0 §3): `gasUsed` and `actualNetworkWei` (gasUsed × effectiveGasPrice) from the receipt, once mined */
+export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted"; gasUsed?: string; actualNetworkWei?: string }
 
 export class RelayerError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -150,18 +152,12 @@ export class Relayer {
   async submit(req: SubmitRequest): Promise<{ txHash: Hex; feeWei: string; feeVault: Address; gas: string; feePayloadReadable: boolean }> {
     const { pi, feeWei, feeVault, feePayloadReadable } = this.validateShape(req);
     const minFee = await this.minFeeIn(req.fee);
-    if (feeWei < minFee) throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
-    // V5 (spec §10): a withdrawal pays the percentage of its public amount, unless its recipient is the swap escrow the request names
-    const bps = this.cfg.feePercentBps ?? 0;
-    if (bps > 0 && pi.mode === 1n) {
-      const recipient = ("0x" + pi.withdrawalRecipient.toString(16).padStart(40, "0")).toLowerCase();
-      let exempt = false;
-      if (req.swap && this.cfg.escrowFor) { try { exempt = this.cfg.escrowFor(req.swap).toLowerCase() === recipient; } catch { exempt = false; } }
-      if (!exempt) {
-        const required = (pi.withdrawalAmount * BigInt(Math.floor(bps)) + 9999n) / 10000n;
-        if (feeWei < required) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bps / 100} % of the withdrawal (${required} in vault ${feeVault})`);
-      }
-    }
+    // V6 (spec v2.0 §3): f ≥ ⌈(W + f)·b / 10000⌉ + m for a withdrawal — a swap's escrow funding included, the V5 exemption
+    // is gone; a transfer hides its amount, so its fee note answers to the minimum alone (the wallet pays the percentage)
+    const bps = pi.mode === 1n ? (this.cfg.feePercentBps ?? 0) : 0;
+    const verdict = feeMeetsTerms(pi.mode === 1n ? pi.withdrawalAmount : 0n, feeWei, bps, minFee);
+    if (!verdict.ok && verdict.code === "fee_too_low") throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
+    if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of the ${pi.withdrawalAmount + feeWei} leaving the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     const data = encodeTransact(req.proof, pi, req.noteData);
@@ -191,6 +187,9 @@ export class Relayer {
       const receipt = await this.clients.publicClient.getTransactionReceipt({ hash: txHash }).catch(() => null);
       if (receipt) {
         job.status = receipt.status === "success" ? "mined" : "reverted";
+        // V6 (spec v2.0 §3): what the transaction really cost, beside the fee it was paid (the wallet's estimated / actual)
+        job.gasUsed = receipt.gasUsed.toString();
+        job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
         job.nullifiers.forEach((n) => this.inflight.delete(n));
         this.persist();
         return { ...job, blockNumber: receipt.blockNumber.toString() };

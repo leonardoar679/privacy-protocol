@@ -69,7 +69,7 @@ export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "exec
 /** `execution` is absent for a refund-only job. */
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
 /** `executionTx`: the deployAndExecute transaction, set once and never overwritten (whale spec §19: `txHash` is reused by refund transactions; the wallet tracks the destination side from this hash). */
-export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number }
+export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number; /** V6 (spec v2.0 §3): the last mined transaction's gas and gasUsed × effectiveGasPrice */ gasUsed?: string; actualNetworkWei?: string }
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
@@ -344,6 +344,30 @@ export class SwapExecutor {
     return true;
   }
 
+  /**
+   * V6 (spec v2.0 §3): the tip pays the execution's gas, so the executor never executes below cost — while executing an
+   * ETH order would cost more than its tip it waits (until the execution's deadline; then the refund path). An ERC-20
+   * order's tip is in the token, valued by the service when the order was committed; the executor does not re-value it.
+   */
+  private async belowCost(job: SwapJob, data: Hex): Promise<{ wait: boolean; gas?: bigint }> {
+    let gas: bigint;
+    try {
+      gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data });
+    } catch {
+      return { wait: false }; // send() estimates again and records why
+    }
+    let price: bigint;
+    try {
+      price = await this.cfg.publicClient.getGasPrice();
+    } catch {
+      return { wait: false, gas };
+    }
+    const cost = gas * price;
+    if (cost <= BigInt(job.params.executorTip)) return { wait: false, gas };
+    this.note(job, `waiting: executing now costs ${cost} wei, above the order's ${job.params.executorTip} wei tip`);
+    return { wait: true };
+  }
+
   /** Record a note on the job once (not on every tick). */
   private note(job: SwapJob, msg: string): void {
     if (job.error === msg) return;
@@ -400,6 +424,8 @@ export class SwapExecutor {
         const receipt = job.txHash ? await this.cfg.publicClient.getTransactionReceipt({ hash: job.txHash }).catch(() => null) : null;
         if (!receipt) continue;
         const ok = receipt.status === "success";
+        job.gasUsed = receipt.gasUsed.toString();
+        job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
         if (job.state === "executing" && ok) job.executed = true;
         job.state = job.state === "executing" ? (ok ? "executed" : "execute-failed") : (ok ? "refunded" : "refund-failed");
         job.updatedAt = Date.now();
@@ -426,7 +452,11 @@ export class SwapExecutor {
       }
       if (job.state === "waiting-funding" && job.execution) {
         if (now > Number(job.execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); continue; }
-        if (balance >= BigInt(p.amount)) await this.send(job, encodeDeployAndExecute(p, job.execution), "executing", "execute-failed");
+        if (balance >= BigInt(p.amount)) {
+          const data = encodeDeployAndExecute(p, job.execution);
+          const priced = Number(p.assetType) === 0 ? await this.belowCost(job, data) : { wait: false };
+          if (!priced.wait) await this.send(job, data, "executing", "execute-failed", priced.gas);
+        }
       }
     }
   }

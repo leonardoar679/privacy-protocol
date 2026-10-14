@@ -34,7 +34,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_getTransactionCount": return res("0x3");
     case "eth_estimateGas": return revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: UnknownRoot()" } } : res("0x1b7740");
     case "eth_sendRawTransaction": raws.push(req.params[0]); return res(keccak256(req.params[0]));
-    case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1", gasUsed: "0x1", effectiveGasPrice: "0x1", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
+    case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1b7740", gasUsed: "0x1b7740", effectiveGasPrice: "0x3b9aca00", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
     default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };
   }
 }
@@ -96,6 +96,8 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
     receiptStatus = "0x1";
     const s = await relayer.status(hash);
     expect(s?.status).toBe("mined");
+    expect(s?.gasUsed, "V6 (spec v2.0 §3): the receipt's gas").toBe("1800000");
+    expect(s?.actualNetworkWei, "gasUsed × effectiveGasPrice: 1.8M × 1 gwei").toBe("1800000000000000");
     receiptStatus = null;
     expect((await relayer.info()).inflight).toBe(0);
   });

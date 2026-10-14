@@ -10,6 +10,7 @@ import { PLACEHOLDER_BTC, PLACEHOLDER_EVM, PLACEHOLDER_SOL, placeholderDestinati
 import { NO_VALUER } from "../src/valuation";
 import type { AssetRef, Capabilities, Health, Ingress, POLICIES as _P, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "../src/types";
 import { POLICIES, isPolicy } from "../src/types";
+import { shareTips } from "./helpers/tips";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
@@ -138,7 +139,7 @@ class Stub implements ProviderAdapter {
   async health(): Promise<Health> { return ok(this.id); }
 }
 const engine = (adapters: ProviderAdapter[], over: Partial<ConstructorParameters<typeof PrivateSwapEngine>[0]> = {}) =>
-  new PrivateSwapEngine({ adapters, factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002", [USDC.asset]: "0x0000000000000000000000000000000000000003" }, tipBps: 25, refundWindowSeconds: 7200, valuer: NO_VALUER, ...over });
+  new PrivateSwapEngine({ adapters, factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002", [USDC.asset]: "0x0000000000000000000000000000000000000003" }, tips: shareTips(25n), refundWindowSeconds: 7200, valuer: NO_VALUER, ...over });
 const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 50 };
 
 describe("the competition record, the time budget and the breaker (whale spec §2, §3, §16)", () => {
@@ -235,7 +236,7 @@ describe("phase-1 placeholders and the plan hint (whale spec §5, §12)", () => 
 describe("privacy inputs (whale spec §17)", () => {
   it("a bucketed USDC amount counts as bucketed, an entered destination lowers the score, an edited request keeps its kind", () => {
     const e = engine([new Stub("thorchain", "quote")]);
-    const quote = q("thorchain", 1n);
+    const quote = q("thorchain", 1n, { executorTip: 1_000n });
     // 500,000 USDC is the top of USDC's alphabet (bucketsFor(6)); the 18-decimal series would not know it at all
     const usdcReq: QuoteRequest = { from: USDC, to: BTC, amount: 500_000n * 10n ** 6n, destination: DEST_BTC, slippageBps: 50 };
     const bucketed = e.buildOrder(usdcReq, "balanced", quote, KEYS);

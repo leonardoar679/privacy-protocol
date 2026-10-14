@@ -16,6 +16,7 @@ import { NearIntentsAdapter } from "../src/adapters/nearIntents";
 import { AcrossAdapter } from "../src/adapters/across";
 import { ACROSS_EVENT_EMITTER } from "../src/adapters/acrossSwap";
 import { defaultEngine } from "../src/config";
+import { shareTips } from "./helpers/tips";
 import { priceGuard } from "../src/scoring";
 import { nextState, recoverState } from "../src/order";
 import { executionDigest, orderSignerAddress } from "../src/endpoints";
@@ -38,7 +39,7 @@ const KEYS = { orderSigner: orderSignerAddress(new Uint8Array(32).fill(7)), refu
 
 // ---------------------------------------------------------------------------------------------------
 describe("§71 provider outage — the engine degrades, never fails (live)", () => {
-  const engine = defaultEngine();
+  const engine = defaultEngine({ tips: shareTips(25n) });
   const req: QuoteRequest = { from: ETH, to: ETH_BASE, amount: 10n ** 18n, destination: DEST_EVM, slippageBps: 50 };
   it("LI.FI unreachable: it is reported unreachable, the others still quote and a route is chosen", async () => {
     const set = await withTamper([{ match: "li.quest", fail: true }], () => engine.quoteAll(req, "best-price"));
@@ -51,7 +52,7 @@ describe("§71 provider outage — the engine degrades, never fails (live)", () 
   }, 90_000);
   it("every provider down: no quotes, every error listed, no route chosen, nothing thrown", async () => {
     // a fresh engine: the previous case left reachable health in the 30-second cache (whale spec §16), and this one is about the outage itself
-    const set = await withTamper(ALL_HOSTS.map((h) => ({ match: h, fail: true })), () => defaultEngine().quoteAll(req, "best-privacy"));
+    const set = await withTamper(ALL_HOSTS.map((h) => ({ match: h, fail: true })), () => defaultEngine({ tips: shareTips(25n) }).quoteAll(req, "best-privacy"));
     expect(set.quotes).toEqual([]);
     expect(set.chosen).toBeUndefined();
     expect(Object.keys(set.errors).length).toBeGreaterThanOrEqual(4);
@@ -189,7 +190,7 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     expect(verified).toContain("receiver (mayan nonEVMReceiver)");
     const q = await asQuoted();
     expect(q.minOutVerified).toBe(false);
-    const engine = defaultEngine();
+    const engine = defaultEngine({ tips: shareTips(25n) });
     const order = engine.buildOrder(reqSol, "best-privacy", q, KEYS);
     await expect(engine.prepareExecution(order, a)).rejects.toThrow(/cannot be verified locally/);
   }, 90_000);

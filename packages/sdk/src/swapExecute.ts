@@ -13,6 +13,7 @@ import type { Asset } from "./assets";
 import { simulateExecution, type Simulation } from "./simulate";
 import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
 import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
+import { tipCeiling } from "./executionCost";
 import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
 import type { CheckedCall, MinimumMoved } from "./providerCall";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote } from "./keys/swapKeys";
@@ -71,8 +72,10 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const refund = deriveRefundNote(i.masterSeed, refundCounter);
   const req = i.request;
   const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash });
-  // the escrow is recomputed here from OUR factory and the params; every field we chose is checked
-  checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset });
+  // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
+  // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3)
+  const maxTip = i.deployment ? await tipCeiling(i.deployment, i.fromAsset) : null;
+  checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
   const order = response.order;
   // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
   const serviceTier = asTier(order.tier ?? response.tier);

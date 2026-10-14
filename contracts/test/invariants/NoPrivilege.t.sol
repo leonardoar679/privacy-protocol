@@ -6,6 +6,7 @@ import {ERC20AssetVault} from "../../src/vault/ERC20AssetVault.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
 import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
 import {SwapOrderTypes} from "../../src/periphery/swap/SwapOrderTypes.sol";
+import {ProtectRouter} from "../../src/periphery/protect/ProtectRouter.sol";
 
 /// Invariant 10 (spec §16, plan §74): no privileged state transition exists. Walks the deployed
 /// RUNTIME bytecode of every production contract (skipping PUSH immediates, so data bytes are not
@@ -115,6 +116,13 @@ contract NoPrivilegeTest is PPTestBase {
         p.executeDeadline = uint64(block.timestamp + 1);
         p.refundAfter = uint64(block.timestamp + 2);
         _assertStateMachineOnly(address(f.deploy(p)), "SwapOrderEscrow");
+    }
+
+    /// Periphery (Privacy Wallet Web spec v2.0 §11.1): the protect router is a plain forwarder — no owner, no setter, no
+    /// upgrade path, and it creates nothing (the vault always comes from the factory).
+    function test_ProtectRouterHasNoPrivilegedPath() public {
+        ProtectRouter r = new ProtectRouter(address(core), address(0xFEE5));
+        _assertStateMachineOnly(address(r), "ProtectRouter");
     }
 
     /// The walker itself is sound: it does find the opcodes when they are really there.

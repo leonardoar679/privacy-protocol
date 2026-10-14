@@ -1,8 +1,8 @@
-// The percentage privacy fee (Privacy Wallet Web spec §10; plan V5 decision 2): the relayer's terms on /info, a
-// withdrawal refused below the percentage of its public amount (fee_below_percent, the percentage rounded up),
-// the funding of a swap escrow exempt when the request names the swap and the recipient is the predicted escrow,
-// a transfer checked against the minimum only (its amount is private), the minimum as the floor, the product
-// default. On the forge e2e fixture's withdrawal (0.6 ETH, a 0.05 ETH fee note) over a mock JSON-RPC; no funds.
+// The percentage privacy fee (Privacy Wallet Web spec v2.0 §3; the V6 decision "1 % everywhere"): the relayer's terms on
+// /info, a withdrawal refused unless its fee note f covers ⌈(W + f)·b/10000⌉ on top of the minimum (fee_below_percent),
+// a swap's escrow funding treated like any withdrawal (the V5 exemption is gone), a transfer checked against the
+// minimum only (its amount is private), the minimum checked first, the product default, the receipt's actual cost on
+// the job. On the forge e2e fixture's withdrawal (0.6 ETH, a 0.05 ETH fee note) over a mock JSON-RPC; no funds.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
@@ -69,17 +69,20 @@ describe("the terms on /info (spec §10)", () => {
 });
 
 describe.skipIf(!have)("the percentage on the forge-verified withdrawal (spec §10)", () => {
-  it("accepted at 1 % (0.05 ETH ≥ 0.006 ETH); refused at 10 % with fee_below_percent naming the required amount", async () => {
+  it("accepted at 1 % (0.05 ETH ≥ 1 % of the 0.65 ETH leaving + 0.00216); refused at 10 % with fee_below_percent naming the required amount", async () => {
     const { req } = fixtureRequest();
     const r = await withBps(100).submit(req);
     expect(r.txHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(r.feeWei).toBe(FEE);
-    await expect(withBps(1000).submit(req)).rejects.toMatchObject({ code: "fee_below_percent", message: expect.stringMatching(/below 10 % of the withdrawal \(60000000000000000 in vault/) });
+    await expect(withBps(1000).submit(req)).rejects.toMatchObject({
+      code: "fee_below_percent",
+      message: expect.stringMatching(/below 10\.00 % of the 650000000000000000 leaving the pool plus the minimum 2160000000000000 \(67160000000000000 in vault/),
+    });
   });
-  it("the percentage rounds up: 8.33 % of 0.6 ETH fits under the 0.05 ETH note, 8.34 % does not", async () => {
+  it("the percentage is of what leaves (W + f), rounded up: 7.36 % of 0.65 ETH plus the minimum is exactly the 0.05 ETH note, 7.37 % is not", async () => {
     const { req } = fixtureRequest();
-    await expect(withBps(833).submit(req)).resolves.toMatchObject({ feeWei: FEE });
-    await expect(withBps(834).submit(req)).rejects.toMatchObject({ code: "fee_below_percent" });
+    await expect(withBps(736).submit(req)).resolves.toMatchObject({ feeWei: FEE });
+    await expect(withBps(737).submit(req)).rejects.toMatchObject({ code: "fee_below_percent" });
   });
   it("a private transfer is checked against the minimum only: its amount is not public, so the percentage is the wallet's to pay", async () => {
     const { req } = fixtureRequest();
@@ -87,20 +90,19 @@ describe.skipIf(!have)("the percentage on the forge-verified withdrawal (spec §
     const transfer = { ...req, publicInputs: req.publicInputs.map((v, i) => (i === 6 ? "0" : v)) };
     await expect(withBps(1000).submit(transfer)).resolves.toMatchObject({ feeWei: FEE });
   });
-  it("the funding of a swap escrow is exempt only when the request names the swap and the recipient is the escrow the relayer predicts", async () => {
+  it("a swap's escrow funding pays the percentage like any withdrawal: naming the order exempts nothing (V6)", async () => {
     const { req } = fixtureRequest();
-    const recipient = ("0x" + piFromStrings(req.publicInputs).withdrawalRecipient.toString(16).padStart(40, "0")) as Address;
     const swap = { factory: ("0x" + "0f".repeat(20)) as Address, params: { named: "by the wallet" } };
-    await expect(withBps(1000, { escrowFor: () => recipient }).submit({ ...req, swap })).resolves.toMatchObject({ feeWei: FEE });
-    await expect(withBps(1000, { escrowFor: () => recipient }).submit(req), "no swap named").rejects.toMatchObject({ code: "fee_below_percent" });
-    await expect(withBps(1000, { escrowFor: () => ("0x" + "ee".repeat(20)) as Address }).submit({ ...req, swap }), "another escrow").rejects.toMatchObject({ code: "fee_below_percent" });
-    await expect(withBps(1000, { escrowFor: () => { throw new Error("unparseable params"); } }).submit({ ...req, swap }), "a prediction that fails").rejects.toMatchObject({ code: "fee_below_percent" });
-    await expect(withBps(1000).submit({ ...req, swap }), "no predictor configured").rejects.toMatchObject({ code: "fee_below_percent" });
+    await expect(withBps(1000).submit({ ...req, swap } as typeof req), "an order named in the request").rejects.toMatchObject({ code: "fee_below_percent" });
+    await expect(withBps(100).submit({ ...req, swap } as typeof req)).resolves.toMatchObject({ feeWei: FEE });
+    const code = readFileSync(join(FIXTURE_ROOT, "apps/relayer/src/relayer.ts"), "utf8").replace(/\/\/.*$|\/\*[\s\S]*?\*\//gm, "");
+    expect(code, "no exemption left in the relayer's code").not.toMatch(/escrowFor|exempt/);
   });
   it("the minimum is the floor: checked first, and the binding term when the percentage is below it", async () => {
     const { req } = fixtureRequest();
     await expect(withBps(100, { minFeeWei: 51n * 10n ** 15n }).submit(req)).rejects.toMatchObject({ code: "fee_too_low" });
-    await expect(withBps(100, { minFeeWei: 40n * 10n ** 15n }).submit(req)).resolves.toMatchObject({ feeWei: FEE }); // 1 % = 0.006 < 0.04 ≤ 0.05
+    await expect(withBps(100, { minFeeWei: 40n * 10n ** 15n }).submit(req)).resolves.toMatchObject({ feeWei: FEE }); // 1 % of 0.65 + 0.04 = 0.0465 ≤ 0.05
+    await expect(withBps(100, { minFeeWei: 44n * 10n ** 15n }).submit(req), "0.0065 + 0.044 > 0.05").rejects.toMatchObject({ code: "fee_below_percent" });
     await expect(withBps(0, { minFeeWei: 40n * 10n ** 15n }).submit(req), "no percentage: the minimum alone").resolves.toMatchObject({ feeWei: FEE });
   });
 });

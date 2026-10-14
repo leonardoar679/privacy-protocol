@@ -85,7 +85,8 @@ describe("the engine emits beside its status strings", () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "packages", "sdk", "src", "privateTx.ts"), "utf8");
     expect(src).toMatch(/export interface Progress \{ onStatus\?: ProveStatus;.*onEvent\?: OnEvent;/);
     const types = [...src.matchAll(/o\.onEvent\?\.\(\{ type: "([a-z-]+)"/g)].map((m) => m[1]);
-    expect(new Set(types)).toEqual(new Set(["wallet-prompt", "submitted", "waiting-receipt", "mined", "approved", "proving", "proved", "submitting", "relayer-retry", "fee-terms", "syncing", "verifying", "merging"]));
+    // V6 (spec v2.0 §3): "costs" — the estimate, the relayer's charge and the real cost, before the completion
+    expect(new Set(types)).toEqual(new Set(["wallet-prompt", "submitted", "waiting-receipt", "mined", "approved", "proving", "proved", "submitting", "relayer-retry", "fee-terms", "syncing", "verifying", "merging", "costs"]));
     expect(types.length).toBeGreaterThanOrEqual(24);
     expect((src.match(/onStatus\?\.\(/g) ?? []).length, "the status strings stay").toBeGreaterThanOrEqual(15);
   });

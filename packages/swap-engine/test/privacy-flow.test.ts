@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { sha256 } from "@noble/hashes/sha256";
 import { recordFetch, type RecordedCall } from "./helpers/tamper";
 import { defaultEngine } from "../src/config";
+import { shareTips } from "./helpers/tips";
 import { orderSignerAddress } from "../src/endpoints";
 import { cfAsset, decodeVaultSwapCalldata, encodeDestination } from "../src/adapters/chainflip";
 import { decodeLifiCall } from "../src/adapters/lifi";
@@ -42,7 +43,7 @@ function scanCalls(calls: RecordedCall[], label: string) {
 }
 
 async function runRoute(req: QuoteRequest) {
-  const engine = defaultEngine();
+  const engine = defaultEngine({ tips: shareTips(25n) });
   const prepared: { order: Order; provider: string; calldata: string; memo?: string; to: string; digest: string }[] = [];
   const skipped: Record<string, string> = {};
   const calls = await recordFetch(async (calls) => {
@@ -61,7 +62,7 @@ async function runRoute(req: QuoteRequest) {
     }
     return calls;
   });
-  return { calls, prepared, skipped, net: engine.net(req).amount };
+  return { calls, prepared, skipped, net: engine.net(req, (req.amount * 25n) / 10_000n).amount };
 }
 
 describe("§72 — the permanent wallet never appears in any provider flow (live)", () => {
@@ -148,7 +149,7 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
   }, 300_000);
 
   it("phase 1 (whale spec §5): the fresh destination reaches no provider while quotes are indicative; placeholders stand in", async () => {
-    const engine = defaultEngine();
+    const engine = defaultEngine({ tips: shareTips(25n) });
     const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 100 };
     const calls = await recordFetch(async (calls) => { await engine.quoteAll(req, "fastest"); return calls; });
     expect(calls.length).toBeGreaterThan(0);
@@ -156,7 +157,7 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
   }, 120_000);
 
   it("one-time endpoints: the same quote committed twice gives two different escrows, and the order holds no private key", async () => {
-    const engine = defaultEngine();
+    const engine = defaultEngine({ tips: shareTips(25n) });
     const q: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 1, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: null, obtainedAt: Date.now() };
     const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 100 };
     const o1 = engine.buildOrder(req, "best-privacy", q, KEYS);

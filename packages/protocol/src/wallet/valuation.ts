@@ -136,6 +136,17 @@ export const availablePrice = (p: Prices | null | undefined, symbol: string): Ag
   return f && !("unavailable" in f) && !f.stale ? f : null;
 };
 
+/** A cost in wei as `asset`'s base units at the agreed ETH and asset prices, rounded up; null without both prices (Privacy
+ *  Wallet Web spec v2.0 §3: a gas cost in an ERC-20 is valued, never guessed). */
+export function weiInAsset(wei: bigint, asset: { symbol: string; decimals: number; native: boolean }, prices: Prices | null | undefined): bigint | null {
+  if (asset.native) return wei;
+  const eth = availablePrice(prices, "ETH");
+  const token = availablePrice(prices, asset.symbol);
+  if (!eth || !token) return null;
+  const den = 10n ** 18n * token.usd1e8;
+  return (wei * eth.usd1e8 * 10n ** BigInt(asset.decimals) + den - 1n) / den;
+}
+
 /** The journal form (JSON: bigints as decimal strings). */
 export interface PricesJson { chainId: number; at: number; feeds: Record<string, { symbol: string; usd1e8: string; roundId: string; updatedAt: number; source: string; endpoints: number; stale: boolean; heartbeatSeconds: number } | { unavailable: true; reason: string }> }
 export function serializePrices(p: Prices): PricesJson {

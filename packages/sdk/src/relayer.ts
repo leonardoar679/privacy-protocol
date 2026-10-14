@@ -3,7 +3,7 @@
 // a funded escrow, refund after the window). Any URL works; the wallet keeps a list of relayers and
 // self-submission as fallbacks (plan §85 rule 5). The relayer never receives keys — only proofs,
 // public inputs, payloads, the fee note's opening (its own note), signed executions and refund payloads.
-import { feeForDelivered } from "@privacy-wallet/protocol/wallet/fees";
+import { feeForWithdrawal } from "@privacy-wallet/protocol/wallet/fees";
 import { fetchFor } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): the policy fetch is the default implementation
 const relayerFetch: typeof fetch = fetchFor("relayer");
 import type { Address, Hex } from "viem";
@@ -23,9 +23,7 @@ export interface RelayerInfo {
   feePercentBps?: number;
   feeMinimumWei?: string;
 }
-/** V5: a withdrawal that funds a swap escrow names the order, so the relayer can see the recipient is the escrow and take its minimum only. */
-export interface SwapFunding { factory: Address; params: unknown }
-export interface RelayerSubmitRequest { proof: Hex; publicInputs: string[]; noteData: [Hex, Hex, Hex]; fee: { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address }; swap?: SwapFunding }
+export interface RelayerSubmitRequest { proof: Hex; publicInputs: string[]; noteData: [Hex, Hex, Hex]; fee: { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address } }
 export interface RelayerSubmitResult { txHash: Hex; feeWei: string; feeVault?: Address; gas: string; feePayloadReadable: boolean }
 
 /** A swap order handed to the executor: the escrow's params, the one-time key's signed execution, the committed refund payload. */
@@ -101,8 +99,9 @@ export function feeInVault(info: RelayerInfo, vault: Address, marginBps = 1000, 
   if (vault.toLowerCase() === info.feeVault.toLowerCase()) minimum = feeForRelayer(info, marginBps);
   else { const t = info.feeVaults?.find((v) => v.vault.toLowerCase() === vault.toLowerCase()); minimum = t ? (BigInt(t.minFee) * BigInt(10_000 + marginBps)) / 10_000n : null; }
   if (minimum === null) return null;
-  // V5 (spec §10): the privacy fee is a percentage of what is delivered, never below the minimum; without a delivered amount (a merge, an escrow funding) the minimum alone
-  return delivered === undefined ? minimum : feeForDelivered(delivered, { minimum, feePercentBps: info.feePercentBps ?? 0 });
+  // V6 (spec v2.0 §3): a withdrawal of W pays p(A*) + F with A* = W + f — the percentage of what leaves on top of the
+  // minimum, a swap's escrow funding included; without a public amount (a merge, a transfer) the minimum alone
+  return delivered === undefined ? minimum : feeForWithdrawal(delivered, { minimum, feePercentBps: info.feePercentBps ?? 0 });
 }
 
 /** What the user sees for a swap job (plan §33: never "atomic"). */

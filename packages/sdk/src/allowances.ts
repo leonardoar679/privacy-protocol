@@ -28,10 +28,15 @@ export async function revokeAllowance(token: Address, spender: Address): Promise
   return sendViaInjectedWallet(buildApprove(token, spender, 0n));
 }
 
-export interface AllowanceLine { asset: Asset; allowance: bigint | null }
+/** `via`: whom the allowance lets pull the token — the asset's vault (a direct deposit) or ProtectRouter (V6, spec v2.0 §11.1). */
+export interface AllowanceLine { asset: Asset; spender: Address; via: "vault" | "router"; allowance: bigint | null }
 
-/** Every ERC-20 vault of the deployment with the connected account's allowance toward it (null when unreadable). */
+/** Every ERC-20 of the deployment with the connected account's allowance toward its vault and toward the protect router (null when unreadable). */
 export async function allowancesFor(deployment: Deployment | null, owner: Address, eth: Injected | null = injected()): Promise<AllowanceLine[]> {
   const tokens = assetsOf(deployment).filter((a) => a.token);
-  return Promise.all(tokens.map(async (asset) => ({ asset, allowance: await readAllowance(asset.token as Address, owner, asset.vault as Address, eth) })));
+  const spenders = (asset: Asset): { spender: Address; via: AllowanceLine["via"] }[] => [
+    { spender: asset.vault as Address, via: "vault" },
+    ...(deployment?.protectRouter ? [{ spender: deployment.protectRouter, via: "router" as const }] : []),
+  ];
+  return Promise.all(tokens.flatMap((asset) => spenders(asset).map(async ({ spender, via }) => ({ asset, spender, via, allowance: await readAllowance(asset.token as Address, owner, spender, eth) }))));
 }

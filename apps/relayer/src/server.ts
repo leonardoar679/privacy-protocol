@@ -7,8 +7,6 @@
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
 // RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs),
 // RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open), PORT (8790), HOST (127.0.0.1).
-import { predictEscrow } from "@privacy-wallet/swap-engine/endpoints";
-import { toEngineParams, type SwapParamsJson } from "./swapExecutor";
 import { createServer } from "node:http";
 import type { Hex } from "viem";
 import { Relayer, RelayerError, type RelayerConfig } from "./relayer";
@@ -29,15 +27,13 @@ function feeVaults(): RelayerConfig["feeVaults"] {
   return Object.fromEntries(Object.entries(parsed).map(([vault, t]) => [vault.toLowerCase(), { symbol: String(t.symbol), decimals: Number(t.decimals), minFee: BigInt(t.minFee) }]));
 }
 
-const escrowCreationCode = loadEscrowCreationCode();
 const cfg: RelayerConfig = {
   chainId: Number(env("CHAIN_ID", "31337")), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex, feeVaults: feeVaults(),
   minFeeWei: BigInt(env("MIN_FEE_WEI", "0")), gasEstimate: BigInt(env("GAS_ESTIMATE", "1800000")), feeMarginBps: Number(env("FEE_MARGIN_BPS", "2000")),
   privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: seed(env("RELAYER_SEED")), rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",
   journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json")),
-  feePercentBps: Number(env("FEE_PERCENT_BPS", "0")), // V5 (spec §10): the privacy fee; the product default is 100
-  escrowFor: (s) => predictEscrow(s.factory, escrowCreationCode, toEngineParams(s.params as SwapParamsJson)),
+  feePercentBps: Number(env("FEE_PERCENT_BPS", "0")), // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
 };
 const relayer = Relayer.fromConfig(cfg);
 // swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window

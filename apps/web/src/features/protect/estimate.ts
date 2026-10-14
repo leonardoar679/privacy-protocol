@@ -8,13 +8,18 @@ import type { Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
 import { scratchShieldTx } from "@privacy-wallet/sdk/privateTx";
+import { GAS_UNITS } from "@privacy-wallet/contracts";
 import type { PriceState } from "@privacy-wallet/sdk/prices";
 
 export interface NetworkEstimate { gas: bigint; feePerGasWei: bigint; wei: bigint }
 
 const hexToBigInt = (x: unknown): bigint | null => (typeof x === "string" && /^0x[0-9a-fA-F]+$/.test(x) ? BigInt(x) : null);
 
-/** The deposit's gas × the provider's gas price; an ERC-20 deposit before its approval cannot be simulated, so the approval's cost stands in. */
+/**
+ * The deposit's gas × the provider's gas price. An ERC-20 deposit before its approval cannot be simulated: forge's
+ * measured units of the path stand in for it (V6: @privacy-wallet/contracts GAS_UNITS — through ProtectRouter or straight
+ * into the vault), beside the approval's own estimate.
+ */
 export async function estimateShieldCost(deployment: Deployment, asset: Pick<Asset, "token" | "vault">, amount: bigint, account: string | null): Promise<NetworkEstimate | null> {
   const eth = activeProvider();
   if (!eth || !account || amount <= 0n) return null;
@@ -22,7 +27,8 @@ export async function estimateShieldCost(deployment: Deployment, asset: Pick<Ass
   const call = (tx: { to: Address; data: `0x${string}`; value?: bigint }) =>
     eth.request({ method: "eth_estimateGas", params: [{ from: account, to: tx.to, data: tx.data, ...(tx.value ? { value: "0x" + tx.value.toString(16) } : {}) }] }).then(hexToBigInt).catch(() => null);
   const [gasDeposit, gasApprove, price] = await Promise.all([call(deposit), approve ? call(approve) : Promise.resolve(0n), eth.request({ method: "eth_gasPrice" }).then(hexToBigInt).catch(() => null)]);
-  const gas = gasDeposit !== null ? gasDeposit + (gasApprove ?? 0n) : gasApprove && gasApprove > 0n ? gasApprove : null;
+  const pinned = deployment.protectRouter ? (asset.token ? GAS_UNITS.protectERC20 : GAS_UNITS.protectETH) : GAS_UNITS.deposit;
+  const gas = gasDeposit !== null ? gasDeposit + (gasApprove ?? 0n) : asset.token && gasApprove && gasApprove > 0n ? pinned + gasApprove : null;
   if (gas === null || price === null) return null;
   return { gas, feePerGasWei: price, wei: gas * price };
 }

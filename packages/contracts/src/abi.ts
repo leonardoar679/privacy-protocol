@@ -10,6 +10,7 @@ import groth16Verifier from "../../../contracts/abi/Groth16Verifier.json";
 import poseidon2Hasher from "../../../contracts/abi/Poseidon2Hasher.json";
 import swapOrderEscrow from "../../../contracts/abi/periphery/SwapOrderEscrow.json";
 import swapOrderFactory from "../../../contracts/abi/periphery/SwapOrderFactory.json";
+import protectRouter from "../../../contracts/abi/periphery/ProtectRouter.json";
 
 export const ABI = {
   privacyCore: privacyCore as Abi,
@@ -20,10 +21,13 @@ export const ABI = {
   poseidon2Hasher: poseidon2Hasher as Abi,
   swapOrderEscrow: swapOrderEscrow.abi as Abi,
   swapOrderFactory: swapOrderFactory.abi as Abi,
+  protectRouter: protectRouter.abi as Abi,
 } as const;
 
-/** Creation code: the escrow's is part of its CREATE2 address (the wallet recomputes every escrow it funds). */
+/** Creation code: the escrow's is part of its CREATE2 address (the wallet recomputes every escrow it funds); the
+ *  router's deploys it on a devnet. */
 export const BYTECODE = {
   swapOrderEscrow: swapOrderEscrow.bytecode as Hex,
   swapOrderFactory: swapOrderFactory.bytecode as Hex,
+  protectRouter: protectRouter.bytecode as Hex,
 } as const;

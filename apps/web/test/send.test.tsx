@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Send (spec §3.5, §10, §12–§13, §16): the private path on a privacy address with the checks and the exact-input fee
-// summary ("Recipient receives" computed, "You send" typed; exact-output on the switch), the Review, the record to
+// Send (spec §3.5, §10, §12–§13, §16; V6 fees, spec v2.0 §3): the private path on a privacy address with the checks and
+// the exact-input fee summary ("Recipient receives" computed, "You send" typed; exact-output on the switch), the Review, the record to
 // COMPLETED; the public path on a fresh address with its card, the detection of a pasted privacy address, a Bitcoin
 // address refused by name; the bands at $25K (Review, lint, a tap) and $60K (the hold); the verdicts of a failure
 // before and after the signature.
@@ -92,21 +92,25 @@ describe("Send (spec §3.5)", () => {
     type(screen.getByTestId("send-to-input"), to);
     expect(checks()).toEqual(["ok", "ok", "ok", "ok"]);
     expect(screen.getByTestId("send-privacy").textContent).toBe("● Protected");
-    type(screen.getByTestId("send-amount-input"), "1.01");
+    type(screen.getByTestId("send-amount-input"), "1");
     const fees = await screen.findByTestId("send-fees");
-    await waitFor(() => expect(fees.textContent).toContain("1 ETH"));
+    // V6 (spec v2.0 §3): 1 % of what is sent and the relayer's 0.001 on top, one fee note — 0.989 arrives
+    await waitFor(() => expect(fees.textContent).toContain("0.989 ETH"));
     expect(within(fees).getByText("Recipient receives")).toBeInTheDocument();
     expect(within(fees).getByText("You send")).toBeInTheDocument();
-    expect(fees.textContent).toContain("1.01 ETH");
+    expect(fees.textContent).toContain("1 ETH");
     fireEvent.click(within(fees).getByRole("button", { expanded: false }));
     expect(fees.textContent).toContain("Privacy fee (1.00 %)");
     expect(fees.textContent).toContain("0.01 ETH");
     expect(fees.textContent).toContain("Relayer / network");
-    expect(fees.textContent).toContain("included");
+    expect(fees.textContent).toContain("0.001 ETH");
+    expect(fees.textContent, "the two parts add up; neither covers the other").not.toContain("included");
     fireEvent.click(screen.getByTestId("send-exact-output"));
+    type(screen.getByTestId("send-amount-input"), "0.989");
     await waitFor(() => expect(within(fees).getByText("You pay")).toBeInTheDocument());
-    expect(fees.textContent).toContain("1.0201 ETH");
+    await waitFor(() => expect(fees.textContent, "exactly 0.989 arrives from the least input").toContain("1 ETH"));
     fireEvent.click(screen.getByTestId("send-exact-output"));
+    type(screen.getByTestId("send-amount-input"), "1");
     expect(screen.queryByTestId("send-large"), "a standard transfer").toBeNull();
     fireEvent.click(screen.getByTestId("send-review"));
     const review = await screen.findByTestId("review");
@@ -114,10 +118,10 @@ describe("Send (spec §3.5)", () => {
     expect(review.textContent).toContain("Receive at least");
     await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
     await screen.findByTestId("send-done");
-    expect(screen.getByTestId("send-done").textContent).toContain("Sent 1 ETH privately.");
-    expect(calls.transfer).toEqual([{ amount: 10n ** 18n, recipient: to }]);
+    expect(screen.getByTestId("send-done").textContent).toContain("Sent 0.989 ETH privately.");
+    expect(calls.transfer).toEqual([{ amount: 989n * 10n ** 15n, recipient: to }]);
     const [rec] = finishedOperations();
-    expect(rec).toMatchObject({ kind: "send", state: "COMPLETED", amounts: { asset: "ETH", input: "1010000000000000000", expectedOutput: "1000000000000000000" }, destination: { kind: "privacy-address", display: to }, refs: { txHashes: [HASH], leafIndex: 5 } });
+    expect(rec).toMatchObject({ kind: "send", state: "COMPLETED", amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "989000000000000000" }, destination: { kind: "privacy-address", display: to }, refs: { txHashes: [HASH], leafIndex: 5 } });
     expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "NETWORK_CONFIRMING", "COMPLETED"]);
     expect(fetchSpy, "the relayer terms came from the mocked engine; nothing else was fetched").not.toHaveBeenCalled();
   });
@@ -142,7 +146,7 @@ describe("Send (spec §3.5)", () => {
     expect(screen.getByTestId("send-review")).toBeDisabled();
     fireEvent.click(screen.getByTestId("send-use-fresh"));
     expect(screen.queryByTestId("destination-error")).toBeNull();
-    type(screen.getByTestId("send-amount-input"), "1.01");
+    type(screen.getByTestId("send-amount-input"), "1");
     await waitFor(() => expect(screen.getByTestId("send-fees").textContent).toContain("Recipient receives"));
     expect(screen.getByTestId("send-review")).not.toBeDisabled();
     fireEvent.click(screen.getByTestId("send-review"));
@@ -150,8 +154,8 @@ describe("Send (spec §3.5)", () => {
     expect(review.getAttribute("data-moment")).toBe("withdraw");
     await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
     await screen.findByTestId("send-done");
-    expect(screen.getByTestId("send-done").textContent).toContain(`Withdrawn 1 ETH to ${fresh.slice(0, 8)}…`);
-    expect(calls.withdraw).toEqual([{ amount: 10n ** 18n, recipient: fresh }]);
+    expect(screen.getByTestId("send-done").textContent).toContain(`Withdrawn 0.989 ETH to ${fresh.slice(0, 8)}…`);
+    expect(calls.withdraw).toEqual([{ amount: 989n * 10n ** 15n, recipient: fresh }]);
     expect(peekFreshAddress(seed, "evm").address, "the next withdrawal gets the next address").not.toBe(fresh);
     expect(finishedOperations()[0]).toMatchObject({ kind: "withdraw", state: "COMPLETED", destination: { kind: "fresh", display: fresh }, refs: { txHashes: [HASH2] } });
   });

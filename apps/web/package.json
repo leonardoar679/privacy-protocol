@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@privacy-wallet/config": "*",
+    "@privacy-wallet/contracts": "*",
     "@privacy-wallet/privacy-engine": "*",
     "@privacy-wallet/protocol": "*",
     "@privacy-wallet/protocol-types": "*",

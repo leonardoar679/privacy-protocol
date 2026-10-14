@@ -188,7 +188,7 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     const deposit = providerCalls.find((c) => c.method === "eth_sendTransaction");
     expect(deposit, "the deposit went through the connected wallet").toBeTruthy();
     const relayerSoFar = requests.filter((r) => r.url.startsWith(RELAYER));
-    expect(relayerSoFar.map((r) => `${r.method} ${new URL(r.url).pathname}`), "protecting reads the relayer's fee terms (the percentage shown) and submits nothing").toEqual(["GET /info"]);
+    expect(relayerSoFar.map((r) => `${r.method} ${new URL(r.url).pathname}`), "protecting asks the relayer nothing: its fee is ProtectRouter's (V6, spec v2.0 §3)").toEqual([]);
 
     // send 0.4 ETH to a fresh public address: the real withdrawal — sync, plan, (mocked) proof, the relayer, the receipt
     await act(async () => { await router.navigate("/send"); });

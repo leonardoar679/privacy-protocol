@@ -17,7 +17,9 @@ export type EngineEvent =
   | { type: "relayer-retry"; attempt: number }
   | { type: "submitted"; txHash: Hex; by: "relayer" | "wallet" }
   | { type: "waiting-receipt"; txHash: Hex }
-  | { type: "mined"; txHash: Hex; leafIndex?: number };
+  | { type: "mined"; txHash: Hex; leafIndex?: number }
+  /** V6 (spec v2.0 §3): emitted before "mined" — the estimate, the relayer's charge (its F) and the real cost */
+  | { type: "costs"; estimatedWei?: bigint; actualWei: bigint; charged?: { amount: bigint; asset: string; decimals: number } };
 
 export type OnEvent = (e: EngineEvent) => void;
 
@@ -43,6 +45,10 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
     case "submitted": return opts.nested ? null : { type: "submitted", txHash: e.txHash, by: e.by };
     case "waiting-receipt": return opts.nested ? null : { type: "confirming", txHash: e.txHash };
     case "mined": return opts.nested ? null : { type: "completed", ref: { txHash: e.txHash, ...(e.leafIndex !== undefined ? { leafIndex: e.leafIndex } : {}) } };
+    case "costs":
+      return opts.nested
+        ? null
+        : { type: "costs", costs: { ...(e.estimatedWei !== undefined ? { estimatedWei: e.estimatedWei.toString() } : {}), actualWei: e.actualWei.toString(), ...(e.charged ? { charged: { amount: e.charged.amount.toString(), asset: e.charged.asset, decimals: e.charged.decimals } } : {}) } };
     default: return null;
   }
 }

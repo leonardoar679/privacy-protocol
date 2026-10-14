@@ -6,6 +6,7 @@ import { NO_VALUER, RpcValuer, assessRequest, isTier } from "../src/valuation";
 import { PrivateSwapEngine } from "../src/engine";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../src/types";
 import { TIER_DEFAULTS, type FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
+import { shareTips } from "./helpers/tips";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
@@ -89,7 +90,7 @@ class StubAdapter implements ProviderAdapter {
 }
 
 describe("the engine records the value and the tier (spec §1)", () => {
-  const engine = (valuer = NO_VALUER) => new PrivateSwapEngine({ adapters: [new StubAdapter()], factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tipBps: 25, refundWindowSeconds: 7200, valuer });
+  const engine = (valuer = NO_VALUER) => new PrivateSwapEngine({ adapters: [new StubAdapter()], factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tips: shareTips(25n), refundWindowSeconds: 7200, valuer });
   const req: QuoteRequest = { from: ETH, to: BTC, amount: 1_330n * 10n ** 18n, destination: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", slippageBps: 50 };
   const keys = { orderSigner: "0x00000000000000000000000000000000000000a1", refundOwnerCommitment: 1n, refundNoteSecret: 2n, refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}` };
 

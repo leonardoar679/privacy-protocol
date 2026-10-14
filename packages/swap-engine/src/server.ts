@@ -10,6 +10,7 @@ import { createServer } from "http";
 import { randomBytes } from "crypto";
 import { defaultEngine } from "./config";
 import { MinimumMovedError, type QuoteHint } from "./engine";
+import { TipError } from "./tips";
 import { riskDb } from "./risk/riskDb";
 import { securityBreakdown } from "./risk/security";
 import { incidents } from "./health";
@@ -214,6 +215,13 @@ createServer(async (req, res) => {
     res.writeHead(out.status, { ...cors, "content-type": "application/json" });
     res.end(json(out.body));
   } catch (e) {
+    // V6 (spec v2.0 §3): an order its escrow could not pay the execution's gas from, or a tip that cannot be priced, is the
+    // caller's answer (400); a fee history the service cannot read is its own outage (503)
+    if (e instanceof TipError) {
+      res.writeHead(e.code === "fee_history_unavailable" ? 503 : 400, { ...cors, "content-type": "application/json" });
+      res.end(json({ error: e.message, code: e.code }));
+      return;
+    }
     const bad = e instanceof BadRequest;
     res.writeHead(bad ? 400 : 500, { ...cors, "content-type": "application/json" });
     res.end(json({ error: String((e as Error).message ?? e) }));

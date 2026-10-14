@@ -7,16 +7,17 @@ import { fileURLToPath } from "url";
 import { PrivateSwapEngine } from "../src/engine";
 import { executionDigest } from "../src/endpoints";
 import type { Quote, QuoteRequest } from "../src/types";
+import { shareTips } from "./helpers/tips";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const escrowArtifact = read("../../../contracts/abi/periphery/SwapOrderEscrow.json");
 
 const engine = new PrivateSwapEngine({
   adapters: [], factory: "0x00000000000000000000000000000000000000f1", escrowCreationCode: escrowArtifact.bytecode, chainId: 1n,
-  refundVaults: { native: "0x00000000000000000000000000000000000000e7" }, tipBps: 25, refundWindowSeconds: 7200,
+  refundVaults: { native: "0x00000000000000000000000000000000000000e7" }, tips: shareTips(25n), refundWindowSeconds: 7200,
 });
 const req: QuoteRequest = { from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: 5n * 10n ** 17n, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50 };
-const quote: Quote = { provider: "thorchain", category: "A", toAmount: 1_500_000n, toAmountMin: 1_490_000n, fees: [], etaSeconds: 600, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: {}, obtainedAt: Date.now() };
+const quote: Quote = { provider: "thorchain", category: "A", toAmount: 1_500_000n, toAmountMin: 1_490_000n, fees: [], etaSeconds: 600, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: {}, obtainedAt: Date.now(), executorTip: 25n * 10n ** 14n };
 const keys = { orderSigner: "0x000000000000000000000000000000000000a11c", refundOwnerCommitment: 7n, refundNoteSecret: 9n, refundNoteDataHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
 
 describe("restoreOrder", () => {

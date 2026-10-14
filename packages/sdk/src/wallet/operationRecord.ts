@@ -37,6 +37,13 @@ export type DestinationKind = "fresh" | "entered" | "book" | "privacy-address" |
 
 export interface FeeLine { label: string; value: string; hint?: string }
 
+/**
+ * V6 (Privacy Wallet Web spec v2.0 §3; doc §43): what the network part of an operation cost — the estimate shown before
+ * signing and the real cost (gasUsed × effectiveGasPrice from this wallet's own receipt read), both in wei, and what the
+ * relayer charged for it (its F) in the fee's own asset. Optional, never written by emptyJournal().
+ */
+export interface OperationCosts { estimatedWei?: string; actualWei?: string; charged?: { amount: string; asset: string; decimals: number } }
+
 /** What makes a completion true (I-O4): a leaf index, a destination transaction, the tracker's completion or a mined hash. */
 export interface SettlementRef { leafIndex?: number; txHash?: string; destinationTx?: string; tracker?: boolean; jobId?: string }
 
@@ -59,5 +66,7 @@ export interface OperationRecord {
   recovery?: { state: RecoveryState; since: number; lastCheckedAt?: number };
   /** the §47 lines while AWAITING_SIGNATURE */
   progress?: { step: ProgressStep; i?: number; n?: number };
+  /** V6: the estimated, charged and actual network cost (spec v2.0 §3) */
+  costs?: OperationCosts;
   history: { state: OperationState; at: number; note?: string }[];
 }

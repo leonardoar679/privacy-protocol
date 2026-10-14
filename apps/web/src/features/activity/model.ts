@@ -11,6 +11,9 @@ import { activityStatus, amountFrom, statusOf, targetOf, titleOf } from "../amou
 import type { Amount, Status } from "../viewKit";
 import { stateWords } from "../operations/recovery";
 import type { ActivityRow, DayGroup } from "./rows";
+import { costDifference } from "@privacy-wallet/sdk/operations/costs";
+import type { OperationCosts } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { formatUnits } from "viem";
 import type { ActivityGroupView, ActivityModel, ActivityRowView, DetailModel, DetailStep } from "./View";
 
 type T = (key: MessageKey, vars?: Vars) => string;
@@ -60,6 +63,19 @@ export function activityModel(groups: DayGroup[], t: T, o: { refreshing?: string
     .map((g) => ({ key: g.key, label: g.label, rows: g.rows.filter((r) => !(o.simple && r.kind === "housekeeping")).map((r) => rowView(r, t)) }))
     .filter((g) => g.rows.length > 0);
   return { groups: views, refreshing: o.refreshing ?? null, advanced: o.advanced ?? null };
+}
+
+const eth = (wei: bigint): string => `${formatUnits(wei, 18)} ETH`;
+
+/** Estimated / Actual / Difference, and the relayer's charge (spec v2.0 §3). */
+function costRows(c: OperationCosts, t: T): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  if (c.estimatedWei !== undefined) rows.push({ label: t("activity.costEstimated"), value: eth(BigInt(c.estimatedWei)) });
+  if (c.actualWei !== undefined) rows.push({ label: t("activity.costActual"), value: eth(BigInt(c.actualWei)) });
+  const d = costDifference(c);
+  if (d !== null) rows.push({ label: t("activity.costDifference"), value: `${d < 0n ? "−" : "+"}${eth(d < 0n ? -d : d)}` });
+  if (c.charged) rows.push({ label: t("activity.costCharged"), value: `${formatUnits(BigInt(c.charged.amount), c.charged.decimals)} ${c.charged.asset}` });
+  return rows;
 }
 
 /** The execution timeline (spec §7.8) of a record's state: what is done, what runs now, what waits. */
@@ -141,6 +157,8 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
     { label: t("activity.nullifierStatus"), value: rec?.refs.leafIndex !== undefined ? t("activity.leafAt", { leaf: rec.refs.leafIndex }) : "—" },
     { label: t("activity.confirmationState"), value: rec ? stateWords(rec.state, t) : (r.swap?.track?.label ?? r.status) },
     { label: t("activity.recoveryState"), value: rec?.recovery?.state ?? "—" },
+    // V6 (spec v2.0 §3; doc §43): what the network part cost against its estimate, and what the relayer charged for it
+    ...(rec?.costs ? costRows(rec.costs, t) : []),
     ...(rec
       ? [
           {

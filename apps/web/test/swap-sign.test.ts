@@ -29,7 +29,7 @@ const DEST = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const LIMIT = 3_000_000n; // sats; THORChain limits are 1e8-based, so for BTC the limit is the minimum
 const engine = new PrivateSwapEngine({
   adapters: [], factory: FACTORY, escrowCreationCode: read("../../../contracts/abi/periphery/SwapOrderEscrow.json").bytecode, chainId: 1n,
-  refundVaults: { native: ETH_VAULT }, tipBps: 25, refundWindowSeconds: 7200,
+  refundVaults: { native: ETH_VAULT }, tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */, refundWindowSeconds: 7200,
 });
 const seed = utf8ToBytes("swap-sign-test-seed");
 const now = () => Math.floor(Date.now() / 1000);
@@ -56,7 +56,7 @@ async function commitAndPrepare(bend: Bend = {}) {
   const refund = deriveRefundNote(seed, 3);
   const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST, slippageBps: 50 };
   const shown = await thorchain().quote(req);
-  const order = engine.buildOrder(req, "best-privacy", shown, { orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment, refundNoteSecret: refund.noteSecret, refundNoteDataHash: refund.noteDataHash });
+  const order = engine.buildOrder(req, "best-privacy", { ...shown, executorTip: req.amount / 400n }, { orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment, refundNoteSecret: refund.noteSecret, refundNoteDataHash: refund.noteDataHash });
   const journaled: JournaledOrder = { request: wire(req), params: wire(order.params), policy: "best-privacy", approvedMin: shown.toAmountMin.toString() };
   const p = await engine.prepareExecution(order, thorchain(bend));
   const prepared: Prepared = wire({ digest: p.digest, provider: p.provider, value: p.value, calldata: p.calldata, deadline: p.deadline });

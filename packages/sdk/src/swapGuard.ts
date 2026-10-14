@@ -6,7 +6,8 @@
 //    escrow's creation code bundled from the contracts' artifact — a service that names any other
 //    address, e.g. its own, is refused before a withdrawal is built;
 //  - the params carry THIS wallet's one-time order signer and refund note, the amount and asset it
-//    asked for, the asset's canonical vault for refunds, a tip within the contract's 1 % cap, and
+//    asked for, the asset's canonical vault for refunds, a tip within the contract's 1 % cap and (V6, spec v2.0 §3)
+//    within three times this wallet's own estimate of the execution's gas (./executionCost.ts), and
 //    deadlines that let a failed order come back within days;
 //  - the digest the order key signs is recomputed from the provider call it authorizes, the call's
 //    deadline is within the order's, and it forwards no more value than the escrow can spend.
@@ -67,6 +68,8 @@ export interface OrderExpectation {
   refund: { ownerCommitment: bigint; noteSecret: bigint; noteDataHash: Hex };
   amount: bigint;
   asset: Asset;
+  /** V6 (spec v2.0 §3): three times this wallet's own estimate of the execution's gas (executionCost.tipCeiling); null or absent: no estimate, the 1 % cap alone */
+  maxTip?: bigint | null;
   now?: number; // unix seconds (tests)
 }
 
@@ -84,6 +87,7 @@ export function checkOrder(order: ServiceOrder, e: OrderExpectation): void {
   if (Number(p.assetType) !== wantType || !same(p.asset, e.asset.token ?? ZERO)) throw new OrderMismatch("asset", `${p.assetType}:${p.asset} is not ${e.asset.symbol}`);
   if (!same(p.refundVault, e.asset.vault)) throw new OrderMismatch("refundVault", `${p.refundVault} is not the canonical ${e.asset.symbol} vault`);
   if (BigInt(p.executorTip) > BigInt(p.amount) / TIP_DIVISOR) throw new OrderMismatch("executorTip", "above 1 % of the amount");
+  if (e.maxTip !== undefined && e.maxTip !== null && BigInt(p.executorTip) > e.maxTip) throw new OrderMismatch("executorTip", `${p.executorTip} is more than three times this wallet's own estimate of the execution's gas`);
   if (p.executeDeadline <= now) throw new OrderMismatch("executeDeadline", "already passed");
   if (p.refundAfter < p.executeDeadline || p.refundAfter - now > MAX_REFUND_HORIZON_SECONDS) throw new OrderMismatch("refundAfter", "the refund would be locked too long or before the deadline");
   const predicted = predictEscrow(e.factory, p);

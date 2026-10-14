@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Protect Assets (spec §3.4, §3.11, §9, §12): the connected wallet's balance read through its own provider, the common
-// sizes, the fee summary with "none now", the tap to confirm, the operation record from the signature to COMPLETED
+// sizes, the fee summary (V6: no router configured here, so no privacy fee line), the tap to confirm, the operation record from the signature to COMPLETED
 // with the leaf, a declined prompt ("Your funds were not moved."), the ERC-20 two-step events, the backup nudge once.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -75,7 +75,7 @@ async function unlocked() { await session.create("a strong password"); session.a
 const type = (el: HTMLElement, v: string) => fireEvent.input(el, { target: { value: v } });
 
 describe("Protect Assets (spec §3.4)", () => {
-  it("reads the wallet's balance through its provider, offers common sizes, shows the fee summary with 'none now', and a tap takes the record from the signature to COMPLETED with the leaf", async () => {
+  it("reads the wallet's balance through its provider, offers common sizes, shows the fee summary, and a tap takes the record from the signature to COMPLETED with the leaf", async () => {
     await unlocked();
     const eth = provider();
     setActiveProvider(eth);
@@ -87,10 +87,10 @@ describe("Protect Assets (spec §3.4)", () => {
     fireEvent.click(screen.getAllByTestId("protect-amount-bucket")[3]);
     expect((screen.getByTestId("protect-amount-input") as HTMLInputElement).value).toBe("1");
     const fees = screen.getByTestId("protect-fees");
-    expect(fees.textContent).toContain("You will receive");
-    expect(fees.textContent).toContain("≈ 1 ETH");
+    expect(fees.textContent).toContain("You receive");
+    expect(fees.textContent, "the note holds exactly what remains (V6)").toContain("You receive1 ETH");
     fireEvent.click(within(fees).getByRole("button", { expanded: false }));
-    expect(fees.textContent).toContain("none now · 1.00 % applies when you send or swap privately");
+    expect(fees.textContent, "a deployment without ProtectRouter: no privacy fee (V6, spec v2.0 §11.1)").not.toContain("Privacy fee");
     await waitFor(() => expect(eth.seen).toContain("eth_estimateGas"));
     expect(eth.seen).toContain("eth_gasPrice");
     expect(fetchSpy, "nothing through this wallet's endpoints for the estimate").not.toHaveBeenCalled();

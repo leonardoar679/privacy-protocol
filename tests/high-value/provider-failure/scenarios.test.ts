@@ -27,7 +27,7 @@ class Stub implements ProviderAdapter {
   async track(): Promise<TrackStatus> { return { state: "unknown" }; }
   async health(): Promise<Health> { return ok(this.id); }
 }
-const engine = (adapters: ProviderAdapter[]) => new PrivateSwapEngine({ adapters, factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tipBps: 25, refundWindowSeconds: 7200, valuer: NO_VALUER, healthTracker: new ProviderHealthTracker({ breakerAfter: 3, breakerMs: 300_000 }) });
+const engine = (adapters: ProviderAdapter[]) => new PrivateSwapEngine({ adapters, factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */, refundWindowSeconds: 7200, valuer: NO_VALUER, healthTracker: new ProviderHealthTracker({ breakerAfter: 3, breakerMs: 300_000 }) });
 const req: QuoteRequest = { from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 50 };
 
 describe("plan §105: a provider incident pauses the affected routes (I-HV 12)", () => {

@@ -3,6 +3,7 @@
 // generated locally in a Web Worker (apps/web/src/prover) — never by shipping a secret to a server.
 import { type Address, type Hex, encodeFunctionData, parseAbi } from "viem";
 import type { PublicInputs } from "@privacy-wallet/protocol/prover";
+import { ABI } from "@privacy-wallet/contracts";
 
 /** Fixed-size encrypted output payload (spec §12). */
 export const NOTE_DATA_BYTES = 169;
@@ -68,6 +69,18 @@ export const erc20Abi = parseAbi(["function approve(address spender, uint256 amo
 /** The approval the ERC-20 vault's deposit pulls from (plan §36); exact amount, never unlimited. */
 export function buildApprove(token: Address, vault: Address, amount: bigint): TxRequest {
   return { to: token, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [vault, amount] }) };
+}
+
+/** V6 (spec v2.0 §3, §11.1): a protect through ProtectRouter — `gross` ETH in, the 1 % to its fee recipient, the note built for `net`. */
+export function buildProtectETH(router: Address, ownerCommitment: bigint, noteSecret: bigint, gross: bigint, net: bigint, noteData: Hex): TxRequest {
+  requireNoteData(noteData);
+  return { to: router, data: encodeFunctionData({ abi: ABI.protectRouter, functionName: "protectETH", args: [ownerCommitment, noteSecret, noteData, net] }), value: gross };
+}
+
+/** V6: a protect of `gross` token units through ProtectRouter (requires a prior approve of exactly `gross` to the router). */
+export function buildProtectERC20(router: Address, token: Address, gross: bigint, net: bigint, ownerCommitment: bigint, noteSecret: bigint, noteData: Hex): TxRequest {
+  requireNoteData(noteData);
+  return { to: router, data: encodeFunctionData({ abi: ABI.protectRouter, functionName: "protectERC20", args: [token, gross, ownerCommitment, noteSecret, noteData, net] }) };
 }
 
 /** Build an ERC-20 shield (requires a prior approve to the vault). */

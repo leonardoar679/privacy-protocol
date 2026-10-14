@@ -10,7 +10,7 @@
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
 import type { Address, Hex } from "viem";
-import { formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import { availablePrice, formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
@@ -22,6 +22,8 @@ import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderTo
 import { controlsFor, exportOrderReview, issuerLine, planWords, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
 import { downloadText } from "@privacy-wallet/sdk/download";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
+import { swapFunding, type FeeSplit, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
+import { feeTerms } from "@privacy-wallet/sdk/privateTx";
 import { trackOrder, type Tracked } from "@privacy-wallet/sdk/orderTracker";
 import { useAiSession } from "../../zkapi/aiSession";
 import { checkTrade, tradeSummary } from "../../zkapi/tradeCheck";
@@ -81,6 +83,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
   const [pickingTo, setPickingTo] = useState(false);
   const [compare, setCompare] = useState(false);
   const [quotes, setQuotes] = useState<QuoteSet | null>(null);
+  const [funding, setFunding] = useState<{ amount: bigint; terms: FeeTerms; split: FeeSplit } | null>(null);
   const [order, setOrder] = useState<ServiceOrder | null>(null);
   const [stored, setStored] = useState<StoredSwap | null>(null);
   const [orderKey, setOrderKey] = useState<{ privateKey: Hex; address: Hex } | null>(null);
@@ -127,7 +130,11 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
   const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]);
   const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
-  const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: units.toString(), destination, slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native", mode: protection.mode });
+  // V6 (spec v2.0 §3): the escrow is funded with W = A − p(A) − F, one fee note p(A) + F; the relayer's terms are read when
+  // the user asks for a quote (nothing is fetched before) and the providers quote what W can buy. A swap funded by the
+  // connected wallet pays no relayer and no fee note: W = A.
+  const escrowAmount = funding && funding.amount === units ? funding.split.delivered : units;
+  const request = () => ({ from: refOf(fromAsset), to: to.ref, amount: escrowAmount.toString(), destination, slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50, preference, ...(assessment ? { tier: assessment.tier } : {}), destinationKind: (destinationEdited ? "entered" : "fresh") as "entered" | "fresh", preferNative: preference === "native", mode: protection.mode });
   const openSwaps = session.isUnlocked() ? session.journal().swaps.filter((x) => isOpenSwap(x) && !x.campaign) : [];
   const assetOf = (s: StoredSwap): Asset => assetOfStored(deployment, s);
   const record = useOperation(stored ? swapRecordId(stored.orderId) : null);
@@ -193,7 +200,14 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
 
   async function getQuotes() {
     reset();
-    const set = await run(t("swap.finding"), () => swapService.quote(request()));
+    const set = await run(t("swap.finding"), async () => {
+      const read = submission.kind === "relayer" && deployment ? await feeTerms(deployment, submission, fromAsset.vault) : null;
+      const terms: FeeTerms | null = read ? { minimum: read.fee.amount, feePercentBps: read.info.feePercentBps ?? 0 } : null;
+      const split = terms ? swapFunding(units, terms) : null;
+      if (split?.tooSmall) throw new Error(t("swap.tooSmallForFees"));
+      setFunding(terms && split ? { amount: units, terms, split } : null);
+      return swapService.quote({ ...request(), amount: (split ? split.delivered : units).toString() });
+    });
     if (set) setQuotes(set);
   }
 
@@ -457,11 +471,16 @@ export function Swap({ masterSeed, deployment, account = null, onBack }: SwapPro
     { label: t("checks.tokenSupported"), state: "ok" },
     { label: t("checks.formatValid"), state: !destination.trim() ? "idle" : destinationError ? "fail" : "ok" },
   ];
+  const usdPerUnitOf = (): { from: number; to: number } | null => {
+    const from = availablePrice(priceStore.state().prices, fromAsset.symbol);
+    const toPrice = availablePrice(priceStore.state().prices, to.ref.symbol);
+    return from && toPrice ? { from: Number(from.usd1e8) / 1e8 / 10 ** fromAsset.decimals, to: Number(toPrice.usd1e8) / 1e8 / 10 ** to.ref.decimals } : null;
+  };
   const quoteView: QuoteView | null = chosen && chosenQuote ? {
     pay: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}${usd !== null ? ` · ≈ ${formatUsd(usd)}` : ""}`, receive: `≈ ${fmtUnits(chosenQuote.toAmount, to.ref.decimals)} ${to.ref.symbol}`, minimum: `≈ ${fmtUnits(chosenQuote.toAmountMin, to.ref.decimals)} ${to.ref.symbol}`,
     fees: feeSummary(chosenQuote), time: `~${hours(chosenQuote.etaSeconds)}${policy !== "fastest" ? t("swap.afterFunding") : ""}`, protection: levelOf(chosen.components.privacy) === "Reduced" ? "Reduced" : "High", route: advanced ? `${t("swap.bestRoute")} · ${chosen.provider}` : t("swap.bestProtectedRoute"),
   } : null;
-  const swapFeeView = chosenQuote && order === null ? swapFees({ amount: units, tipBps: 25, toAmount: BigInt(chosenQuote.toAmount), toAmountMin: BigInt(chosenQuote.toAmountMin), providerUsd: chosenQuote.fees?.reduce((s, f) => s + (f.usd ?? 0), 0) || null, networkUsd: null, unvalued: feeSummary(chosenQuote), formatFrom: (u) => `${formatAmount(fromAsset, u)} ${fromAsset.symbol}`, formatTo: (u) => `${fmtUnits(u, to.ref.decimals)} ${to.ref.symbol}`, formatUsd: (x) => formatUsd(x), t }) : null;
+  const swapFeeView = chosenQuote && order === null ? swapFees({ amount: units, terms: funding && funding.amount === units ? funding.terms : { minimum: 0n, feePercentBps: 0 }, executorTip: BigInt(quotes?.executorTip ?? "0"), toAmount: BigInt(chosenQuote.toAmount), toAmountMin: BigInt(chosenQuote.toAmountMin), providerUsd: chosenQuote.fees?.reduce((s, f) => s + (f.usd ?? 0), 0) || null, networkUsd: null, unvalued: feeSummary(chosenQuote), usdPerUnit: usdPerUnitOf(), formatFrom: (u) => `${formatAmount(fromAsset, u)} ${fromAsset.symbol}`, formatTo: (u) => `${fmtUnits(u, to.ref.decimals)} ${to.ref.symbol}`, formatUsd: (x) => formatUsd(x), t }) : null;
   const crossChain = to.ref.chain !== refOf(fromAsset).chain;
   const routeHealthy = chosen ? providerHealthy(quotes?.risk?.[chosen.provider]).ok : false;
 
