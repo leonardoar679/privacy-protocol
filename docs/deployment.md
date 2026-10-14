@@ -90,6 +90,16 @@ wallet.example {
 }
 ```
 
+## The chunks
+
+V6 Stage 16 (spec v2.0 §19): the first route carries the onboarding screens only. The shell, every screen behind the
+gate, the crypto worker's client, the prover and the Korean catalog are separate chunks under `/assets/`. A chunk loads
+when its route matches, at the first proof, or when the locale is Korean (before the first render). Nothing changes for
+a host: they are hashed files under the same policy, cached like the rest of `/assets/`. `node scripts/check-budget.mjs`
+reads the build's Vite manifest (`dist/.vite/manifest.json`). It requires the first route to stay within 250 KB of
+gzipped JavaScript and Home within 80 KB more, with no snarkjs and no WASM before they are needed. The manifest is a build
+record; serving it is harmless, but a host may leave `/.vite/` out.
+
 ## The artifacts and their pins
 
 - `/artifacts/transaction.wasm`, `/artifacts/transaction_final.zkey`, `/artifacts/verification_key.json`: copy them from
@@ -115,7 +125,8 @@ Both services send the same headers on every answer, from `packages/server-kit/s
 - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, since they serve JSON only;
 - `Strict-Transport-Security` when the service terminates TLS itself (`TLS=1`).
 
-Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit by the socket's address
+Their configuration: `apps/api/.env.example` (and the engine's, `packages/swap-engine/.env.example`) and
+`apps/relayer/.env.example`. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit by the socket's address
 (`RATE_PER_MINUTE`). No proxy header is trusted, and the address is never logged. A POST that is not JSON answers 415.
 The relayer's edge is `apps/relayer/src/edge.ts` (`apps/relayer/test/edge.test.ts`), the API's `apps/api/src/app.ts`.
 
@@ -135,8 +146,9 @@ the balance, the notes and the journal live encrypted in the browser's IndexedDB
 ## Checks before a release
 
 1. `node scripts/verify-all.mjs` (every suite, the lint, the leakage gate, the artifact pins, the dependency audit, the
-   build, and the bundle scan: `node scripts/scan-bundle.mjs` refuses a tracker SDK or host, a source map and a test
-   seed in `dist/`).
+   build, the bundle scan — `node scripts/scan-bundle.mjs` refuses a tracker SDK or host, a source map and a test seed in
+   `dist/` — and the performance budget, `node scripts/check-budget.mjs`); with `--browser`, the screenshots against the
+   reviewed baselines and the accessibility passes in Chrome.
 2. `cd apps/web && npm run build && npm run preview`, open the preview: the console shows no CSP violation on first
    launch, Protect, Send, Swap, the Privacy Center.
 3. `node scripts/check-artifact-pins.mjs` on the build machine; `docs/build-hashes.md --dist` for the record.

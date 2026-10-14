@@ -1,131 +1,136 @@
-# Frontend — the privacy wallet (Vite + React + TypeScript + viem)
+# apps/web — the privacy wallet (Vite + React + TypeScript)
 
-A mobile-first wallet for the shielded pool, rebuilt in V5 on its own design system and shell
-([`docs/privacy-wallet-web-spec-v1.0.md`](../../docs/privacy-wallet-web-spec-v1.0.md), the normative text; the pass in
-`docs/roadmap.md`, V5 table). Everything a user touches is new; everything that moves money is the V1.1–V4 engine
-underneath, unchanged: client-side proving in a Web Worker over the normative prover
-(`packages/protocol/src/prover.ts`), the encrypted keystore and journal, fresh per-chain addresses, private
-submission through a relayer, the swap engine with its six adapters, the campaign engine, the lint, the assessment,
-the Privacy Center model. Only the `transact` calldata or a relayed submission ever leaves the page; the seed, the
-keys and the notes never do (`test/privacy-leakage.test.tsx` reads every request to prove it).
+A mobile-first wallet for the shielded pool, rebuilt in V6 to the owner's complete document
+([`docs/privacy-wallet-web-spec-v2.0.md`](../../docs/privacy-wallet-web-spec-v2.0.md), the normative text; the pass in
+`docs/roadmap.md`, V6 table; done means [`docs/definition-of-done-v6.md`](../../docs/definition-of-done-v6.md)).
+- **What this package holds.** The screens, the routes, the words, and the platform: the encrypted store, the prover,
+  the crypto worker, auto-lock, connectivity.
+- **What lives elsewhere.** Every engine is a package beside it: `packages/sdk` (the wallet engine: session, journal,
+  notes, private transactions, swaps, operations), `wallet-engine`, `privacy-engine`, `risk-engine`, `protocol`, and
+  `ui` (the design system).
+- **What leaves the page.** Only a `transact` calldata or a relayed submission. The seed, the keys and the notes never
+  do; the leakage gates read every request to prove it.
 
-> **Status (2026-10-08): builds ✅, 406/406 vitest + 6 live, the gates green** (`node scripts/verify-all.mjs` at the
-> repository root: the suites, the lint over all of `src`, the privacy leakage gate, the artifact pins, the dependency
-> audit, the build with its content security policy). The browser run over the local stack: `docs/local-run.md`.
+> **Status (2026-10-14): builds ✅.**
+> - 508 vitest, plus 9 in the leakage gate and 6 live.
+> - The screenshot harness: 189 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
+>   accessibility checks.
+> - The performance budget: the first route 185.6 KB gzipped of 250, Home 33.1 KB more of 80.
+> - All of it through `node scripts/verify-all.mjs` at the repository root. The browser run over the local stack:
+>   `docs/local-run.md`.
 
-## The tree (spec §45)
+## The tree (spec v2.0 §4)
 ```
 src/
-  design-system/   tokens.ts → tokens.css (generated, pinned) · base.css · components.css · icons/ (inline SVG)
-                   primitives/ (the only files importing @radix-ui: Dialog, Sheet, Tabs, Toast, Switch, RadioGroup, …)
-                   components/ (Layout, Money, Inputs, Sheets, Status, Button) · labels.ts (its own words, set by the app)
-                   Gallery.tsx (every component in every state; /gallery in dev; axe in test)
-  app/             App.tsx (the data router) · routes → routes/index.tsx · Gate.tsx (ready → keystore → unlocked) · Shell.tsx
-                   (Home / Swap / Activity / More) · Providers.tsx (deployment, toasts, the locale) · Background.tsx (the
-                   scheduler, housekeeping, campaign ticks) · i18n/ (en.ts, messages.ts, detect.ts, catalogs.ts, pseudo.ts)
-  features/        onboarding/ (Welcome, the experience, Create / Unlock / Restore, the phrase)
-                   wallet/ (connection.ts: EIP-6963, injected, lazy WalletConnect; Home; Receive)
-                   protect/ · send/ · swap/ (the quote card, Compare routes, the order panel, the wizard and the protected
-                   execution screens) · review/ (the Review before every irreversible moment) · activity/ (the list and the
-                   detail) · operations/ (the record, the reducer, the adapters, the error catalog, recovery, progress)
-                   fees/ (the fee engine) · more/ (Security, Wallet, Advanced, the More menu) · privacy-center/ (the facts,
-                   What stays private?) · classic-privacy/ (the ClassicPool interface, the devnet mock, the screens)
-                   ai/ · guest/ (the V1.1 Private AI and guest swap screens, mounted as chunks)
-  storage/         idb.ts · secureStore.ts (pp.keystore, pp.journal in IndexedDB; a memory mirror) · migrate.ts · prefs.ts · guard.ts
-  api/             transport.ts (credentials omitted, redirects refused, the host allow-list; every request goes through it)
-  sdk/             the engine: privateTx (shield / withdraw / transfer / merge / split), relayer, swapService, swapExecute,
-                   orderTracker, chain (the RPC quorum, the tree), prices, simulate, swapGuard, swapSign, providerCall,
-                   allowances, verifiedReads + lightclient/, core (the Rust core's WASM), assets, tiers, policy, refunds
-  wallet/          session, keystore, journal, settings, notes, campaigns, campaignRunner, addressBook, alerts,
-                   notifications, activity, schedule, posture, housekeeping, operationRecord, classicRecord
-  prover/          client.ts (one worker per proof; the build's pins travel with the request) · worker.ts (snarkjs over
-                   @ref/prover; the proving key and the witness generator fetched, hashed and checked: pins.ts)
-  keys/ · zkapi/ · privacy/ · components/ (the V1.1–V4 components still mounted: the address book panel, Private AI,
-                   the guest swap, the lint, the scorecard, the destination and settlement lines)
-scripts/           build-tokens.ts · csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs ·
+  config.ts        the only reader of the build's environment (VITE_*): the configuration handed to the engines (configure())
+  app/             App.tsx (the data router) · Gate.tsx (locked / unlocked) · Shell.tsx (one bar at a time: the phone's
+                   bottom bar or, from 1024 px, the top bar with the Wallet menu) · Providers.tsx · Background.tsx (the
+                   scheduler and the runners, loaded after the shell) · notifications.tsx · deployment.ts
+                   i18n/ en.ts · ko.ts (every key, its own chunk) · catalogs.ts (+ the partial zh / ja) · locale.ts (the
+                   language before the first render) · intl.ts (numbers and dates) · detect.ts · pseudo.ts · useT.ts
+  routes/          index.tsx: the onboarding routes, then the shell and every screen behind the gate as lazy routes
+  features/        <screen>/View.tsx (pure: a view-model in, callbacks out) · model.ts (the engine → the view-model) ·
+                   fixtures.ts (the screenshots) — home · protect · send · swap (SwapScreen: one confirmation; the
+                   $50K steps; the V3–V5 protected execution under /swap/protected) · review · progress · activity
+                   (windowed) · privacy-center · more (Security, Wallet, Advanced, Language) · classic-privacy ·
+                   onboarding · operations (the words of the records: progress, recovery cards) · fees · wallet (Home,
+                   Receive) · ai · guest
+  hooks/           core.ts (the first route's: session, settings, prefs, connection, connectivity) · wallet.ts (Home's
+                   data) · index.ts (the rest)
+  platform/        autoLock.ts · connectivity.ts · crypto/ (the long-lived crypto worker: protocol, engine, worker, client)
+  storage/         the encrypted IndexedDB container: secureStore.ts, idb.ts, migrate.ts, prefs.ts, guard.ts
+  prover/          client.ts (the proof's entry and the pins) · pins.ts
+  fixtures/        registry.tsx + main.tsx: fixtures.html for the screenshot harness (vite --mode fixtures only)
+  zkapi/           Private AI on the zkAPI SDK (ZKAPI_SDK_DIR), or a stub that says it is not in this build
+  components/      the V1.1–V4 components still mounted (the address book panel, Private AI, the guest swap, the lint)
+scripts/           csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs · check-dist.mjs ·
                    copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
-public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored) · manifest
-test/              406 vitest tests (node; the screens under happy-dom or jsdom), test/live (6, verify-all --live)
+public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored)
+test/              508 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
 ```
 
-## What the wallet does (spec §3)
-- **First launch** — Welcome (Connect Wallet or continue without one), the experience (Simple is the default; Advanced
-  shows the cryptographic detail), Create (the password; the seed never leaves the device), the 24-word phrase, Home.
-- **Home** — the protected balance in USD with its asset rows, Protect / Send / Swap, the recent activity, the
-  privacy badge opening the Privacy Center, the gear opening Security.
-- **Protect** — a public deposit through the connected wallet's own provider (the balance and the network cost read
-  through it, never through the wallet's endpoints); "Service fee: none now".
-- **Send** — privately to a `pp1…` privacy address or publicly to a fresh address of this wallet (default) or an
-  entered one with the four checks; the fee summary collapsed to one number (the privacy fee, the relayer, "You
-  send" / "Recipient receives"); the Review from $20K with the lint, the hold and protected execution from $50K.
-- **Swap** — one card, the best protected route, the quote card with the estimate and the minimum, Compare routes
-  under Advanced, the Review before every commit, the order panel (Fund now, the hard quote, the simulated execution,
-  the hand-over, the tracker), protected execution in steps for large orders (the V3/V4 engine, untouched).
-- **Activity** — every operation grouped by day with its status, the detail with its references and the recovery card
-  ("Your funds were not moved." / "Your funds are still protected." / "We are checking where your funds are.").
-- **More** — Security (the backup, the phrase behind the password, the second confirmation, the large-transfer
-  thresholds, Forget), Wallet (the connection, the trade preference, the allowances), Advanced (the deployment, the
-  light client, the submission path, maintenance, every protected-execution control, the address book), the Privacy
-  Center (the session's facts, computed; "What stays private?"), Classic Privacy (a fixed pool on a devnet mock
-  behind a frozen interface), Private AI.
+## What the wallet does (spec v2.0 §7)
+- **First launch** — Welcome (Connect Wallet, or continue without one), the experience (Simple by default; Advanced
+  shows the technical detail), Create (a password; the seed never leaves the device), the 24-word phrase, Home.
+- **Home** — the protected balance, the assets, an open operation's card (executing, or action needed — an old failure
+  never blocks Home), "Protect your assets" as the one primary action with Send and Swap beside it, the recent
+  activity, the privacy badge (→ the Privacy Center) and the gear (→ Security). From 1024 px: the tiles Protect | Send |
+  Swap above two columns, Protected assets | Recent activity.
+- **Protect** — the 1 % privacy fee through ProtectRouter; "You receive", the fee and the relayer / network cost in
+  dollars from the wallet's own estimate.
+- **Send** — exact input by default ("Recipient receives" is the largest line), exact output on request. Four checks;
+  an address of another chain is never switched silently; a Bitcoin address continues as a cross-chain send.
+- **Swap** — the quote as you type (debounced; a superseded request is cancelled). The minimum ("You'll receive at
+  least"), the protection, the fees and the time. One confirmation: the order runner funds, checks, signs and hands
+  over, and asks again only if the price got worse. Same-chain swaps land in the protected balance; from $50,000 the
+  steps are protected automatically (the four checks, Hold to Confirm or its dialog).
+- **Activity** — by day, a page at a time, the detail with its timeline and, when needed, its recovery, read from
+  where the money is.
+- **More** — the Privacy Center (seven sections, computed), Security (the backup, auto-lock, the second confirmation,
+  the thresholds, Forget), Wallet (the connection, the trade preference, the allowances), Language (Automatic,
+  English, 한국어), Advanced (the deployment check, the light client, the submission path, the protected execution's
+  controls), Classic Privacy, Private AI.
+- **Offline** — a banner. Nothing that moves money runs until the network is back, and an answer lost mid-submission
+  is found by its nullifier, never sent twice.
 
-## The gates (spec §20–§21)
-- `npm run lint` — ESLint over all of `src`: typescript-eslint, the rules of hooks, jsx-a11y strict, the house rules
-  (no storage API outside `storage/`, no `fetch` outside `api/` and `sdk/`, no `window.ethereum` outside
-  `features/wallet/`, no Radix outside the primitives, no inline style and no literal text on a screen, no forbidden
-  word).
-- `test/privacy-leakage.test.tsx` — create → protect → send through the real engine; every request, provider call,
-  transport record and console line read for the seed, the phrase, the keys, the private notes' secrets, the keystore
-  and the forbidden field names; the swap scenario of `test/swap-flow.test.tsx` does the same.
-- `scripts/csp.mjs` — the content security policy built from the build's `VITE_*` hosts and written into
-  `dist/index.html`; the headers on `npm run preview`; `docs/deployment.md`.
-- `scripts/pin-artifacts.mjs` / `check-artifact-pins.mjs` — `public/artifacts.json` and `docs/build-hashes.md`; the
-  prover worker hashes the proving key and the witness generator it fetched and refuses a mismatch in production.
-- `../../scripts/audit.mjs` — `npm audit --omit=dev --audit-level=high` with `scripts/audit-allowlist.json`.
-- `test/i18n.test.tsx` — the locale from the browser, a preference or `?locale=`; the ko / zh / ja partial catalogs;
-  no dead English key; the pseudo-locale (`?locale=pseudo`) for the layout checks.
-- `test/a11y/screens.test.tsx` — fourteen routes under axe; `test/design-system/a11y.test.tsx` — the gallery.
+## The gates (spec v2.0 §17–§19)
+- **Lint.** `npm run lint` runs ESLint over all of `src`: typescript-eslint, the rules of hooks, jsx-a11y strict, and the
+  house rules (one reader of the environment, no storage API outside `storage/`, no Radix outside the UI package, no
+  inline style and no literal text on a screen, no forbidden word). Views import no engine.
+- **Leakage.** `test/privacy-leakage.test.tsx` and `privacy-leakage-worker.test.ts` read every request, provider call,
+  worker message, console line and storage for a secret. The swap scenarios do the same.
+- **Build checks.**
+  - `scripts/csp.mjs`: the policy in `dist/index.html`, the headers on `npm run preview`.
+  - `scripts/check-dist.mjs`: no fixtures and no preview in a production build.
+  - `../../scripts/scan-bundle.mjs` and `../../scripts/check-budget.mjs`: first-party code only, and the budget.
+- **Pins and audit.** `scripts/pin-artifacts.mjs` and `check-artifact-pins.mjs` cover the proving key and the witness
+  generator, cached by the crypto worker under their pin. `../../scripts/audit.mjs` runs the dependency audit.
+- **Words and access.**
+  - `test/i18n.test.tsx` and `i18n-ko.test.tsx`: Korean has every key and no English on a Simple screen.
+  - `test/a11y/`: axe on every route and every fixture state, the keyboard through Protect, Send and Swap, the hold and
+    its dialog, a sheet's focus.
+  - `test/desktop-v6.test.tsx`: every 390 px action at 1440 px.
+- **Screenshots.** `../../tests/visual/run.mjs` (`verify-all --browser`).
 
 ## Run
-`.env.example` lists every setting (`VITE_RPC_URLS`, `VITE_CORE`, `VITE_ETH_VAULT`, `VITE_CHAIN_ID`, the relayer and the
-swap service, the beacon and THORNode gateways, `VITE_WC_PROJECT_ID` for WalletConnect, `VITE_ARTIFACT_BASE`).
+`.env.example` lists every setting:
+- the deployment: `VITE_RPC_URLS`, `VITE_CORE`, `VITE_ETH_VAULT`, `VITE_CHAIN_ID`, `VITE_SWAP_FACTORY`,
+  `VITE_PROTECT_ROUTER`, `VITE_SHIELD_FACTORY`, `VITE_ERC20_VAULTS`;
+- the services: the API and the relayer;
+- the gateways: the beacon APIs and THORNode;
+- the rest: `VITE_WC_PROJECT_ID` for WalletConnect and `VITE_ARTIFACT_BASE`.
+
 ```
+npm ci                       # at the repository root (one lockfile for every workspace)
 cd apps/web
-npm install
-npm run dev        # http://localhost:5173 (the circuit artifacts and the Rust core served from ../circuits and ../core)
-npm run build      # dist/ with the policy in index.html; npm run preview sends the headers
-npm test           # 406 tests; npm run lint; node scripts/check-artifact-pins.mjs
-(cd ../packages/swap-engine && npm run serve)   # the Swap screen talks to http://127.0.0.1:8787
-(cd ../apps/relayer && npm start)            # private submission at http://127.0.0.1:8790
+npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
+npm run build                # dist/ with the policy in index.html; npm run preview sends the headers
+npm test                     # 508 tests; npm run lint
+(cd ../api && npm start)     # the API the Swap screen talks to: http://127.0.0.1:8787/v1
+(cd ../relayer && npm run serve)   # private submission and the executors: http://127.0.0.1:8790
 ```
 The whole stack on a workstation, with the browser run: `docs/local-run.md`. Deploying a build: `docs/deployment.md`.
 
-## Still open (spec §23)
-The §81 monorepo move (a mechanical pass); Express + SQLite for the services (recorded as the target; the services are
-unchanged but for the relayer's fee terms); the native shells, push notifications and background execution
-(`docs/mobile.md`); biometrics beyond WebAuthn; the Classic contracts, circuit port and legal review (the boundary and
-the mock only); WalletConnect's relay privacy (disclosed); real ko / zh / ja translations (the catalogs fall back to
-English); the production ceremony, audits and a testnet broadcast; a private read transport.
+## Still open (spec v2.0 §23)
+- The native shells and push delivery.
+- Biometrics and second-device confirmation (doc §51 "later").
+- The Classic contracts, the circuit port and the legal review (the boundary and the mock only).
+- A native speaker's review of Korean.
+- Unlocking inside the worker (the seed stays on the main thread).
+- LI.FI and Chainflip same-chain routes.
+- A private read transport.
+- The production ceremony, the audits and a testnet broadcast.
 
-## What came before (V1.1–V4, all still underneath)
-- **V1.1** (plan §30–§31, §36, §38–§39, §44–§46, §49, §76–§79): the keystore and recovery (`wallet/keystore.ts`,
-  `session.ts`, `journal.ts`; scrypt + XChaCha20-Poly1305; the journal under a seed-derived key), the Chain Key
-  Abstraction and fresh addresses (`keys/chainKeys.ts`), the RPC quorum (`sdk/chain.ts`), private submission through
-  a relayer paid by a fee note (`sdk/relayer.ts`), merges before a spend (`sdk/privateTx.ts`), the swap signed in the
-  browser with a one-time order key (`keys/swapKeys.ts`, `sdk/swapSign.ts`), the provider call read before signing
-  (`sdk/providerCall.ts`, `swapGuard.ts`), the guest swap, private ERC-20 assets, the Rust core in the browser
-  (`sdk/core.ts`), Private AI on the zkAPI SDK (`zkapi/`, `docs/private-ai.md`), the at-rest vectors
-  (`test/wallet-vectors.test.ts`, `docs/wallet-formats.md`).
-- **V2** (the whale execution layer): prices through the RPC quorum (`sdk/prices.ts`), the value tiers
-  (`sdk/tiers.ts`), the destination card and the privacy lint, the Review with its controls (a tap, a hold, the
-  WebAuthn second factor), the pre-trade simulation (`sdk/simulate.ts`), settlement tracking (`sdk/orderTracker.ts`),
-  private balance maintenance (`wallet/housekeeping.ts`), "Check this trade" (`zkapi/tradeCheck.ts`).
-- **V3** (high-value protection): the campaign engine and runner (`wallet/campaigns.ts`, `campaignRunner.ts` over
-  `@ref/wallet/campaign`), the protection screens, the address book with its verification methods and cooling-off,
-  alerts and notifications, the separate device at institutional.
-- **V4** (the high-value execution engine): the exposure policy and tiers, the assessment, the user's fraction and the
-  modes, the opt-out, concentration and velocity, the runner's confirmed / unknown / reorg states.
+## What came before (V1.1–V5, all still underneath)
+The engines now live in `packages/sdk` (V6 Stage 4):
+- **V1.1** — the keystore and recovery, fresh addresses, the RPC quorum, private submission through a relayer paid by
+  a fee note, merges, the swap signed with a one-time order key, the provider call read before signing, the guest
+  swap, ERC-20 assets, the Rust core in the browser, Private AI.
+- **V2** — prices and tiers, the destination card and the privacy lint, the Review's controls, the pre-trade
+  simulation, settlement tracking, maintenance, "Check this trade".
+- **V3–V4** — the campaign engine and runner, the protection screens, the address book, the exposure policy, the
+  assessment.
+- **V5** — the first design system and shell, the encrypted IndexedDB container, the operation machine, the gates.
 
-The light client (`sdk/lightclient/`, `sdk/verifiedReads.ts`) checks every spend and rescan against the pool an
-Ethereum light client proves at the latest finalized block on mainnet and Sepolia; a devnet has none and reads rest on
-the RPC quorum. A Tor / mixnet transport stays out of scope.
+The light client (`packages/sdk/src/lightclient/`, `verifiedReads.ts`) checks every spend and rescan against the pool an
+Ethereum light client proves at the latest finalized block on mainnet and Sepolia; a devnet has none.

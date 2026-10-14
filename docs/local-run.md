@@ -4,12 +4,19 @@ Order of operations, with what each step proves. The automated form of steps 1�
 [`scripts/local-stack`](../scripts/local-stack/README.md): a Hardhat devnet as chain id 1 (Foundry's `anvil`
 segfaults on this machine, a Winsock LSP; a JavaScript node survives it), the contracts deployed from the forge
 artifacts, mock Chainlink feeds and the mainnet bytecode of the pinned provider contracts at their addresses, the three
-services from one script, and a Playwright-driven browser clicking through the flows below on the V5 screens (Privacy Wallet
-Web spec: Welcome → the experience → Create, Protect, Send, Swap, Activity, More), then the viewport matrix — the shell
-screens at 360×800, 390×844, 412×915, 768×1024 and 1280×800 with no horizontal scroll and 44 px controls, once more under the
-pseudo-locale — and the leakage twin (every request body read for the phrase and the password, localStorage empty, the two
-ciphertext blobs in IndexedDB). The V2–V4 run: 35 checks (36 when the hard quote asks for consent), last run 2026-10-08
-(`results/report-2026-10-08.json`); the V5 run: **166/166** checks on 2026-10-08 (`results/report-2026-10-08-v5.json`), the viewports 1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024; the follow-up run of 2026-10-13, after the relayer executor's fix: **167/167** (`results/report-2026-10-13-v5.json`). The one difference from a testnet: there the light client
+services from one script, and a Playwright-driven browser clicking through the flows below on the V6 screens (spec v2.0:
+Welcome → the experience → Create, Protect 5,000 USDC, Send 2,500 USDC, the large Reviews, ETH → BTC with one confirmation,
+USDC → ETH into the protected balance, the $80,000 protected steps, the $10M campaign, Activity, More), then the viewport
+matrix — the shell screens with no horizontal scroll and 44 px controls, once more under the pseudo-locale —, section 9b
+(pagehide, an idle minute, a wallet disconnected mid-Protect, a tab closed, the browser restarted on its profile, a Send
+whose answer is lost as the network drops) and the leakage twin (every request body read for the phrase and the password,
+localStorage and sessionStorage empty, the two ciphertext blobs in IndexedDB). The V2–V4 run: 35 checks (36 when the hard
+quote asks for consent), last run 2026-10-08 (`results/report-2026-10-08.json`); the V5 run: **166/166** checks on
+2026-10-08 (`results/report-2026-10-08-v5.json`), the follow-up of 2026-10-13: **167/167** (`results/report-2026-10-13-v5.json`);
+V6, at each stage that changed the flows (`results/report-2026-10-13-v6-stage1.json` … `results/report-2026-10-14-v6-stage16.json`),
+and the final run on the V6 code: `results/report-2026-10-14-v6.json`. Live providers come and go — a price trending one
+way asks for the new minimum again, a provider without a quote pauses the steps, "No route available right now" — and the
+run does what a person would (accepts, resumes, types the amount again) and says so in its log. The one difference from a testnet: there the light client
 stays on; on the devnet the run switches it off under More → Advanced (no beacon chain to follow).
 `VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
 
@@ -23,8 +30,8 @@ BROWSER_CHANNEL=chrome npm run e2e        # terminal 3; or open http://127.0.0.1
 
 ## 0. Verify the tree first
 ```
-node scripts/verify-all.mjs --forge <path-to-solc-0.8.24> --rust   # 10 offline steps: type checks, every suite, builds, forge, the Rust core
-node scripts/verify-all.mjs --live                           # + the provider suites (network)
+node scripts/verify-all.mjs --forge <path-to-solc-0.8.24> --rust   # every offline step: type checks, every suite, the gates, the build + budget, forge, the Rust core
+node scripts/verify-all.mjs --live --browser                 # + the provider suites (network) and the screenshot harness (Chrome)
 ```
 
 ## 1. A chain with the contracts
@@ -33,8 +40,11 @@ Either a local node (`anvil`) with the dev verifier, or Sepolia (`docs/testnet.m
 cd contracts
 DEV_VERIFIER=true forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --private-key <anvil key 0> --broadcast
 forge script script/DeploySwapPeriphery.s.sol --rpc-url http://127.0.0.1:8545 --private-key <anvil key 0> --broadcast
+forge script script/DeployProtectRouter.s.sol --rpc-url http://127.0.0.1:8545 --private-key <anvil key 0> --broadcast   # V6: the 1 % protect
+forge script script/DeployShieldReceiver.s.sol --rpc-url http://127.0.0.1:8545 --private-key <anvil key 0> --broadcast  # V6: same-chain swaps into the protected balance
 ```
-Note the five core addresses, the ETH vault and the `SwapOrderFactory` from the logs.
+Note the five core addresses, the ETH vault, the `SwapOrderFactory`, the `ProtectRouter` and the `ShieldReceiverFactory`
+from the logs (the local stack's `npm run deploy` does all of it and writes `run/stack.json`).
 
 ## 2. Services
 ```
@@ -42,7 +52,7 @@ cd apps/api                                          # V6: the API (Express 5 + 
 CHAIN_ID=1 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> RPC_URLS=<rpc> RELAYER_URL=http://127.0.0.1:8790 \
   DB_PATH=api.sqlite npm start                       # http://127.0.0.1:8787/v1 (live provider quotes, swap records)
 
-cd apps/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (+ FEE_VAULTS for ERC-20 fee notes)
+cd apps/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (+ FEE_VAULTS for ERC-20 fee notes, SHIELD_FACTORY for same-chain swaps)
 npm install && npm run serve                        # http://127.0.0.1:8790 (private submission + swap executor)
 curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's pp1… address
 ```
@@ -55,13 +65,30 @@ with `run/api.sqlite`.
 
 ## 3. Wallet
 ```
-cd apps/web && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT / VITE_SWAP_FACTORY from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
+cd apps/web && cp .env.example .env.local           # VITE_RPC_URLS (two or more endpoints) / VITE_CHAIN_ID / VITE_CORE / VITE_ETH_VAULT / VITE_SWAP_FACTORY / VITE_PROTECT_ROUTER / VITE_SHIELD_FACTORY from step 1 (+ VITE_ERC20_VAULTS, VITE_RELAYER_URLS)
 ZKAPI_NETWORK=sepolia npm run zkapi:assets && npm run zkapi:pins   # only for the Private AI tab (Sepolia zkAPI)
 npm install && npm run dev                          # http://localhost:5173  (VITE_REVIEW_HOLD_MINUTES=1 shortens the institutional review hold for a local run)
 (cd ../privacy-core && node scripts/build-wasm.mjs)   # optional: the Rust core as WASM; dev serves it at /core/, a build needs `npm run core:assets` (docs/mobile.md); without it the wallet runs the TypeScript reference
 ```
 Then, in the browser, in this order — each step is one of the flows the node tests and the forge
-suites already cover, so what is being checked is the glue in a real browser on a real chain:
+suites already cover, so what is being checked is the glue in a real browser on a real chain. V6 (spec v2.0 §7), as a
+first-time user would:
+- **Welcome → the experience → Create** (password, the 24 words, Continue); Home reads $0 with "Protect your assets".
+- **Protect 5,000 USDC** (a test USDC in `VITE_ERC20_VAULTS`, through `VITE_PROTECT_ROUTER`): "You receive 4,950 USDC",
+  "Privacy fee 50 USDC", the relayer / network in dollars → Review (a tap below $50K) → "Added 4,950 USDC to your protected
+  balance." The router pays the 50 USDC to its fee recipient.
+- **Send 2,500 USDC** to a fresh address of another wallet: "Recipient receives 2,470.90 USDC" (the largest line), the
+  privacy fee 25, the relayer ≈ 4.10 → the recipient receives exactly 2,470.90.
+- **Swap ETH → BTC**: the quote as you type, "You'll receive at least", the expiry; one confirmation, then the progress — no
+  second tap. On a devnet the order executes against the pinned THORChain router and never delivers.
+- **Swap USDC → ETH** (`SHIELD_FACTORY` at the relayer): "Your protected balance" as the destination; THORChain pays the
+  one-time ShieldReceiver, the relayer shields it, and the note appears ("Added to your protected balance: … ETH").
+- **$80,000**: no mode to choose — "Protected execution" with its four checks, Hold to Confirm (or "Confirm without
+  holding", a dialog), then the steps in amounts only (Completed / Executing / Remaining).
+- **Reload, close the tab, go offline, lock** in the middle of any of them: the wallet comes back to the operation and
+  sends nothing twice. Then Activity, the detail, More → Privacy Center, More → Language (한국어), and the desktop at 1440 px.
+
+The V1.1–V5 walk-through, still valid underneath:
 0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **Backup** downloads the keystore + journal; on a second browser **Restore from phrase** and rescan.
 1. **Shield** 1 ETH with the injected wallet → "Added 1 ETH to your private balance" (leaf index under *Advanced*).
 1b. With a test token in `VITE_ERC20_VAULTS`: **Shield** 100 USDC → the approve, then the deposit; **Send / Withdraw** in USDC pay the relayer in USDC (its `FEE_VAULTS`).
@@ -116,4 +143,6 @@ privacy and duration.
 - The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call
   there, so only the escrow / executor / refund mechanics are exercised (Return to my private balance).
 - The relayer needs a gas balance; it refuses anything below its live minimum fee.
-- Wallet state lives in the encrypted journal (localStorage); clearing site data means Restore from phrase + rescan, or the backup file.
+- Wallet state lives in the encrypted journal (IndexedDB); clearing site data means Restore from phrase + rescan, or the backup file.
+- Live providers: a moving price asks for the new minimum again (nothing is signed below an approved one), a provider without
+  a quote pauses the large steps ("Liquidity dropped": Resume), and a pair can have no route for a while.

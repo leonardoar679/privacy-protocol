@@ -1,6 +1,5 @@
 # Documentation paths that do not exist on purpose (scripts/check-doc-paths.mjs). One per line: <path>  # <reason>.
 # planned: named by docs/privacy-wallet-web-spec-v2.0.md; the line goes when its V6 stage lands.
-docs/definition-of-done-v6.md  # planned: V6 Stage 17
 contracts/deployments/sepolia.json  # planned: written by the Sepolia deployment (roadmap stage 13, not run)
 # historical: named by a record of an earlier pass on purpose.
 apps/web/src/sdk/facade.ts  # historical: the V5 spec's facade, never built; the doc §61 facade is packages/sdk (V6 Stage 4)

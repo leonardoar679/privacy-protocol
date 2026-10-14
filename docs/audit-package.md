@@ -1,6 +1,6 @@
 # Audit package — plan step 20 (independent audits)
 
-Status (2026-10-06): **package assembled; no engagement started.** This document is what an external
+Status (2026-10-14, after the V6 pass): **package assembled; no engagement started.** This document is what an external
 auditor receives first: scope, how to pin and rebuild the code, where the invariants and tests are,
 what is known to be unfinished, and the questions we want answered. The engagement itself (choice of
 firm, scheduling, fix rounds, report publication) is outside this repository.
@@ -35,6 +35,17 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 | `packages/sdk/src/lightclient/`, `packages/sdk/src/verifiedReads.ts` | the Ethereum light client: SSZ roots and generalized indices per data format (Electra/Fulu, Gloas), update validation and committee rotation against consensus-specs, the BLS ciphersuite, the trust-on-first-use bootstrap and the snapshot age limit, the execution header field list, the Merkle-Patricia walk (inclusion and exclusion), and the pool check (prefix root, nullifier slots) |
 | **V5** `apps/web/src/{storage,api}`, `apps/web/src/features/{operations,fees,privacy-center/status.ts}`, `apps/web/src/prover/pins.ts`, `apps/web/scripts/{csp,artifact-pins-lib}.mjs`, `apps/web/src/app/i18n`, `packages/protocol/src/wallet/fees.ts`, `packages/protocol/src/classic/note.ts`, `apps/relayer/src/relayer.ts` (the percentage fee) | the secure store over IndexedDB (the same ciphertext; the migration's equal read-back rule; the prefs schema that holds no secret); the transport policy (credentials omitted, redirects refused, the host allow-list, every request through one module); the fee rule and where the relayer can enforce it (gap 25); the operation state machine's invariants I-O1–I-O5 and the error catalog's funds classes; the pin check in the prover worker; the content security policy's construction from the environment; what the leakage gate reads and what it cannot see; the Privacy Center's facts (computed, never asserted); the classic note format and the module boundary |
 
+### 1.2 Added in V6 (`docs/privacy-wallet-web-spec-v2.0.md`)
+| Component | What to audit |
+|---|---|
+| **`contracts/src/periphery/protect/ProtectRouter.sol`** (new, replaceable) | the 1 % fee on a protect: `fee + net == gross` for every gross; the vault only from the factory's `vaultOf`; strict transfers with balance checks (fee-on-transfer and false-return tokens refused); nothing held between calls; no owner, setter or upgrade; re-entry through a token's hooks |
+| **`contracts/src/periphery/shield/`** (new, replaceable): `ShieldReceiver`, `ShieldReceiverFactory` | a one-time receiver at the CREATE2 address of its committed parameters; THORChain's 2300-gas send before and after deployment; the tip once and only on a delivery ≥ `minAmount`; the committed note only (the note data's hash); WETH unwrapped; an unsupported token only to the committed fallback; can a griefer, the provider or the relayer change where a delivery goes or claim the tip with dust? |
+| `apps/api/src` + `packages/server-kit/src` | the API over the swap engine: what it stores (`db.ts`: a migration of STRICT tables, the destination and refund material only until finalize), the retention purge, the typed logger's redaction (no address, hash or amount can be logged), the edge (CORS allowlist, headers, body limits, the rate limiter that a forged X-Forwarded-For cannot multiply), the reconcile as a second source |
+| `apps/relayer/src/{relayer,shieldExecutor,edge}.ts` | the 1 % rule on every withdrawal incl. a swap's escrow funding (`feeMeetsTerms`), the shield executor's tip against the estimated gas and its bounded re-shields, the job lookup by nullifier (hash and status only) |
+| `packages/sdk/src/wallet/orderRunner.ts`, `packages/sdk/src/deploymentGuard.ts`, `packages/sdk/src/session/autoLock.ts`, `packages/sdk/src/wallet/session.ts` | one confirmation (reconcile before every money movement; sign only while the approved minimum holds); the deployment fingerprint and its refusal; the auto-lock verdict, the holds and their 30-minute cap, what a lock forgets |
+| `apps/web/src/platform/crypto/` | the long-lived crypto worker: only the spend plan and the view key cross into it, no reply carries a key or a circuit input, the proving key cached in the Cache API under its pin and hashed on every read, the worker ended at every lock |
+| `packages/privacy-engine/src/transport/connectivity.ts`, `packages/sdk/src/privateTx.ts` | offline detection, the wait before a relayer attempt, the lost answer found by its nullifier before anything is sent again |
+
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
   tree. Core ABIs are frozen and checksummed: `sha256sum -c contracts/abi/SHA256SUMS`.
@@ -52,15 +63,17 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test inventory:
 | Suite | Count | Runs |
 |---|---|---|
-| contracts (forge) | 107: 47 mock-based incl. 5 fuzz invariants, token zoo, no-privilege bytecode scan, the pool's storage slots; Poseidon2 KAT 5; real verifier 8; **real-proof e2e 10** (incl. note → escrow → provider, escrow → refund note → spent); swap periphery 32 (incl. USDT-like orders, `refundToken`, WETH and ETH paid back to a USDC order re-shielded as ETH); **native-prover proofs 5** (proofs from `privacy-core/privacy-prover` on the same verifier) | `FOUNDRY_OFFLINE=true forge test --use $SOLC` |
+| contracts (forge) | **146** (2026-10-14): V6 adds ProtectRouter 20 and ShieldReceiver 15 (predict = deploy, the 2300-gas send, dust, WETH, foreign and unsupported tokens, re-entry, the fuzzed accounting, the vector shared with TypeScript), the periphery gas bench and the e2e deployment fixture's pin. Before V6, 107: 47 mock-based incl. 5 fuzz invariants, token zoo, no-privilege bytecode scan, the pool's storage slots; Poseidon2 KAT 5; real verifier 8; **real-proof e2e 10** (incl. note → escrow → provider, escrow → refund note → spent); swap periphery 32 (incl. USDT-like orders, `refundToken`, WETH and ETH paid back to a USDC order re-shielded as ETH); **native-prover proofs 5** (proofs from `privacy-core/privacy-prover` on the same verifier) | `FOUNDRY_OFFLINE=true forge test --use $SOLC` |
 | circuits | KAT 18, soundness 17 (negative witnesses), Groth16 harness 14 | `circuits/README.md` |
-| reference | TypeScript 72 (vitest, incl. 9 WASM-vs-TypeScript), Python 31 (vectors); five implementations agree on every primitive | `npm test` in `packages/protocol`, `python reference/python/test_vectors.py` |
-| Rust core + native prover + FFI | 11 Python tests over the generated UniFFI bindings (`privacy-core/privacy-ffi`), 14 vector suites (`privacy-core/privacy-core`), 12 prover tests (`privacy-core/privacy-prover`: a witness proving another statement refused, the native witness == snarkjs' and the soundness manifest's verdicts, the zkey parses to the published key, native ⇄ snarkjs proofs verified both ways), wasm32 build | `cargo test` in `privacy-core` (after `node privacy-core/scripts/gen-prover-fixtures.mjs`), `node privacy-core/scripts/ffi-bindings.mjs` |
-| wallet | 154 vitest + 6 live (the light client: sync committees, BLS, Gloas/Fulu formats, header by hash, storage proofs, the pool check before every transaction; a refused or cancelled order returned by a refund-only job; the walletless deposit instruction checked in the browser; the Swap screen clicked through against the real engine; the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd apps/web && npm test && npm run build` |
-| private-swap engine | 149 vitest: 43 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset, what an escrow can re-shield), 106 live: 26 adapter quotes (incl. the Uniswap-Across leg to USDC and to native ETH, Mayan SWIFT orders), **68 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping, a source swap into a token the escrow cannot re-shield, the Across Swap API bent eight ways, the Mayan SWIFT quote bent eleven ways), 4 flow (§72, incl. USDC-sourced orders), 2 guest deposit, 6 wallet-check (the wallet's own decoder on every call the engine prepares, incl. the swap leg) — `docs/test-matrix.md` | `npm test` (network) |
+| reference | TypeScript 173 (vitest, incl. 9 WASM-vs-TypeScript; V6: the fee formulas of spec v2.0 §3, the settlement states), Python 31 (vectors); five implementations agree on every primitive | `npm test` in `packages/protocol`, `python reference/python/test_vectors.py` |
+| Rust core + native prover + FFI | 30 cargo tests across 15 binaries (2026-10-14); 11 Python tests over the generated UniFFI bindings (`privacy-core/privacy-ffi`), 14 vector suites (`privacy-core/privacy-core`), 12 prover tests (`privacy-core/privacy-prover`: a witness proving another statement refused, the native witness == snarkjs' and the soundness manifest's verdicts, the zkey parses to the published key, native ⇄ snarkjs proofs verified both ways), wasm32 build | `cargo test` in `privacy-core` (after `node privacy-core/scripts/gen-prover-fixtures.mjs`), `node privacy-core/scripts/ffi-bindings.mjs` |
+| wallet | **V6** (2026-10-14): `apps/web` 508 vitest + 9 in the leakage gate + 6 live (5 ran, 1 skipped by the network); the engines in `packages/sdk` 79, `packages/ui` 49, `packages/contracts` 19, `packages/risk-engine` 7, `packages/privacy-engine` 6, `packages/config` 5, `packages/protocol-types` 4, `packages/wallet-engine` 3; the screenshot harness (189 screenshots against reviewed baselines, 363 layout checks, 124 acceptance and accessibility checks); the performance budget. Before V6, 154 vitest + 6 live (the light client: sync committees, BLS, Gloas/Fulu formats, header by hash, storage proofs, the pool check before every transaction; a refused or cancelled order returned by a refund-only job; the walletless deposit instruction checked in the browser; the Swap screen clicked through against the real engine; the swap-service guard: escrow recomputation == forge vector, order and signature checks; the provider call read before signing — pinned contracts, receiver, refunds, approved minimum — against the service adapters' own encoders and the THORNode quorum; keystore / journal, chain keys, RPC quorum, first launch without a request, the Rust core path vs the TypeScript path, ERC-20 + relayer failover, planning, merges) + build | `cd apps/web && npm test && npm run build` |
+| private-swap engine | **V6** (2026-10-14): 103 offline + 107 live (the gas-based tip, same-chain quotes, selection). Before V6, 149 vitest: 43 offline (state machine, scoring, privacy score incl. the cross-chain link composition, endpoint == forge vector, signature recovery, restore, the escrow call per ingress and asset, what an escrow can re-shield), 106 live: 26 adapter quotes (incl. the Uniswap-Across leg to USDC and to native ETH, Mayan SWIFT orders), **68 adversarial** (plan §71/§74: outage, refusal, tampered calldata/quotes per provider, status mapping, a source swap into a token the escrow cannot re-shield, the Across Swap API bent eight ways, the Mayan SWIFT quote bent eleven ways), 4 flow (§72, incl. USDC-sourced orders), 2 guest deposit, 6 wallet-check (the wallet's own decoder on every call the engine prepares, incl. the swap leg) — `docs/test-matrix.md` | `npm test` (network) |
 | privacy | lab (`benchmarks/privacy/results.json`), cross-chain lab (`benchmarks/privacy/crosschain.json`) | `docs/privacy-lab.md` |
-| relayer | 38 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector (incl. refund-only jobs, WETH and foreign-token refunds, ETH at an ERC-20 order's escrow, the late-refund watch and its budget and floors), journals, limits | `cd apps/relayer && npm test` |
-| **everything** | `node scripts/verify-all.mjs --forge <solc-0.8.24> --rust` (add `--live` for the provider suites) — 13/13 steps here, incl. `tsc --noEmit` for the swap engine and the relayer, the Rust core, the native prover, the UniFFI bindings and the WASM package | |
+| relayer | **V6** (2026-10-14): 59 (the 1 % rule on every withdrawal, the actual gas, the shield executor, the edge, the logs, a job by its nullifier). Before V6, 38 vitest: private submission vs the forge e2e transaction, ERC-20 fee vaults, swap executor vs the periphery vector (incl. refund-only jobs, WETH and foreign-token refunds, ETH at an ERC-20 order's escrow, the late-refund watch and its budget and floors), journals, limits | `cd apps/relayer && npm test` |
+| API | 26 (V6: the schema, the routes, reconcile, retention, security, the logs, a full flow) and the server kit 9 | `cd apps/api && npm test` |
+| high-value tests tree | 62 | `node node_modules/vitest/vitest.mjs run --root tests/high-value` |
+| **everything** | `node scripts/verify-all.mjs --forge <solc-0.8.24> --rust --live --browser` — **52/52 steps** on 2026-10-14: every typecheck and suite above, the lint, the package boundaries, the lockfile and the dependency review, the leakage gate, the build with its bundle scan and performance budget, the artifact pins, the documentation paths, the dependency audit, forge, the Rust core, the native prover, the UniFFI bindings, the WASM package, the live provider and light-client suites, and the screenshot harness | |
 
 ## 4. Known gaps and open decisions (please do not re-discover these)
 1. **No production ceremony.** The deployed verifier must come from a multi-party setup; the dev
@@ -154,8 +167,9 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     pins the ceremony's key and publishes `docs/build-hashes.md` out of band.
 29. **V5 — the gates run in the test browsers' limits**: axe in jsdom / happy-dom (no layout, no colour contrast) and the
     viewport matrix in one Chromium build; the leakage gate's swap leg runs the service's engine behind a fetch mock and a
-    mocked prover (the proof itself is public data); the locale catalogs beside English are partial (the shell and the first
-    screens) and fall back key by key.
+    mocked prover (the proof itself is public data). V6 Stage 16: Korean is complete (every key, test-enforced) — see gap 41;
+    the Chinese and Japanese tables stay partial (the shell and the first screens) and fall back key by key; colour
+    contrast, the 200 % text, more contrast and forced colours are checked in Chrome by the screenshot harness.
 30. **V6 — the protect fee is paid only through ProtectRouter** (`contracts/src/periphery/protect/ProtectRouter.sol`): the vaults'
     `deposit` stays public and fee-free, so a direct deposit skips the 1 % (the official wallet always uses the router; the
     core and the vaults are unchanged). The router holds nothing between calls and has no privileged path (NoPrivilege).
@@ -175,6 +189,35 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 35. **V6 — the API's reconcile and quotes are a second source** (`apps/api/src/reconcile.ts`, `quote.ts`): the chain is read
     from the first RPC endpoint that answers (no quorum), the §46 fees are indicative; the wallet's own reads (its quorum)
     win, and it computes the escrow's W with its own relayer terms. The rate limiter is in memory (a restart resets it).
+
+36. **V6 — same-chain swaps into the protected balance run on THORChain only** (`Capabilities.sameChain`): LI.FI's
+    same-chain route needs a GenericSwapFacet verifier in the adapter and the wallet first. The relayer's shield executor
+    calls `shield()` only; `shieldToken` and `sweepUnsupported` are left to anyone. A receipt registers with the relayer in
+    the hand-over tick, before finalize: a journal lost before that point can recover the delivery only with its
+    `receiptId` (the seed re-derives the note's payload by counter).
+37. **V6 — ProtectRouter, ShieldReceiver and ShieldReceiverFactory are new and unaudited.** They are periphery
+    (replaceable: the core and the vaults do not know them), with no privileged path (NoPrivilege) and forge suites of their
+    own (`contracts/test/periphery/ProtectRouter.t.sol`, `ShieldReceiver.t.sol`), fuzzed accounting and vectors shared with
+    the TypeScript; their gas is pinned in `contracts/test/periphery/vectors/gas.json`. They are part of this engagement's scope (§1.2).
+38. **V6 — a legitimate redeploy on a chain the wallet used is accepted only by forgetting the remembered deployment**
+    under More → Advanced (`packages/sdk/src/deploymentGuard.ts`): there is no in-flow acceptance, by design (a deployment
+    that changes under the user is the attack the check exists for).
+39. **V6 — the seed stays on the main thread while the wallet is unlocked** (spec v2.0 §14.3): the crypto worker holds the
+    circuit inputs, the spend plans and the view key for discovery, but another script of the origin can read the main
+    thread as in any web wallet. Unlocking inside the worker is a later pass. The proving key's Cache API entry is public data
+    under its pin.
+40. **V6 — auto-lock and its holds are wallet rules**: a compromised unlocked session can raise the idle time (1–60 minutes)
+    or keep a hold; a hold lasts at most 30 minutes, then the next safe point locks. Focus loss counts as idle only (a wallet
+    popup or WalletConnect takes focus).
+41. **V6 — the Korean catalog awaits a native speaker's review** (`apps/web/src/app/i18n/ko.ts`): every key is translated
+    and tested for placeholders and the words the wallet never uses, but a person has not read it.
+42. **V6 — offline is inferred** (the browser's event, or three unanswered requests in a row) and a lost answer is resolved
+    by asking the relayer for the job by its nullifier: a relayer that answers "unknown" for a submission it did make can
+    only cause a second attempt that fails on chain (a nullifier spends once) — a wasted fee, never a double spend.
+43. **V6 — a trending price can ask the user again and again**: after "Accept new minimum" the runner prepares a fresh hard
+    quote, which in a market moving one way may again be lower; the wallet never signs below an approved minimum, so each
+    move is another question (the local stack's run accepted six in a row on 2026-10-14). A tolerance would trade that
+    friction for a minimum the user did not see.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

@@ -12,8 +12,10 @@ any URL, and self-submission as the fallback.
 | Call | Body / result |
 |---|---|
 | `GET /info` | `{ chainId, core, feeVault, relayer (gas EOA), privacyAddress (pp1…: where fee notes go), minFeeWei, gasPriceWei, gasEstimate, feeMarginBps, requireReadableFeePayload, inflight, feePercentBps, feeMinimumWei, feeVaults: [{ vault, symbol, decimals, minFee }] }` — `feePercentBps` / `feeMinimumWei` (V5, `FEE_PERCENT_BPS`): the privacy fee as bps of a withdrawal's public amount, never below the live minimum; — the ERC-20 vaults it takes fee notes in, each with a fixed minimum in token units (`FEE_VAULTS`, plan §36) |
-| `POST /submit` | `{ proof (abi.encode(a,b,c)), publicInputs (14 decimal strings), noteData[3], fee: { outputIndex, amount, noteSecret, vault? }, swap?: { factory, params } }` → `{ txHash, feeWei, feeVault, gas, feePayloadReadable }` — `swap` (V5) names the order whose escrow a funding withdrawal pays to, which exempts it from the percentage — `fee.vault` names the vault of the fee note (default: the ETH vault); a transaction is single-asset, so a USDC withdrawal pays in USDC |
-| `GET /status/:txHash` | the job (`submitted` / `mined` / `reverted`) |
+| `POST /submit` | `{ proof (abi.encode(a,b,c)), publicInputs (14 decimal strings), noteData[3], fee: { outputIndex, amount, noteSecret, vault? } }` → `{ txHash, feeWei, feeVault, gas, feePayloadReadable }` — `fee.vault` names the vault of the fee note (default: the ETH vault); a transaction is single-asset, so a USDC withdrawal pays in USDC. (V5's `swap` field and its exemption are gone in V6: a swap's escrow funding pays the percentage like any withdrawal.) |
+| `GET /status/:txHash` | the job (`submitted` / `mined` / `reverted`), with V6's `gasUsed` and `actualNetworkWei` from the receipt once mined |
+| `GET /jobs/by-nullifier/:nullifier` | V6 Stage 15: the job that spent this nullifier — its transaction hash and status only — so a wallet whose answer was lost finds its submission instead of sending it twice; `404` `unknown_nullifier` |
+| `POST /shield`, `GET /shield/:receiptId` | V6 Stage 12: the shield executor (below) |
 
 The wallet includes the fee note's opening so the relayer can verify it is really paid before it
 spends gas; the payload of that output is encrypted to the relayer's view key (its privacy address),
@@ -24,7 +26,7 @@ so the relayer can also rediscover the note from chain like any wallet.
 2. `txDomain` == this chain / core (no replay across deployments);
 3. every payload hashes to its proven `noteDataHash`;
 4. the fee output is `noteBody(feeVault, amount, relayer's ownerCommitment, noteSecret)`;
-5. `amount ≥` the vault's minimum: in the ETH vault max(floor, gasEstimate × gasPrice × (1 + margin)) — live; in an ERC-20 vault the fixed `FEE_VAULTS` minimum (no oracle: the operator reprices by config); an unlisted vault is refused (`fee_vault_not_accepted`); with `FEE_PERCENT_BPS` set (V5), a withdrawal's `amount ≥ ⌈withdrawalAmount × bps / 10000⌉` (`fee_below_percent`) unless `withdrawalRecipient` is the escrow predicted from `swap` — a transfer's amount is private, so only the minimum applies there;
+5. the fee: the vault's minimum `m` — in the ETH vault max(floor, gasEstimate × gasPrice × (1 + margin)), live; in an ERC-20 vault the fixed `FEE_VAULTS` minimum (no oracle: the operator reprices by config); an unlisted vault is refused (`fee_vault_not_accepted`). With `FEE_PERCENT_BPS` set (V6, spec v2.0 §3), a withdrawal of W pays `f ≥ ⌈(W + f) × bps / 10000⌉ + m` — the 1 % of the input plus the minimum, a swap's escrow funding included (`fee_too_low` when `f < m`, else `fee_below_percent`; the same `feeMeetsTerms` the wallet splits by); a transfer's amount is private, so only the minimum applies there (`docs/audit-package.md` gap 31);
 6. the nullifiers are not already in flight here;
 7. `eth_estimateGas` from the relayer's address succeeds (proof, root and nullifier set are checked by
    the contract; a reverting call never reaches the chain);
@@ -69,6 +71,24 @@ and never drops a listed token.
 one more pass after it, so a job added meanwhile is still acted on at once and a funded escrow is never executed twice. `test/executorMore.test.ts` covers replacement, ERC-20, journals,
 late refunds and foreign tokens.
 
+## Shield executor (V6 Stage 12, spec v2.0 §11.2)
+A same-chain swap into the protected balance pays a one-time `ShieldReceiver`, a CREATE2 address of the
+`ShieldReceiverFactory` (`SHIELD_FACTORY`). The wallet registers the receipt in the hand-over tick, before the
+execution: `POST /shield { receiptId, params, … }` (the vault read from the factory, `vaultOf`). The executor watches the
+receiver: once the delivery is there, it calls `deployAndShield` (or `shield()` on a deployed receiver), which pays its tip
+once — only for a delivery of at least `minAmount` — and deposits the rest as the committed note:
+`waiting-delivery → shielding → shielded`, or `shield-failed`. A delivery below its minimum, or one after somebody else
+claimed the tip, is shielded at the relayer's cost, at most `MAX_UNPAID_SHIELDS` (3) times per receipt. A receipt is
+watched `LATE_DELIVERY_WATCH_SECONDS` (24 h) past its delivery deadline. `GET /shield/:receiptId` reports the job (the
+wallet's runner reads it every track tick). Journal: `shield-jobs.json`; one pass at a time, as the swap executor.
+`test/shieldExecutor.test.ts` drives it against forge's vector.
+
+## Edge and logs (V6 Stage 15, spec v2.0 §17)
+`src/edge.ts` puts the relayer behind the server kit's headers, as the API: `no-store`, `nosniff`, no referrer,
+`default-src 'none'; frame-ancestors 'none'`, HSTS with `TLS=1`; CORS for `ALLOWED_ORIGINS` only; the rate limit by the
+socket's address (no proxy header trusted); a POST that is not JSON answers `415`. Every console line is checked by
+`test/logs.test.ts`: none names a request, a body, an address, a proof, a payload or a secret.
+
 ## Run
 `.env.example` lists every setting (copy to `.env`); `npm run typecheck` runs `tsc --noEmit`.
 ```
@@ -78,8 +98,8 @@ RELAYER_PRIVATE_KEY=0x… RELAYER_SEED="relayer wallet seed" npm run serve      
 ```
 The gas key only ever holds gas. The seed is the relayer's own wallet (it spends fee notes with the
 same wallet software as any user: rescan with the view key, withdraw with a proof). **Journals are
-durable**: `RELAYER_JOURNAL_DIR` (default `journal/`, gitignored) holds `submissions.json` and
-`swap-jobs.json`, written atomically on every change; a restarted relayer resumes open swap jobs and
+durable**: `RELAYER_JOURNAL_DIR` (default `journal/`, gitignored) holds `submissions.json`,
+`swap-jobs.json` and `shield-jobs.json`, written atomically on every change; a restarted relayer resumes open swap jobs and
 keeps the in-flight nullifiers of unmined submissions (tested). Not verified here: a live chain run
 (this machine cannot run a node — `docs/testnet.md`).
 

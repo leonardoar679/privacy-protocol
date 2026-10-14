@@ -7,7 +7,7 @@ scoring with a live incident feed, the cross-chain privacy score, and the one-ti
 
 ```
 npm install
-npm test                                   # 149 tests: 43 offline + 106 LIVE (real quote APIs, read-only, no funds)
+npm test                                   # 210 tests: 103 offline + 107 LIVE (real quote APIs, read-only, no funds); V6 Stage 9: the HTTP layer is apps/api
 npx tsx src/cli.ts 1 BTC best-privacy       # quote all providers, choose, derive the endpoint, sign the execution
 npx tsx src/cli.ts 1 USDC_BASE best-price
 ```

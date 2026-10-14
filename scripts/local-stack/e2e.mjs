@@ -965,21 +965,28 @@ try {
     // the live market may pause the steps between the approval and a step's hard quote — the price moved ("Price changed"),
     // or the approved provider gave no quote for a moment ("Liquidity dropped", V6 Stage 16's run: Chainflip answered
     // nothing) — and a person resumes, as the $10M campaign's section does; the run says so each time (at most five)
+    // a resumed step starts its cycle again (quote, commit, fund, sign, hand over, one action per tick): a round in
+    // which the run pressed Resume earns another round (the 2026-10-14 final run's step came 10 s after one round)
     let pauses = 0;
-    const firstJob = await until(
-      page,
-      async () => {
-        const resume = byId(page, "swap-steps-resume");
-        if ((await resume.count()) && pauses < 5) {
-          pauses++;
-          log(`the steps paused before step 1's hand-over (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
-          await resume.first().click();
-          await large80.waitFor({ timeout: 30_000 }).catch(() => {});
-        }
-        return (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null;
-      },
-      PROOF_TIMEOUT,
-    );
+    let firstJob = null;
+    for (let round = 0; round < 3 && !firstJob; round++) {
+      const before = pauses;
+      firstJob = await until(
+        page,
+        async () => {
+          const resume = byId(page, "swap-steps-resume");
+          if ((await resume.count()) && pauses < 5) {
+            pauses++;
+            log(`the steps paused before step 1's hand-over (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
+            await resume.first().click();
+            await large80.waitFor({ timeout: 30_000 }).catch(() => {});
+          }
+          return (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null;
+        },
+        PROOF_TIMEOUT,
+      );
+      if (pauses === before) break; // no resume in this round: waiting longer would not help
+    }
     if (pauses) log(`step 1 ${firstJob ? "went ahead" : "did not go ahead"} after ${pauses} resume(s)`);
     // a step that never went ahead (a provider down for the whole wait) is this section's failure, not the run's end
     const progress80 = await text(large80).catch(() => "");
@@ -990,12 +997,14 @@ try {
       check("the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved", Math.abs(quarter * PRICE - 20_000) < 400, `${quarter.toFixed(4)} ETH ≈ $${Math.round(quarter * PRICE)}`);
     }
     await snap(page, "steps-80k-executing");
-    // Return the rest: the steps not started are skipped; the one in flight finishes first (THORChain never settles here)
+    // Return the rest: the steps not started are skipped; the one in flight finishes first (THORChain never settles here).
+    // "Nothing more" is counted from the jobs there are when Return is pressed (a step may land just as the wait ends)
+    const jobsAtReturn = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
     await clickId(page, "swap-steps-return");
     await textAppears(page, "Returning the rest", 30_000);
     await page.waitForTimeout(20_000); // a runner tick or two: nothing more may be handed over
     const jobsAfter = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
-    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === (firstJob ? 1 : 0), `${jobsAfter} jobs for this order`);
+    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === jobsAtReturn && jobsAfter <= 1, `${jobsAfter} jobs for this order (${jobsAtReturn} when Return was pressed)`);
     await snap(page, "steps-80k-returning");
     report.outcome.protectedSteps = { firstJob: firstJob?.id ?? null };
   }

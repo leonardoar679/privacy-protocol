@@ -1216,8 +1216,8 @@ completion) is a scripted five-person checklist for the owner.
 Deviations, each the owner's or recorded for the owner: no wagmi (§8); "Securing your transaction" for "proof" in
 Simple (§7.7); the real ETA instead of "~2 min" (§13.1); "Your funds are safe." only when true (§12.4); `CANCELLED`
 kept (§12.1); the Privacy Center at `/more/privacy` (§6); no server-side note indexer — the "Indexer" of doc §90 is
-the wallet's verified sync plus the API's `chain_state` (§15); Prettier on new code only; Korean for Simple screens,
-notices and errors (§18); the seed on the main thread (§14.3); the visual suite local only (§17); `packages/server-kit`
+the wallet's verified sync plus the API's `chain_state` (§15); Prettier on new code only; Korean beyond the minimum
+of Simple screens, notices and errors — every key, its native-speaker review owed (§18); the seed on the main thread (§14.3); the visual suite local only (§17); `packages/server-kit`
 added; the package boundaries checked by a verify-all script rather than a test file (§4); the suites that existed
 before Stage 4 stay in `apps/web/test` — they run under the web platform's configuration (`test/setup.ts`) — while
 each package carries the suites written for it (the design system's moved to `packages/ui/test` with the V6 design
