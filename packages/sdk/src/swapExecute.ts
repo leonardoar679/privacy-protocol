@@ -175,6 +175,8 @@ export interface PrepareInput {
   submission: Submission;
   /** the user consented to a lower minimum than approved (MinimumMoved) */
   acceptMin?: bigint;
+  /** audit gap 43: the call prepared before, whose moved minimum the user accepted — checked and signed instead of a fresh quote */
+  reuse?: Prepared;
   onStatus?: (line: string) => void;
 }
 
@@ -182,17 +184,18 @@ export interface PrepareInput {
  * Re-quote with the escrow as sender, check the provider call against the journal, sign it locally and simulate the
  * execution on every RPC endpoint (whale spec §24). The signature stays in memory until it is handed over.
  */
-export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved: MinimumMoved }> {
+export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved: MinimumMoved; prepared: Prepared }> {
   const s = i.session ?? defaultSession;
   const { stored, order } = i;
   if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
   const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
   const orderKey = deriveOrderKey(i.masterSeed, stored.attemptId as Hex);
-  i.onStatus?.("Re-quoting with the escrow as sender, then checking the call…");
-  const prepared = await onOperation(i.deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
+  i.onStatus?.(i.reuse ? "Checking the call whose minimum you accepted…" : "Re-quoting with the escrow as sender, then checking the call…");
+  const prepared =
+    i.reuse ?? (await onOperation(i.deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored))));
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
   const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(i.deployment), chainId: BigInt(i.deployment.chainId), acceptMin: i.acceptMin, pooled: (i.deployment.erc20Vaults ?? []).map((v) => v.token), deployment: i.deployment, masterSeed: i.masterSeed });
-  if (!gate.ok) return { moved: gate.moved };
+  if (!gate.ok) return { moved: gate.moved, prepared }; // the call whose minimum the user is asked to accept
   const { params, call } = gate;
   i.onStatus?.("Signing locally…");
   const signature = await signExecutionDigest(orderKey.privateKey, prepared.digest); // the key never leaves this tab

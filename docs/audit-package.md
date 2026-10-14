@@ -33,7 +33,7 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 | **V3** `packages/protocol/src/wallet/{campaign,riskClasses,addressBook}.ts`, `packages/sdk/src/wallet/{campaigns,campaignRunner,addressBook,alerts,notifications}.ts`, `packages/sdk/src/{swapExecute,allowances}.ts`, `apps/web/src/components/protection/*` | the high-value protection layer (`docs/high-value-protection-spec-v1.0.md`): the tranche splitter and the exposure invariants I1–I5, the settlement gate with the elapsed-time margin (no explorer), the reducer's one action per tick, the runner's reconcile before every money movement (never a second funding or hand-over), the bounds one confirmation binds, the address book's verification methods and the Immediate override, the separate cross-platform device with no password fallback, what the trade check sends |
 | **V3** `packages/swap-engine/src/risk/{riskDb,security,protection}.ts`, `packages/swap-engine/risk/`, `packages/swap-engine/src/health.ts`, `apps/relayer/src/admin.ts` | the risk database's validation, the security breakdown's adjustments and the incident decay, the breaker's new triggers and the half-open probe, the recommendation's band / cap / gate / ELPF / concentration (advice the wallet re-derives), the execution window clamp, the job list's token |
 | `packages/sdk/src/lightclient/`, `packages/sdk/src/verifiedReads.ts` | the Ethereum light client: SSZ roots and generalized indices per data format (Electra/Fulu, Gloas), update validation and committee rotation against consensus-specs, the BLS ciphersuite, the trust-on-first-use bootstrap and the snapshot age limit, the execution header field list, the Merkle-Patricia walk (inclusion and exclusion), and the pool check (prefix root, nullifier slots) |
-| **V5** `apps/web/src/{storage,api}`, `apps/web/src/features/{operations,fees,privacy-center/status.ts}`, `apps/web/src/prover/pins.ts`, `apps/web/scripts/{csp,artifact-pins-lib}.mjs`, `apps/web/src/app/i18n`, `packages/protocol/src/wallet/fees.ts`, `packages/protocol/src/classic/note.ts`, `apps/relayer/src/relayer.ts` (the percentage fee) | the secure store over IndexedDB (the same ciphertext; the migration's equal read-back rule; the prefs schema that holds no secret); the transport policy (credentials omitted, redirects refused, the host allow-list, every request through one module); the fee rule and where the relayer can enforce it (gap 25); the operation state machine's invariants I-O1–I-O5 and the error catalog's funds classes; the pin check in the prover worker; the content security policy's construction from the environment; what the leakage gate reads and what it cannot see; the Privacy Center's facts (computed, never asserted); the classic note format and the module boundary |
+| **V5** `apps/web/src/storage`, `packages/privacy-engine/src/transport/http.ts` (V5's `api/transport.ts`, moved in V6 Stage 4), `apps/web/src/features/{operations,fees,privacy-center/status.ts}`, `apps/web/src/prover/pins.ts`, `apps/web/scripts/{csp,artifact-pins-lib}.mjs`, `apps/web/src/app/i18n`, `packages/protocol/src/wallet/fees.ts`, `packages/protocol/src/classic/note.ts`, `apps/relayer/src/relayer.ts` (the percentage fee) | the secure store over IndexedDB (the same ciphertext; the migration's equal read-back rule; the prefs schema that holds no secret); the transport policy (credentials omitted, redirects refused, the host allow-list, every request through one module); the fee rule and where the relayer can enforce it (gap 25); the operation state machine's invariants I-O1–I-O5 and the error catalog's funds classes; the pin check in the prover worker; the content security policy's construction from the environment; what the leakage gate reads and what it cannot see; the Privacy Center's facts (computed, never asserted); the classic note format and the module boundary |
 
 ### 1.2 Added in V6 (`docs/privacy-wallet-web-spec-v2.0.md`)
 | Component | What to audit |
@@ -214,10 +214,25 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 42. **V6 — offline is inferred** (the browser's event, or three unanswered requests in a row) and a lost answer is resolved
     by asking the relayer for the job by its nullifier: a relayer that answers "unknown" for a submission it did make can
     only cause a second attempt that fails on chain (a nullifier spends once) — a wasted fee, never a double spend.
-43. **V6 — a trending price can ask the user again and again**: after "Accept new minimum" the runner prepares a fresh hard
-    quote, which in a market moving one way may again be lower; the wallet never signs below an approved minimum, so each
-    move is another question (the local stack's run accepted six in a row on 2026-10-14). A tolerance would trade that
-    friction for a minimum the user did not see.
+43. **V6 — a trending price can ask the user again** (narrowed 2026-10-14). The local stack's run had accepted six moved
+    minimums in a row: after "Accept new minimum" the runner prepared a fresh hard quote, which in a market moving one way
+    was lower again. Now the runner keeps the call behind the pause and, once its minimum is accepted, checks it again
+    and signs that very call while at least two minutes of it remain (`ACCEPTED_CALL_MARGIN_MS`). The execution lands
+    unless the market moves past that minimum before it does; the provider then refunds, or the call reverts and the
+    funds wait in the escrow. What remains:
+    - a call that expired meanwhile, or that a lock or reload forgot (it is kept in memory only), is quoted afresh, and a
+      lower minimum asks again;
+    - the wallet never signs below a minimum the user accepted. A tolerance would trade the remaining friction for a
+      minimum the user did not see.
+44. **V6 — a route change holds a funded step until its refund window** (observed 2026-10-14 in the local stack's $80K run).
+    - Below the second-confirmation tier, a requote adopts a better route by itself (`campaignRunner.ts`, `adoptsRoutes`).
+    - A step already funded on the old route then returns through its refund-only job (V3 §8). The escrow allows that
+      refund only after `refundAfter`: about 2 h 40 min after the step's commit in the $50K band (a 30-minute execute
+      window, then the 2-hour refund window).
+    - Meanwhile the band's one-quarter cap holds the next step. The funds are never at risk (the escrow re-shields into
+      the pool), but the swap waits.
+    - Signing the funded step on its own route while its approved minimum holds would remove the wait. That changes the
+      route rule of V3 §8 (and its per-provider share) and is the owner's call.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

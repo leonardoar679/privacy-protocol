@@ -20,7 +20,17 @@ import { OlderNotesUnavailable } from "../src/privateTx";
 import { patchSwap } from "../src/swapFunding";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId } from "../src/operations/swapRecords";
-import { acceptNewMinimum, DELAY_FOR_PRIVACY, returnFunds, retryOrder, runOrderTick, type OrderIo } from "../src/wallet/orderRunner";
+import type { Prepared } from "../src/swapService";
+import {
+  acceptNewMinimum,
+  ACCEPTED_CALL_MARGIN_MS,
+  DELAY_FOR_PRIVACY,
+  resetOrderRunnerMemory,
+  returnFunds,
+  retryOrder,
+  runOrderTick,
+  type OrderIo,
+} from "../src/wallet/orderRunner";
 
 const store = memoryStorage();
 beforeAll(async () => {
@@ -92,6 +102,10 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
     shield: null as ShieldJob | null,
     shieldRegistrations: 0,
     shieldRecoveries: 0,
+    /** what each signing was handed to reuse (null: a fresh quote) */
+    reused: [] as (Prepared | null)[],
+    /** a fresh call is valid this long */
+    validSeconds: 600,
   };
   const io: OrderIo = {
     fund: async (st, onStatus) => {
@@ -105,10 +119,20 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
       return { txHash: "0xf00d" };
     },
     escrowBalance: async () => w.escrow,
-    sign: async (st) => {
+    sign: async (st, reuse) => {
       w.signs++;
+      w.reused.push(reuse ?? null);
       const approved = BigInt(st.approvedMin ?? "0");
-      if (w.minOut < approved) return { moved: new MinimumMoved(w.minOut, approved) };
+      // a fresh call guarantees the market's minimum now (carried in its calldata here); a reused one, the minimum it had
+      const call: Prepared = reuse ?? {
+        digest: `0x${w.signs.toString(16).padStart(64, "0")}`,
+        provider: "0x00000000000000000000000000000000000000ee",
+        value: "0",
+        calldata: `0x${w.minOut.toString(16)}`,
+        deadline: Math.floor(T0 / 1000) + w.validSeconds,
+      };
+      const minOut = BigInt(call.calldata);
+      if (minOut < approved) return { moved: new MinimumMoved(minOut, approved), prepared: call };
       return { sim: w.simOk ? { ok: true, gas: 1n } : { ok: false, reason: "the provider call reverts" }, label: "signed" } as unknown as Signed;
     },
     handOver: async (st) => {
@@ -199,6 +223,46 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(await drive(io, 2, T0 + 1000)).toEqual(["handed-over", "track"]);
     expect([w.signs, w.handOvers]).toEqual([2, 1]);
     expect(record()!.state).toBe("EXECUTING");
+  });
+
+  it("audit gap 43: 'Accept new minimum' signs the very call whose minimum was accepted while it stays valid — a market still moving asks once", async () => {
+    order({ fundedTx: "0xf00d", state: "funded" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world({ minOut: 2_900_000n });
+    w.escrow = AMOUNT;
+    expect(await drive(io, 3)).toEqual(["paused"]);
+    w.minOut = 2_850_000n; // the market keeps moving the same way: a fresh quote would be lower again
+    expect(acceptNewMinimum(ORDER, session, T0 + 1000)).toBe(true);
+    expect(await drive(io, 2, T0 + 1000)).toEqual(["handed-over", "track"]);
+    expect(w.reused, "the first signing quoted; the second checked and signed the accepted call").toEqual([
+      null,
+      expect.objectContaining({ calldata: "0x2c4020" }),
+    ]);
+    expect([w.signs, w.handOvers]).toEqual([2, 1]);
+  });
+
+  it("audit gap 43: an accepted call too close to its deadline, or forgotten by a lock, is quoted afresh — and a lower minimum asks again", async () => {
+    order({ fundedTx: "0xf00d", state: "funded" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world({ minOut: 2_900_000n });
+    w.escrow = AMOUNT;
+    expect(await drive(io, 3)).toEqual(["paused"]);
+    w.minOut = 2_850_000n;
+    const late = T0 + 600_000 - ACCEPTED_CALL_MARGIN_MS + 1000; // less than the margin left before the call's deadline
+    expect(acceptNewMinimum(ORDER, session, late)).toBe(true);
+    expect(await drive(io, 1, late)).toEqual(["paused"]);
+    expect(w.reused.at(-1)).toBeNull();
+    expect(stored().paused).toMatchObject({ code: "minimum_moved", minOut: "2850000", approved: "2900000" });
+    resetOrderRunnerMemory(); // a lock forgets the call
+    w.minOut = 2_800_000n;
+    expect(acceptNewMinimum(ORDER, session, late + 1000)).toBe(true);
+    expect(await drive(io, 1, late + 1000)).toEqual(["paused"]);
+    expect(w.reused.at(-1)).toBeNull();
+    expect(w.handOvers, "nothing is signed below an accepted minimum").toBe(0);
   });
 
   it("'Return funds' from the pause: a funded order goes back through its refund-only job; one never funded is abandoned", async () => {

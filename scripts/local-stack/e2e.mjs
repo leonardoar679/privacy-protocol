@@ -988,10 +988,14 @@ try {
       if (pauses === before) break; // no resume in this round: waiting longer would not help
     }
     if (pauses) log(`step 1 ${firstJob ? "went ahead" : "did not go ahead"} after ${pauses} resume(s)`);
+    // a funded step whose route the requote replaced returns through its refund-only job, which waits for the escrow's
+    // window while the band's one-quarter cap holds the next step (audit gap 44, the 2026-10-14 quick pass): named, not guessed
+    const refundOnly = firstJob ? null : (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.state === "refund-only");
+    if (refundOnly) log(`step 1's order ${refundOnly.id.slice(0, 18)}… went refund-only: the requote adopted another route, and its refund waits for the escrow's window (audit gap 44)`);
     // a step that never went ahead (a provider down for the whole wait) is this section's failure, not the run's end
     const progress80 = await text(large80).catch(() => "");
     const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(progress80) ? progress80 : null;
-    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (progress80 || (await text(page.locator("main")).catch(() => "")))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? "none"}…`);
+    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (progress80 || (await text(page.locator("main")).catch(() => "")))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? (refundOnly ? "none: step 1 went refund-only after a route change (audit gap 44)" : "none")}…`);
     if (firstJob) {
       const quarter = Number(BigInt(firstJob.params.amount)) / 1e18;
       check("the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved", Math.abs(quarter * PRICE - 20_000) < 400, `${quarter.toFixed(4)} ETH ≈ $${Math.round(quarter * PRICE)}`);

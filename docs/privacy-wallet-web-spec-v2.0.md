@@ -425,7 +425,8 @@ scheduler runs (woken at once by `kickScheduler`). `runOrderTick` reconciles fir
 escrow's balance — then takes one step: the funding, or the hard quote checked, signed, simulated and handed over in the
 same tick (the signature never waits in memory across ticks), or the tracking. Pauses (`StoredSwap.paused`):
 `minimum_moved` (the existing catalog row stands for the plan's `price_moved`: QUOTE_EXPIRED, "Accept new minimum" /
-"Return funds"), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
+"Return funds"; an accepted minimum signs the very call it was read from — kept in memory, checked again — while at
+least two minutes of it remain, else a fresh quote: audit gap 43), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
 `unsafe_contract_call` (the call did not pass the wallet's checks: return), `reconcile` (a send whose outcome is unknown:
 the escrow or the executor is read before anything is sent again). A failure before anything was sent goes to the
 scheduler's backoff — except `older_notes_unavailable` (§14.1): the order is stopped unfunded (CANCELLED with that

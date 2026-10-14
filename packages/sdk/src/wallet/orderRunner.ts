@@ -5,7 +5,8 @@
 // checked and signed by this wallet while its minimum is at least the one the user approved, the hand-over to the
 // executor in the same tick (the signature never waits in memory across ticks), then the tracking until it settles. A
 // worse minimum pauses the order (QUOTE_EXPIRED, `minimum_moved`) for the user's choice — accept the new minimum or
-// return the funds; nothing is ever signed at a lower minimum without it. Every tick first RECONCILES from what the wallet
+// return the funds; nothing is ever signed at a lower minimum without it, and an accepted minimum signs the very call it
+// was read from while that call stays valid (audit gap 43: a fresh quote in a trending market would only move again). Every tick first RECONCILES from what the wallet
 // can observe — the journal, the escrow's balance, the executor's job by orderId — so a reload or a crash between a send
 // and its journal entry never funds or hands over twice; a failure before anything was sent is thrown to the scheduler's
 // backoff, one after a send started pauses the order until the escrow or the executor says what happened. The ticks run
@@ -32,7 +33,7 @@ import {
 import { shieldJobRequest } from "../shieldReceiver";
 import { recoverShieldDelivery } from "../privateTx";
 import { abandonSwap, fundEscrow, isOpenSwap, patchSwap } from "../swapFunding";
-import type { ServiceOrder } from "../swapService";
+import type { Prepared, ServiceOrder } from "../swapService";
 import { escrowBalance } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
 import type { ScheduledAction, StoredSwap } from "./journal";
@@ -46,6 +47,8 @@ export const ORDER_TRACK_MS = 15_000;
 export const DELAY_FOR_PRIVACY: [number, number] = [3600, 24 * 3600];
 /** The execute window of an order funded at once (the plan's 1800 s): the escrow refunds after it, unexecuted. */
 export const ONE_CONFIRM_EXECUTE_WINDOW_SECONDS = 1800;
+/** Audit gap 43: an accepted minimum's call is signed only with at least this long left before its deadline; else a fresh quote. */
+export const ACCEPTED_CALL_MARGIN_MS = 120_000;
 /** A withdrawal's status line once its submission started: after it, a failure's outcome is unknown (the reconcile boundary). */
 export const SENT_LINE = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
 const TERMINAL_TRACK = ["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED"];
@@ -55,7 +58,8 @@ const TERMINAL_JOB = ["completed", "refunded"];
 export interface OrderIo {
   fund(stored: StoredSwap, onStatus: (line: string) => void): Promise<{ txHash: string }>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
-  sign(stored: StoredSwap): Promise<Signed | { moved: MinimumMoved }>;
+  /** `reuse`: the call whose moved minimum the user accepted, checked again and signed instead of a fresh quote */
+  sign(stored: StoredSwap, reuse?: Prepared): Promise<Signed | { moved: MinimumMoved; prepared?: Prepared }>;
   handOver(stored: StoredSwap, signed: Signed): Promise<{ job?: SwapJob }>;
   /** the executor's job for this order, if it has one (keyed by orderId) */
   job(stored: StoredSwap): Promise<SwapJob | null>;
@@ -79,6 +83,8 @@ export interface OrderDeps {
 
 /** The service forgets orders at a restart: the runner keeps the ones it saw and rebuilds the others from the journal. */
 const orders = new Map<string, ServiceOrder>();
+/** Audit gap 43: the call behind a `minimum_moved` pause, with its minimum — signed if the user accepts that minimum in time. */
+const movedCalls = new Map<string, { prepared: Prepared; minOut: bigint }>();
 /** V6 Stage 15 (spec v2.0 §8): commit → hand-over is a critical section — the auto-lock waits for it (at most 30 minutes). */
 const handOverHolds = new Map<string, () => void>();
 function holdUntilHandedOver(orderId: string, s: WalletSession, now: number): void {
@@ -93,6 +99,7 @@ function releaseHandOver(orderId: string): void {
 /** Tests, and every lock: forget what the runner keeps in memory (a lock already ended the holds). */
 export function resetOrderRunnerMemory(): void {
   orders.clear();
+  movedCalls.clear();
   handOverHolds.clear();
 }
 // V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
@@ -115,7 +122,7 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
       return escrowBalance(d.deployment, stored.endpoint as Hex, token && token !== "native" ? (token as Hex) : null).catch(() => null);
     },
-    sign: async (stored) =>
+    sign: async (stored, reuse) =>
       prepareAndSign({
         masterSeed: d.masterSeed,
         deployment: d.deployment,
@@ -123,6 +130,7 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
         stored,
         order: await orderFor(stored),
         submission: d.submission,
+        ...(reuse ? { reuse } : {}),
         onStatus: (l) => schedulerStatus.progress(l),
       }),
     handOver: async (stored, signed) =>
@@ -356,10 +364,18 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     }
     // 4. sign while the minimum holds, and hand over at once
     if (stored.paused?.code === "reconcile") patchSwap(a.orderId, { paused: undefined }, s);
+    // the minimum the user just accepted signs the call it was read from, checked again, while that call stays valid
+    const key = a.orderId.toLowerCase();
+    const kept = movedCalls.get(key);
+    movedCalls.delete(key);
+    const reuse =
+      kept && stored.approvedMin !== undefined && kept.minOut >= BigInt(stored.approvedMin) && kept.prepared.deadline * 1000 - now >= ACCEPTED_CALL_MARGIN_MS
+        ? kept.prepared
+        : undefined;
     schedulerStatus.progress("Swap: preparing and checking the execution…");
-    let r: Signed | { moved: MinimumMoved };
+    let r: Signed | { moved: MinimumMoved; prepared?: Prepared };
     try {
-      r = await io.sign(stored);
+      r = await io.sign(stored, reuse);
     } catch (e) {
       const m = (e as Error)?.message ?? String(e);
       if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
@@ -369,6 +385,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       throw e; // a network failure before anything was signed: backoff
     }
     if ("moved" in r) {
+      if (r.prepared) movedCalls.set(key, { prepared: r.prepared, minOut: r.moved.minOut });
       patchSwap(a.orderId, { paused: { code: "minimum_moved", at: now, minOut: r.moved.minOut.toString(), approved: r.moved.approved.toString() } }, s);
       const st = journaled(a.orderId, s)!;
       syncSwapRecord(st, null, null, now);

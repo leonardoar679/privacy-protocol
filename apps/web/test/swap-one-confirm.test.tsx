@@ -5,7 +5,8 @@
 // runner (driven tick by tick here, as the App's scheduler would) funds it (the private withdrawal has its own suites:
 // stubbed here), prepares the hard quote, checks the provider call, signs, simulates and hands it over: no second tap. A
 // call paying someone else is stopped with nothing signed and goes back through its refund-only job; a call the chain
-// would revert is not handed over; a lower minimum waits for the user's choice; a reload continues from the journal with
+// would revert is not handed over; a lower minimum waits for the user's choice, and accepting it signs the very call it
+// was read from even while the market keeps moving (audit gap 43); a reload continues from the journal with
 // no second funding; an expired quote says so; right after a protect the protection reads Medium and the funding can be
 // delayed — from older notes at once when they cover it (stopped unfunded if they no longer do), else at a random time —;
 // nothing secret leaves the wallet.
@@ -257,7 +258,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(calls.filter((c) => c === "127.0.0.1:8790/swap/execute")).toHaveLength(1);
   }, 60_000);
 
-  it("a lower minimum waits for the user — nothing signed —; accepting it signs once at that minimum, which is journaled", async () => {
+  it("a lower minimum waits for the user — nothing signed —; accepting it signs once at that minimum, which is journaled, on the very call it was read from", async () => {
     await wallet();
     const { orderId } = await confirmed();
     await tick(orderId);
@@ -268,9 +269,13 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(card.textContent).toContain("0.0294");
     expect(card.textContent).toContain("0.03");
     expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
+    const prepares = () => calls.filter((c) => c.endsWith("/prepare")).length;
+    const quoted = prepares();
+    world.bend = { limit: LIMIT - 90_000n }; // the market keeps moving: a fresh quote would be lower again (audit gap 43)
     fireEvent.click(screen.getByTestId("swap-accept-minimum"));
     expect(stored(orderId).approvedMin).toBe((LIMIT - 60_000n).toString());
     expect(await tick(orderId)).toBe("handed-over");
+    expect(prepares(), "the accepted call was checked and signed: no fresh quote").toBe(quoted);
     expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
   }, 60_000);
 
