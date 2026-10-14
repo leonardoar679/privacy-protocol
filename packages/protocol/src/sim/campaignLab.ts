@@ -343,6 +343,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
         for (const tr of c.tranches) if (tr.state === "funded" || tr.state === "signed" || tr.state === "failed") { c = withTrancheState(c, tr.index, "refunding", t * 1000, {}, "refund-only job"); flights.set(tr.index, { handedOverAt: t, outboundAt: null, deliveredAt: null, refundAt: refundAfter(t), expectedSeconds: 0 }); }
         break;
       }
+      case "abandon": c = withTrancheState(c, a.index, "skipped", t * 1000, {}, "never funded: given up while the rest returned"); break;
       case "complete": c = withCampaignState(c, c.state === "winding-down" ? "cancelled" : "completed", t * 1000); break;
     }
     if (c.state === "completed" || c.state === "cancelled") break;

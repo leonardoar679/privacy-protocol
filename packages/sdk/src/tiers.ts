@@ -18,7 +18,7 @@ export interface Controls {
   protectedExecution: boolean;
   /** V5: the provider's breaker closed, its security ≥ 60 and no incident within a day, else the next route */
   providerHealth: boolean;
-  /** V5: the hard quote with at least PROTECTED_EXECUTION.MIN_QUOTE_TTL_S left and slippage capped at MAX_SLIPPAGE_BPS */
+  /** V5: the hard quote with at least PROTECTED_EXECUTION.MIN_QUOTE_TTL_S left and slippage capped at MAX_SLIPPAGE_BPS; V6 Stage 13 (spec v2.0 §2): from the Medium band ($20K) */
   strictQuote: boolean;
   /** V5: the operation polled while open; delayed and needs-attention states named */
   recoveryTracking: boolean;
@@ -38,7 +38,7 @@ export const controlsFor = (tier: Tier): Controls => ({
   destinationConfirm: atLeast(tier, "large-protected"),
   protectedExecution: atLeast(tier, "large-protected"),
   providerHealth: atLeast(tier, "large-protected"),
-  strictQuote: atLeast(tier, "large-protected"),
+  strictQuote: atLeast(tier, "large"),
   recoveryTracking: atLeast(tier, "large-protected"),
   secondFactor: atLeast(tier, "high-value-secondary"),
   reviewHold: tier === "institutional",

@@ -791,6 +791,28 @@ quarters; V4's caps above $100K), the strict quote (TTL ≥ 60 s, slippage ≤ 5
 closed, security ≥ 60, no incident within a day), the destination verified, recovery tracking. The engine
 subdivides; the UI shows amounts only.
 
+Code (Stage 13): at `large-protected` the protection is automatic when the service gives a protection plan — the
+Swap screen (`apps/web/src/features/swap/SwapScreen.tsx`) keeps the V6 Review (the Protected execution card, its four
+checks, Hold to Confirm) and its one confirmation starts the steps (`startCampaign`, `packages/sdk/src/wallet/campaigns.ts`;
+the band's exact quarters, one in flight) for an amount the steps' own fee notes stay inside
+(`protectedStepsAmount`: each step's p + F within what the user typed, in whole steps); the Review's relayer line
+counts every step's F and tip. `/swap/steps/:campaignId` shows `campaignProgressModel`
+(`apps/web/src/features/progress/model.ts`): `$80,000 ETH → BTC`, Completed / Executing (funded or handed over) /
+Remaining in dollars at the confirmation's valuation, the line of the step in hand, "Return the rest", a pause with
+Resume (a changed route is reviewed on the protected screen); Home's card and the running list open it for the band's
+protected executions (a larger campaign keeps its V3/V4 view). At
+the band every step is committed on the route the user approved (a smaller piece of the same route keeps or betters its
+rate; a step it no longer quotes pauses the steps), and after a pause a requote's new route is adopted without a Review
+(`adoptsRoutes` in `packages/sdk/src/wallet/campaignRunner.ts`; V3's `autoReroute` decides above the band): the
+protection is automatic with nothing to choose, and the bounds still pause a step whose rate is not what was approved.
+Above $100K the V3/V4 screens stay (`/swap/protected`, when the service stages the order or Advanced asks to protect
+from `enhanced`); their "Protect this order" opt-in is gone. A swap into the protected balance (§11.2) stays one order
+with the hold. The strict quote from the Medium band: `controlsFor("large").strictQuote`, and a quote with less than
+60 s left at the confirmation is as good as expired (`confirmBlockers`). The runner's reducer gives up a step committed
+but never funded when the rest is returned (`abandon`: only after its escrow reads empty) — found by the band's
+property test (`tests/high-value/policy/band-property.test.ts`: 500 worlds through `nextAction`, in flight ≤ a quarter,
+one step at a time, every world ends).
+
 ## 14. Privacy engine, transport, proof pipeline (doc §34–§35, §59–§60, §65) — *Stages 4, 11, 15*
 
 ### 14.1 The assessment

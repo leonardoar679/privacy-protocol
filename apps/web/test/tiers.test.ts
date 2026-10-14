@@ -9,9 +9,9 @@ describe("the controls per tier (spec §11)", () => {
     const c = controlsFor("standard");
     expect(Object.values(c).every((v) => v === false)).toBe(true);
   });
-  it("large ($20K): the Review and the lint only", () => {
+  it("large ($20K): the Review, the lint and (V6 Stage 13, spec v2.0 §2) the strict quote", () => {
     const c = controlsFor("large");
-    expect(c).toMatchObject({ review: true, lint: true, hold: false, simulation: false, destinationConfirm: false, protectedExecution: false, campaign: false, secondFactor: false });
+    expect(c).toMatchObject({ review: true, lint: true, strictQuote: true, hold: false, simulation: false, destinationConfirm: false, protectedExecution: false, campaign: false, secondFactor: false });
   });
   it("large-protected ($50K): the hold, the simulation, the confirmed destination, protected execution, provider health, the strict quote, recovery tracking — not the campaign engine's controls", () => {
     const c = controlsFor("large-protected");

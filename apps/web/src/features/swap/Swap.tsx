@@ -110,7 +110,6 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const [wizard, setWizard] = useState<{ provider: string; step: 0 | 1 | 2 } | null>(null);
   const [campaignView, setCampaignView] = useState<string | null>(campaignId);
   const [relayerFee, setRelayerFee] = useState<bigint | null>(null);
-  const [protectThis, setProtectThis] = useState(false);
   const [tick, setTick] = useState(0);
 
   const to: Target = TARGETS[target];
@@ -305,7 +304,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const chosen = quotes?.chosen;
   const chosenQuote = chosen ? quotes!.quotes.find((q) => q.provider === chosen.provider) : undefined;
   const protectionPlan: Protection | null = quotes?.protection ?? null;
-  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced || protectThis)) || (tier === "large-protected" && (protectionPlan.staged || protectThis)));
+  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)) || tier === "large-protected"); // V6 Stage 13: automatic from $50K, no opt-in
   const ctx: SwapContext = { t, quotes: quotes!, fromAsset, to, units, usd, tier, controls, policy, preference, destination, destinationEdited, parsedOk: parsedDestination?.ok === true, destAck, routeAck, destCheck, destinationLocked, lintItems: null, protection: { mode: protection.mode, capBps: protection.capBps }, relayerFee };
   const lineDraft = (() => {
     if (!campaignMode || !protectionPlan || !quotes?.chosen) return null;
@@ -527,7 +526,6 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
                 {campaignMode && protectionPlan ? (() => { const cap = lineDraft ? BigInt(lineDraft.bounds.maxExternalExposure) : (units * BigInt(protectionPlan.capBps)) / 10000n; const piece = lineDraft ? lineDraft.tranches.reduce((m, x) => (BigInt(x.amount) > m ? BigInt(x.amount) : m), 0n) : (units * BigInt(protectionPlan.bandBps[1])) / 10000n; const steps = lineDraft ? lineDraft.tranches.length : protectionPlan.estimatedTranches; return (
                   <p className="ds-note-warn" data-testid="protection-line">{t("swap.protectionLine", { steps, piece: usdOfUnits(ctx, piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`, concurrency: protectionPlan.concurrency === "sequential" ? t("swap.oneAtATime") : t("swap.upToAtATime", { n: protectionPlan.maxParallel }), cap: usdOfUnits(ctx, cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`, duration: durationWords(protectionPlan.estimatedSeconds) })}</p>
                 ); })() : null}
-                {protectionPlan && !campaignMode && (tier === "enhanced" || tier === "large-protected") && protection.enabled ? <label className="ds-switch-row" data-testid="protect-this-order"><input type="checkbox" checked={protectThis} onChange={(e) => setProtectThis(e.target.checked)} /><span>{t("swap.protectThisOrder")}</span></label> : null}
                 {protectionPlan && !protection.enabled && controls.campaign ? <p className="ds-note-warn" data-testid="protection-off">{t("swap.protectionOff")}</p> : null}
                 {quotedOnly === 1 ? <p className="ds-note-warn">{t("swap.onlyOneQuoted")}</p> : null}
                 <DestinationCard network={to.network} asset={to.ref.symbol} address={destination} amount={fmtUnits(chosenQuote.toAmount, to.ref.decimals)} kind={destinationEdited ? "entered" : "fresh"} />

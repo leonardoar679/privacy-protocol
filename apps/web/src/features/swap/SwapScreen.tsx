@@ -10,6 +10,10 @@
 // — a fresh address of this wallet unless one is typed — is reserved and sent at the confirmation. V6 Stage 12 (spec v2.0
 // §11.2): a same-chain target lands in the protected balance — the quote asks for a protected destination (its shield tip
 // is in the lines), the confirmation builds the one-time shield receiver the order pays, and the result says what arrived.
+// V6 Stage 13 (spec v2.0 §2, §7.6–§7.7, §13.5): from $50K to $100K the protection is automatic — the Review's Protected
+// execution checks and the hold, then the order runs as protected steps (the band's sequential quarters under the
+// in-flight limit, wallet/campaigns.ts) whose progress, /swap/steps/:campaignId, shows amounts only. Above $100K the V3/V4
+// screens stay (/swap/protected) when the service stages the order.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { availablePrice, atLeast, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -35,7 +39,10 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { fundingTiming } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
-import { progressLine, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { buildCampaign, cancelCampaign, progressLine, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
+import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
@@ -45,12 +52,12 @@ import { Review } from "../review/ReviewScreen";
 import { BLOCKER_WORDS, ReviewView, type ReviewModel } from "../review/View";
 import { OperationProgress } from "../operations/OperationProgress";
 import { ProgressView } from "../progress/View";
-import { furthestLine, progressModelOf } from "../progress/model";
+import { campaignProgressModel, furthestLine, progressModelOf } from "../progress/model";
 import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
 import { CompareRoutes } from "./CompareRoutes";
 import { Swap, type SwapPrefill } from "./Swap";
 import { SwapView } from "./View";
-import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, quoteLines, routeDetails, shieldTipOf } from "./model";
+import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, protectedStepsAmount, quoteLines, routeDetails, shieldTipOf } from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
 import { TARGETS, refOf, riskWord, sameChainTargets } from "./targets";
@@ -223,15 +230,46 @@ export function SwapScreen(p: SwapScreenProps) {
   const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol) : null;
   const priceTo = availablePrice(prices.prices, to.ref.symbol);
   const protectionPlan = quotes?.protection ?? null;
-  // the protected screen (V5's, until Stage 13) knows only cross-chain targets: a swap into the protected balance stays
-  // one order here, with the hold from $50K
+  // V6 Stage 13: the $50K band's protected execution runs here, automatically (no checkbox, no mode to choose; V4's
+  // deliberate opt-out is under Advanced); above $100K the V3/V4 screens take a staged order. A swap into the protected
+  // balance stays one order (the steps' receivers are a follow-up), with the hold from $50K.
+  const protectedSteps = !intoProtected && !!protectionPlan && protection.enabled && tier === "large-protected";
   const campaignMode =
     !intoProtected &&
+    !protectedSteps &&
     !!protectionPlan &&
     protection.enabled &&
-    (controls.campaign ||
-      (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)) ||
-      (tier === "large-protected" && protectionPlan.staged));
+    (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)));
+  // the steps the planner makes of this amount (a dry run), and the amount they fund so that their fees stay inside it
+  const stepsPlan = (() => {
+    if (!protectedSteps || !quotes || !chosen || !fromAsset || units <= 0n) return null;
+    const destinationPolicy = edited ? { kind: "entered" as const, address: destination } : { kind: "fresh-per-tranche" as const };
+    const draft = (amount: bigint) =>
+      buildCampaign({
+        quotes,
+        provider: chosen.provider,
+        from: refOf(fromAsset),
+        fromAsset,
+        to: to.ref,
+        amount,
+        tier,
+        mode: protection.mode,
+        preference,
+        policy,
+        destination: destinationPolicy,
+        usd,
+        capBps: protection.capBps,
+        now,
+        rng: () => 0.5,
+      });
+    try {
+      const n = draft(units).tranches.length;
+      const amount = protectedStepsAmount(units, terms, n);
+      return amount > 0n ? { n, amount, destinationPolicy } : null;
+    } catch {
+      return null;
+    }
+  })();
   const lintItems =
     quotes && chosen && fromAsset
       ? walletLint({
@@ -305,6 +343,66 @@ export function SwapScreen(p: SwapScreenProps) {
       <DestinationStatus chain={chain} address={destination} tier={tier} masterSeed={p.masterSeed} deployment={p.deployment} asset={to.ref.symbol} />
     ) : null;
 
+  /** V6 Stage 13: the one confirmation of a protected execution — the blockers again, then the steps journaled and released by the runner. */
+  async function confirmProtected() {
+    if (!fromAsset || !quote || !quotes || !chosen || !p.deployment || !stepsPlan) return;
+    const blockers = confirmBlockers({
+      now: Date.now(),
+      quotedAt,
+      quote,
+      approvedMin: BigInt(quote.toAmountMin),
+      destinationValid: destinationOk,
+      providerHealthy: health.ok,
+      chainId: p.deployment.chainId,
+      crossChain: to.ref.chain !== "ethereum",
+      ...(usd !== null ? { usd } : {}),
+      largeTrade: true,
+      strictQuote: true,
+    });
+    if (blockers.length) {
+      setBlocked(blockers[0]);
+      return;
+    }
+    setBusy(true);
+    setStatus("");
+    try {
+      const at = Date.now();
+      const gasPriceWei =
+        submission.kind === "relayer"
+          ? await relayerInfo(submission.url).then(
+              (i) => i.gasPriceWei,
+              () => null,
+            )
+          : null;
+      const c = startCampaign({
+        quotes,
+        provider: chosen.provider,
+        from: refOf(fromAsset),
+        fromAsset,
+        to: to.ref,
+        amount: stepsPlan.amount,
+        tier,
+        mode: protection.mode,
+        preference,
+        policy,
+        destination: stepsPlan.destinationPolicy,
+        usd,
+        lint: lintItems,
+        capBps: protection.capBps,
+        providerShareCapBps: protection.providerShareCapBps,
+        crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never),
+        gasPriceWei,
+        confirmations: edited && destAck ? { destinationVerified: at } : {},
+        now: at,
+      });
+      navigate(`/swap/steps/${c.id}`);
+    } catch (e) {
+      setStatus(classify(e).detail || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** The one confirmation: the blockers again, then the order committed and handed to the runner. */
   async function confirm() {
     if (!fromAsset || !quote || !quotes || !chosen || !p.deployment) return;
@@ -319,6 +417,7 @@ export function SwapScreen(p: SwapScreenProps) {
       crossChain: to.ref.chain !== "ethereum",
       ...(usd !== null ? { usd } : {}),
       largeTrade: atLeast(tier, "large-protected"),
+      strictQuote: controls.strictQuote,
     });
     if (blockers.length) {
       setBlocked(blockers[0]);
@@ -408,7 +507,13 @@ export function SwapScreen(p: SwapScreenProps) {
                     title={`${c.request.from.symbol} → ${c.request.to.symbol}`}
                     subtitle={progressLine(c, advanced)}
                     trailing={
-                      <Button variant="secondary" onClick={() => navigate("/swap/protected", { state: { campaignId: c.id } })}>
+                      <Button
+                        variant="secondary"
+                        // the band's steps on the V6 page; above $100K the V3/V4 view stays (spec v2.0 §2)
+                        onClick={() =>
+                          c.tier === "large-protected" ? navigate(`/swap/steps/${c.id}`) : navigate("/swap/protected", { state: { campaignId: c.id } })
+                        }
+                      >
                         {t("swap.open")}
                       </Button>
                     }
@@ -580,12 +685,13 @@ export function SwapScreen(p: SwapScreenProps) {
     const cents = (u: bigint) => (price ? centsOf(u, fromAsset.decimals, price.usd1e8) : null);
     const split = terms ? swapFunding(units, terms) : { privacy: 0n, network: 0n, delivered: units };
     const tip = BigInt(quotes.executorTip ?? "0");
+    const stepsN = BigInt(stepsPlan?.n ?? 1); // a protected execution's steps each pay the relayer's F and their tip
     const providerCents = BigInt(Math.round((quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0) * 100));
     const privacyCents = cents(split.privacy);
     // into the protected balance the relayer also gets the shield tip, in the output asset: what arrives is the delivery less it
     const shieldTip = intoProtected ? shieldTipOf(quotes) : 0n;
     const shieldCents = shieldTip > 0n ? (priceTo ? centsOf(shieldTip, to.ref.decimals, priceTo.usd1e8) : null) : 0n;
-    const sourceRelayerCents = cents(split.network + tip);
+    const sourceRelayerCents = cents((split.network + tip) * stepsN);
     const relayerCents = sourceRelayerCents !== null && shieldCents !== null ? sourceRelayerCents + shieldCents : null;
     const large = atLeast(tier, "large-protected");
     const review: ReviewModel = {
@@ -600,7 +706,7 @@ export function SwapScreen(p: SwapScreenProps) {
         {
           kind: "relayer" as const,
           usdCents: relayerCents,
-          amount: amountOf(split.network + tip, fromAsset.symbol, fromAsset.decimals),
+          amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
           ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),
         },
         { kind: "provider" as const, usdCents: providerCents },
@@ -655,7 +761,7 @@ export function SwapScreen(p: SwapScreenProps) {
       <ReviewView
         model={review}
         actions={{
-          onConfirm: () => void confirm(),
+          onConfirm: () => void (stepsPlan ? confirmProtected() : confirm()),
           onEdit: () => navigate("/swap"),
           onReviewAgain: () => {
             setBlocked(null);
@@ -677,6 +783,7 @@ export function SwapScreen(p: SwapScreenProps) {
         path="progress/:opId"
         element={<SwapProgress masterSeed={p.masterSeed} deployment={p.deployment} onDone={() => navigate("/")} onNew={() => navigate("/swap")} />}
       />
+      <Route path="steps/:campaignId" element={<SwapSteps advanced={advanced} onDone={() => navigate("/")} onNew={() => navigate("/swap")} />} />
       <Route
         path="protected"
         element={
@@ -692,6 +799,86 @@ export function SwapScreen(p: SwapScreenProps) {
       />
       <Route path="*" element={<Navigate to="/swap" replace />} />
     </Routes>
+  );
+}
+
+/**
+ * /swap/steps/:campaignId — a protected execution (V6 Stage 13; spec v2.0 §7.7, §13.5): the amounts only (completed,
+ * executing, remaining), the line of the step in hand, "Return the rest"; a pause with its reason and the way on (a changed
+ * route is reviewed on the protected screen); the result. The steps run from any screen while the wallet is unlocked.
+ */
+function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void }) {
+  const t = useT();
+  const navigate = useNavigate();
+  const { campaignId } = useParams();
+  const c = useCampaigns().find((x) => x.id.toLowerCase() === (campaignId ?? "").toLowerCase());
+  if (!c) return <Navigate to="/swap" replace />;
+  const model = campaignProgressModel(c);
+  const total = model.large ? formatUsd(Number(model.large.totalUsdCents) / 100) : `${c.request.from.symbol}`;
+  const pair = `${c.request.from.symbol} → ${c.request.to.symbol}`;
+  if (c.state === "completed" || c.state === "cancelled") {
+    return (
+      <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
+        <SuccessCard
+          testId="swap-steps-done"
+          title={c.state === "completed" ? t("screen.swap.stepsDone", { usd: total, pair }) : t("screen.swap.returned")}
+          actions={
+            <>
+              <Button onClick={p.onDone} data-testid="swap-finish">
+                {t("send.doneButton")}
+              </Button>
+              <Button variant="secondary" onClick={p.onNew} data-testid="swap-again">
+                {t("screen.swap.again")}
+              </Button>
+            </>
+          }
+        />
+      </Page>
+    );
+  }
+  const winding = c.state === "winding-down";
+  if (c.state === "paused" || c.state === "rerouting") {
+    return (
+      <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
+        <Card padding="md" testId="swap-steps-paused">
+          <h2 className="ds-card-title">{c.pause ? ALERT_TITLES[alertKindFor(c.pause.reason, c.pause.detail)] : t("screen.swap.stepsRouteChanged")}</h2>
+          {c.pause?.detail ? <p className="ds-note">{c.pause.detail}</p> : null}
+          <p className="ds-note">{t("screen.swap.stepsSafe")}</p>
+          <div className="ds-actions">
+            {c.state === "rerouting" ? (
+              <Button onClick={() => navigate("/swap/protected", { state: { campaignId: c.id } })} data-testid="swap-steps-review-route">
+                {t("screen.swap.stepsReviewRoute")}
+              </Button>
+            ) : (
+              <Button onClick={() => resumeCampaign(c.id)} data-testid="swap-steps-resume">
+                {t("campaign.resume")}
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => cancelCampaign(c.id)} data-testid="swap-steps-return">
+              {t("screen.swap.stepsReturn")}
+            </Button>
+          </div>
+        </Card>
+      </Page>
+    );
+  }
+  return (
+    <div data-state={c.state} data-testid="swap-steps">
+      <ProgressView model={model} />
+      <p className="ds-note" data-testid="swap-steps-note">
+        {t(winding ? "screen.swap.stepsReturning" : "screen.swap.stepsNote")}
+      </p>
+      {!winding ? (
+        <TextButton onClick={() => cancelCampaign(c.id)} data-testid="swap-steps-return">
+          {t("screen.swap.stepsReturn")}
+        </TextButton>
+      ) : null}
+      {p.advanced ? (
+        <TextButton icon="chevron-right" onClick={() => navigate("/swap/protected", { state: { campaignId: c.id } })} data-testid="swap-steps-detail">
+          {t("screen.swap.stepsDetail")}
+        </TextButton>
+      ) : null}
+    </div>
   );
 }
 

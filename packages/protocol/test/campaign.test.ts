@@ -307,6 +307,15 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     expect(nextAction(withCampaignState(r, "completed", 7), facts)).toEqual({ kind: "none" });
     expect(nextAction(withCampaignState(r, "cancelled", 7), facts)).toEqual({ kind: "none" });
   });
+  it("V6 Stage 13: winding down with a step committed but never funded gives that step up — the campaign never waits forever", () => {
+    let r = withCampaignState(campaign([p, p, p], [], {}, { capBps: 4000 }), "winding-down", 1);
+    r = withTrancheState(r, 0, "settled", 2);
+    r = withTrancheState(r, 1, "committed", 3);
+    r = withTrancheState(r, 2, "skipped", 3);
+    expect(nextAction(r, facts)).toEqual({ kind: "abandon", index: 1 });
+    expect(nextAction(withTrancheState(r, 1, "funded", 4), facts), "a funded one gets its refund-only job first").toEqual({ kind: "wind-down" });
+    expect(nextAction(withTrancheState(r, 1, "skipped", 4), facts)).toEqual({ kind: "complete" });
+  });
   it("a committed tranche is funded and signed before any new one is committed, in every mode", () => {
     const half = 20n * ETH;
     let r = withCampaignState(campaign([half, half, half, half], [], {}, { concurrency: "parallel", maxParallel: 2, capBps: 5000 }), "running", 1);

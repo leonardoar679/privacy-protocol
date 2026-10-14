@@ -472,6 +472,12 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(d).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
     expect(current(d).alerts?.at(-1)).toMatchObject({ kind: "route-changed" });
     settings.set({ protection: { ...settings.get().protection, autoReroute: false } });
+    // V6 Stage 13: at the $50K band the protection is automatic — the step's route is adopted with the setting off
+    const band = startCampaign({ quotes: quoteSet("thorchain", eth(20)), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: eth(20), tier: "large-protected", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: 80_000, now: clock, rng: () => 0.5, session });
+    r = await tick(band);
+    expect(r?.action.kind).toBe("commit");
+    expect(current(band)).toMatchObject({ state: "running", provider: "chainflip" });
+    expect(current(band).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
     // a funded step of the old provider after a reroute: it returns through its own refund and is planned again
     world.sizeChosen = null;
     const e = await fresh();
@@ -531,6 +537,33 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(pendingActions(session).filter((a) => a.kind === "campaign-tick")).toHaveLength(0);
     expect(activityOf(session.journal()).find((x) => x.kind === "campaign")?.status).toBe("cancelled");
     expect(await tick(c)).toBeNull();
+  });
+
+  it("V6 Stage 13: returning the rest while a step is committed but never funded gives that order up — only once its escrow reads empty", async () => {
+    const c = await fresh();
+    await tick(c); // committed, not funded yet
+    expect(current(c).tranches[0].state).toBe("committed");
+    const orderId = current(c).tranches[0].orderId!;
+    cancelCampaign(c.id, session, clock);
+    expect(current(c).state).toBe("winding-down");
+    // an escrow that cannot be read: nothing is given up, the next tick reads again
+    const read = world.escrowBalance.bind(world);
+    world.escrowBalance = async () => null as never;
+    clock += 2000;
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("abandon");
+    expect(current(c).tranches[0].state).toBe("committed");
+    world.escrowBalance = read;
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("abandon");
+    expect(current(c).tranches[0]).toMatchObject({ state: "skipped" });
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.state, "the order is abandoned: nothing left the private balance").toBe("abandoned");
+    expect(world.calls.filter((x) => x.startsWith("fund:") || x.startsWith("refund:")), "never funded, nothing to refund").toEqual([]);
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("complete");
+    expect(current(c).state).toBe("cancelled");
   });
 
   it("a refunded tranche is re-planned; a partial fill pauses, then settles for what was delivered once the rest is back", async () => {

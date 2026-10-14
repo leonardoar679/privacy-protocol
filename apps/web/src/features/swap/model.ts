@@ -51,6 +51,26 @@ export interface QuoteFacts {
 /** V6 Stage 12: a protected destination's shield tip, in the output's base units (0 elsewhere). */
 export const shieldTipOf = (q: QuoteSet | null): bigint => BigInt(q?.shieldTip ?? "0");
 
+/**
+ * V6 Stage 13 (spec v2.0 §3, §13.5): a protected execution's amount — what its `n` steps' withdrawals deliver once each pays
+ * its own fee note (p + F a step), less four base units a step for the exact-output rounding of each step's funding, in
+ * whole steps: the steps together spend at most what the user typed. Without relayer terms (the connected wallet funds)
+ * there is no fee note.
+ */
+export function protectedStepsAmount(units: bigint, terms: FeeTerms | null, n: number): bigint {
+  const k = BigInt(Math.max(1, Math.floor(n)));
+  if (!terms) return units - (units % k);
+  const q = units / k;
+  let total = 0n;
+  for (let i = 0n; i < k; i++) {
+    const s = swapFunding(i === k - 1n ? units - q * (k - 1n) : q, terms);
+    if (s.tooSmall) return 0n;
+    total += s.delivered;
+  }
+  total -= 4n * k;
+  return total > 0n ? total - (total % k) : 0n;
+}
+
 /** The chosen route's quote, or null. */
 export const chosenQuoteOf = (q: QuoteSet | null): ServiceQuote | null =>
   q?.chosen ? (q.quotes.find((x) => x.provider === q.chosen!.provider) ?? null) : null;
@@ -123,10 +143,17 @@ export interface ConfirmFacts {
   crossChain: boolean;
   usd?: number;
   largeTrade: boolean;
+  /** V6 Stage 13 (spec v2.0 §2, §13.5): from the Medium band the strict quote — at least a minute left at the confirmation */
+  strictQuote?: boolean;
 }
+
+/** The time a strict quote must still have at the confirmation (sdk/tiers PROTECTED_EXECUTION.MIN_QUOTE_TTL_S). */
+export const STRICT_QUOTE_TTL_SECONDS = 60;
 
 /** The blockers re-checked when the user confirms (spec v2.0 §13.4): one stops the operation before anything moves. */
 export function confirmBlockers(f: ConfirmFacts): BlockerCode[] {
+  // a strict quote with less than a minute left is as good as expired: the hard quote at the signature could not keep it
+  if (f.strictQuote && f.quote.expiresAt - Math.floor(f.now / 1000) < STRICT_QUOTE_TTL_SECONDS) return ["quote_expired"];
   return assessRisk({
     now: f.now,
     quote: {

@@ -109,6 +109,9 @@ export function defaultIo(d: IoDeps): CampaignIo {
         masterSeed: d.masterSeed, deployment: d.deployment, session: d.session,
         request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, destinationKind: entered ? "entered" : "fresh", preferNative: c.request.preference === "native", mode: c.mode, executeWindowSeconds: c.bounds.executeWindowSeconds },
         policy: (c.policy ?? "balanced") as never, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
+        // V6 Stage 13: at the $50K band every step takes the route the user approved (a smaller piece of the same route keeps
+        // or betters its rate); above it the competition at the step's size decides and a change is reviewed (V3 §8)
+        ...(c.tier === "large-protected" && c.provider ? { provider: c.provider } : {}),
       });
       orders.set(r.stored.orderId.toLowerCase(), r.order);
       return { stored: r.stored, order: r.order, protection: r.response.protection ?? null };
@@ -329,7 +332,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const q = r.order.quote;
         // the competition at this size chose another provider (§8): a route change is reviewed, or adopted below the second-confirmation tier when allowed
         if (c.provider && q.provider !== c.provider) {
-          if (cfg.protection.autoReroute && !atLeast(c.tier, "high-value-secondary")) {
+          if (adoptsRoutes(c, cfg)) {
             c = withAlert(withCampaignState(c, "running", now, `the route for this step is ${q.provider} (adopted automatically below the second-confirmation size)`, { provider: q.provider }), "route-changed", `The route changed to ${q.provider} for the steps of this size (adopted automatically, as you allowed).`, now, t.index);
             send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${q.provider}.`, campaignId: c.id });
           } else {
@@ -459,7 +462,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const snapshot = { ...(typeof c.riskSnapshot === "object" && c.riskSnapshot ? (c.riskSnapshot as object) : {}), requote: { at: now, provider: chosen, protection: set.protection ?? null, competition: set.competition ?? null } };
         if (chosen === c.provider) {
           c = withCampaignState(c, "running", now, `requoted: ${chosen} still carries the route`, { riskSnapshot: snapshot, pause: undefined });
-        } else if (cfg.protection.autoReroute && !atLeast(c.tier, "high-value-secondary")) {
+        } else if (adoptsRoutes(c, cfg)) {
           c = withAlert(withCampaignState(c, "running", now, `rerouted to ${chosen} (automatic below the second-confirmation tier)`, { provider: chosen, riskSnapshot: snapshot, pause: undefined }), "route-changed", `The route changed to ${chosen} (adopted automatically, as you allowed).`, now);
           send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${chosen}.`, campaignId: c.id });
         } else {
@@ -488,6 +491,22 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         }
         break;
       }
+      case "abandon": {
+        // V6 Stage 13: a step committed but never funded while the rest returns. The reconcile pass of this tick saw no
+        // funding in the journal; the escrow is read once more, and only an escrow read EMPTY gives the order up — a
+        // funding that landed is a funded step (its refund-only job next), an unreadable escrow waits for the next tick
+        const t = c.tranches[action.index];
+        const stored = childOrder(t, s);
+        if (!stored) { c = withTrancheState(c, t.index, "skipped", now, {}, "its order is missing from the journal"); nextAt = now + 1000; break; }
+        const bal = stored.fundedTx ? null : await io.escrowBalance(stored);
+        if (stored.fundedTx || (bal !== null && bal >= BigInt(t.amount))) { c = withTrancheState(c, t.index, "funded", now, {}, "funded (reconciled from the escrow's balance)"); nextAt = now + 1000; break; }
+        if (bal === 0n) {
+          abandonSwap(stored.orderId, s); // never funded: nothing left the private balance
+          c = withTrancheState(c, t.index, "skipped", now, {}, "never funded: given up while the rest returned");
+          nextAt = now + 1000;
+        }
+        break;
+      }
       case "complete": {
         const cancelled = c.state === "winding-down";
         c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? "The rest returned to your private balance." : "Every step settled.", now);
@@ -507,6 +526,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
     schedulerStatus.finish();
   }
 }
+
+/**
+ * Whether a route change the competition makes at the step's size is adopted without a Review: when the user allowed it
+ * below the second-confirmation tier (V3), and always at the $50K band (V6 Stage 13, spec v2.0 §2): there the protection
+ * is automatic with nothing to choose — the bounds checked right after still pause a step whose rate is not what was approved.
+ */
+const adoptsRoutes = (c: Campaign, cfg: Settings): boolean => (cfg.protection.autoReroute || c.tier === "large-protected") && !atLeast(c.tier, "high-value-secondary");
 
 /** The number of settled steps and the expected amount of the next one, for the screens. */
 export function nextExpectedOut(c: Campaign): bigint | null {

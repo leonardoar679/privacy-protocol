@@ -435,6 +435,9 @@ export type Action =
   | { kind: "replan" }
   | { kind: "requote" }
   | { kind: "wind-down" }
+  /** V6 Stage 13: a committed step that was never funded, while the rest returns — its order is given up once the runner
+   *  has read its escrow empty (nothing left the private balance) */
+  | { kind: "abandon"; index: number }
   | { kind: "complete" };
 
 export interface ReducerFacts {
@@ -476,6 +479,10 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
       if (!open) return { kind: "complete" };
       const funded = c.tranches.find((t) => t.state === "funded" || t.state === "signed" || t.state === "failed");
       if (funded) return { kind: "wind-down" }; // the runner hands the funded tranche a refund-only job (§8)
+      // V6 Stage 13 (found by the band's property test): a step committed but never funded when the rest was returned
+      // would otherwise hold the campaign in winding-down forever
+      const unfunded = c.tranches.find((t) => t.state === "committed");
+      if (unfunded) return { kind: "abandon", index: unfunded.index };
       return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: "winding down" };
     }
     // the first step is released under the same facts as every later one (§6, §8): a pause condition at the start holds

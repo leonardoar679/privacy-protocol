@@ -44,7 +44,13 @@ export const engine = new PrivateSwapEngine({
   tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */,
   refundWindowSeconds: 7200,
 });
-export const world: { bend: { dest?: string; limit?: bigint }; rpcBend: { revert?: Hex; providerReason?: string }; ttlSeconds: number } = {
+export const world: {
+  bend: { dest?: string; limit?: bigint };
+  rpcBend: { revert?: Hex; providerReason?: string };
+  ttlSeconds: number;
+  /** V6 Stage 13: the service's protection plan for the $50K band (the engine's recommendation), when set */
+  protection?: unknown;
+} = {
   bend: {},
   rpcBend: {},
   ttlSeconds: 600,
@@ -144,7 +150,14 @@ function rpc(req: any) {
 async function service(path: string, body: any): Promise<Response> {
   switch (path) {
     case "/quote":
-      return json({ quotes: [thorQuote()], scores: [score], errors: {}, chosen: score, links: { thorchain: { public: true, evidence: "memo" } } });
+      return json({
+        quotes: [thorQuote()],
+        scores: [score],
+        errors: {},
+        chosen: score,
+        links: { thorchain: { public: true, evidence: "memo" } },
+        ...(world.protection ? { protection: world.protection, tier: "large-protected" } : {}),
+      });
     case "/order": {
       const order = engine.buildOrder(
         request(body),
@@ -234,6 +247,7 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
 /** Forget what a test changed in the world. */
 export function resetWorld(): void {
   world.bend = {};
+  world.protection = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

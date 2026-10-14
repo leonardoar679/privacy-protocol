@@ -22,6 +22,10 @@
 //      relayer watches from the hand-over; THORChain's outbound is the real router's transferOut (a 2300-gas send to the
 //      receiver); the relayer deploys the receiver and shields the delivery (the tip once, the rest as the committed
 //      note); the wallet finds the note and the progress ends on what was added
+//  8b. V6 Stage 13 (spec v2.0 §2, §7.6–§7.7; doc §49–§50, §87): an $80,000 ETH → BTC swap is protected automatically —
+//      no checkbox and no mode, the V6 Review's Protected execution checks and Hold to Confirm, ONE confirmation, the
+//      steps (the band's four quarters) on /swap/steps with amounts only; the runner funds, signs and hands over the first
+//      step by itself; "Return the rest" skips the steps not started
 //   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
 //      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
 //      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
@@ -803,7 +807,9 @@ try {
     const vaultEthBefore = await balanceEth(stack.ethVault);
     await confirmReview(page);
     await page.waitForURL(/\/swap\/progress\/swap:0x[0-9a-f]{64}$/, { timeout: 120_000 });
-    check("ONE confirmation: committed, and its progress says where it arrives", (await byId(page, "swap-into-protected").count()) + (await byId(page, "swap-adding-to-protected").count()) >= 1);
+    // the page renders from the journal a moment after the navigation: wait for the line rather than count at once
+    const arrives = await firstOf(page, { into: byId(page, "swap-into-protected"), adding: byId(page, "swap-adding-to-protected") }, 15_000).catch(() => null);
+    check("ONE confirmation: committed, and its progress says where it arrives", !!arrives, arrives ?? "no line");
     const commitBody = requests.filter((r) => r.phase === "swap-protected" && /\/v1\/operations$/.test(r.url) && r.method === "POST" && r.body).map((r) => JSON.parse(r.body)).find((b) => b.orderSigner);
     const receiver = commitBody?.destination ?? "";
     check("the commit names the one-time shield receiver as the destination", commitBody?.destinationType === "protected" && /^0x[0-9a-fA-F]{40}$/.test(receiver), receiver);
@@ -849,6 +855,52 @@ try {
 
   // 8. the $10M protected swap (V3 on the V5 screens) ----------------------------------------------------------------------
   if (!process.env.SKIP_CAMPAIGN) { phase = "campaign"; await campaignRun(page); }
+
+  // 8b. V6 Stage 13: the $80K protected execution (after the $10M campaign, so the two never share its list) — automatic from $50K, amounts only -------------------------------------
+  {
+    phase = "swap-80k";
+    const sectionStart = Date.now();
+    await nav(page, "Home"); // a fresh Swap screen (the last section ended inside /swap/*, whose state would carry over)
+    await byId(page, "home").waitFor({ timeout: 30_000 });
+    await nav(page, "Swap");
+    await byId(page, "swap-view").waitFor({ timeout: 30_000 });
+    await fillId(page, "amount-input", (Math.ceil((80_000 / PRICE) * 1e6) / 1e6).toFixed(6)); // rounded up: at least $80,000.00 at the stack's price
+    await page.getByText(usdRe(80_000)).first().waitFor({ timeout: 30_000 });
+    await byId(page, "swap-quote").waitFor({ timeout: 180_000 });
+    const page80 = await text(page.locator("main"));
+    check("$80,000: no \"Protect this order\" and no protection mode to choose — the protection is automatic (doc §87)", (await byId(page, "protect-this-order").count()) === 0 && !/Protection mode|Max privacy|Max safety|Protect this order/i.test(page80), page80.slice(0, 200));
+    await clickId(page, "swap-review");
+    const kind80 = await waitReview(page);
+    const review80 = await text(page.locator("main"));
+    check("the $80K Review is the V6 one: Protected execution with its four checks (doc §49)", kind80 === "v6" && ["Protected execution", "Destination verified", "Quote locked", "Route health checked", "Execution limits enabled"].every((w) => review80.includes(w)), review80.slice(0, 300));
+    check("from $50K: Hold to Confirm, never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "review-confirm").count()) === 0);
+    await snap(page, "review-80k");
+    await confirmReview(page);
+    await page.waitForURL(/\/swap\/steps\/0x[0-9a-f]{64}$/, { timeout: 60_000 });
+    const large80 = byId(page, "progress-large");
+    await large80.waitFor({ timeout: 30_000 });
+    const steps80 = await text(byId(page, "swap-steps"));
+    check("ONE confirmation starts the protected steps; the progress shows amounts only: $80,000 ETH → BTC, Completed / Executing / Remaining", /\$80,000(\.00)?/.test(steps80) && /ETH → BTC/.test(steps80) && ["Completed", "Executing", "Remaining"].every((w) => steps80.includes(w)) && !/Step \d|Tranche|of ~?\d/.test(steps80), steps80.slice(0, 220));
+    await snap(page, "steps-80k");
+    // the runner by itself: the first step funded (a proof), signed and handed over to the executor — its amount is Executing
+    // from the funding on (a funded step counts as executing), so the hand-over is read from the relayer's jobs
+    const firstJob = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null, PROOF_TIMEOUT);
+    const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(await text(large80)) ? await text(large80) : null;
+    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (await text(large80))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? "none"}…`);
+    if (firstJob) {
+      const quarter = Number(BigInt(firstJob.params.amount)) / 1e18;
+      check("the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved", Math.abs(quarter * PRICE - 20_000) < 400, `${quarter.toFixed(4)} ETH ≈ $${Math.round(quarter * PRICE)}`);
+    }
+    await snap(page, "steps-80k-executing");
+    // Return the rest: the steps not started are skipped; the one in flight finishes first (THORChain never settles here)
+    await clickId(page, "swap-steps-return");
+    await textAppears(page, "Returning the rest", 30_000);
+    await page.waitForTimeout(20_000); // a runner tick or two: nothing more may be handed over
+    const jobsAfter = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
+    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === 1, `${jobsAfter} jobs for this order`);
+    await snap(page, "steps-80k-returning");
+    report.outcome.protectedSteps = { firstJob: firstJob?.id ?? null };
+  }
 
   // 9. the viewport matrix: the shell screens per viewport, then under the pseudo-locale ---------------------------------------
   phase = "viewports";
