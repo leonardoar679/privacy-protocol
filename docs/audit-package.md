@@ -168,6 +168,13 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 33. **V6 — the gas pins are a toolchain's measurement** (`contracts/test/periphery/vectors/gas.json`, forge's production
     configuration): another compiler, EVM version or provider call moves them; the wallet uses them only as a fallback beside
     `eth_estimateGas`, and the tip's ×1.2 margin and the executor's below-cost wait absorb a provider call above its allowance.
+34. **V6 — the API keeps swap metadata for its retention window** (`apps/api/src/db.ts` `RETENTION`): an operation's row (the
+    escrow, its asset and amount, the provider, the deadlines, the states) lives until 7 days after it ends, or 2 days after
+    an abandoned order's refund window; the destination and the refund material until finalize only. An operator with the
+    database learns which escrows the API served and when — the chain shows the escrows anyway; it never learns who.
+35. **V6 — the API's reconcile and quotes are a second source** (`apps/api/src/reconcile.ts`, `quote.ts`): the chain is read
+    from the first RPC endpoint that answers (no quorum), the §46 fees are indicative; the wallet's own reads (its quorum)
+    win, and it computes the escrow's W with its own relayer terms. The rate limiter is in memory (a restart resets it).
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

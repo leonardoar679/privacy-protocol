@@ -191,7 +191,7 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     const q = await asQuoted();
     expect(q.minOutVerified).toBe(false);
     const engine = defaultEngine({ tips: shareTips(25n) });
-    const order = engine.buildOrder(reqSol, "best-privacy", q, KEYS);
+    const order = engine.buildOrder(reqSol, "best-privacy", { ...q, executorTip: (reqSol.amount * 25n) / 10_000n }, KEYS); // V6: an adapter's own quote names no tip (quoteAll stamps it)
     await expect(engine.prepareExecution(order, a)).rejects.toThrow(/cannot be verified locally/);
   }, 90_000);
   it("Mayan facet: refundRecipient swapped or mayanAmountIn lowered (the facet sweeps the rest there) → refused", async () => {

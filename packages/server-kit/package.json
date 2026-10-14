@@ -1,0 +1,15 @@
+{
+  "name": "@privacy-wallet/server-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "What the API and the relayer share (spec v2.0 §15, doc §67–§68): the typed logger (one JSON line per event, keys ⊆ at, level, event, operationId, provider, state, errorClass, network — an address, a hash or an amount is redacted, never written), the token-bucket rate limiter (in memory, keyed by the socket's address, never logged), the security headers and the CORS allowlist. No dependencies.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

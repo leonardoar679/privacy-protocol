@@ -24,6 +24,7 @@ import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-
 import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
 import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
+import { v1Adapter } from "./helpers/apiV1";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({ ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()), recoverSwapRefunds: async () => [] }));
@@ -103,14 +104,15 @@ function rpc(req: any) {
   if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
   return { jsonrpc: "2.0", id, error: { code: -32601, message: `mock rpc: ${method} unsupported` } };
 }
+const api = v1Adapter(service);
 const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const url = String(input);
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   const u = new URL(url);
-  calls.push(`${u.host}${u.pathname}`);
+  calls.push(`${u.host}${u.pathname.replace(/\/op_[a-z0-9]+\//, "/:id/")}`); // an operation's opaque id as :id
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body));
-  if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
+  if (u.host === "127.0.0.1:8787") return api(u.pathname, body); // V6: the API's /v1 routes in front of the V5-shaped mock
   if (u.host === "127.0.0.1:8790") {
     if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: privacyAddress(new Uint8Array(32).fill(0x5e)) /* the relayer's, for its fee note (V6: the escrow funding pays the percentage) */, minFeeWei: "0", gasPriceWei: "0", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
@@ -198,13 +200,13 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     await vi.waitFor(() => expect(button(container, "2 · Confirm the swap")?.disabled).toBe(false));
     await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="review"]')?.getAttribute("data-moment")).toBe("execute"), { timeout: 20_000 });
-    expect(calls, "nothing finalized before the confirmation").not.toContain("127.0.0.1:8787/finalize");
+    expect(calls, "nothing finalized before the confirmation").not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(line(container, "route").textContent).toMatch(/simulated on 1 RPC endpoint: it executes, about 210,000 gas/);
     expect(line(container, "price").textContent).toContain("guarantees at least 40.000000 BTC");
     expect(line(container, "route").getAttribute("data-ok")).toBe("1");
     await hold(container);
     await vi.waitFor(() => expect(calls).toContain("127.0.0.1:8790/swap/execute"), { timeout: 20_000 });
-    expect(calls.indexOf("127.0.0.1:8787/finalize")).toBeGreaterThan(-1);
+    expect(calls.indexOf("127.0.0.1:8787/v1/operations/:id/finalize")).toBeGreaterThan(-1);
     expect(container.querySelector('[data-testid="review"]')).toBeNull();
     expect(container.textContent).toContain("Checked by this wallet before signing");
   });

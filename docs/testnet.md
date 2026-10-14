@@ -30,9 +30,9 @@ Then record the five core addresses + the factory in `contracts/deployments/sepo
 `{ "chainId": 11155111, "core": …, "ethVault": …, "swapFactory": …, "verifier": "DEV — insecure" }`)
 and point the tooling at it:
 ```
-# engine / local service
-cd packages/swap-engine
-CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm run serve
+# the API (V6: apps/api over the swap engine)
+cd apps/api
+CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm start
 # wallet (frontend): VITE_SWAP_SERVICE as usual; the shield/withdraw screens take the core address from the deployment file
 ```
 

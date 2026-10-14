@@ -15,6 +15,8 @@ import { upgradeOperations } from "../operations/upgrade";
 
 export interface StoredSwap {
   orderId: string;
+  /** V6 (spec v2.0 §15): the API's operation id (`op_`) of this order, from its commit or its first resume; optional */
+  operationId?: string;
   attemptId: string; // the one-time order key is re-derived from the seed + attemptId; never stored
   refundCounter: number;
   /** the 169-byte refund payload committed in the order (random, so it cannot be re-derived); hex */

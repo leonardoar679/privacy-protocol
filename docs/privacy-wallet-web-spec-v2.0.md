@@ -621,7 +621,8 @@ leg back to pending and nothing is re-sent.
 
 Code (Stage 8): `settlementOf` and `nextSettlement` live in `packages/protocol/src/wallet/settlement.ts` (the wallet
 cannot depend on `packages/swap-engine`, whose tests depend on the SDK) and `packages/swap-engine/src/settlement.ts`
-re-exports them for the API. The wallet's legs come from `legsOf` in `packages/sdk/src/orderTracker.ts` (null when the
+re-exports them; Stage 9 moved the legs' derivation (`legsFrom`) and the job table (`SWAP_JOB_MAP`) beside them, so the
+wallet's tracker and the API's reconcile read an order the same way. The wallet's legs come from `legsOf` in `packages/sdk/src/orderTracker.ts` (null when the
 answer rests on a read that failed: the job of a handed-over order, the provider's track of an executed one, the escrow's
 balance before any job); `deriveState` carries the settlement on the tracker's result and the journal keeps it on
 `StoredSwap.track.settlement`; the order's record (`apps/web/src/features/swap/records.ts`) keeps the last one when a
@@ -751,6 +752,27 @@ TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory to
 **Logs** (doc §67, `packages/server-kit`): one JSON line per event with keys ⊆ {`at`, `level`, `event`,
 `operationId`, `provider`, `state`, `errorClass`, `network`} — the typed logger accepts nothing else; no address,
 transaction hash, amount, Bitcoin or Solana string ever (the §19 log gate).
+
+Code (Stage 9): `apps/api/src/app.ts` (the edge and the route table), `routes/swap.ts` (the handlers — the V1.1–V5
+service moved here from `packages/swap-engine/src/server.ts` by `git mv`), `db.ts` (the schema as one migration of
+STRICT tables, pinned by its hash; `purge`), `store.ts`, `reconcile.ts` (the relayer job, the escrow's balance, the
+provider's track → the state through the wallet's own derivation: `legsFrom`, `nextSettlement` and `SWAP_JOB_MAP` in
+`packages/protocol/src/wallet/settlement.ts`; a relayer cost above 1.5 × the committed tip of an ETH order logs
+`fee.deviation` once — the Stage 7 note's API side), `quote.ts` (the §46 quote: every fee in the source asset — the
+privacy fee by §3's formula, the relayer's F from its `/info` terms (30 s cache) plus the executor tip, the provider's
+fees in the source asset, a fee taken in another asset being part of the rate; the route-only privacy level;
+`assessRisk`), `reads.ts`, `server.ts`; `packages/server-kit` (the typed logger, the rate limiter moved from the relayer,
+the headers and the CORS allowlist). A quote row holds the pair and the chosen route, never an amount; an operation's
+row the escrow, its asset and amount (public once funded), the committed tip and the deadlines — the destination, the
+refund material and the one-time signer only in `order_blob`, nulled by finalize (a resume or a restore of a finalized
+operation answers the order and stores nothing; a re-sign sends the journaled params with its prepare, and its finalize
+clears them again). The wallet (`packages/sdk/src/api/client.ts`; `swapService.ts` a thin adapter) journals
+`StoredSwap.operationId`, resumes an operation the API no longer holds (a 404) once and retries, and Activity reconciles
+its open swaps when it opens (`apps/web/src/features/swap/records.ts`: one call per operation per 5 s; the API's
+settlement only fills a record that has none). Deviations: the engine's `.`/`./server` entry split is not made (the API
+imports the engine's modules by path through its `./*` export); an unknown route answers 404 with `invalid_request`; the
+§46 quote is indicative — the wallet computes the escrow's W with its own relayer terms. Tests: `apps/api/test`
+(schema, retention, routes, reconcile, security, logs, the database after a flow).
 
 ## 16. The relayer (doc §42–§43) — *Stages 7, 12*
 

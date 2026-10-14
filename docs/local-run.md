@@ -38,16 +38,20 @@ Note the five core addresses, the ETH vault and the `SwapOrderFactory` from the 
 
 ## 2. Services
 ```
-cd packages/swap-engine && cp .env.example .env    # CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT from step 1
-npm install && npm run serve                        # http://127.0.0.1:8787 (live provider quotes)
+cd apps/api                                          # V6: the API (Express 5 + node:sqlite) over the swap engine
+CHAIN_ID=1 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> RPC_URLS=<rpc> RELAYER_URL=http://127.0.0.1:8790 \
+  DB_PATH=api.sqlite npm start                       # http://127.0.0.1:8787/v1 (live provider quotes, swap records)
 
 cd apps/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (+ FEE_VAULTS for ERC-20 fee notes)
 npm install && npm run serve                        # http://127.0.0.1:8790 (private submission + swap executor)
 curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's pp1… address
 ```
-V3 (`docs/high-value-protection-spec-v1.0.md`): the service reads its risk database from `packages/swap-engine/risk/`
+V3 (`docs/high-value-protection-spec-v1.0.md`): the API reads its risk database from `packages/swap-engine/risk/`
 (`RISK_DB_DIR` to point elsewhere; `INCIDENTS_FILE` for an operator's incident list, re-read every minute) and answers
-`GET /risk/:provider`; the relayer's `GET /swap` (the whole job list) opens only to `RELAYER_ADMIN_TOKEN`.
+`GET /v1/risk/:provider`; the relayer's `GET /swap` (the whole job list) opens only to `RELAYER_ADMIN_TOKEN`. V6 (spec
+v2.0 §15): the API keeps swap records in `DB_PATH` (WAL), purges them on its retention schedule and logs one JSON line
+per event, never an address, a hash or an amount; `scripts/local-stack/start-services.mjs service` starts it on 8787
+with `run/api.sqlite`.
 
 ## 3. Wallet
 ```

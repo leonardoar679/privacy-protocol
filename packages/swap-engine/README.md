@@ -47,15 +47,15 @@ answer from here, so the quorum tests skip with the reason when one is down.
 ## Configuration
 `.env.example` lists every setting (all optional); `npm run typecheck` runs `tsc --noEmit` (clean).
 
-## Local service for the wallet UI (`npm run serve`, `src/server.ts`)
-Loopback HTTP on `127.0.0.1:8787` (CORS for the Vite dev origins only): `GET /health`, `POST /quote`,
-`POST /order` (the wallet supplies the one-time **signer address** and the refund note's commitment /
-secret / payload hash), `POST /prepare` (re-quote with the escrow as sender → final ingress + the digest
-to sign), `POST /finalize` (the wallet's 65-byte signature; the service recovers the signer and refuses
-anything but the order's key), `GET /order/:id`; `GET /health` also reports the deployment every order is built for (`chainId`, `factory`,
-`nativeVault`) so the wallet can hand a funded order to `apps/relayer`'s swap executor. The engine API behind it is `buildOrder({orderSigner})`,
-`prepareExecution` and `attachSignature`; `authorize` remains for in-process keys. Verified: the
-frontend's viem signature is accepted by the service's noble-based recovery; a wrong key is rejected.
+## The HTTP layer moved to the API (V6 Stage 9)
+The loopback service that used to live here is `apps/api` (`apps/api/src/routes/swap.ts`, Express 5 over this engine
+and `node:sqlite`; spec v2.0 §15): `POST /v1/quotes`, `POST /v1/operations` (the wallet supplies the one-time **signer
+address** and the refund note's commitment / secret / payload hash; an opaque `op_` id comes back), `POST
+/v1/operations/:id/prepare` (re-quote with the escrow as sender → final ingress + the digest to sign), `POST
+/v1/operations/:id/finalize` (the wallet's 65-byte signature; the API recovers the signer and refuses anything but the
+order's key), `GET /v1/status` (the deployment every order is built for: `chainId`, `factory`, `nativeVault`), the
+reconcile, the track, the risk view and the guest routes. The engine API behind it is `buildOrder({orderSigner})`,
+`restoreOrder`, `prepareExecution` and `attachSignature`; `authorize` remains for in-process keys.
 
 Live sample (2026-10-06, after the Chainflip adapter): 1 ETH → BTC under best-privacy chose **Chainflip**
 (0.03141 BTC, min 0.03126 in the fill-or-kill price, security 88 vs THORChain's incident-depressed 69);

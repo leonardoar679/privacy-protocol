@@ -5,12 +5,12 @@
 // window, a congested chain, the velocity rule, a pause the user or the wallet asked for) is `delayed` on the phase's
 // state, never a state of its own (I-O5).
 import type { Campaign, CampaignState, PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
+import { SWAP_JOB_MAP, type Mapped } from "@privacy-wallet/protocol/wallet/settlement";
 import type { OrderState, Tracked } from "../orderTracker";
-import type { SwapJobState } from "../relayer";
 import type { StoredSwap } from "../wallet/journal";
-import type { OperationPhase, OperationState } from "../wallet/operationRecord";
 
-export interface Mapped { state: OperationState; phase?: OperationPhase; code?: string; /** V6: the code names a delay of `state`, not a failure */ delayed?: true }
+/** The executor's job state → the operation state: the table shared with the API (packages/protocol/src/wallet/settlement.ts). */
+export { SWAP_JOB_MAP, type Mapped };
 
 /** The tracker's OrderState (sdk/orderTracker.ts) → the operation state. */
 export const ORDER_STATE_MAP: Record<OrderState, Mapped> = {
@@ -29,20 +29,6 @@ export const ORDER_STATE_MAP: Record<OrderState, Mapped> = {
   EXPIRED: { state: "QUOTE_EXPIRED", phase: "funding", code: "order_expired" },
   CANCELLED: { state: "CANCELLED", phase: "funding" },
   FAILED: { state: "RECOVERY_REQUIRED", phase: "execution", code: "needs_attention" },
-};
-
-/** The executor's job state (sdk/relayer.ts) → the operation state. */
-export const SWAP_JOB_MAP: Record<SwapJobState, Mapped> = {
-  "waiting-funding": { state: "SUBMITTED", phase: "funding" },
-  executing: { state: "EXECUTING", phase: "execution" },
-  executed: { state: "EXECUTING", phase: "execution" },
-  completed: { state: "COMPLETED", phase: "settlement" },
-  expired: { state: "REFUNDING", phase: "settlement" },
-  "refund-only": { state: "REFUNDING", phase: "settlement" },
-  refunding: { state: "REFUNDING", phase: "settlement" },
-  refunded: { state: "REFUNDED", phase: "settlement" },
-  "execute-failed": { state: "RECOVERY_REQUIRED", phase: "execution", code: "execute_failed" },
-  "refund-failed": { state: "RECOVERY_REQUIRED", phase: "settlement", code: "refund_failed" },
 };
 
 /** A journaled order's own `state` (sdk/swapExecute.ts, swapFunding.ts) when the tracker has not read yet. */

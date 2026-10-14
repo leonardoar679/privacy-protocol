@@ -27,9 +27,9 @@ function sources(dir: string): string[] {
 const ACTIONS = ["edit", "review", "new-quote", "wait", "resume-tracking", "continue-monitoring", "start-refund", "check-wallet", "check-settings", "housekeeping"];
 
 describe("coverage (spec §13: a test scans the sources and fails on a code without a row)", () => {
-  it("every RelayerError, SwapJobError and `code:` of the relayer's sources, and every `code:` of the swap service's, has a row", () => {
+  it("every RelayerError, SwapJobError and `code:` of the relayer's sources, and every `code:` of the API's and the swap engine's, has a row", () => {
     const found = new Set<string>();
-    for (const dir of ["apps/relayer/src", "packages/swap-engine/src"]) for (const f of sources(join(ROOT, dir))) {
+    for (const dir of ["apps/relayer/src", "packages/swap-engine/src", "apps/api/src", "packages/server-kit/src"]) for (const f of sources(join(ROOT, dir))) {
       const s = readFileSync(f, "utf8");
       for (const m of s.matchAll(/(?:RelayerError|SwapJobError)\("([a-z_]+)"/g)) found.add(m[1]);
       for (const m of s.matchAll(/code: "([a-z_]+)"/g)) found.add(m[1]);
@@ -56,6 +56,10 @@ describe("coverage (spec §13: a test scans the sources and fails on a code with
     expect(CATALOG.fee_too_low).toEqual({ source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] });
     expect(CATALOG.execute_failed).toMatchObject({ source: "tracker", fundsClass: "still-protected" });
     expect(CATALOG.send_failed.fundsClass, "a relayer that signed but could not broadcast: the chain decides").toBe("unknown");
+    // V6 Stage 9 (the local run's second protect): the injected wallet refusing for lack of funds sent nothing
+    for (const m of ["insufficient funds for gas * price + value: have 491693580581255900000 want 500000000000000000000", "Sender doesn't have enough funds to send tx", "transfer amount exceeds balance"])
+      expect(classify(new Error(m)), m).toMatchObject({ code: "wallet_insufficient_funds", fundsClass: "not-moved", actions: ["edit"] });
+    expect(classify(new Error("insufficient shielded balance: 3 ETH")).code, "the protected balance keeps its own code").toBe("insufficient_balance");
   });
 });
 

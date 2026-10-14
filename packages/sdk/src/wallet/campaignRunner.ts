@@ -97,7 +97,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
   const orderFor = async (stored: StoredSwap): Promise<ServiceOrder> => {
     const hit = orders.get(stored.orderId.toLowerCase());
     if (hit) return hit;
-    const order = await resumeOrder(d.deployment, stored);
+    const order = await resumeOrder(d.deployment, stored, d.session);
     orders.set(stored.orderId.toLowerCase(), order);
     return order;
   };

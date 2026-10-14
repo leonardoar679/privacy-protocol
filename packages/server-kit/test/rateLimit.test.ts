@@ -10,10 +10,13 @@ describe("rate limiter", () => {
     expect([rl.allow("a"), rl.allow("a"), rl.allow("a")]).toEqual([true, true, true]);
     expect(rl.allow("a")).toBe(false);
     expect(rl.retryAfterSeconds("a")).toBe(1);
-    t = 999; expect(rl.allow("a")).toBe(false);
-    t = 1000; expect(rl.allow("a")).toBe(true); // one token per second at 60/min
+    t = 999;
     expect(rl.allow("a")).toBe(false);
-    t = 61_000; expect([rl.allow("a"), rl.allow("a"), rl.allow("a"), rl.allow("a")]).toEqual([true, true, true, false]); // never more than the burst
+    t = 1000;
+    expect(rl.allow("a")).toBe(true); // one token per second at 60/min
+    expect(rl.allow("a")).toBe(false);
+    t = 61_000;
+    expect([rl.allow("a"), rl.allow("a"), rl.allow("a"), rl.allow("a")]).toEqual([true, true, true, false]); // never more than the burst
   });
   it("keys are independent and stale keys are evicted when the table is full", () => {
     let t = 0;

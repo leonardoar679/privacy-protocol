@@ -392,6 +392,15 @@ async function shellPass(page, viewport, locale) {
 // --- the run ------------------------------------------------------------------------------------------------------------
 const browser = await launch();
 log(`browser ${browser.version()} (${CHANNEL ?? "playwright chromium"}, ${HEADLESS ? "headless" : "headed"})`);
+// the devnet keeps every earlier run's spending: the funding wallet is topped up to 10,000 ETH when a run could exhaust it
+// (two 500 ETH protects, the sends and the swaps spend about 1,100 ETH; a full run's campaign more)
+{
+  const before = await balanceEth(stack.funding);
+  if (before < 5_000) {
+    await rpc("hardhat_setBalance", [stack.funding, "0x" + (10_000n * 10n ** 18n).toString(16)]);
+    log(`the funding wallet topped up: ${before.toFixed(2)} → ${await balanceEth(stack.funding)} ETH (devnet)`);
+  }
+}
 const context = await browser.newContext({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 // the injected funding wallet: an EIP-1193 provider over one of the devnet's unlocked accounts (what MetaMask would be here)
 await context.addInitScript(({ rpcUrl, account }) => {

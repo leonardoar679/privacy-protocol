@@ -11,7 +11,8 @@ import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Deployment } from "./chain";
 import type { Asset } from "./assets";
 import { simulateExecution, type Simulation } from "./simulate";
-import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
+import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ResumeRequest, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
+import { ApiError } from "./api/client";
 import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
 import { tipCeiling } from "./executionCost";
 import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
@@ -86,7 +87,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const sampled = i.schedule ? (orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy], now)) : undefined;
   const dueAt = i.schedule ? (reviewHoldUntil !== undefined ? Math.max(sampled ?? 0, reviewHoldUntil) : sampled) : undefined;
   const stored: StoredSwap = {
-    orderId: order.orderId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
+    orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
     params: order.params, endpoint: order.endpoint, quote: order.quote, approvedMin: (i.shown ?? order.quote).toAmountMin, createdAt: now, dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     ...(i.campaign ? { campaign: i.campaign } : {}),
@@ -98,12 +99,57 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   return { stored, order, key, refund, response };
 }
 
-/** Rebuild an order the service forgot (a restart) from the journaled params: the same params give the same escrow, checked here. */
-export async function resumeOrder(deployment: Deployment | null, stored: StoredSwap): Promise<ServiceOrder> {
-  const out = await swapService.resume({ request: stored.request as any, policy: stored.policy as Policy, provider: stored.provider, params: stored.params as any, ...(stored.tier ? { tier: stored.tier as ServiceTier } : {}), ...(stored.preference ? { preference: stored.preference as Preference } : {}) });
+/**
+ * Rebuild an order from the journaled params into its operation (V6: the API keeps it, but forgets a finalized order's blob
+ * and purges after its retention): the same params give the same escrow, checked here; the operation id is journaled.
+ */
+export async function resumeOrder(deployment: Deployment | null, stored: StoredSwap, session: WalletSession = defaultSession): Promise<ServiceOrder> {
+  const out = await swapService.resume(resumeRequestOf(stored), operationIdOf(stored, session));
   const predicted = predictEscrow(swapFactoryOf(deployment), stored.params as any);
   if (out.order.endpoint.toLowerCase() !== predicted.toLowerCase() || out.order.orderId.toLowerCase() !== stored.orderId.toLowerCase()) throw new OrderMismatch("endpoint", "the resumed order is not the one this wallet committed");
+  if (out.operationId && out.operationId !== operationIdOf(stored, session)) patchSwap(stored.orderId, { operationId: out.operationId }, session);
   return out.order;
+}
+
+/** The operation id the journal holds for an order now (a resume may have given it one since `stored` was read). */
+function operationIdOf(stored: StoredSwap, s: WalletSession): string | undefined {
+  const now = s.isUnlocked() ? s.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase()) : undefined;
+  return now?.operationId ?? stored.operationId;
+}
+
+/** The journaled order as the API rebuilds it. */
+const resumeRequestOf = (stored: StoredSwap): ResumeRequest => ({
+  request: stored.request as any, policy: stored.policy as Policy, provider: stored.provider, params: stored.params as any,
+  ...(stored.tier ? { tier: stored.tier as ServiceTier } : {}), ...(stored.preference ? { preference: stored.preference as Preference } : {}),
+});
+
+/**
+ * A call on the order's operation. An order without an operation (journaled before the API, or purged) is resumed first;
+ * a 404 — the API holds no destination (finalized, then signed again) or no operation — is answered by `onMissing` (the
+ * prepare sends its journaled params) or by a resume and one retry.
+ */
+async function onOperation<T>(deployment: Deployment | null, stored: StoredSwap, s: WalletSession, call: (operationId: string) => Promise<T>, onMissing?: (operationId: string) => Promise<T>): Promise<T> {
+  let id = operationIdOf(stored, s);
+  if (!id) {
+    await resumeOrder(deployment, stored, s);
+    id = operationIdOf(stored, s);
+  }
+  if (!id) throw new Error("the API named no operation for this order");
+  try {
+    return await call(id);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 404)) throw e;
+    if (e.code === "unknown_order" && onMissing) {
+      try {
+        return await onMissing(id);
+      } catch (e2) {
+        if (!(e2 instanceof ApiError && e2.status === 404)) throw e2;
+      }
+    }
+    await resumeOrder(deployment, stored, s); // the operation itself is gone: the order is restored into a new one
+    const fresh = operationIdOf(stored, s) ?? id;
+    return onMissing ? onMissing(fresh) : call(fresh);
+  }
 }
 
 export interface PrepareInput {
@@ -129,7 +175,7 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
   const orderKey = deriveOrderKey(i.masterSeed, stored.attemptId as Hex);
   i.onStatus?.("Re-quoting with the escrow as sender, then checking the call…");
-  const prepared = await swapService.prepare(order.orderId);
+  const prepared = await onOperation(i.deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
   const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(i.deployment), chainId: BigInt(i.deployment.chainId), acceptMin: i.acceptMin, pooled: (i.deployment.erc20Vaults ?? []).map((v) => v.token) });
   if (!gate.ok) return { moved: gate.moved };
@@ -155,7 +201,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   if (!signed.sim.ok) throw new Error(`Not handed over: ${signed.sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
   const refundNoteData = stored.refundNoteData as Hex | undefined;
   if (!refundNoteData) throw new Error("this order has no refund payload in the journal; it is not handed over");
-  const fin = await swapService.finalize(order.orderId, signed.signature);
+  const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature));
   if (i.submission.kind !== "relayer") return {};
   const health = await swapService.health();
   const factory = swapFactoryOf(i.deployment);

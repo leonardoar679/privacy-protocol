@@ -9,6 +9,7 @@ import { isTerminal, type OperationRecord, type OperationState } from "@privacy-
 import { fromStoredSwap } from "@privacy-wallet/sdk/operations/adapters";
 import { reasonOf, recoveryFor } from "@privacy-wallet/sdk/operations/reducer";
 import { getOperation, putOperation } from "@privacy-wallet/sdk/operations/store";
+import { swapService } from "@privacy-wallet/sdk/swapService";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export const swapRecordId = (orderId: string): string => `swap:${orderId.toLowerCase()}`;
@@ -49,4 +50,24 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
   else if (!terminal && delayed) rec = { ...rec, recovery: { ...(rec.recovery ?? {}), state: rec.recovery?.state ?? "monitoring", since: rec.recovery?.since ?? now, lastCheckedAt: now } };
   putOperation(rec);
   return rec;
+}
+
+const lastReconciled = new Map<string, number>();
+
+/**
+ * V6 (spec v2.0 §12.5; doc §73): the API's reconcile of the open swaps when Activity opens — one call per operation per
+ * 5 s — as a second source: its settlement fills a record that has none; the wallet's own reads win otherwise.
+ */
+export async function reconcileOpenSwaps(swaps: StoredSwap[], now = Date.now()): Promise<number> {
+  let answered = 0;
+  for (const s of swaps) {
+    if (!s.operationId || (lastReconciled.get(s.operationId) ?? 0) > now - 5_000) continue;
+    lastReconciled.set(s.operationId, now);
+    const r = await swapService.reconcile(s.operationId).catch(() => null);
+    if (!r) continue;
+    answered++;
+    const rec = getOperation(swapRecordId(s.orderId));
+    if (rec && !rec.settlement && r.settlement && !isTerminal(rec.state)) putOperation({ ...rec, settlement: r.settlement, updatedAt: Math.max(now, rec.updatedAt) });
+  }
+  return answered;
 }

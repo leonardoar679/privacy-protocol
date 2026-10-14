@@ -7,7 +7,7 @@
 // the funds (REFUND_AVAILABLE: a refund-only relayer job), watch the refund (REFUNDING), done (COMPLETED, delivered or
 // returned). A read that fails keeps the last known settlement (nextSettlement); a reorg is a read that says the leg is
 // pending again, and nothing is re-sent.
-import type { SettlementState } from "@privacy-wallet/protocol-types";
+import type { OperationState, SettlementState } from "@privacy-wallet/protocol-types";
 
 export interface SettlementLegs {
   /** the funding transaction is mined: the escrow holds (or held) the order */
@@ -18,7 +18,8 @@ export interface SettlementLegs {
   provider?: "pending" | "destination-submitted" | "delivered" | "partial" | "failed" | "refunded-to-escrow";
   /** the refund of the escrow into the pool: none yet, under way, done (the refund note is in the pool), failed */
   refund?: "none" | "pending" | "done" | "failed";
-  /** the escrow holds funds and its refund window is open (now ≥ refundAfter): a refund can start now */
+  /** the escrow holds the funds and nothing will execute them (the execution failed, or its window closed without one): a
+   *  refund-only job can be started now (it lands once the refund window opens) */
   refundable: boolean;
 }
 
@@ -36,3 +37,88 @@ export function settlementOf(l: SettlementLegs): SettlementState | null {
 /** The settlement after a read: a failed read (null legs) keeps the last known one — a settlement is never downgraded by an outage. */
 export const nextSettlement = (prev: SettlementState | null | undefined, legs: SettlementLegs | null): SettlementState | null =>
   legs ? settlementOf(legs) : (prev ?? null);
+
+/** The relayer's swap job states (apps/relayer/src/swapExecutor.ts; the wallet's packages/sdk/src/relayer.ts). */
+export type SwapJobState =
+  "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+
+/** A vocabulary read into the operation's: the state, the phase, the catalog code of a failure or a delay. */
+export interface Mapped {
+  state: OperationState;
+  phase?: "funding" | "execution" | "settlement";
+  code?: string;
+  /** the code names a delay of `state`, not a failure */ delayed?: true;
+}
+
+/** The executor's job state → the operation state (spec v2.0 §12): one table for the wallet's adapters and the API's reconcile. */
+export const SWAP_JOB_MAP: Record<SwapJobState, Mapped> = {
+  "waiting-funding": { state: "SUBMITTED", phase: "funding" },
+  executing: { state: "EXECUTING", phase: "execution" },
+  executed: { state: "EXECUTING", phase: "execution" },
+  completed: { state: "COMPLETED", phase: "settlement" },
+  expired: { state: "REFUNDING", phase: "settlement" },
+  "refund-only": { state: "REFUNDING", phase: "settlement" },
+  refunding: { state: "REFUNDING", phase: "settlement" },
+  refunded: { state: "REFUNDED", phase: "settlement" },
+  "execute-failed": { state: "RECOVERY_REQUIRED", phase: "execution", code: "execute_failed" },
+  "refund-failed": { state: "RECOVERY_REQUIRED", phase: "settlement", code: "refund_failed" },
+};
+
+/** What a reader observed about an order's legs (the wallet from its journal and reads, the API from its reconcile reads). */
+export interface LegFacts {
+  /** the funding transaction was sent (the wallet knows it; the API never stores it: null — the escrow's balance decides) */
+  fundingSent: boolean | null;
+  /** the order was abandoned before its funding */
+  abandoned?: boolean;
+  /** the refund note is in the pool (the wallet's discovery) */
+  refundFound?: boolean;
+  /** the executor's job, or null when there is none */
+  job: { state: SwapJobState; executionTx?: string } | null;
+  /** a job is expected (its id is known) but its read failed */
+  jobUnread: boolean;
+  /** the execution transaction as journaled */
+  executionTx?: string;
+  /** the provider's tracking of the execution (null: no read, or the read failed) */
+  track: { state: string } | null;
+  /** the escrow's balance in the order's asset; null when it could not be read */
+  escrowBalance: bigint | null;
+  amount: bigint;
+  executeDeadline: number;
+  /** unix seconds */
+  now: number;
+}
+
+/**
+ * The legs of an order from what was observed; null when the answer rests on a read that failed (the job of a
+ * handed-over order, the provider's track of an executed one, the escrow's balance before any job) — the caller keeps
+ * the last settlement, never a downgrade. A reorg read correctly sends a leg back.
+ */
+export function legsFrom(f: LegFacts): SettlementLegs | null {
+  const job = f.job?.state;
+  if (f.abandoned) return { funded: false, executed: false, refundable: false };
+  if (f.refundFound || job === "refunded") return { funded: true, executed: false, refund: "done", refundable: false };
+  if (f.fundingSent === false) return { funded: false, executed: false, refundable: false };
+  if (f.jobUnread) return null; // the executor's job was not read
+  const t = f.track?.state;
+  const executed = job === "completed" || job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? f.executionTx));
+  if (job === "refunding" || job === "refund-only" || job === "expired" || (executed && job !== "completed" && (t === "refunded" || t === "failed")))
+    return { funded: true, executed, refund: "pending", refundable: false };
+  if (executed) {
+    if (job !== "completed" && !f.track) return null; // the provider's side was not read
+    const provider =
+      job === "completed" || t === "completed" || t === "destination-final"
+        ? "delivered"
+        : t === "partial"
+          ? "partial"
+          : t === "destination-submitted"
+            ? "destination-submitted"
+            : "pending";
+    return { funded: true, executed: true, provider, refundable: false };
+  }
+  if (job === "execute-failed" || job === "refund-failed")
+    return { funded: true, executed: false, refund: job === "refund-failed" ? "failed" : "none", refundable: true };
+  if (job === "executing") return { funded: true, executed: false, refundable: false }; // the executor saw the funding and sends the call
+  if (f.escrowBalance === null) return null; // the funding's finality rests on the escrow's balance, which was not read
+  if (f.escrowBalance < f.amount) return { funded: false, executed: false, refundable: false };
+  return { funded: true, executed: false, refundable: !job && f.now > f.executeDeadline };
+}

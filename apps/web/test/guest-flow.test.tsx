@@ -27,8 +27,8 @@ beforeAll(() => {
     calls.push(u.pathname);
     if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "BTC", address: VAULT, router: "", halted: false }]);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (u.pathname === "/guest/quote") return json({ quotes: [thorQuote], scores: [], errors: {}, chosen: undefined });
-    if (u.pathname === "/guest/ingress") {
+    if (u.pathname === "/v1/guest/quote") return json({ quotes: [thorQuote], scores: [], errors: {}, chosen: undefined });
+    if (u.pathname === "/v1/guest/ingress") {
       const memo = buildMemo("ETH.ETH", body.destination, bent.limit ?? LIMIT);
       return json({ provider: "thorchain", quote: thorQuote, ingress: { to: bent.to ?? VAULT, memo, amount: body.amount, expiresAt: Math.floor(Date.now() / 1000) + 900, verified: ["the service says so"] }, status: "Pending" });
     }

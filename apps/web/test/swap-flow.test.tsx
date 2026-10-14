@@ -23,6 +23,7 @@ import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, Quo
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
+import { v1Adapter } from "./helpers/apiV1";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -120,15 +121,16 @@ async function service(path: string, body: any): Promise<Response> {
 
 // V5 Stage 11 (spec §20–§21): every request of the scenario is kept and read for secrets at the end (the leakage gate)
 const requests: { url: string; body: string | null }[] = [];
+const api = v1Adapter(service);
 const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const url = String(input);
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ url, body: init?.body ? String(init.body) : null });
   const u = new URL(url);
-  calls.push(`${u.host}${u.pathname}`);
+  calls.push(`${u.host}${u.pathname.replace(/\/op_[a-z0-9]+\//, "/:id/")}`); // an operation's opaque id as :id
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)
-  if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
+  if (u.host === "127.0.0.1:8787") return api(u.pathname, body); // V6: the API's /v1 routes in front of the V5-shaped mock
   if (u.host === "127.0.0.1:8790") {
     if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: privacyAddress(new Uint8Array(32).fill(0x5e)) /* the relayer's, for its fee note (V6: the escrow funding pays the percentage) */, minFeeWei: "0", gasPriceWei: "0", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/refund") { relayerBodies.push(body); jobs.set(String(body.params.orderId).toLowerCase(), "refund-only"); }
@@ -183,14 +185,14 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     await vi.waitFor(() => expect(container.textContent).toContain("Checked by this wallet before signing"), { timeout: 20_000 });
     expect(container.textContent).toContain("pays your fresh address, at least 0.030000 BTC");
     expect(container.textContent).toContain("a provider refund returns to your private balance");
-    expect(calls).toContain("127.0.0.1:8787/finalize");
+    expect(calls).toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(calls).toContain("127.0.0.1:8790/swap/execute");
     expect(calls.filter((c) => c.endsWith("/thorchain/inbound_addresses")).length, "the wallet asked the gateways itself").toBe(3);
     // the signed execution was simulated on the deployment's endpoint before it left the wallet, with the relayer as the tip recipient
     const sim = rpcSeen.find((tx) => String(tx.to).toLowerCase() === FACTORY.toLowerCase());
     expect(sim, "deployAndExecute simulated").toBeTruthy();
     expect(String(sim.from).toLowerCase()).toBe(RELAYER_EOA.toLowerCase());
-    expect(calls.indexOf("127.0.0.1:1/"), "simulated before finalize").toBeLessThan(calls.indexOf("127.0.0.1:8787/finalize"));
+    expect(calls.indexOf("127.0.0.1:1/"), "simulated before finalize").toBeLessThan(calls.indexOf("127.0.0.1:8787/v1/operations/:id/finalize"));
     expect(session.journal().swaps[0].simulation).toMatchObject({ ok: true, gas: "210000" });
     expect(container.textContent).toContain("Simulated on your RPC endpoints before hand-over");
     expect(container.querySelector('[data-testid="privacy-lint"]')).toBeTruthy();
@@ -202,7 +204,7 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     rpcBend = { revert: toFunctionSelector("ProviderCallFailed()") as Hex, providerReason: "THORChain: trading halted" };
     await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
     await vi.waitFor(() => expect(container.textContent).toContain("Not handed over: the execution would revert (ProviderCallFailed: the provider rejected the call); the provider says: THORChain: trading halted"), { timeout: 20_000 });
-    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(calls).not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(calls).not.toContain("127.0.0.1:8790/swap/execute");
     expect(session.journal().swaps.find((s) => s.orderId === orderId)!.simulation).toMatchObject({ ok: false, error: "ProviderCallFailed" });
     expect(button(container, "2 · Confirm the swap")!.disabled, "confirm again later against a fresh quote").toBe(false);
@@ -214,7 +216,7 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     bend = { dest: "bc1qattacker" };
     await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
     await vi.waitFor(() => expect(container.textContent).toMatch(/does not do what this wallet asked for \(thorchain receiver/), { timeout: 20_000 });
-    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(calls).not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(calls).not.toContain("127.0.0.1:8790/swap/execute");
   });
 
@@ -232,7 +234,7 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     expect(sent.params).toEqual(session.journal().swaps.find((s) => s.orderId === orderId)!.params);
     expect(sent.factory.toLowerCase()).toBe(FACTORY.toLowerCase());
     expect(sent.refundNoteData).toMatch(/^0x[0-9a-f]{338}$/);
-    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(calls).not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(session.journal().swaps.find((s) => s.orderId === orderId)?.state).toBe("refund-only");
   });
   it("when the executor reports the refund, the refund note is recorded at once and its amount shown (PP-S09)", async () => {
@@ -270,10 +272,10 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     await vi.waitFor(() => expect(container.textContent).toContain("The price moved"), { timeout: 20_000 });
     expect(container.textContent).toContain("at least 0.029400 BTC");
     expect(container.textContent).toContain("−2 %");
-    expect(calls, "nothing signed yet").not.toContain("127.0.0.1:8787/finalize");
+    expect(calls, "nothing signed yet").not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     await act(async () => { button(container, "Confirm at the new minimum")!.click(); });
     await vi.waitFor(() => expect(container.textContent).toContain("Checked by this wallet before signing"), { timeout: 20_000 });
-    expect(calls).toContain("127.0.0.1:8787/finalize");
+    expect(calls).toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(session.journal().swaps.find((s) => s.orderId === orderId)?.approvedMin).toBe((LIMIT - 60_000n).toString());
     expect(container.textContent).not.toContain("The price moved");
   });

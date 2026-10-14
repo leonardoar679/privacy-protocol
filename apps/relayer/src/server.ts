@@ -12,7 +12,7 @@ import type { Hex } from "viem";
 import { Relayer, RelayerError, type RelayerConfig } from "./relayer";
 import { SwapExecutor, SwapJobError, loadEscrowCreationCode } from "./swapExecutor";
 import { FileJournal } from "./journal";
-import { RateLimiter } from "./rateLimit";
+import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 

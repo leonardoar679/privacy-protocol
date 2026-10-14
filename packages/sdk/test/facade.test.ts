@@ -144,7 +144,7 @@ describe("over a configured engine", () => {
       expect(await sdk.prepareCrossChainSwap(req(btc))).toEqual({ quotes: [], scores: [], errors: {} });
       await expect(sdk.prepareSwap(req(btc))).rejects.toThrow(/another chain/);
       await expect(sdk.prepareCrossChainSwap(req(usdc))).rejects.toThrow(/one chain/);
-      expect(calls).toEqual(["http://127.0.0.1:8787/quote", "http://127.0.0.1:8787/quote"]);
+      expect(calls, "V6: the API's /v1 quotes route").toEqual(["http://127.0.0.1:8787/v1/quotes", "http://127.0.0.1:8787/v1/quotes"]);
     } finally {
       globalThis.fetch = real;
     }

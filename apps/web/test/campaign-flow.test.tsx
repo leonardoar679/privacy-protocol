@@ -30,6 +30,7 @@ import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/
 import { recommendProtection } from "@privacy-wallet/swap-engine/risk/protection";
 import type { AssetRef, Ingress, Order, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
+import { v1Adapter } from "./helpers/apiV1";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // the private withdrawal that funds a step is covered by the funding tests; here it stands in and records the escrow it pays (fundEscrow's own checks — the balance, the recomputed escrow — still run)
@@ -135,14 +136,15 @@ function rpc(req: any) {
   if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
   return { jsonrpc: "2.0", id, error: { code: -32601, message: `mock rpc: ${method} unsupported` } };
 }
+const api = v1Adapter(service);
 const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const url = String(input);
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   const u = new URL(url);
-  calls.push(`${u.host}${u.pathname}`);
+  calls.push(`${u.host}${u.pathname.replace(/\/op_[a-z0-9]+\//, "/:id/")}`); // an operation's opaque id as :id
   if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body));
-  if (u.host === "127.0.0.1:8787") return service(u.pathname, body);
+  if (u.host === "127.0.0.1:8787") return api(u.pathname, body); // V6: the API's /v1 routes in front of the V5-shaped mock
   if (u.host === "127.0.0.1:8790") {
     if (u.pathname === "/info") return json({ chainId: 1, core: deployment.core, feeVault: ETH_VAULT, relayer: RELAYER_EOA, privacyAddress: privacyAddress(new Uint8Array(32).fill(0x5e)) /* the relayer's, for its fee note (V6: the escrow funding pays the percentage) */, minFeeWei: "1000000000000000", gasPriceWei: "20000000000", gasEstimate: "0", feeMarginBps: 0, requireReadableFeePayload: false, inflight: 0 });
     if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
@@ -274,10 +276,10 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(campaignsOf(session.journal())[0].tranches[0].state).toBe("signed");
     expect(calls.filter((x) => x.endsWith("/thorchain/inbound_addresses")).length, "the wallet asked the three gateways itself before signing").toBe(3);
     expect(session.journal().swaps[0].simulation).toMatchObject({ ok: true });
-    expect(calls).not.toContain("127.0.0.1:8787/finalize");
+    expect(calls).not.toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     r = await tick();
     expect(r?.action.kind).toBe("hand-over");
-    expect(calls).toContain("127.0.0.1:8787/finalize");
+    expect(calls).toContain("127.0.0.1:8787/v1/operations/:id/finalize");
     expect(calls).toContain("127.0.0.1:8790/swap/execute");
     let cur = campaignsOf(session.journal())[0];
     expect(cur.tranches[0]).toMatchObject({ state: "executing", jobId: expect.any(String) });

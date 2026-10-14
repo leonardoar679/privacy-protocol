@@ -10,7 +10,12 @@ import { defaultEngine } from "../src/config";
 import { MayanAdapter } from "../src/adapters/mayan";
 import { orderSignerAddress } from "../src/endpoints";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
+import { shareTips } from "./helpers/tips";
 import { checkProviderCall, ProviderCallMismatch, type CheckedCall } from "@privacy-wallet/sdk/providerCall";
+import { configure, defaultConfig } from "@privacy-wallet/sdk/config";
+
+// V6 Stage 3: the wallet engine reads its configuration (the gateways, the endpoints); the live suites install the defaults
+configure(defaultConfig());
 
 const KEYS = { orderSigner: orderSignerAddress(sha256(new TextEncoder().encode("wallet-check order key"))), refundOwnerCommitment: 0x1234n, refundNoteSecret: 0x5678n, refundNoteDataHash: ("0x" + "ab".repeat(32)) as `0x${string}` };
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
@@ -27,7 +32,7 @@ const DEST_SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 interface Checked { route: string; provider: string; quote: Quote; checked: CheckedCall; call: { provider: `0x${string}`; value: bigint; calldata: `0x${string}` }; expectation: Parameters<typeof checkProviderCall>[1] }
 
 async function prepareAndCheck(route: string, req: QuoteRequest): Promise<{ checked: Checked[]; skipped: Record<string, string> }> {
-  const engine = defaultEngine();
+  const engine = defaultEngine({ tips: shareTips(25n) }); // V6: a fixed tip share — the calls, not the gas, are under test
   const set = await engine.quoteAll(req, "fastest");
   const checked: Checked[] = [];
   const skipped: Record<string, string> = { ...(set.errors as Record<string, string>) };

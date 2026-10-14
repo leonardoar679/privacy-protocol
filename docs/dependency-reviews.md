@@ -33,3 +33,10 @@ code.
   (`tests/visual/run.mjs`), local only; playwright-core drives the installed Chrome and downloads no browser. None is
   cryptography-sensitive; none has an install script (the lockfile's `hasInstallScript` is unset); each locked with its
   sha512 integrity from the registry. `pngjs@5.0.0` stays nested under `qrcode`, unchanged.
+- 2026-10-13 (V6 Stage 9) — `express@5.3.0` (MIT; apps/api) and its closure: `router@2.2.0`, `path-to-regexp@8.4.2`,
+  `body-parser@2.3.0`, `raw-body@3.0.2`, `qs@6.16.0` (BSD-3-Clause), `send@1.2.1`, `serve-static@2.2.1`,
+  `finalhandler@2.1.1`, `type-is@2.1.0`, `content-type`, `cookie`, `debug`, `mime-types@3.0.2`, `proxy-addr@2.0.8`
+  (unused: `trust proxy` is off) and the small MIT/ISC helpers the review script lists; `@types/express@5.0.6` (MIT,
+  devDependency). The API's HTTP layer only: it holds no key, signs nothing, and serves JSON to the wallet. None is
+  cryptography-sensitive; none has an install script; each locked with its sha512 integrity from the registry; the audit
+  finds no advisory in it. `node:sqlite` is Node's own (24.x), no package.

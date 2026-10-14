@@ -1,5 +1,6 @@
 // start-services.mjs — runs the three processes of docs/local-run.md against the devnet described by run/stack.json:
-// the private-swap service (8787), the relayer (8790) and the wallet's Vite dev server (5173). Every setting goes in
+// the API (8787; V6 Stage 9: apps/api with its database run/api.sqlite), the relayer (8790) and the wallet's Vite dev
+// server (5173). Every setting goes in
 // through the environment (no .env file is written into the tree). Logs land in run/<name>.log; the relayer's journal
 // in run/relayer-journal. Ctrl-C stops all three.
 //
@@ -30,8 +31,11 @@ function start(name, cwd, args, env) {
   console.log(`[${name}] pid ${p.pid} in ${cwd}: ${args.join(" ")}`);
 }
 
-start("service", "packages/swap-engine", ["tsx", "src/server.ts"], {
+// the process keeps its V5 name ("service") so a restart reads the same: node start-services.mjs service
+start("service", "apps/api", ["tsx", "src/server.ts"], {
   PORT: "8787",
+  DB_PATH: join(RUN, "api.sqlite"),
+  RELAYER_URL: "http://127.0.0.1:8790",
   ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173",
   CHAIN_ID: "1",
   SWAP_FACTORY: stack.swapFactory,

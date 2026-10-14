@@ -1,7 +1,12 @@
 // Abuse limits for a public relayer: a token bucket per caller (requests per minute with a burst),
 // and a cap on open swap jobs. Pure, clock-injectable, no dependencies. Keys are whatever the
 // server chooses (the remote address here); nothing is logged.
-export interface RateLimiterOptions { perMinute: number; burst?: number; now?: () => number; maxKeys?: number }
+export interface RateLimiterOptions {
+  perMinute: number;
+  burst?: number;
+  now?: () => number;
+  maxKeys?: number;
+}
 
 export class RateLimiter {
   private buckets = new Map<string, { tokens: number; updated: number }>();
@@ -42,5 +47,7 @@ export class RateLimiter {
     for (const [k, b] of this.buckets) if (t - b.updated > 60_000) this.buckets.delete(k);
     if (this.buckets.size >= this.maxKeys) this.buckets.delete(this.buckets.keys().next().value as string); // oldest insertion
   }
-  get size(): number { return this.buckets.size; }
+  get size(): number {
+    return this.buckets.size;
+  }
 }

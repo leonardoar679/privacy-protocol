@@ -1,7 +1,7 @@
 // Activity (spec v2.0 §7.8; doc §39, §73): the route — one local list of everything this wallet moved, from the
 // encrypted journal, never from a server — the rows of ./rows.ts mapped by ./model.ts and drawn by ./View.tsx. Refresh
 // tracks every open swap once. A scheduled funding that failed raises a warning; its technical reason is Advanced's.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DESKTOP_QUERY, WarningCard, useMediaQuery } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -11,6 +11,7 @@ import { isOpenSwap } from "@privacy-wallet/sdk/swapFunding";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { buildRows, groupByDay } from "./rows";
 import { activityModel } from "./model";
+import { reconcileOpenSwaps } from "../swap/records";
 import { ActivityView } from "./View";
 import { useAllOperations, useSession, useSettings } from "../../hooks";
 
@@ -29,6 +30,10 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
   const j = session.isUnlocked() ? session.journal() : null;
   const groups = groupByDay(buildRows(j, records, advanced, t), t);
   const failed = j ? j.schedule.filter((a) => !a.done && a.error) : [];
+  // V6 (spec v2.0 §12.5; doc §73): opening Activity reconciles the open swaps with the API (throttled; the wallet's reads win)
+  useEffect(() => {
+    if (session.isUnlocked()) void reconcileOpenSwaps(session.journal().swaps.filter(isOpenSwap));
+  }, []);
 
   async function refresh() {
     if (!j) return;

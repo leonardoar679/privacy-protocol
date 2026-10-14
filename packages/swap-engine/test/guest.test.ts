@@ -6,6 +6,10 @@ import { ThorchainAdapter, UTXO_MEMO_BYTES } from "../src/adapters/thorchain";
 import { checkGuestInstruction } from "@privacy-wallet/sdk/guestGuard";
 import { categoryOf, type Ingress, type QuoteRequest } from "../src/types";
 import { recordFetch } from "./helpers/tamper";
+import { configure, defaultConfig } from "@privacy-wallet/sdk/config";
+
+// V6 Stage 3: the wallet engine reads its configuration (the gateways, the endpoints); the live suites install the defaults
+configure(defaultConfig());
 
 const req: QuoteRequest = {
   from: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" },

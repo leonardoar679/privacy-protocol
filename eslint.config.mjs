@@ -18,9 +18,12 @@ const ENGINE_PACKAGES = [
   "packages/risk-engine",
 ];
 const UI_PACKAGES = ["packages/ui"];
+// V6 Stage 9: the API and what it shares with the relayer — services, so no browser transport rule, and no console
+const SERVER_PACKAGES = ["packages/server-kit", "apps/api"];
 const ENGINE = ENGINE_PACKAGES.map((p) => `${p}/**/*.ts`);
 const UI = UI_PACKAGES.map((p) => `${p}/**/*.{ts,tsx}`);
-const ALL = [...ENGINE, ...UI];
+const SERVER = SERVER_PACKAGES.map((p) => `${p}/**/*.ts`);
+const ALL = [...ENGINE, ...UI, ...SERVER];
 // the V1.1–V4 engine as it came from apps/web (src/sdk, src/wallet, src/keys): its RPC and provider edges are typed loosely
 const LEGACY = ["packages/sdk/src/**", "packages/wallet-engine/src/injected.ts"];
 const LEGACY_EXCEPT = ["packages/sdk/src/index.ts", "packages/sdk/src/operations/**"];
@@ -91,6 +94,16 @@ export default tseslint.config(
       "no-restricted-syntax": ["error", forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`), STORAGE_MEMBER, FETCH],
     },
   },
+  {
+    files: SERVER,
+    rules: {
+      // doc §67: a service writes through the typed logger (packages/server-kit/src/logger.ts) and nothing else
+      "no-console": "error",
+      "no-restricted-syntax": ["error", forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`), forbiddenWord(`Literal[value=/${FORBIDDEN}/i]`)],
+    },
+  },
+  // the tests' harness reads answers loosely typed
+  { files: ["apps/api/test/**/*.ts"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
   { files: LEGACY, ignores: LEGACY_EXCEPT, rules: { "@typescript-eslint/no-explicit-any": "off" } },
   { files: TRANSPORT, ignores: TRANSPORT_EXCEPT, rules: { "no-restricted-syntax": "off" } },
   {

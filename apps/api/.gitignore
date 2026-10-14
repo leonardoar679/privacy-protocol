@@ -1,0 +1,5 @@
+# the database of a local run (DB_PATH defaults to api.sqlite) and its WAL files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+node_modules/

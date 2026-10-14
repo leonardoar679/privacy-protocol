@@ -1,7 +1,7 @@
-import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
-import { swapServiceUrl, type AssetRef, type QuoteSet } from "@privacy-wallet/sdk/swapService";
+import { api } from "@privacy-wallet/sdk/api/client";
+import type { AssetRef, QuoteSet } from "@privacy-wallet/sdk/swapService";
 import { checkGuestInstruction, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
 import { MinimumMoved } from "@privacy-wallet/sdk/providerCall";
 import { fmtUnits, parseUnitsSafe } from "@privacy-wallet/sdk/format";
@@ -20,13 +20,6 @@ const SOURCES: Record<string, AssetRef> = { BTC: { chain: "bitcoin", asset: "nat
 const TARGETS: Record<string, AssetRef> = { ETH: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, "USDC on Ethereum": { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" } };
 interface Instruction { provider: string; quote: { toAmount: string; toAmountMin: string; etaSeconds: number }; ingress: { to: string; memo?: string; amount: string; expiresAt: number; verified: string[] }; status: string }
 const fmt = (units: string, decimals: number) => fmtUnits(units, decimals); // from base units, never through a float
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await secureFetch(swapServiceUrl() + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, "guest");
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error ?? `service error ${r.status}`);
-  return j as T;
-}
 
 export function Guest({ onBack, freshDestination }: { onBack: () => void; freshDestination?: (chain: string) => string }) {
   const [source, setSource] = useState("BTC");
@@ -54,14 +47,14 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   }
   async function getQuote() {
     setInstruction(null); setChecked(null); setMoved(null); setStatus(null);
-    const set = await run("Getting quotes…", () => post<QuoteSet>("/guest/quote", request()));
+    const set = await run("Getting quotes…", () => api.guestQuote<QuoteSet>(request()));
     if (set) setQuotes(set);
   }
   /** Fetch the deposit instruction and check it here before showing it; `acceptMin`: the guest consented to a lower minimum. */
   async function getInstruction(acceptMin?: bigint) {
     const approvedMin = acceptMin ?? BigInt(thor?.toAmountMin ?? "0");
     const res = await run("Preparing and checking your one-time deposit instruction…", async () => {
-      const ins = await post<Instruction>("/guest/ingress", request());
+      const ins = await api.guestIngress<Instruction>(request());
       try {
         return { ins, checked: await checkGuestInstruction(ins, { from, to, destination, amount: BigInt(units()), approvedMin }) };
       } catch (e) {
@@ -75,7 +68,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   }
   useEffect(() => {
     if (!instruction || !txid.trim()) return;
-    const tick = () => secureFetch(`${swapServiceUrl()}/guest/track/${instruction.provider}/${encodeURIComponent(txid.trim())}`, {}, "guest").then((r) => r.json()).then((j) => setStatus(j.status ?? "Pending")).catch(() => {});
+    const tick = () => api.guestTrack<{ status?: string }>(instruction.provider, txid.trim()).then((j) => setStatus(j.status ?? "Pending")).catch(() => {});
     tick();
     const t = setInterval(tick, 20_000);
     return () => clearInterval(t);

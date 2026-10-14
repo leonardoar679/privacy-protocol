@@ -1,17 +1,16 @@
-// Client for the local PrivateSwap service (packages/swap-engine/src/server.ts). The service quotes
-// providers and prepares orders; keys stay in this wallet: it only ever sees the one-time order
-// SIGNER address and the refund note's commitment/secret, and receives the signature we produce.
-// V2 (whale spec §1–§3, §13, §19): the request may carry the wallet's tier (a hint that can only raise
-// the service's tier) and its preference instead of a policy; quotes carry their execution plan, the
-// provider's impact figure and the competition record; /prepare keeps the approved minimum; /track
-// reads the destination side of an executed order.
-import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): every request under the one transport policy
+// The swap calls of the wallet over the API (V6 Stage 9: apps/api, spec v2.0 §15; was the local PrivateSwap service). The
+// API quotes providers and prepares orders; keys stay in this wallet: it only ever sees the one-time order SIGNER address
+// and the refund note's commitment/secret, and receives the signature we produce. An order is an operation with an opaque
+// `op_` id from its commit on (journaled as StoredSwap.operationId); the order id never appears in a URL.
+// V2 (whale spec §1–§3, §13, §19): the request may carry the wallet's tier (a hint that can only raise the API's tier)
+// and its preference instead of a policy; quotes carry their execution plan, the provider's impact figure and the
+// competition record; prepare keeps the approved minimum; track reads the destination side of an executed order.
 import type { Address, Hex } from "viem";
 import { fmtUnits } from "./format";
-import { config } from "./config";
+import { api, apiUrl, ApiError, ApiMinimumMoved, type ApiQuote, type ReconcileView } from "./api/client";
 
-/** The swap service from the configuration (V6 Stage 3). */
-export const swapServiceUrl = (): string => config().swapService;
+/** The API's base URL (the configuration's `swapService`, V6 Stage 3). */
+export const swapServiceUrl = (): string => apiUrl();
 
 export type Policy = "best-privacy" | "best-price" | "fastest" | "balanced" | "privacy-execution" | "best-execution" | "high-privacy";
 export type Preference = "balanced" | "best-privacy" | "best-price" | "fastest" | "native";
@@ -61,6 +60,9 @@ export interface QuoteSet {
   protection?: Protection; risk?: Record<string, ProviderRiskView>;
   /** V6 (spec v2.0 §3): the executor tip every quote is net of — the execution's gas, in the input's base units */
   executorTip?: string;
+  /** V6 (spec v2.0 §15): the API's quote id and the chosen route as the §46 quote (indicative: the wallet computes its own fees) */
+  id?: string;
+  quote?: ApiQuote;
 }
 /** The on-chain OrderParams (SwapOrderTypes.OrderParams) as the service serialises them (bigints as strings). */
 export interface ServiceOrderParams { orderId: Hex; assetType: number; asset: Address; amount: string; orderSigner: Address; executeDeadline: number; refundAfter: number; refundVault: Address; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: Hex; executorTip: string }
@@ -73,34 +75,49 @@ export interface ResumeRequest { request: Omit<SwapRequest, "policy" | "preferen
 export interface TrackResult { track: { state: string; destinationTxHash?: string; deliveredAmount?: string; deliveredAsset?: string; refundedAmount?: string; progress?: { parts: number; done: number } }; status: string }
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the user is asked again. */
-export class ServiceMinimumMoved extends Error {
-  constructor(readonly approvedMin: bigint, readonly newMin: bigint) { super(`the route now guarantees at least ${newMin}, below the ${approvedMin} you approved`); }
-}
+export const ServiceMinimumMoved = ApiMinimumMoved;
+export type ServiceMinimumMoved = ApiMinimumMoved;
 
-async function call<T>(path: string, body?: unknown): Promise<T> {
-  const r = await secureFetch(swapServiceUrl() + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}, "swap-service");
-  const j = await r.json();
-  if (!r.ok) {
-    if (r.status === 409 && j?.code === "minimum_moved") throw new ServiceMinimumMoved(BigInt(j.approvedMin), BigInt(j.newMin));
-    throw new Error(j.error ?? `service error ${r.status}`);
-  }
-  return j as T;
-}
+/** A commit's answer: the operation's id with the order. */
+export interface Committed { operationId: string; order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView> }
+/** A resume's answer: the order rebuilt from the journaled params into its operation. */
+export interface Resumed { operationId: string; order: ServiceOrder; status: string; tier?: Tier }
+
+/** What the API rebuilds an order from: the request, the policy, the provider and the on-chain params. */
+const resumeBody = (req: ResumeRequest) => ({ ...req.request, policy: req.policy, provider: req.provider, params: req.params, ...(req.tier ? { tier: req.tier } : {}), ...(req.preference ? { preference: req.preference } : {}) });
+
+const trackQuery = (ref: { tx?: string; ref?: string; since?: number; expected?: number }) =>
+  new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}), ...(ref.since ? { since: String(ref.since) } : {}), ...(ref.expected ? { expected: String(ref.expected) } : {}) });
 
 export const swapService = {
-  health: () => call<ServiceHealth>("/health"),
-  quote: (req: SwapRequest) => call<QuoteSet>("/quote", req),
-  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string }) =>
-    call<{ order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView> }>("/order", req),
-  resume: (req: ResumeRequest) => call<{ order: ServiceOrder; status: string; tier?: Tier }>("/order/resume", { ...req.request, policy: req.policy, provider: req.provider, params: req.params, ...(req.tier ? { tier: req.tier } : {}), ...(req.preference ? { preference: req.preference } : {}) }),
-  /** `approvedMin`: the minimum the user approved at commit (destination base units); a hard quote below it answers 409 → ServiceMinimumMoved */
-  prepare: (orderId: string, approvedMin?: bigint) => call<Prepared>("/prepare", { orderId, ...(approvedMin !== undefined ? { approvedMin: approvedMin.toString() } : {}) }),
-  finalize: (orderId: string, signature: string) => call<{ execution: ServiceExecution; order: ServiceOrder }>("/finalize", { orderId, signature }),
-  /** the destination side of an executed order, by the execution transaction (NEAR Intents: the deposit address as ref) */
-  /** `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the service count a settlement stall (V3 §10) */
-  track: (provider: string, ref: { tx?: string; ref?: string; since?: number; expected?: number }) => call<TrackResult & { stalled?: boolean }>(`/track/${encodeURIComponent(provider)}?${new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}), ...(ref.since ? { since: String(ref.since) } : {}), ...(ref.expected ? { expected: String(ref.expected) } : {}) })}`),
+  health: () => api.status<ServiceHealth>(),
+  quote: (req: SwapRequest) => api.quotes<QuoteSet>(req),
+  /** commit: POST /v1/operations — the answer names the operation (`op_` id) the wallet journals with the order */
+  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string }) => api.createOperation<Committed>(req),
+  /** rebuild an order from the journaled params: into its known operation, else (unknown, or none yet) found by its order or created */
+  async resume(req: ResumeRequest, operationId?: string): Promise<Resumed> {
+    const body = resumeBody(req);
+    if (operationId) {
+      try {
+        return await api.resume<Resumed>(operationId, body);
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) throw e;
+      }
+    }
+    return api.createOperation<Resumed>(body);
+  },
+  /** `approvedMin`: the minimum the user approved at commit (destination base units); a hard quote below it answers 409 →
+   *  ServiceMinimumMoved; `restore`: the journaled params, sent when the API holds no destination (a finalized order signed again) */
+  prepare: (operationId: string, approvedMin?: bigint, restore?: ResumeRequest) =>
+    api.prepare<Prepared>(operationId, { ...(approvedMin !== undefined ? { approvedMin: approvedMin.toString() } : {}), ...(restore ? { restore: resumeBody(restore) } : {}) }),
+  finalize: (operationId: string, signature: string) => api.finalize<{ execution: ServiceExecution; order: ServiceOrder }>(operationId, signature),
+  /** the API's own reads of an operation (relayer job, escrow, provider): a second source; the wallet's own reads win */
+  reconcile: (operationId: string): Promise<ReconcileView> => api.reconcile(operationId),
+  /** the destination side of an executed order, by the execution transaction (NEAR Intents: the deposit address as ref);
+   *  `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the API count a settlement stall (V3 §10) */
+  track: (provider: string, ref: { tx?: string; ref?: string; since?: number; expected?: number }) => api.track<TrackResult & { stalled?: boolean }>(provider, trackQuery(ref)),
   /** V3 (High-Value Protection spec §10): a provider's risk view — its record, the security breakdown, the breaker's state */
-  risk: (provider: string) => call<RiskView>(`/risk/${encodeURIComponent(provider)}`),
+  risk: (provider: string) => api.risk<RiskView>(provider),
 };
 
 /**

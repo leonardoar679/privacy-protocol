@@ -158,7 +158,7 @@ describe("§72 — the permanent wallet never appears in any provider flow (live
 
   it("one-time endpoints: the same quote committed twice gives two different escrows, and the order holds no private key", async () => {
     const engine = defaultEngine({ tips: shareTips(25n) });
-    const q: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 1, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: null, obtainedAt: Date.now() };
+    const q: Quote = { provider: "thorchain", category: "A", toAmount: 1n, toAmountMin: 1n, fees: [], etaSeconds: 1, expiresAt: Math.floor(Date.now() / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], raw: null, obtainedAt: Date.now(), executorTip: 25n * 10n ** 14n }; // V6: a quote names the tip it is net of
     const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 100 };
     const o1 = engine.buildOrder(req, "best-privacy", q, KEYS);
     const o2 = engine.buildOrder(req, "best-privacy", q, KEYS);

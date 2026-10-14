@@ -15,6 +15,7 @@
     "@noble/hashes": "^1.4.0",
     "@privacy-wallet/contracts": "*",
     "@privacy-wallet/protocol": "*",
+    "@privacy-wallet/server-kit": "*",
     "@privacy-wallet/swap-engine": "*",
     "viem": "^2.21.0"
   },
