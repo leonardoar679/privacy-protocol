@@ -7,7 +7,7 @@ import type { AssetRef, CompetitionEntry, ExecutionPlan } from "./swapService";
 import type { StoredSwap } from "./wallet/journal";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Simulation } from "./simulate";
-import { config } from "./config";
+import { config, DEFAULTS } from "./config";
 
 
 export interface Controls {
@@ -55,10 +55,16 @@ export const PROTECTED_EXECUTION = { MIN_QUOTE_TTL_S: 60, MAX_SLIPPAGE_BPS: 50, 
 
 /** The impact cap of spec §4 (lab-calibrated, Stage 1): a single-shot plan above it is refused by the engine when a stream exists; the Review repeats the figure. */
 export const IMPACT_CAP_BPS = 50;
-/** The pointer hold a high-value confirmation takes (plan §12: a tap is never enough); tests shorten it through VITE_HOLD_MS. */
-export const holdMs = (): number => Math.max(20, config().holdMs);
-/** The institutional review hold: funding is scheduled no earlier than this cancel window (spec §24). */
-export const reviewHoldMinutes = (): number => Math.max(1, config().reviewHoldMinutes);
+/**
+ * The pointer hold a high-value confirmation takes (plan §12: a tap is never enough); tests shorten it through VITE_HOLD_MS.
+ * A production build never goes below the default (spec v2.0 §7.6: 1.5 s); it may hold longer.
+ */
+export const holdMs = (): number => Math.max(config().production ? DEFAULTS.holdMs : 20, config().holdMs);
+/**
+ * The institutional review hold: funding is scheduled no earlier than this cancel window (spec §24). The local stack
+ * shortens it through VITE_REVIEW_HOLD_MINUTES; a production build never goes below the default (it may wait longer).
+ */
+export const reviewHoldMinutes = (): number => Math.max(config().production ? DEFAULTS.reviewHoldMinutes : 1, config().reviewHoldMinutes);
 
 /** The execution in the user's words (spec §24, item 4): never the provider's vocabulary. */
 export function planWords(plan: ExecutionPlan | undefined): string {

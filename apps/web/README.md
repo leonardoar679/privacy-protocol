@@ -103,7 +103,9 @@ test/              515 vitest tests (node; the screens under happy-dom or jsdom)
   `VITE_PROTECT_ROUTER`, `VITE_SHIELD_FACTORY`, `VITE_ERC20_VAULTS`;
 - the services: the API and the relayer;
 - the gateways: the beacon APIs and THORNode;
-- the rest: `VITE_WC_PROJECT_ID` for WalletConnect and `VITE_ARTIFACT_BASE`.
+- the rest: `VITE_WC_PROJECT_ID` for WalletConnect and `VITE_ARTIFACT_BASE`;
+- three settings for tests and local runs that a production build never lowers below their defaults: `VITE_HOLD_MS`,
+  `VITE_REVIEW_HOLD_MINUTES` and `VITE_KDF_LOG2N` (the keystore's scrypt cost).
 
 ```
 npm ci                       # at the repository root (one lockfile for every workspace)

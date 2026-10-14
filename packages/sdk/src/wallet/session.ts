@@ -238,10 +238,15 @@ export class WalletSession {
   }
 }
 
-/** Tests and dev builds may lower the scrypt cost (the configuration's kdfLog2N, 12…20); production keeps the default. */
-function kdfFromConfig(): KdfParams {
+/**
+ * Tests and dev builds may lower the scrypt cost (the configuration's kdfLog2N, 12…20). A production build never goes
+ * below the keystore default (a build environment cannot weaken every user's password protection); it may go above.
+ */
+export function kdfFromConfig(): KdfParams {
   const raw = config().kdfLog2N ?? NaN;
-  return Number.isInteger(raw) && raw >= 12 && raw <= 20 ? { ...KDF_DEFAULT, N: 1 << raw } : KDF_DEFAULT;
+  if (!Number.isInteger(raw) || raw < 12 || raw > 20) return KDF_DEFAULT;
+  const N = 1 << raw;
+  return config().production && N < KDF_DEFAULT.N ? KDF_DEFAULT : { ...KDF_DEFAULT, N };
 }
 
 export const session = new WalletSession(browserStorage, kdfFromConfig);

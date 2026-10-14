@@ -66,13 +66,13 @@ export interface SdkConfig {
   artifactBase: string;
   /** a deployment's own price feeds (devnets); null = the table of mainnet and Sepolia */
   priceFeeds: FeedSpec[] | null;
-  /** the pointer hold of a confirmation, in ms (tests shorten it) */
+  /** the pointer hold of a confirmation, in ms (tests shorten it; a production build never goes below the default) */
   holdMs: number;
   /** V6 Stage 10 (doc §71): check the deployed contracts before a session's first money operation (deploymentGuard.ts); absent = on, the test configuration turns it off */
   deploymentCheck?: boolean;
-  /** the institutional review hold, in minutes (the local stack shortens it) */
+  /** the institutional review hold, in minutes (the local stack shortens it; a production build never goes below the default) */
   reviewHoldMinutes: number;
-  /** scrypt's cost as log2 N for tests and dev builds (12…20); production keeps the keystore default */
+  /** scrypt's cost as log2 N for tests and dev builds (12…20); a production build never goes below the keystore default */
   kdfLog2N?: number;
   /** a production build: the transport refuses hosts outside the allowlist, the prover refuses unpinned artifacts */
   production: boolean;
