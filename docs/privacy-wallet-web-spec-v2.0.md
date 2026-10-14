@@ -416,8 +416,8 @@ Because this is a large transaction, we added additional safety checks.
 **One confirmation** (owner, 2026-10-13): after Confirm the wallet commits the order, funds the escrow
 immediately, and signs the provider call by itself while the fresh hard quote's minimum is at least the approved
 one (the existing `swapSign` checks run first); a worse minimum pauses the operation (`QUOTE_EXPIRED`, reason
-`price_moved`) with `Accept new minimum` or `Return funds`. "Delay for more privacy" schedules the funding at a
-random time in 1–24 h instead.
+`price_moved`) with `Accept new minimum` or `Return funds`. "Delay for more privacy" funds at once from older notes
+when they cover the swap, and otherwise schedules the funding at a random time in 1–24 h instead (§14.1).
 
 Code (Stage 11): `packages/sdk/src/wallet/orderRunner.ts` — `confirmOrder` commits (no `fund-escrow` action; an execute
 window of 1800 s when funded at once), journals `StoredSwap.runner` and plans `order-tick:<orderId>`, which the App's
@@ -428,7 +428,9 @@ same tick (the signature never waits in memory across ticks), or the tracking. P
 "Return funds"), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
 `unsafe_contract_call` (the call did not pass the wallet's checks: return), `reconcile` (a send whose outcome is unknown:
 the escrow or the executor is read before anything is sent again). A failure before anything was sent goes to the
-scheduler's backoff. The swap's operation record follows through `packages/sdk/src/operations/swapRecords.ts` (moved
+scheduler's backoff — except `older_notes_unavailable` (§14.1): the order is stopped unfunded (CANCELLED with that
+reason, "Review again"), since its escrow's window cannot wait 1–24 h and younger notes would break what the Review
+showed. The swap's operation record follows through `packages/sdk/src/operations/swapRecords.ts` (moved
 from the app). The blockers are re-checked at the confirmation (`confirmBlockers`); the $100K+ Review is the V2–V4 one.
 
 Code (Stage 10): `ReviewView` takes `hold` apart from `large` (a protect or a send from $50K holds without the swap's
@@ -927,8 +929,24 @@ components with that timing, `privacyLevelOf`, at most medium while `recent`, re
 `packages/sdk/src/wallet/privacyTiming.ts` `fundingTiming` — the youngest note the withdrawal's own selection would
 spend, its age from the note's optional `addedAt` (set when this wallet creates a note; absent for a note a scan found)
 and the deposits since its leaf from the pool's last sync; a funding that needs a merge first spends a note made just
-then. "Delay for more privacy" is the random funding time; spending older notes first is a later refinement of the
-withdrawal's selection.
+then.
+
+**Delay for more privacy (V6 follow-up, 2026-10-14).**
+- **Older notes first.** `olderFunding` tries three bounds, best first: notes whose own timing is 0, then at most 0.3,
+  then at most 0.7. A note's timing comes from its age and the deposits since its leaf. The first bound whose notes the
+  withdrawal's own selection can spend without a merge wins, but only when it beats the default selection's timing.
+- **Fund now from them.** The Review then shows the timing of those notes (no delay) and says "The swap is funded now
+  from funds you protected earlier." `confirmOrder` journals `runner.maxTiming` (no `delayUntil`, the 1800 s window).
+- **The withdrawal is held to that bound.** `fundEscrow` → `privateWithdrawal({ maxTiming })` spends only `olderNotes`.
+  The bound is checked before any merge and again on the synced pool's numbers. Notes only age, so a selection made a
+  moment later is at least as old.
+- **When they no longer cover it.** Another spend took them, or the relayer's charge rose. `OlderNotesUnavailable` is
+  thrown before anything is sent. The runner stops the order unfunded: `paused.code` `older_notes_unavailable`, state
+  `abandoned`, the record CANCELLED with that reason, funds class not-moved. The progress screen offers "Review again".
+  A younger note is never spent instead.
+- **Otherwise** the funding waits a random 1–24 h, as before.
+- **When it is offered.** The card stays while the choice is on; it is offered while the funds the swap would spend
+  are recent, and only on a one-order swap (a protected execution's steps have their own timing).
 
 ### 14.2 Transport (doc §65)
 `packages/privacy-engine/src/transport/`: `http.ts` (the V5 policy: no credentials, no redirect, no cache, no

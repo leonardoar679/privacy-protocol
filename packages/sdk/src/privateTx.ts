@@ -33,6 +33,7 @@ import { session } from "./wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo } from "./relayer";
 import { connectivity, whenOnline } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { poolStats } from "./wallet/poolStats";
+import { olderNotes, selectionOf } from "./wallet/privacyTiming";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
@@ -202,8 +203,8 @@ export interface FeeTerms { ownerCommitment: bigint; viewPub: Uint8Array; amount
 export interface FeeOutput { note: Note; outputIndex: 0 | 1 | 2 }
 export interface WithdrawalPlan { spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: { note: Note; noteData: Hex; counter: number }; fee?: FeeOutput }
 
-function pickInputs(keys: WalletKeys, vaultId: bigint, needed: bigint): { spent: OwnedNote[]; inputs: [SpendNote, SpendNote | null]; change: bigint } {
-  const mine = noteStore.unspent(vaultId);
+function pickInputs(keys: WalletKeys, vaultId: bigint, needed: bigint, from?: OwnedNote[]): { spent: OwnedNote[]; inputs: [SpendNote, SpendNote | null]; change: bigint } {
+  const mine = from ?? noteStore.unspent(vaultId);
   const sel = selectInputs(mine.map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })), needed);
   if (sel.merges.length) throw new Error("this amount needs a private merge of smaller notes first (ensureSpendable)");
   const spent = sel.inputs.map((i) => mine.find((n) => String(n.leafIndex) === i.id)!);
@@ -218,12 +219,13 @@ function changeNote(keys: WalletKeys, vaultId: bigint, amount: bigint): Withdraw
 const feeNote = (vaultId: bigint, fee: FeeTerms): Note => ({ vaultId, amount: fee.amount, ownerCommitment: fee.ownerCommitment, noteSecret: randomField() });
 
 /**
- * Pick ≤ 2 of our notes, build the 2-in/3-out spec: withdrawal to `recipient`, change back to us
- * (encrypted to us), the relayer's fee note (encrypted to the relayer) when submitting privately, dummies.
+ * Pick ≤ 2 of our notes (of `from` when given: "Delay for more privacy" spends older notes only), build the 2-in/3-out
+ * spec: withdrawal to `recipient`, change back to us (encrypted to us), the relayer's fee note (encrypted to the relayer)
+ * when submitting privately, dummies.
  */
-export function planWithdrawal(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint, amount: bigint, recipient: bigint, domain: bigint, fee?: FeeTerms): WithdrawalPlan {
+export function planWithdrawal(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint, amount: bigint, recipient: bigint, domain: bigint, fee?: FeeTerms, from?: OwnedNote[]): WithdrawalPlan {
   const keys = deriveKeys(masterSeed);
-  const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, amount + (fee?.amount ?? 0n));
+  const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, amount + (fee?.amount ?? 0n), from);
   const change = changeNote(keys, vaultId, changeAmount);
   const feeOut: FeeOutput | undefined = fee ? { note: feeNote(vaultId, fee), outputIndex: 1 } : undefined;
   const outputs: [Note, Note, Note] = [change?.note ?? dummy(vaultId), feeOut?.note ?? dummy(vaultId), dummy(vaultId)];
@@ -344,12 +346,34 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
  * sync the tree → plan (with the relayer's fee note when submitting privately) → prove in the
  * worker → submit → record the change note with the leaf index the chain assigned.
  */
-export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address } & Progress): Promise<Submitted> {
+/**
+ * "Delay for more privacy" (spec v2.0 §14.1): the notes as old as the Review showed — each with its own timing at most
+ * `maxTiming` — no longer cover the funding. Thrown before anything is sent: the order is stopped, never funded from younger notes.
+ */
+export class OlderNotesUnavailable extends Error {
+  readonly code = "older_notes_unavailable";
+  constructor(readonly maxTiming: number) {
+    super(`The notes old enough for this funding (each timing at most ${maxTiming}) no longer cover it; nothing was sent.`);
+    this.name = "OlderNotesUnavailable";
+  }
+}
+
+/** The older notes a funding held to `maxTiming` may spend; throws `OlderNotesUnavailable` when they do not cover `needed` at once. */
+function olderInputs(vault: Address, maxTiming: number, needed: bigint): OwnedNote[] {
+  const notes = olderNotes(BigInt(vault), maxTiming);
+  if (!Array.isArray(selectionOf(notes, needed))) throw new OlderNotesUnavailable(maxTiming);
+  return notes;
+}
+
+export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number } & Progress): Promise<Submitted> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
+  const needed = o.amount + (terms?.fee.amount ?? 0n);
+  // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
+  if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
   await ensureSpendable({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
@@ -357,7 +381,8 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
-  const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee);
+  const from = o.maxTiming !== undefined ? olderInputs(vault, o.maxTiming, needed) : undefined;
+  const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee, from);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
   if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
   return r;

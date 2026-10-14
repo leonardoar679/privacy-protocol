@@ -61,7 +61,8 @@ export interface SwapModel {
   /** why there is no quote, in words */
   noRoute?: string | null;
   /** the funds were protected recently (doc §35): the note and "Delay for more privacy" */
-  privacy?: { recent: boolean; delay: boolean } | null;
+  /** "Delay for more privacy" (spec v2.0 §14.1): `older` — funded at once from older notes, else at a random time in 1–24 h */
+  privacy?: { recent: boolean; delay: boolean; older?: boolean } | null;
   /** above the standard band: the notice */
   notice?: string | null;
   /** Advanced (doc §29): the route's facts */
@@ -373,7 +374,7 @@ export function SwapView({
               ) : null}
               {m.privacy.delay ? (
                 <p className="ds-note" data-testid="swap-delay-note">
-                  {t("screen.swap.delayNote")}
+                  {t(m.privacy.older ? "screen.swap.delayOlderNote" : "screen.swap.delayNote")}
                 </p>
               ) : null}
             </Card>

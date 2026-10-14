@@ -62,9 +62,11 @@ export interface StoredSwap {
   history?: { state: string; at: number; note?: string }[];
   /** V3 (High-Value Protection spec §7, §17): the campaign this order is a tranche of; such an order is funded and handed over by the campaign runner, never by a fund-escrow action */
   campaign?: { id: string; index: number };
-  /** V6 Stage 11 (spec v2.0 §7.6): the order runner runs this order after its one confirmation — funded at once, or not before `delayUntil` (unix ms) for more privacy */
-  runner?: { confirmedAt: number; delayUntil?: number };
-  /** V6 Stage 11: why the runner stopped and what it waits for — `minimum_moved` (the user's choice: `minOut` vs the `approved` one), `execution_unavailable`, `unsafe_contract_call`, `reconcile` */
+  /** V6 Stage 11 (spec v2.0 §7.6): the order runner runs this order after its one confirmation — funded at once, or not before `delayUntil` (unix ms) for more privacy;
+   *  V6 follow-up (spec v2.0 §14.1): `maxTiming`, funded at once from older notes only — each with its own timing at most it (0, 0.3 or 0.7) */
+  runner?: { confirmedAt: number; delayUntil?: number; maxTiming?: number };
+  /** V6 Stage 11: why the runner stopped and what it waits for — `minimum_moved` (the user's choice: `minOut` vs the `approved` one), `execution_unavailable`, `unsafe_contract_call`, `reconcile`;
+   *  on an order it gave up before funding, `older_notes_unavailable` (the older notes no longer covered it) */
   paused?: { code: string; detail?: string; minOut?: string; approved?: string; at: number };
   /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance — the shield receiver this wallet named as
    *  the destination (its factory and parameters, the counter its note derives from, the payload), whether the executor

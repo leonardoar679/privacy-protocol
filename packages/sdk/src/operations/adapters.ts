@@ -102,6 +102,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   execution_unavailable: { state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_unavailable" },
   unsafe_contract_call: { state: "RECOVERY_REQUIRED", phase: "execution", code: "unsafe_contract_call" },
   reconcile: { state: "RECOVERY_REQUIRED", phase: "funding", code: "reconcile" },
+  // "Delay for more privacy" (spec v2.0 §14.1): the older notes no longer covered the order — stopped, never funded
+  older_notes_unavailable: { state: "CANCELLED", phase: "funding", code: "older_notes_unavailable" },
 };
 
 /** A journaled order with (or without) the tracker's last derivation. */

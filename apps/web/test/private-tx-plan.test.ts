@@ -12,6 +12,7 @@ import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "@privacy-wallet/protoco
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { placeholderNoteData, planWithdrawal } from "@privacy-wallet/sdk/privateTx";
+import { olderNotes } from "@privacy-wallet/sdk/wallet/privacyTiming";
 
 const seed = utf8ToBytes("frontend-plan-test-seed");
 const keys = deriveKeys(seed);
@@ -37,6 +38,22 @@ describe("placeholder payloads", () => {
 
 describe("withdrawal planning", () => {
   beforeEach(freshStore);
+
+  it("'Delay for more privacy' (spec v2.0 §14.1): given the older notes only, the plan spends the older note, not the younger smallest one", () => {
+    const old: Note = { vaultId: VAULT, amount: 2n * 10n ** 18n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 10) };
+    const young: Note = { vaultId: VAULT, amount: 10n ** 18n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 11) };
+    const tree = new MerkleTree(TX_LEVELS);
+    tree.insertLeaf(noteCommitment(noteBody(old), 0n));
+    tree.insertLeaf(noteCommitment(noteBody(young), 1n));
+    noteStore.add({ note: old, leafIndex: 0, noteData: placeholderNoteData(), spent: false, addedAt: Date.now() - 3 * 86400_000 });
+    noteStore.add({ note: young, leafIndex: 1, noteData: placeholderNoteData(), spent: false, addedAt: Date.now() });
+    const half = 5n * 10n ** 17n;
+    expect(planWithdrawal(seed, tree.leaves, VAULT, half, 0xb0bn, DOMAIN).spent.map((n) => n.leafIndex), "by default: the smallest sufficient note").toEqual([1]);
+    const plan = planWithdrawal(seed, tree.leaves, VAULT, half, 0xb0bn, DOMAIN, undefined, olderNotes(VAULT, 0));
+    expect(plan.spent.map((n) => n.leafIndex)).toEqual([0]);
+    expect(plan.change?.note.amount).toBe(15n * 10n ** 17n);
+    expect(BigInt(buildTxInputs(plan.spec).root as string)).toBe(tree.root);
+  });
 
   it("one note covers it: withdrawal + change note to us + two dummies; the witness builds against the synced leaves", () => {
     const note: Note = { vaultId: VAULT, amount: 10n ** 18n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 0) };

@@ -7,7 +7,8 @@
 // call paying someone else is stopped with nothing signed and goes back through its refund-only job; a call the chain
 // would revert is not handed over; a lower minimum waits for the user's choice; a reload continues from the journal with
 // no second funding; an expired quote says so; right after a protect the protection reads Medium and the funding can be
-// delayed; nothing secret leaves the wallet.
+// delayed — from older notes at once when they cover it (stopped unfunded if they no longer do), else at a random time —;
+// nothing secret leaves the wallet.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -27,13 +28,19 @@ import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/l
 import { calls, deployment, ETH_VAULT, FACTORY, fetchMock, jobs, LIMIT, relayerBodies, requests, resetWorld, rpcSeen, world } from "./helpers/swapWorld";
 
 // the private withdrawal into the escrow has its own suites (privacy-leakage, the local stack): here it is counted
-const funding = vi.hoisted(() => ({ count: 0 }));
+const funding = vi.hoisted(() => ({ count: 0, runner: undefined as unknown, olderGone: false }));
 vi.mock("@privacy-wallet/sdk/swapFunding", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/swapFunding")>();
   return {
     ...orig,
-    fundEscrow: async (o: { stored: { orderId: string }; onStatus?: (l: string) => void; session?: never }) => {
+    fundEscrow: async (o: { stored: { orderId: string; runner?: { maxTiming?: number } }; onStatus?: (l: string) => void; session?: never }) => {
       funding.count++;
+      funding.runner = o.stored.runner;
+      if (funding.olderGone) {
+        // the withdrawal's own check: the older notes no longer cover the order, and nothing is sent
+        const { OlderNotesUnavailable } = await import("@privacy-wallet/sdk/privateTx");
+        throw new OlderNotesUnavailable(o.stored.runner?.maxTiming ?? 0);
+      }
       o.onStatus?.("Withdrawing privately: handing it to the relayer…");
       orig.patchSwap(o.stored.orderId, { fundedTx: "0x" + "11".repeat(32), state: "funded" }, o.session);
       return { txHash: "0x" + "11".repeat(32) };
@@ -51,6 +58,8 @@ afterEach(() => {
   resetOperationsMemory();
   resetWorld();
   funding.count = 0;
+  funding.runner = undefined;
+  funding.olderGone = false;
 });
 
 async function wallet(o: { recent?: boolean } = {}) {
@@ -286,6 +295,11 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
     expect(screen.getByTestId("swap-quote").textContent).toContain("Medium protection");
     expect(screen.getByTestId("swap-recent").textContent).toContain("You protected these funds recently; waiting makes this swap harder to link.");
+    // no older notes: the funding waits a random 1–24 h; the card stays while the choice is on, and it can be turned off
+    fireEvent.click(screen.getByTestId("swap-delay"));
+    expect(screen.getByTestId("swap-delay-note").textContent).toBe("The swap is funded at a random time within 1–24 hours.");
+    fireEvent.click(screen.getByTestId("swap-delay"));
+    expect(screen.queryByTestId("swap-delay-note")).toBeNull();
     cleanup();
     const { orderId } = await confirmed({ delay: true });
     const until = stored(orderId).runner!.delayUntil!;
@@ -294,6 +308,59 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(await tick(orderId)).toBe("delayed");
     expect(funding.count).toBe(0);
     expect((await screen.findByTestId("swap-funding-at")).textContent).toMatch(/Funded at/);
+  }, 60_000);
+
+  /** 1 ETH protected a moment ago (the smallest note a 0.5 ETH swap spends) and 2 ETH protected three days ago. */
+  async function olderWallet() {
+    await wallet({ recent: true });
+    noteStore.add({
+      note: { vaultId: BigInt(ETH_VAULT), amount: 2n * 10n ** 18n, ownerCommitment: 1n, noteSecret: 3n },
+      leafIndex: 1,
+      noteData: "0x",
+      spent: false,
+      addedAt: Date.now() - 3 * 86400_000,
+    });
+  }
+
+  it("'Delay for more privacy' spends older notes first: funded at once from them, at the level they give", async () => {
+    await olderWallet();
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.5" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
+    expect(screen.getByTestId("swap-quote").textContent).toContain("Medium protection");
+    fireEvent.click(screen.getByTestId("swap-delay"));
+    expect(screen.getByTestId("swap-delay-note").textContent).toBe("The swap is funded now from funds you protected earlier.");
+    expect(screen.getByTestId("swap-quote").textContent).toContain("High protection");
+    fireEvent.click(screen.getByTestId("swap-review"));
+    expect(screen.getByTestId("swap-review-delay").textContent).toBe("The swap is funded now from funds you protected earlier.");
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("review-confirm"));
+    });
+    await waitFor(() => expect(session.journal().swaps).toHaveLength(1));
+    const [order] = session.journal().swaps;
+    expect(order.runner).toEqual({ confirmedAt: expect.any(Number), maxTiming: 0 });
+    expect(await tick(order.orderId), "no delay: funded at the first tick").toBe("funded");
+    expect(funding.count).toBe(1);
+    expect(funding.runner, "the funding is held to the older notes").toMatchObject({ maxTiming: 0 });
+  }, 60_000);
+
+  it("an order to be funded from older notes that no longer cover it is stopped unfunded: the card says so, Review again", async () => {
+    await olderWallet();
+    funding.olderGone = true;
+    const { router, orderId } = await confirmed({ delay: true });
+    expect(stored(orderId).runner).toMatchObject({ maxTiming: 0 });
+    expect(await tick(orderId)).toBe("stopped");
+    expect(stored(orderId)).toMatchObject({ state: "abandoned", paused: { code: "older_notes_unavailable" } });
+    expect(
+      session.journal().schedule.filter((a) => !a.done && a.orderId === orderId),
+      "nothing retries it with other notes",
+    ).toEqual([]);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "CANCELLED", reason: { code: "older_notes_unavailable", fundsClass: "not-moved" } });
+    const card = await screen.findByTestId("operation-progress-error");
+    expect(card.textContent).toContain("Your older funds no longer cover this swap");
+    expect(card.textContent).toContain("Your funds were not moved.");
+    fireEvent.click(screen.getByTestId("swap-review-again"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/swap"));
   }, 60_000);
 
   it("the leakage gate: no request of quote → confirm → fund → sign → hand-over carries a secret or a forbidden field; every host is allow-listed", async () => {

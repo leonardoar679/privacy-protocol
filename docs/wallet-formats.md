@@ -53,8 +53,10 @@ may carry `settlement` (where the money is, spec v2.0 §12.4), and the record it
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional
 `deploymentFingerprints` maps a chain id (a decimal string) to the deployment fingerprint the wallet saw before its
 first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); never written by `emptyJournal()`. V6
-Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil? }` and,
-while it waits, `paused { code, detail?, minOut?, approved?, at }`; its ticks are scheduled actions of the kind
+Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil?,
+maxTiming? }` (`maxTiming`, a V6 follow-up: funded at once from older notes only, each with its own timing at most it —
+0, 0.3 or 0.7) and, while it waits, `paused { code, detail?, minOut?, approved?, at }` (on an order stopped unfunded
+because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`); its ticks are scheduled actions of the kind
 `order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. V6
 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carries `shield { factory, receiver, params
 { receiptId, asset, minAmount, shieldTip, ownerCommitment, noteSecret, noteDataHash, fallbackRecipient }, counter,

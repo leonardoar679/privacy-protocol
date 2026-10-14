@@ -16,6 +16,7 @@ import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved } from "../src/providerCall";
+import { OlderNotesUnavailable } from "../src/privateTx";
 import { patchSwap } from "../src/swapFunding";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId } from "../src/operations/swapRecords";
@@ -75,7 +76,7 @@ const stored = () => session.journal().swaps.find((x) => x.orderId === ORDER)!;
 const record = () => getOperation(swapRecordId(ORDER));
 
 /** The world the runner observes and moves: the escrow, the executor, the tracker and the hard quote's minimum. */
-function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-before" | "fails-after"; handOver?: "ok" | "lost" } = {}) {
+function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-before" | "fails-after" | "older-gone"; handOver?: "ok" | "lost" } = {}) {
   const w = {
     escrow: 0n,
     job: null as SwapJob | null,
@@ -96,6 +97,7 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
     fund: async (st, onStatus) => {
       w.funds++;
       if (w.fund === "fails-before") throw new TypeError("fetch failed");
+      if (w.fund === "older-gone") throw new OlderNotesUnavailable(st.runner?.maxTiming ?? 0);
       onStatus("Withdrawing privately: handing it to the relayer…");
       w.escrow = AMOUNT;
       if (w.fund === "fails-after") throw new TypeError("fetch failed");
@@ -352,5 +354,30 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     order({ campaign: { id: "c1", index: 0 } });
     expect(await runOrderTick(action(), deps(io))).toBeNull();
     expect(pending(), "a tranche's tick is dropped").toBeUndefined();
+  });
+
+  it("'Delay for more privacy' from older notes: funded at once; when they no longer cover it, stopped unfunded — never paid from younger notes", async () => {
+    order({ runner: { confirmedAt: T0, maxTiming: 0 } });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    expect(await drive(io, 2), "no delay: funded at once, then signed and handed over").toEqual(["funded", "handed-over"]);
+    expect(w.funds).toBe(1);
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action()];
+    });
+    resetOperationsMemory();
+    order({ runner: { confirmedAt: T0, maxTiming: 0.3 } });
+    const gone = world({ fund: "older-gone" });
+    const r = await runOrderTick(action(), deps(gone.io));
+    expect(r?.step).toBe("stopped");
+    expect(gone.w.funds, "tried once; nothing was sent").toBe(1);
+    expect(gone.w.escrow).toBe(0n);
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "older_notes_unavailable" } });
+    expect(stored().fundedTx).toBeUndefined();
+    expect(pending(), "no tick is planned: nothing retries it with other notes").toBeUndefined();
+    expect(record()).toMatchObject({ state: "CANCELLED", phase: "funding", reason: { code: "older_notes_unavailable", fundsClass: "not-moved" } });
   });
 });

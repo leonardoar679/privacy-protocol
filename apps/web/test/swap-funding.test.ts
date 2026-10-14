@@ -1,8 +1,9 @@
 // The funding path shared by "Fund now" and the scheduler (V2 Stage 4): an abandoned order is never funded
 // (the regression: its action used to stay pending and fire), a funded order's action is dropped, a
 // journaled order's state is mirrored onto its Activity line, and the funding attempt itself refuses to
-// start without a deployment or a factory before any note is touched.
-import { describe, it, expect, beforeEach } from "vitest";
+// start without a deployment or a factory before any note is touched. "Delay for more privacy" (spec v2.0 §14.1): an
+// order to be funded from older notes hands their bound to the withdrawal.
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -11,6 +12,17 @@ import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/sched
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { abandonSwap, fundEscrow, isOpenSwap, patchSwap, runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
+
+// the private withdrawal has its own suites: here what the funding hands it is recorded
+const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[] }));
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
+  privateWithdrawal: async (o: Record<string, unknown>) => {
+    withdrawals.calls.push(o);
+    return { txHash: "0x" + "33".repeat(32) };
+  },
+}));
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const seed = new Uint8Array(32).fill(7);
@@ -57,5 +69,27 @@ describe("swap funding", () => {
     await expect(fundEscrow({ masterSeed: seed, deployment, stored: order("0x1"), session: s })).rejects.toThrow(/Not enough ETH/);
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
     await expect(fundEscrow({ masterSeed: seed, deployment, stored: order("0x1"), session: s }), "no factory: the escrow cannot be recomputed, nothing is funded").rejects.toThrow(/VITE_SWAP_FACTORY/);
+    expect(withdrawals.calls).toHaveLength(0);
+  });
+
+  it("'Delay for more privacy': the order's older-notes bound goes to the withdrawal; an order without it spends any notes", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const params = {
+      orderId: ("0x" + "ab".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const endpoint = predictEscrow(FACTORY, params);
+    const stored = (runner: StoredSwap["runner"]): StoredSwap => ({ ...order(params.orderId), params, endpoint, runner });
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [stored({ confirmedAt: 0, maxTiming: 0.3 })]; });
+    withdrawals.calls.length = 0;
+    await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0, maxTiming: 0.3 }), session: s });
+    expect(withdrawals.calls[0]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint, maxTiming: 0.3, record: false });
+    expect(s.journal().swaps[0]).toMatchObject({ state: "funded", fundedTx: "0x" + "33".repeat(32) });
+    await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s });
+    expect(withdrawals.calls[1]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint });
+    expect(withdrawals.calls[1]).not.toHaveProperty("maxTiming");
   });
 });

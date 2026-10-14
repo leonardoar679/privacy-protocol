@@ -19,7 +19,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "re
 import { availablePrice, atLeast, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
-import { assessSwapPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessment";
+import { assessSwapPrivacy, timingOfFunding } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
@@ -39,7 +39,7 @@ import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
-import { fundingTiming } from "@privacy-wallet/sdk/wallet/privacyTiming";
+import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { buildCampaign, cancelCampaign, progressLine, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
@@ -226,18 +226,6 @@ export function SwapScreen(p: SwapScreenProps) {
   const expiresIn = expiresInOf(routeQuotes, now);
   const expired = !!quote && expiresIn !== null && expiresIn <= 0;
   const timing = fromAsset ? fundingTiming(BigInt(fromAsset.vault), units, now) : { ageSeconds: null, depositsSince: null };
-  const privacy =
-    fromAsset && units > 0n
-      ? assessSwapPrivacy({
-          sourceIsPool: true,
-          amount: { kind: isBucketFor(fromAsset, units) ? "bucket" : "exact" },
-          timing,
-          ...(delay ? { delaySeconds: DELAY_WINDOW.balanced[0] } : {}),
-          destination: edited ? "entered" : "fresh",
-          provider: { linkPublic: quotes && chosen ? (quotes.links?.[chosen.provider]?.public ?? true) : null },
-          crossChain: to.ref.chain !== "ethereum",
-        })
-      : null;
   const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol) : null;
   const priceTo = availablePrice(prices.prices, to.ref.symbol);
   const protectionPlan = quotes?.protection ?? null;
@@ -251,6 +239,25 @@ export function SwapScreen(p: SwapScreenProps) {
     !!protectionPlan &&
     protection.enabled &&
     (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)));
+  // "Delay for more privacy" (spec v2.0 §14.1): offered while the funds the swap would spend were protected recently, on
+  // a one-order swap (the steps of a protected execution have their own timing); it spends older notes first — funded at
+  // once from them — else the funding waits a random 1–24 h. The card stays while the choice is on.
+  const recentFunds = !!fromAsset && units > 0n && timingOfFunding(timing) >= 1;
+  const delayOffered = recentFunds && !protectedSteps && !campaignMode;
+  const delayOn = delay && delayOffered;
+  const older = delayOn && fromAsset ? olderFunding(BigInt(fromAsset.vault), units, now) : null;
+  const privacy =
+    fromAsset && units > 0n
+      ? assessSwapPrivacy({
+          sourceIsPool: true,
+          amount: { kind: isBucketFor(fromAsset, units) ? "bucket" : "exact" },
+          timing: older ? older.timing : timing,
+          ...(delayOn && !older ? { delaySeconds: DELAY_WINDOW.balanced[0] } : {}),
+          destination: edited ? "entered" : "fresh",
+          provider: { linkPublic: quotes && chosen ? (quotes.links?.[chosen.provider]?.public ?? true) : null },
+          crossChain: to.ref.chain !== "ethereum",
+        })
+      : null;
   // the steps the planner makes of this amount (a dry run), and the amount they fund so that their fees stay inside it
   const stepsPlan = (() => {
     if (!protectedSteps || !quotes || !chosen || !fromAsset || units <= 0n) return null;
@@ -296,7 +303,7 @@ export function SwapScreen(p: SwapScreenProps) {
           acknowledged,
           destination,
           destinationKind: edited ? "entered" : "fresh",
-          delaySeconds: delay ? DELAY_WINDOW.balanced[0] : 0,
+          delaySeconds: delayOn && !older ? DELAY_WINDOW.balanced[0] : 0,
           quotes,
           chosenProvider: chosen.provider,
         })
@@ -343,7 +350,7 @@ export function SwapScreen(p: SwapScreenProps) {
         expired,
         quoting,
         noRoute: !quoting ? (units > balance && units > 0n ? t("send.notEnough", { symbol: fromAsset.symbol }) : quoteError) : null,
-        privacy: privacy?.recent ? { recent: true, delay } : null,
+        privacy: recentFunds ? { recent: true, delay: delayOn, older: !!older } : null,
         notice: assessment && tier !== "standard" ? (assessment.failSafe ? t("swap.largeFailSafe") + t("swap.largeNotice") : t("swap.largeNotice")) : null,
         details: advanced && routeQuotes ? routeDetails(routeQuotes, to, privacy, chosen ? riskWord(chosen.components.security) : "—") : null,
         canReview: !!quote && !expired && destinationOk && !destinationLocked && !busy,
@@ -468,7 +475,8 @@ export function SwapScreen(p: SwapScreenProps) {
         lint: lintItems,
         preference,
         walletTier: assessment ? tier : null,
-        delay,
+        delay: delayOn,
+        ...(older ? { maxTiming: older.maxTiming } : {}),
       });
       navigate(`/swap/progress/${swapRecordId(r.stored.orderId)}`);
     } catch (e) {
@@ -555,7 +563,7 @@ export function SwapScreen(p: SwapScreenProps) {
               setTyped("");
               reset();
             },
-            onDelay: setDelay,
+            ...(delayOffered ? { onDelay: setDelay } : {}),
             ...(balance > 0n ? { onMax: () => setAmount(formatAmount(fromAsset, balance)) } : {}),
             onBack: p.onBack,
           }}
@@ -757,9 +765,9 @@ export function SwapScreen(p: SwapScreenProps) {
             {t(`op.error.${health.code}.reason` as never)}
           </p>
         ) : null}
-        {delay ? (
+        {delayOn ? (
           <p className="ds-note" data-testid="swap-review-delay">
-            {t("screen.swap.delayNote")}
+            {t(older ? "screen.swap.delayOlderNote" : "screen.swap.delayNote")}
           </p>
         ) : null}
         {status ? (
@@ -924,6 +932,20 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   };
   const giveBack = act(() => returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment }));
   const intoProtected = !!stored?.shield;
+  if (record.state === "CANCELLED" && record.reason?.code === "older_notes_unavailable") {
+    return (
+      <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
+        <OperationProgress
+          record={record}
+          actions={
+            <Button onClick={p.onNew} data-testid="swap-review-again">
+              {t("screen.review.blocked.again")}
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
   if (record.state === "COMPLETED" || record.state === "REFUNDED" || record.state === "CANCELLED") {
     const delivered = record.amounts.delivered ?? record.amounts.minimumOutput;
     const title =

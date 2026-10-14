@@ -1,6 +1,7 @@
 // The order runner (spec v2.0 §7.6; doc §26, §31; the owner's decision of 2026-10-13: one confirmation): after the Review a
 // swap order is committed and this runner takes it the rest of the way — the private withdrawal that funds its one-time
-// escrow (at once, or at a random time in 1–24 h when the user asked to delay for more privacy), the hard quote prepared,
+// escrow (at once; when the user asked to delay for more privacy, at once from older notes only, or else at a random time
+// in 1–24 h — an order whose older notes no longer cover it is stopped unfunded, never paid from younger ones), the hard quote prepared,
 // checked and signed by this wallet while its minimum is at least the one the user approved, the hand-over to the
 // executor in the same tick (the signature never waits in memory across ticks), then the tracking until it settles. A
 // worse minimum pauses the order (QUOTE_EXPIRED, `minimum_moved`) for the user's choice — accept the new minimum or
@@ -41,7 +42,7 @@ import { settings as defaultSettings, type Settings } from "./settings";
 
 /** The tracking cadence once an order is handed over. */
 export const ORDER_TRACK_MS = 15_000;
-/** "Delay for more privacy" (spec v2.0 §14.1): the funding at a random time in 1–24 h. */
+/** "Delay for more privacy" (spec v2.0 §14.1): when no older notes cover the order, the funding at a random time in 1–24 h. */
 export const DELAY_FOR_PRIVACY: [number, number] = [3600, 24 * 3600];
 /** The execute window of an order funded at once (the plan's 1800 s): the escrow refunds after it, unexecuted. */
 export const ONE_CONFIRM_EXECUTE_WINDOW_SECONDS = 1800;
@@ -177,19 +178,25 @@ function tickAt(orderId: string, dueAt: number, s: WalletSession, now: number): 
 
 /**
  * The one confirmation (spec v2.0 §7.6): commit the order with the minimum the user approved, journal that this runner
- * runs it, and plan its first tick — now, or at a random time in 1–24 h for more privacy. No `fund-escrow` action.
+ * runs it, and plan its first tick — now, or for more privacy (`delay`, §14.1) now from the older notes the Review found
+ * (`maxTiming`, from `olderFunding`), else at a random time in 1–24 h. No `fund-escrow` action.
  */
-export async function confirmOrder(i: Omit<CommitInput, "schedule"> & { delay?: boolean; rng?: () => number }): Promise<Committed> {
+export async function confirmOrder(i: Omit<CommitInput, "schedule"> & { delay?: boolean; maxTiming?: number; rng?: () => number }): Promise<Committed> {
   const s = i.session ?? defaultSession;
   const now = i.now ?? Date.now();
-  const delayUntil = i.delay ? sampleDueAt(DELAY_FOR_PRIVACY, now, i.rng) : undefined;
+  const maxTiming = i.delay ? i.maxTiming : undefined;
+  const delayUntil = i.delay && maxTiming === undefined ? sampleDueAt(DELAY_FOR_PRIVACY, now, i.rng) : undefined;
   const request = {
     ...i.request,
     executeWindowSeconds: i.request.executeWindowSeconds ?? (delayUntil !== undefined ? undefined : ONE_CONFIRM_EXECUTE_WINDOW_SECONDS),
   };
   const committed = await commitOrder({ ...i, request, schedule: null });
   orders.set(committed.order.orderId.toLowerCase(), committed.order);
-  patchSwap(committed.stored.orderId, { runner: { confirmedAt: now, ...(delayUntil !== undefined ? { delayUntil } : {}) } }, s);
+  patchSwap(
+    committed.stored.orderId,
+    { runner: { confirmedAt: now, ...(delayUntil !== undefined ? { delayUntil } : {}), ...(maxTiming !== undefined ? { maxTiming } : {}) } },
+    s,
+  );
   const stored = journaled(committed.stored.orderId, s) ?? committed.stored;
   syncSwapRecord(stored, null, null, now);
   if (delayUntil === undefined) holdUntilHandedOver(stored.orderId, s, now); // a privacy delay holds nothing
@@ -249,7 +256,7 @@ export async function returnFunds(orderId: string, deps: OrderDeps): Promise<"re
 }
 
 export interface OrderTickResult {
-  step: "track" | "settled" | "waiting" | "funded" | "paused" | "handed-over" | "delayed";
+  step: "track" | "settled" | "waiting" | "funded" | "paused" | "handed-over" | "delayed" | "stopped";
   stored: StoredSwap;
 }
 
@@ -323,6 +330,16 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
             schedulerStatus.progress(line);
           });
         } catch (e) {
+          if (!sent && (e as { code?: unknown })?.code === "older_notes_unavailable") {
+            // "Delay for more privacy": the older notes the Review showed no longer cover the order and nothing was sent —
+            // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes
+            patchSwap(a.orderId, { paused: { code: "older_notes_unavailable", detail: (e as Error).message, at: now } }, s);
+            abandonSwap(a.orderId, s);
+            cancelAction(a.id, s);
+            const st = journaled(a.orderId, s)!;
+            syncSwapRecord(st, null, null, now);
+            return { step: "stopped", stored: st };
+          }
           if (!sent) throw e; // nothing was sent: the scheduler's backoff retries the tick
           const r = pause(
             "reconcile",

@@ -223,6 +223,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.swap.recent": "최근에 보호한 자금입니다. 조금 기다리면 이 스왑을 연결 짓기가 더 어려워집니다.",
   "screen.swap.delay": "프라이버시를 위해 지연",
   "screen.swap.delayNote": "스왑 자금은 1–24시간 사이의 임의 시각에 투입됩니다.",
+  "screen.swap.delayOlderNote": "스왑 자금은 이전에 보호한 자금에서 지금 투입됩니다.",
   "screen.swap.destinationVerified": "목적지 확인됨",
   "screen.swap.done": "스왑 완료: {amount} {symbol} 전달됨.",
   "screen.swap.doneNoAmount": "스왑 완료.",
@@ -516,6 +517,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.execution_unavailable.title": "지금은 이 경로를 실행할 수 없습니다",
   "op.error.execution_unavailable.reason":
     "인계 전 점검이 실패해 아무것도 넘겨지지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 새 견적으로 다시 시도하거나 보호 잔액으로 반환하세요.",
+  "op.error.older_notes_unavailable.title": "이전 자금으로 이 스왑을 충당할 수 없습니다",
+  "op.error.older_notes_unavailable.reason":
+    "이 스왑은 이전에 보호한 자금으로 지불될 예정이었습니다. 해당 자금이 사용되었거나 수수료를 포함한 금액에 미치지 못해 자금을 투입하기 전에 중단했습니다. 스왑을 다시 검토하세요.",
   "op.error.unsafe_contract_call.title": "이 거래를 중단했습니다",
   "op.error.unsafe_contract_call.reason":
     "컨트랙트 호출이 점검을 통과하지 못해 아무것도 서명하지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",
