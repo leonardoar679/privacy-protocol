@@ -19,6 +19,12 @@ export interface AmountFormat {
 }
 
 const MINUS = "−";
+// V6 Stage 16: the locale amounts are written in when a screen passes none (the application sets it with the language)
+let defaultLocale = "en-US";
+/** Sets the locale amounts are written in by default (the application, on every language change). */
+export function setFormatLocale(locale: string): void {
+  defaultLocale = locale;
+}
 const pow10 = (n: number): bigint => 10n ** BigInt(n);
 
 const groupers = new Map<string, Intl.NumberFormat>();
@@ -39,7 +45,7 @@ function decimalMark(locale: string): string {
 
 /** An amount of base units as the screen shows it: "3,251.7952", "2,470.90", "< 0.0001" for dust that rounds to zero. */
 export function formatAmount(value: bigint, f: AmountFormat): string {
-  const locale = f.locale ?? "en-US";
+  const locale = f.locale ?? defaultLocale;
   const shown = Math.max(0, Math.min(f.displayDecimals, f.decimals));
   const keep = Math.min(f.minDecimals ?? 0, shown);
   const negative = value < 0n;
@@ -72,7 +78,7 @@ export function formatAmount(value: bigint, f: AmountFormat): string {
 export function formatUsdCents(cents: bigint, o: { locale?: string; signed?: boolean } = {}): string {
   const negative = cents < 0n;
   const abs = negative ? -cents : cents;
-  const body = `$${group(abs / 100n, o.locale ?? "en-US")}${decimalMark(o.locale ?? "en-US")}${(abs % 100n).toString().padStart(2, "0")}`;
+  const body = `$${group(abs / 100n, o.locale ?? defaultLocale)}${decimalMark(o.locale ?? defaultLocale)}${(abs % 100n).toString().padStart(2, "0")}`;
   if (negative) return MINUS + body;
   return o.signed && abs > 0n ? `+${body}` : body;
 }

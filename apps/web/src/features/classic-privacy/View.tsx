@@ -2,6 +2,7 @@
 // pasted note, the relayer choice with its fee and status. Pure: ./ClassicPrivacyUI.tsx drives them over the service.
 import { Button, Card, Field, Input, ListRow, Page, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { formatCount } from "../../app/i18n/intl";
 
 export interface ClassicPoolLine {
   id: string;
@@ -48,7 +49,7 @@ export function ClassicHomeView({ model: m, actions: a }: { model: ClassicHomeMo
               <ListRow
                 key={p.id}
                 title={t("classic.poolTitle", { amount: p.amount, symbol: p.symbol })}
-                subtitle={t("classic.poolLine", { size: p.size, deposits: p.deposits.toLocaleString("en-US"), mine: p.mine })}
+                subtitle={t("classic.poolLine", { size: p.size, deposits: formatCount(p.deposits), mine: p.mine })}
                 onPress={() => a.onOpen(p.id)}
                 trailing={<StatusBadge tone="ok">{t("classic.status.ready")}</StatusBadge>}
                 testId={`classic-pool-${p.id}`}
@@ -89,7 +90,7 @@ export function ClassicPoolStatusView({ model: m }: { model: ClassicPoolStatusMo
       </div>
       <div className="ds-kv">
         <span className="ds-kv-label">{t("classic.deposits")}</span>
-        <b className="ds-kv-value">{m.deposits.toLocaleString("en-US")}</b>
+        <b className="ds-kv-value">{formatCount(m.deposits)}</b>
       </div>
       <div className="ds-kv">
         <span className="ds-kv-label">{t("classic.pool.lastUpdate")}</span>

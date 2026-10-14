@@ -16,15 +16,15 @@ export function detectLocale(languages: readonly string[] | undefined, supported
 }
 
 /**
- * The locale to run with: `?locale=` when it names a catalog (or the pseudo-locale), else the preference when it is
- * not the default English (a user who chose English on a Korean device keeps English only by choosing it), else the
- * browser's languages.
+ * The locale to run with: `?locale=` when it names a catalog (or the pseudo-locale), else the preference when the user
+ * chose it (More → Language, `chosen`: English included — V6 Stage 16) or when it is not the default English, else the
+ * browser's languages ("Automatic").
  */
-export function chooseLocale(o: { prefs?: string | null; query?: string | null; languages?: readonly string[]; supported?: readonly string[] }): string {
+export function chooseLocale(o: { prefs?: string | null; chosen?: boolean; query?: string | null; languages?: readonly string[]; supported?: readonly string[] }): string {
   const supported = o.supported ?? SUPPORTED;
   const q = o.query?.toLowerCase().trim();
   if (q && (q === PSEUDO || supported.includes(q))) return q;
   const p = o.prefs?.toLowerCase().split("-")[0];
-  if (p && p !== "en" && supported.includes(p)) return p;
+  if (p && (o.chosen || p !== "en") && supported.includes(p)) return p;
   return detectLocale(o.languages, supported);
 }

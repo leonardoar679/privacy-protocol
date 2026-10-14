@@ -5,7 +5,8 @@
 // least". The quote is fetched as the user types and shows how long it stays valid; an expired quote says so, and that
 // the funds were not moved. The time is the quote's own estimate, never a constant. Right after a protect the
 // protection reads Medium with the way to delay the funding for more privacy. Pure: ./SwapScreen.tsx (V6 Stage 11)
-// wires the engine under it through ./model.ts.
+// wires the engine under it through ./model.ts. V6 Stage 16 (doc §54): from 1024 px the route details stand beside the
+// swap card, open (still foldable: the phone's action exists there too, doc §88), instead of folded inside the quote.
 import { useState, type ReactNode } from "react";
 import {
   AddressInput,
@@ -13,6 +14,7 @@ import {
   Button,
   Card,
   Collapsible,
+  DESKTOP_QUERY,
   FlowCard,
   Page,
   ProtectionBadge,
@@ -20,6 +22,7 @@ import {
   Switch,
   TextButton,
   cleanAmount,
+  useMediaQuery,
   type CheckState,
 } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
@@ -106,6 +109,7 @@ export function SwapView({
 }) {
   const t = useT();
   const [why, setWhy] = useState(false);
+  const wide = useMediaQuery(DESKTOP_QUERY);
   if (m.expired) {
     return (
       <Page title={t("screen.swap.title")} back={a.onBack} testId="swap-view">
@@ -143,10 +147,51 @@ export function SwapView({
     />
   );
   const d = m.destination;
+  const routeRows = m.details ? (
+    <dl className="ds-review-rows">
+      {(
+        [
+          ["screen.swap.detail.provider", m.details.provider],
+          ["screen.swap.detail.route", m.details.route],
+          ["screen.swap.detail.fee", m.details.fee],
+          ["screen.swap.detail.time", m.details.time],
+          ["screen.swap.detail.risk", m.details.risk],
+          ["screen.swap.detail.privacy", m.details.privacy],
+        ] as [MessageKey, string][]
+      ).map(([k, v]) => (
+        <div key={k} className="ds-review-row">
+          <dt>{t(k)}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+      <div className="ds-review-row">
+        <dt>{t("screen.swap.detail.expected")}</dt>
+        <dd>
+          <Amt a={m.details.expected} approx />
+        </dd>
+      </div>
+    </dl>
+  ) : null;
+  const layout = (body: ReactNode) =>
+    wide && routeRows ? (
+      <div className="ds-columns">
+        <div className="ds-column">{body}</div>
+        <div className="ds-column">
+          <Card padding="md">
+            <Collapsible summary={t("screen.swap.routeDetails")} defaultOpen testId="swap-route-details">
+              {routeRows}
+            </Collapsible>
+          </Card>
+        </div>
+      </div>
+    ) : (
+      body
+    );
   return (
     <Page
       title={t("screen.swap.title")}
       back={a.onBack}
+      width={wide && routeRows ? "wide" : "phone"}
       testId="swap-view"
       primaryAction={
         <Button size="lg" full disabled={!(m.canReview ?? !!q)} onClick={a.onReview} data-testid="swap-review">
@@ -154,205 +199,188 @@ export function SwapView({
         </Button>
       }
     >
-      <FlowCard
-        testId="swap-flow"
-        onSwitch={a.onSwitch}
-        from={{
-          label: t("screen.swap.youPay"),
-          asset: { symbol: m.pay.symbol },
-          onAsset: a.onPayAsset,
-          assetLabel: t("screen.swap.choosePay"),
-          children: input,
-          sub:
-            m.pay.balance || m.pay.usd ? (
-              <span className="ds-flow-source">
-                {m.pay.usd ? <span data-testid="swap-amount-usd">{m.pay.usd}</span> : null}
-                {m.pay.balance ? (
-                  <span>
-                    {t("screen.protect.balance")} <Amt a={m.pay.balance} />
+      {layout(
+        <>
+          <FlowCard
+            testId="swap-flow"
+            onSwitch={a.onSwitch}
+            from={{
+              label: t("screen.swap.youPay"),
+              asset: { symbol: m.pay.symbol },
+              onAsset: a.onPayAsset,
+              assetLabel: t("screen.swap.choosePay"),
+              children: input,
+              sub:
+                m.pay.balance || m.pay.usd ? (
+                  <span className="ds-flow-source">
+                    {m.pay.usd ? <span data-testid="swap-amount-usd">{m.pay.usd}</span> : null}
+                    {m.pay.balance ? (
+                      <span>
+                        {t("screen.protect.balance")} <Amt a={m.pay.balance} />
+                      </span>
+                    ) : null}
+                    {a.onMax && m.pay.balance ? (
+                      <TextButton onClick={a.onMax} data-testid="swap-max">
+                        {t("common.max")}
+                      </TextButton>
+                    ) : null}
                   </span>
-                ) : null}
-                {a.onMax && m.pay.balance ? (
-                  <TextButton onClick={a.onMax} data-testid="swap-max">
-                    {t("common.max")}
-                  </TextButton>
-                ) : null}
-              </span>
-            ) : undefined,
-          testId: "swap-from",
-        }}
-        to={{
-          label: cross ? t("screen.swap.atLeast") : t("swap.receive"),
-          asset: { symbol: m.receive.symbol },
-          network: cross ? m.receive.chain : t("screen.swap.protectedBalance"),
-          onAsset: a.onReceiveAsset,
-          assetLabel: t("screen.swap.chooseReceive"),
-          children: q ? q.kind === "cross-chain" ? <Amt a={q.minimum} bare /> : <Amt a={q.expected} approx bare /> : "—",
-          testId: "swap-to",
-        }}
-      />
-      {m.notice ? (
-        <p className="ds-note-warn" data-testid="swap-large">
-          {m.notice}
-        </p>
-      ) : null}
-      {d ? (
-        <Card padding="md" testId="swap-destination">
-          <AddressInput
-            id="swap-destination"
-            label={t("screen.swap.destinationTitle", { symbol: m.receive.symbol })}
-            value={d.value}
-            onChange={(v) => a.onDestination?.(v)}
-            placeholder={t("screen.send.toPlaceholder")}
-            checks={[
-              { label: t("screen.swap.check.valid", { symbol: m.receive.symbol }), state: d.checks.valid },
-              { label: t("screen.swap.check.network"), state: d.checks.network },
-              { label: t("screen.swap.check.compatible"), state: d.checks.compatible },
-            ]}
-            book={a.onFreshDestination && !d.fresh ? [{ id: "fresh", label: t("send.freshEntry"), address: "" }] : undefined}
-            onPickEntry={() => a.onFreshDestination?.()}
-            bookLabel={t("send.book")}
-            error={d.error ? <span data-testid="swap-destination-error">{d.error}</span> : undefined}
-            status={addressStatus}
-            testId="destination"
+                ) : undefined,
+              testId: "swap-from",
+            }}
+            to={{
+              label: cross ? t("screen.swap.atLeast") : t("swap.receive"),
+              asset: { symbol: m.receive.symbol },
+              network: cross ? m.receive.chain : t("screen.swap.protectedBalance"),
+              onAsset: a.onReceiveAsset,
+              assetLabel: t("screen.swap.chooseReceive"),
+              children: q ? q.kind === "cross-chain" ? <Amt a={q.minimum} bare /> : <Amt a={q.expected} approx bare /> : "—",
+              testId: "swap-to",
+            }}
           />
-          {d.fresh ? (
-            <p className="ds-note" data-testid="swap-destination-fresh">
-              {t("screen.swap.freshNote")}
+          {m.notice ? (
+            <p className="ds-note-warn" data-testid="swap-large">
+              {m.notice}
             </p>
           ) : null}
-        </Card>
-      ) : null}
-      {m.quoting && !q ? (
-        <p className="ds-note" data-testid="swap-quoting">
-          {t("screen.swap.quoting")}
-        </p>
-      ) : null}
-      {m.noRoute && !q ? (
-        <p className="ds-note-warn" data-testid="swap-no-route">
-          {m.noRoute}
-        </p>
-      ) : null}
-      {q ? (
-        <Card padding="md" testId="swap-quote">
-          <div className="ds-quote-head">
-            <span>{t("screen.swap.bestRoute")}</span>
-            <ProtectionBadge
-              level={q.protection === "high" ? "High" : "Reduced"}
-              label={t(LEVEL[q.protection])}
-              onPress={q.why ? () => setWhy(true) : undefined}
-              testId="swap-protection"
-            />
-          </div>
-          <dl className="ds-review-rows">
-            {q.kind === "same-chain" ? (
-              <>
-                <div className="ds-review-row" data-testid="swap-minimum">
-                  <dt>{t("swap.minimumReceive")}</dt>
-                  <dd>
-                    <Amt a={q.minimum} rounding="down" />
-                  </dd>
-                </div>
-                <div className="ds-review-row" data-testid="swap-fees">
-                  <dt>{t("screen.swap.fees")}</dt>
-                  <dd>
-                    <Usd cents={q.feesUsdCents} />
-                  </dd>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="ds-review-row" data-testid="swap-privacy-fee">
-                  <dt>{t("swap.privacyFee")}</dt>
-                  <dd>
-                    <Usd cents={q.fees.privacyUsdCents} />
-                  </dd>
-                </div>
-                <div className="ds-review-row" data-testid="swap-relayer-fee">
-                  <dt>{t("swap.relayerFee")}</dt>
-                  <dd>
-                    <Usd cents={q.fees.relayerUsdCents} />
-                  </dd>
-                </div>
-                <div className="ds-review-row" data-testid="swap-provider-fee">
-                  <dt>{t("screen.swap.providerFee")}</dt>
-                  <dd>
-                    <Usd cents={q.fees.providerUsdCents} />
-                  </dd>
-                </div>
-              </>
-            )}
-            <div className="ds-review-row" data-testid="swap-eta">
-              <dt>{t("screen.swap.estimatedTime")}</dt>
-              <dd>{etaWords(q.eta, t)}</dd>
-            </div>
-          </dl>
-          {m.expiresIn !== undefined && m.expiresIn !== null ? (
-            <p className="ds-note" data-testid="swap-expires">
-              {t("screen.swap.expiresIn", { seconds: Math.max(0, m.expiresIn) })}
+          {d ? (
+            <Card padding="md" testId="swap-destination">
+              <AddressInput
+                id="swap-destination"
+                label={t("screen.swap.destinationTitle", { symbol: m.receive.symbol })}
+                value={d.value}
+                onChange={(v) => a.onDestination?.(v)}
+                placeholder={t("screen.send.toPlaceholder")}
+                checks={[
+                  { label: t("screen.swap.check.valid", { symbol: m.receive.symbol }), state: d.checks.valid },
+                  { label: t("screen.swap.check.network"), state: d.checks.network },
+                  { label: t("screen.swap.check.compatible"), state: d.checks.compatible },
+                ]}
+                book={a.onFreshDestination && !d.fresh ? [{ id: "fresh", label: t("send.freshEntry"), address: "" }] : undefined}
+                onPickEntry={() => a.onFreshDestination?.()}
+                bookLabel={t("send.book")}
+                error={d.error ? <span data-testid="swap-destination-error">{d.error}</span> : undefined}
+                status={addressStatus}
+                testId="destination"
+              />
+              {d.fresh ? (
+                <p className="ds-note" data-testid="swap-destination-fresh">
+                  {t("screen.swap.freshNote")}
+                </p>
+              ) : null}
+            </Card>
+          ) : null}
+          {m.quoting && !q ? (
+            <p className="ds-note" role="status" data-testid="swap-quoting">
+              {t("screen.swap.quoting")}
             </p>
           ) : null}
-          {m.details ? (
-            <Collapsible summary={t("screen.swap.routeDetails")} testId="swap-route-details">
-              <dl className="ds-review-rows">
-                {(
-                  [
-                    ["screen.swap.detail.provider", m.details.provider],
-                    ["screen.swap.detail.route", m.details.route],
-                    ["screen.swap.detail.fee", m.details.fee],
-                    ["screen.swap.detail.time", m.details.time],
-                    ["screen.swap.detail.risk", m.details.risk],
-                    ["screen.swap.detail.privacy", m.details.privacy],
-                  ] as [MessageKey, string][]
-                ).map(([k, v]) => (
-                  <div key={k} className="ds-review-row">
-                    <dt>{t(k)}</dt>
-                    <dd>{v}</dd>
-                  </div>
-                ))}
-                <div className="ds-review-row">
-                  <dt>{t("screen.swap.detail.expected")}</dt>
-                  <dd>
-                    <Amt a={m.details.expected} approx />
-                  </dd>
+          {m.noRoute && !q ? (
+            <p className="ds-note-warn" role="status" data-testid="swap-no-route">
+              {m.noRoute}
+            </p>
+          ) : null}
+          {q ? (
+            <Card padding="md" testId="swap-quote">
+              <div className="ds-quote-head">
+                <span>{t("screen.swap.bestRoute")}</span>
+                <ProtectionBadge
+                  level={q.protection === "high" ? "High" : "Reduced"}
+                  label={t(LEVEL[q.protection])}
+                  onPress={q.why ? () => setWhy(true) : undefined}
+                  testId="swap-protection"
+                />
+              </div>
+              {/* V6 Stage 16 (doc §77): a new quote's figures are announced; the countdown below is not */}
+              <dl className="ds-review-rows" aria-live="polite" data-testid="swap-quote-rows">
+                {q.kind === "same-chain" ? (
+                  <>
+                    <div className="ds-review-row" data-testid="swap-minimum">
+                      <dt>{t("swap.minimumReceive")}</dt>
+                      <dd>
+                        <Amt a={q.minimum} rounding="down" />
+                      </dd>
+                    </div>
+                    <div className="ds-review-row" data-testid="swap-fees">
+                      <dt>{t("screen.swap.fees")}</dt>
+                      <dd>
+                        <Usd cents={q.feesUsdCents} />
+                      </dd>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="ds-review-row" data-testid="swap-privacy-fee">
+                      <dt>{t("swap.privacyFee")}</dt>
+                      <dd>
+                        <Usd cents={q.fees.privacyUsdCents} />
+                      </dd>
+                    </div>
+                    <div className="ds-review-row" data-testid="swap-relayer-fee">
+                      <dt>{t("swap.relayerFee")}</dt>
+                      <dd>
+                        <Usd cents={q.fees.relayerUsdCents} />
+                      </dd>
+                    </div>
+                    <div className="ds-review-row" data-testid="swap-provider-fee">
+                      <dt>{t("screen.swap.providerFee")}</dt>
+                      <dd>
+                        <Usd cents={q.fees.providerUsdCents} />
+                      </dd>
+                    </div>
+                  </>
+                )}
+                <div className="ds-review-row" data-testid="swap-eta">
+                  <dt>{t("screen.swap.estimatedTime")}</dt>
+                  <dd>{etaWords(q.eta, t)}</dd>
                 </div>
               </dl>
-            </Collapsible>
+              {m.expiresIn !== undefined && m.expiresIn !== null ? (
+                <p className="ds-note" data-testid="swap-expires">
+                  {t("screen.swap.expiresIn", { seconds: Math.max(0, m.expiresIn) })}
+                </p>
+              ) : null}
+              {routeRows && !wide ? (
+                <Collapsible summary={t("screen.swap.routeDetails")} testId="swap-route-details">
+                  {routeRows}
+                </Collapsible>
+              ) : null}
+              {a.onCompare ? (
+                <TextButton icon="chevron-right" onClick={a.onCompare} data-testid="swap-compare">
+                  {t("screen.swap.compare")}
+                </TextButton>
+              ) : null}
+            </Card>
           ) : null}
-          {a.onCompare ? (
-            <TextButton icon="chevron-right" onClick={a.onCompare} data-testid="swap-compare">
-              {t("screen.swap.compare")}
-            </TextButton>
+          {q?.why ? (
+            <BottomSheet open={why} onClose={() => setWhy(false)} title={t("privacyCenter.why.title")} testId="swap-why" id="swap-why">
+              <ul className="ds-plain-list" data-testid="swap-why-lines">
+                {q.why.map((l) => (
+                  <li key={l.label} data-ok={l.ok ? "1" : "0"}>
+                    {l.ok ? "✓" : "⚠"} {t(l.label)}
+                    {l.reason ? <p className="ds-note">{t(l.reason)}</p> : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="ds-note">{t("privacyCenter.metadataPublic")}</p>
+            </BottomSheet>
           ) : null}
-        </Card>
-      ) : null}
-      {q?.why ? (
-        <BottomSheet open={why} onClose={() => setWhy(false)} title={t("privacyCenter.why.title")} testId="swap-why" id="swap-why">
-          <ul className="ds-plain-list" data-testid="swap-why-lines">
-            {q.why.map((l) => (
-              <li key={l.label} data-ok={l.ok ? "1" : "0"}>
-                {l.ok ? "✓" : "⚠"} {t(l.label)}
-                {l.reason ? <p className="ds-note">{t(l.reason)}</p> : null}
-              </li>
-            ))}
-          </ul>
-          <p className="ds-note">{t("privacyCenter.metadataPublic")}</p>
-        </BottomSheet>
-      ) : null}
-      {m.privacy?.recent ? (
-        <Card padding="md" testId="swap-recent">
-          <p className="ds-note">{t("screen.swap.recent")}</p>
-          {a.onDelay ? (
-            <Switch id="swap-delay" checked={m.privacy.delay} onCheckedChange={a.onDelay} label={t("screen.swap.delay")} testId="swap-delay" />
+          {m.privacy?.recent ? (
+            <Card padding="md" testId="swap-recent">
+              <p className="ds-note">{t("screen.swap.recent")}</p>
+              {a.onDelay ? (
+                <Switch id="swap-delay" checked={m.privacy.delay} onCheckedChange={a.onDelay} label={t("screen.swap.delay")} testId="swap-delay" />
+              ) : null}
+              {m.privacy.delay ? (
+                <p className="ds-note" data-testid="swap-delay-note">
+                  {t("screen.swap.delayNote")}
+                </p>
+              ) : null}
+            </Card>
           ) : null}
-          {m.privacy.delay ? (
-            <p className="ds-note" data-testid="swap-delay-note">
-              {t("screen.swap.delayNote")}
-            </p>
-          ) : null}
-        </Card>
-      ) : null}
-      {footer}
+          {footer}
+        </>,
+      )}
     </Page>
   );
 }

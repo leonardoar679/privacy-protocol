@@ -12,6 +12,7 @@ import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { config, type CoreBackend, type ProofResult, type ProveStatus } from "@privacy-wallet/sdk/config";
 import { CORE_PATH } from "@privacy-wallet/sdk/core";
 import { recordProof } from "@privacy-wallet/sdk/wallet/proofStats";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { artifactUrls, loadPins } from "../../prover/client";
 import type { CryptoRequest, CryptoResponse, PlanMessage, ProvePhase } from "./protocol";
 
@@ -56,6 +57,10 @@ export function stopCryptoWorker(): void {
   worker = null;
   failAll("locked");
 }
+
+// a lock ends the worker: the spend plans and the view key it held go with it (spec v2.0 §8); registered when this
+// module loads, which is before any worker exists
+session.onLock(stopCryptoWorker);
 
 /** Is the worker running (tests, the leakage gate). */
 export const cryptoWorkerRunning = (): boolean => worker !== null;

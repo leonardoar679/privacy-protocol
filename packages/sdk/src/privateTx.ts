@@ -15,6 +15,7 @@ import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } fr
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
 import { FIELD } from "@privacy-wallet/protocol/field";
 import { selectInputs } from "@privacy-wallet/protocol/wallet/amounts";
+import { mergeSchedule } from "./wallet/mergeSchedule";
 import type { SpendNote, TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/protocol/address";
@@ -391,22 +392,8 @@ export function planMerge(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint
  * Pure; ok=false when the balance cannot get there, with the reason: the balance (fees included) is short, or the
  * spend needs more merges than one go does (`too-many-merges`: the balance is there, spread over too many notes).
  */
-export function mergeSchedule(notes: { id: string; amount: bigint }[], needed: bigint, feePerTx: bigint, maxMerges = 8): { pairs: [string, string][]; ok: boolean; reason?: "balance" | "fees" | "too-many-merges" } {
-  let pool = notes.map((n) => ({ ...n }));
-  const pairs: [string, string][] = [];
-  for (let i = 0; i <= maxMerges; i++) {
-    let sel: ReturnType<typeof selectInputs>;
-    try { sel = selectInputs(pool, needed); } catch { return { pairs, ok: false, reason: "balance" }; }
-    if (!sel.merges.length) return { pairs, ok: true };
-    if (i === maxMerges) break;
-    const [x, y] = sel.merges[0];
-    const a = pool.find((n) => n.id === x.id)!, b = pool.find((n) => n.id === y.id)!;
-    if (a.amount + b.amount <= feePerTx) return { pairs, ok: false, reason: "fees" };
-    pairs.push([a.id, b.id]);
-    pool = [...pool.filter((n) => n.id !== a.id && n.id !== b.id), { id: `${a.id}+${b.id}`, amount: a.amount + b.amount - feePerTx }];
-  }
-  return { pairs, ok: false, reason: "too-many-merges" };
-}
+// V6 Stage 16: the merge schedule is pure and lives in ./wallet/mergeSchedule.ts (the campaigns store reads it without this module)
+export { mergeSchedule } from "./wallet/mergeSchedule";
 
 /** The balance is there but spread over too many notes for one spend (plan V2 §73): housekeeping consolidates it. */
 export class HousekeepingNeeded extends Error {

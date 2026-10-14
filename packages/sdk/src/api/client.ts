@@ -29,10 +29,14 @@ export class ApiMinimumMoved extends ApiError {
   }
 }
 
-export async function apiCall<T>(path: string, body?: unknown, purpose: "swap-service" | "guest" = "swap-service"): Promise<T> {
+/** `signal` (V6 Stage 16): a request the caller no longer needs is cancelled — a newer quote replaces it. */
+export async function apiCall<T>(path: string, body?: unknown, purpose: "swap-service" | "guest" = "swap-service", signal?: AbortSignal): Promise<T> {
   const r = await secureFetch(
     apiUrl() + path,
-    body !== undefined ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {},
+    {
+      ...(body !== undefined ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+      ...(signal ? { signal } : {}),
+    },
     purpose,
   );
   const j = (await r.json().catch(() => ({}))) as { error?: string; code?: string; approvedMin?: string; newMin?: string };
@@ -76,7 +80,7 @@ export const api = {
   providersHealth: <T>() => apiCall<T>("/v1/providers/health"),
   assets: <T>() => apiCall<T>("/v1/assets"),
   networks: <T>() => apiCall<T>("/v1/networks"),
-  quotes: <T>(body: unknown) => apiCall<T>("/v1/quotes", body),
+  quotes: <T>(body: unknown, signal?: AbortSignal) => apiCall<T>("/v1/quotes", body, "swap-service", signal),
   createOperation: <T>(body: unknown) => apiCall<T>("/v1/operations", body),
   getOperation: (id: string) => apiCall<OperationView>(opPath(id)),
   reconcile: (id: string) => apiCall<ReconcileView>(opPath(id, "reconcile"), {}),

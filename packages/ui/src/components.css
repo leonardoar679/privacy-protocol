@@ -251,6 +251,9 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-progress-indeterminate .ds-progress-bar { width: 40%; animation: ds-shimmer 1.2s linear infinite; }
 .ds-skeleton { display: block; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%); background-size: 400px 100%; animation: ds-shimmer 1.4s linear infinite; }
 .ds-hold { position: relative; }
+/* V6 Stage 16: the hold and its alternative for a reader who cannot hold, stacked; the dialog's two actions */
+.ds-hold-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 100%; }
+.ds-hold-dialog-actions { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .ds-hold-labels { position: relative; display: inline-block; min-width: 0; white-space: nowrap; }
 .ds-hold-hidden { visibility: hidden; }
 .ds-hold-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
@@ -363,6 +366,10 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-native-row > input[type="checkbox"], .ds-native-row > input[type="radio"] { width: 20px; height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--accent); }
 .ds-columns, .ds-column { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 @media (min-width: 1024px) { .ds-columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; } }
+/* V6 Stage 16 (doc §54): the desktop Home's tiles (Protect | Send | Swap) and its two even columns */
+.ds-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.ds-tiles > * { min-width: 0; }
+@media (min-width: 1024px) { .ds-columns-even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .ds-row-actions { display: flex; justify-content: flex-end; margin-top: calc(-1 * var(--space-2)); }
 
 /* forced colours: the system draws the colours; every control keeps a visible edge */
@@ -371,3 +378,14 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
   .ds-nav-item-active, .ds-topnav-item-active { outline: 2px solid Highlight; }
   .ds-progress-bar, .ds-timeline li[data-state="done"] .ds-timeline-dot { background: Highlight; }
 }
+
+/* V6 Stage 16 (doc §77): the text at 200 % — nothing cut, nothing pushed sideways. At the normal size each rule draws the
+   same as before: a label or a badge wraps between its words (never inside one: its narrowest is its longest word) and
+   a numeral anywhere, only once its line no longer fits; a row of a badge beside an amount lets the badge take the next
+   line. */
+.ds-btn { white-space: normal; }
+.ds-btn-label { min-width: auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: break-word; text-align: center; }
+.ds-status, .ds-badge { white-space: normal; max-width: 100%; }
+.ds-quote-head, .ds-detail-head { flex-wrap: wrap; }
+.ds-detail-amount { min-width: 0; overflow-wrap: anywhere; }
+.ds-balance-amount .ds-amount-text, .ds-review-amount-primary .ds-amount-text, .ds-detail-amount .ds-amount-text { white-space: normal; overflow-wrap: anywhere; }

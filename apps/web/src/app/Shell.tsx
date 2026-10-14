@@ -3,16 +3,17 @@
 // holding the connection and every More entry (the same list as the More screen, so nothing on a phone is out of reach
 // on a desktop). Then the journal notice when the stored journal would not decrypt, and the screen of the current
 // route; the background jobs run beside it while the wallet is unlocked.
-import { Suspense } from "react";
+import { lazy, Suspense } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AppShell, Button, Icon, ListRow, Skeleton, StatusBadge, WarningCard, type NavItem, type ShellNav, type StatusTone } from "@privacy-wallet/ui";
 import { shortAccount, type ConnectionStatus } from "@privacy-wallet/wallet-engine/connection";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useT } from "./i18n/useT";
 import type { MessageKey } from "./i18n/en";
-import { Background } from "./Background";
+// V6 Stage 16: the runners and the scheduler load after the shell renders (they are not on Home's critical path)
+const Background = lazy(() => import("./Background").then((m) => ({ default: m.Background })));
 import { NotificationToasts } from "./notifications";
-import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks";
+import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks/core";
 import { moreEntries } from "../features/more/entries";
 
 const TONE: Record<ConnectionStatus, StatusTone> = {
@@ -75,7 +76,9 @@ export function Shell() {
   };
   return (
     <AppShell nav={nav}>
-      <Background />
+      <Suspense fallback={null}>
+        <Background />
+      </Suspense>
       <NotificationToasts />
       <ConnectionBanner />
       {s.journalUnreadable ? (

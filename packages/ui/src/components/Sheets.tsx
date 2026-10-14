@@ -32,9 +32,15 @@ export function Modal({ open, onClose, title, description, children, danger, clo
   return <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }} title={title} description={description} variant="center" danger={danger} closeLabel={closeLabel} testId={testId}>{children}</Dialog>;
 }
 
-/** Hold to confirm (spec §3.9): a pointer hold of `holdMs` with a progress ring; releasing early cancels; Enter or Space held works the same. */
+/**
+ * Hold to confirm (spec §3.9): a pointer hold of `holdMs` with a progress ring; releasing early cancels; Enter or Space
+ * held works the same. V6 Stage 16 (spec v2.0 §18, doc §77): a reader who cannot hold — a switch, a screen reader's
+ * double tap, a tremor — confirms through a dialog instead ("Confirm without holding" → the dialog's Confirm): the same
+ * deliberate second step, never a single tap.
+ */
 export function HoldButton({ label, holdingLabel, hint, holdMs, onConfirm, disabled, testId = "hold-to-confirm" }: { label: string; holdingLabel?: string; hint?: string; holdMs: number; onConfirm: () => void; disabled?: boolean; testId?: string }) {
   const L = useLabels();
+  const [asking, setAsking] = useState(false);
   const holding = holdingLabel ?? L.keepHolding;
   const hintText = hint ?? L.pressAndHold;
   const [progress, setProgress] = useState(0);
@@ -59,6 +65,7 @@ export function HoldButton({ label, holdingLabel, hint, holdMs, onConfirm, disab
   // shrank under the pointer made the browser fire pointerleave and cancel the hold within a frame (the local-stack run
   // found it on the campaign Review's three-line label); the pointer is captured so a layout shift cannot end a hold.
   return (
+    <div className="ds-hold-wrap">
     <button type="button" className={cx("ds-btn", "ds-btn-primary", "ds-btn-lg", "ds-btn-full", "ds-hold")} data-variant="primary" disabled={disabled} title={hintText} data-testid={testId} aria-label={`${label} (${hintText})`}
       onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* a synthetic event without a pointer: nothing to capture */ } begin(); }} onPointerUp={() => stop()} onPointerLeave={() => stop()} onPointerCancel={() => stop()}
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); begin(); } }} onKeyUp={(e) => { if (e.key === "Enter" || e.key === " ") stop(); }}>
@@ -68,6 +75,14 @@ export function HoldButton({ label, holdingLabel, hint, holdMs, onConfirm, disab
         {holdingNow ? <span className="ds-hold-overlay">{holding}</span> : null}
       </span>
     </button>
+    <TextButton onClick={() => setAsking(true)} disabled={disabled} data-testid={`${testId}-alternative`}>{L.confirmWithoutHolding}</TextButton>
+    <Modal open={asking} onClose={() => setAsking(false)} title={L.confirmDialogTitle} description={L.confirmDialogBody} testId={`${testId}-dialog`}>
+      <div className="ds-hold-dialog-actions">
+        <Button size="lg" full onClick={() => { setAsking(false); onConfirm(); }} disabled={disabled} data-testid={`${testId}-dialog-confirm`}>{L.confirm}</Button>
+        <TextButton onClick={() => setAsking(false)} data-testid={`${testId}-dialog-cancel`}>{L.cancel}</TextButton>
+      </div>
+    </Modal>
+    </div>
   );
 }
 

@@ -5,6 +5,7 @@
 import { exposure, ledger, providerShares, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { useT } from "../../../app/i18n/useT";
+import { formatTime } from "../../../app/i18n/intl";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { ALERT_TITLES } from "@privacy-wallet/sdk/wallet/alerts";
 import { TRANCHE_WORDS } from "./words";
@@ -44,7 +45,7 @@ export function ExposureDashboard({ campaign: c, now = Date.now() }: { campaign:
   const timeline = exposureTimeline(c);
   const pauses = c.history.filter((h) => h.state === "paused" || h.state === "reassessing" || h.state === "requoting" || h.state === "rerouting" || h.state === "winding-down");
   const outDec = c.request.to.decimals, outSym = c.request.to.symbol;
-  const time = (x: number) => new Date(x).toLocaleTimeString();
+  const time = (x: number) => formatTime(x);
   void now;
   return (
     <div className="ds-note ds-stack-sm" data-testid="exposure-dashboard">

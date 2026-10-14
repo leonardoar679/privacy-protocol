@@ -9,6 +9,7 @@ import { Button, Card, Collapsible, Field, Modal, Page, Segmented, StatusBadge, 
 import { AUTO_LOCK_MINUTES, autoLockMinutesOf } from "@privacy-wallet/sdk/session/autoLock";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
+import { formatDate } from "../../app/i18n/intl";
 import { registerSecondFactor, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
 import { prefs } from "../../storage/prefs";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -71,7 +72,7 @@ export function Security({ onBack }: { onBack?: () => void }) {
       <div className="ds-stack" data-testid="security">
         <Card testId="backup-status">
           <div className="ds-stack-sm">
-            <div className="ds-kv"><span className="ds-kv-label">{t("security.backupStatus")}</span><StatusBadge tone={backedUp ? "ok" : "warn"} testId="backup-badge">{backedUp ? t("security.backedUp", { date: new Date(backedUp).toLocaleDateString() }) : t("security.notBackedUp")}</StatusBadge></div>
+            <div className="ds-kv"><span className="ds-kv-label">{t("security.backupStatus")}</span><StatusBadge tone={backedUp ? "ok" : "warn"} testId="backup-badge">{backedUp ? t("security.backedUp", { date: formatDate(backedUp) }) : t("security.notBackedUp")}</StatusBadge></div>
             <p className="ds-note">{t("security.backupBody")}</p>
             <div className="ds-actions">
               <Button onClick={downloadBackup} icon="download" data-testid="backup-now">{t("backup.now")}</Button>

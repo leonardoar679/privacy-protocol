@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { configureFromBuild } from "./config";
 import { startPlatform } from "./platform";
+import { prepareLocale } from "./app/i18n/locale";
 // the design system first (the typeface, the tokens, the base, the components, the patterns — V6), then the legacy
 // stylesheet it keeps alive until the screens are rebuilt
 import "@privacy-wallet/ui/fonts.css";
@@ -17,8 +18,11 @@ configureFromBuild();
 // the page's services: the auto-lock and what a lock forgets (V6 Stage 15)
 startPlatform();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+// V6 Stage 16: the language before the first render (a Korean reader never sees English first; its table is a chunk)
+void prepareLocale().finally(() =>
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  )
 );

@@ -94,6 +94,9 @@ export function resetOrderRunnerMemory(): void {
   orders.clear();
   handOverHolds.clear();
 }
+// V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
+// nothing has to load the module just to wipe it (the first route stays light).
+defaultSession.onLock(resetOrderRunnerMemory);
 
 export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | null; session: WalletSession; submission: Settings["submission"] }): OrderIo {
   const relayerUrl = d.submission.kind === "relayer" ? d.submission.url : null;

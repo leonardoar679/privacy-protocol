@@ -78,6 +78,10 @@ async function cached<T>(key: string, now: number, read: () => Promise<T>, fresh
 }
 /** Tests: forget what the runner keeps in memory. */
 export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); }
+// V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
+// nothing has to load the module just to wipe it (the first route stays light).
+defaultSession.onLock(resetRunnerMemory);
+
 
 const assetOf = (deployment: Deployment | null, c: Campaign): Asset => {
   const assets = assetsOf(deployment);

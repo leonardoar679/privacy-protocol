@@ -107,6 +107,10 @@ export const finishedOperations = (s: WalletSession = defaultSession): Operation
 
 /** Tests: forget the drafts and the hook's cache. */
 export function resetOperationsMemory(): void { drafts.clear(); bump(); }
+// V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
+// nothing has to load the module just to wipe it (the first route stays light).
+defaultSession.onLock(resetOperationsMemory);
+
 
 function subscribe(l: () => void, s: WalletSession): () => void {
   attach(s);

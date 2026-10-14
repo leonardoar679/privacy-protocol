@@ -2,7 +2,7 @@
 // description, focus trapped and restored, closed by Escape or the overlay. Props mention no Radix type.
 import { useLabels } from "../labels";
 import * as RD from "@radix-ui/react-dialog";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { cx } from "../cx";
 import { Icon } from "../icons";
 
@@ -22,11 +22,26 @@ export interface DialogProps {
 
 export function Dialog({ open, onOpenChange, title, description, children, variant = "center", danger, closeLabel, testId }: DialogProps) {
   const L = useLabels();
+  // V6 Stage 16 (doc §77): the focus goes back to what had it when the dialog opened. Radix gives it to its own Trigger,
+  // and these dialogs are opened by the screens' buttons (controlled), so without this it fell to the page's body.
+  const restore = useRef<HTMLElement | null>(null);
   return (
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
         <RD.Overlay className="ds-overlay" />
-        <RD.Content className={cx(variant === "sheet" ? "ds-sheet" : "ds-dialog")} data-testid={testId} data-danger={danger ? "" : undefined} data-variant={variant}>
+        <RD.Content
+          className={cx(variant === "sheet" ? "ds-sheet" : "ds-dialog")}
+          data-testid={testId}
+          data-danger={danger ? "" : undefined}
+          data-variant={variant}
+          onOpenAutoFocus={() => { restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            const back = restore.current;
+            restore.current = null;
+            if (back?.isConnected) back.focus();
+          }}
+        >
           <div className="ds-dialog-head">
             <RD.Title className="ds-dialog-title">{title}</RD.Title>
             <RD.Close className="ds-icon-btn" aria-label={closeLabel ?? L.close}><Icon name="close" size={20} /></RD.Close>

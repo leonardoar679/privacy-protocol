@@ -4,12 +4,9 @@
 //   - `visibilitychange` is the hidden clock;
 //   - `pagehide` locks at once.
 // Focus and blur are not listened to: losing focus to a wallet pop-up or the WalletConnect modal is idleness, nothing
-// more. A lock — automatic or the Lock button — also forgets the runners' caches and the drafts; the crypto worker
-// registers its own hook.
+// more. A lock — automatic or the Lock button — also forgets the runners' caches, the drafts and the crypto worker:
+// each of those modules registers its own hook when it loads (V6 Stage 16: so the first route does not load them).
 import { AutoLock, autoLockMinutesOf } from "@privacy-wallet/sdk/session/autoLock";
-import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
-import { resetRunnerMemory } from "@privacy-wallet/sdk/wallet/campaignRunner";
-import { resetOrderRunnerMemory } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
@@ -18,15 +15,6 @@ const ACTIVITY = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as 
 /** The last lock was automatic: the unlock returns to the screen it interrupted (an explicit Lock opens Home). */
 let automatic = false;
 export const lockedAutomatically = (): boolean => automatic;
-
-/** What a lock forgets besides the keys and the notes (the session clears those). */
-export function wipeOnLock(): () => void {
-  return session.onLock(() => {
-    resetOperationsMemory();
-    resetOrderRunnerMemory();
-    resetRunnerMemory();
-  });
-}
 
 /** Starts the auto-lock for this page; returns the stop. */
 export function startAutoLock(): () => void {

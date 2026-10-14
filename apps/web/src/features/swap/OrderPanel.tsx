@@ -8,6 +8,7 @@ import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { Button, Card, Collapsible, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { formatCount, formatDateTime, formatTime } from "../../app/i18n/intl";
 import { formatAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import type { MinimumMoved, CheckedCall } from "@privacy-wallet/sdk/providerCall";
@@ -57,15 +58,15 @@ export function OrderPanel(p: OrderPanelProps) {
   const funded = !!p.stored?.fundedTx;
   const dueAt = p.stored?.dueAt;
   const to = ((p.stored?.request as { to?: AssetRef } | undefined)?.to ?? p.target.ref);
-  const refundAfter = new Date(p.order.params.refundAfter * 1000).toLocaleString();
+  const refundAfter = formatDateTime(p.order.params.refundAfter * 1000);
   const attention = p.record && needsAttention(p.record);
   return (
     <Card testId="order-panel">
       <div className="ds-stack-sm" data-order={p.order.orderId} data-state={p.stored?.state ?? p.order.state}>
         <DestinationCard network={p.target.network} asset={to.symbol} address={p.destination} amount={fmtUnits(p.order.quote.toAmount, to.decimals)} kind={p.destinationEdited ? "entered" : "fresh"} />
         <div className="ds-kv"><span className="ds-kv-label">{t("review.privacy")}</span><b className={`ds-level ds-level-${levelOf(p.order.privacy.score)}`}>{levelOf(p.order.privacy.score)}{p.advanced ? ` (${p.order.privacy.score}/100)` : ""}</b></div>
-        <div className="ds-kv"><span className="ds-kv-label">{funded ? t("order.funded") : dueAt ? t("order.fundingScheduled") : t("order.funding")}</span><b className="ds-kv-value">{funded ? t("order.fundedTx", { hash: `${p.stored!.fundedTx!.slice(0, 10)}…` }) : dueAt ? t("order.scheduledAt", { time: new Date(dueAt).toLocaleString(), lo: hours(p.order.privacy.delaySeconds[0]), hi: hours(p.order.privacy.delaySeconds[1]) }) : t("order.notYet")}</b></div>
-        {p.holdActive ? <p className="ds-note-warn" data-testid="review-hold">{t("order.reviewHold", { time: new Date(p.stored!.reviewHoldUntil!).toLocaleTimeString() })}</p> : null}
+        <div className="ds-kv"><span className="ds-kv-label">{funded ? t("order.funded") : dueAt ? t("order.fundingScheduled") : t("order.funding")}</span><b className="ds-kv-value">{funded ? t("order.fundedTx", { hash: `${p.stored!.fundedTx!.slice(0, 10)}…` }) : dueAt ? t("order.scheduledAt", { time: formatDateTime(dueAt), lo: hours(p.order.privacy.delaySeconds[0]), hi: hours(p.order.privacy.delaySeconds[1]) }) : t("order.notYet")}</b></div>
+        {p.holdActive ? <p className="ds-note-warn" data-testid="review-hold">{t("order.reviewHold", { time: formatTime(p.stored!.reviewHoldUntil!) })}</p> : null}
         <div className="ds-kv"><span className="ds-kv-label">{t("order.returnsBy")}</span><b className="ds-kv-value">{refundAfter}</b></div>
         {p.advanced ? (
           <Collapsible summary={t("order.advanced")} testId="order-advanced" defaultOpen>
@@ -99,7 +100,7 @@ export function OrderPanel(p: OrderPanelProps) {
         })() : null}
         {p.checked ? <p className="ds-note" data-testid="checked-line">{t("order.checked", { minimum: p.checked.minOut !== null ? t("order.checkedMinimum", { amount: `${fmtUnits(p.checked.minOut.toString(), to.decimals)} ${to.symbol}` }) : "", refund: p.checked.refundTo === "destination" ? t("order.refundAtDestination") : t("order.refundToPool") })}{p.advanced ? ` (${p.checked.provider}: ${p.checked.facts.join("; ")})` : ""}</p> : null}
         {p.signLint ? <PrivacyLint items={p.signLint} compact /> : null}
-        {p.stored?.simulation ? <p className="ds-note">{p.stored.simulation.ok ? t("order.simulated", { gas: p.stored.simulation.gas ? t("order.simulatedGas", { gas: Number(p.stored.simulation.gas).toLocaleString() }) : "" }) : t("order.simulationFailed", { reason: p.stored.simulation.reason ?? p.stored.simulation.error ?? "" })}</p> : null}
+        {p.stored?.simulation ? <p className="ds-note">{p.stored.simulation.ok ? t("order.simulated", { gas: p.stored.simulation.gas ? t("order.simulatedGas", { gas: formatCount(Number(p.stored.simulation.gas)) }) : "" }) : t("order.simulationFailed", { reason: p.stored.simulation.reason ?? p.stored.simulation.error ?? "" })}</p> : null}
         {p.signed ? <p className="ds-note">{t("order.confirmed", { label: p.signed })}{p.submission.kind !== "relayer" ? ` ${t("order.selfSubmit")}` : ""}</p> : null}
         {p.tracked ? <SettlementLine tracked={p.tracked} /> : p.job ? <p className="ds-note">{t("order.status")}: <b>{swapJobStatus(p.job.state)}</b></p> : <p className="ds-note">{t("order.status")}: {t("order.pending")} — {funded ? t("order.pendingFunded") : dueAt ? t("order.pendingScheduled") : t("order.pendingUnfunded")}</p>}
         {p.job ? <p className="ds-note">{p.advanced ? `${t("order.executor")}: ${p.job.state}${p.job.executionTx ? `, ${t("order.execution", { hash: `${p.job.executionTx.slice(0, 10)}…` })}` : p.job.txHash ? `, tx ${p.job.txHash.slice(0, 10)}…` : ""}${p.job.error ? `, ${p.job.error}` : ""} — ` : ""}{t("order.refreshNote")}</p> : null}

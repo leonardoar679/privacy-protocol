@@ -8,7 +8,7 @@ import { MemoryRouter } from "react-router-dom";
 import { getOperation, newOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { lockedAutomatically, startAutoLock, wipeOnLock } from "../src/platform/autoLock";
+import { lockedAutomatically, startAutoLock } from "../src/platform/autoLock";
 import { returnPath } from "../src/app/Gate";
 import { SecurityRoute } from "../src/features/more/MoreRoutes";
 
@@ -71,8 +71,7 @@ describe("auto-lock on the page", () => {
     Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   });
 
-  it("a lock forgets the drafts", () => {
-    stops.push(wipeOnLock());
+  it("a lock forgets the drafts (the store's own lock hook)", () => {
     const draft = newOperation({
       kind: "send",
       amounts: { asset: "USDC", decimals: 6, input: "2500000000" },

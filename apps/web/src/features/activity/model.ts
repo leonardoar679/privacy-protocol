@@ -7,6 +7,7 @@ import type { IconName } from "@privacy-wallet/ui";
 import type { OperationRecord, OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
+import { formatTime } from "../../app/i18n/intl";
 import { activityStatus, amountFrom, statusOf, targetOf, titleOf } from "../amounts";
 import type { Amount, Status } from "../viewKit";
 import { stateWords } from "../operations/recovery";
@@ -162,7 +163,7 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
       ? [
           {
             label: t("activity.history"),
-            value: rec.history.map((h) => `${new Date(h.at).toLocaleTimeString()} ${h.state}${h.note ? ` (${h.note})` : ""}`).join(" · "),
+            value: rec.history.map((h) => `${formatTime(h.at)} ${h.state}${h.note ? ` (${h.note})` : ""}`).join(" · "),
           },
         ]
       : []),

@@ -74,3 +74,11 @@
 @media (min-width: 1024px) {
   .ds-sticky-action { bottom: var(--keyboard-inset, 0px); padding-bottom: var(--space-4); }
 }
+
+/* V6 Stage 16 (doc §77): at 200 % text the asset button takes its own line (its words wrap) rather than pushing the page
+   sideways; at the normal size the amount and the button share the row as before. */
+.ds-flow-row { flex-wrap: wrap; }
+.ds-flow-amount { flex: 1 1 0%; min-width: min(4rem, 100%); }
+.ds-flow-asset { max-width: 100%; }
+.ds-flow-asset-text { min-width: 0; }
+.ds-flow-network { white-space: normal; }

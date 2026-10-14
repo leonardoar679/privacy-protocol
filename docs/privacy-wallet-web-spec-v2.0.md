@@ -234,6 +234,18 @@ parity test). Design canvas 390 × 844; validated at 360×800, 375×812, 390×84
 
 Classic Privacy is reachable only from More (doc §53), never beside Swap or Send.
 
+Code (Stage 16):
+- From 1024 px Home is the balance, then the tiles **Protect | Send | Swap** (the one primary first), then two columns:
+  **Protected assets** (the "Protect your assets" words while there are none) | **Recent activity**
+  (`apps/web/src/features/home/View.tsx`).
+- The Swap screen puts the route details (the Advanced experience's, doc §29) beside the swap card, open and still
+  foldable, instead of folded inside the quote (`apps/web/src/features/swap/View.tsx`; fixture `swap-advanced`).
+- `apps/web/test/desktop-v6.test.tsx` checks every fixture state: every action of the 390 px screen is at 1440 px. The
+  harness checks the same with layout.
+- The route table loads the shell and every screen behind the gate as lazy routes (React Router `lazy`), so the first
+  route carries the onboarding screens only. While the first path's screens load, the root route's `HydrateFallback`
+  holds the page.
+
 ## 7. The screens and their words (doc §13–§14, §19, §22–§26, §29–§33, §35–§36, §39–§41, §48–§52, §58, §75) — *Stages 6, 10, 11, 13–15*
 
 Every string is a catalog key (§18); the English below is verbatim. Each screen is a pure `View` over a view-model
@@ -1059,6 +1071,40 @@ shows one. The other words of the new screens sit under `screen.<screen>.*` whil
 still mounted with their own `protect.*`, `send.*` and `swap.*` keys; Stages 10–11 delete those screens and move
 `screen.<screen>.*` to `<screen>.*`.
 
+Code (Stage 16):
+- **Korean.** `apps/web/src/app/i18n/ko.ts` has every English key. It is typed `Record<MessageKey, string>`, so a key
+  added to English fails the typecheck until it is translated. Placeholders match the English except a plural ending.
+  A typed confirmation's word (REPLACE, FORGET) stays as it is.
+  - It is its own chunk, loaded only when the locale needs it (`./catalogs.ts` `loadCatalog`). `main.tsx` waits for it
+    before the first render (`./locale.ts` `prepareLocale`), so a Korean reader never sees English first.
+  - The Chinese and Japanese tables stay partial and fall back to English key by key.
+  - What the wallet cannot promise was English from the protocol package; it is now said through the catalog
+    (`privacyCenter.limit.*`, pinned equal to `LIMITS`).
+  - The screenshot fixtures read their words from the catalog when they render, so every Simple fixture can be read
+    in Korean.
+  - A native speaker's review is a stated gap.
+- **The picker.** More → Language (`apps/web/src/features/more/Language.tsx`, the desktop Wallet menu too) offers
+  Automatic, English and 한국어, each language named in its own words.
+  - It writes `prefs.locale` with the optional `prefs.localeChosen`, so English chosen on a Korean device stays English.
+  - The catalog, `<html lang>` and the design system's words follow the choice.
+- **Intl.** Numbers, dates and times go through `Intl` in the catalog's locale (`./intl.ts`: `formatTime`,
+  `formatDateTime`, `formatDate`, `formatCount`; the day groups of Activity). The design system's amounts follow
+  `setFormatLocale`.
+- **The hold's alternative.** "Confirm without holding" opens a dialog whose Confirm is the same deliberate second
+  step, never one tap. It is for a reader who cannot hold: a switch, a screen reader's double tap, a tremor.
+- **Focus and live regions.** A dialog or a sheet gives the focus back to what opened it. Radix gave it to its own
+  Trigger, which these controlled dialogs do not use, so the focus fell to the page's body; the run found it. State
+  changes are live regions: a new quote's figures, a search in progress, a stopped transaction or an error (`alert`),
+  the progress.
+- **Text size.** The type scale is in rem, so the reader's text size scales it. Labels, badges and large numerals wrap
+  only once their line no longer fits, and nothing changes at the normal size.
+- **Tests.** `apps/web/test/i18n-ko.test.tsx`; `apps/web/test/a11y/fixtures.test.tsx` (axe on every fixture state, the
+  keyboard alone through Protect, Send and Swap, the hold and its dialog, the focus kept in a sheet and given back, the
+  live regions).
+- **The browser harness.** At 390 px with the text at 200 %, every Simple screen neither scrolls sideways nor cuts a
+  text. Under more contrast (light and dark) the high-contrast set applies. Under forced colours every button keeps a
+  visible edge.
+
 ## 19. Gates (doc §79–§88) — *Stages 1–17*
 
 | Gate | Checks | Where |
@@ -1071,6 +1117,25 @@ still mounted with their own `protect.*`, `send.*` and `swap.*` keys; Stages 10�
 | acceptance | §86 (the $10,000 Review's ten items), §87 ($80,000: protection, checks, verification, progress, hold, no toggle), §88 (every 390 px action at 1440 px), §92 (the vocabulary scan of every Simple fixture), layout (one primary, the CTA visible above the keyboard, no horizontal scroll at the ten §6 sizes); §85 as a scripted human checklist | `tests/visual/` |
 | supply chain | lockfile, dependency review, import case, doc paths, audit | `scripts/*` |
 | budget | first-route JS ≤ 250 KB gzip, Home ≤ +80 KB, snarkjs after Confirm only, WASM only when needed | `scripts/check-budget.mjs` |
+
+Code (Stage 16):
+- `scripts/check-budget.mjs` runs after the build in verify-all. Over the Vite manifest it requires the first route's
+  gzipped JavaScript (the entry and everything it imports statically) to be at most 250 KB — 185.6 KB at this stage,
+  from 402 KB. Home's chunks (the shell and Home, beyond the first route) may add at most 80 KB — 33.1 KB. Neither may
+  carry snarkjs or a WASM asset.
+- **The splits.**
+  - The lazy route table.
+  - The light hooks: `apps/web/src/hooks/core.ts` and `wallet.ts`.
+  - The prices' state apart from their reader: `packages/sdk/src/priceState.ts`.
+  - The environment parsers: `packages/sdk/src/env.ts`.
+  - The merge schedule: `packages/sdk/src/wallet/mergeSchedule.ts`.
+  - The crypto client and the prover, loaded at their first call. A lock that lands while one loads fails that call
+    with "locked", and no worker starts after the lock.
+  - The modules that forget their memory at a lock register that themselves.
+- **Quotes.** A quote request the reader has typed past is cancelled (an `AbortSignal` through `swapService.quote`), and
+  a cancelled request never counts toward offline.
+- **Activity.** Activity is windowed: 50 rows at a time, the next page as the end nears, and "Show earlier activity"
+  for the keyboard and a screen reader.
 
 ## 20. Implementation order (doc §89, §91) — the V6 stages
 

@@ -4,7 +4,7 @@
 export * from "./tokens/index";
 export { cx } from "./cx";
 export { DEFAULT_LABELS, labels, resetLabels, setLabels, useLabels, type Labels } from "./labels";
-export { formatAmount, formatUsdCents, shortAddress, type AmountFormat, type Rounding } from "./format";
+export { formatAmount, formatUsdCents, setFormatLocale, shortAddress, type AmountFormat, type Rounding } from "./format";
 export { durationMs, prefersReducedMotion, transition, type Speed } from "./animations/index";
 export { Icon, AssetMonogram, ICON_NAMES, type IconName } from "./icons";
 export * from "./primitives";

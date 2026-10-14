@@ -1,18 +1,10 @@
-// The catalogs beside English (Privacy Wallet Web spec §19; Stage 11): Korean, Chinese and Japanese tables, partial and
-// typed against the English keys (a key they lack falls back to English, key by key), and the pseudo-locale for the
-// layout checks. Registered once, at startup. The partial tables cover the shell and the first screens; the full
-// translations are a later pass (the plan's out-of-scope list) and need no code change: a key added here is used.
+// The catalogs beside English (Privacy Wallet Web spec §19; Stage 11; V6 Stage 16, spec v2.0 §18): Korean complete
+// (./ko.ts, typed against every English key) and loaded as its own chunk when the locale needs it; Chinese and
+// Japanese partial, typed against the English keys (a key they lack falls back to English, key by key) and registered
+// at startup with the pseudo-locale for the layout checks.
 import { en, type MessageKey } from "./en";
 import { registerCatalog, type Catalog } from "./messages";
 import { pseudoCatalog } from "./pseudo";
-
-export const ko: Catalog = {
-  "app.name": "프라이버시 지갑",
-  "nav.home": "홈", "nav.swap": "스왑", "nav.activity": "활동", "nav.more": "더보기", "nav.wallet": "지갑",
-  "route.swap": "스왑", "route.activity": "활동", "route.more": "더보기", "route.receive": "받기", "protect.title": "자산 보호", "route.privacy": "프라이버시 센터", "route.security": "보안", "route.wallet": "지갑", "route.advanced": "고급", "route.classic": "클래식 프라이버시",
-  "welcome.title": "금융 프라이버시를 보호하세요", "welcome.body": "지갑은 언제나 당신의 통제 아래 있습니다.", "welcome.connect": "지갑 연결", "welcome.noAccount": "계정이 필요 없습니다", "welcome.skip": "연결하지 않고 계속",
-  "common.continue": "계속",
-};
 
 export const zh: Catalog = {
   "app.name": "隐私钱包",
@@ -30,7 +22,27 @@ export const ja: Catalog = {
   "common.continue": "続ける",
 };
 
-export const CATALOGS: Record<string, Catalog> = { ko, zh, ja };
+/** The partial tables, registered at startup. */
+export const CATALOGS: Record<string, Catalog> = { zh, ja };
+
+/** The complete tables, each its own chunk (an English reader never downloads them). */
+const LAZY: Record<string, () => Promise<Catalog>> = { ko: () => import("./ko").then((m) => m.ko) };
+const loaded = new Set<string>();
+
+/** Is the locale's table in memory: English, a partial table, the pseudo-locale, or a complete table already loaded. */
+export const catalogReady = (locale: string): boolean => {
+  const base = locale.split("-")[0];
+  return !(base in LAZY) || loaded.has(base);
+};
+
+/** Loads and registers the locale's complete table, once; nothing for a locale without one. */
+export async function loadCatalog(locale: string): Promise<void> {
+  const base = locale.split("-")[0];
+  const load = LAZY[base];
+  if (!load || loaded.has(base)) return;
+  registerCatalog(base, await load());
+  loaded.add(base);
+}
 
 let registered = false;
 /** Registers every catalog once (idempotent). */

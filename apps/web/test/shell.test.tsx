@@ -104,9 +104,10 @@ describe("the application shell (spec §2)", () => {
       const panel = screen.getByTestId("nav-wallet-panel");
       expect(within(panel).getByTestId("menu-connection")).toHaveTextContent("Not connected");
       // the same entries as the phone's More screen, Advanced only in the advanced experience
-      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-receive", "menu-privacy", "menu-security", "menu-wallet", "menu-classic", "menu-ai"]);
+      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-receive", "menu-privacy", "menu-security", "menu-wallet", "menu-language", "menu-classic", "menu-ai"]);
       fireEvent.click(within(panel).getByTestId("menu-security"));
-      expect(pathname()).toBe("/more/security");
+      // the screen is a lazy route (V6 Stage 16): the location changes once its chunk has loaded
+      await waitFor(() => expect(pathname()).toBe("/more/security"));
       expect(screen.queryByTestId("nav-wallet-panel")).toBeNull();
     } finally {
       delete (globalThis as { __TEST_VIEWPORT_WIDTH__?: number }).__TEST_VIEWPORT_WIDTH__;

@@ -20,6 +20,7 @@ import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-walle
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { formatDateTime } from "../../app/i18n/intl";
 import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "@privacy-wallet/sdk/swapExecute";
 import { controlsFor, exportOrderReview, issuerLine, planWords, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
@@ -552,7 +553,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
             {openSwaps.map((s) => {
               const a = assetOf(s);
               return (
-                <ListRow key={s.orderId} title={`${formatAmount(a, BigInt((s.params as { amount: string }).amount))} ${a.symbol} → ${(s.request as { to: { symbol: string } }).to.symbol}`} subtitle={`${s.state}${s.dueAt && !s.fundedTx ? ` · ${t("swap.fundingAt", { time: new Date(s.dueAt).toLocaleString() })}` : ""}`}
+                <ListRow key={s.orderId} title={`${formatAmount(a, BigInt((s.params as { amount: string }).amount))} ${a.symbol} → ${(s.request as { to: { symbol: string } }).to.symbol}`} subtitle={`${s.state}${s.dueAt && !s.fundedTx ? ` · ${t("swap.fundingAt", { time: formatDateTime(s.dueAt) })}` : ""}`}
                   trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!s.fundedTx ? <TextButton onClick={() => abandonSwap(s.orderId)}>{t("swap.abandon")}</TextButton> : null}</span>} />
               );
             })}

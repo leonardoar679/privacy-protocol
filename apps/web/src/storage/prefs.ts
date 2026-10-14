@@ -10,6 +10,8 @@ export const PrefsSchema = z.object({
   experience: z.enum(["simple", "advanced"]),
   theme: z.enum(["system", "light", "dark"]),
   locale: z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/),
+  // V6 Stage 16: the user chose `locale` under More → Language (absent: "Automatic", the browser's languages decide)
+  localeChosen: z.boolean().optional(),
   recentNetwork: z.number().int().nonnegative().optional(),
   backup: z.object({ phraseAcknowledgedAt: z.number().int().optional(), exportedAt: z.number().int().optional() }).strict().optional(),
   lastConnector: z.string().max(64).optional(),

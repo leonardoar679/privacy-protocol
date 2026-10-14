@@ -6,7 +6,7 @@ import { Button, Card, Page, RadioGroup, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
 import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
-import { useConnection } from "../../hooks";
+import { useConnection } from "../../hooks/core";
 
 export function Welcome() {
   const t = useT();

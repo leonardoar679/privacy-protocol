@@ -3,8 +3,10 @@
 // "Protected USDC", the amount, one status word. The detail: the pair and the amount, the status, what was paid and
 // received, the fees, the execution timeline; Advanced holds the identifiers, the transaction, the settlement and
 // recovery states and "Remove from this device". A failed or delayed operation shows its recovery (the route passes
-// the live card in), never a generic Retry. Pure: view-models in, callbacks out.
-import type { ReactNode } from "react";
+// the live card in), never a generic Retry. Pure: view-models in, callbacks out. V6 Stage 16 (spec v2.0 §19; doc §89
+// Step 20): a long history is windowed — the first ACTIVITY_PAGE rows, the next page as the reader nears the end, and
+// "Show earlier activity" for the keyboard and a screen reader (an endless list would keep them from what follows).
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Card,
   Collapsible,
@@ -43,6 +45,29 @@ export interface ActivityModel {
   advanced?: string[] | null;
 }
 
+/** The rows Activity renders at a time. */
+export const ACTIVITY_PAGE = 50;
+
+/** The window over `total` rows: how many show, the next page, and the element whose approach brings it. */
+function useWindow(total: number) {
+  const [limit, setLimit] = useState(ACTIVITY_PAGE);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  const more = useCallback(() => setLimit((l) => Math.min(Math.max(total, ACTIVITY_PAGE), l + ACTIVITY_PAGE)), [total]);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || limit >= total || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) more();
+      },
+      { rootMargin: "600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [limit, total, more]);
+  return { limit, more, sentinel };
+}
+
 export function ActivityView({
   model: m,
   onOpen,
@@ -57,6 +82,16 @@ export function ActivityView({
   wide?: boolean;
 }) {
   const t = useT();
+  const total = m.groups.reduce((n, g) => n + g.rows.length, 0);
+  const { limit, more, sentinel } = useWindow(total);
+  let left = limit;
+  const shown = m.groups
+    .map((g) => {
+      const rows = g.rows.slice(0, Math.max(0, left));
+      left -= rows.length;
+      return { key: g.key, label: g.label, rows };
+    })
+    .filter((g) => g.rows.length > 0);
   return (
     <Page
       title={t("route.activity")}
@@ -79,7 +114,7 @@ export function ActivityView({
           <StateScreen kind="empty" title={t("activity.emptyTitle")} body={t("activity.empty")} testId="activity-empty" />
         </Card>
       ) : null}
-      {m.groups.map((g) => (
+      {shown.map((g) => (
         <section key={g.key} className="ds-stack-sm" data-testid="activity-group" data-day={g.key} aria-labelledby={`day-${g.key}`}>
           <h2 className="ds-group-title" id={`day-${g.key}`} data-testid="activity-day">
             {g.label}
@@ -108,6 +143,14 @@ export function ActivityView({
           </Card>
         </section>
       ))}
+      {total > limit ? (
+        <>
+          <div ref={sentinel} aria-hidden data-testid="activity-sentinel" />
+          <TextButton onClick={more} data-testid="activity-more">
+            {t("activity.showMore", { n: total - limit })}
+          </TextButton>
+        </>
+      ) : null}
       {m.advanced?.length ? (
         <Collapsible summary={t("home.advanced")} testId="activity-advanced">
           {m.advanced.map((l) => (

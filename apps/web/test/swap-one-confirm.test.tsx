@@ -22,6 +22,7 @@ import { resetOrderRunnerMemory, runOrderTick } from "@privacy-wallet/sdk/wallet
 import { getOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
+import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
 import { calls, deployment, ETH_VAULT, FACTORY, fetchMock, jobs, LIMIT, relayerBodies, requests, resetWorld, rpcSeen, world } from "./helpers/swapWorld";
 
@@ -161,6 +162,38 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await waitFor(() => expect(getOperation(swapRecordId(order.orderId))!.state).toBe("EXECUTING"));
   }, 60_000);
 
+  it("a quote the user typed past is cancelled: its request is aborted, never counted toward offline, and the newer quote is the one shown (V6 Stage 16)", async () => {
+    await wallet();
+    const quoteSignals: AbortSignal[] = [];
+    let held = true;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/v1/quotes")) {
+        quoteSignals.push(init!.signal!);
+        // the first quote hangs until it is cancelled
+        if (held) {
+          held = false;
+          return new Promise<Response>((_, reject) => init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+        }
+      }
+      return fetchMock(input, init);
+    }) as typeof fetch;
+    try {
+      mount();
+      fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.5" } });
+      await waitFor(() => expect(quoteSignals).toHaveLength(1), QUOTED);
+      expect(quoteSignals[0].aborted).toBe(false);
+      fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.6" } });
+      expect(quoteSignals[0].aborted, "typing past a quote cancels its request").toBe(true);
+      await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
+      expect(quoteSignals).toHaveLength(2);
+      expect(quoteSignals[1].aborted).toBe(false);
+      expect(connectivity.get().online, "a cancelled request is not a network failure").toBe(true);
+      expect(screen.queryByTestId("swap-no-route")).toBeNull();
+    } finally {
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+    }
+  });
   it("a reload continues from the journal: the progress route reads the operation, the next tick does not fund again", async () => {
     await wallet();
     const { orderId } = await confirmed();

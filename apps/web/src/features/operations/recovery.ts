@@ -6,7 +6,7 @@
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
 import { isTerminal, type FundsClass, type OperationRecord, type OperationState, type ProgressStep } from "@privacy-wallet/sdk/wallet/operationRecord";
-import { reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
+import { reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/codes"; // the keys only: the catalog's classifier reaches the swap modules (V6 Stage 16)
 import { diagnose } from "@privacy-wallet/sdk/operations/recovery";
 import { FUNDS_HEADLINE_KEY, type RecoveryAction } from "@privacy-wallet/sdk/operations/types";
 

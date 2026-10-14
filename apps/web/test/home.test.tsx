@@ -6,7 +6,7 @@
 // network for an empty balance; the technical lines only in the Advanced experience.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -69,13 +69,14 @@ describe("Home (spec v2.0 §7.1)", () => {
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("privacy-badge"));
-    expect(pathname()).toBe("/more/privacy");
+    // the screens behind these routes are lazy (V6 Stage 16): the location changes once their chunk has loaded
+    await waitFor(() => expect(pathname()).toBe("/more/privacy"));
     await act(async () => {
       await router.navigate(-1);
     });
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("home-settings"));
-    expect(pathname()).toBe("/more/security");
+    await waitFor(() => expect(pathname()).toBe("/more/security"));
     expect(fetchSpy, "nothing read for an empty balance").not.toHaveBeenCalled();
   });
 

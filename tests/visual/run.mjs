@@ -14,10 +14,13 @@
 //     full 0x-40 address, no amount past its display decimals) and of every fixture (never anonymous, mixer, impossible to
 //     trace, untraceable, invisible or undetectable — spec v2.0 §1); the $10,000 Review's ten items (§86); the $80,000
 //     protected execution — the four checks, Hold to Confirm, no mode to choose (§87); every action of a 390 px screen
-//     present at 1440 px (§88); the primary action visible with the amount focused above a keyboard (390 x 508, §56).
+//     present at 1440 px (§88); the primary action visible with the amount focused above a keyboard (390 x 508, §56);
+//   - and the accessibility checks a browser can make (doc §77, V6 Stage 16): every Simple screen at 390 px with the
+//     text at 200 % (the root size: the type is in rem) neither scrolls sideways nor cuts a text; under more contrast the
+//     high-contrast set applies (light and dark); under forced colours every button keeps a visible edge.
 // UPDATE_BASELINES=1 writes the baselines (review every image before committing it). Diffs, the actual images and the
 // report land in tests/visual/run/ (git-ignored). The suite is local: baselines are bound to a platform's rendering.
-//   node tests/visual/run.mjs [--only <fixture-id>]
+//   node tests/visual/run.mjs [--only <fixture-id>] [--a11y-only]
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,6 +39,8 @@ const BASELINES = join(HERE, "baselines", PLATFORM);
 const RUN = join(HERE, "run", PLATFORM);
 const UPDATE = process.env.UPDATE_BASELINES === "1";
 const ONLY = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
+/** the accessibility passes alone (no screenshots, no layout sizes): a quick loop while fixing what they find */
+const A11Y_ONLY = process.argv.includes("--a11y-only");
 /** The baselines' viewports (spec §19) and the ten layout sizes (spec §6). */
 const SHOTS = [
   [390, 844],
@@ -84,6 +89,40 @@ async function startVite() {
   }
   p.kill();
   throw new Error(`the fixtures server did not start on ${BASE}:\n${log}`);
+}
+
+/** Doc §77: with the text at 200 %, no sideways scroll and no element that cuts its text (an element that hides its
+ *  overflow — or ends it with an ellipsis — while its text is wider or taller than its box). The screen-reader-only text
+ *  (a 1 px box by design) is not a cut. */
+async function clipping(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const root = document.scrollingElement;
+    const label = (el) =>
+      el.getAttribute("data-testid") ?? (typeof el.className === "string" && el.className ? `.${el.className.split(" ")[0]}` : el.tagName.toLowerCase());
+    if (root.scrollWidth > window.innerWidth + 1) {
+      // the deepest elements that stick out to the right name the cause
+      const out = [...document.querySelectorAll("body *")].filter(
+        (el) =>
+          el.getBoundingClientRect().right > window.innerWidth + 1 && ![...el.children].some((c) => c.getBoundingClientRect().right > window.innerWidth + 1),
+      );
+      problems.push(`the page scrolls sideways (${root.scrollWidth} px at ${window.innerWidth} px: ${[...new Set(out.map(label))].slice(0, 4).join(", ")})`);
+    }
+    for (const el of document.querySelectorAll("body *")) {
+      const s = getComputedStyle(el);
+      if (s.display === "none" || s.visibility === "hidden" || el.closest(".sr-only")) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width <= 1 || r.height <= 1) continue;
+      if (!el.textContent.trim()) continue;
+      const cutsX = ["hidden", "clip"].includes(s.overflowX) || s.textOverflow === "ellipsis";
+      const cutsY = ["hidden", "clip"].includes(s.overflowY);
+      const name = label(el);
+      if (cutsX && el.scrollWidth > el.clientWidth + 1) problems.push(`${name} cuts its text sideways (${el.scrollWidth} > ${el.clientWidth} px)`);
+      else if (cutsY && el.scrollHeight > el.clientHeight + 1) problems.push(`${name} cuts its text (${el.scrollHeight} > ${el.clientHeight} px tall)`);
+      if (problems.length >= 8) break;
+    }
+    return problems;
+  });
 }
 
 async function open(context, id) {
@@ -293,7 +332,7 @@ try {
   await probe.close();
   if (!fixtures.length) throw new Error(`no fixture${ONLY ? ` named ${ONLY}` : ""}`);
 
-  for (const [w, h] of SIZES) {
+  for (const [w, h] of A11Y_ONLY ? [] : SIZES) {
     const context = await browser.newContext({
       viewport: { width: w, height: h },
       deviceScaleFactor: 1,
@@ -335,6 +374,54 @@ try {
           if (f.keyboard) fail(`keyboard ${f.id}`, await keyboard(page));
         }
       }
+      await page.close();
+    }
+    await context.close();
+  }
+  // doc §77 (V6 Stage 16): the text at 200 % on every Simple screen at 390 px — nothing scrolls sideways, nothing is cut
+  const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, locale: "en-US", timezoneId: "UTC", reducedMotion: "reduce" };
+  {
+    const context = await browser.newContext({ ...phone, colorScheme: "light" });
+    for (const f of fixtures.filter((x) => x.kind === "screen" && x.simple)) {
+      const page = await open(context, f.id);
+      if (await before(page, f, 390)) {
+        await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+        await page.evaluate(() => document.fonts.ready);
+        fail(`text 200 % ${f.id}`, await clipping(page));
+      }
+      await page.close();
+    }
+    await context.close();
+  }
+  // doc §77: more contrast draws the high-contrast set (light and dark); forced colours keep every button's edge
+  const CONTRAST_FIXTURES = ["home-funded", "protect", "swap", "review-large", "activity"];
+  for (const [scheme, text] of [
+    ["light", "rgb(0, 0, 0)"],
+    ["dark", "rgb(255, 255, 255)"],
+  ]) {
+    const context = await browser.newContext({ ...phone, colorScheme: scheme, contrast: "more" });
+    for (const f of fixtures.filter((x) => CONTRAST_FIXTURES.includes(x.id))) {
+      const page = await open(context, f.id);
+      const color = await page.evaluate(() => getComputedStyle(document.body).color);
+      fail(`more contrast (${scheme}) ${f.id}`, color === text ? [] : [`the text is ${color}, not the high-contrast set's ${text}`]);
+      await page.close();
+    }
+    await context.close();
+  }
+  {
+    const context = await browser.newContext({ ...phone, colorScheme: "light", forcedColors: "active" });
+    for (const f of fixtures.filter((x) => CONTRAST_FIXTURES.includes(x.id))) {
+      const page = await open(context, f.id);
+      const problems = await page.evaluate(() =>
+        [...document.querySelectorAll(".ds-btn")]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .filter((el) => {
+            const s = getComputedStyle(el);
+            return s.borderTopStyle === "none" || parseFloat(s.borderTopWidth) < 1;
+          })
+          .map((el) => `${el.getAttribute("data-testid") ?? el.textContent.trim()} has no visible edge`),
+      );
+      fail(`forced colours ${f.id}`, problems);
       await page.close();
     }
     await context.close();

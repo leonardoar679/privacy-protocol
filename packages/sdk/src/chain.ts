@@ -13,20 +13,13 @@ import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { txDomain } from "@privacy-wallet/protocol/payload";
 import { coreAbi, type TxRequest } from "./privacyProtocol";
-import { parseErc20Vaults } from "./assets";
 import { treeLayers } from "./core";
 
 export interface Erc20VaultSpec { symbol: string; token: Address; vault: Address; decimals: number }
 export interface Deployment { chainId: number; core: Address; ethVault: Address; rpcUrl: string; rpcUrls: string[]; fromBlock: bigint; erc20Vaults: Erc20VaultSpec[]; /** SwapOrderFactory: the wallet recomputes every escrow address from it (VITE_SWAP_FACTORY) */ swapFactory?: Address; /** V6 (spec v2.0 §11.1): ProtectRouter — a protect pays its 1 % through it (VITE_PROTECT_ROUTER) */ protectRouter?: Address; /** V6 Stage 12 (spec v2.0 §11.2): ShieldReceiverFactory — a same-chain swap delivers into the protected balance through a receiver it predicts (VITE_SHIELD_FACTORY) */ shieldFactory?: Address }
 
-export function deploymentFromEnv(env: Record<string, string | undefined>): Deployment | null {
-  const urls = String(env.VITE_RPC_URLS ?? env.VITE_RPC_URL ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-  if (!urls.length || !env.VITE_CORE || !env.VITE_ETH_VAULT) return null;
-  const swapFactory = env.VITE_SWAP_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_SWAP_FACTORY) ? (env.VITE_SWAP_FACTORY as Address) : undefined;
-  const protectRouter = env.VITE_PROTECT_ROUTER && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_PROTECT_ROUTER) ? (env.VITE_PROTECT_ROUTER as Address) : undefined;
-  const shieldFactory = env.VITE_SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(env.VITE_SHIELD_FACTORY) ? (env.VITE_SHIELD_FACTORY as Address) : undefined;
-  return { chainId: Number(env.VITE_CHAIN_ID ?? 31337), core: env.VITE_CORE as Address, ethVault: env.VITE_ETH_VAULT as Address, rpcUrl: urls[0], rpcUrls: urls, fromBlock: BigInt(env.VITE_FROM_BLOCK ?? 0), erc20Vaults: parseErc20Vaults(env.VITE_ERC20_VAULTS), swapFactory, ...(protectRouter ? { protectRouter } : {}), ...(shieldFactory ? { shieldFactory } : {}) };
-}
+// V6 Stage 16: the parser lives in ./env.ts (the configuration reads it before the first screen, without this module)
+export { deploymentFromEnv } from "./env";
 
 /**
  * The wallet's RPC policy (plan §38, §64, Rule 6 on the wallet side): no API key anywhere (URLs come

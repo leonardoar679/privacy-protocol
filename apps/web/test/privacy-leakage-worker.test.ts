@@ -87,7 +87,7 @@ describe("the worker boundary (doc §83)", () => {
     applyConfig(testConfig()); // the page has workers now: the core runs in the crypto worker
     await session.create("pw");
     session.acknowledgePhrase();
-    offLock = session.onLock(stopCryptoWorker);
+    offLock = session.onLock(stopCryptoWorker); // the client registers its own as well; a second stop is harmless
     const seed = session.state().seed!;
     const k = deriveKeys(seed);
     secrets = [

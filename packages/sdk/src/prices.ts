@@ -16,18 +16,14 @@ import { noteStore } from "./wallet/notes";
 import { session, type WalletSession } from "./wallet/session";
 import { settings } from "./wallet/settings";
 import { config } from "./config";
+import { priceState, PriceStateStore, type PriceState } from "./priceState";
 
-export type PriceStatus = "idle" | "not-configured" | "loading" | "ready" | "unavailable";
-export interface PriceState { status: PriceStatus; prices: Prices | null; reason?: string; at?: number }
+// V6 Stage 16: the state lives in ./priceState.ts (Home renders from it before this module loads)
+export type { PriceState, PriceStatus } from "./priceState";
 
 /** A deployment's own feed list (VITE_PRICE_FEEDS: JSON array of FeedSpec) for devnets and tests; the table covers mainnet and Sepolia. */
-export function feedsFromEnv(env: Record<string, string | undefined>): FeedSpec[] | null {
-  const raw = env.VITE_PRICE_FEEDS;
-  if (!raw) return null;
-  const list = JSON.parse(raw) as FeedSpec[];
-  if (!Array.isArray(list) || list.some((f) => !f.symbol || !f.description || !(f.heartbeatSeconds > 0) || !(f.proxy || f.registryBase))) throw new Error("VITE_PRICE_FEEDS must be a JSON array of { symbol, description, heartbeatSeconds, proxy | registryBase }");
-  return list;
-}
+// V6 Stage 16: the parser lives in ./env.ts (the configuration reads it before the first screen, without this module)
+export { feedsFromEnv } from "./env";
 
 /** One endpoint's read of one feed: resolve the proxy (registry when needed), check description(), decode the round. */
 async function readFeed(client: PublicClient, spec: FeedSpec, source: string): Promise<PriceRead> {
@@ -70,13 +66,12 @@ const journaledPrices = (s: WalletSession): Prices | null => {
 };
 
 export class PriceStore {
-  private st: PriceState = { status: "idle", prices: null };
-  private listeners = new Set<() => void>();
   private inFlight: Promise<void> | null = null;
-  constructor(private readonly s: WalletSession = session, readonly maxAgeMs = 5 * 60_000) {}
-  state(): PriceState { return this.st; }
-  subscribe(l: () => void): () => void { this.listeners.add(l); return () => this.listeners.delete(l); }
-  private set(st: PriceState): void { this.st = st; for (const l of this.listeners) l(); }
+  constructor(private readonly s: WalletSession = session, readonly maxAgeMs = 5 * 60_000, private readonly store: PriceStateStore = new PriceStateStore()) {}
+  private get st(): PriceState { return this.store.get(); }
+  state(): PriceState { return this.store.get(); }
+  subscribe(l: () => void): () => void { return this.store.subscribe(l); }
+  private set(st: PriceState): void { this.store.set(st); }
   reset(): void { this.set({ status: "idle", prices: null }); }
 
   /** Whether a read is warranted: feeds for this chain, and unspent notes to value (spec §13: never at first launch). */
@@ -114,7 +109,7 @@ export class PriceStore {
   }
 }
 
-export const priceStore = new PriceStore();
+export const priceStore = new PriceStore(session, undefined, priceState);
 
 /** Whether valuation is configured at all for this deployment (spec §13: without feeds for the chain the wallet shows no USD and the tiers are off). */
 export const feedsConfigured = (d: Deployment | null, feeds: FeedSpec[] | null = config().priceFeeds): boolean => !!d && feedsFor(d.chainId, feeds).length > 0;

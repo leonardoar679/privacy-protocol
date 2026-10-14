@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { chooseLocale, detectLocale, SUPPORTED } from "../src/app/i18n/detect";
 import { pseudoCatalog, pseudoLocalize } from "../src/app/i18n/pseudo";
-import { CATALOGS, registerCatalogs, strayKeys } from "../src/app/i18n/catalogs";
+import { CATALOGS, loadCatalog, registerCatalogs, strayKeys } from "../src/app/i18n/catalogs";
 import { en } from "../src/app/i18n/en";
 import { getLocale, setLocale, t } from "../src/app/i18n/messages";
 import { applyLocale } from "../src/app/Providers";
@@ -25,7 +25,7 @@ function sources(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) sources(p, out);
-    else if (/\.(ts|tsx)$/.test(e) && !p.endsWith(join("i18n", "en.ts")) && !p.endsWith(join("i18n", "catalogs.ts"))) out.push(readFileSync(p, "utf8"));
+    else if (/\.(ts|tsx)$/.test(e) && !["en.ts", "ko.ts", "catalogs.ts"].some((f) => p.endsWith(join("i18n", f)))) out.push(readFileSync(p, "utf8"));
   }
   return out;
 }
@@ -47,7 +47,7 @@ describe("the locale (spec §19)", () => {
     expect(chooseLocale({ prefs: "ja-JP", languages: ["ko"] })).toBe("ja");
     expect(chooseLocale({ languages: ["pt-BR"] })).toBe("en");
   });
-  it("the catalogs carry only English keys and fall back key by key; the document's lang follows the locale applied from the prefs", () => {
+  it("the catalogs carry only English keys and fall back key by key; the document's lang follows the locale applied from the prefs", async () => {
     registerCatalogs();
     for (const [locale, catalog] of Object.entries(CATALOGS)) {
       expect(strayKeys(catalog), locale).toEqual([]);
@@ -55,6 +55,8 @@ describe("the locale (spec §19)", () => {
       expect(t("nav.home", undefined, locale)).not.toBe(en["nav.home"]);
       expect(t("security.forget.confirm", undefined, locale), "a missing key falls back to English").toBe(en["security.forget.confirm"]);
     }
+    // V6 Stage 16: Korean is complete and its own chunk — applied once it has loaded (main.tsx waits for it)
+    await loadCatalog("ko");
     prefs().update({ locale: "ko" });
     expect(applyLocale()).toBe("ko");
     expect(getLocale()).toBe("ko");

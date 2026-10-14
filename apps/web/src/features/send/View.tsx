@@ -132,12 +132,12 @@ export function SendView({ model: m, actions: a, addressStatus }: { model: SendM
             testId="address"
           />
           {m.destination ? (
-            <p className="ds-note" data-testid="send-kind">
+            <p className="ds-note" role="status" data-testid="send-kind">
               {t(NOTE[m.destination])}
             </p>
           ) : null}
           {m.destinationNote ? (
-            <p className="ds-note-warn" data-testid="send-destination-note">
+            <p className="ds-note-warn" role="status" data-testid="send-destination-note">
               {m.destinationNote}
             </p>
           ) : null}

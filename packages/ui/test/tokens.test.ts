@@ -136,7 +136,8 @@ describe("design tokens (spec v2.0 §5)", () => {
     expect(css).toMatch(/--muted: var\(--fg-muted\);/);
     expect(css).toMatch(/--space-16: 64px;/);
     expect(css).toMatch(/--touch: 44px;/);
-    expect(css).toMatch(/--numeric-large-size: 36px;/);
+    expect(css, "the type in rem: the reader's text size scales it (V6 Stage 16)").toMatch(/--numeric-large-size: 2.25rem;/);
+    expect(css).toMatch(/--body-size: 1rem;/);
     expect(css).toMatch(/--font-sans: "Inter Variable",/);
     expect(css).toMatch(/"Malgun Gothic"/);
   });

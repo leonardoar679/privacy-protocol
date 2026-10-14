@@ -9,6 +9,7 @@ import type { SwapModel } from "./swap/View";
 import type { ReviewModel } from "./review/View";
 import type { ProgressModel } from "./progress/View";
 import { BTC, ETH, USDC, usd } from "./fixtureAmounts";
+import { t } from "../app/i18n/messages";
 
 const ACCOUNT = "0x7A3b5d0E91c4F2a6B8d1E3f5A7c9B2d4E6f891F2";
 const EVM_TO = "0x43a1f0c2d9b7e4f6a8c3b2d1e0f9a8b7c6d582C1";
@@ -92,6 +93,23 @@ export const SWAP_FIXTURES = {
     destination: { value: BTC_TO, fresh: false, checks: { valid: "ok", network: "ok", compatible: "ok" } },
     expiresIn: 45,
   },
+  // V6 Stage 16 (doc §29, §54): the Advanced experience's route details — folded in the quote on a phone, beside the
+  // swap card from 1024 px
+  advanced: {
+    pay: { symbol: "ETH", decimals: 18, amount: "3.55", balance: ETH("4.82") },
+    receive: { symbol: "BTC", chain: "Bitcoin" },
+    quote: {
+      kind: "cross-chain",
+      expected: BTC("0.178"),
+      minimum: BTC("0.176"),
+      protection: "high",
+      fees: { privacyUsdCents: usd("120"), relayerUsdCents: usd("18.40"), providerUsdCents: usd("24.10") },
+      eta: [120, 300],
+    },
+    destination: { value: BTC_TO, fresh: false, checks: { valid: "ok", network: "ok", compatible: "ok" } },
+    expiresIn: 45,
+    details: { provider: "THORChain", route: "ETH → BTC", expected: BTC("0.178"), fee: "$162.50", time: "2–5 min", risk: "Low", privacy: "High" },
+  },
   expired: {
     pay: { symbol: "USDC", decimals: 6, amount: "8000", balance: USDC("12400") },
     receive: { symbol: "ETH", chain: "Ethereum" },
@@ -113,7 +131,12 @@ export const REVIEW_FIXTURES = {
       { kind: "provider", usdCents: usd("9.90") },
     ],
     totalFeesUsdCents: usd("114.00"),
-    destination: { label: "Your protected balance", verified: false },
+    destination: {
+      get label() {
+        return t("screen.swap.protectedBalance");
+      },
+      verified: false,
+    },
     protection: "high",
     large: false,
   },
@@ -157,7 +180,12 @@ export const REVIEW_FIXTURES = {
       { kind: "relayer", usdCents: usd("4.30") },
     ],
     totalFeesUsdCents: usd("54.30"),
-    destination: { label: "Your protected balance", verified: false },
+    destination: {
+      get label() {
+        return t("screen.swap.protectedBalance");
+      },
+      verified: false,
+    },
     protection: "high",
     large: false,
   },
@@ -180,7 +208,12 @@ export const REVIEW_FIXTURES = {
     receive: { amount: ETH("2.886"), approx: true },
     fees: [],
     totalFeesUsdCents: null,
-    destination: { label: "Your protected balance", verified: false },
+    destination: {
+      get label() {
+        return t("screen.swap.protectedBalance");
+      },
+      verified: false,
+    },
     protection: "high",
     large: false,
     blocked: "parameters_changed",

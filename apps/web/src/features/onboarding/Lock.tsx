@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { session } from "@privacy-wallet/sdk/wallet/session";
-import { useSession } from "../../hooks";
+import { useSession } from "../../hooks/core";
 
 export type LockMode = "unlock" | "create" | "restore";
 

@@ -7,7 +7,7 @@ import { prefs } from "../storage/prefs";
 import { type SessionState } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { Phrase } from "../features/onboarding/Phrase";
-import { usePrefs, useSession } from "../hooks";
+import { usePrefs, useSession } from "../hooks/core";
 import { lockedAutomatically } from "../platform/autoLock";
 
 export function Splash() {

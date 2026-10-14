@@ -134,7 +134,8 @@ export default defineConfig(({ mode }) => {
     // __PREVIEW__: the component preview (/__preview) and its chunk exist in every mode but a production build (spec v2.0 §6)
     define: { __ZKAPI__: JSON.stringify(zkapi.bundled), __PREVIEW__: JSON.stringify(mode !== "production") },
     // the fixtures build has a second entry; every other build has the wallet's page only
-    ...(mode === "fixtures" ? { build: { outDir: "dist-fixtures", rollupOptions: { input: { main: join(root, "index.html"), fixtures: join(root, "fixtures.html") } } } } : {}),
+    // V6 Stage 16 (spec v2.0 §19): the manifest is what scripts/check-budget.mjs reads (the first route and Home, gzipped)
+    ...(mode === "fixtures" ? { build: { outDir: "dist-fixtures", rollupOptions: { input: { main: join(root, "index.html"), fixtures: join(root, "fixtures.html") } } } } : { build: { manifest: true } }),
     server: {
       // V6 Stage 15: the local stack's browser run starts the dev server without its websocket (PW_NO_HMR=1) — going offline
       // would drop it, and Vite reloads the page when it comes back, which ends the session in the middle of a step

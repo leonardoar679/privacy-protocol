@@ -9,7 +9,7 @@ import { notifications, notify } from "@privacy-wallet/sdk/wallet/notifications"
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { t, type MessageKey } from "./i18n/messages";
 import { amountFrom, displayAmount } from "../features/amounts";
-import { useNotifications } from "../hooks";
+import { useNotifications } from "../hooks/core";
 
 const TONE: Record<OperationNotification["kind"], "info" | "success" | "warn"> = {
   "quote-ready": "info",

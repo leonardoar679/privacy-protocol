@@ -22,6 +22,7 @@ import {
   type ShellNav,
 } from "@privacy-wallet/ui";
 import { Preview, PREVIEW_SECTIONS } from "@privacy-wallet/ui/Preview";
+import { t } from "../app/i18n/messages";
 import { HomeView } from "../features/home/View";
 import { HOME_FIXTURES } from "../features/home/fixtures";
 import { ProtectView } from "../features/protect/View";
@@ -88,6 +89,7 @@ const shellNav = (current: string): ShellNav => ({
         <ListRow title="Privacy Center" leading={<Icon name="shield" />} onPress={close} testId="menu-privacy" />
         <ListRow title="Security" leading={<Icon name="lock" />} onPress={close} testId="menu-security" />
         <ListRow title="Wallet" leading={<Icon name="wallet" />} onPress={close} testId="menu-wallet" />
+        <ListRow title="Language" leading={<Icon name="globe" />} onPress={close} testId="menu-language" />
         <ListRow title="Classic Privacy" leading={<Icon name="recovery" />} onPress={close} testId="menu-classic" />
         <ListRow title="Private AI" leading={<Icon name="globe" />} onPress={close} testId="menu-ai" />
       </>
@@ -141,13 +143,14 @@ function Activity({ state }: { state: keyof typeof ACTIVITY_FIXTURES }) {
   return inShell("/activity", <ActivityView model={ACTIVITY_FIXTURES[state]} wide={wide} onOpen={noop} onRefresh={noop} />);
 }
 
-const recoveryCard = (
+// the catalog's words (V6 Stage 16: the fixtures render in any locale — the Korean test reads them)
+const recoveryCard = () => (
   <ErrorCard
-    title="Still settling"
-    fundsLine="Your funds are safe."
+    title={t("op.state.SETTLING")}
+    fundsLine={t("operation.fundsSafe")}
     fundsState="still-protected"
-    reason="The external swap is still being confirmed."
-    actions={<Button variant="secondary">View progress</Button>}
+    reason={t("op.recovery.monitoring")}
+    actions={<Button variant="secondary">{t("operation.viewProgress")}</Button>}
     testId="recovery"
   />
 );
@@ -234,6 +237,19 @@ export const FIXTURES: readonly Fixture[] = [
       <SwapView model={SWAP_FIXTURES["cross-chain"]} actions={{ onAmount: noop, onPayAsset: noop, onReceiveAsset: noop, onReview: noop, onNewQuote: noop }} />,
     ),
   ),
+  screen(
+    "swap-advanced",
+    "Swap — the Advanced experience: the route details (beside the swap card from 1024 px)",
+    () =>
+      inShell(
+        "/swap",
+        <SwapView
+          model={SWAP_FIXTURES.advanced}
+          actions={{ onAmount: noop, onPayAsset: noop, onReceiveAsset: noop, onReview: noop, onNewQuote: noop, onCompare: noop }}
+        />,
+      ),
+    { simple: false },
+  ),
   screen("swap-expired", "Swap — the quote expired", () =>
     inShell(
       "/swap",
@@ -283,7 +299,7 @@ export const FIXTURES: readonly Fixture[] = [
   screen("classic-pool", "Classic Privacy — a pool's status", () =>
     inShell(
       "/more",
-      <Page title="1 ETH pool" back={noop} testId="classic-pool">
+      <Page title={t("classic.poolTitle", { amount: "1", symbol: "ETH" })} back={noop} testId="classic-pool">
         <Card testId="classic-position">
           <div className="ds-stack-sm">
             <ClassicPoolStatusView model={CLASSIC_POOL_FIXTURE} />
@@ -306,7 +322,7 @@ export const FIXTURES: readonly Fixture[] = [
   screen("activity-empty", "Activity — empty", () => <Activity state="empty" />),
   screen("detail", "Detail — ETH → BTC executing", () => inShell("/activity", <DetailView model={DETAIL_FIXTURES.executing} onBack={noop} onRefresh={noop} />)),
   screen("detail-recovery", "Detail — recovery", () =>
-    inShell("/activity", <DetailView model={DETAIL_FIXTURES.recovery} onBack={noop} recovery={recoveryCard} />),
+    inShell("/activity", <DetailView model={DETAIL_FIXTURES.recovery} onBack={noop} recovery={recoveryCard()} />),
   ),
   screen("detail-completed", "Detail — completed", () => inShell("/activity", <DetailView model={DETAIL_FIXTURES.completed} onBack={noop} onRemove={noop} />)),
 ];

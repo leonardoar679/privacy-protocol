@@ -11,7 +11,7 @@ import {
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Asset } from "../assets";
-import { mergeSchedule } from "../privateTx";
+import { mergeSchedule } from "./mergeSchedule";
 import type { AssetRef, Policy, Preference, Protection, QuoteSet, ServiceQuote } from "../swapService";
 import { withAlert } from "./alerts";
 import { activityId, recordActivity, updateActivity } from "./activity";

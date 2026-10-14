@@ -9,6 +9,7 @@ import { levelOf, type Level } from "@privacy-wallet/protocol/wallet/privacyCent
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../../app/i18n/useT";
+import { formatTime } from "../../../app/i18n/intl";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
 import { ExposureDashboard } from "./ExposureDashboard";
@@ -106,7 +107,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
 
       {alerts.length > 0 ? (
         <ul className="ds-plain-list ds-note" data-testid="campaign-alerts">
-          {alerts.map((a, i) => <li key={`${a.at}:${i}`}><span>{new Date(a.at).toLocaleTimeString()} · {ALERT_TITLES[a.kind]}</span> — {a.text}</li>)}
+          {alerts.map((a, i) => <li key={`${a.at}:${i}`}><span>{formatTime(a.at)} · {ALERT_TITLES[a.kind]}</span> — {a.text}</li>)}
         </ul>
       ) : null}
 

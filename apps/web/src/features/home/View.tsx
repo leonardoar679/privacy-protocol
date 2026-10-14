@@ -2,7 +2,9 @@
 // badge and the gear, the protected balance, the assets, an open operation's card (executing, or action needed: an old
 // failure never blocks Home), the "Protect your assets" card as the one primary action, Send and Swap as two
 // secondary tiles, the recent activity. Pure: a view-model in, callbacks out (./model.ts builds it, ./fixtures.ts
-// feeds the screenshots). The technical lines (maintenance, the core) show only in the Advanced experience.
+// feeds the screenshots). The technical lines (maintenance, the core) show only in the Advanced experience. V6 Stage 16
+// (doc §54, §88): from 1024 px the balance, then the tiles Protect | Send | Swap, then two columns — Protected assets
+// (with the "Protect your assets" words while there are none) | Recent activity.
 import { AssetRow, Button, Card, Collapsible, IconButton, ListRow, Page, ProtectionBadge, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
@@ -69,28 +71,32 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
     ) : (
       "—"
     );
+  const balanceCard = (
+    <Card padding="lg" testId="balance">
+      <div className="ds-balance">
+        <span className="ds-balance-amount" data-testid="private-usd" aria-live="polite">
+          {balance}
+        </span>
+        <span className="ds-balance-label">{t("home.protectedBalance")}</span>
+        {m.balance.state === "unavailable" && !empty ? <span className="ds-balance-sub">{t("home.usdUnavailable")}</span> : null}
+      </div>
+    </Card>
+  );
+  const assetRows = m.assets.map((x) => (
+    <AssetRow
+      key={x.amount.symbol}
+      asset={{ symbol: x.amount.symbol, name: x.name }}
+      amount={<Amt a={x.amount} />}
+      usd={x.usdCents !== null ? <Usd cents={x.usdCents} /> : null}
+      testId="asset-row"
+    />
+  ));
   const money = (
     <>
-      <Card padding="lg" testId="balance">
-        <div className="ds-balance">
-          <span className="ds-balance-amount" data-testid="private-usd" aria-live="polite">
-            {balance}
-          </span>
-          <span className="ds-balance-label">{t("home.protectedBalance")}</span>
-          {m.balance.state === "unavailable" && !empty ? <span className="ds-balance-sub">{t("home.usdUnavailable")}</span> : null}
-        </div>
-      </Card>
+      {balanceCard}
       {empty ? null : (
         <Card padding="md" testId="assets">
-          {m.assets.map((x) => (
-            <AssetRow
-              key={x.amount.symbol}
-              asset={{ symbol: x.amount.symbol, name: x.name }}
-              amount={<Amt a={x.amount} />}
-              usd={x.usdCents !== null ? <Usd cents={x.usdCents} /> : null}
-              testId="asset-row"
-            />
-          ))}
+          {assetRows}
         </Card>
       )}
     </>
@@ -131,23 +137,24 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
       </div>
     </>
   );
+  const recentRows = m.recent.map((r) => (
+    <ListRow
+      key={r.id}
+      title={r.title}
+      trailing={
+        <span className="ds-row-end">
+          <span className="ds-numeral">{r.usdCents !== null ? <Usd cents={r.usdCents} /> : <Amt a={r.amount} />}</span>
+          <StatusBadge tone={STATUS_TONE[r.status]}>{t(STATUS_WORD[r.status])}</StatusBadge>
+        </span>
+      }
+      onPress={() => a.onOperation(r.id)}
+      testId="recent-row"
+    />
+  ));
   const recent = m.recent.length ? (
     <Card padding="md" testId="recent">
       <h2 className="ds-card-title">{t("home.recent")}</h2>
-      {m.recent.map((r) => (
-        <ListRow
-          key={r.id}
-          title={r.title}
-          trailing={
-            <span className="ds-row-end">
-              <span className="ds-numeral">{r.usdCents !== null ? <Usd cents={r.usdCents} /> : <Amt a={r.amount} />}</span>
-              <StatusBadge tone={STATUS_TONE[r.status]}>{t(STATUS_WORD[r.status])}</StatusBadge>
-            </span>
-          }
-          onPress={() => a.onOperation(r.id)}
-          testId="recent-row"
-        />
-      ))}
+      {recentRows}
     </Card>
   ) : null;
   const advanced = m.advanced?.length ? (
@@ -176,17 +183,43 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
         </p>
       ) : null}
       {wide ? (
-        <div className="ds-columns">
-          <div className="ds-column">
-            {money}
-            {act}
+        <>
+          {balanceCard}
+          <div className="ds-tiles" data-testid="home-tiles">
+            <Button size="lg" icon="shield-plus" onClick={a.onProtect} data-testid="protect-cta">
+              {t("home.protectCta")}
+            </Button>
+            <Button variant="secondary" size="lg" icon="send" onClick={a.onSend} data-testid="home-send">
+              {t("home.send")}
+            </Button>
+            <Button variant="secondary" size="lg" icon="swap" onClick={a.onSwap} data-testid="home-swap">
+              {t("home.swap")}
+            </Button>
           </div>
-          <div className="ds-column">
-            {operations}
-            {recent}
-            {advanced}
+          {operations}
+          <div className="ds-columns ds-columns-even">
+            <div className="ds-column">
+              <Card padding="md" testId={empty ? "protect-card" : "assets"}>
+                <h2 className="ds-card-title">{t("home.assetsTitle")}</h2>
+                {empty ? (
+                  <div className="ds-callout-text">
+                    <p className="ds-callout-title">{t("home.protectTitle")}</p>
+                    <p className="ds-callout-body">{t("home.protectBody")}</p>
+                  </div>
+                ) : (
+                  assetRows
+                )}
+              </Card>
+            </div>
+            <div className="ds-column">
+              <Card padding="md" testId="recent">
+                <h2 className="ds-card-title">{t("home.recentActivity")}</h2>
+                {m.recent.length ? recentRows : <p className="ds-note">{t("activity.emptyTitle")}</p>}
+              </Card>
+              {advanced}
+            </div>
           </div>
-        </div>
+        </>
       ) : (
         <>
           {money}

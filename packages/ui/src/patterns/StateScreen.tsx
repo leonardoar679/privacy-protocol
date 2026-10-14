@@ -23,7 +23,14 @@ export function StateScreen({
   testId?: string;
 }) {
   return (
-    <section className={cx("ds-state", `ds-state-${kind}`)} data-testid={testId} data-kind={kind} aria-busy={kind === "loading" || undefined}>
+    // V6 Stage 16 (doc §77): a state that arrives is announced — an error at once, the others politely
+    <section
+      className={cx("ds-state", `ds-state-${kind}`)}
+      data-testid={testId}
+      data-kind={kind}
+      role={kind === "error" ? "alert" : kind === "empty" ? undefined : "status"}
+      aria-busy={kind === "loading" || undefined}
+    >
       <span className="ds-state-mark" aria-hidden>
         <Icon name={icon ?? MARK[kind]} size={28} className={kind === "loading" ? "ds-spin" : undefined} />
       </span>

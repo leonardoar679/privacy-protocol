@@ -4,12 +4,11 @@
 // install their own with applyConfig(testConfig()) (test/setup.ts).
 import { z } from "zod";
 import { allowHosts, setStrict } from "@privacy-wallet/privacy-engine/transport/http";
-import { deploymentFromEnv } from "@privacy-wallet/sdk/chain";
-import { configure, defaultConfig, DEFAULTS, type SdkConfig } from "@privacy-wallet/sdk/config";
-import { feedsFromEnv } from "@privacy-wallet/sdk/prices";
+import { deploymentFromEnv, feedsFromEnv } from "@privacy-wallet/sdk/env";
+import { configure, defaultConfig, DEFAULTS, type CoreBackend, type SdkConfig } from "@privacy-wallet/sdk/config";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { secureStore } from "./storage/secureStore";
 import { configureWalletConnect } from "@privacy-wallet/wallet-engine/walletConnect";
-import { workerCore } from "./platform/crypto/client";
 
 type Env = Record<string, string | boolean | undefined>;
 
@@ -85,6 +84,28 @@ export function configFromEnv(raw: Env): SdkConfig {
   });
 }
 
+// The crypto client and the prover load with their first call (V6 Stage 16: not in the first route), so a lock can land
+// while one loads: the call issued before it then fails as the worker's own requests do ("locked"), and no worker starts
+// after the lock with the keys of the session it ended.
+let locks = 0;
+session.onLock(() => {
+  locks += 1;
+});
+async function loadUnlocked<M>(load: () => Promise<M>): Promise<M> {
+  const at = locks;
+  const m = await load();
+  if (locks !== at) throw new Error("locked");
+  return m;
+}
+const cryptoClient = () => loadUnlocked(() => import("./platform/crypto/client"));
+
+/** The crypto worker's core port, its module loaded at the first call (V6 Stage 16: not in the first route). */
+const lazyWorkerCore: CoreBackend = {
+  merkleLayers: async (leaves, levels) => (await cryptoClient()).workerCore.merkleLayers(leaves, levels),
+  scanNotePayloads: async (viewKey, ownerCommitment, leafIndexes, commitments, payloads) =>
+    (await cryptoClient()).workerCore.scanNotePayloads(viewKey, ownerCommitment, leafIndexes, commitments, payloads),
+};
+
 /** Installs a configuration: the engine's, the transport's allowlist (with the THORNode gateways) and its strictness. */
 export function applyConfig(c: SdkConfig): SdkConfig {
   // the web platform's ports (V6 Stage 4): the IndexedDB container and the worker prover, unless the caller brings its own
@@ -92,8 +113,8 @@ export function applyConfig(c: SdkConfig): SdkConfig {
   // the spend plan, and the core runs in the same long-lived crypto worker where the page has workers
   configure({
     storage: secureStore,
-    prover: async (spec, onStatus) => (await import("./prover/client")).proveInBrowser(spec, onStatus),
-    ...(typeof Worker === "function" ? { core: workerCore } : {}),
+    prover: async (spec, onStatus) => (await loadUnlocked(() => import("./prover/client"))).proveInBrowser(spec, onStatus),
+    ...(typeof Worker === "function" ? { core: lazyWorkerCore } : {}),
     ...c,
   });
   configureWalletConnect(c.walletConnectProjectId);

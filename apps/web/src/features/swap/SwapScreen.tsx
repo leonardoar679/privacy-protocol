@@ -25,6 +25,7 @@ import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { formatDateTime } from "../../app/i18n/intl";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
@@ -153,7 +154,8 @@ export function SwapScreen(p: SwapScreenProps) {
     };
   }, [p.deployment, units, fromAsset]);
 
-  // the quote, fetched as the user types (debounced); a newer request makes an older answer stale
+  // the quote, fetched as the user types (debounced); a newer request makes an older answer stale and cancels its request
+  // (V6 Stage 16: nothing waits on an answer nobody reads; an aborted request never counts toward offline)
   const seq = useRef(0);
   const quotable = !!p.deployment && !!fromAsset && units > 0n && units <= balance && destinationOk;
   useEffect(() => {
@@ -168,6 +170,7 @@ export function SwapScreen(p: SwapScreenProps) {
     }
     setQuoting(true);
     const deployment = p.deployment;
+    const abort = new AbortController();
     const timer = setTimeout(() => {
       void (async () => {
         try {
@@ -175,19 +178,22 @@ export function SwapScreen(p: SwapScreenProps) {
           const tm: FeeTerms | null = read ? { minimum: read.fee.amount, feePercentBps: read.info.feePercentBps ?? 0 } : null;
           const split = tm ? swapFunding(units, tm) : null;
           if (split?.tooSmall) throw new Error(t("swap.tooSmallForFees"));
-          const set = await swapService.quote({
-            from: refOf(fromAsset),
-            to: to.ref,
-            amount: (split ? split.delivered : units).toString(),
-            destination: "", // the engine quotes a placeholder: the destination is sent at the confirmation (spec v2.0 §13.2)
-            slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50,
-            preference,
-            ...(assessment ? { tier: assessment.tier } : {}),
-            destinationKind: edited ? "entered" : "fresh",
-            preferNative: preference === "native",
-            mode: protection.mode,
-            ...(intoProtected ? { destinationType: "protected" as const } : {}),
-          });
+          const set = await swapService.quote(
+            {
+              from: refOf(fromAsset),
+              to: to.ref,
+              amount: (split ? split.delivered : units).toString(),
+              destination: "", // the engine quotes a placeholder: the destination is sent at the confirmation (spec v2.0 §13.2)
+              slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50,
+              preference,
+              ...(assessment ? { tier: assessment.tier } : {}),
+              destinationKind: edited ? "entered" : "fresh",
+              preferNative: preference === "native",
+              mode: protection.mode,
+              ...(intoProtected ? { destinationType: "protected" as const } : {}),
+            },
+            abort.signal,
+          );
           if (seq.current !== mine) return;
           setTerms(tm);
           setQuotes(set);
@@ -195,13 +201,16 @@ export function SwapScreen(p: SwapScreenProps) {
           setNow(Date.now());
           setQuoteError(set.chosen ? null : t("swap.noRoute"));
         } catch (e) {
-          if (seq.current === mine) setQuoteError(classify(e).detail || String(e));
+          if (seq.current === mine && !abort.signal.aborted) setQuoteError(classify(e).detail || String(e));
         } finally {
           if (seq.current === mine) setQuoting(false);
         }
       })();
     }, QUOTE_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the quote follows what the user chose, not the price store's ticks
   }, [quotable, units, fromAsset, target, edited, preference, protection.mode, submission, p.deployment, refresh]);
   // the countdown while a quote is shown
@@ -1008,7 +1017,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       ) : null}
       {waiting ? (
         <p className="ds-note" data-testid="swap-funding-at">
-          {t("screen.swap.fundingAt", { time: new Date(stored!.runner!.delayUntil!).toLocaleString() })}
+          {t("screen.swap.fundingAt", { time: formatDateTime(stored!.runner!.delayUntil!) })}
         </p>
       ) : null}
       {stored?.track?.label ? (

@@ -104,6 +104,30 @@ async function clickButton(page, name, opts = {}) { const b = button(page, name)
 async function clickId(page, id, opts = {}) { const b = byId(page, id); await b.first().waitFor({ state: "visible", timeout: opts.timeout ?? 30_000 }); await b.first().click(); }
 async function textAppears(page, t, timeout = 30_000) { await page.getByText(t, { exact: false }).first().waitFor({ state: "visible", timeout }); }
 async function fillId(page, id, value) { const i = byId(page, id); await i.waitFor({ state: "visible", timeout: 30_000 }); await i.fill(value); }
+/** The V6 Swap screen's quote, as a person gets one: it is fetched as the amount is typed; while the live providers
+ *  have no route ("No route available right now" — they come and go, V6 Stage 16's run met it), type the amount again
+ *  every 30 s, until `timeoutMs`. */
+async function waitQuote(page, amount, timeoutMs = 180_000) {
+  const end = Date.now() + timeoutMs;
+  let retries = 0;
+  for (;;) {
+    const left = end - Date.now();
+    const shown = await byId(page, "swap-quote")
+      .waitFor({ timeout: Math.max(1, Math.min(30_000, left)) })
+      .then(() => true, () => false);
+    if (shown) {
+      if (retries) log(`a route was quoted after ${retries} retry(ies)`);
+      return;
+    }
+    if (Date.now() >= end) throw new Error(`no quote within ${timeoutMs / 1000} s (${retries} retries after "No route available right now")`);
+    if (await byId(page, "swap-no-route").count()) {
+      retries++;
+      log(`no route right now (the live providers): typing the amount again (${retries})`);
+      await fillId(page, "amount-input", "");
+      await fillId(page, "amount-input", amount);
+    }
+  }
+}
 /** the navigation (four links) */
 async function nav(page, name) { await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name, exact: true }).click(); }
 async function acknowledgeAll(page) { // the privacy lint's block items, the destination check, the single quote: acknowledged before a high-value confirmation
@@ -714,7 +738,7 @@ try {
   await page.getByText(usdRe(200 * PRICE)).first().waitFor({ timeout: 30_000 });
   const destination = await byId(page, "destination-input").inputValue();
   check("the destination is a fresh Bitcoin address of this wallet", /^bc1q[0-9a-z]{38,}$/.test(destination), destination);
-  await byId(page, "swap-quote").waitFor({ timeout: 180_000 }); // fetched as the amount was typed: no "Get a quote" step
+  await waitQuote(page, "200"); // fetched as the amount was typed: no "Get a quote" step
   const quoteText = await text(byId(page, "swap-quote"));
   log(`the quote: ${quoteText.slice(0, 260)}`);
   check("the quote: the best protected route, the privacy, relayer and provider fees, the time (spec v2.0 §7.5)", /Best protected route/.test(quoteText) && /Privacy fee/.test(quoteText) && /Relayer/.test(quoteText) && /Swap\/provider/.test(quoteText) && /min/.test(quoteText), quoteText.slice(0, 200));
@@ -841,7 +865,7 @@ try {
     const toSide = await text(byId(page, "swap-to"));
     check("a same-chain target lands in the protected balance: no destination to type (spec v2.0 §7.5)", (await byId(page, "swap-destination").count()) === 0 && /Your protected balance/.test(toSide), toSide);
     await fillId(page, "amount-input", "8000");
-    await byId(page, "swap-quote").waitFor({ timeout: 180_000 });
+    await waitQuote(page, "8000");
     const pq = await text(byId(page, "swap-quote"));
     log(`the protected quote: ${pq.slice(0, 220)} | ${await text(byId(page, "swap-to"))}`);
     check("the quote: You receive ≈ ETH, Minimum receive, Fees in dollars", /Minimum receive/.test(pq) && /Fees\s*\$[\d,]+\.\d\d/.test(pq) && /≈/.test(await text(byId(page, "swap-to"))), pq.slice(0, 200));
@@ -864,9 +888,12 @@ try {
     const receiver = commitBody?.destination ?? "";
     check("the commit names the one-time shield receiver as the destination", commitBody?.destinationType === "protected" && /^0x[0-9a-fA-F]{40}$/.test(receiver), receiver);
     await snap(page, "swap-protected-committed");
-    // the runner: the funding (a proof), the hard quote, the checks, the signature, the shield job, the hand-over
+    // the runner: the funding (a proof), the hard quote, the checks, the signature, the shield job, the hand-over. While the
+    // live price trends one way every fresh hard quote is a little worse and the wallet asks again (it never signs below
+    // an approved minimum): the V6 Stage 16 run accepted six in a row and the hand-over came 10 s after six rounds — ten
+    // rounds, as a patient user would
     let handed = null;
-    for (let round = 1; round <= 6 && !handed; round++) {
+    for (let round = 1; round <= 10 && !handed; round++) {
       handed = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.params?.assetType) === 1 && j.executionTx) ?? null, 30_000);
       if (handed) break;
       if (await byId(page, "swap-minimum-moved").count()) { log("the price moved before signing: accepted, as a user would"); await clickId(page, "swap-accept-minimum"); continue; }
@@ -914,9 +941,10 @@ try {
     await byId(page, "home").waitFor({ timeout: 30_000 });
     await nav(page, "Swap");
     await byId(page, "swap-view").waitFor({ timeout: 30_000 });
-    await fillId(page, "amount-input", (Math.ceil((80_000 / PRICE) * 1e6) / 1e6).toFixed(6)); // rounded up: at least $80,000.00 at the stack's price
+    const amount80 = (Math.ceil((80_000 / PRICE) * 1e6) / 1e6).toFixed(6); // rounded up: at least $80,000.00 at the stack's price
+    await fillId(page, "amount-input", amount80);
     await page.getByText(usdRe(80_000)).first().waitFor({ timeout: 30_000 });
-    await byId(page, "swap-quote").waitFor({ timeout: 180_000 });
+    await waitQuote(page, amount80);
     const page80 = await text(page.locator("main"));
     check("$80,000: no \"Protect this order\" and no protection mode to choose — the protection is automatic (doc §87)", (await byId(page, "protect-this-order").count()) === 0 && !/Protection mode|Max privacy|Max safety|Protect this order/i.test(page80), page80.slice(0, 200));
     await clickId(page, "swap-review");
@@ -934,16 +962,17 @@ try {
     await snap(page, "steps-80k");
     // the runner by itself: the first step funded (a proof), signed and handed over to the executor — its amount is Executing
     // from the funding on (a funded step counts as executing), so the hand-over is read from the relayer's jobs
-    // the live price may move between the approval and a step's hard quote: the steps pause ("Price changed") and a person
-    // accepts with Resume — as the $10M campaign's section does; the run says so when it happens
-    let priceMoves = 0;
+    // the live market may pause the steps between the approval and a step's hard quote — the price moved ("Price changed"),
+    // or the approved provider gave no quote for a moment ("Liquidity dropped", V6 Stage 16's run: Chainflip answered
+    // nothing) — and a person resumes, as the $10M campaign's section does; the run says so each time (at most five)
+    let pauses = 0;
     const firstJob = await until(
       page,
       async () => {
         const resume = byId(page, "swap-steps-resume");
-        if ((await resume.count()) && /Price changed/i.test(await text(page.locator("main")))) {
-          priceMoves++;
-          log(`the live price moved before step 1's hard quote (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
+        if ((await resume.count()) && pauses < 5) {
+          pauses++;
+          log(`the steps paused before step 1's hand-over (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
           await resume.first().click();
           await large80.waitFor({ timeout: 30_000 }).catch(() => {});
         }
@@ -951,9 +980,11 @@ try {
       },
       PROOF_TIMEOUT,
     );
-    if (priceMoves) log(`step 1 went ahead after ${priceMoves} price consent(s)`);
-    const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(await text(large80)) ? await text(large80) : null;
-    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (await text(large80))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? "none"}…`);
+    if (pauses) log(`step 1 ${firstJob ? "went ahead" : "did not go ahead"} after ${pauses} resume(s)`);
+    // a step that never went ahead (a provider down for the whole wait) is this section's failure, not the run's end
+    const progress80 = await text(large80).catch(() => "");
+    const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(progress80) ? progress80 : null;
+    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (progress80 || (await text(page.locator("main")).catch(() => "")))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? "none"}…`);
     if (firstJob) {
       const quarter = Number(BigInt(firstJob.params.amount)) / 1e18;
       check("the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved", Math.abs(quarter * PRICE - 20_000) < 400, `${quarter.toFixed(4)} ETH ≈ $${Math.round(quarter * PRICE)}`);
@@ -964,7 +995,7 @@ try {
     await textAppears(page, "Returning the rest", 30_000);
     await page.waitForTimeout(20_000); // a runner tick or two: nothing more may be handed over
     const jobsAfter = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
-    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === 1, `${jobsAfter} jobs for this order`);
+    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === (firstJob ? 1 : 0), `${jobsAfter} jobs for this order`);
     await snap(page, "steps-80k-returning");
     report.outcome.protectedSteps = { firstJob: firstJob?.id ?? null };
   }

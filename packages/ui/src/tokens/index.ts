@@ -216,6 +216,7 @@ export const TOKENS: DesignTokens = {
 };
 
 const px = (n: number) => `${n}px`;
+const rem = (n: number): string => `${n / 16}rem`;
 const colorLines = (set: Record<ColorName, string>, indent = "  "): string[] => COLOR_NAMES.map((k) => `${indent}--${k}: ${set[k]};`);
 const elevationLines = (set: readonly string[], indent = "  "): string[] => set.map((v, i) => `${indent}--elevation-${i}: ${v};`);
 const block = (selector: string, lines: string[]): string[] => [`${selector} {`, ...lines, "}"];
@@ -234,9 +235,10 @@ export function toCss(): string {
   root.push(`  --font-sans: ${FONT.sans};`, `  --font-mono: ${FONT.mono};`);
   for (const role of TYPE_ROLES) {
     const t = TYPE[role];
+    // V6 Stage 16 (doc §77): the type in rem — the reader's own text size (up to 200 %) scales it; 16 px is 1 rem
     root.push(
-      `  --${role}-size: ${px(t.size)};`,
-      `  --${role}-line: ${px(t.line)};`,
+      `  --${role}-size: ${rem(t.size)};`,
+      `  --${role}-line: ${rem(t.line)};`,
       `  --${role}-weight: ${t.weight};`,
       `  --${role}-tracking: ${t.tracking ?? "normal"};`,
     );

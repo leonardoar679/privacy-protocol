@@ -1,6 +1,6 @@
 // Wallet-wide settings. In memory, mirrored into the encrypted journal while the wallet is unlocked.
 import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
-import { defaultRelayerUrl } from "../relayer";
+import { config } from "../config"; // V6 Stage 16: the configured relayer read here, not through the relayer client (the first route's budget)
 import type { ProtectionMode, Sizing } from "@privacy-wallet/protocol/wallet/campaign";
 import { EXPOSURE_POLICY } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import { AUTO_LOCK_MINUTES, type AutoLockMinutes } from "../session/autoLock";
@@ -73,7 +73,7 @@ export const DEFAULT_PROTECTION: ProtectionSettings = { mode: "balanced", pauseL
 
 /** The defaults, built at the moment of use: the configured relayer is known only after configure() (V6 Stage 3). */
 export const defaultSettings = (): Settings => ({
-  submission: { kind: "relayer", url: defaultRelayerUrl() }, advanced: false, verifyReads: true,
+  submission: { kind: "relayer", url: config().relayer.url }, advanced: false, verifyReads: true,
   tiers: { ...TIER_DEFAULTS }, preference: "balanced", housekeeping: { enabled: true, dailyFeeCapWei: (5n * 10n ** 15n).toString() }, secondFactor: { enabled: false },
   protection: { ...DEFAULT_PROTECTION, notifications: { ...DEFAULT_PROTECTION.notifications }, secondDevice: { ...DEFAULT_PROTECTION.secondDevice } },
 });

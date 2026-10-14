@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { DESKTOP_QUERY, WarningCard, useMediaQuery } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { formatTime, intlLocale } from "../../app/i18n/intl";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { shortRef } from "@privacy-wallet/sdk/format";
 import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
@@ -28,7 +29,7 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
   const [refreshing, setRefreshing] = useState("");
   const wide = useMediaQuery(DESKTOP_QUERY);
   const j = session.isUnlocked() ? session.journal() : null;
-  const groups = groupByDay(buildRows(j, records, advanced, t), t);
+  const groups = groupByDay(buildRows(j, records, advanced, t), t, Date.now(), intlLocale());
   const failed = j ? j.schedule.filter((a) => !a.done && a.error) : [];
   // V6 (spec v2.0 §12.5; doc §73): opening Activity reconciles the open swaps with the API (throttled; the wallet's reads win)
   useEffect(() => {
@@ -54,7 +55,7 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
         t("activity.fundingFailed", {
           ref: shortRef(a.orderId),
           error: a.error ?? "",
-          next: a.nextAttemptAt ? t("activity.nextAttempt", { time: new Date(a.nextAttemptAt).toLocaleTimeString(), n: a.attempts ?? 1 }) : "",
+          next: a.nextAttemptAt ? t("activity.nextAttempt", { time: formatTime(a.nextAttemptAt), n: a.attempts ?? 1 }) : "",
         }),
       )
     : null;

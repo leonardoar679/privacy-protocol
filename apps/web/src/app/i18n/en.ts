@@ -1,5 +1,6 @@
-// The English catalog (spec §3, §19): every user-facing string of the new screens, keyed; the other locales are
-// partial tables over these keys falling back to English. Words the wallet never uses are listed in spec §18.
+// The English catalog (spec §3, §19): every user-facing string of the new screens, keyed. Korean (./ko.ts) has every
+// key (V6 Stage 16); the Chinese and Japanese tables (./catalogs.ts) are partial and fall back to English key by key.
+// Words the wallet never uses are listed in spec §18.
 export const en = {
   "app.name": "Privacy Wallet",
   "nav.home": "Home",
@@ -1346,6 +1347,23 @@ export const en = {
   "classic.relayers.unknown": "Unknown",
   "classic.relayers.chosen": "Chosen",
   "classic.relayers.change": "Change",
+  // V6 Stage 16: the language picker, the hold's alternative, the desktop Home's columns
+  "route.language": "Language",
+  "more.languageWhy": "The wallet's language",
+  "language.auto": "Automatic",
+  "language.autoWhy": "Your device's language when the wallet has it; English otherwise.",
+  "common.confirmWithoutHolding": "Confirm without holding",
+  "common.confirmDialogTitle": "Confirm without holding?",
+  "common.confirmDialogBody": "This does the same as holding the button.",
+  "home.assetsTitle": "Protected assets",
+  "home.recentActivity": "Recent activity",
+  "activity.showMore": "Show earlier activity ({n} more)",
+  // the wallet's limits (packages/protocol/src/wallet/privacyCenter.ts LIMITS, stated the same way: a test pins them)
+  "privacyCenter.limit.deposit": "Adding funds is public by design: the deposit shows your address and its amount; privacy starts with what happens after it.",
+  "privacyCenter.limit.ip": "Your IP address is visible to the RPC endpoints and to the relayer; a native app with Tor or a light client is the upgrade.",
+  "privacyCenter.limit.provider": "A swap provider sees the one-time deposit address, the destination and the amount, and some publish that link; your private source stays protected, but timing and amount can be correlated by a patient observer.",
+  "privacyCenter.limit.pool": "The pool is the crowd you hide in: with few notes, or an unusual amount, the effective set is small and the numbers here say so.",
+  "privacyCenter.limit.trace": "Every action here leaves some public trace by construction. Every score is a bound from the privacy lab, not a guarantee.",
 } as const;
 
 export type MessageKey = keyof typeof en;

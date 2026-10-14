@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { Card, Collapsible, Page, ProtectionBadge, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { MessageKey } from "../../app/i18n/en";
+import { en, type MessageKey } from "../../app/i18n/en";
 
 export type CenterLevel = "high" | "medium" | "low";
 export type SectionId = "protection" | "wallet" | "network" | "transaction" | "stored" | "sent" | "advanced";
@@ -45,6 +45,16 @@ export interface PrivacyCenterModel {
 }
 
 const BADGE: Record<CenterLevel, "High" | "Reduced"> = { high: "High", medium: "Reduced", low: "Reduced" };
+/** V6 Stage 16: the posture states its limits in English (the protocol's LIMITS); the catalog says each in the reader's
+ *  language — found by its English words, so a limit the catalog does not know shows as it came. */
+export const LIMIT_KEYS: readonly MessageKey[] = [
+  "privacyCenter.limit.deposit",
+  "privacyCenter.limit.ip",
+  "privacyCenter.limit.provider",
+  "privacyCenter.limit.pool",
+  "privacyCenter.limit.trace",
+];
+const limitKey = (sentence: string): MessageKey | undefined => LIMIT_KEYS.find((k) => en[k] === sentence);
 const INDICATOR: Record<CenterLevel, MessageKey> = {
   high: "screen.swap.protectionHigh",
   medium: "screen.swap.protectionMedium",
@@ -171,9 +181,10 @@ export function PrivacyCenterView({
         <Card testId="privacy-limits-card">
           <h2 className="ds-card-title">{t("privacyCenter.limitsTitle")}</h2>
           <ul className="ds-plain-list ds-note" data-testid="privacy-limits">
-            {m.limits.map((l, i) => (
-              <li key={i}>{l}</li>
-            ))}
+            {m.limits.map((l, i) => {
+              const k = limitKey(l);
+              return <li key={i}>{k ? t(k) : l}</li>;
+            })}
           </ul>
         </Card>
       </div>

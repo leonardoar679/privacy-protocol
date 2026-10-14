@@ -19,6 +19,8 @@ export const MORE_ENTRIES: readonly MoreEntry[] = [
   { to: "/more/privacy", title: "route.privacy", subtitle: "more.privacyWhy", icon: "shield", id: "privacy" },
   { to: "/more/security", title: "route.security", subtitle: "more.securityWhy", icon: "lock", id: "security" },
   { to: "/more/wallet", title: "route.wallet", subtitle: "more.walletWhy", icon: "wallet", id: "wallet" },
+  // V6 Stage 16 (spec v2.0 §18): the language picker
+  { to: "/more/language", title: "route.language", subtitle: "more.languageWhy", icon: "globe", id: "language" },
   { to: "/more/classic", title: "route.classic", subtitle: "more.classicWhy", icon: "recovery", id: "classic" },
   { to: "/more/ai", title: "route.ai", subtitle: "more.aiWhy", icon: "globe", id: "ai" },
   { to: "/more/advanced", title: "route.advanced", subtitle: "more.advancedWhy", icon: "gear", id: "advanced", advancedOnly: true },

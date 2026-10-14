@@ -9,6 +9,7 @@ import { unacknowledgedBlocks, type LintItem } from "@privacy-wallet/protocol/wa
 import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
+import { formatCount } from "../../app/i18n/intl";
 import { formatAmount, isBucketFor, type Asset } from "@privacy-wallet/sdk/assets";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import type { Policy, Preference, Protection, ProviderRiskView, QuoteSet, RouteScore, ServiceQuote, ServiceOrder, AssetRef } from "@privacy-wallet/sdk/swapService";
@@ -98,7 +99,7 @@ export function executeLines(t: T, s: Signed, stored: StoredSwap | null, to: Ass
   const quote = (stored?.quote ?? {}) as { impactBps?: number };
   return [
     { id: "price", label: t("swap.lines.price"), ok: s.call.minOut !== null && s.call.minOut >= approved, meaning: s.call.minOut !== null ? t("swap.lines.priceExecute", { amount: `${fmt(s.call.minOut.toString(), dec)} ${sym}` }) : t("swap.lines.priceUnreadable") },
-    { id: "route", label: t("swap.lines.route"), ok: s.sim.ok, meaning: s.sim.ok ? t("swap.lines.routeSimulated", { n: s.sim.endpoints, plural: s.sim.endpoints === 1 ? "" : "s", gas: Number(s.sim.gas).toLocaleString() }) : s.sim.reason },
+    { id: "route", label: t("swap.lines.route"), ok: s.sim.ok, meaning: s.sim.ok ? t("swap.lines.routeSimulated", { n: s.sim.endpoints, plural: s.sim.endpoints === 1 ? "" : "s", gas: formatCount(Number(s.sim.gas)) }) : s.sim.reason },
     { id: "destination", label: t("swap.lines.destination"), ok: true, meaning: t("swap.lines.destinationFromCalldata", { address: `${dest.slice(0, 10)}…` }) },
     { id: "slippage", label: t("swap.lines.slippage"), ok: quote.impactBps === undefined || quote.impactBps <= IMPACT_CAP_BPS, meaning: quote.impactBps === undefined ? t("swap.lines.slippageMinimumBounds") : t("swap.lines.slippageImpact", { bps: quote.impactBps, cap: IMPACT_CAP_BPS }) },
     privacyLine(t, signLint),

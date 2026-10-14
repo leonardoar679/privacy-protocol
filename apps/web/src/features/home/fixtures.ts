@@ -1,6 +1,8 @@
 // Home's states for the screenshot fixtures (spec v2.0 §7.1, §19): connected with nothing protected; has assets (the
 // spec's own figures); an operation executing; action needed with the funds safe; action needed while the wallet is
-// still checking on the funds; the Advanced experience's lines. Static data only.
+// still checking on the funds; the Advanced experience's lines. Static data only; the words are the catalog's, read
+// when the screen renders (V6 Stage 16: in its locale).
+import { t } from "../../app/i18n/messages";
 import type { Amount } from "../viewKit";
 import type { HomeModel } from "./View";
 
@@ -20,8 +22,24 @@ const funded: HomeModel = {
   operations: [],
   recent: [
     { id: "r1", title: "USDC → ETH", amount: USDC(8_200_000_000n), usdCents: 820_000n, status: "completed" },
-    { id: "r2", title: "Private Send", amount: USDC(1_200_000_000n), usdCents: 120_000n, status: "completed" },
-    { id: "r3", title: "Protected USDC", amount: USDC(5_000_000_000n), usdCents: 500_000n, status: "completed" },
+    {
+      id: "r2",
+      get title() {
+        return t("operation.title.send");
+      },
+      amount: USDC(1_200_000_000n),
+      usdCents: 120_000n,
+      status: "completed",
+    },
+    {
+      id: "r3",
+      get title() {
+        return t("operation.title.protected", { asset: "USDC" });
+      },
+      amount: USDC(5_000_000_000n),
+      usdCents: 500_000n,
+      status: "completed",
+    },
   ],
   returning: null,
   advanced: null,
@@ -41,7 +59,9 @@ export const HOME_FIXTURES = {
   executing: {
     ...funded,
     operations: [{ id: "op-1", title: "ETH → BTC", amount: ETH(3_550_000_000_000_000_000n), usdCents: 1_240_000n, status: "executing", fundsSafe: true }],
-    returning: "Your ETH → BTC swap is still executing.",
+    get returning() {
+      return t("home.stillExecuting", { title: "ETH → BTC" });
+    },
   } satisfies HomeModel,
   "action-needed": {
     ...funded,
