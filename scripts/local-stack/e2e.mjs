@@ -1003,12 +1003,14 @@ try {
     await snap(page, "steps-80k-executing");
     // Return the rest: the steps not started are skipped; the one in flight finishes first (THORChain never settles here).
     // "Nothing more" is counted from the jobs there are when Return is pressed (a step may land just as the wait ends)
-    const jobsAtReturn = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
+    // a hand-over is a job with an execution: a step funded and never handed over returns through a refund-only job
+    const handOvers = async () => (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && !!j.execution).length;
+    const jobsAtReturn = await handOvers();
     await clickId(page, "swap-steps-return");
     await textAppears(page, "Returning the rest", 30_000);
     await page.waitForTimeout(20_000); // a runner tick or two: nothing more may be handed over
-    const jobsAfter = (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0).length;
-    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === jobsAtReturn && jobsAfter <= 1, `${jobsAfter} jobs for this order (${jobsAtReturn} when Return was pressed)`);
+    const jobsAfter = await handOvers();
+    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === jobsAtReturn && jobsAfter <= 1, `${jobsAfter} hand-overs for this order (${jobsAtReturn} when Return was pressed)`);
     await snap(page, "steps-80k-returning");
     report.outcome.protectedSteps = { firstJob: firstJob?.id ?? null };
   }

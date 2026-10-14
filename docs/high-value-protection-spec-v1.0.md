@@ -115,7 +115,7 @@ ExecutionBounds {
   `min(quote.expiresAt, executeDeadline)` (V2 §14); a tranche past it is not handed over.
 - **No unlimited approvals** (plan §33): see §13.
 
-*Implemented (Stage 1):* the types and `checkWithinBounds` in `packages/protocol/src/wallet/campaign.ts` (`test/campaign.test.ts`). *Implemented (Stage 3):* `executeWindowSeconds` — `QuoteHint.executeWindowSeconds` on `/quote` and `/order`, clamped by `executeWindowFor(policy, window)` into `[EXECUTE_WINDOW_MIN_SECONDS (600), the policy's delay budget]` and written into `executeDeadline` (so `refundAfter` follows) by `buildOrder` (`packages/swap-engine/src/engine.ts`, `test/risk.test.ts`). *Stage 4* (the wallet).
+*Implemented (Stage 1):* the types and `checkWithinBounds` in `packages/protocol/src/wallet/campaign.ts` (`test/campaign.test.ts`). *Implemented (Stage 3):* `executeWindowSeconds` — `QuoteHint.executeWindowSeconds` on `/quote` and `/order`, clamped by `executeWindowFor(policy, window)` into `[EXECUTE_WINDOW_MIN_SECONDS (600), the policy's delay budget]` and written into `executeDeadline` (so `refundAfter` follows) by `buildOrder` (`packages/swap-engine/src/engine.ts`, `test/risk.test.ts`). *Stage 4* (the wallet). *V6 follow-up (2026-10-14):* the runner signs a step at this price bound — `amount × minimumOutput`, handed to the call check as its `acceptMin` (`packages/sdk/src/wallet/campaignRunner.ts`). Before, each step was held to its own quote at commit, stricter than this section: a 0.04 % dip paused it again at every Resume (the local stack's quick pass of that day, five in a row). `apps/web/test/campaign-runner.test.tsx`: a 0.1 % dip is signed, a quote below the bound pauses.
 
 ## 4. Tranche sizing and cadence (plan V3 §3–§4, §15–§17, §27–§29, §52–§53)
 

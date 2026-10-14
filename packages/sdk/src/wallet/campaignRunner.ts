@@ -45,7 +45,8 @@ export interface CampaignIo {
   /** the private withdrawal into the tranche's escrow; `onStatus` lines say when the submission starts (the reconcile boundary) */
   fund(stored: StoredSwap, onStatus: (line: string) => void): Promise<{ txHash: string }>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
-  sign(stored: StoredSwap): Promise<Signed | { moved: MinimumMoved }>;
+  /** `acceptMin`: the least the step's call may guarantee — the campaign's price bound for it (V3 §3), not its own quote at commit */
+  sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: MinimumMoved }>;
   handOver(stored: StoredSwap, signed: Signed): Promise<{ job?: SwapJob }>;
   /** the executor's job for this order, if it has one (keyed by orderId) */
   job(stored: StoredSwap): Promise<SwapJob | null>;
@@ -139,7 +140,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
       return escrowBalance(d.deployment, stored.endpoint as `0x${string}`, token && token !== "native" ? (token as `0x${string}`) : null).catch(() => null);
     },
-    sign: async (stored) => prepareAndSign({ masterSeed: d.masterSeed, deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), submission: d.submission, onStatus: (l) => schedulerStatus.progress(l) }),
+    sign: async (stored, acceptMin) => prepareAndSign({ masterSeed: d.masterSeed, deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), submission: d.submission, ...(acceptMin !== undefined ? { acceptMin } : {}), onStatus: (l) => schedulerStatus.progress(l) }),
     handOver: async (stored, signed) => handOverSigned({ deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), signed, submission: d.submission }),
     job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
     track: (stored, stall) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session, stall }),
@@ -412,7 +413,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (!leftRefund) {
           schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
           try {
-            const r = await io.sign(stored);
+            // V3 §3, the price bound: a step's call must guarantee amount × minimumOutput — the confirmation's minimum per
+            // unit less the 50 bps slippage the user approved — not its own quote at commit, which a 0.04 % dip undercut
+            // and paused again at every Resume (the 2026-10-14 quick pass: five in a row)
+            const r = await io.sign(stored, (BigInt(t.amount) * BigInt(c.bounds.minimumOutput)) / RATE_SCALE);
             if ("moved" in r) {
               // a lower minimum is a campaign-level decision, never a per-tranche tap (§3)
               if (leftBehind) leftRefund = "its own route now guarantees less than you approved";

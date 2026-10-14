@@ -12,7 +12,7 @@ A mobile-first wallet for the shielded pool, rebuilt in V6 to the owner's comple
   do; the leakage gates read every request to prove it.
 
 > **Status (2026-10-14): builds ✅.**
-> - 522 vitest, plus 9 in the leakage gate and 6 live.
+> - 523 vitest, plus 9 in the leakage gate and 6 live.
 > - The screenshot harness: 189 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
 >   accessibility checks.
 > - The performance budget: the first route 185.6 KB gzipped of 250, Home 33.1 KB more of 80.
@@ -48,7 +48,7 @@ src/
 scripts/           csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs · check-dist.mjs ·
                    copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
 public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored)
-test/              522 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
+test/              523 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
 ```
 
 ## What the wallet does (spec v2.0 §7)
@@ -115,7 +115,7 @@ npm ci                       # at the repository root (one lockfile for every wo
 cd apps/web
 npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
 npm run build                # dist/ with the policy in index.html; npm run preview sends the headers
-npm test                     # 522 tests; npm run lint
+npm test                     # 523 tests; npm run lint
 (cd ../api && npm start)     # the API the Swap screen talks to: http://127.0.0.1:8787/v1
 (cd ../relayer && npm run serve)   # private submission and the executors: http://127.0.0.1:8790
 ```

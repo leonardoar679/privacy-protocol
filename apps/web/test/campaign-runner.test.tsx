@@ -60,6 +60,10 @@ class World implements CampaignIo {
   /** the settlement read fails (the service or the network is down) */
   trackThrows = false;
   moved = false;
+  /** what a fresh hard quote guarantees at signing, when the market moved since the step's commit */
+  minOutAtSign: bigint | null = null;
+  /** the least each signing was told to accept */
+  acceptMins: (bigint | undefined)[] = [];
   /** the API's price guard refuses the hard quote (another route beats it by more than the band) */
   guardRefuses = false;
   breakerOpen = false;
@@ -100,9 +104,14 @@ class World implements CampaignIo {
     return { txHash: "0x" + "33".repeat(32) };
   }
   async escrowBalance(stored: StoredSwap) { this.calls.push(`balance:${stored.campaign!.index}`); return this.escrow.get(stored.orderId) ?? 0n; }
-  async sign(stored: StoredSwap): Promise<Signed | { moved: any }> {
+  async sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: any }> {
     this.calls.push(`sign:${stored.campaign!.index}`);
+    this.acceptMins.push(acceptMin);
     if (this.moved) return { moved: { minOut: 1n, approved: 2n } };
+    if (this.minOutAtSign !== null) {
+      const floor = acceptMin ?? BigInt(stored.approvedMin ?? "0");
+      if (this.minOutAtSign < floor) return { moved: { minOut: this.minOutAtSign, approved: floor } };
+    }
     if (this.guardRefuses) throw new Error("price_guard: this route is 80 bps below the best alternative");
     const q = stored.quote as ServiceQuote;
     return { prepared: { digest: "0x" + "44".repeat(32), provider: "0x00000000000000000000000000000000000000ad", value: (stored.params as { amount: string }).amount, calldata: "0x", deadline: q.expiresAt } as Signed["prepared"], params: stored.params as Signed["params"], call: { minOut: BigInt(q.toAmountMin), refundTo: "escrow", provider: "thorchain", facts: [] } as unknown as Signed["call"], signature: ("0x" + "55".repeat(65)) as `0x${string}`, sim: { ok: true, gas: 210_000n, endpoints: 1, preview: false }, label: "valid until later" };
@@ -537,6 +546,27 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
       expect(exposure(current(x)).remaining, why).toBe(eth(2500));
     }
     world.chosen = "thorchain";
+  });
+
+  it("V3 §3: a step is held to the campaign's price bound (amount × minimumOutput), not its own quote at commit — a 0.1 % dip is signed, one below the bound pauses", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; await tick(c); clock += 2000; // committed and funded
+    const t = current(c).tranches[0];
+    const stored = session.journal().swaps.find((x) => x.orderId === t.orderId)!;
+    const bound = (BigInt(t.amount) * BigInt(current(c).bounds.minimumOutput)) / 10n ** 18n;
+    world.minOutAtSign = (BigInt(stored.approvedMin!) * 999n) / 1000n; // the market dipped 0.1 % since the step's commit
+    expect(world.minOutAtSign >= bound, "within the 50 bps the user approved").toBe(true);
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
+    expect(current(c).tranches[0].state, "signed: no pause for a dip inside the bound").toBe("signed");
+    expect(world.acceptMins.at(-1)).toBe(bound);
+    const d = await fresh();
+    await tick(d); clock += 2000; await tick(d); clock += 2000;
+    world.minOutAtSign = bound - 1n; // below what the user approved
+    r = await tick(d);
+    expect(r?.action.kind).toBe("sign");
+    expect(current(d)).toMatchObject({ state: "paused", pause: { reason: "price-deviation" } });
+    world.minOutAtSign = null;
   });
 
   it("cancel returns a funded tranche through a refund-only job, skips the rest, and ends when the refund is back; the tick survives a lock", async () => {
