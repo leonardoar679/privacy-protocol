@@ -1,0 +1,1774 @@
+{
+  "startedAt": "2026-10-14T13:25:05.723Z",
+  "stack": {
+    "rpc": "http://127.0.0.1:8546",
+    "core": "0x942ed2fa862887dc698682cc6a86355324f0f01e",
+    "swapFactory": "0xcc4c41415fc68b2fbf70102742a83cde435e0ca7"
+  },
+  "steps": [
+    "13:25:06 browser 155.0.8059.41 (chrome, headless)",
+    "13:25:06 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:25:06 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:25:06 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:25:06 welcome shown",
+    "13:25:06 PASS the welcome says the plan's words",
+    "13:25:06 PASS the recovery phrase has 24 words",
+    "13:25:07 PASS Home shows $0 before any balance (spec v2.0 §7.1)",
+    "13:25:08 PASS auto-lock: 15 minutes by default (1 / 5 / 15 / 60 under Security)",
+    "13:25:08 PASS first launch: no request left the page's origin (creating a wallet, every route and screen) — 341 same-origin loads",
+    "13:25:08 PASS More → Advanced: the light client is off and says so",
+    "13:25:08 PASS V6 Stage 10 (doc §71): nothing about the deployment is read before the first operation — The deployment is checked before your first operation, and what it reads is remembered.",
+    "13:25:39 PASS More → Wallet: the funding wallet is connected through its own provider",
+    "13:25:43 deposit 1: 500 ETH protected (vault 27661.08754892625 ETH)",
+    "13:25:47 deposit 2: 500 ETH protected (vault 28156.087548926254 ETH)",
+    "13:25:47 PASS the ETH vault received the two deposits net of the privacy fee (V6: 2 × 495 ETH) — 27166.087548926254 → 28156.087548926254 ETH",
+    "13:25:47 PASS V6 (spec v2.0 §3, §11.1): ProtectRouter paid exactly 1 % of each protect to the fee recipient (2 × 5 ETH) — 100490 → 100500 ETH",
+    "13:25:47 PASS Home values the protected balance through the RPC quorum: ≈ $4,207,500",
+    "13:25:47 PASS the deployment was checked before the first operation and its fingerprint remembered (Advanced shows it with the way to forget it) — Checked before the first operation; the fingerprint this wallet remembers: 0x3a806715…36e41cForget the remembered deployment",
+    "13:25:48 PASS Protect 5,000 USDC (spec v2.0 §7.3): You receive 4,950 USDC, Privacy fee 50 USDC, the relayer/network in dollars from the wallet's own estimate — You receive4,950 USDC | Privacy fee1% of the amount50 USDC | Relayer/network≈ $7.33",
+    "13:25:49 PASS the Protect Review below $50K is a tap (spec v2.0 §7.6)",
+    "13:25:49 PASS the progress ends on what was added: 4,950 USDC — Added 4,950 USDC to your protected balance.DoneProtect more",
+    "13:25:49 PASS the USDC vault received exactly 4,950 USDC — 4950000000 base units",
+    "13:25:49 PASS ProtectRouter paid exactly 50 USDC (1 %) to the fee recipient — 50000000 base units",
+    "13:25:49 PASS Send 2,500 USDC (spec v2.0 §7.4): Recipient receives 2,470.90 USDC — the largest line —, Privacy fee 25.00, Relayer ≈ 4.10 — 2470.9 | Privacy fee1% of the amount25 USDC | Relayer≈ 4.10 USDC",
+    "13:25:58 PASS the fresh recipient received exactly 2,470.90 USDC from the vault, submitted by the relayer — 0xE9095898b7E04ccbDC0591c086157b62dF9b40B2: 2470900000 base units",
+    "13:25:58 PASS exact-input by default (spec §10): the recipient receives what you send minus the privacy fee and the relayer's — 0.195624 ETH of 0.2",
+    "13:25:58 PASS a $850 send is the plain flow (a Review with a tap, no lint block, no hold)",
+    "13:26:03 PASS V6 (spec v2.0 §7.6): below $100K the V6 Review",
+    "13:26:06 PASS the fresh recipient received the page's \"Recipient receives\" (to its six shown decimals) from the vault, submitted by the relayer — 0xC8Ad09BcF2c43f723d11AA29DbE3DEcAe6733896: 0.195623999980992 ETH (shown 0.195624)",
+    "13:26:06 PASS the address book offers the next fresh address — 0xcB548e2cB04aa0B4fb284343d5b5a646E0a1A605",
+    "13:26:11 PASS from $100K the V2–V4 Review stays (spec v2.0 §2)",
+    "13:26:11 PASS the enhanced Review shows the USD numeral — $119,000",
+    "13:26:11 PASS the enhanced Review carries the privacy lint",
+    "13:26:11 PASS V5 (spec §11): from $50K the confirmation is a hold, never a tap",
+    "13:26:16 PASS the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals) — 0xcB548e2cB04aa0B4fb284343d5b5a646E0a1A605: 27.71762399998099 ETH (shown 27.717624)",
+    "13:26:16 PASS the destination is a fresh Bitcoin address of this wallet — bc1q9atelhhsq2cup6y393vhfzyh39pwfushpk073f",
+    "13:26:21 the quote: Best protected routeMedium protectionPrivacy fee$8,500.00Relayer/network$20.55Swap/provider$0.00Estimated time13–15 minThis quote is valid for 599 s.",
+    "13:26:21 PASS the quote: the best protected route, the privacy, relayer and provider fees, the time (spec v2.0 §7.5) — Best protected routeMedium protectionPrivacy fee$8,500.00Relayer/network$20.55Swap/provider$0.00Estimated time13–15 minThis quote is valid for 599 s.",
+    "13:26:21 PASS cross-chain: \"You'll receive at least\" leads",
+    "13:26:21 PASS the quote says how long it stays valid — This quote is valid for 599 s.",
+    "13:26:21 PASS the quotes carried no destination (the engine quotes a placeholder; spec v2.0 §13.2) — 1 quote requests",
+    "13:26:21 PASS the quoted Swap fits the phone: no horizontal scroll — 430 px wide on a 430 px screen",
+    "13:26:21 PASS from $100K the Review is the V2–V4 commit moment",
+    "13:26:21 PASS the Review shows $850,000 — $850,000",
+    "13:26:21 PASS the five lines are there — Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromProtected ETHToNetworkBitcoinAssetBTCAddressbc1q 9ate lhhs q2cu p6y3 93vh fzyh 39pw fush pk07 3fA fresh address of this wallet, used once.Receive at leas",
+    "13:26:21 acknowledged 0 items inside the Review",
+    "13:26:21 PASS the $850K confirmation is a hold (from $50K), never a tap",
+    "13:26:25 PASS ONE confirmation: the order is committed and its progress shown (no Fund now, no second Confirm) — progress/swap:0x28c4be8a1c67fba1576709f1459b268f455cab32db3fe94fc03f116d5e258ec1",
+    "13:26:25 committed: the order runner funds it now",
+    "13:26:37 http 404 GET /swap/0x28c4be8a1c67fba1576709f1459b268f455cab32db3fe94fc03f116d5e258ec1",
+    "13:26:37 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:26:41 http 404 GET /swap/0x28c4be8a1c67fba1576709f1459b268f455cab32db3fe94fc03f116d5e258ec1",
+    "13:26:41 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:27:03 PASS the executor's deployAndExecute is mined on the devnet — 0x1eebfdbc3cb31118a5b5810c7339adfe753b77d530e5328de275d55f75018f56 in block 817 (3 logs)",
+    "13:27:03 PASS the one-time escrow is empty after the execution — 0x1807f46d57df7bb6c01c685178db8bffca0297e9: 0 ETH",
+    "13:27:03 PASS funded and handed over once (one job for this order)",
+    "13:27:03 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:27:03 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:27:03 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:27:04 PASS after a reload and unlock the order and its progress come back from the journal — ProtectedHomeYour ETH → BTC swap is still executing.$3,240,100.00Protected balanceETHETHEthereum761.8 ETH$3,237,650.00USUSDCUSD Coin2,450 USDC$2,450.00Executing",
+    "13:27:04 PASS the reload funds nothing again — 0 withdrawal submissions after the reload",
+    "13:27:04 PASS Activity lists every money flow (two deposits, two sends, one swap) — 7 rows",
+    "13:27:04 PASS the swap row never says a bare failed — ActivityTodayETH → BTC$841,489.90ExecutingPrivate Send28 ETHCompletedPrivate Send0.2 ETHCompletedPrivate Send2,500 USDCCompletedProtected USDC5,000 USDCCompletedProtected ETH500 ETHCompletedProtected ETH500 ETHCompleted",
+    "13:27:05 PASS a same-chain target lands in the protected balance: no destination to type (spec v2.0 §7.5) — You receive—ETHETHYour protected balance",
+    "13:27:08 the protected quote: Best protected routeMedium protectionMinimum receive3.151727 ETHFees$109.49Estimated time2–4 minThis quote is valid for 889 s. | You receive≈ 3.167583ETHETHYour protected balance",
+    "13:27:08 PASS the quote: You receive ≈ ETH, Minimum receive, Fees in dollars — Best protected routeMedium protectionMinimum receive3.151727 ETHFees$109.49Estimated time2–4 minThis quote is valid for 889 s.",
+    "13:27:08 PASS the quotes ask for a protected destination and carry no address (spec v2.0 §12) — 1 quote requests",
+    "13:27:09 PASS the Review: destination Your protected balance, a tap below $50K — ReviewYou pay$8,000.008,000 USDCYou receive≈ 3.167583 ETHMinimum3.151727 ETHDestinationYour protected balance ✓ProtectionMedium protectionFeesPrivacy fee$80.00Relayer/network$29.49Swap/provider$0.00Total fees$109.49ConfirmEdit",
+    "13:27:10 PASS ONE confirmation: committed, and its progress says where it arrives — into",
+    "13:27:10 PASS the commit names the one-time shield receiver as the destination — 0xd7330DcB65E90dD5253e8f1D1645F8cef51C04E9",
+    "13:27:18 http 404 GET /swap/0x463cfa26c05a2b0de1c2d7d208b2f648d7a836f0d9a9110f584881290a801863",
+    "13:27:18 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:27:41 the price moved before signing: accepted, as a user would",
+    "13:27:44 http 404 GET /swap/0x463cfa26c05a2b0de1c2d7d208b2f648d7a836f0d9a9110f584881290a801863",
+    "13:27:44 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:27:45 http 404 GET /swap/0x463cfa26c05a2b0de1c2d7d208b2f648d7a836f0d9a9110f584881290a801863",
+    "13:27:45 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:27:53 PASS the relayer watches the receiver from the hand-over (POST /shield before the execution) — 0x5324cb72efe98d46… waiting-delivery, tip 3420000054720000 wei, minAmount 342000005472000000",
+    "13:27:53 PASS the executor's deployAndExecute of the USDC order is mined (the router deposit, the memo naming the receiver) — 0xbc03d59700731d7013102dd5fcfae94c519b1a6c6124baa20d0a918669568f97",
+    "13:27:53 PASS THORChain's router paid the receiver with its 2300-gas send (before the receiver exists) — 3.15514700005472 ETH; the receiver holds 3.15514700005472",
+    "13:28:03 PASS the relayer deployed the receiver and shielded the delivery: the tip once, the rest as the committed note — leaf 948, 3.151727 ETH, tip 3420000054720000 wei, gas 2686798",
+    "13:28:03 PASS the receiver is deployed and holds nothing — 5323 bytes, 0 wei left",
+    "13:28:03 PASS the ETH vault received the delivery less the tip — 3.151727000000392 ETH",
+    "13:28:05 PASS the wallet found the note: the progress ends on \"Added to your protected balance\" with the amount — Added to your protected balance: 3.151727 ETH.DoneSwap again",
+    "13:28:10 PASS $80,000: no \"Protect this order\" and no protection mode to choose — the protection is automatic (doc §87) — SwapYou payETHETH≈ $80,000Balance 764.951727 ETHMaxYou'll receive at least0.554694BTCBTCBitcointhe route must be confirmed by two live quotes or acknowledged, the price guard tightens, and the review ",
+    "13:28:10 PASS the $80K Review is the V6 one: Protected execution with its four checks (doc §49) — ReviewYou pay$80,000.0018.82353 ETHYou receive≈ 0.557474 BTCMinimum0.554694 BTCDestinationA fresh address of this wallet ✓ProtectionMedium protectionFeesPrivacy fee$800.00Relayer/network$82.21Swap/provider$0.00Total fees$882.21Protected executionBecause this is a large transaction, we added addition",
+    "13:28:10 PASS from $50K: Hold to Confirm, never a tap",
+    "13:28:14 PASS ONE confirmation starts the protected steps; the progress shows amounts only: $80,000 ETH → BTC, Completed / Executing / Remaining — In progress$80,000.00 ETH → BTCProtected executionCompleted$0.00Executing$0.00Remaining$80,000.00Preparing your protected transaction…Checking balanceCalculating feesSecuring your transactionWaiting for confirmationYour ",
+    "13:28:41 http 404 GET /swap/0x14ed17da33ac687cdb53d71321240f64983f2a54125ca01d017021cb7ba8506b",
+    "13:28:41 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:28:44 http 404 GET /swap/0x14ed17da33ac687cdb53d71321240f64983f2a54125ca01d017021cb7ba8506b",
+    "13:28:44 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:28:44 http 404 GET /swap/0x14ed17da33ac687cdb53d71321240f64983f2a54125ca01d017021cb7ba8506b",
+    "13:28:44 console error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "13:28:47 PASS the first step was funded, signed and handed over with no second tap; its amount is Executing — $80,000.00 ETH → BTCProtected executionCompleted$0.00Executing$20,000.00Remaining$60,000.00 | job 0x14ed17da33ac687c…",
+    "13:28:47 PASS the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved — 4.6564 ETH ≈ $19790",
+    "13:29:07 PASS Return the rest: nothing more is handed over (the step in flight finishes first) — 1 jobs for this order (1 when Return was pressed)",
+    "13:29:07 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:07 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:07 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:08 PASS 360x800 home: no horizontal scroll — 360 ≤ 360",
+    "13:29:08 PASS 360x800 home: the controls are 44 px tall",
+    "13:29:08 PASS 360x800 protect: no horizontal scroll — 360 ≤ 360",
+    "13:29:08 PASS 360x800 protect: the controls are 44 px tall",
+    "13:29:08 PASS 360x800 send: no horizontal scroll — 360 ≤ 360",
+    "13:29:08 PASS 360x800 send: the controls are 44 px tall",
+    "13:29:09 PASS 360x800 swap: no horizontal scroll — 360 ≤ 360",
+    "13:29:09 PASS 360x800 swap: the controls are 44 px tall",
+    "13:29:09 PASS 360x800 activity: no horizontal scroll — 360 ≤ 360",
+    "13:29:09 PASS 360x800 activity: the controls are 44 px tall",
+    "13:29:09 PASS 360x800 more: no horizontal scroll — 360 ≤ 360",
+    "13:29:09 PASS 360x800 more: the controls are 44 px tall",
+    "13:29:10 PASS 360x800 privacy-center: no horizontal scroll — 360 ≤ 360",
+    "13:29:10 PASS 360x800 privacy-center: the controls are 44 px tall",
+    "13:29:10 PASS 360x800 security: no horizontal scroll — 360 ≤ 360",
+    "13:29:10 PASS 360x800 security: the controls are 44 px tall",
+    "13:29:10 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:10 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:10 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:11 PASS 390x844 home: no horizontal scroll — 390 ≤ 390",
+    "13:29:11 PASS 390x844 home: the controls are 44 px tall",
+    "13:29:11 PASS 390x844 protect: no horizontal scroll — 390 ≤ 390",
+    "13:29:11 PASS 390x844 protect: the controls are 44 px tall",
+    "13:29:12 PASS 390x844 send: no horizontal scroll — 390 ≤ 390",
+    "13:29:12 PASS 390x844 send: the controls are 44 px tall",
+    "13:29:12 PASS 390x844 swap: no horizontal scroll — 390 ≤ 390",
+    "13:29:12 PASS 390x844 swap: the controls are 44 px tall",
+    "13:29:13 PASS 390x844 activity: no horizontal scroll — 390 ≤ 390",
+    "13:29:13 PASS 390x844 activity: the controls are 44 px tall",
+    "13:29:13 PASS 390x844 more: no horizontal scroll — 390 ≤ 390",
+    "13:29:13 PASS 390x844 more: the controls are 44 px tall",
+    "13:29:13 PASS 390x844 privacy-center: no horizontal scroll — 390 ≤ 390",
+    "13:29:13 PASS 390x844 privacy-center: the controls are 44 px tall",
+    "13:29:14 PASS 390x844 security: no horizontal scroll — 390 ≤ 390",
+    "13:29:14 PASS 390x844 security: the controls are 44 px tall",
+    "13:29:14 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:14 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:14 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:14 PASS 412x915 home: no horizontal scroll — 412 ≤ 412",
+    "13:29:14 PASS 412x915 home: the controls are 44 px tall",
+    "13:29:15 PASS 412x915 protect: no horizontal scroll — 412 ≤ 412",
+    "13:29:15 PASS 412x915 protect: the controls are 44 px tall",
+    "13:29:15 PASS 412x915 send: no horizontal scroll — 412 ≤ 412",
+    "13:29:15 PASS 412x915 send: the controls are 44 px tall",
+    "13:29:16 PASS 412x915 swap: no horizontal scroll — 412 ≤ 412",
+    "13:29:16 PASS 412x915 swap: the controls are 44 px tall",
+    "13:29:16 PASS 412x915 activity: no horizontal scroll — 412 ≤ 412",
+    "13:29:16 PASS 412x915 activity: the controls are 44 px tall",
+    "13:29:16 PASS 412x915 more: no horizontal scroll — 412 ≤ 412",
+    "13:29:16 PASS 412x915 more: the controls are 44 px tall",
+    "13:29:17 PASS 412x915 privacy-center: no horizontal scroll — 412 ≤ 412",
+    "13:29:17 PASS 412x915 privacy-center: the controls are 44 px tall",
+    "13:29:17 PASS 412x915 security: no horizontal scroll — 412 ≤ 412",
+    "13:29:17 PASS 412x915 security: the controls are 44 px tall",
+    "13:29:17 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:17 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:17 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:18 PASS 768x1024 home: no horizontal scroll — 768 ≤ 768",
+    "13:29:18 PASS 768x1024 home: the controls are 44 px tall",
+    "13:29:18 PASS 768x1024 protect: no horizontal scroll — 768 ≤ 768",
+    "13:29:18 PASS 768x1024 protect: the controls are 44 px tall",
+    "13:29:19 PASS 768x1024 send: no horizontal scroll — 768 ≤ 768",
+    "13:29:19 PASS 768x1024 send: the controls are 44 px tall",
+    "13:29:19 PASS 768x1024 swap: no horizontal scroll — 768 ≤ 768",
+    "13:29:19 PASS 768x1024 swap: the controls are 44 px tall",
+    "13:29:19 PASS 768x1024 activity: no horizontal scroll — 768 ≤ 768",
+    "13:29:19 PASS 768x1024 activity: the controls are 44 px tall",
+    "13:29:20 PASS 768x1024 more: no horizontal scroll — 768 ≤ 768",
+    "13:29:20 PASS 768x1024 more: the controls are 44 px tall",
+    "13:29:20 PASS 768x1024 privacy-center: no horizontal scroll — 768 ≤ 768",
+    "13:29:20 PASS 768x1024 privacy-center: the controls are 44 px tall",
+    "13:29:21 PASS 768x1024 security: no horizontal scroll — 768 ≤ 768",
+    "13:29:21 PASS 768x1024 security: the controls are 44 px tall",
+    "13:29:21 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:21 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:21 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:21 PASS 1280x800 home: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:21 PASS 1280x800 home: the controls are 44 px tall",
+    "13:29:22 PASS 1280x800 protect: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:22 PASS 1280x800 protect: the controls are 44 px tall",
+    "13:29:22 PASS 1280x800 send: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:22 PASS 1280x800 send: the controls are 44 px tall",
+    "13:29:23 PASS 1280x800 swap: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:23 PASS 1280x800 swap: the controls are 44 px tall",
+    "13:29:23 PASS 1280x800 activity: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:23 PASS 1280x800 activity: the controls are 44 px tall",
+    "13:29:23 PASS 1280x800 more: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:23 PASS 1280x800 more: the controls are 44 px tall",
+    "13:29:24 PASS 1280x800 privacy-center: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:24 PASS 1280x800 privacy-center: the controls are 44 px tall",
+    "13:29:24 PASS 1280x800 security: no horizontal scroll — 1280 ≤ 1280",
+    "13:29:24 PASS 1280x800 security: the controls are 44 px tall",
+    "13:29:24 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:25 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:25 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:25 PASS 1440x900 home: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:25 PASS 1440x900 home: the controls are 44 px tall",
+    "13:29:25 PASS 1440x900 protect: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:25 PASS 1440x900 protect: the controls are 44 px tall",
+    "13:29:26 PASS 1440x900 send: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:26 PASS 1440x900 send: the controls are 44 px tall",
+    "13:29:26 PASS 1440x900 swap: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:26 PASS 1440x900 swap: the controls are 44 px tall",
+    "13:29:27 PASS 1440x900 activity: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:27 PASS 1440x900 activity: the controls are 44 px tall",
+    "13:29:27 PASS 1440x900 more: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:27 PASS 1440x900 more: the controls are 44 px tall",
+    "13:29:28 PASS 1440x900 privacy-center: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:28 PASS 1440x900 privacy-center: the controls are 44 px tall",
+    "13:29:28 PASS 1440x900 security: no horizontal scroll — 1440 ≤ 1440",
+    "13:29:28 PASS 1440x900 security: the controls are 44 px tall",
+    "13:29:28 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:29 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:29 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:29:29 PASS 360x800-pseudo home: no horizontal scroll — 360 ≤ 360",
+    "13:29:29 PASS 360x800-pseudo home: the controls are 44 px tall",
+    "13:29:29 PASS 360x800-pseudo protect: no horizontal scroll — 360 ≤ 360",
+    "13:29:29 PASS 360x800-pseudo protect: the controls are 44 px tall",
+    "13:29:30 PASS 360x800-pseudo send: no horizontal scroll — 360 ≤ 360",
+    "13:29:30 PASS 360x800-pseudo send: the controls are 44 px tall",
+    "13:29:30 PASS 360x800-pseudo swap: no horizontal scroll — 360 ≤ 360",
+    "13:29:30 PASS 360x800-pseudo swap: the controls are 44 px tall",
+    "13:29:30 PASS 360x800-pseudo activity: no horizontal scroll — 360 ≤ 360",
+    "13:29:30 PASS 360x800-pseudo activity: the controls are 44 px tall",
+    "13:29:31 PASS 360x800-pseudo more: no horizontal scroll — 360 ≤ 360",
+    "13:29:31 PASS 360x800-pseudo more: the controls are 44 px tall",
+    "13:29:31 PASS 360x800-pseudo privacy-center: no horizontal scroll — 360 ≤ 360",
+    "13:29:31 PASS 360x800-pseudo privacy-center: the controls are 44 px tall",
+    "13:29:32 PASS 360x800-pseudo security: no horizontal scroll — 360 ≤ 360",
+    "13:29:32 PASS 360x800-pseudo security: the controls are 44 px tall",
+    "13:29:32 PASS 360x800-pseudo: the pseudo-locale renders (accented, bracketed words) — [Šéçúříţý ~~~][Řéçóṽéřý ƀáçķúþ ~~~ ~~~][Ñóţ ƀáçķéđ úþ ýéţ ~~~ ~~~][Ţĥé ƀáçķúþ ƒí",
+    "13:29:32 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:32 PASS pagehide locks; the unlock returns to the screen it interrupted (spec v2.0 §8) — landed on privacy",
+    "13:29:33 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:29:33 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:30:33 PASS a minute without activity locks the wallet (the minutes chosen under Security) — 60 s",
+    "13:30:33 PASS the unlock after an automatic lock returns to Activity",
+    "13:30:34 PASS a wallet disconnected mid-Protect: the progress says so and that the funds have not moved (doc §74) — Protect AssetsPreparedSubmittedConfirmingCompletedThe wallet is disconnectedYour funds were not moved.The connected wallet is no longer available. Nothing was sent; reconnect and confirm again.BackAn ",
+    "13:30:34 PASS nothing reached the vault",
+    "13:30:35 PASS the retry deposits exactly once: the vault gains 990 USDC (1,000 less the 1 %) — 990000000 base units",
+    "13:30:35 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:30:35 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:30:35 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:30:35 PASS a tab closed and opened again: unlock, and every Activity row is there (doc §74) — 12 of 12",
+    "13:30:36 console error: WebSocket connection to 'ws://localhost:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:30:36 console error: WebSocket connection to 'ws://127.0.0.1:5173/?token=fVGr3wgwujX2' failed: Connection closed before receiving a handshake response",
+    "13:30:36 console error: [vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) localhost:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (se",
+    "13:30:36 PASS the browser restarted: unlock, and every Activity row is there (doc §74) — 12 of 12",
+    "13:30:38 the relayer answered 200; the answer is lost as the network drops",
+    "13:30:38 request failed POST 127.0.0.1:8790/submit: net::ERR_INTERNET_DISCONNECTED",
+    "13:30:38 console error: Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+    "13:30:38 PASS offline: the banner's words (doc §75) — Connection interruptedYour transaction state is being preserved.We will not submit another transaction until the current state is verified.",
+    "13:30:47 PASS nothing is submitted while offline",
+    "13:30:47 http 409 POST /submit",
+    "13:30:47 console error: Failed to load resource: the server responded with a status of 409 (Conflict)",
+    "13:30:47 PASS back online: the one transaction is found by its nullifier — one relayer job, the recipient paid once (doc §74–§75) — 1 job(s); 0.047123999980992 ETH (shown 0.047124)",
+    "13:30:47 PASS the banner is gone once the state is verified",
+    "13:30:47 PASS the proving key downloaded once for every proof of the run, kept under its pin by the crypto worker (spec v2.0 §14.3) — 1 download(s); cache: /__artifact-cache/transaction.wasm/6abe5463c45b3b830e1e925a2ef150bc2af680aa169990ca1998b4323ba5af02, /__artifact-cache/transaction_final.zkey/099f5a9634ef8377f7de700cbdae001def21a504b1a399f4828cf8db7a7890f7",
+    "13:30:47 PASS no request body carries the password or the phrase (290 bodies read)",
+    "13:30:47 PASS localStorage holds nothing of ours; the secure store holds the two ciphertext blobs — {\"localStorage\":0,\"secure\":[\"pp.journal\",\"pp.keystore\"],\"shapes\":[\"ct,nonce,v\",\"ct,kdf,nonce,salt,v\"]}",
+    "13:30:47 PASS the stored blobs are ciphertext envelopes (a keystore with its KDF parameters, a journal {v, nonce, ct}) — ct,nonce,v | ct,kdf,nonce,salt,v",
+    "13:30:47 hosts contacted after first launch: localhost:5173, 127.0.0.1:8546, localhost:8546, 127.0.0.1:8790, 127.0.0.1:8787, gateway.liquify.com, rest.cosmos.directory, thorchain-thornode-lb-1.thorwallet.org"
+  ],
+  "checks": [
+    {
+      "name": "the welcome says the plan's words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the recovery phrase has 24 words",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Home shows $0 before any balance (spec v2.0 §7.1)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "auto-lock: 15 minutes by default (1 / 5 / 15 / 60 under Security)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "first launch: no request left the page's origin (creating a wallet, every route and screen)",
+      "ok": true,
+      "detail": "341 same-origin loads"
+    },
+    {
+      "name": "More → Advanced: the light client is off and says so",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "V6 Stage 10 (doc §71): nothing about the deployment is read before the first operation",
+      "ok": true,
+      "detail": "The deployment is checked before your first operation, and what it reads is remembered."
+    },
+    {
+      "name": "More → Wallet: the funding wallet is connected through its own provider",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the ETH vault received the two deposits net of the privacy fee (V6: 2 × 495 ETH)",
+      "ok": true,
+      "detail": "27166.087548926254 → 28156.087548926254 ETH"
+    },
+    {
+      "name": "V6 (spec v2.0 §3, §11.1): ProtectRouter paid exactly 1 % of each protect to the fee recipient (2 × 5 ETH)",
+      "ok": true,
+      "detail": "100490 → 100500 ETH"
+    },
+    {
+      "name": "Home values the protected balance through the RPC quorum: ≈ $4,207,500",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the deployment was checked before the first operation and its fingerprint remembered (Advanced shows it with the way to forget it)",
+      "ok": true,
+      "detail": "Checked before the first operation; the fingerprint this wallet remembers: 0x3a806715…36e41cForget the remembered deployment"
+    },
+    {
+      "name": "Protect 5,000 USDC (spec v2.0 §7.3): You receive 4,950 USDC, Privacy fee 50 USDC, the relayer/network in dollars from the wallet's own estimate",
+      "ok": true,
+      "detail": "You receive4,950 USDC | Privacy fee1% of the amount50 USDC | Relayer/network≈ $7.33"
+    },
+    {
+      "name": "the Protect Review below $50K is a tap (spec v2.0 §7.6)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the progress ends on what was added: 4,950 USDC",
+      "ok": true,
+      "detail": "Added 4,950 USDC to your protected balance.DoneProtect more"
+    },
+    {
+      "name": "the USDC vault received exactly 4,950 USDC",
+      "ok": true,
+      "detail": "4950000000 base units"
+    },
+    {
+      "name": "ProtectRouter paid exactly 50 USDC (1 %) to the fee recipient",
+      "ok": true,
+      "detail": "50000000 base units"
+    },
+    {
+      "name": "Send 2,500 USDC (spec v2.0 §7.4): Recipient receives 2,470.90 USDC — the largest line —, Privacy fee 25.00, Relayer ≈ 4.10",
+      "ok": true,
+      "detail": "2470.9 | Privacy fee1% of the amount25 USDC | Relayer≈ 4.10 USDC"
+    },
+    {
+      "name": "the fresh recipient received exactly 2,470.90 USDC from the vault, submitted by the relayer",
+      "ok": true,
+      "detail": "0xE9095898b7E04ccbDC0591c086157b62dF9b40B2: 2470900000 base units"
+    },
+    {
+      "name": "exact-input by default (spec §10): the recipient receives what you send minus the privacy fee and the relayer's",
+      "ok": true,
+      "detail": "0.195624 ETH of 0.2"
+    },
+    {
+      "name": "a $850 send is the plain flow (a Review with a tap, no lint block, no hold)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "V6 (spec v2.0 §7.6): below $100K the V6 Review",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the fresh recipient received the page's \"Recipient receives\" (to its six shown decimals) from the vault, submitted by the relayer",
+      "ok": true,
+      "detail": "0xC8Ad09BcF2c43f723d11AA29DbE3DEcAe6733896: 0.195623999980992 ETH (shown 0.195624)"
+    },
+    {
+      "name": "the address book offers the next fresh address",
+      "ok": true,
+      "detail": "0xcB548e2cB04aa0B4fb284343d5b5a646E0a1A605"
+    },
+    {
+      "name": "from $100K the V2–V4 Review stays (spec v2.0 §2)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the enhanced Review shows the USD numeral",
+      "ok": true,
+      "detail": "$119,000"
+    },
+    {
+      "name": "the enhanced Review carries the privacy lint",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "V5 (spec §11): from $50K the confirmation is a hold, never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals)",
+      "ok": true,
+      "detail": "0xcB548e2cB04aa0B4fb284343d5b5a646E0a1A605: 27.71762399998099 ETH (shown 27.717624)"
+    },
+    {
+      "name": "the destination is a fresh Bitcoin address of this wallet",
+      "ok": true,
+      "detail": "bc1q9atelhhsq2cup6y393vhfzyh39pwfushpk073f"
+    },
+    {
+      "name": "the quote: the best protected route, the privacy, relayer and provider fees, the time (spec v2.0 §7.5)",
+      "ok": true,
+      "detail": "Best protected routeMedium protectionPrivacy fee$8,500.00Relayer/network$20.55Swap/provider$0.00Estimated time13–15 minThis quote is valid for 599 s."
+    },
+    {
+      "name": "cross-chain: \"You'll receive at least\" leads",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the quote says how long it stays valid",
+      "ok": true,
+      "detail": "This quote is valid for 599 s."
+    },
+    {
+      "name": "the quotes carried no destination (the engine quotes a placeholder; spec v2.0 §13.2)",
+      "ok": true,
+      "detail": "1 quote requests"
+    },
+    {
+      "name": "the quoted Swap fits the phone: no horizontal scroll",
+      "ok": true,
+      "detail": "430 px wide on a 430 px screen"
+    },
+    {
+      "name": "from $100K the Review is the V2–V4 commit moment",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the Review shows $850,000",
+      "ok": true,
+      "detail": "$850,000"
+    },
+    {
+      "name": "the five lines are there",
+      "ok": true,
+      "detail": "Review the swapConfirming commits the order and schedules the private withdrawal that funds its one-time escrow. Large transfer.$850,000200 ETHFromProtected ETHToNetworkBitcoinAssetBTCAddressbc1q 9ate lhhs q2cu p6y3 93vh fzyh 39pw fush pk07 3fA fresh address of this wallet, used once.Receive at leas"
+    },
+    {
+      "name": "the $850K confirmation is a hold (from $50K), never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "ONE confirmation: the order is committed and its progress shown (no Fund now, no second Confirm)",
+      "ok": true,
+      "detail": "progress/swap:0x28c4be8a1c67fba1576709f1459b268f455cab32db3fe94fc03f116d5e258ec1"
+    },
+    {
+      "name": "the executor's deployAndExecute is mined on the devnet",
+      "ok": true,
+      "detail": "0x1eebfdbc3cb31118a5b5810c7339adfe753b77d530e5328de275d55f75018f56 in block 817 (3 logs)"
+    },
+    {
+      "name": "the one-time escrow is empty after the execution",
+      "ok": true,
+      "detail": "0x1807f46d57df7bb6c01c685178db8bffca0297e9: 0 ETH"
+    },
+    {
+      "name": "funded and handed over once (one job for this order)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "after a reload and unlock the order and its progress come back from the journal",
+      "ok": true,
+      "detail": "ProtectedHomeYour ETH → BTC swap is still executing.$3,240,100.00Protected balanceETHETHEthereum761.8 ETH$3,237,650.00USUSDCUSD Coin2,450 USDC$2,450.00Executing"
+    },
+    {
+      "name": "the reload funds nothing again",
+      "ok": true,
+      "detail": "0 withdrawal submissions after the reload"
+    },
+    {
+      "name": "Activity lists every money flow (two deposits, two sends, one swap)",
+      "ok": true,
+      "detail": "7 rows"
+    },
+    {
+      "name": "the swap row never says a bare failed",
+      "ok": true,
+      "detail": "ActivityTodayETH → BTC$841,489.90ExecutingPrivate Send28 ETHCompletedPrivate Send0.2 ETHCompletedPrivate Send2,500 USDCCompletedProtected USDC5,000 USDCCompletedProtected ETH500 ETHCompletedProtected ETH500 ETHCompleted"
+    },
+    {
+      "name": "a same-chain target lands in the protected balance: no destination to type (spec v2.0 §7.5)",
+      "ok": true,
+      "detail": "You receive—ETHETHYour protected balance"
+    },
+    {
+      "name": "the quote: You receive ≈ ETH, Minimum receive, Fees in dollars",
+      "ok": true,
+      "detail": "Best protected routeMedium protectionMinimum receive3.151727 ETHFees$109.49Estimated time2–4 minThis quote is valid for 889 s."
+    },
+    {
+      "name": "the quotes ask for a protected destination and carry no address (spec v2.0 §12)",
+      "ok": true,
+      "detail": "1 quote requests"
+    },
+    {
+      "name": "the Review: destination Your protected balance, a tap below $50K",
+      "ok": true,
+      "detail": "ReviewYou pay$8,000.008,000 USDCYou receive≈ 3.167583 ETHMinimum3.151727 ETHDestinationYour protected balance ✓ProtectionMedium protectionFeesPrivacy fee$80.00Relayer/network$29.49Swap/provider$0.00Total fees$109.49ConfirmEdit"
+    },
+    {
+      "name": "ONE confirmation: committed, and its progress says where it arrives",
+      "ok": true,
+      "detail": "into"
+    },
+    {
+      "name": "the commit names the one-time shield receiver as the destination",
+      "ok": true,
+      "detail": "0xd7330DcB65E90dD5253e8f1D1645F8cef51C04E9"
+    },
+    {
+      "name": "the relayer watches the receiver from the hand-over (POST /shield before the execution)",
+      "ok": true,
+      "detail": "0x5324cb72efe98d46… waiting-delivery, tip 3420000054720000 wei, minAmount 342000005472000000"
+    },
+    {
+      "name": "the executor's deployAndExecute of the USDC order is mined (the router deposit, the memo naming the receiver)",
+      "ok": true,
+      "detail": "0xbc03d59700731d7013102dd5fcfae94c519b1a6c6124baa20d0a918669568f97"
+    },
+    {
+      "name": "THORChain's router paid the receiver with its 2300-gas send (before the receiver exists)",
+      "ok": true,
+      "detail": "3.15514700005472 ETH; the receiver holds 3.15514700005472"
+    },
+    {
+      "name": "the relayer deployed the receiver and shielded the delivery: the tip once, the rest as the committed note",
+      "ok": true,
+      "detail": "leaf 948, 3.151727 ETH, tip 3420000054720000 wei, gas 2686798"
+    },
+    {
+      "name": "the receiver is deployed and holds nothing",
+      "ok": true,
+      "detail": "5323 bytes, 0 wei left"
+    },
+    {
+      "name": "the ETH vault received the delivery less the tip",
+      "ok": true,
+      "detail": "3.151727000000392 ETH"
+    },
+    {
+      "name": "the wallet found the note: the progress ends on \"Added to your protected balance\" with the amount",
+      "ok": true,
+      "detail": "Added to your protected balance: 3.151727 ETH.DoneSwap again"
+    },
+    {
+      "name": "$80,000: no \"Protect this order\" and no protection mode to choose — the protection is automatic (doc §87)",
+      "ok": true,
+      "detail": "SwapYou payETHETH≈ $80,000Balance 764.951727 ETHMaxYou'll receive at least0.554694BTCBTCBitcointhe route must be confirmed by two live quotes or acknowledged, the price guard tightens, and the review "
+    },
+    {
+      "name": "the $80K Review is the V6 one: Protected execution with its four checks (doc §49)",
+      "ok": true,
+      "detail": "ReviewYou pay$80,000.0018.82353 ETHYou receive≈ 0.557474 BTCMinimum0.554694 BTCDestinationA fresh address of this wallet ✓ProtectionMedium protectionFeesPrivacy fee$800.00Relayer/network$82.21Swap/provider$0.00Total fees$882.21Protected executionBecause this is a large transaction, we added addition"
+    },
+    {
+      "name": "from $50K: Hold to Confirm, never a tap",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "ONE confirmation starts the protected steps; the progress shows amounts only: $80,000 ETH → BTC, Completed / Executing / Remaining",
+      "ok": true,
+      "detail": "In progress$80,000.00 ETH → BTCProtected executionCompleted$0.00Executing$0.00Remaining$80,000.00Preparing your protected transaction…Checking balanceCalculating feesSecuring your transactionWaiting for confirmationYour "
+    },
+    {
+      "name": "the first step was funded, signed and handed over with no second tap; its amount is Executing",
+      "ok": true,
+      "detail": "$80,000.00 ETH → BTCProtected executionCompleted$0.00Executing$20,000.00Remaining$60,000.00 | job 0x14ed17da33ac687c…"
+    },
+    {
+      "name": "the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved",
+      "ok": true,
+      "detail": "4.6564 ETH ≈ $19790"
+    },
+    {
+      "name": "Return the rest: nothing more is handed over (the step in flight finishes first)",
+      "ok": true,
+      "detail": "1 jobs for this order (1 when Return was pressed)"
+    },
+    {
+      "name": "360x800 home: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 send: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 more: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800 security: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 home: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 send: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 more: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "390x844 security: no horizontal scroll",
+      "ok": true,
+      "detail": "390 ≤ 390"
+    },
+    {
+      "name": "390x844 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 home: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 send: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 more: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "412x915 security: no horizontal scroll",
+      "ok": true,
+      "detail": "412 ≤ 412"
+    },
+    {
+      "name": "412x915 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 home: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 send: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 more: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "768x1024 security: no horizontal scroll",
+      "ok": true,
+      "detail": "768 ≤ 768"
+    },
+    {
+      "name": "768x1024 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 home: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 send: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 more: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1280x800 security: no horizontal scroll",
+      "ok": true,
+      "detail": "1280 ≤ 1280"
+    },
+    {
+      "name": "1280x800 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 home: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 protect: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 send: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 swap: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 activity: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 more: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1440x900 security: no horizontal scroll",
+      "ok": true,
+      "detail": "1440 ≤ 1440"
+    },
+    {
+      "name": "1440x900 security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo home: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo home: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo protect: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo protect: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo send: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo send: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo swap: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo swap: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo activity: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo activity: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo more: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo more: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo privacy-center: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo privacy-center: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo security: no horizontal scroll",
+      "ok": true,
+      "detail": "360 ≤ 360"
+    },
+    {
+      "name": "360x800-pseudo security: the controls are 44 px tall",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "360x800-pseudo: the pseudo-locale renders (accented, bracketed words)",
+      "ok": true,
+      "detail": "[Šéçúříţý ~~~][Řéçóṽéřý ƀáçķúþ ~~~ ~~~][Ñóţ ƀáçķéđ úþ ýéţ ~~~ ~~~][Ţĥé ƀáçķúþ ƒí"
+    },
+    {
+      "name": "pagehide locks; the unlock returns to the screen it interrupted (spec v2.0 §8)",
+      "ok": true,
+      "detail": "landed on privacy"
+    },
+    {
+      "name": "a minute without activity locks the wallet (the minutes chosen under Security)",
+      "ok": true,
+      "detail": "60 s"
+    },
+    {
+      "name": "the unlock after an automatic lock returns to Activity",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a wallet disconnected mid-Protect: the progress says so and that the funds have not moved (doc §74)",
+      "ok": true,
+      "detail": "Protect AssetsPreparedSubmittedConfirmingCompletedThe wallet is disconnectedYour funds were not moved.The connected wallet is no longer available. Nothing was sent; reconnect and confirm again.BackAn "
+    },
+    {
+      "name": "nothing reached the vault",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the retry deposits exactly once: the vault gains 990 USDC (1,000 less the 1 %)",
+      "ok": true,
+      "detail": "990000000 base units"
+    },
+    {
+      "name": "a tab closed and opened again: unlock, and every Activity row is there (doc §74)",
+      "ok": true,
+      "detail": "12 of 12"
+    },
+    {
+      "name": "the browser restarted: unlock, and every Activity row is there (doc §74)",
+      "ok": true,
+      "detail": "12 of 12"
+    },
+    {
+      "name": "offline: the banner's words (doc §75)",
+      "ok": true,
+      "detail": "Connection interruptedYour transaction state is being preserved.We will not submit another transaction until the current state is verified."
+    },
+    {
+      "name": "nothing is submitted while offline",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "back online: the one transaction is found by its nullifier — one relayer job, the recipient paid once (doc §74–§75)",
+      "ok": true,
+      "detail": "1 job(s); 0.047123999980992 ETH (shown 0.047124)"
+    },
+    {
+      "name": "the banner is gone once the state is verified",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the proving key downloaded once for every proof of the run, kept under its pin by the crypto worker (spec v2.0 §14.3)",
+      "ok": true,
+      "detail": "1 download(s); cache: /__artifact-cache/transaction.wasm/6abe5463c45b3b830e1e925a2ef150bc2af680aa169990ca1998b4323ba5af02, /__artifact-cache/transaction_final.zkey/099f5a9634ef8377f7de700cbdae001def21a504b1a399f4828cf8db7a7890f7"
+    },
+    {
+      "name": "no request body carries the password or the phrase (290 bodies read)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "localStorage holds nothing of ours; the secure store holds the two ciphertext blobs",
+      "ok": true,
+      "detail": "{\"localStorage\":0,\"secure\":[\"pp.journal\",\"pp.keystore\"],\"shapes\":[\"ct,nonce,v\",\"ct,kdf,nonce,salt,v\"]}"
+    },
+    {
+      "name": "the stored blobs are ciphertext envelopes (a keystore with its KDF parameters, a journal {v, nonce, ct})",
+      "ok": true,
+      "detail": "ct,nonce,v | ct,kdf,nonce,salt,v"
+    }
+  ],
+  "failures": [],
+  "outcome": {
+    "priceGuardRefusals": 0,
+    "minimumConsents": 0,
+    "execution": {
+      "orderId": "0x28c4be8a1c67fba1576709f1459b268f455cab32db3fe94fc03f116d5e258ec1",
+      "escrow": "0x1807f46d57df7bb6c01c685178db8bffca0297e9",
+      "executionTx": "0x1eebfdbc3cb31118a5b5810c7339adfe753b77d530e5328de275d55f75018f56",
+      "provider": null
+    },
+    "shield": {
+      "receiver": "0xd7330DcB65E90dD5253e8f1D1645F8cef51C04E9",
+      "receiptId": "0x5324cb72efe98d4601bd77ea0726b54b719a0e81678aead1f577392ce2e6d5a4",
+      "delivered": "3155147000054720000",
+      "tip": "3420000054720000",
+      "leafIndex": 948,
+      "gasUsed": "2686798"
+    },
+    "protectedSteps": {
+      "firstJob": "0x14ed17da33ac687cdb53d71321240f64983f2a54125ca01d017021cb7ba8506b"
+    }
+  },
+  "viewports": [
+    {
+      "viewport": "360x800",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "33-shell-360x800-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "34-shell-360x800-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "35-shell-360x800-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "36-shell-360x800-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "37-shell-360x800-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "38-shell-360x800-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "39-shell-360x800-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "40-shell-360x800-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "390x844",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "41-shell-390x844-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "42-shell-390x844-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "43-shell-390x844-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "44-shell-390x844-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "45-shell-390x844-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "46-shell-390x844-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "47-shell-390x844-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "shot": "48-shell-390x844-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "412x915",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "49-shell-412x915-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "50-shell-412x915-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "51-shell-412x915-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "52-shell-412x915-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "53-shell-412x915-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "54-shell-412x915-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "55-shell-412x915-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 412,
+          "clientWidth": 412,
+          "shot": "56-shell-412x915-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "768x1024",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "57-shell-768x1024-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "58-shell-768x1024-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "59-shell-768x1024-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "60-shell-768x1024-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "61-shell-768x1024-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "62-shell-768x1024-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "63-shell-768x1024-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "shot": "64-shell-768x1024-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "1280x800",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "65-shell-1280x800-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "66-shell-1280x800-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "67-shell-1280x800-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "68-shell-1280x800-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "69-shell-1280x800-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "70-shell-1280x800-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "71-shell-1280x800-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1280,
+          "clientWidth": 1280,
+          "shot": "72-shell-1280x800-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "1440x900",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "73-shell-1440x900-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "74-shell-1440x900-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "75-shell-1440x900-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "76-shell-1440x900-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "77-shell-1440x900-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "78-shell-1440x900-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "79-shell-1440x900-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "shot": "80-shell-1440x900-security.png"
+        }
+      ]
+    },
+    {
+      "viewport": "360x800-pseudo",
+      "screens": [
+        {
+          "name": "home",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "81-shell-360x800-pseudo-home.png"
+        },
+        {
+          "name": "protect",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "82-shell-360x800-pseudo-protect.png"
+        },
+        {
+          "name": "send",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "83-shell-360x800-pseudo-send.png"
+        },
+        {
+          "name": "swap",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "84-shell-360x800-pseudo-swap.png"
+        },
+        {
+          "name": "activity",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "85-shell-360x800-pseudo-activity.png"
+        },
+        {
+          "name": "more",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "86-shell-360x800-pseudo-more.png"
+        },
+        {
+          "name": "privacy-center",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "87-shell-360x800-pseudo-privacy-center.png"
+        },
+        {
+          "name": "security",
+          "ok": true,
+          "short": [],
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "shot": "88-shell-360x800-pseudo-security.png"
+        }
+      ]
+    }
+  ],
+  "hosts": [
+    "localhost:5173",
+    "127.0.0.1:8546",
+    "localhost:8546",
+    "127.0.0.1:8790",
+    "127.0.0.1:8787",
+    "gateway.liquify.com",
+    "rest.cosmos.directory",
+    "thorchain-thornode-lb-1.thorwallet.org"
+  ],
+  "finishedAt": "2026-10-14T13:30:47.182Z",
+  "requests": 4588
+}

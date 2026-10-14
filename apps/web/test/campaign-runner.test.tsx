@@ -60,7 +60,11 @@ class World implements CampaignIo {
   /** the settlement read fails (the service or the network is down) */
   trackThrows = false;
   moved = false;
+  /** the API's price guard refuses the hard quote (another route beats it by more than the band) */
+  guardRefuses = false;
   breakerOpen = false;
+  /** providers whose breaker alone is open */
+  brokenProviders = new Set<string>();
   incidents: string[] = [];
   chosen = "thorchain";
   /** the provider the competition at a step's size chooses (the campaign's when null) */
@@ -99,6 +103,7 @@ class World implements CampaignIo {
   async sign(stored: StoredSwap): Promise<Signed | { moved: any }> {
     this.calls.push(`sign:${stored.campaign!.index}`);
     if (this.moved) return { moved: { minOut: 1n, approved: 2n } };
+    if (this.guardRefuses) throw new Error("price_guard: this route is 80 bps below the best alternative");
     const q = stored.quote as ServiceQuote;
     return { prepared: { digest: "0x" + "44".repeat(32), provider: "0x00000000000000000000000000000000000000ad", value: (stored.params as { amount: string }).amount, calldata: "0x", deadline: q.expiresAt } as Signed["prepared"], params: stored.params as Signed["params"], call: { minOut: BigInt(q.toAmountMin), refundTo: "escrow", provider: "thorchain", facts: [] } as unknown as Signed["call"], signature: ("0x" + "55".repeat(65)) as `0x${string}`, sim: { ok: true, gas: 210_000n, endpoints: 1, preview: false }, label: "valid until later" };
   }
@@ -129,7 +134,7 @@ class World implements CampaignIo {
     return job;
   }
   async quote(_c: Campaign, amount: bigint) { this.calls.push(`quote:${amount / 10n ** 18n}`); if (this.noQuote) return { ...quoteSet(this.chosen, amount), quotes: [], scores: [], chosen: undefined }; return quoteSet(this.chosen, amount); }
-  async risk(provider: string): Promise<RiskView> { return { provider, model: { class: "R5", flags: [], custody: "tss-vaults", gate: "destination-final", pFailPrior: 0.02, bandBps: [100, 250] }, security: { total: 69, baseline: 84, incidents: -15, incidentList: this.incidents.map((date) => ({ provider, date, title: "t", lossUsd: 0, class: "api", halfLifeDays: 30, source: "s" })) }, breaker: { open: this.breakerOpen ? "skipped after 3 consecutive failures" : null, failures: { consecutive: 0, windowCount: 0 }, stalls: 0, divergences: 0, probe: false, lastIncidentAt: null }, record: null, routes: [] }; }
+  async risk(provider: string): Promise<RiskView> { return { provider, model: { class: "R5", flags: [], custody: "tss-vaults", gate: "destination-final", pFailPrior: 0.02, bandBps: [100, 250] }, security: { total: 69, baseline: 84, incidents: -15, incidentList: this.incidents.map((date) => ({ provider, date, title: "t", lossUsd: 0, class: "api", halfLifeDays: 30, source: "s" })) }, breaker: { open: this.breakerOpen || this.brokenProviders.has(provider) ? "skipped after 3 consecutive failures" : null, failures: { consecutive: 0, windowCount: 0 }, stalls: 0, divergences: 0, probe: false, lastIncidentAt: null }, record: null, routes: [] }; }
   async gasPriceWei() { return this.gas; }
   crossRateE18() { return this.crossRate; }
   async shape() { this.calls.push("shape"); this.shaped = true; }
@@ -447,7 +452,7 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(e).tranches.every((t) => t.state === "skipped" || t.state === "planned")).toBe(true);
   });
 
-  it("the competition at a step's size chose another provider: a Review at institutional (the unfunded order abandoned), adopted below the second-confirmation tier; a funded step of the old provider returns through its refund after the reroute", async () => {
+  it("the competition at a step's size chose another provider: a Review at institutional (the unfunded order abandoned), adopted below the second-confirmation tier; a funded step of the old provider finishes on its own route (audit gap 44)", async () => {
     const c = await fresh();
     world.sizeChosen = "chainflip";
     let r = await tick(c);
@@ -478,29 +483,58 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("commit");
     expect(current(band)).toMatchObject({ state: "running", provider: "chainflip" });
     expect(current(band).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
-    // a funded step of the old provider after a reroute: it returns through its own refund and is planned again
+    // audit gap 44: a funded step of the old provider after a reroute finishes on the route it was funded on while that
+    // route signs it at its approved minimum — no refund, so nothing waits for the escrow's window
     world.sizeChosen = null;
-    const e = await fresh();
-    await tick(e); clock += 2000; await tick(e); clock += 2000; // committed and funded with thorchain
-    expect(current(e).tranches[0]).toMatchObject({ state: "funded", provider: "thorchain" });
-    pauseCampaign(e.id, session, clock);
-    world.chosen = "chainflip"; // the requote at the step's size
-    resumeCampaign(e.id, session, clock);
-    r = await tick(e);
-    expect(r?.action.kind).toBe("requote");
-    expect(world.calls.at(-1), "quoted at the next step's size, not the remaining amount").toBe("quote:50");
-    acceptReroute(e.id, true, session, clock);
+    /** a campaign whose first step is funded with thorchain, then rerouted to chainflip: the next tick is that step's signing */
+    const leftBehind = async (): Promise<Campaign> => {
+      world.chosen = "thorchain";
+      const x = await fresh();
+      await tick(x); clock += 2000; await tick(x); clock += 2000; // committed and funded with thorchain
+      expect(current(x).tranches[0]).toMatchObject({ state: "funded", provider: "thorchain" });
+      pauseCampaign(x.id, session, clock);
+      world.chosen = "chainflip"; // the requote at the step's size
+      resumeCampaign(x.id, session, clock);
+      r = await tick(x);
+      expect(r?.action.kind).toBe("requote");
+      expect(world.calls.at(-1), "quoted at the next step's size, not the remaining amount").toBe("quote:50");
+      acceptReroute(x.id, true, session, clock);
+      expect(current(x).provider).toBe("chainflip");
+      world.calls.length = 0;
+      return x;
+    };
+    const e = await leftBehind();
     r = await tick(e);
     expect(r?.action.kind).toBe("sign");
-    cur = current(e);
-    expect(cur.tranches[0]).toMatchObject({ state: "refunding", provider: "thorchain", jobId: expect.any(String) });
-    expect(world.calls.filter((x) => x.startsWith("refund:"))).toEqual(["refund:0"]);
-    expect(world.calls.filter((x) => x.startsWith("sign:")), "never signed with the old provider").toHaveLength(0);
-    world.tracked.set(cur.tranches[0].orderId!, "REFUNDED");
+    expect(current(e).tranches[0]).toMatchObject({ state: "signed", provider: "thorchain" });
+    expect(world.calls.filter((x) => /^(sign|refund):/.test(x)), "signed on its own route, not refunded").toEqual(["sign:0"]);
     clock += 2000;
     r = await tick(e);
-    expect(current(e).tranches[0].state).toBe("refunded");
-    expect(exposure(current(e)).remaining).toBe(eth(2500));
+    expect(r?.action.kind).toBe("hand-over");
+    expect(current(e).tranches[0]).toMatchObject({ state: "executing", provider: "thorchain" });
+    expect(world.calls.filter((x) => x.startsWith("refund:")), "the step finished on its own route: no refund").toEqual([]);
+    // only when its own route cannot sign it — a lower minimum, the price guard's refusal, an open breaker (not even
+    // signed) — does it return through its refund and get planned again
+    for (const [why, set, unset, signs] of [
+      ["a lower minimum", () => { world.moved = true; }, () => { world.moved = false; }, 1],
+      ["the price guard's refusal", () => { world.guardRefuses = true; }, () => { world.guardRefuses = false; }, 1],
+      ["an open breaker on its own route", () => { world.brokenProviders.add("thorchain"); }, () => { world.brokenProviders.clear(); }, 0],
+    ] as const) {
+      const x = await leftBehind();
+      set();
+      r = await tick(x);
+      expect(r?.action.kind, why).toBe("sign");
+      cur = current(x);
+      expect(cur.tranches[0], why).toMatchObject({ state: "refunding", provider: "thorchain", jobId: expect.any(String) });
+      expect(world.calls.filter((y) => y.startsWith("refund:")), why).toEqual(["refund:0"]);
+      expect(world.calls.filter((y) => y.startsWith("sign:")), why).toHaveLength(signs);
+      unset();
+      world.tracked.set(cur.tranches[0].orderId!, "REFUNDED");
+      clock += 2000;
+      r = await tick(x);
+      expect(current(x).tranches[0].state, why).toBe("refunded");
+      expect(exposure(current(x)).remaining, why).toBe(eth(2500));
+    }
     world.chosen = "thorchain";
   });
 

@@ -78,6 +78,18 @@ async function cached<T>(key: string, now: number, read: () => Promise<T>, fresh
 }
 /** Tests: forget what the runner keeps in memory. */
 export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); }
+
+/**
+ * Audit gap 44: why a route the campaign has left behind may not carry a step it already funded (§8, §10) — its breaker
+ * open, or a security incident reported since the campaign started (read fresh: the pause facts watch the campaign's own
+ * route only). Null while the route is sound or cannot be read; the step's minimum and the provider call are checked anyway.
+ */
+async function leftRouteUnsound(provider: string, c: Campaign, io: CampaignIo, now: number): Promise<string | null> {
+  const risk = await cached(`risk:${provider}`, now, () => io.risk(provider), true).catch(() => null);
+  if (risk?.breaker.open) return `its own route, ${provider}, is skipped after repeated failures`;
+  if (risk?.security.incidentList.some((i) => Date.parse(i.date) >= c.createdAt)) return `a security incident at ${provider} was reported after this operation started`;
+  return null;
+}
 // V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
 // nothing has to load the module just to wipe it (the first route stays light).
 defaultSession.onLock(resetRunnerMemory);
@@ -389,30 +401,40 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const t = c.tranches[action.index];
         const stored = childOrder(t, s);
         if (!stored) { c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
-        if (t.provider && c.provider && t.provider !== c.provider) {
-          // the route changed after this step was funded: its escrow returns through its own refund (§8) and the amount is planned again
-          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
-          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
-          break;
-        }
-        schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
-        try {
-          const r = await io.sign(stored);
-          if ("moved" in r) {
-            // a lower minimum is a campaign-level decision, never a per-tranche tap (§3)
-            c = pauseWith(c, "price-deviation", `Step ${t.index + 1} now guarantees ${r.moved.minOut} against the ${r.moved.approved} you approved; nothing was signed.`, now, t.index);
-            break;
+        // audit gap 44: a step funded on a route the campaign has since left finishes there — the route it was approved on;
+        // the reroute governs the steps not funded yet — while that route is sound and signs it at its approved minimum.
+        // Only when it cannot (a lower minimum, the price guard's refusal, an open breaker, a new incident) does the step
+        // return through its own refund (§8), which waits for the escrow's window, and is planned again.
+        const leftBehind = !!t.provider && !!c.provider && t.provider !== c.provider;
+        let leftRefund = leftBehind ? await leftRouteUnsound(t.provider!, c, io, now) : null;
+        if (!leftRefund) {
+          schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
+          try {
+            const r = await io.sign(stored);
+            if ("moved" in r) {
+              // a lower minimum is a campaign-level decision, never a per-tranche tap (§3)
+              if (leftBehind) leftRefund = "its own route now guarantees less than you approved";
+              else c = pauseWith(c, "price-deviation", `Step ${t.index + 1} now guarantees ${r.moved.minOut} against the ${r.moved.approved} you approved; nothing was signed.`, now, t.index);
+            } else if (!r.sim.ok) {
+              c = pauseWith(c, "provider-error", `Step ${t.index + 1} would not execute: ${r.sim.reason}. Nothing was handed over.`, now, t.index);
+            } else {
+              signedCache.set(stored.orderId.toLowerCase(), r);
+              c = withTrancheState(c, t.index, "signed", now, {}, `signed and simulated (${r.label})${leftBehind ? ` on the route it was funded on, ${t.provider}` : ""}`);
+              nextAt = now + 1000;
+            }
+          } catch (e) {
+            const m = (e as Error)?.message ?? String(e);
+            if (/receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
+            else if (/below the best alternative|price_guard/i.test(m)) {
+              if (leftBehind) leftRefund = "its own route is refused against the better one";
+              else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
+            } else if (/escrow|digest|not the one this wallet committed|minimum/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
+            else { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
           }
-          if (!r.sim.ok) { c = pauseWith(c, "provider-error", `Step ${t.index + 1} would not execute: ${r.sim.reason}. Nothing was handed over.`, now, t.index); break; }
-          signedCache.set(stored.orderId.toLowerCase(), r);
-          c = withTrancheState(c, t.index, "signed", now, {}, `signed and simulated (${r.label})`);
-          nextAt = now + 1000;
-        } catch (e) {
-          const m = (e as Error)?.message ?? String(e);
-          if (/receiver|does not do what this wallet asked for/i.test(m)) { c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index); break; }
-          if (/below the best alternative|price_guard/i.test(m)) { c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index); break; }
-          if (/escrow|digest|not the one this wallet committed|minimum/i.test(m)) { c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index); break; }
-          putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; // a network failure before anything was signed: backoff
+        }
+        if (leftRefund) {
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider} and ${leftRefund}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
+          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
         }
         break;
       }
@@ -422,8 +444,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (!stored) { c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
         const existing = stored.jobId ? { id: stored.jobId, state: stored.state } : await io.job(stored);
         if (existing) { c = withTrancheState(c, t.index, "executing", now, { jobId: existing.id, handedOverAt: now }, "already handed over (reconciled)"); nextAt = now + TRACK_INTERVAL_MS; break; }
-        if (t.provider && c.provider && t.provider !== c.provider) {
-          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
+        // audit gap 44: a step signed on a route the campaign has since left is handed over there while that route stays sound
+        const unsound = t.provider && c.provider && t.provider !== c.provider ? await leftRouteUnsound(t.provider, c, io, now) : null;
+        if (unsound) {
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider} and ${unsound}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
           catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
           break;
         }

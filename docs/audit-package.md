@@ -224,15 +224,19 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       lower minimum asks again;
     - the wallet never signs below a minimum the user accepted. A tolerance would trade the remaining friction for a
       minimum the user did not see.
-44. **V6 — a route change holds a funded step until its refund window** (observed 2026-10-14 in the local stack's $80K run).
+44. **V6 — a route change can hold a funded step until its refund window** (observed 2026-10-14 in the local stack's $80K
+    run; narrowed the same day).
     - Below the second-confirmation tier, a requote adopts a better route by itself (`campaignRunner.ts`, `adoptsRoutes`).
-    - A step already funded on the old route then returns through its refund-only job (V3 §8). The escrow allows that
+    - A step already funded on the old route used to return through its refund-only job at once. The escrow allows that
       refund only after `refundAfter`: about 2 h 40 min after the step's commit in the $50K band (a 30-minute execute
-      window, then the 2-hour refund window).
-    - Meanwhile the band's one-quarter cap holds the next step. The funds are never at risk (the escrow re-shields into
-      the pool), but the swap waits.
-    - Signing the funded step on its own route while its approved minimum holds would remove the wait. That changes the
-      route rule of V3 §8 (and its per-provider share) and is the owner's call.
+      window, then the 2-hour refund window). Meanwhile the band's one-quarter cap held the next step.
+    - Now such a step finishes on the route it was funded on: the route it was approved on, while that route is sound
+      (`leftRouteUnsound`: its breaker closed, no incident since the campaign started, read fresh) and signs it at its
+      approved minimum. The V3 §8 rule only asks that a route change be confirmed, or adopted below the
+      second-confirmation tier; the refund of a funded step was this implementation's choice, made for the price guard.
+    - What remains: a step whose own route now guarantees less than approved, is refused by the price guard, or is
+      unsound still returns through its refund and waits for the escrow's window. The funds are never at risk (the
+      escrow re-shields into the pool), but the swap waits.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
