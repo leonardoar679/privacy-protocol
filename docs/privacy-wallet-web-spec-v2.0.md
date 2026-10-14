@@ -483,6 +483,24 @@ generic Retry: the wallet determines the settlement state (§12.4) and offers th
 / The external swap is still being confirmed. / [ View progress ]`, `Return funds` when a refund is available, or
 `Continue monitoring`.
 
+**Note discovery (V6 follow-up, 2026-10-14).** The wallet finds its notes in the pool by itself. V6 Stage 6 had
+unmounted V5's "Rescan the chain for my notes" and nothing else scanned, so three things never reached the balance:
+a phrase restore, a private transfer received, and a swap refunded outside the V3–V5 screen. The notes stayed safe
+on chain.
+- **When.** A scan runs after every unlock and every 10 minutes while unlocked. It also runs when Activity or Receive
+  opens (at most once a minute), and as soon as a runner sees a swap refunded.
+- **One at a time.** It is a scheduled action (`discovery:pool`): the scheduler runs one action at a time, so a scan
+  never interleaves with a spend, and nothing runs offline.
+- **A first launch stays request-free (§10).** The session that created the wallet on this device scans only once the
+  wallet holds something, even on Activity or Receive (the local stack's first-launch check visits both). A restore
+  scans at once.
+- **Received.** A note this wallet's seed did not make (no counter) that is not a swap's refund or delivery is a private
+  transfer received. Activity shows it as `Private Receive`.
+
+Code: `packages/sdk/src/wallet/discovery.ts` (`scheduleDiscovery`, `discoveryWanted`, `discoverSoon`, `runDiscovery`),
+`scanNotes` reporting `received`, `WalletSession.isFirstLaunch()`; `apps/web/src/app/Background.tsx` (the unlock),
+`features/activity/Activity.tsx`, `features/wallet/Receive.tsx`; the order and campaign runners on a refund.
+
 ### 7.9 Blockers (doc §48)
 ```
 We stopped this transaction

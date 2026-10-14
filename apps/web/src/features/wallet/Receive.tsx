@@ -2,7 +2,7 @@
 // (Bitcoin / Solana / EVM) from the Chain Key Abstraction — a new one on demand, each meant to be used once, so the
 // permanent public address never has to be shown. The QR and the address, with the destination card beside them:
 // the QR alone is never the confirmation. The address book says when a fresh address was used.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
 import type { ChainAccount, ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { Button, Page, Segmented } from "@privacy-wallet/ui";
@@ -10,6 +10,7 @@ import { useT } from "../../app/i18n/useT";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 import { consumeFreshAddress, lastFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { findEntry } from "@privacy-wallet/sdk/wallet/addressBook";
+import { discoverSoon } from "@privacy-wallet/sdk/wallet/discovery";
 import { DestinationCard } from "../../components/DestinationCard";
 import { useAddressBook } from "../../hooks";
 
@@ -27,6 +28,11 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
   const [shown, setShown] = useState<Partial<Record<ChainKind, ChainAccount>>>({});
   const [copied, setCopied] = useState(false);
   useAddressBook();
+  // a V6 follow-up: whoever shows the address to be paid looks for the transfer — a scan now (at most once a minute),
+  // then every ten minutes; a first launch stays request-free (spec v2.0 §10) until the wallet holds something
+  useEffect(() => {
+    discoverSoon();
+  }, []);
   const chain = CHAIN[kind];
   const current = chain ? shown[chain] ?? lastFreshAddress(masterSeed, chain) : null;
   const address = chain ? current?.address ?? "" : privacyAddress(masterSeed);

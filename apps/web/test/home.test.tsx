@@ -99,7 +99,13 @@ describe("Home (spec v2.0 §7.1)", () => {
     expect(screen.getByTestId("private-usd").textContent).toBe("—");
     expect(screen.getByTestId("balance")).toHaveTextContent("The value in USD is unavailable right now.");
     expect(screen.getByTestId("protect-card")).toBeInTheDocument();
-    expect(fetchSpy, "no price feeds configured: no read").not.toHaveBeenCalled();
+    // no price feeds configured: no price read (latestRoundData). A wallet holding notes may read the pool for its notes
+    // (a V6 follow-up: note discovery), which values nothing; the empty first launch above reads nothing at all
+    const bodies = fetchSpy.mock.calls.map((c) => String(((c as unknown[])[1] as RequestInit | undefined)?.body ?? ""));
+    expect(
+      bodies.filter((b) => b.includes("0xfeaf968c")),
+      "no price feeds configured: no price read",
+    ).toEqual([]);
   });
 
   it("an open operation raises one card (an old failure none); the three newest lines open their detail; Advanced adds the technical lines", async () => {

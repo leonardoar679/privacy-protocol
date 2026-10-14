@@ -13,6 +13,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { buildRows, groupByDay } from "./rows";
 import { activityModel } from "./model";
 import { reconcileOpenSwaps } from "@privacy-wallet/sdk/operations/swapRecords";
+import { discoverSoon } from "@privacy-wallet/sdk/wallet/discovery";
 import { ActivityView } from "./View";
 import { useAllOperations, useSession, useSettings } from "../../hooks";
 
@@ -30,10 +31,12 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
   const wide = useMediaQuery(DESKTOP_QUERY);
   const j = session.isUnlocked() ? session.journal() : null;
   const groups = groupByDay(buildRows(j, records, advanced, t), t, Date.now(), intlLocale());
-  const failed = j ? j.schedule.filter((a) => !a.done && a.error) : [];
+  // a scheduled funding that failed (a note scan that failed retries by itself and moves nothing)
+  const failed = j ? j.schedule.filter((a) => !a.done && a.error && a.kind !== "discovery") : [];
   // V6 (spec v2.0 §12.5; doc §73): opening Activity reconciles the open swaps with the API (throttled; the wallet's reads win)
   useEffect(() => {
     if (session.isUnlocked()) void reconcileOpenSwaps(session.journal().swaps.filter(isOpenSwap));
+    discoverSoon(); // a V6 follow-up: notes received since the last scan are looked for now (at most once a minute)
   }, []);
 
   async function refresh() {

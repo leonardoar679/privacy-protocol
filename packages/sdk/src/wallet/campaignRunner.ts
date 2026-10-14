@@ -34,6 +34,7 @@ import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
 import { cancelAction, sampleDueAt, schedulerStatus } from "./schedule";
+import { scheduleDiscovery } from "./discovery";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -248,6 +249,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
     const next = trancheStateOf(current, r.tracked, r.job, stored, current.gate ?? c.plan.gate, c.request.to.chain, now, margins);
     if (next) {
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
+      if (next.state === "refunded") scheduleDiscovery(now, s); // the step's refund note is looked for now
       if (next.state === "settled" && current.state !== "settled") {
         justSettled.push({ index: t.index, deliveredOut: next.patch.outcome?.deliveredOut, minOut: current.expected?.minOut });
         if (current.destination) markAddressSettled(chainKindOf(c.request.to.chain), current.destination, s, now); // §12: a fresh address retires, an entered one is paid

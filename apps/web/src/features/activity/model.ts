@@ -29,6 +29,7 @@ const ICON: Record<string, IconName> = {
   "cross-chain": "swap",
   campaign: "swap",
   refund: "recovery",
+  receive: "receive",
   housekeeping: "refresh",
   "classic-deposit": "recovery",
   "classic-withdraw": "recovery",

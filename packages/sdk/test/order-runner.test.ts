@@ -265,6 +265,19 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(w.handOvers, "nothing is signed below an accepted minimum").toBe(0);
   });
 
+  it("a refunded order asks for a note scan at once — its refund note reaches the balance — and plans no more ticks", async () => {
+    order({ fundedTx: "0xf00d", state: "refunding", jobId: "refund-1" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.job = { id: "refund-1", escrow: "0x00000000000000000000000000000000000000e5", state: "refunded", updatedAt: T0 } as SwapJob;
+    w.track = "REFUNDED";
+    expect((await runOrderTick(action(), deps(io)))?.step).toBe("settled");
+    expect(session.journal().schedule.find((a) => a.id === "discovery:pool")).toMatchObject({ kind: "discovery", dueAt: T0 });
+    expect(pending()).toBeUndefined();
+  });
+
   it("'Return funds' from the pause: a funded order goes back through its refund-only job; one never funded is abandoned", async () => {
     order({ fundedTx: "0xf00d", state: "funded", paused: { code: "minimum_moved", minOut: "1", approved: "2970000", at: T0 } });
     const { w, io } = world();

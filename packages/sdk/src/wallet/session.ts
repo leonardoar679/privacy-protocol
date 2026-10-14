@@ -36,6 +36,7 @@ export class WalletSession {
   private listeners = new Set<() => void>();
   private pendingPhrase: string | null = null;
   private unreadable = false;
+  private firstLaunch = false;
   private readyFlag = false;
   private snapshot: SessionState | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -87,6 +88,7 @@ export class WalletSession {
     this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
     this.open(own, emptyJournal());
+    this.firstLaunch = true;
     return this.pendingPhrase;
   }
 
@@ -109,6 +111,7 @@ export class WalletSession {
     }
     this.unreadable = !!blob && journal === null; // kept as it is: nothing overwrites it
     this.open(seed, journal ?? emptyJournal());
+    this.firstLaunch = false;
     return true;
   }
 
@@ -129,6 +132,15 @@ export class WalletSession {
   async restoreFromPhrase(phrase: string, password: string): Promise<void> {
     const seed = phraseToSeed(phrase);
     await this.create(password, seed);
+    this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
+  }
+
+  /**
+   * A V6 follow-up (note discovery): true in the session that created this wallet on this device — not a restore, not a
+   * later unlock. A first launch stays request-free (spec v2.0 §10): the wallet reads the pool by itself only afterwards.
+   */
+  isFirstLaunch(): boolean {
+    return this.firstLaunch;
   }
 
   /** Restore keystore + journal from a backup file (its own password). */
@@ -161,6 +173,7 @@ export class WalletSession {
 
   lock(): void {
     this.pendingPhrase = null;
+    this.firstLaunch = false;
     this.seed?.fill(0);
     this.key?.fill(0);
     this.seed = null; this.key = null; this.data = null;

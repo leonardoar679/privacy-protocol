@@ -38,6 +38,7 @@ import { escrowBalance } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
 import type { ScheduledAction, StoredSwap } from "./journal";
 import { cancelAction, kickScheduler, sampleDueAt, scheduleAction, schedulerStatus } from "./schedule";
+import { scheduleDiscovery } from "./discovery";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -303,6 +304,8 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       const st = journaled(a.orderId, s) ?? stored;
       syncSwapRecord(st, r.tracked, r.job, now);
       if (TERMINAL_TRACK.includes(r.tracked.state) || (r.job && TERMINAL_JOB.includes(r.job.state))) {
+        // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
+        if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
         cancelAction(a.id, s);
         return { step: "settled", stored: st };
       }

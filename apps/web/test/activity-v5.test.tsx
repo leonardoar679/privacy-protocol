@@ -8,10 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Activity } from "../src/features/activity/Activity";
 import { Detail } from "../src/features/activity/Detail";
+import { Receive } from "../src/features/wallet/Receive";
 import { buildRows, groupByDay } from "../src/features/activity/rows";
 import { getOperation, newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { resetDiscoveryMemory } from "@privacy-wallet/sdk/wallet/discovery";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -72,6 +74,36 @@ describe("the rows (spec §14)", () => {
 });
 
 describe("the screens (spec §3.10)", () => {
+  it("a V6 follow-up: Receive looks for a transfer at once — except on a first launch, which stays request-free (spec v2.0 §10)", async () => {
+    resetDiscoveryMemory();
+    render(<Receive masterSeed={session.state().seed!} />);
+    expect(session.journal().schedule.some((a) => a.kind === "discovery"), "the session that created the wallet asks for nothing").toBe(false);
+    cleanup();
+    session.lock();
+    expect(await session.unlock("a strong password")).toBe(true);
+    render(<Receive masterSeed={session.state().seed!} />);
+    expect(session.journal().schedule.find((a) => a.kind === "discovery")!.dueAt).toBeLessThanOrEqual(Date.now());
+  });
+  it("a V6 follow-up: opening Activity looks for notes (at most once a minute); a transfer received has its row; a scan that failed raises no funding warning", () => {
+    resetDiscoveryMemory();
+    recordActivity({ id: "receive:41", kind: "receive", asset: "ETH", decimals: 18, amount: (25n * 10n ** 16n).toString(), status: "completed", ref: HASH, at: NOW - 1000 });
+    session.update((j) => {
+      j.schedule = [{ id: "discovery:pool", kind: "discovery", orderId: "pool", dueAt: NOW + 600_000, error: "fetch failed", attempts: 1, nextAttemptAt: NOW + 60_000 }];
+    });
+    render(<Activity onOpen={vi.fn()} />);
+    const rows = screen.getAllByTestId("activity-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("Private Receive");
+    expect(rows[0].textContent).toContain("0.25 ETH");
+    expect(screen.queryByTestId("activity-funding-warning"), "a note scan that failed retries by itself and moves nothing").toBeNull();
+    expect(session.journal().schedule.find((a) => a.id === "discovery:pool")!.dueAt, "the scan is now, not in ten minutes").toBeLessThanOrEqual(Date.now());
+    cleanup();
+    session.update((j) => {
+      j.schedule = [...j.schedule, { id: `fund-escrow:${ORDER}`, kind: "fund-escrow", orderId: ORDER, dueAt: NOW, error: "fetch failed", attempts: 1 }];
+    });
+    render(<Activity onOpen={vi.fn()} />);
+    expect(screen.getByTestId("activity-funding-warning")).toBeTruthy();
+  });
   it("the list (spec v2.0 §7.8): day headings, an icon, the title and one status word per row, a row opens its detail; Refresh tracks the open swaps; no Remove in the list", async () => {
     session.update((j) => { j.swaps = [storedSwap()]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });

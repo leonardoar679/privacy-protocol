@@ -11,6 +11,7 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../src/storage/prefs";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
 afterEach(() => { session.forget(); settings.reset(); prefs().reset(); connection.reset(); delete (window as unknown as Record<string, unknown>).ethereum; });
@@ -19,6 +20,17 @@ const LAZY = { timeout: 15_000 };
 async function unlockedWallet() { await session.create("a strong password"); session.acknowledgePhrase(); }
 
 describe("the application shell (spec §2)", () => {
+  it("a V6 follow-up: an unlock looks for the wallet's notes in the pool; the first launch, request-free, does not", async () => {
+    const deployment: Deployment = { chainId: 31337, core: "0x000000000000000000000000000000000000cccc", ethVault: "0x000000000000000000000000000000000000aaaa", rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [] };
+    await unlockedWallet(); // created here: the first launch
+    await renderApp("/", { deployment });
+    await screen.findByTestId("home", {}, LAZY);
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); }); // the lazy Background mounts and its effects run
+    expect(session.journal().schedule.filter((a) => a.kind === "discovery"), "the first launch stays request-free").toEqual([]);
+    await act(async () => { session.lock(); });
+    await act(async () => { expect(await session.unlock("a strong password")).toBe(true); });
+    await waitFor(() => expect(session.journal().schedule.some((a) => a.kind === "discovery")).toBe(true), LAZY);
+  });
   it("a device without a wallet lands on the welcome with the plan's words; Simple is the default; Continue leads to create", async () => {
     const { pathname } = await renderApp("/");
     await screen.findByTestId("welcome");

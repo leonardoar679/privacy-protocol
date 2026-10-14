@@ -2,7 +2,8 @@
 // core's Merkle tree from NoteInserted events exactly as MerkleAccumulator inserts groups (a deposit
 // = commitment + 3 empty leaves, a transaction = 3 commitments + 1 empty), refuses a view whose root
 // is not the core's, and finds its own notes by opening the payloads encrypted to its view key —
-// against a local mock JSON-RPC server with synthetic events (one real envelope, dummies elsewhere).
+// against a local mock JSON-RPC server with synthetic events (two real envelopes — a note of ours and a private transfer
+// someone sent us, which the scan reports as received — and dummies elsewhere).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { encodeAbiParameters, encodeEventTopics, toFunctionSelector, toHex, type Hex } from "viem";
@@ -26,12 +27,14 @@ const view = viewKeyPair(keys.viewKey);
 const oc = ownerCommitmentOf(keys.spendKey);
 const toHexBytes = (b: Uint8Array): Hex => ("0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")) as Hex;
 
-// leaf 0: a real deposit of OURS with its payload encrypted to our view key; leaves 4..6: someone else's transaction outputs (dummy-shaped payloads)
+// leaf 0: a real deposit of OURS with its payload encrypted to our view key; leaves 4..6: a transaction's outputs — leaf 5
+// a private transfer to us (its secret is the sender's, not derived from our seed), 4 and 6 dummy-shaped payloads
 const ourNote: Note = { vaultId: BigInt(VAULT), amount: 10n ** 18n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 0) };
+const sentToUs: Note = { vaultId: BigInt(VAULT), amount: 3n * 10n ** 17n, ownerCommitment: oc, noteSecret: 0x5e17d0b5n };
 const leaves: Record<number, { commitment: bigint; noteData: Hex }> = {
   0: { commitment: noteCommitment(noteBody(ourNote), 0n), noteData: toHexBytes(encryptNoteData(view.publicKey, { amount: ourNote.amount, noteSecret: ourNote.noteSecret, vaultId: ourNote.vaultId })) },
   4: { commitment: 0x4444n, noteData: toHexBytes(dummyNoteData()) },
-  5: { commitment: 0x5555n, noteData: toHexBytes(dummyNoteData()) },
+  5: { commitment: noteCommitment(noteBody(sentToUs), 5n), noteData: toHexBytes(encryptNoteData(view.publicKey, { amount: sentToUs.amount, noteSecret: sentToUs.noteSecret, vaultId: sentToUs.vaultId })) },
   6: { commitment: 0x6666n, noteData: toHexBytes(dummyNoteData()) },
 };
 const NEXT = 8;
@@ -154,33 +157,41 @@ describe("private read layer: endpoint quorum (plan §38, Rule 6)", () => {
 });
 
 describe("note discovery from chain (spec §12 envelope)", () => {
-  it("finds exactly the note encrypted to our view key, records it unspent, and is idempotent", async () => {
+  it("finds exactly the notes encrypted to our view key — ours, and a transfer received, reported once — unspent, and is idempotent", async () => {
     noteStore.markSpent(noteStore.all().map((n) => n.leafIndex));
     const before = noteStore.all().length;
     const r = await scanNotes({ masterSeed: seed, deployment });
-    expect(r).toEqual({ scanned: 4, found: 1, added: 1, spent: 0, refunds: 0 });
+    expect(r).toEqual({
+      scanned: 4,
+      found: 2,
+      added: 2,
+      spent: 0,
+      refunds: 0,
+      received: [{ leafIndex: 5, vaultId: BigInt(VAULT), amount: 3n * 10n ** 17n, txHash: "0x" + "33".repeat(31) + "05" }],
+    });
     const mine = noteStore.all().slice(before);
-    expect(mine.length).toBe(1);
-    expect(mine[0].leafIndex).toBe(0);
+    expect(mine.map((n) => n.leafIndex)).toEqual([0, 5]);
     expect(mine[0].note).toEqual(ourNote);
-    expect(mine[0].spent).toBe(false);
-    expect(mine[0].label).toBe("discovered");
-    expect(noteStore.balance(BigInt(VAULT))).toBe(10n ** 18n);
+    expect(mine[1].note).toEqual(sentToUs);
+    expect(mine.every((n) => !n.spent && n.label === "discovered")).toBe(true);
+    expect(mine[0].counter, "our seed made it").toBe(0);
+    expect(mine[1].counter, "the sender's secret: no counter of ours").toBeUndefined();
+    expect(noteStore.balance(BigInt(VAULT))).toBe(13n * 10n ** 17n);
     const again = await scanNotes({ masterSeed: seed, deployment });
-    expect(again).toEqual({ scanned: 4, found: 1, added: 0, spent: 0, refunds: 0 });
-    expect(noteStore.all().length).toBe(before + 1);
+    expect(again).toEqual({ scanned: 4, found: 2, added: 0, spent: 0, refunds: 0, received: [] });
+    expect(noteStore.all().length).toBe(before + 2);
   });
   it("marks a discovered note spent when the core's nullifier set says so; another wallet finds nothing", async () => {
     spentFlag = true;
     try {
       const r = await scanNotes({ masterSeed: seed, deployment });
-      expect(r.spent).toBe(1);
+      expect(r.spent).toBe(2);
       expect(noteStore.all().find((n) => n.leafIndex === 0 && n.label === "discovered")?.spent).toBe(true);
       expect(noteStore.balance(BigInt(VAULT))).toBe(0n);
     } finally {
       spentFlag = false;
     }
     const other = await scanNotes({ masterSeed: utf8ToBytes("someone else"), deployment });
-    expect(other).toEqual({ scanned: 4, found: 0, added: 0, spent: 0, refunds: 0 });
+    expect(other).toEqual({ scanned: 4, found: 0, added: 0, spent: 0, refunds: 0, received: [] });
   });
 });

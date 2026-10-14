@@ -12,7 +12,7 @@ A mobile-first wallet for the shielded pool, rebuilt in V6 to the owner's comple
   do; the leakage gates read every request to prove it.
 
 > **Status (2026-10-14): builds ✅.**
-> - 508 vitest, plus 9 in the leakage gate and 6 live.
+> - 515 vitest, plus 9 in the leakage gate and 6 live.
 > - The screenshot harness: 189 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
 >   accessibility checks.
 > - The performance budget: the first route 185.6 KB gzipped of 250, Home 33.1 KB more of 80.
@@ -42,11 +42,12 @@ src/
   prover/          client.ts (the proof's entry and the pins) · pins.ts
   fixtures/        registry.tsx + main.tsx: fixtures.html for the screenshot harness (vite --mode fixtures only)
   zkapi/           Private AI on the zkAPI SDK (ZKAPI_SDK_DIR), or a stub that says it is not in this build
-  components/      the V1.1–V4 components still mounted (the address book panel, Private AI, the guest swap, the lint)
+  components/      the V1.1–V4 components still mounted (the address book panel, Private AI, the guest swap, the lint);
+                   the two nothing mounted since V6 (AssetSelect, PrivateBalance) are gone
 scripts/           csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs · check-dist.mjs ·
                    copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
 public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored)
-test/              508 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
+test/              515 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
 ```
 
 ## What the wallet does (spec v2.0 §7)
@@ -62,10 +63,14 @@ test/              508 vitest tests (node; the screens under happy-dom or jsdom)
   an address of another chain is never switched silently; a Bitcoin address continues as a cross-chain send.
 - **Swap** — the quote as you type (debounced; a superseded request is cancelled). The minimum ("You'll receive at
   least"), the protection, the fees and the time. One confirmation: the order runner funds, checks, signs and hands
-  over, and asks again only if the price got worse. Same-chain swaps land in the protected balance; from $50,000 the
-  steps are protected automatically (the four checks, Hold to Confirm or its dialog).
+  over, and asks again only if the price got worse; an accepted minimum is signed on the very call it was read from.
+  Right after a Protect, "Delay for more privacy" funds from notes protected earlier when they cover the swap, and
+  otherwise at a random time in 1–24 h. Same-chain swaps land in the protected balance; from $50,000 the steps are
+  protected automatically (the four checks, Hold to Confirm or its dialog), and a step already funded finishes on its
+  own route when the route changes.
 - **Activity** — by day, a page at a time, the detail with its timeline and, when needed, its recovery, read from
-  where the money is.
+  where the money is. The wallet finds its notes in the pool by itself: after an unlock, every ten minutes, and when
+  Activity or Receive opens. A private transfer received shows as `Private Receive`; a first launch stays request-free.
 - **More** — the Privacy Center (seven sections, computed), Security (the backup, auto-lock, the second confirmation,
   the thresholds, Forget), Wallet (the connection, the trade preference, the allowances), Language (Automatic,
   English, 한국어), Advanced (the deployment check, the light client, the submission path, the protected execution's
@@ -105,7 +110,7 @@ npm ci                       # at the repository root (one lockfile for every wo
 cd apps/web
 npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
 npm run build                # dist/ with the policy in index.html; npm run preview sends the headers
-npm test                     # 508 tests; npm run lint
+npm test                     # 515 tests; npm run lint
 (cd ../api && npm start)     # the API the Swap screen talks to: http://127.0.0.1:8787/v1
 (cd ../relayer && npm run serve)   # private submission and the executors: http://127.0.0.1:8790
 ```

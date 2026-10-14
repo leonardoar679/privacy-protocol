@@ -562,12 +562,13 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
 /** Found notes into the store, each with its spent status: the RPC quorum's answer and, where a light client applies, the proven one. */
-async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]): Promise<{ found: number; added: number; spent: number }> {
+async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
   const client = clientFor(d);
   const nullifiers = found.map((f) => nullifier(f.commitment, keys.spendKey));
   const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
   const proven = await provenSpent(d, nullifiers);
   let added = 0, spentCount = 0;
+  const addedNotes: FoundNote[] = [];
   for (const [i, f] of found.entries()) {
     if (proven?.spent[i] && !rpcSpent[i]) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven.blockNumber}`);
     const spent = rpcSpent[i] || !!proven?.spent[i];
@@ -579,9 +580,13 @@ async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]):
     }
     noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}) });
     added++;
+    addedNotes.push(f);
   }
-  return { found: found.length, added, spent: spentCount };
+  return { found: found.length, added, spent: spentCount, addedNotes };
 }
+
+/** A private transfer received (V6 follow-up: note discovery): a note new to this wallet that its seed did not make. */
+export interface ReceivedNote { leafIndex: number; vaultId: bigint; amount: bigint; txHash: Hex }
 
 /** The refund claims of the journaled orders (none while locked). */
 const journaledRefundClaims = (): RefundClaim[] => (session.isUnlocked() ? refundClaims(session.journal().swaps) : []);
@@ -625,7 +630,7 @@ function journalRefunds(refunds: RecoveredRefund[]): void {
   });
 }
 
-export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number }> {
+export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[] }> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs } = await syncPoolQuorum(o.deployment);
@@ -641,11 +646,16 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   const upTo = Math.max(noteStore.nextCounter(), ...[...counters.values()].map((c) => c + 1), 0) + REFUND_COUNTER_MARGIN;
   const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? allRefundClaims(o.masterSeed, journaledRefundClaims(), upTo));
   for (const r of refunds) if (!found.some((f) => f.leafIndex === r.leafIndex)) found.push(refundFound(r));
-  const r = await recordFound(o.deployment, keys, found);
+  const { addedNotes, ...r } = await recordFound(o.deployment, keys, found);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
+  // a note this wallet's seed did not make (no counter) and that is no swap's refund or delivery: someone sent it here
+  const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
+  const received: ReceivedNote[] = addedNotes
+    .filter((f) => f.counter === undefined && !refundLeaves.has(f.leafIndex))
+    .map((f) => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash }));
   o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
-  return { scanned: logs.length, ...r, refunds: refunds.length };
+  return { scanned: logs.length, ...r, refunds: refunds.length, received };
 }
 
 /** V6 Stage 12: the delivered note of a same-chain swap into the protected balance, once the executor reports a shield. */

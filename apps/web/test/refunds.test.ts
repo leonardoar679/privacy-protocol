@@ -154,18 +154,18 @@ describe("a refunded order reaches the wallet (PP-S09)", () => {
   it("a rescan records the refund note with the vault's amount and marks the order refunded; again, nothing new", async () => {
     await walletWithOrder();
     const r = await scanNotes({ masterSeed: seed, deployment });
-    expect(r).toEqual({ scanned: 5, found: 1, added: 1, spent: 0, refunds: 1 });
+    expect(r).toEqual({ scanned: 5, found: 1, added: 1, spent: 0, refunds: 1, received: [] }); // a refund is not a transfer received
     const note = noteStore.all().find((n) => n.leafIndex === 4)!;
     expect(note).toMatchObject({ label: "swap refund", counter: COUNTER, spent: false, note: ours });
     expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(AMOUNT);
     const s = session.journal().swaps[0];
     expect(s.state).toBe("refunded");
     expect(s.refunds).toEqual([{ leafIndex: 4, vault: ETH_VAULT.toLowerCase(), amount: AMOUNT.toString() }]);
-    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 1, added: 0, spent: 0, refunds: 1 });
+    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 1, added: 0, spent: 0, refunds: 1, received: [] });
     expect(session.journal().swaps[0].refunds!.length).toBe(1);
   });
   it("without a journaled order the vault deposits are never read (no extra request, nothing found)", async () => {
-    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 0, added: 0, spent: 0, refunds: 0 });
+    expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 0, added: 0, spent: 0, refunds: 0, received: [] });
     expect(seen.depositReads).toBe(0);
   });
   it("right after the executor reports a refund, recoverSwapRefunds records it without a payload scan; a completed order keeps its state", async () => {
@@ -209,7 +209,7 @@ describe("a wallet restored from its phrase alone: no journal (PP-P03, journal-f
     expect(session.isUnlocked(), "no journal: nothing journaled names the refund").toBe(false);
     expect(noteStore.nextCounter()).toBe(0);
     const r = await scanNotes({ masterSeed: seed, deployment });
-    expect(r).toEqual({ scanned: 2, found: 2, added: 2, spent: 0, refunds: 1 });
+    expect(r).toEqual({ scanned: 2, found: 2, added: 2, spent: 0, refunds: 1, received: [] }); // the wallet's own note (a counter) and its refund
     expect(noteStore.all().map((n) => [n.leafIndex, n.label, n.counter])).toEqual([[0, "discovered", 5], [4, "swap refund", 9]]);
     expect(noteStore.nextCounter(), "a counter used again would derive a note secret used again (PP-P03)").toBe(10);
     expect(noteStore.allocateCounter()).toBe(10);

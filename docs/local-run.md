@@ -88,12 +88,15 @@ first-time user would:
 - **Reload, close the tab, go offline, lock** in the middle of any of them: the wallet comes back to the operation and
   sends nothing twice. Then Activity, the detail, More → Privacy Center, More → Language (한국어), and the desktop at 1440 px.
 
-The V1.1–V5 walk-through, still valid underneath:
-0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **Backup** downloads the keystore + journal; on a second browser **Restore from phrase** and rescan.
-1. **Shield** 1 ETH with the injected wallet → "Added 1 ETH to your private balance" (leaf index under *Advanced*).
-1b. With a test token in `VITE_ERC20_VAULTS`: **Shield** 100 USDC → the approve, then the deposit; **Send / Withdraw** in USDC pay the relayer in USDC (its `FEE_VAULTS`).
-2. **Rescan the chain for my notes** → the same note is rediscovered from its encrypted payload.
-3. **Withdraw** 0.4 ETH to a fresh address with submission = *Relayer* → on Sepolia the wallet first
+The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the same):
+0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **More →
+   Security** downloads the backup (the keystore and the journal); on a second browser, **Restore** from the phrase: the
+   notes are found again from their encrypted payloads by themselves (a restore scans the pool at once; there is no
+   rescan button since V6).
+1. **Protect** 1 ETH with the injected wallet (the 1 % through ProtectRouter) → "Added … ETH to your protected balance".
+1b. With a test token in `VITE_ERC20_VAULTS`: **Protect** 100 USDC → the approval, then the protect; a **Send** in USDC
+   pays the relayer in USDC (its `FEE_VAULTS`).
+2. **Send** 0.4 ETH to a fresh public address with the relayer submission (a withdrawal) → on Sepolia the wallet first
    proves the pool with the Ethereum light client ("Verifying the pool…": a few seconds the first time;
    *Advanced* then shows the finalized block and how many leaves are proven; a local `anvil` has no light
    client and says so; the RPC endpoints must serve `eth_getProof` at the finalized block), the proof is
@@ -101,21 +104,24 @@ The V1.1–V5 walk-through, still valid underneath:
    note and the relayer's fee note are on chain; the relayer's `GET /jobs` shows the submission mined.
    A note shielded in the last ~13 minutes is newer than finality: it is spendable, but proven only once
    its block is final.
-4. **Send → Privately** to a second wallet's `pp1…` address (its **Home → Receive** sheet shows it with a QR) → the recipient rescans (Home → Details) and finds the note.
-4b. **Home → Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
-5. **Swap**: Get a quote (one route in plain words; *Route details* lists the providers; the trade preference lives under Settings) → Swap →
-   with the *Best privacy* preference (Settings) the funding is scheduled at a random time in the window (reload the page, unlock:
-   the order is still there under "Your open swaps"; *Fund now* skips the wait) → 2 · Confirm the swap →
-   the wallet reads the provider call before signing and states what it checked; the executor's state
-   goes Pending → Executing (`deployAndExecute` from the relayer key). On a testnet the wallet refuses to
-   sign (the pinned provider contracts exist on mainnet only): choose **Return to my private balance**,
-   let the window pass and watch Refunding → Refunded (`deployAndRefund` re-shields the pre-committed
-   note; rescan to see it). If the price moved since the quote, the wallet shows the new minimum and
-   signs only after *Confirm at the new minimum*.
-5b. **Swap without a wallet** (lock screen): BTC → ETH quote → deposit instruction (THORChain inbound address
+3. **Send** to a second wallet's `pp1…` address (its **Receive** screen shows it with a QR) → the transfer stays inside
+   the pool; the recipient's wallet finds the note by itself — within ten minutes while unlocked, at once when it opens
+   Activity or Receive, or at its next unlock — and Activity shows it as `Private Receive`.
+3b. **Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
+4. **Swap**: the V6 flow above (one confirmation). From $100K the V3–V5 screen under `/swap/protected` still takes a
+   staged or a single order. A single order there has its order panel: **1 · Fund now** (with the *Best privacy*
+   preference, under More → Wallet, the funding waits a random time in its window; reload, unlock: the order is still
+   under "Your open swaps") → **2 · Confirm the swap**. Both screens read the provider call before signing and say what
+   they checked; the executor's state goes Pending → Executing (`deployAndExecute` from the relayer key).
+   - On a testnet the wallet refuses to sign (the pinned provider contracts exist on mainnet only): **Return funds**
+     (V6) or **Return to my private balance** (the V3–V5 screen), let the window pass and watch Refunding → Refunded
+     (`deployAndRefund` re-shields the pre-committed note).
+   - If the price moved since the quote, the V6 order pauses with **Accept new minimum** and then signs the very call
+     that minimum was read from; the V3–V5 panel signs only after *Confirm at the new minimum*.
+4b. **Swap without a wallet** (the lock screen's link, `/guest`): BTC → ETH quote → deposit instruction (THORChain inbound address
    + memo; the browser checks both against three public THORNode gateways and your inputs before showing
    them) → paste a txid → status.
-6. **Private AI** (Sepolia zkAPI, needs Sepolia ETH and the server's shared password): fund the fresh
+5. **Private AI** (More → Private AI; Sepolia zkAPI, needs Sepolia ETH and the server's shared password): fund the fresh
    address from the pool, deposit credit, start a private chat, end it, withdraw unused credit.
 
 ## 4. A protected swap (V3, `docs/high-value-protection-spec-v1.0.md`)
@@ -141,7 +147,7 @@ privacy and duration.
 ## What to expect to break first
 - Provider quotes: live APIs rate-limit and change shapes; the adversarial suite is the reference.
 - The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call
-  there, so only the escrow / executor / refund mechanics are exercised (Return to my private balance).
+  there, so only the escrow / executor / refund mechanics are exercised (Return funds).
 - The relayer needs a gas balance; it refuses anything below its live minimum fee.
 - Wallet state lives in the encrypted journal (IndexedDB); clearing site data means Restore from phrase + rescan, or the backup file.
 - Live providers: a moving price asks for the new minimum again (nothing is signed below an approved one), a provider without

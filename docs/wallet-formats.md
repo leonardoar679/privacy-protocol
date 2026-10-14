@@ -57,7 +57,9 @@ Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries
 maxTiming? }` (`maxTiming`, a V6 follow-up: funded at once from older notes only, each with its own timing at most it —
 0, 0.3 or 0.7) and, while it waits, `paused { code, detail?, minOut?, approved?, at }` (on an order stopped unfunded
 because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`); its ticks are scheduled actions of the kind
-`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. V6
+`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. A V6
+follow-up (note discovery): a scheduled action of the kind `discovery` (id `discovery:pool`, one at a time, planned again
+while unlocked), and an Activity line of the kind `receive` (a private transfer received, id `receive:<leafIndex>`). V6
 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carries `shield { factory, receiver, params
 { receiptId, asset, minAmount, shieldTip, ownerCommitment, noteSecret, noteDataHash, fallbackRecipient }, counter,
 noteData, registeredAt?, job? { state, leafIndex?, txHash?, amount?, tip?, error?, at }, leaves? [{ leafIndex, vault,

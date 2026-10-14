@@ -124,3 +124,8 @@ On the final code, 2026-10-14 (the V6 table of `docs/roadmap.md`, row 17):
 - **The screenshot harness**: 189 screenshots against the reviewed baselines, 363 layout checks at ten sizes, and 124
   acceptance and accessibility checks.
 - **The local stack's full run**: **212/212** (`scripts/local-stack/results/report-2026-10-14-v6.json`).
+
+After the V6 follow-ups the same day (`25baf33` older notes first, `77a84b0` audit gap 43, `8191b3f` audit gap 44, then
+note discovery):
+- **verify-all** `--browser`: 44/44, with the web wallet at 515 and the sdk at 92.
+- **The local stack's quick pass**: 197/197 (`scripts/local-stack/results/report-2026-10-14-v6-discovery.json`).

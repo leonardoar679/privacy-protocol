@@ -42,8 +42,8 @@ export interface ActivityRow {
   quotedUsd?: number;
 }
 
-export const KIND_ICON: Record<RowKind, IconName> = { shield: "shield", protect: "shield", transfer: "send", send: "send", withdraw: "upload", swap: "swap", "cross-chain": "swap", refund: "recovery", housekeeping: "refresh", campaign: "shield", "classic-deposit": "lock", "classic-withdraw": "unlock" };
-const KIND_KEY: Record<RowKind, MessageKey> = { shield: "activity.kind.shield", protect: "activity.kind.protect", transfer: "activity.kind.transfer", send: "activity.kind.send", withdraw: "activity.kind.withdraw", swap: "activity.kind.swap", "cross-chain": "activity.kind.crossChain", refund: "activity.kind.refund", housekeeping: "activity.kind.housekeeping", campaign: "activity.kind.campaign", "classic-deposit": "activity.kind.classicDeposit", "classic-withdraw": "activity.kind.classicWithdraw" } as Record<RowKind, MessageKey>;
+export const KIND_ICON: Record<RowKind, IconName> = { shield: "shield", protect: "shield", transfer: "send", send: "send", withdraw: "upload", swap: "swap", "cross-chain": "swap", refund: "recovery", housekeeping: "refresh", campaign: "shield", "classic-deposit": "lock", "classic-withdraw": "unlock", receive: "receive" };
+const KIND_KEY: Record<RowKind, MessageKey> = { shield: "activity.kind.shield", protect: "activity.kind.protect", transfer: "activity.kind.transfer", send: "activity.kind.send", withdraw: "activity.kind.withdraw", swap: "activity.kind.swap", "cross-chain": "activity.kind.crossChain", refund: "activity.kind.refund", housekeeping: "activity.kind.housekeeping", campaign: "activity.kind.campaign", "classic-deposit": "activity.kind.classicDeposit", "classic-withdraw": "activity.kind.classicWithdraw", receive: "activity.kind.receive" } as Record<RowKind, MessageKey>;
 
 export const amountOf = (amount: string, decimals: number, asset: string): string => { try { return `${formatUnits(BigInt(amount), decimals)} ${asset}`; } catch { return `${amount} ${asset}`; } };
 

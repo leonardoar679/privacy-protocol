@@ -533,6 +533,7 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
       clock += 2000;
       r = await tick(x);
       expect(current(x).tranches[0].state, why).toBe("refunded");
+      expect(session.journal().schedule.some((a) => a.id === "discovery:pool" && !a.done), `${why}: the refund note is looked for at once`).toBe(true);
       expect(exposure(current(x)).remaining, why).toBe(eth(2500));
     }
     world.chosen = "thorchain";

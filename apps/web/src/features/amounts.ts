@@ -75,6 +75,7 @@ export function titleOf(kind: string, asset: string, target: string | null, t: (
   if (kind === "shield" || kind === "protect") return t("operation.title.protected", { asset });
   if (kind === "transfer" || kind === "send" || kind === "withdraw") return t("operation.title.send");
   if (kind === "refund") return t("operation.title.refund");
+  if (kind === "receive") return t("operation.title.receive");
   if (kind === "classic-deposit" || kind === "classic-withdraw") return t("operation.title.classic");
   return target ? `${asset} → ${target}` : t("operation.title.swap", { asset });
 }

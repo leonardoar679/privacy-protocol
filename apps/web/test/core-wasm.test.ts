@@ -75,7 +75,14 @@ async function syncPlanScan(label: string) {
   // discovery: both of our notes, nobody else's (the store is a session singleton: start it empty)
   noteStore.clear();
   const r = await scanNotes({ masterSeed: seed, deployment: deployment() });
-  expect(r).toEqual({ scanned: 6, found: 2, added: 2, spent: 0, refunds: 0 });
+  expect(r).toEqual({
+    scanned: 6,
+    found: 2,
+    added: 2,
+    spent: 0,
+    refunds: 0,
+    received: [{ leafIndex: 8, vaultId: BigInt(VAULT), amount: 3n * 10n ** 17n, txHash: "0x" + "33".repeat(31) + "08" }], // the transfer to us (no counter of ours)
+  });
   const mine = noteStore.all();
   expect(mine.map((n) => n.leafIndex)).toEqual([0, 8]);
   expect(mine[0].note).toEqual(ours);

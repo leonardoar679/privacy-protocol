@@ -42,7 +42,7 @@ export function activityStatusLabel(rec: Pick<ActivityRecord, "kind" | "status">
   return PLAIN_LABELS[rec.status] ?? rec.status;
 }
 
-export const KIND_LABELS: Record<ActivityRecord["kind"], string> = { shield: "Added funds", transfer: "Sent privately", withdraw: "Withdrawn", swap: "Swap", refund: "Refund", housekeeping: "Housekeeping", campaign: "Protected swap" };
+export const KIND_LABELS: Record<ActivityRecord["kind"], string> = { shield: "Added funds", transfer: "Sent privately", withdraw: "Withdrawn", swap: "Swap", refund: "Refund", housekeeping: "Housekeeping", campaign: "Protected swap", receive: "Received privately" };
 /** A campaign's journal state → its Activity label (V3 §15: Completed / In progress / Protected, never a bare failure). */
 const CAMPAIGN_LABELS: Record<string, string> = { "user-confirmed": "Starting", "preparing-notes": "Preparing", running: "In progress", paused: "Paused — review", reassessing: "Reassessing", requoting: "Requoting", rerouting: "Route changed — review", "winding-down": "Returning the rest", completed: "Completed", cancelled: "Cancelled" };
 

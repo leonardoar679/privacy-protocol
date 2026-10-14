@@ -93,12 +93,13 @@ export interface StoredShield {
  * A scheduled action (plan §30; V2 Stage 4): `attempts` and `nextAttemptAt` are the runner's backoff after a
  * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried.
  */
-export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick" | "discovery"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
 
 /** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
 export interface ActivityRecord {
   id: string;
-  kind: "shield" | "transfer" | "withdraw" | "swap" | "refund" | "housekeeping" | "campaign";
+  /** V6 follow-up (note discovery): `receive`, a private transfer this wallet received */
+  kind: "shield" | "transfer" | "withdraw" | "swap" | "refund" | "housekeeping" | "campaign" | "receive";
   at: number;
   /** the asset's symbol and decimals, so the row renders without the deployment */
   asset: string;
