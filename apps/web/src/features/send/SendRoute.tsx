@@ -1,8 +1,9 @@
-// The /send route: the Send screen over the session, the deployment and the connection store.
+// The /send route (and /send/review, /send/progress/:opId): the Send screen over the session, the deployment and the
+// connection store.
 import { useNavigate } from "react-router-dom";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
-import { Send } from "./Send";
+import { SendScreen } from "./SendScreen";
 import { useConnection } from "../../hooks";
 
 export function SendRoute() {
@@ -10,5 +11,5 @@ export function SendRoute() {
   const seed = useUnlockedSeed();
   const deployment = useDeployment();
   const { account } = useConnection();
-  return <Send masterSeed={seed} deployment={deployment} account={account} onBack={() => navigate("/")} onDone={() => navigate("/")} />;
+  return <SendScreen masterSeed={seed} deployment={deployment} account={account} onBack={() => navigate("/")} onDone={() => navigate("/")} />;
 }

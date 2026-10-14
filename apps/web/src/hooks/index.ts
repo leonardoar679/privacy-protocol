@@ -4,6 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { priceStore, type PriceState } from "@privacy-wallet/sdk/prices";
 import { verifyStatus, type VerifyStatus } from "@privacy-wallet/sdk/verifiedReads";
 import { addressBookOf, type AddressBookEntry } from "@privacy-wallet/sdk/wallet/addressBook";
+import { rememberedFingerprint } from "@privacy-wallet/sdk/deploymentGuard";
 import { campaignsSnapshot } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
@@ -30,6 +31,12 @@ export const useVerifyStatus = (): VerifyStatus =>
   useSyncExternalStore(
     (l) => verifyStatus.subscribe(l),
     () => verifyStatus.get(),
+  );
+/** V6 Stage 10 (doc §71): the deployment fingerprint this wallet remembered for a chain, or null. */
+export const useDeploymentFingerprint = (chainId: number | null): string | null =>
+  useSyncExternalStore(
+    (l) => defaultSession.subscribe(l),
+    () => (chainId === null ? null : rememberedFingerprint(chainId)),
   );
 export const useAddressBook = (s: WalletSession = defaultSession): AddressBookEntry[] =>
   useSyncExternalStore(

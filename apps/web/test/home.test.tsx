@@ -64,7 +64,7 @@ describe("Home (spec v2.0 §7.1)", () => {
     expect(screen.queryByTestId("operation-card")).toBeNull();
     expect(screen.queryByTestId("home-advanced"), "Simple: no technical lines").toBeNull();
     fireEvent.click(screen.getByTestId("home-send"));
-    await screen.findByTestId("send-tab");
+    await screen.findByTestId("send-view");
     expect(pathname()).toBe("/send");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");

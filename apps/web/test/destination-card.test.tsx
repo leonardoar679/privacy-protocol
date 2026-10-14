@@ -1,25 +1,35 @@
 // @vitest-environment happy-dom
-// Destinations on the screens (whale spec §21, §18): a typed address of another chain is refused by name
-// and the action stays disabled; a valid one shows the card grouped in fours; the privacy lint lists its
-// items under a public Send (V5: the Send screen's public path); Receive shows the card beside the QR. No network: nothing here fetches.
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+// Destinations on the screens (whale spec §21, §18): on Swap a typed address of another chain is refused by name and
+// the action stays disabled; on Send (V6 Stage 10, spec v2.0 §7.4) the fresh address of this wallet is one tap away and
+// the Review lints it, a Bitcoin address continues as a cross-chain send, the connected wallet's own address is flagged;
+// Receive shows the card beside the QR, grouped in fours. No network: nothing here fetches.
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { getAddress } from "viem";
 import { Swap } from "../src/features/swap/Swap";
-import { Send } from "../src/features/send/Send";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { Providers } from "../src/app/Providers";
+import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
+import { SendScreen } from "../src/features/send/SendScreen";
 import { Receive } from "../src/features/wallet/Receive";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { groupAddress } from "@privacy-wallet/protocol/wallet/destinations";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+// the relayer's terms (Send quotes with them): read from the engine, never fetched here
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
+  feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
+}));
 let fetches = 0;
 beforeAll(() => { globalThis.fetch = (async () => { fetches++; return new Response("{}", { status: 404 }); }) as unknown as typeof fetch; });
 let root: Root | null = null;
-afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); });
+afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); noteStore.clear(); });
 
 const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: getAddress("0x00000000000000000000000000000000000000e7"), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1", "http://127.0.0.1:2"], fromBlock: 0n, erc20Vaults: [], swapFactory: getAddress("0x00000000000000000000000000000000000000f1") };
 const setValue = (el: HTMLInputElement, v: string) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); };
@@ -52,33 +62,38 @@ describe("destinations on the screens", () => {
     expect(fetches).toBe(0);
   });
 
-  it("Send to a public address: the fresh recipient shows the card grouped in fours and the lint; a Bitcoin address is refused as such; the connected wallet's own address blocks until acknowledged at the high-value tier", async () => {
+  it("Send (V6): the fresh address of this wallet is one tap away and the Review lints it; a Bitcoin address continues as a cross-chain send; the connected wallet's own address is flagged and, at the high-value tier, locked until the address book clears it", async () => {
     const account = EVM;
-    const container = await mount(() => <Send masterSeed={session.state().seed!} deployment={deployment} account={account} initialMode="public" />);
+    let router: ReturnType<typeof createMemoryRouter> | null = null;
+    const container = await mount(() => {
+      router = createMemoryRouter([{ path: "/send/*", element: <SendScreen masterSeed={session.state().seed!} deployment={deployment} account={account} /> }], { initialEntries: ["/send"], future: ROUTER_FUTURE });
+      return <Providers deployment={deployment}><RouterProvider router={router} future={PROVIDER_FUTURE} /></Providers>;
+    });
     const fresh = peekFreshAddress(session.state().seed!, "evm").address;
-    await act(async () => { setValue(container.querySelector('[data-testid="send-amount-input"]') as HTMLInputElement, "1"); }); // the lint and the card's amount follow the amount
-    expect(container.querySelector('[data-testid="destination-grouped"]')!.textContent).toBe(groupAddress(fresh));
-    expect(container.querySelector('[data-testid="destination-card"]')!.textContent).toContain("A fresh address of this wallet, used once.");
-    const lint = container.querySelector('[data-testid="privacy-lint"]')!;
-    expect(lint.textContent).toContain("Destination linkage");
-    expect(lint.querySelector('[data-item="destination-fresh"]')!.getAttribute("data-level")).toBe("ok");
-    expect(lint.querySelector('[data-item="network"]')!.getAttribute("data-level")).toBe("ok"); // a relayer, two endpoints, the light client (chain 1 has a spec)
-    const input = container.querySelector('input[placeholder^="0x"]') as HTMLInputElement;
+    const by = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+    await act(async () => { noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 3n * 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false }); });
+    await act(async () => { setValue(by("amount-input") as HTMLInputElement, "1"); });
+    await act(async () => { (container.querySelector('[data-testid="address-book-entry"]') as HTMLButtonElement).click(); }); // the fresh address of this wallet
+    expect((by("address-input") as HTMLInputElement).value).toBe(fresh);
+    await vi.waitFor(() => expect((by("send-review") as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { by("send-review").click(); });
+    // no price on chain 1 → the fail-safe tier is high-value → the V2–V4 Review, with the lint (compact: what is not clear)
+    const lint = by("privacy-lint");
+    expect(lint.textContent).toContain("Privacy check");
+    expect(lint.querySelectorAll('[data-item^="destination"]'), "the fresh address raises nothing").toHaveLength(0);
+    expect(lint.querySelector('[data-item="network"]'), "a relayer, two endpoints, the light client (chain 1 has a spec): nothing to raise").toBeNull();
+    await act(async () => { await router!.navigate("/send"); });
+    const input = by("address-input") as HTMLInputElement;
     await act(async () => { setValue(input, BTC); });
-    expect(container.querySelector('[data-testid="destination-error"]')!.textContent).toContain("this looks like a Bitcoin address; the destination is Ethereum");
-    // no price on chain 1 → the fail-safe tier is high-value → the button opens the Review (whale spec §24)
-    expect(button(container, "Review")!.disabled).toBe(true);
-    // the connected wallet's own address: a block that clears with an acknowledgement
+    expect(by("address-checks").textContent).toContain("Bitcoin address");
+    expect(by("send-kind").textContent).toBe("This continues as a cross-chain send to Bitcoin.");
+    expect(by("send-review").textContent).toBe("Continue to the cross-chain send");
+    expect((by("send-review") as HTMLButtonElement).disabled).toBe(false);
+    // the connected wallet's own address: flagged; at high-value an entered address is offered only once the address book clears it (test/address-book.test.tsx)
     await act(async () => { setValue(input, account); });
-    expect(container.querySelector('[data-testid="destination-error"]')).toBeNull();
-    const item = container.querySelector('[data-item="destination-not-public-wallet"]')!;
-    expect(item.getAttribute("data-level")).toBe("block");
-    expect(button(container, "Review")!.disabled).toBe(true);
-    await act(async () => { button(container, "I understand")!.click(); });
-    expect(container.querySelector('[data-item="destination-not-public-wallet"]')!.textContent).toContain("(acknowledged)");
-    // V3 (High-Value Protection spec §12): an entered address at high-value is offered only once it is in the address book, verified and out of its cooling-off (test/address-book.test.tsx)
-    expect(button(container, "Review")!.disabled).toBe(true);
-    expect(container.querySelector('[data-testid="destination-status"]')!.getAttribute("data-reason")).toBe("unknown");
+    expect(by("send-destination-note").textContent).toBe("This is your connected wallet: sending to it links your protected balance to it publicly.");
+    expect(by("destination-status").getAttribute("data-reason")).toBe("unknown");
+    expect((by("send-review") as HTMLButtonElement).disabled).toBe(true);
     expect(fetches).toBe(0);
   });
 

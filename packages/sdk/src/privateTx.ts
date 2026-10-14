@@ -34,6 +34,7 @@ import { poolStats } from "./wallet/poolStats";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
+import { guardDeployment } from "./deploymentGuard";
 
 /** The Activity line's asset fields for a vault (symbol + decimals; a vault the deployment does not name is shown by its address). */
 /** V6 (spec v2.0 §3): the relayer's network charge F (its minimum with the wallet's margin) in the fee's asset, for the record's costs. */
@@ -141,6 +142,7 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
 }
 
 export async function submitShield(p: PreparedShield, o: Progress & { /** V6: the network cost shown before signing */ estimatedWei?: bigint } = {}): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
+  await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
   let approveTx: Hex | undefined;
   let approvalWei = 0n;
   if (p.approve) {
@@ -303,6 +305,7 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
  * worker → submit → record the change note with the leaf index the chain assigned.
  */
 export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address } & Progress): Promise<Submitted> {
+  await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
@@ -375,6 +378,7 @@ export class HousekeepingNeeded extends Error {
 
 /** Perform one merge on chain (private self-transfer) and record the merged note. */
 export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote } & Progress): Promise<Submitted & { merged: OwnedNote }> {
+  await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.a.note.vaultId;
   if (o.b.note.vaultId !== vaultId) throw new Error("cannot merge notes of different assets");
@@ -439,6 +443,7 @@ export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote
 
 /** Perform one split on chain (private self-transfer) and record both notes. */
 export async function splitNote(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
+  await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.note.note.vaultId;
   const vault = ("0x" + vaultId.toString(16).padStart(40, "0")) as Address;
@@ -466,6 +471,7 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  */
 export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
+  await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });

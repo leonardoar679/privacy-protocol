@@ -49,7 +49,10 @@ export const SEND_FIXTURES = {
     checks: okChecks(["btc-address", "btc-network"]),
     destination: "bitcoin",
     exact: false,
-    quote: { receive: USDC("2470.90"), privacyFee: USDC("25"), relayerFee: USDC("4.10") },
+    // V6 Stage 10: a Bitcoin destination continues as a cross-chain send — the swap quotes it, this page does not
+    quote: null,
+    canReview: true,
+    action: "continue",
   },
   "other-chain": {
     asset: { symbol: "USDC", decimals: 6 },
@@ -63,7 +66,8 @@ export const SEND_FIXTURES = {
     ],
     destination: null,
     exact: false,
-    quote: { receive: USDC("2470.90"), privacyFee: USDC("25"), relayerFee: USDC("4.10") },
+    quote: null, // nothing is quoted before the network is confirmed
+    canReview: false,
     otherChain: { chain: "Base" },
   },
 } satisfies Record<string, SendModel>;

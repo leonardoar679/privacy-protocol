@@ -67,18 +67,20 @@ import { useOperation, useSession, useSettings } from "../../hooks";
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
 type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed } | { moment: "campaign"; provider: string } | { moment: "reroute"; campaignId: string };
 
-export interface SwapProps { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null; onBack?: () => void }
+/** V6 Stage 10: what Send hands over when a Bitcoin or another chain's destination continues as a cross-chain send (spec v2.0 §7.4). */
+export interface SwapPrefill { fromVault?: string; amount?: string; target?: string; destination?: string }
+export interface SwapProps { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null; onBack?: () => void; prefill?: SwapPrefill | null }
 
-export function Swap({ masterSeed, deployment, account = null, onBack }: SwapProps) {
+export function Swap({ masterSeed, deployment, account = null, onBack, prefill = null }: SwapProps) {
   const t = useT();
   const { submission, advanced, preference, verifyReads, secondFactor, protection } = useSettings();
   useSession(); // re-render when the journal-backed session changes
   const assets = useMemo(() => assetsOf(deployment), [deployment]);
-  const [fromAsset, setFromAsset] = useState<Asset>(assets[0]);
-  const [target, setTarget] = useState("BTC");
-  const [amount, setAmount] = useState("");
-  const [destination, setDestination] = useState(() => peekFreshAddress(masterSeed, "bitcoin").address);
-  const [destinationEdited, setDestinationEdited] = useState(false);
+  const [fromAsset, setFromAsset] = useState<Asset>(() => assets.find((a) => a.vault === prefill?.fromVault) ?? assets[0]);
+  const [target, setTarget] = useState(() => (prefill?.target && TARGETS[prefill.target] ? prefill.target : "BTC"));
+  const [amount, setAmount] = useState(prefill?.amount ?? "");
+  const [destination, setDestination] = useState(() => prefill?.destination || peekFreshAddress(masterSeed, chainKindOf(TARGETS[prefill?.target && TARGETS[prefill.target] ? prefill.target : "BTC"].ref.chain)).address);
+  const [destinationEdited, setDestinationEdited] = useState(!!prefill?.destination);
   const [pickingFrom, setPickingFrom] = useState(false);
   const [pickingTo, setPickingTo] = useState(false);
   const [compare, setCompare] = useState(false);

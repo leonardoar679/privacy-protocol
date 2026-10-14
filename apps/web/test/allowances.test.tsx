@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 // Allowances (High-Value Protection spec §13, Stage 6): read and revoked through the injected wallet's own provider,
 // never this wallet's RPC endpoints; the deployment's ERC-20 vaults listed under More → Wallet with a Revoke per
-// non-zero allowance; the Protect screen (V5) reads what a failed ERC-20 deposit left behind and offers to revoke it.
+// non-zero allowance; the Protect screen (V6 Stage 10: its progress route) reads what a failed ERC-20 deposit left
+// behind and offers to revoke it.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -11,7 +12,9 @@ import { allowancesFor, readAllowance, revokeAllowance } from "@privacy-wallet/s
 import { parseErc20Vaults } from "@privacy-wallet/sdk/assets";
 import { Wallet } from "../src/features/more/Wallet";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
-import { Protect } from "../src/features/protect/Protect";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { ProtectScreen } from "../src/features/protect/ProtectScreen";
+import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -106,16 +109,19 @@ describe("allowances through the injected wallet", () => {
     act(() => root!.unmount()); root = null;
     connection.reset(); // the Wallet part's provider is released: the Protect screen falls back to the injected one below
     const c2 = document.createElement("div");
-    await act(async () => { root = createRoot(c2); root.render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} />); });
-    await act(async () => { (c2.querySelector('[data-testid="protect-asset"]') as HTMLElement).click(); }); // the asset selector (a sheet in the document's body)
+    const router = createMemoryRouter([{ path: "/protect/*", element: <ProtectScreen masterSeed={session.state().seed!} deployment={deployment} account={OWNER} /> }], { initialEntries: ["/protect"], future: ROUTER_FUTURE });
+    await act(async () => { root = createRoot(c2); root.render(<RouterProvider router={router} future={PROVIDER_FUTURE} />); });
+    await act(async () => { (c2.querySelector('[data-testid="protect-from-asset"]') as HTMLElement).click(); }); // the asset selector (a sheet in the document's body)
     await vi.waitFor(() => expect(document.body.querySelector('[data-testid="protect-asset-selector-option"]')).toBeTruthy());
     const usdc = [...document.body.querySelectorAll('[data-testid="protect-asset-selector-option"]')].find((b) => b.textContent?.includes("USDC")) as HTMLButtonElement;
     await act(async () => { usdc.click(); });
-    const amountInput = c2.querySelector('[data-testid="protect-amount-input"]') as HTMLInputElement;
+    const amountInput = c2.querySelector('[data-testid="amount-input"]') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(amountInput, "100"); amountInput.dispatchEvent(new Event("input", { bubbles: true })); });
-    await act(async () => { button(c2, "Protect")!.click(); });
-    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="confirm-tap"]')).toBeTruthy());
-    await act(async () => { (document.body.querySelector('[data-testid="confirm-tap"]') as HTMLButtonElement).click(); });
+    await act(async () => { (c2.querySelector('[data-testid="protect-review"]') as HTMLButtonElement).click(); });
+    // no price on chain 1: the fail-safe tier is high-value, so the Review holds
+    const hold = c2.querySelector('[data-testid="hold-to-confirm"]') as HTMLButtonElement;
+    expect(hold).toBeTruthy();
+    await act(async () => { hold.dispatchEvent(new Event("pointerdown", { bubbles: true })); await new Promise((r) => setTimeout(r, 120)); });
     await vi.waitFor(() => expect(c2.querySelector('[data-testid="leftover-allowance"]')).toBeTruthy());
     expect(c2.querySelector('[data-testid="leftover-allowance"]')!.textContent).toContain("An approval of 100 USDC for the vault remains");
     await act(async () => { (c2.querySelector('[data-testid="revoke-leftover"]') as HTMLButtonElement).click(); });

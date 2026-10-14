@@ -1,18 +1,22 @@
 // @vitest-environment happy-dom
-// Send (spec §3.5, §10, §12–§13, §16; V6 fees, spec v2.0 §3): the private path on a privacy address with the checks and
-// the exact-input fee summary ("Recipient receives" computed, "You send" typed; exact-output on the switch), the Review, the record to
-// COMPLETED; the public path on a fresh address with its card, the detection of a pasted privacy address, a Bitcoin
-// address refused by name; the bands at $25K (Review, lint, a tap) and $60K (the hold); the verdicts of a failure
-// before and after the signature.
+// Send on the V6 screens (spec v2.0 §3, §7.4, §7.6–§7.7; doc §24–§25, §58): /send the one page — the destination decides
+// the kind (a privacy address: private inside the pool; an EVM address: a public exit; a Bitcoin address: a cross-chain
+// send continued in Swap; another chain's address: asked first, never switched silently; a chain out of reach: refused
+// in words), the four checks, "Recipient receives" largest with the privacy fee and the relayer's (exact input by
+// default, exact output on the switch with what leaves the balance) — then /send/review, /send/progress/:opId, what was
+// sent or the verdict. The fresh address of this wallet is one tap away in the book and reserved at the confirmation;
+// the bands at $25K (the lint and the typed-in destination re-confirmed, a tap) and $60K (the hold).
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { request as httpRequest } from "node:http";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { getAddress } from "viem";
 import { Providers } from "../src/app/Providers";
+import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
 import { finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
-import { Send } from "../src/features/send/Send";
+import { SendScreen, type SendScreenProps } from "../src/features/send/SendScreen";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { priceStore } from "@privacy-wallet/sdk/prices";
@@ -27,7 +31,16 @@ const HASH2 = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { transfer: { amount: bigint; recipient: string }[]; withdraw: { amount: bigint; recipient: string }[] } = { transfer: [], withdraw: [] };
 let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" = "ok";
 function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string}`, leafIndex?: number) {
-  for (const e of [{ type: "fee-terms" }, { type: "syncing" }, { type: "verifying" }, { type: "proving" }, { type: "proved", ms: 900, verifiedLocally: true }, { type: "submitting", by: "relayer" }, { type: "submitted", txHash: hash, by: "relayer" }] as EngineEvent[]) onEvent?.(e);
+  for (const e of [
+    { type: "fee-terms" },
+    { type: "syncing" },
+    { type: "verifying" },
+    { type: "proving" },
+    { type: "proved", ms: 900, verifiedLocally: true },
+    { type: "submitting", by: "relayer" },
+    { type: "submitted", txHash: hash, by: "relayer" },
+  ] as EngineEvent[])
+    onEvent?.(e);
   if (behaviour === "unreachable-after-submit") throw new TypeError("fetch failed");
   onEvent?.({ type: "waiting-receipt", txHash: hash });
   onEvent?.({ type: "mined", txHash: hash, ...(leafIndex !== undefined ? { leafIndex } : {}) });
@@ -36,7 +49,11 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>();
   return {
     ...orig,
-    feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
+    feeTerms: async () => ({
+      url: "http://relayer.test",
+      info: { feePercentBps: 100 },
+      fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n },
+    }),
     privateTransfer: async (o: { amount: bigint; recipient: string; onEvent?: (e: EngineEvent) => void }) => {
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
       calls.transfer.push({ amount: o.amount, recipient: o.recipient });
@@ -52,164 +69,320 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
 });
 
 const OWNER = getAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
+const OTHER = getAddress("0x1111111111111111111111111111111111111111");
 const ETH_VAULT = getAddress("0x00000000000000000000000000000000000000e7");
 const CORE = getAddress("0x00000000000000000000000000000000000000c0");
 const ETH_FEED = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"; // the chain-1 ETH / USD proxy of the wallet's table
 const BTC = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
-const deployment: Deployment = { chainId: 31337, core: CORE, ethVault: ETH_VAULT, rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [] };
+const deployment: Deployment = {
+  chainId: 31337,
+  core: CORE,
+  ethVault: ETH_VAULT,
+  rpcUrl: "http://127.0.0.1:1",
+  rpcUrls: ["http://127.0.0.1:1"],
+  fromBlock: 0n,
+  erc20Vaults: [],
+};
 /** happy-dom's fetch cannot POST to a loopback server; the price mock (the band test) is reached over node's http. */
-const nodeFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => new Promise((resolve, reject) => {
-  const u = new URL(String(input));
-  const req = httpRequest({ hostname: u.hostname, port: u.port, path: u.pathname, method: init?.method ?? "GET", headers: (init?.headers as Record<string, string>) ?? {} }, (res) => {
-    let body = ""; res.on("data", (c) => { body += c; }); res.on("end", () => resolve(new Response(body, { status: res.statusCode ?? 200, headers: { "content-type": "application/json" } })));
+const nodeFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
+  new Promise((resolve, reject) => {
+    const u = new URL(String(input));
+    const req = httpRequest(
+      { hostname: u.hostname, port: u.port, path: u.pathname, method: init?.method ?? "GET", headers: (init?.headers as Record<string, string>) ?? {} },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => resolve(new Response(body, { status: res.statusCode ?? 200, headers: { "content-type": "application/json" } })));
+      },
+    );
+    req.on("error", reject);
+    if (init?.body) req.write(init.body as string);
+    req.end();
   });
-  req.on("error", reject);
-  if (init?.body) req.write(init.body as string);
-  req.end();
-});
 let passThrough: string | null = null; // the price mock's URL (the band test): everything else is refused
-const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (passThrough && String(input).startsWith(passThrough) ? nodeFetch(input, init) : new Response("{}", { status: 404 })));
-beforeAll(() => { globalThis.fetch = fetchSpy as unknown as typeof fetch; });
+const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+  passThrough && String(input).startsWith(passThrough) ? nodeFetch(input, init) : new Response("{}", { status: 404 }),
+);
+beforeAll(() => {
+  globalThis.fetch = fetchSpy as unknown as typeof fetch;
+});
 let closers: (() => Promise<void>)[] = [];
-afterEach(async () => { cleanup(); for (const c of closers) await c(); closers = []; passThrough = null; session.forget(); settings.reset(); noteStore.clear(); resetOperationsMemory(); priceStore.reset(); calls.transfer = []; calls.withdraw = []; behaviour = "ok"; });
+afterEach(async () => {
+  cleanup();
+  for (const c of closers) await c();
+  closers = [];
+  passThrough = null;
+  session.forget();
+  settings.reset();
+  noteStore.clear();
+  resetOperationsMemory();
+  priceStore.reset();
+  calls.transfer = [];
+  calls.withdraw = [];
+  behaviour = "ok";
+});
 
 async function unlocked(balance = 3n * 10n ** 18n) {
-  await session.create("a strong password"); session.acknowledgePhrase();
+  await session.create("a strong password");
+  session.acknowledgePhrase();
   noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: balance, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
 }
 const type = (el: HTMLElement, v: string) => fireEvent.input(el, { target: { value: v } });
-const mount = (el: React.ReactElement, d: Deployment = deployment) => render(<Providers deployment={d}>{el}</Providers>);
-const otherWallet = () => { const seed = new Uint8Array(32); crypto.getRandomValues(seed); return privacyAddress(seed); };
-const checks = () => [...screen.getByTestId("send-to-checks").querySelectorAll("li")].map((li) => li.getAttribute("data-state"));
+const typeTo = (v: string) => fireEvent.change(screen.getByTestId("address-input"), { target: { value: v } });
+const otherWallet = () => {
+  const seed = new Uint8Array(32);
+  crypto.getRandomValues(seed);
+  return privacyAddress(seed);
+};
+const checks = () => [...screen.getByTestId("address-checks").querySelectorAll("li")].map((li) => li.getAttribute("data-state"));
+const reviewButton = () => screen.getByTestId("send-review") as HTMLButtonElement;
+/** Where Send hands a cross-chain destination over: the navigation's state, as SwapRoute reads it. */
+function SwapProbe() {
+  const location = useLocation();
+  return <pre data-testid="swap-probe">{JSON.stringify(location.state)}</pre>;
+}
+/** The screen under its splat route inside the providers, as the application mounts it. */
+function mount(props: Partial<SendScreenProps> = {}, d: Deployment = deployment) {
+  const router = createMemoryRouter(
+    [
+      { path: "/send/*", element: <SendScreen masterSeed={session.state().seed!} deployment={d} account={OWNER} {...props} /> },
+      { path: "/swap", element: <SwapProbe /> },
+    ],
+    { initialEntries: ["/send"], future: ROUTER_FUTURE },
+  );
+  render(
+    <Providers deployment={d}>
+      <RouterProvider router={router} future={PROVIDER_FUTURE} />
+    </Providers>,
+  );
+  return { router, path: () => router.state.location.pathname };
+}
 
-describe("Send (spec §3.5)", () => {
-  it("the private path: the privacy address passes the checks, the fee summary is exact-input by default (the switch flips it), the Review, then the record to COMPLETED", async () => {
+describe("Send (spec v2.0 §7.4)", () => {
+  it("the private path: a privacy address passes the four checks; 'Recipient receives' is exact input by default and the switch turns it into exact output with what leaves the balance; the Review, a tap, the record to COMPLETED", async () => {
     await unlocked();
-    const seed = session.state().seed!;
     const to = otherWallet();
-    mount(<Send masterSeed={seed} deployment={deployment} account={OWNER} />);
-    expect(checks()).toEqual(["idle", "idle", "ok", "idle"]);
-    type(screen.getByTestId("send-to-input"), to);
+    const { path } = mount();
+    expect(checks()).toEqual(["idle", "idle", "idle", "idle"]);
+    expect(reviewButton().disabled).toBe(true);
+    typeTo(to);
     expect(checks()).toEqual(["ok", "ok", "ok", "ok"]);
-    expect(screen.getByTestId("send-privacy").textContent).toBe("● Protected");
-    type(screen.getByTestId("send-amount-input"), "1");
-    const fees = await screen.findByTestId("send-fees");
-    // V6 (spec v2.0 §3): 1 % of what is sent and the relayer's 0.001 on top, one fee note — 0.989 arrives
-    await waitFor(() => expect(fees.textContent).toContain("0.989 ETH"));
-    expect(within(fees).getByText("Recipient receives")).toBeInTheDocument();
-    expect(within(fees).getByText("You send")).toBeInTheDocument();
-    expect(fees.textContent).toContain("1 ETH");
-    fireEvent.click(within(fees).getByRole("button", { expanded: false }));
-    expect(fees.textContent).toContain("Privacy fee (1.00 %)");
-    expect(fees.textContent).toContain("0.01 ETH");
-    expect(fees.textContent).toContain("Relayer / network");
-    expect(fees.textContent).toContain("0.001 ETH");
-    expect(fees.textContent, "the two parts add up; neither covers the other").not.toContain("included");
-    fireEvent.click(screen.getByTestId("send-exact-output"));
-    type(screen.getByTestId("send-amount-input"), "0.989");
-    await waitFor(() => expect(within(fees).getByText("You pay")).toBeInTheDocument());
-    await waitFor(() => expect(fees.textContent, "exactly 0.989 arrives from the least input").toContain("1 ETH"));
-    fireEvent.click(screen.getByTestId("send-exact-output"));
-    type(screen.getByTestId("send-amount-input"), "1");
+    expect(screen.getByTestId("send-kind").textContent).toBe("Nothing about this transfer is public.");
+    type(screen.getByTestId("amount-input"), "1");
+    // spec v2.0 §3: 1 % of what is sent and the relayer's 0.001 on top, one fee note — 0.989 arrives
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    expect(screen.getByTestId("send-privacy-fee").textContent).toContain("0.01 ETH");
+    expect(screen.getByTestId("send-relayer-fee").textContent).toContain("0.001 ETH");
+    expect(screen.queryByTestId("send-total"), "exact input: the typed amount is what leaves").toBeNull();
+    fireEvent.click(screen.getByTestId("send-exact"));
+    type(screen.getByTestId("amount-input"), "0.989");
+    await waitFor(() => expect(screen.getByTestId("send-total").textContent, "exactly 0.989 arrives from the least input").toContain("1 ETH"));
+    expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH");
+    fireEvent.click(screen.getByTestId("send-exact"));
+    type(screen.getByTestId("amount-input"), "1");
     expect(screen.queryByTestId("send-large"), "a standard transfer").toBeNull();
-    fireEvent.click(screen.getByTestId("send-review"));
-    const review = await screen.findByTestId("review");
-    expect(review.getAttribute("data-moment")).toBe("send");
-    expect(review.textContent).toContain("Receive at least");
-    await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/send/review");
+    expect(screen.getByTestId("review-expected").textContent).toContain("0.989 ETH");
+    expect(screen.getByTestId("review-fee-privacy").textContent).toContain("0.01 ETH");
+    expect(screen.getByTestId("review-fee-relayer").textContent).toContain("0.001 ETH");
+    expect(screen.getByTestId("review-destination").textContent).toContain(to.slice(0, 6));
+    expect(screen.queryByTestId("hold-to-confirm"), "below $50K: a tap").toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     await screen.findByTestId("send-done");
+    expect(path()).toMatch(/^\/send\/progress\/send:[0-9a-z:]+$/);
     expect(screen.getByTestId("send-done").textContent).toContain("Sent 0.989 ETH privately.");
     expect(calls.transfer).toEqual([{ amount: 989n * 10n ** 15n, recipient: to }]);
     const [rec] = finishedOperations();
-    expect(rec).toMatchObject({ kind: "send", state: "COMPLETED", amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "989000000000000000" }, destination: { kind: "privacy-address", display: to }, refs: { txHashes: [HASH], leafIndex: 5 } });
+    expect(rec).toMatchObject({
+      kind: "send",
+      state: "COMPLETED",
+      amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "989000000000000000" },
+      destination: { kind: "privacy-address", display: to },
+      refs: { txHashes: [HASH], leafIndex: 5 },
+    });
     expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
     expect(fetchSpy, "the relayer terms came from the mocked engine; nothing else was fetched").not.toHaveBeenCalled();
   });
-  it("the public path: a fresh address of this wallet pre-filled with its card; a pasted privacy address switches to the private path; a Bitcoin address is refused by name; the withdrawal reserves the fresh address", async () => {
+
+  it("the public path: the fresh address of this wallet is one tap away in the book and reserved at the confirmation; after the exit the field is cleared and the next exit gets the next address", async () => {
     await unlocked();
     const seed = session.state().seed!;
     const fresh = peekFreshAddress(seed, "evm").address;
-    mount(<Send masterSeed={seed} deployment={deployment} account={OWNER} initialMode="public" />);
-    const input = screen.getByTestId("send-to-input") as HTMLInputElement;
-    expect(input.value).toBe(fresh);
-    expect(screen.getByTestId("destination-card").textContent).toContain("A fresh address of this wallet, used once.");
-    expect(screen.getByTestId("send-privacy").textContent).toContain("Reduced");
+    mount();
+    const [first] = screen.getAllByTestId("address-book-entry");
+    expect(first.textContent).toBe("A fresh address of this wallet");
+    fireEvent.click(first);
+    expect((screen.getByTestId("address-input") as HTMLInputElement).value).toBe(fresh);
     expect(checks()).toEqual(["ok", "ok", "ok", "ok"]);
-    type(input, otherWallet());
-    await waitFor(() => expect(screen.getByTestId("send-privacy").textContent).toBe("● Protected"));
-    expect(screen.queryByTestId("destination-card")).toBeNull();
-    fireEvent.click(screen.getByTestId("send-mode-public"));
-    expect((screen.getByTestId("send-to-input") as HTMLInputElement).value).toBe(fresh);
-    type(screen.getByTestId("send-to-input"), BTC);
-    expect(screen.getByTestId("destination-error").textContent).toContain("this looks like a Bitcoin address; the destination is Ethereum");
-    expect(checks()[1]).toBe("fail");
-    expect(screen.getByTestId("send-review")).toBeDisabled();
-    fireEvent.click(screen.getByTestId("send-use-fresh"));
-    expect(screen.queryByTestId("destination-error")).toBeNull();
-    type(screen.getByTestId("send-amount-input"), "1");
-    await waitFor(() => expect(screen.getByTestId("send-fees").textContent).toContain("Recipient receives"));
-    expect(screen.getByTestId("send-review")).not.toBeDisabled();
-    fireEvent.click(screen.getByTestId("send-review"));
-    const review = await screen.findByTestId("review");
-    expect(review.getAttribute("data-moment")).toBe("withdraw");
-    await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
+    expect(screen.getByTestId("send-kind").textContent).toBe("The recipient and amount become public.");
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("review-destination").textContent).toContain("A fresh address of this wallet");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     await screen.findByTestId("send-done");
-    expect(screen.getByTestId("send-done").textContent).toContain(`Withdrawn 0.989 ETH to ${fresh.slice(0, 8)}…`);
+    expect(screen.getByTestId("send-done").textContent).toContain(`Withdrawn 0.989 ETH to ${fresh.slice(0, 6)}…`);
     expect(calls.withdraw).toEqual([{ amount: 989n * 10n ** 15n, recipient: fresh }]);
     expect(peekFreshAddress(seed, "evm").address, "the next withdrawal gets the next address").not.toBe(fresh);
-    expect(finishedOperations()[0]).toMatchObject({ kind: "withdraw", state: "COMPLETED", destination: { kind: "fresh", display: fresh }, refs: { txHashes: [HASH2] } });
+    expect(finishedOperations()[0]).toMatchObject({
+      kind: "withdraw",
+      state: "COMPLETED",
+      destination: { kind: "fresh", display: fresh },
+      refs: { txHashes: [HASH2] },
+    });
+    fireEvent.click(screen.getByTestId("send-again"));
+    expect((screen.getByTestId("address-input") as HTMLInputElement).value, "the used address is not offered again").toBe("");
+    expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("");
   });
-  it("the bands (spec §11): $25K gets the Review with the lint and a tap; $60K gets the hold", async () => {
-    const mock = await startMockCore({ core: CORE, events: {}, nextLeafIndex: 0, root: 0n, feeds: { [ETH_FEED]: { description: "ETH / USD", answer: 2_500_00000000n, updatedAt: Math.floor(Date.now() / 1000) - 60, roundId: 3n } } });
+
+  it("a Bitcoin address continues as a cross-chain send in Swap with the asset, the amount, the target and the destination handed over", async () => {
+    await unlocked();
+    const { path } = mount();
+    type(screen.getByTestId("amount-input"), "1");
+    typeTo(BTC);
+    expect(checks()).toEqual(["ok", "ok"]);
+    expect(screen.getByTestId("address-checks").textContent).toContain("Bitcoin address");
+    expect(screen.getByTestId("send-kind").textContent).toBe("This continues as a cross-chain send to Bitcoin.");
+    expect(screen.queryByTestId("send-receive"), "the swap quotes it, not this page").toBeNull();
+    expect(reviewButton().textContent).toBe("Continue to the cross-chain send");
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/swap");
+    expect(JSON.parse(screen.getByTestId("swap-probe").textContent!)).toEqual({
+      prefill: { fromVault: ETH_VAULT, amount: "1", target: "BTC", destination: BTC },
+    });
+    expect(calls.transfer.length + calls.withdraw.length, "nothing was sent from Send").toBe(0);
+  });
+
+  it("another chain's address asks first — the network never changes silently —; a chain this wallet cannot reach is refused in words", async () => {
+    await unlocked();
+    const { path } = mount();
+    type(screen.getByTestId("amount-input"), "1");
+    typeTo(`base:${OTHER}`);
+    expect(screen.getByTestId("send-other-chain").textContent).toContain("This address is on Base");
+    expect(checks()[1], "not the pool's network").toBe("fail");
+    expect(reviewButton().disabled).toBe(true);
+    expect(path()).toBe("/send");
+    // a chain out of reach: no confirmation to give, the reason in words
+    typeTo(`arb1:${OTHER}`);
+    expect(screen.queryByTestId("send-other-chain")).toBeNull();
+    expect(screen.getByTestId("send-address-error").textContent).toBe("Sending to Arbitrum isn't available in this wallet yet. Nothing has changed.");
+    expect(reviewButton().disabled).toBe(true);
+    // back to Base: confirmed explicitly, then continued in Swap with the same asset on Base
+    typeTo(`base:${OTHER}`);
+    fireEvent.click(screen.getByTestId("send-confirm-chain"));
+    expect(screen.queryByTestId("send-other-chain")).toBeNull();
+    expect(reviewButton().textContent).toBe("Continue to the cross-chain send");
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/swap");
+    expect(JSON.parse(screen.getByTestId("swap-probe").textContent!)).toEqual({
+      prefill: { fromVault: ETH_VAULT, amount: "1", target: "ETH on Base", destination: OTHER },
+    });
+  });
+
+  it("an address that is not one is refused with its reason; the connected wallet's own address is flagged; more than the protected balance is refused", async () => {
+    await unlocked(10n ** 18n);
+    mount();
+    typeTo("0x1234");
+    expect(checks()).toEqual(["fail", "idle", "ok", "fail"]);
+    expect(screen.getByTestId("send-address-error").textContent).toMatch(/\w/);
+    typeTo(OWNER);
+    expect(screen.getByTestId("send-destination-note").textContent).toBe(
+      "This is your connected wallet: sending to it links your protected balance to it publicly.",
+    );
+    type(screen.getByTestId("amount-input"), "2");
+    await waitFor(() => expect(screen.getByTestId("send-amount-error")).toBeTruthy());
+    expect(reviewButton().disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("amount-max"));
+    expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("1");
+    await waitFor(() => expect(screen.queryByTestId("send-amount-error")).toBeNull());
+  });
+
+  it("the bands (spec v2.0 §2): $25K gets the lint and a tap, and a typed-in public destination is re-confirmed group by group; $60K gets the hold", async () => {
+    const mock = await startMockCore({
+      core: CORE,
+      events: {},
+      nextLeafIndex: 0,
+      root: 0n,
+      feeds: { [ETH_FEED]: { description: "ETH / USD", answer: 2_500_00000000n, updatedAt: Math.floor(Date.now() / 1000) - 60, roundId: 3n } },
+    });
     closers.push(mock.close);
     passThrough = mock.url;
     const priced: Deployment = { ...deployment, chainId: 1, rpcUrl: mock.url, rpcUrls: [mock.url] };
     await unlocked(100n * 10n ** 18n);
     await priceStore.refresh(priced, { force: true });
     expect(priceStore.state().status, priceStore.state().reason).toBe("ready");
-    const seed = session.state().seed!;
-    mount(<Send masterSeed={seed} deployment={priced} account={OWNER} />, priced);
-    type(screen.getByTestId("send-to-input"), otherWallet());
-    type(screen.getByTestId("send-amount-input"), "10");
-    await waitFor(() => expect(screen.getByTestId("send-amount-usd").textContent).toContain("$25,000"));
+    const { router } = mount({}, priced);
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "10");
+    await waitFor(() => expect(screen.getByTestId("amount-usd").textContent).toContain("$25,000"));
     expect(screen.getByTestId("send-large").textContent).toContain("A large transfer: it is reviewed before it is sent.");
-    expect(screen.getByTestId("privacy-lint")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("send-review"));
-    let review = await screen.findByTestId("review");
-    expect(review.textContent).toContain("Large transfer");
-    expect(within(review).getByTestId("confirm-tap"), "a tap at $25K").toBeInTheDocument();
-    fireEvent.click(within(review).getByRole("button", { name: "Back" }));
-    type(await screen.findByTestId("send-amount-input"), "24");
-    await waitFor(() => expect(screen.getByTestId("send-amount-usd").textContent).toContain("$60,000"));
-    fireEvent.click(screen.getByTestId("send-review"));
-    review = await screen.findByTestId("review");
-    expect(review.textContent).toContain("Protected transfer");
-    expect(within(review).queryByTestId("confirm-tap"), "never a tap at $60K").toBeNull();
-    expect(within(review).getByTestId("hold-to-confirm")).toBeInTheDocument();
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("privacy-lint")).toBeTruthy();
+    expect(screen.getByTestId("review-confirm"), "a tap at $25K").toBeTruthy();
+    expect(screen.queryByTestId("send-destination-ack"), "a privacy address is not typed into the public").toBeNull();
+    fireEvent.click(screen.getByTestId("review-edit"));
+    // a typed-in public destination at $25K: confirmed group by group before the confirmation is offered
+    typeTo(OTHER);
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("send-destination-groups").textContent).toBe("0x1111 1111 1111 1111 1111 1111 1111 1111 1111 1111");
+    expect((screen.getByTestId("review-confirm") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("send-destination-ack-button"));
+    for (const b of screen.queryAllByRole("button", { name: "I understand" })) fireEvent.click(b); // the lint's blocks for an entered destination
+    expect((screen.getByTestId("review-confirm") as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      await router.navigate("/send");
+    });
+    type(screen.getByTestId("amount-input"), "24");
+    await waitFor(() => expect(screen.getByTestId("amount-usd").textContent).toContain("$60,000"));
+    fireEvent.click(reviewButton());
+    expect(screen.queryByTestId("review-confirm"), "never a tap at $60K").toBeNull();
+    expect(screen.getByTestId("hold-to-confirm")).toBeTruthy();
   });
+
   it("failures: before the signature the balance is untouched and consolidation is offered; after the submission a lost relayer answer is a recovery with 'We are checking where your funds are.'", async () => {
     await unlocked();
-    const seed = session.state().seed!;
     behaviour = "housekeeping";
-    mount(<Send masterSeed={seed} deployment={deployment} account={OWNER} />);
-    type(screen.getByTestId("send-to-input"), otherWallet());
-    type(screen.getByTestId("send-amount-input"), "1.01");
-    await screen.findByTestId("send-fees");
-    fireEvent.click(screen.getByTestId("send-review"));
-    await act(async () => { fireEvent.click(within(await screen.findByTestId("review")).getByTestId("confirm-tap")); });
+    const { path } = mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     const error = await screen.findByTestId("operation-progress-error");
     expect(error.textContent).toContain("Your balance needs consolidating first");
     expect(error.textContent).toContain("Your funds were not moved.");
-    expect(screen.getByTestId("consolidate-now")).toBeInTheDocument();
-    expect(finishedOperations()[0], "V6: nothing moved and nothing to track — a final failure").toMatchObject({ state: "FAILED", reason: { code: "housekeeping_needed", fundsClass: "not-moved" } });
+    expect(screen.getByTestId("consolidate-now")).toBeTruthy();
+    expect(finishedOperations()[0], "nothing moved and nothing to track — a final failure").toMatchObject({
+      state: "FAILED",
+      reason: { code: "housekeeping_needed", fundsClass: "not-moved" },
+    });
     fireEvent.click(screen.getByTestId("send-back-review"));
+    expect(path()).toBe("/send/review");
     behaviour = "unreachable-after-submit";
-    await act(async () => { fireEvent.click(within(await screen.findByTestId("review")).getByTestId("confirm-tap")); });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     const error2 = await screen.findByTestId("operation-progress-error");
     expect(error2.textContent).toContain("The relayer could not be reached");
     expect(error2.textContent).toContain("We are checking where your funds are.");
     const rec = openOperations().find((r) => r.state === "RECOVERY_REQUIRED")!;
-    expect(rec, "I-O6: an unknown outcome needs recovery; a send has no escrow to return — the wallet watches").toMatchObject({ reason: { code: "relayer_unreachable", fundsClass: "unknown" }, refs: { txHashes: [HASH] }, recovery: { state: "monitoring" } });
+    expect(rec, "I-O6: an unknown outcome needs recovery; a send has no escrow to return — the wallet watches").toMatchObject({
+      reason: { code: "relayer_unreachable", fundsClass: "unknown" },
+      refs: { txHashes: [HASH] },
+      recovery: { state: "monitoring" },
+    });
     expect(screen.queryByText(/transaction failed/i), "I-O5: never for a submission that may have gone through").toBeNull();
   });
 });

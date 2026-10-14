@@ -64,6 +64,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   provider_call_mismatch: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   guest_instruction_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   housekeeping_needed: { source: "wallet", fundsClass: "not-moved", actions: ["housekeeping"] },
+  deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   wallet_insufficient_funds: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   relayer_unreachable: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },

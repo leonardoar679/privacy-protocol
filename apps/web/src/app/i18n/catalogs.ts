@@ -9,7 +9,7 @@ import { pseudoCatalog } from "./pseudo";
 export const ko: Catalog = {
   "app.name": "프라이버시 지갑",
   "nav.home": "홈", "nav.swap": "스왑", "nav.activity": "활동", "nav.more": "더보기", "nav.wallet": "지갑",
-  "route.swap": "스왑", "route.activity": "활동", "route.more": "더보기", "route.receive": "받기", "route.protect": "자산 보호", "route.privacy": "프라이버시 센터", "route.security": "보안", "route.wallet": "지갑", "route.advanced": "고급", "route.classic": "클래식 프라이버시",
+  "route.swap": "스왑", "route.activity": "활동", "route.more": "더보기", "route.receive": "받기", "protect.title": "자산 보호", "route.privacy": "프라이버시 센터", "route.security": "보안", "route.wallet": "지갑", "route.advanced": "고급", "route.classic": "클래식 프라이버시",
   "welcome.title": "금융 프라이버시를 보호하세요", "welcome.body": "지갑은 언제나 당신의 통제 아래 있습니다.", "welcome.connect": "지갑 연결", "welcome.noAccount": "계정이 필요 없습니다", "welcome.skip": "연결하지 않고 계속",
   "common.continue": "계속",
 };
@@ -17,7 +17,7 @@ export const ko: Catalog = {
 export const zh: Catalog = {
   "app.name": "隐私钱包",
   "nav.home": "首页", "nav.swap": "兑换", "nav.activity": "活动", "nav.more": "更多", "nav.wallet": "钱包",
-  "route.swap": "兑换", "route.activity": "活动", "route.more": "更多", "route.receive": "接收", "route.protect": "保护资产", "route.privacy": "隐私中心", "route.security": "安全", "route.wallet": "钱包", "route.advanced": "高级", "route.classic": "经典隐私",
+  "route.swap": "兑换", "route.activity": "活动", "route.more": "更多", "route.receive": "接收", "protect.title": "保护资产", "route.privacy": "隐私中心", "route.security": "安全", "route.wallet": "钱包", "route.advanced": "高级", "route.classic": "经典隐私",
   "welcome.title": "保护您的金融隐私", "welcome.body": "钱包始终由您掌控。", "welcome.connect": "连接钱包", "welcome.noAccount": "无需账户", "welcome.skip": "不连接，继续",
   "common.continue": "继续",
 };
@@ -25,7 +25,7 @@ export const zh: Catalog = {
 export const ja: Catalog = {
   "app.name": "プライバシーウォレット",
   "nav.home": "ホーム", "nav.swap": "スワップ", "nav.activity": "履歴", "nav.more": "その他", "nav.wallet": "ウォレット",
-  "route.swap": "スワップ", "route.activity": "履歴", "route.more": "その他", "route.receive": "受取", "route.protect": "資産を保護", "route.privacy": "プライバシーセンター", "route.security": "セキュリティ", "route.wallet": "ウォレット", "route.advanced": "詳細設定", "route.classic": "クラシックプライバシー",
+  "route.swap": "スワップ", "route.activity": "履歴", "route.more": "その他", "route.receive": "受取", "protect.title": "資産を保護", "route.privacy": "プライバシーセンター", "route.security": "セキュリティ", "route.wallet": "ウォレット", "route.advanced": "詳細設定", "route.classic": "クラシックプライバシー",
   "welcome.title": "金融プライバシーを守る", "welcome.body": "ウォレットは常にあなたの管理下にあります。", "welcome.connect": "ウォレットを接続", "welcome.noAccount": "アカウント不要", "welcome.skip": "接続せずに続ける",
   "common.continue": "続ける",
 };

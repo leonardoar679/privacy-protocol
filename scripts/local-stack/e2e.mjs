@@ -4,9 +4,13 @@
 //   0. first launch: Welcome → the experience → Create → the phrase → Home; every route without one request off-origin
 //   1. More → Advanced: the light client off (the devnet has no beacon chain); More → Wallet: the funding wallet connected
 //   2. Protect: two public deposits of 500 ETH through the connected wallet's own provider (a $4.25M protected balance
-//      at the mock price)
-//   3. Send (public) $1K to a fresh address: the standard flow (a proof in the Web Worker, the relayer submits, a tap)
-//   4. Send (public) $120K: the enhanced Review (lint + a tap)
+//      at the mock price); V6 Stage 10: the page, the Review (a hold from $50K), the progress lines, and the deployment
+//      checked before the first protect (nothing read at first launch; Advanced then shows the remembered fingerprint)
+//  2b. V6 Stage 10: the document's figures in USDC — Protect 5,000 → 4,950 (50 to ProtectRouter's fee recipient), then
+//      Send 2,500 → 2,470.90 to a fresh address (25.00 privacy fee + 4.10 relayer), read on the page and on chain
+//   3. Send (public) $1K to a fresh address from the address book: the standard flow (a proof in the Web Worker, the
+//      relayer submits, the V6 Review's tap)
+//   4. Send (public) $120K: the enhanced Review (the V2–V4 screen: lint + the hold)
 //   5. Swap $850K ETH → BTC (enhanced): quote → Review Swap (five lines, lint, a tap) → the order panel → Fund now (a
 //      private withdrawal into the one-time escrow) → Confirm (the hard quote at /prepare: a lower minimum needs consent; a
 //      refused one is retried; else the order returns to the balance) → the Review at execute → the hand-over → the
@@ -52,6 +56,10 @@ const check = (name, ok, detail = "") => { report.checks.push({ name, ok: !!ok, 
 async function snap(page, name) { const file = `${String(++shot).padStart(2, "0")}-${name}.png`; await page.screenshot({ path: join(OUT, file), fullPage: true }); return file; }
 const rpc = async (method, params = []) => { const r = await fetch(stack.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
 const balanceEth = async (address) => Number(BigInt(await rpc("eth_getBalance", [address, "latest"]))) / 1e18;
+/** V6 Stage 10: a USDC balance in base units (6 decimals), through eth_call balanceOf on the stack's mock USDC */
+const balanceUsdc = async (address) => BigInt(await rpc("eth_call", [{ to: stack.usdc.token, data: "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0") }, "latest"]));
+/** the number a fee line shows: "Recipient receives2,470.90 USDC" → 2470.9 */
+const figure = (s) => Number((/([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:ETH|USDC)/.exec(s ?? "")?.[1] ?? "NaN").replace(/,/g, ""));
 const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
 const usdRe = (n, prefix = "") => new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\$" + Math.round(n).toLocaleString("en-US").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\.\\d{1,2})?(?!\\d)");
 const text = async (locator) => ((await locator.textContent()) ?? "").replace(/\s+/g, " ");
@@ -93,12 +101,23 @@ async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a po
   await page.waitForTimeout(ms);
   await b.dispatchEvent("pointerup", {}, { timeout: 2_000 }).catch(() => {}); // the hold fires at HOLD_MS and the screen may already have moved on
 }
-/** the Review's confirmation: a hold from the protected band, a tap below it */
+/** the Review's confirmation: a hold from the protected band, a tap below it (V6 Stage 10: the V6 Review's tap or the V2–V4 one) */
 async function confirmReview(page) {
   if (await byId(page, "hold-to-confirm").count()) return hold(page);
-  const tap = byId(page, "confirm-tap");
+  const tap = (await byId(page, "review-confirm").count()) ? byId(page, "review-confirm") : byId(page, "confirm-tap");
   for (let i = 0; i < 50 && (await tap.isDisabled()); i++) await page.waitForTimeout(200);
   await tap.click();
+}
+/** V6 Stage 10: the Review a flow opened — the V6 screen below `enhanced`, the V2–V4 one from it */
+async function waitReview(page) {
+  return firstOf(page, { v6: byId(page, "review-view"), v4: byId(page, "review") }, 30_000);
+}
+/** V6 Stage 10: an asset chosen in a screen's asset selector (a sheet) */
+async function chooseAsset(page, openId, optionId, symbol) {
+  await clickId(page, openId);
+  const option = byId(page, optionId).filter({ hasText: symbol });
+  await option.first().waitFor({ state: "visible", timeout: 30_000 });
+  await option.first().click();
 }
 /** waits for the first of several locators; returns its key */
 async function firstOf(page, candidates, timeout) {
@@ -120,32 +139,40 @@ async function unlock(page) {
 /** V6 (spec v2.0 §3, §11.1): what a 500 ETH protect leaves in the vault — ProtectRouter keeps 1 % for its fee recipient */
 const NET_PROTECT = stackHasRouter() ? 495 : 500;
 function stackHasRouter() { return !!stack.protectRouter; }
-/** Protect: `amount` ETH through the connected wallet; waits until the vault holds it and the screen reports the note */
-async function protect(page, amount, expectVault) {
+/** the Protect page (V6 Stage 10: /protect), the funding wallet connected, `symbol` chosen and `amount` typed */
+async function openProtect(page, amount, symbol) {
   await nav(page, "Home");
   await byId(page, "home").waitFor({ timeout: 30_000 });
   await clickId(page, "protect-cta"); // Home's "Protect your assets" card, always there (spec v2.0 §7.1)
-  await byId(page, "protect").waitFor({ timeout: 30_000 });
-  if (await byId(page, "protect-connect").count()) { await clickId(page, "protect-connect"); await textAppears(page, "Connected"); }
-  await fillId(page, "protect-amount-input", String(amount));
-  await clickId(page, "protect-submit");
-  await clickId(page, "confirm-tap");
+  await byId(page, "protect-view").waitFor({ timeout: 30_000 });
+  if (await byId(page, "protect-connect").count()) { await clickId(page, "protect-connect"); await byId(page, "protect-connect").waitFor({ state: "detached", timeout: 30_000 }); }
+  if (symbol !== "ETH") await chooseAsset(page, "protect-from-asset", "protect-asset-selector-option", symbol);
+  await fillId(page, "amount-input", String(amount));
+  await byId(page, "protect-receive").waitFor({ timeout: 30_000 });
+}
+/** Protect: `amount` ETH through the connected wallet — the page, the Review (a hold from $50K), the progress —; waits until the vault holds it and the screen reports what was added */
+async function protect(page, amount, expectVault) {
+  await openProtect(page, amount, "ETH");
+  await clickId(page, "protect-review");
+  await waitReview(page);
+  await confirmReview(page);
   for (let t = 0; t < 180 && (await balanceEth(stack.ethVault)) < expectVault - 1e-9; t++) await page.waitForTimeout(1000); // the deposit mined
   await byId(page, "protect-done").waitFor({ timeout: 180_000 }); // the wallet saw the receipt and journaled the note
 }
-/** Send (public) `amount` ETH to the fresh address the screen pre-fills; returns the recipient */
-async function sendPublic(page, amount) {
+/** Send (public) `amount` of `symbol` to the fresh address of this wallet, one tap away in the address book (V6 Stage 10, spec v2.0 §7.4); returns the recipient and "Recipient receives" */
+async function sendPublic(page, amount, symbol = "ETH") {
   await nav(page, "Home");
   await clickButton(page, "Send");
-  await byId(page, "send-tab").waitFor({ timeout: 30_000 });
-  await clickId(page, "send-mode-public");
-  const recipient = await byId(page, "send-to-input").inputValue();
-  await fillId(page, "send-amount-input", String(amount));
-  await byId(page, "send-fees").waitFor({ timeout: 60_000 });
-  // the summary settles once the relayer's terms are read: "Recipient receives" drops below the amount typed (exact-input)
+  await byId(page, "send-view").waitFor({ timeout: 30_000 });
+  if (symbol !== "ETH") await chooseAsset(page, "send-asset-change", "send-asset-selector-option", symbol);
+  await byId(page, "address-book-entry").first().click(); // "A fresh address of this wallet"
+  const recipient = await byId(page, "address-input").inputValue();
+  await fillId(page, "amount-input", String(amount));
+  await byId(page, "send-receive").waitFor({ timeout: 60_000 });
+  // the lines settle once the relayer's terms are read: "Recipient receives" drops below the amount typed (exact input)
   let receive = NaN;
   for (let i = 0; i < 60; i++) {
-    receive = Number((await text(byId(page, "send-fees-receive"))).match(/([0-9.]+) ETH/)?.[1] ?? NaN);
+    receive = figure(await text(byId(page, "send-receive")));
     if (receive > 0 && receive < amount) break;
     await page.waitForTimeout(250);
   }
@@ -338,8 +365,8 @@ async function campaignRun(page) {
 /** The shell screens, each reached by its route (the wallet is unlocked and funded by now). */
 const SHELL_SCREENS = [
   { route: "", id: "home", name: "home" },
-  { route: "protect", id: "protect", name: "protect" },
-  { route: "send", id: "send-tab", name: "send" },
+  { route: "protect", id: "protect-view", name: "protect" },
+  { route: "send", id: "send-view", name: "send" },
   { route: "swap", id: "swap", name: "swap" },
   { route: "activity", id: "activity", name: "activity" },
   { route: "more", id: "more", name: "more" },
@@ -461,7 +488,7 @@ try {
   check("Home shows $0 before any balance (spec v2.0 §7.1)", (await byId(page, "private-usd").textContent()).trim() === "$0");
   await snap(page, "home-empty");
   for (const [link, id] of [["Swap", "swap"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
-  await clickId(page, "home-send"); await byId(page, "send-tab").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickId(page, "home-send"); await byId(page, "send-view").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
   await nav(page, "More"); await clickId(page, "more-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await nav(page, "Home"); await byId(page, "home").waitFor(); // V6: Receive is More's
   await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
   await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "security"); await clickId(page, "back"); await byId(page, "home").waitFor();
@@ -479,6 +506,8 @@ try {
   await lc.uncheck();
   await textAppears(page, "Off: the pool is read from the RPC endpoints");
   check("More → Advanced: the light client is off and says so", true);
+  const fingerprintBefore = await text(byId(page, "deployment-fingerprint"));
+  check("V6 Stage 10 (doc §71): nothing about the deployment is read before the first operation", /checked before your first operation/.test(fingerprintBefore), fingerprintBefore);
   await snap(page, "advanced");
   await experience.uncheck().catch(() => {});
   await nav(page, "More");
@@ -509,6 +538,57 @@ try {
   await page.getByText(usdRe(2 * NET_PROTECT * PRICE)).first().waitFor({ timeout: 60_000 });
   check(`Home values the protected balance through the RPC quorum: ≈ ${usd(2 * NET_PROTECT * PRICE)}`, true);
   await snap(page, "home-funded");
+  // V6 Stage 10 (doc §71; spec v2.0 §10): the first protect checked the deployment — the core's identifiers, the
+  // canonical vaults, ProtectRouter's core — and the journal remembers its fingerprint; Advanced shows it and can forget it
+  await nav(page, "More");
+  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').check();
+  await clickId(page, "more-advanced");
+  await byId(page, "advanced").waitFor();
+  const fingerprintAfter = await text(byId(page, "deployment-fingerprint"));
+  check("the deployment was checked before the first operation and its fingerprint remembered (Advanced shows it with the way to forget it)", /0x[0-9a-f]{8}…[0-9a-f]{6}/.test(fingerprintAfter) && (await byId(page, "deployment-forget").count()) === 1, fingerprintAfter);
+  await nav(page, "More");
+  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').uncheck(); // Simple again
+
+  // 2b. V6 Stage 10 (spec v2.0 §3, §7.3–§7.4; doc §22, §24): the document's figures in USDC — Protect 5,000 → 4,950 (the
+  // 1 % to ProtectRouter's fee recipient), then Send 2,500 → 2,470.90 (25.00 privacy fee + 4.10 relayer, one fee note) -----
+  if (stack.usdc) {
+    phase = "usdc";
+    const vaultUsdcBefore = await balanceUsdc(stack.usdc.vault);
+    const feeUsdcBefore = stack.feeRecipient ? await balanceUsdc(stack.feeRecipient) : 0n;
+    await openProtect(page, 5000, "USDC");
+    // the network line follows the wallet's own estimate (eth_estimateGas × its gas price, 250 ms after the amount)
+    for (let i = 0; i < 60 && !/\$/.test(await text(byId(page, "protect-network-fee"))); i++) await page.waitForTimeout(250);
+    const pReceive = await text(byId(page, "protect-receive"));
+    const pFee = await text(byId(page, "protect-privacy-fee"));
+    const pNetwork = await text(byId(page, "protect-network-fee"));
+    check("Protect 5,000 USDC (spec v2.0 §7.3): You receive 4,950 USDC, Privacy fee 50 USDC, the relayer/network in dollars from the wallet's own estimate", figure(pReceive) === 4950 && figure(pFee) === 50 && /\$[\d,]+\.\d\d/.test(pNetwork), `${pReceive} | ${pFee} | ${pNetwork}`);
+    await snap(page, "protect-usdc");
+    await clickId(page, "protect-review");
+    await waitReview(page);
+    check("the Protect Review below $50K is a tap (spec v2.0 §7.6)", (await byId(page, "review-confirm").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0);
+    await confirmReview(page);
+    await byId(page, "protect-done").waitFor({ timeout: 180_000 }); // the approval, then the protect: two prompts, one operation
+    check("the progress ends on what was added: 4,950 USDC", /4,950 USDC/.test(await text(byId(page, "protect-done"))), await text(byId(page, "protect-done")));
+    const vaultUsdcGain = (await balanceUsdc(stack.usdc.vault)) - vaultUsdcBefore;
+    check("the USDC vault received exactly 4,950 USDC", vaultUsdcGain === 4_950_000_000n, `${vaultUsdcGain} base units`);
+    if (stack.feeRecipient) {
+      const feeGain = (await balanceUsdc(stack.feeRecipient)) - feeUsdcBefore;
+      check("ProtectRouter paid exactly 50 USDC (1 %) to the fee recipient", feeGain === 50_000_000n, `${feeGain} base units`);
+    }
+    await snap(page, "protected-usdc");
+    const { recipient: recipientUsdc, receive: receiveUsdc } = await sendPublic(page, 2500, "USDC");
+    const sPrivacy = await text(byId(page, "send-privacy-fee"));
+    const sRelayer = await text(byId(page, "send-relayer-fee"));
+    check("Send 2,500 USDC (spec v2.0 §7.4): Recipient receives 2,470.90 USDC — the largest line —, Privacy fee 25.00, Relayer ≈ 4.10", receiveUsdc === 2470.9 && figure(sPrivacy) === 25 && figure(sRelayer) === 4.1, `${receiveUsdc} | ${sPrivacy} | ${sRelayer}`);
+    await snap(page, "send-usdc");
+    await clickId(page, "send-review");
+    await waitReview(page);
+    await confirmReview(page);
+    await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
+    const gotUsdc = await balanceUsdc(recipientUsdc);
+    check("the fresh recipient received exactly 2,470.90 USDC from the vault, submitted by the relayer", gotUsdc === 2_470_900_000n, `${recipientUsdc}: ${gotUsdc} base units`);
+    await snap(page, "sent-usdc");
+  }
 
   // 3. a $1K public send: the standard flow ------------------------------------------------------------------------------
   phase = "send-1k";
@@ -518,21 +598,21 @@ try {
   check("a $850 send is the plain flow (a Review with a tap, no lint block, no hold)", (await byId(page, "send-large").count()) === 0);
   await snap(page, "send-1k");
   await clickId(page, "send-review");
-  await byId(page, "review").waitFor();
+  check("V6 (spec v2.0 §7.6): below $100K the V6 Review", (await waitReview(page)) === "v6");
   await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got1 = await balanceEth(recipient1);
-  check("the fresh recipient received exactly the summary's \"Recipient receives\" from the vault, submitted by the relayer", Math.abs(got1 - receive1) < 1e-9, `${recipient1}: ${got1} ETH (summary ${receive1})`);
+  check("the fresh recipient received the page's \"Recipient receives\" (to its six shown decimals) from the vault, submitted by the relayer", Math.abs(got1 - receive1) <= 5e-7, `${recipient1}: ${got1} ETH (shown ${receive1})`);
   await snap(page, "sent-1k");
 
   // 4. a $120K public send: the enhanced Review --------------------------------------------------------------------------
   phase = "send-120k";
   const { recipient: recipient2, receive: receive2 } = await sendPublic(page, 28);
-  check("the next send pre-fills the next fresh address", recipient2.toLowerCase() !== recipient1.toLowerCase(), recipient2);
+  check("the address book offers the next fresh address", recipient2.toLowerCase() !== recipient1.toLowerCase(), recipient2);
   await page.getByText(usdRe(28 * PRICE)).first().waitFor({ timeout: 30_000 });
   await byId(page, "send-large").waitFor({ timeout: 30_000 });
   await clickId(page, "send-review");
-  await byId(page, "review").waitFor();
+  check("from $100K the V2–V4 Review stays (spec v2.0 §2)", (await waitReview(page)) === "v4");
   check("the enhanced Review shows the USD numeral", (await byId(page, "review-usd").textContent()).includes(usd(28 * PRICE)), await byId(page, "review-usd").textContent());
   check("the enhanced Review carries the privacy lint", (await byId(page, "privacy-lint").count()) >= 1);
   check("V5 (spec §11): from $50K the confirmation is a hold, never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
@@ -541,7 +621,7 @@ try {
   await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got2 = await balanceEth(recipient2);
-  check("the second fresh recipient received the summary's figure (28 ETH minus the fees)", Math.abs(got2 - receive2) < 1e-9 && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (summary ${receive2})`);
+  check("the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals)", Math.abs(got2 - receive2) <= 5e-7 && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (shown ${receive2})`);
   await snap(page, "sent-120k");
 
   // 5. the $850K swap (the single-order flow; a $1M+ order is a protected execution: section 8) ------------------------------

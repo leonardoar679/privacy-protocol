@@ -91,6 +91,24 @@ export function parseDestination(chain: ChainKind, text: string): ParsedDestinat
   return r;
 }
 
+/** ERC-3770 short names of the EVM chains the registry knows, with their EIP-155 ids (packages/config CHAINS). */
+export const EVM_SHORT_NAMES: Readonly<Record<string, number>> = { eth: 1, base: 8453, arb1: 42161, oeth: 10, sep: 11155111 };
+
+/**
+ * V6 (Privacy Wallet Web spec v2.0 §7.4; doc §25): an EVM address that names its chain — ERC-3770 `base:0x…` or an EIP-681
+ * URI `ethereum:0x…@8453` — so a pasted address of another chain is noticed and the network never changes silently. A
+ * bare `0x…` names no chain (null); an unknown short name gives `chainId: null` with the name as written.
+ */
+export function evmChainHint(text: string): { address: string; chainId: number | null; name: string } | null {
+  const t = text.trim();
+  const uri = /^ethereum:(?:pay-)?(0x[0-9a-fA-F]{40})(?:@(\d+))?(?:[/?].*)?$/i.exec(t);
+  if (uri) return { address: uri[1], chainId: uri[2] ? Number(uri[2]) : 1, name: uri[2] ? `chain ${uri[2]}` : "eth" };
+  const prefixed = /^([a-z][a-z0-9-]{0,15}):(0x[0-9a-fA-F]{40})$/i.exec(t);
+  if (!prefixed) return null;
+  const name = prefixed[1].toLowerCase();
+  return { address: prefixed[2], chainId: EVM_SHORT_NAMES[name] ?? null, name };
+}
+
 /** The address grouped in fours for reading aloud (plan §58): "0x9858 EfFD 232B …", "bc1q cr8t e4kr …". */
 export function groupAddress(address: string, size = 4): string {
   const body = address.startsWith("0x") ? address.slice(2) : address;

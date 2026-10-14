@@ -16,7 +16,11 @@ import { base58 } from "@scure/base";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { selectable, COOLING_OFF_MS } from "@privacy-wallet/protocol/wallet/addressBook";
 import { Swap } from "../src/features/swap/Swap";
-import { Send } from "../src/features/send/Send";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { vi } from "vitest";
+import { Providers } from "../src/app/Providers";
+import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
+import { SendScreen } from "../src/features/send/SendScreen";
 import { Receive } from "../src/features/wallet/Receive";
 import { Advanced } from "../src/features/more/Advanced";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -30,6 +34,11 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { Protection, QuoteSet } from "@privacy-wallet/sdk/swapService";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+// the relayer's terms (Send quotes with them): read from the engine, never fetched here
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
+  feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
+}));
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
 let root: Root | null = null;
 afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); noteStore.clear(); });
@@ -142,9 +151,10 @@ describe("destinations on the screens (spec §12)", () => {
   it("Send to a public address at high-value: a typed address is not usable until it is in the book, verified by its groups, and either cooled or confirmed for immediate use with the phrase, the hold and the password", async () => {
     await unlocked();
     noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
-    const c = await mount(<Send masterSeed={session.state().seed!} deployment={deployment} initialMode="public" />); // no price on chain 1: the fail-safe tier is high-value
-    await act(async () => { setValue(c.querySelector('[data-testid="send-amount-input"]') as HTMLInputElement, "0.5"); });
-    const input = c.querySelector('input[placeholder^="0x"]') as HTMLInputElement;
+    const router = createMemoryRouter([{ path: "/send/*", element: <SendScreen masterSeed={session.state().seed!} deployment={deployment} /> }], { initialEntries: ["/send"], future: ROUTER_FUTURE });
+    const c = await mount(<Providers deployment={deployment}><RouterProvider router={router} future={PROVIDER_FUTURE} /></Providers>); // no price on chain 1: the fail-safe tier is high-value
+    await act(async () => { setValue(c.querySelector('[data-testid="amount-input"]') as HTMLInputElement, "0.5"); });
+    const input = c.querySelector('[data-testid="address-input"]') as HTMLInputElement;
     await act(async () => { setValue(input, EVM); });
     let status = c.querySelector('[data-testid="destination-status"]')!;
     expect(status.getAttribute("data-reason")).toBe("unknown");
@@ -188,8 +198,7 @@ describe("destinations on the screens (spec §12)", () => {
     status = c.querySelector('[data-testid="destination-status"]')!;
     expect(status.getAttribute("data-ok")).toBe("1");
     expect(status.textContent).toContain("the cooling-off was overridden");
-    for (const b of [...c.querySelectorAll("button")].filter((x) => x.textContent?.trim() === "I understand")) await act(async () => { b.click(); }); // the lint's block items (an entered destination at high-value)
-    expect(button(c, "Review")!.disabled).toBe(false);
+    await vi.waitFor(() => expect(button(c, "Review")!.disabled).toBe(false)); // V6: the lint is on the Review
     await act(async () => { button(c, "Review")!.click(); });
     const line = c.querySelector('[data-line="destination"]')!;
     expect(line.textContent).toContain("the cooling-off was overridden");

@@ -1,14 +1,19 @@
 // @vitest-environment happy-dom
-// Protect Assets (spec §3.4, §3.11, §9, §12): the connected wallet's balance read through its own provider, the common
-// sizes, the fee summary (V6: no router configured here, so no privacy fee line), the tap to confirm, the operation record from the signature to COMPLETED
-// with the leaf, a declined prompt ("Your funds were not moved."), the ERC-20 two-step events, the backup nudge once.
+// Protect Assets on the V6 screens (spec v2.0 §7.3, §7.6–§7.7; doc §19, §22–§23, §58): /protect the one page — the
+// connected wallet's account and balance read through its own provider, the amount typed once, what arrives after
+// ProtectRouter's 1 %, the network cost — then /protect/review (a tap below $50K; the recovery-information card once per
+// session), /protect/progress/:opId (the §58 lines), what was added; a declined prompt ("Your funds were not moved.")
+// and the way back to the Review; a reverted receipt (FAILED, not moved); the ERC-20 two prompts in one operation; the
+// common sizes under Advanced only; without a wallet the connection is offered and nothing is read.
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { getAddress } from "viem";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
 import { allOperations, finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
-import { Protect } from "../src/features/protect/Protect";
+import { ProtectScreen, type ProtectScreenProps } from "../src/features/protect/ProtectScreen";
+import { PROTECT_OPERATION_STATE, PROTECT_STEPS, protectModel, protectStepOf } from "../src/features/protect/model";
 import { setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { prefs } from "../src/storage/prefs";
@@ -16,6 +21,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { activityOf } from "@privacy-wallet/sdk/wallet/activity";
+import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
@@ -49,10 +55,33 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
 const OWNER = getAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
 const USDC = getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 const USDC_VAULT = getAddress("0x00000000000000000000000000000000000ca5de");
-const deployment: Deployment = { chainId: 31337, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: getAddress("0x00000000000000000000000000000000000000e7"), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [{ symbol: "USDC", decimals: 6, vault: USDC_VAULT, token: USDC }] };
+const ROUTER = getAddress("0x00000000000000000000000000000000000000a1");
+const deployment: Deployment = {
+  chainId: 31337,
+  core: getAddress("0x00000000000000000000000000000000000000c0"),
+  ethVault: getAddress("0x00000000000000000000000000000000000000e7"),
+  rpcUrl: "http://127.0.0.1:1",
+  rpcUrls: ["http://127.0.0.1:1"],
+  fromBlock: 0n,
+  erc20Vaults: [{ symbol: "USDC", decimals: 6, vault: USDC_VAULT, token: USDC }],
+  protectRouter: ROUTER,
+};
 const fetchSpy = vi.fn(async () => new Response("{}", { status: 404 }));
-beforeAll(() => { globalThis.fetch = fetchSpy as unknown as typeof fetch; });
-afterEach(() => { cleanup(); session.forget(); settings.reset(); prefs().reset(); noteStore.clear(); resetOperationsMemory(); setActiveProvider(null); calls.native = []; calls.erc20 = []; nativeBehaviour = "ok"; });
+beforeAll(() => {
+  globalThis.fetch = fetchSpy as unknown as typeof fetch;
+});
+afterEach(() => {
+  cleanup();
+  session.forget();
+  settings.reset();
+  prefs().reset();
+  noteStore.clear();
+  resetOperationsMemory();
+  setActiveProvider(null);
+  calls.native = [];
+  calls.erc20 = [];
+  nativeBehaviour = "ok";
+});
 
 /** The connected wallet's provider: a 2 ETH balance, a gas estimate and a gas price of its own; nothing else. */
 function provider() {
@@ -62,7 +91,7 @@ function provider() {
       seen.push(method);
       if (method === "eth_accounts" || method === "eth_requestAccounts") return [OWNER];
       if (method === "eth_getBalance") return "0x" + (2n * 10n ** 18n).toString(16);
-      if (method === "eth_estimateGas") return "0x" + (120_000n).toString(16);
+      if (method === "eth_estimateGas") return "0x" + 120_000n.toString(16);
       if (method === "eth_gasPrice") return "0x" + (20n * 10n ** 9n).toString(16);
       if (method === "eth_call") throw new Error("unexpected call");
       throw new Error(`unsupported ${method}`);
@@ -71,103 +100,251 @@ function provider() {
   };
   return eth;
 }
-async function unlocked() { await session.create("a strong password"); session.acknowledgePhrase(); }
+async function unlocked() {
+  await session.create("a strong password");
+  session.acknowledgePhrase();
+}
 const type = (el: HTMLElement, v: string) => fireEvent.input(el, { target: { value: v } });
+/** The screen under its splat route, as the application mounts it. */
+function mount(props: Partial<ProtectScreenProps> = {}) {
+  const router = createMemoryRouter(
+    [{ path: "/protect/*", element: <ProtectScreen masterSeed={session.state().seed!} deployment={deployment} account={OWNER} {...props} /> }],
+    { initialEntries: ["/protect"], future: ROUTER_FUTURE },
+  );
+  render(<RouterProvider router={router} future={PROVIDER_FUTURE} />);
+  return { router, path: () => router.state.location.pathname };
+}
 
-describe("Protect Assets (spec §3.4)", () => {
-  it("reads the wallet's balance through its provider, offers common sizes, shows the fee summary, and a tap takes the record from the signature to COMPLETED with the leaf", async () => {
+describe("the Protect flow's model (spec v2.0 §7.3: the §23 reducer on the operation states)", () => {
+  it("each step from what is known, and each step as an operation state: a draft before the review, signed from the prompt", () => {
+    const base = { assetChosen: true, units: 5_000_000_000n, balance: 5_210_000_000n, feeReady: true, reviewing: false, record: null };
+    expect(protectStepOf({ ...base, assetChosen: false })).toBe("SELECT_ASSET");
+    expect(protectStepOf({ ...base, units: 0n })).toBe("ENTER_AMOUNT");
+    expect(protectStepOf({ ...base, balance: null })).toBe("VALIDATE_BALANCE");
+    expect(protectStepOf({ ...base, balance: 1n })).toBe("VALIDATE_BALANCE");
+    expect(protectStepOf({ ...base, feeReady: false })).toBe("CALCULATE_FEE");
+    expect(protectStepOf({ ...base, reviewing: true })).toBe("PREPARE_TRANSACTION");
+    expect(protectStepOf({ ...base, record: { state: "AWAITING_SIGNATURE" } })).toBe("WALLET_CONFIRM");
+    expect(protectStepOf({ ...base, record: { state: "SUBMITTED" } })).toBe("SUBMITTED");
+    expect(protectStepOf({ ...base, record: { state: "CONFIRMING" } })).toBe("CONFIRMED");
+    expect(protectStepOf({ ...base, record: { state: "COMPLETED" } })).toBe("PROTECTED_BALANCE_UPDATED");
+    expect(PROTECT_STEPS.map((s) => PROTECT_OPERATION_STATE[s])).toEqual([
+      "DRAFT",
+      "DRAFT",
+      "DRAFT",
+      "QUOTING",
+      "REVIEW",
+      "AWAITING_SIGNATURE",
+      "SUBMITTED",
+      "CONFIRMING",
+      "COMPLETED",
+    ]);
+  });
+  it("the one page's model: the document's 5,000 USDC → 4,950 with a 50 USDC fee; the network cost in cents from the wallet's own wei; too much or too little in words' keys", () => {
+    const usdc = { symbol: "USDC", decimals: 6 };
+    const m = protectModel({
+      asset: usdc,
+      account: OWNER,
+      balance: 5_210_000_000n,
+      amount: "5000",
+      units: 5_000_000_000n,
+      split: { fee: 50_000_000n, net: 4_950_000_000n },
+      networkWei: 2_400_000_000_000_000n,
+      ethUsd1e8: 1_800n * 10n ** 8n,
+    });
+    expect(m.quote).toEqual({
+      receive: { units: 4_950_000_000n, symbol: "USDC", decimals: 6, displayDecimals: 2 },
+      privacyFee: { units: 50_000_000n, symbol: "USDC", decimals: 6, displayDecimals: 2 },
+      networkUsdCents: 432n,
+    });
+    expect(m.error).toBeNull();
+    expect(
+      protectModel({
+        asset: usdc,
+        account: OWNER,
+        balance: 1n,
+        amount: "5000",
+        units: 5_000_000_000n,
+        split: { fee: 50_000_000n, net: 4_950_000_000n },
+        networkWei: null,
+        ethUsd1e8: null,
+      }),
+    ).toMatchObject({ error: "insufficient", quote: null });
+    expect(
+      protectModel({
+        asset: usdc,
+        account: OWNER,
+        balance: null,
+        amount: "0.000001",
+        units: 1n,
+        split: { fee: 1n, net: 0n },
+        networkWei: null,
+        ethUsd1e8: null,
+      }),
+    ).toMatchObject({ error: "too-small", quote: null });
+    expect(
+      protectModel({
+        asset: usdc,
+        account: OWNER,
+        balance: null,
+        amount: "5000",
+        units: 5_000_000_000n,
+        split: { fee: 50_000_000n, net: 4_950_000_000n },
+        networkWei: null,
+        ethUsd1e8: null,
+      }).quote?.networkUsdCents,
+      "no estimate: no figure",
+    ).toBeNull();
+  });
+});
+
+describe("Protect Assets (spec v2.0 §7.3)", () => {
+  it("reads the wallet's balance through its provider; the 1 % comes off what arrives; Review, a tap, the progress lines, then what was added — the record from the signature to COMPLETED with the leaf", async () => {
     await unlocked();
     const eth = provider();
     setActiveProvider(eth);
     const onDone = vi.fn();
-    render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} onDone={onDone} />);
-    await waitFor(() => expect(screen.getByTestId("protect-public-balance").textContent).toContain("2 ETH"));
-    expect(screen.getByTestId("protect-connection").textContent).toContain("Connected: 0x98…da94");
-    expect(screen.getAllByTestId("protect-amount-bucket").map((b) => b.textContent)).toEqual(["0.1 ETH", "0.2 ETH", "0.5 ETH", "1 ETH", "2 ETH", "5 ETH"]);
-    fireEvent.click(screen.getAllByTestId("protect-amount-bucket")[3]);
-    expect((screen.getByTestId("protect-amount-input") as HTMLInputElement).value).toBe("1");
-    const fees = screen.getByTestId("protect-fees");
-    expect(fees.textContent).toContain("You receive");
-    expect(fees.textContent, "the note holds exactly what remains (V6)").toContain("You receive1 ETH");
-    fireEvent.click(within(fees).getByRole("button", { expanded: false }));
-    expect(fees.textContent, "a deployment without ProtectRouter: no privacy fee (V6, spec v2.0 §11.1)").not.toContain("Privacy fee");
+    const { path } = mount({ onDone });
+    await waitFor(() => expect(screen.getByTestId("protect-from").textContent).toContain("2 ETH"));
+    expect(screen.getByTestId("protect-from").textContent).toContain("0x98…da94");
+    expect(screen.queryByTestId("protect-chips"), "the common sizes are Advanced only").toBeNull();
+    expect((screen.getByTestId("protect-review") as HTMLButtonElement).disabled, "nothing typed yet").toBe(true);
+    type(screen.getByTestId("amount-input"), "1");
+    expect(screen.getByTestId("protect-receive").textContent).toContain("0.99 ETH");
+    expect(screen.getByTestId("protect-privacy-fee").textContent).toContain("0.01 ETH");
     await waitFor(() => expect(eth.seen).toContain("eth_estimateGas"));
     expect(eth.seen).toContain("eth_gasPrice");
     expect(fetchSpy, "nothing through this wallet's endpoints for the estimate").not.toHaveBeenCalled();
-    // an exact amount is nudged toward a common size
-    type(screen.getByTestId("protect-amount-input"), "1.37");
-    expect(screen.getByTestId("protect-use-bucket").textContent).toBe("Use 1 ETH");
-    fireEvent.click(screen.getByTestId("protect-use-bucket"));
-    fireEvent.click(screen.getByTestId("protect-submit"));
-    const sheet = await screen.findByTestId("protect-confirm-summary");
-    expect(sheet.textContent).toContain("Your connected wallet pays 1 ETH into your protected balance.");
-    expect(within(sheet).getByTestId("backup-nudge").textContent).toContain("Protect your wallet");
-    await act(async () => { fireEvent.click(screen.getByTestId("confirm-tap")); });
+    fireEvent.click(screen.getByTestId("protect-review"));
+    expect(path()).toBe("/protect/review");
+    expect(screen.getByTestId("review-expected").textContent).toContain("0.99 ETH");
+    expect(screen.getByTestId("review-fee-privacy").textContent).toContain("0.01 ETH");
+    expect(screen.getByTestId("review-destination").textContent).toContain("Your protected balance");
+    expect(screen.getByTestId("backup-nudge").textContent).toContain("Protect your wallet");
+    expect(screen.queryByTestId("hold-to-confirm"), "below $50K: a tap").toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     await screen.findByTestId("protect-done");
-    expect(screen.getByTestId("protect-done").textContent).toContain("Added 1 ETH to your protected balance.");
+    expect(path()).toMatch(/^\/protect\/progress\/protect:[0-9a-z:]+$/);
+    expect(screen.getByTestId("protect-done").textContent).toContain("Added 0.99 ETH to your protected balance.");
     expect(calls.native).toEqual([10n ** 18n]);
     const [rec] = finishedOperations();
-    expect(rec).toMatchObject({ kind: "protect", state: "COMPLETED", refs: { txHashes: [HASH], leafIndex: 7 }, amounts: { asset: "ETH", input: "1000000000000000000" } });
+    expect(rec).toMatchObject({
+      kind: "protect",
+      state: "COMPLETED",
+      refs: { txHashes: [HASH], leafIndex: 7 },
+      amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "990000000000000000" },
+    });
     expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
     expect(openOperations()).toEqual([]);
-    expect(screen.getByTestId("operation-progress").getAttribute("data-state")).toBe("COMPLETED");
+    expect(screen.queryByTestId("protect-technical"), "the technical lines are Advanced only").toBeNull();
     fireEvent.click(screen.getByTestId("protect-finish"));
     expect(onDone).toHaveBeenCalled();
   });
-  it("a declined wallet prompt: back to the review with 'Your funds were not moved.' and the way back; a reverted receipt after submission is a final failure (FAILED, not moved)", async () => {
+  it("a declined wallet prompt: 'Your funds were not moved.' and the way back to the Review; a reverted receipt after submission is a final failure (FAILED, not moved)", async () => {
     await unlocked();
     setActiveProvider(provider());
     nativeBehaviour = "rejected";
-    render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} />);
-    type(screen.getByTestId("protect-amount-input"), "0.5");
-    fireEvent.click(screen.getByTestId("protect-submit"));
-    await act(async () => { fireEvent.click(await screen.findByTestId("confirm-tap")); });
+    const { path } = mount();
+    type(screen.getByTestId("amount-input"), "0.5");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     const error = await screen.findByTestId("operation-progress-error");
     expect(error.textContent).toContain("You declined in your wallet");
     expect(error.textContent).toContain("Your funds were not moved.");
-    expect(error.getAttribute("data-state") ?? within(error).getByText("Your funds were not moved.").getAttribute("data-state")).toBe("not-moved");
-    expect(openOperations(), "V6: a declined prompt is a draft again — nothing was signed").toEqual([]);
+    expect(openOperations(), "a declined prompt is a draft again — nothing was signed").toEqual([]);
     expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "REVIEW", declined: { code: "user_rejected" } });
     expect(session.journal().operations ?? [], "and it left the journal").toEqual([]);
     fireEvent.click(screen.getByTestId("protect-back"));
-    expect(screen.getByTestId("protect-submit")).toBeInTheDocument();
+    expect(path()).toBe("/protect/review");
     nativeBehaviour = "reverted";
-    fireEvent.click(screen.getByTestId("protect-submit"));
-    await act(async () => { fireEvent.click(await screen.findByTestId("confirm-tap")); });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     const error2 = await screen.findByTestId("operation-progress-error");
     expect(error2.textContent).toContain("The transaction reverted");
-    expect(finishedOperations().find((r) => r.state === "FAILED")).toMatchObject({ reason: { code: "receipt_reverted", fundsClass: "not-moved" }, refs: { txHashes: [HASH] } });
+    expect(finishedOperations().find((r) => r.state === "FAILED")).toMatchObject({
+      reason: { code: "receipt_reverted", fundsClass: "not-moved" },
+      refs: { txHashes: [HASH] },
+    });
     expect(activityOf(session.journal())).toEqual([]);
   });
-  it("an ERC-20 protect: the approval first (1 of 2), then the deposit; the record notes the approval; the backup nudge is shown once per session", async () => {
+  it("an ERC-20 protect: the approval first (1 of 2), then the deposit, one operation; the common sizes under Advanced; the recovery-information card is shown once per session", async () => {
     await unlocked();
     setActiveProvider(provider());
-    render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={OWNER} />);
-    fireEvent.click(screen.getByTestId("protect-asset"));
+    settings.set({ advanced: true });
+    mount();
+    fireEvent.click(screen.getByTestId("protect-from-asset"));
     const usdc = (await screen.findAllByTestId("protect-asset-selector-option")).find((b) => b.textContent?.includes("USDC"))!;
     fireEvent.click(usdc);
-    expect(screen.getByTestId("protect-public-note").textContent).toContain("after an exact-amount approval");
-    expect(screen.getAllByTestId("protect-amount-bucket").map((b) => b.textContent)).toEqual(["100 USDC", "200 USDC", "500 USDC", "1000 USDC", "2000 USDC", "5000 USDC"]);
-    type(screen.getByTestId("protect-amount-input"), "500");
-    fireEvent.click(screen.getByTestId("protect-submit"));
-    const sheet = await screen.findByTestId("protect-confirm-summary");
-    expect(within(sheet).queryByTestId("backup-nudge"), "dismissed earlier in this session").toBeNull();
-    await act(async () => { fireEvent.click(screen.getByTestId("confirm-tap")); });
+    expect(screen.getAllByTestId("protect-chip").map((b) => b.textContent)).toEqual([
+      "100 USDC",
+      "200 USDC",
+      "500 USDC",
+      "1,000 USDC",
+      "2,000 USDC",
+      "5,000 USDC",
+    ]);
+    fireEvent.click(screen.getAllByTestId("protect-chip")[2]);
+    expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("500");
+    expect(screen.getByTestId("protect-receive").textContent).toContain("495 USDC");
+    expect(screen.getByTestId("protect-privacy-fee").textContent).toContain("5 USDC");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    expect(screen.queryByTestId("backup-nudge"), "dismissed earlier in this session").toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
     await screen.findByTestId("protect-done");
+    expect(screen.getByTestId("protect-done").textContent).toContain("Added 495 USDC to your protected balance.");
+    fireEvent.click(screen.getByTestId("protect-technical-toggle"));
+    expect(screen.getByTestId("protect-technical").textContent, "Advanced: the technical lines").toContain(APPROVE);
     expect(calls.erc20).toEqual([500_000_000n]);
     const [rec] = finishedOperations();
-    expect(rec).toMatchObject({ state: "COMPLETED", amounts: { asset: "USDC", decimals: 6 }, refs: { txHashes: [HASH], leafIndex: 8 } });
+    expect(rec).toMatchObject({
+      state: "COMPLETED",
+      amounts: { asset: "USDC", decimals: 6, input: "500000000", expectedOutput: "495000000" },
+      refs: { txHashes: [HASH], leafIndex: 8 },
+    });
     expect(rec.history.find((h) => h.state === "AWAITING_SIGNATURE")?.note).toBe(`approval ${APPROVE}`);
   });
-  it("without a connected wallet the balance and the estimate are not read and the connect control is offered", async () => {
+  it("more than the wallet holds is refused in words before the Review", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    mount();
+    await waitFor(() => expect(screen.getByTestId("protect-from").textContent).toContain("2 ETH"));
+    type(screen.getByTestId("amount-input"), "3");
+    expect(screen.getByTestId("protect-error").textContent).toMatch(/\w/);
+    expect((screen.getByTestId("protect-review") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("protect-max"));
+    expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("2");
+    expect(screen.queryByTestId("protect-error")).toBeNull();
+  });
+  it("without a connected wallet the balance and the estimate are not read and the connection is offered", async () => {
     await unlocked();
     const onConnect = vi.fn();
-    render(<Protect masterSeed={session.state().seed!} deployment={deployment} account={null} onConnect={onConnect} />);
-    expect(screen.getByTestId("protect-connection").textContent).toBe("Connect the wallet that pays the deposit");
+    mount({ account: null, onConnect });
     fireEvent.click(screen.getByTestId("protect-connect"));
     expect(onConnect).toHaveBeenCalled();
-    type(screen.getByTestId("protect-amount-input"), "1");
-    expect(screen.getByTestId("protect-fees").textContent).toContain("read at confirmation");
+    type(screen.getByTestId("amount-input"), "1");
+    expect(screen.getByTestId("protect-receive").textContent).toContain("0.99 ETH");
+    expect(screen.getByTestId("protect-network-fee").textContent).toMatch(/—$/);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("an unknown route under /protect returns to the page; the Review without an amount returns to the page", async () => {
+    await unlocked();
+    const router = createMemoryRouter(
+      [{ path: "/protect/*", element: <ProtectScreen masterSeed={session.state().seed!} deployment={deployment} account={null} /> }],
+      { initialEntries: ["/protect/review"], future: ROUTER_FUTURE },
+    );
+    render(<RouterProvider router={router} future={PROVIDER_FUTURE} />);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/protect"));
+    await act(async () => {
+      await router.navigate("/protect/elsewhere");
+    });
+    expect(router.state.location.pathname).toBe("/protect");
+    expect(screen.getByTestId("protect-view")).toBeTruthy();
   });
 });

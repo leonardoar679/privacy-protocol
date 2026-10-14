@@ -114,6 +114,8 @@ export interface JournalData {
   operations?: OperationRecord[];
   /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
   classic?: { deposits: ClassicDepositRecord[] };
+  /** V6 Stage 10 (doc §71; spec v2.0 §10): the deployment fingerprint first seen per chain id (deploymentGuard.ts) — a different one blocks every operation until it is forgotten under Advanced. Optional, never written by emptyJournal(). */
+  deploymentFingerprints?: Record<string, string>;
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }

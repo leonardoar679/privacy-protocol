@@ -2,7 +2,8 @@
 // technical detail and the controls the Simple experience hides — the deployment and the crypto core, the light client
 // and the submission path, protected balance maintenance, the protected-execution knobs with the two-step opt-out,
 // the second device, the address book. Every test id of the V2–V4 Settings screen is kept; everything is journaled
-// (encrypted) and nothing is sent anywhere.
+// (encrypted) and nothing is sent anywhere. V6 Stage 10 (doc §71): the deployment fingerprint remembered at the first
+// operation, and the deliberate way to forget it (the next operation then remembers the deployment this app names).
 import { useState } from "react";
 import { formatEther, parseEther } from "viem";
 import { Button, Card, Field, Page, Input } from "@privacy-wallet/ui";
@@ -10,11 +11,12 @@ import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
 import { registerSecondDevice, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
+import { forgetDeployment } from "@privacy-wallet/sdk/deploymentGuard";
 import { requestSystemNotifications } from "@privacy-wallet/sdk/wallet/notifications";
 import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type ProtectionMode } from "@privacy-wallet/sdk/wallet/settings";
 import { AddressBookPanel } from "../../components/protection/AddressBook";
 import { useStatusLines } from "./statusLines";
-import { useSettings } from "../../hooks";
+import { useDeploymentFingerprint, useSettings } from "../../hooks";
 
 export function Advanced({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {
   const t = useT();
@@ -29,6 +31,8 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
   const [share, setShare] = useState(() => (p.providerShareCapBps !== undefined ? String(p.providerShareCapBps / 100) : ""));
   const [velocity, setVelocity] = useState(() => (p.velocity ? String(p.velocity.maxUsdPer24h) : ""));
   const [knobError, setKnobError] = useState("");
+  const fingerprint = useDeploymentFingerprint(deployment?.chainId ?? null);
+  const [forgotten, setForgotten] = useState(false);
 
   function applyCap() {
     try { settings.set({ housekeeping: { ...s.housekeeping, dailyFeeCapWei: parseEther(cap || "0").toString() } }); } catch { setCap(formatEther(BigInt(s.housekeeping.dailyFeeCapWei))); }
@@ -75,6 +79,12 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
         <Card testId="technical">
           <div className="ds-stack-sm">
             <p className="ds-note" data-testid="deployment-line">{deployment ? t("advanced.deployment", { core: deployment.core.slice(0, 8), chain: deployment.chainId, endpoints: deployment.rpcUrls.length, line: coreLine }) : t("advanced.noDeployment")}</p>
+            {deployment ? (
+              <div className="ds-stack-sm" data-testid="deployment-fingerprint">
+                <p className="ds-note">{fingerprint ? t("advanced.fingerprint", { hash: `${fingerprint.slice(0, 10)}…${fingerprint.slice(-6)}` }) : forgotten ? t("advanced.fingerprintForgotten") : t("advanced.fingerprintNone")}</p>
+                {fingerprint ? <Button variant="secondary" onClick={() => { forgetDeployment(deployment.chainId); setForgotten(true); }} data-testid="deployment-forget">{t("advanced.fingerprintForget")}</Button> : null}
+              </div>
+            ) : null}
             <p className="ds-note">{t("advanced.unaudited")}</p>
           </div>
         </Card>

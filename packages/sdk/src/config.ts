@@ -48,6 +48,8 @@ export interface SdkConfig {
   priceFeeds: FeedSpec[] | null;
   /** the pointer hold of a confirmation, in ms (tests shorten it) */
   holdMs: number;
+  /** V6 Stage 10 (doc §71): check the deployed contracts before a session's first money operation (deploymentGuard.ts); absent = on, the test configuration turns it off */
+  deploymentCheck?: boolean;
   /** the institutional review hold, in minutes (the local stack shortens it) */
   reviewHoldMinutes: number;
   /** scrypt's cost as log2 N for tests and dev builds (12…20); production keeps the keystore default */

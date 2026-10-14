@@ -27,8 +27,8 @@ async function unlocked() { await session.create("a strong password"); session.a
 const SCREENS: { path: string; id: string; wallet: boolean }[] = [
   { path: "/welcome", id: "welcome", wallet: false },
   { path: "/", id: "home", wallet: true },
-  { path: "/protect", id: "protect", wallet: true },
-  { path: "/send", id: "send-tab", wallet: true },
+  { path: "/protect", id: "protect-view", wallet: true },
+  { path: "/send", id: "send-view", wallet: true },
   { path: "/receive", id: "sheet-receive", wallet: true },
   { path: "/swap", id: "swap", wallet: true },
   { path: "/activity", id: "activity", wallet: true },

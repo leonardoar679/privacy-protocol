@@ -3,7 +3,10 @@
 // confirmation: a tap below $50K, Hold to Confirm from $50K with the Protected execution checks (protection is automatic
 // there: no mode to choose). A cross-chain Review carries the one sentence on settlement not being atomic. A blocker
 // found between the Review and the signature replaces it: "We stopped this transaction", the reason, "Your funds have
-// not moved." Pure: the flows are wired under it in Stages 10–11.
+// not moved." Pure: the flows are wired under it in Stages 10–11 (V6 Stage 10: `hold` apart from `large` — a $60K send is
+// held without a swap's protected-execution checks — and an `extra` slot the flow fills with what its band adds: the
+// privacy lint, the typed-in destination re-confirmed; `confirmDisabled` until those are done).
+import type { ReactNode } from "react";
 import { Button, HoldButton, Page, ReviewLayout, StateScreen, TextButton, Card, type ReviewSection } from "@privacy-wallet/ui";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { useT } from "../../app/i18n/useT";
@@ -27,6 +30,10 @@ export interface ReviewModel {
   protection: Level;
   /** $50K and above (doc §49): the protected execution, a hold to confirm */
   large: boolean;
+  /** confirm by holding (default: `large`) — a send from $50K holds without the swap's checks */
+  hold?: boolean;
+  /** the band's own steps are not done yet (the lint acknowledged, the typed-in destination re-confirmed) */
+  confirmDisabled?: boolean;
   blocked?: BlockerCode | null;
 }
 export interface ReviewActions {
@@ -53,7 +60,17 @@ const BLOCKER: Record<BlockerCode, MessageKey> = {
 };
 const LARGE_CHECKS: MessageKey[] = ["screen.review.large.destination", "screen.review.large.quote", "screen.review.large.route", "screen.review.large.limits"];
 
-export function ReviewView({ model: m, actions: a, holdMs = 1500 }: { model: ReviewModel; actions: ReviewActions; holdMs?: number }) {
+export function ReviewView({
+  model: m,
+  actions: a,
+  holdMs = 1500,
+  extra,
+}: {
+  model: ReviewModel;
+  actions: ReviewActions;
+  holdMs?: number;
+  /** the band's own notices, in the flow's words */ extra?: ReactNode;
+}) {
   const t = useT();
   if (m.blocked) {
     return (
@@ -141,13 +158,14 @@ export function ReviewView({ model: m, actions: a, holdMs = 1500 }: { model: Rev
                 {t("screen.review.notAtomic")}
               </p>
             ) : null}
+            {extra}
           </>
         }
         action={
-          m.large ? (
-            <HoldButton label={t("screen.review.hold")} holdMs={holdMs} onConfirm={a.onConfirm} testId="hold-to-confirm" />
+          (m.hold ?? m.large) ? (
+            <HoldButton label={t("screen.review.hold")} holdMs={holdMs} onConfirm={a.onConfirm} disabled={m.confirmDisabled} testId="hold-to-confirm" />
           ) : (
-            <Button size="lg" full onClick={a.onConfirm} data-testid="review-confirm">
+            <Button size="lg" full onClick={a.onConfirm} disabled={m.confirmDisabled} data-testid="review-confirm">
               {t("screen.review.confirm")}
             </Button>
           )

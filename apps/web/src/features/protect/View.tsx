@@ -1,7 +1,8 @@
 // Protect (spec v2.0 §7.3; doc §22–§23): one page before confirmation — from the external wallet (its account and
 // balance) into the protected balance, the amount typed once, then what the user receives, the 1 % privacy fee and the
 // relayer / network estimate, and one action: Review. Pure: a view-model in, callbacks out; the engine is wired under
-// it in Stage 10 (the V5 screen stays in ./Protect.tsx until then).
+// it by ./ProtectScreen.tsx (V6 Stage 10) through ./model.ts. Without a connected wallet the source offers the connection;
+// the common sizes are Advanced only.
 import { AddressChip, Button, Card, FeeLines, FlowCard, Page, TextButton, cleanAmount } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { Amt, Usd, type Amount } from "../viewKit";
@@ -14,6 +15,10 @@ export interface ProtectModel {
   amount: string;
   quote: { receive: Amount; privacyFee: Amount; networkUsdCents: bigint | null } | null;
   error: "insufficient" | "too-small" | null;
+  /** no external wallet yet: the source offers the connection */
+  connect?: { connecting: boolean } | null;
+  /** Advanced (spec v2.0 §7.3): the common sizes */
+  chips?: { label: string; value: string }[];
 }
 export interface ProtectActions {
   onAmount: (v: string) => void;
@@ -21,6 +26,8 @@ export interface ProtectActions {
   onMax?: () => void;
   onReview: () => void;
   onBack?: () => void;
+  onConnect?: () => void;
+  onChip?: (value: string) => void;
 }
 
 export function ProtectView({ model: m, actions: a }: { model: ProtectModel; actions: ProtectActions }) {
@@ -74,6 +81,11 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
                   {t("common.max")}
                 </TextButton>
               ) : null}
+              {m.connect && a.onConnect ? (
+                <Button variant="secondary" loading={m.connect.connecting} onClick={a.onConnect} data-testid="protect-connect">
+                  {t("protect.connect")}
+                </Button>
+              ) : null}
             </span>
           ),
           testId: "protect-from",
@@ -86,6 +98,15 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
           testId: "protect-to",
         }}
       />
+      {m.chips?.length && a.onChip ? (
+        <div className="ds-chips" role="group" aria-label={t("protect.commonSizes")} data-testid="protect-chips">
+          {m.chips.map((c) => (
+            <button key={c.value} type="button" className="ds-chip" onClick={() => a.onChip?.(c.value)} data-testid="protect-chip">
+              {c.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {m.error ? (
         <p className="ds-field-error" role="alert" data-testid="protect-error">
           {t(m.error === "insufficient" ? "screen.protect.insufficient" : "screen.protect.tooSmall")}

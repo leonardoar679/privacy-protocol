@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana } from "../src/wallet/destinations";
+import { EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana } from "../src/wallet/destinations";
 
 const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("./vectors/chainkeys.json", import.meta.url)), "utf8"));
 const EVM = vectors.bip44_evm.account0.address as string; // 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
@@ -61,5 +61,21 @@ describe("destinations", () => {
   it("groups an address in fours for the card", () => {
     expect(groupAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94")).toBe("0x9858 EfFD 232B 4033 E47d 9000 3D41 EC34 EcaE da94");
     expect(groupAddress("bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu")).toBe("bc1q cr8t e4kr 609g cawu tmrz a0j4 xv80 jy8z 306f yu");
+  });
+});
+
+describe("V6 (spec v2.0 §7.4): an EVM address that names its chain", () => {
+  it("ERC-3770 short names and EIP-681 URIs name the chain; a bare address names none", () => {
+    expect(evmChainHint(`base:${EVM}`)).toEqual({ address: EVM, chainId: 8453, name: "base" });
+    expect(evmChainHint(` arb1:${EVM} `)).toEqual({ address: EVM, chainId: 42161, name: "arb1" });
+    expect(evmChainHint(`eth:${EVM}`)?.chainId).toBe(1);
+    expect(evmChainHint(`ethereum:${EVM}@8453`)).toEqual({ address: EVM, chainId: 8453, name: "chain 8453" });
+    expect(evmChainHint(`ethereum:${EVM}`)?.chainId, "an EIP-681 URI without a chain id is mainnet").toBe(1);
+    expect(evmChainHint(`ethereum:pay-${EVM}@10/transfer?value=1`)?.chainId).toBe(10);
+    expect(evmChainHint(`zora:${EVM}`), "an unknown short name: the chain is not known, it is never assumed").toEqual({ address: EVM, chainId: null, name: "zora" });
+    expect(evmChainHint(EVM)).toBeNull();
+    expect(evmChainHint(BTC)).toBeNull();
+    expect(evmChainHint("base:0x1234")).toBeNull();
+    expect(Object.values(EVM_SHORT_NAMES)).toContain(1);
   });
 });

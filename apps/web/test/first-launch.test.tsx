@@ -82,22 +82,21 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     expect(await screen.findByTestId("home")).toBeInTheDocument();
     expect(fetchSpy, "after the four routes").not.toHaveBeenCalled();
 
-    // Send, from Home: the public mode pre-fills the next fresh EVM address of this wallet, shown but not reserved
+    // Send, from Home: the next fresh EVM address of this wallet is one tap away in the address book, shown but not reserved
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByTestId("send-tab")).toBeInTheDocument();
+    expect(await screen.findByTestId("send-view")).toBeInTheDocument();
     expect(pathname()).toBe("/send");
-    fireEvent.click(screen.getByRole("radio", { name: "To a public address" })); // V5: the Send screen's segmented control
     const evmIndex = session.journal().chainIndexes.evm ?? 0;
-    const recipient = [...document.querySelectorAll("input")].find((i) => /^0x[0-9a-fA-F]{40}$/.test((i as HTMLInputElement).value)) as HTMLInputElement | undefined;
-    expect(recipient?.value, "Withdraw pre-fills a fresh address").toBe(peekFreshAddress(session.state().seed!, "evm").address);
+    fireEvent.click(screen.getAllByTestId("address-book-entry")[0]); // V6 (spec v2.0 §7.4): the fresh address of this wallet, from the book
+    expect((screen.getByTestId("address-input") as HTMLInputElement).value, "the book offers a fresh address").toBe(peekFreshAddress(session.state().seed!, "evm").address);
     expect(session.journal().chainIndexes.evm ?? 0, "showing it reserves nothing").toBe(evmIndex);
-    expect(fetchSpy, "after the public mode").not.toHaveBeenCalled();
+    expect(fetchSpy, "after the fresh address").not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("back"));
     expect(await screen.findByTestId("home")).toBeInTheDocument();
 
     // the screens reached from Home are routes with a Back control
     fireEvent.click(screen.getByTestId("protect-cta")); // the card of an empty balance: "Protect Assets"
-    expect(await screen.findByTestId("protect-submit"), "V5: the Protect screen").toBeInTheDocument();
+    expect(await screen.findByTestId("protect-review"), "V6: the Protect screen").toBeInTheDocument();
     expect(pathname()).toBe("/protect");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");

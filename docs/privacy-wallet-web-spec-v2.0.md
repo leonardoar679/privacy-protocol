@@ -305,6 +305,15 @@ SUBMITTED → CONFIRMED → PROTECTED_BALANCE_UPDATED` is a pure reducer mapped 
 Common amounts (the V2 privacy buckets) move to Advanced. An ERC-20 asks the wallet to approve the router for
 exactly the amount, then to protect (two prompts, one operation).
 
+Code (Stage 10): `apps/web/src/features/protect/ProtectScreen.tsx` serves `/protect`, `/protect/review` and
+`/protect/progress/:opId` from one container (nested routes under the `protect/*` splat, so the flow's state survives
+the navigation; a reload of the progress route reads the journaled operation); the §23 flow and the page's view-model
+are `apps/web/src/features/protect/model.ts` (`protectStepOf`, `PROTECT_OPERATION_STATE`, `protectModel`). The
+relayer/network line is the connected wallet's own `eth_estimateGas` × its gas price, in dollars; the common sizes are
+Advanced only; the recovery-information card sits on the first Review of a session; a failed ERC-20 protect reads the
+approval it left behind and offers to revoke it. The local stack: 5,000 USDC → 4,950 in the vault, 50 to the router's
+fee recipient. V5's `Protect.tsx` is deleted.
+
 ### 7.4 Send (doc §24–§25)
 ```
 Send Privately
@@ -322,6 +331,21 @@ address is a public exit ("The recipient and amount become public."). A Bitcoin 
 address  ✓ Bitcoin network` and continues as a cross-chain send (§7.5). **The selected network never changes
 silently**: an address of another chain asks first. "Recipient receives exactly this amount" switches to exact
 output (§3).
+
+Code (Stage 10): `apps/web/src/features/send/SendScreen.tsx` (`/send`, `/send/review`, `/send/progress/:opId`) over
+`apps/web/src/features/send/model.ts`: `destinationOf` (a `pp1…` address; an EVM address on the pool's chain; Bitcoin;
+another chain named by ERC-3770 `base:0x…` or EIP-681 `ethereum:0x…@8453` — `evmChainHint` in
+`packages/protocol/src/wallet/destinations.ts` — or by its format; else the reason it is no address), `crossTargetOf`
+(the same asset on that chain, else the chain's native asset; a chain this wallet cannot reach is refused in words, never
+a fallback to another chain), `sendSplit` (§3) and `sendModel`. A Bitcoin or a confirmed other-chain destination
+continues in Swap with the asset, the amount, the target and the destination handed over as the navigation's state
+(taken once, then cleared from the history entry). The fresh address of this wallet is the address book's first entry,
+reserved at the first confirmation (kept for a retry, cleared by "Send again"); the connected wallet's own address is
+flagged. In exact output the lines add what leaves the balance; submitted through the connected wallet (Advanced), the
+relayer line says the wallet pays the network. The bands: from `large` the privacy lint and a typed-in public
+destination re-confirmed group by group on the Review, from `large-protected` the hold, from `high-value` the address
+book's status and way forward under the address (the lock), from `enhanced` the V2–V4 Review. The local stack: 2,500
+USDC → exactly 2,470.90 at a fresh address. V5's `Send.tsx` is deleted.
 
 ### 7.5 Swap and cross-chain (doc §26, §29–§33)
 ```
@@ -373,6 +397,10 @@ one (the existing `swapSign` checks run first); a worse minimum pauses the opera
 `price_moved`) with `Accept new minimum` or `Return funds`. "Delay for more privacy" schedules the funding at a
 random time in 1–24 h instead.
 
+Code (Stage 10): `ReviewView` takes `hold` apart from `large` (a protect or a send from $50K holds without the swap's
+checks), `confirmDisabled` (an unacknowledged lint block, a locked destination, a destination not yet re-confirmed),
+the band's own notices in `extra`, and the configured hold duration (`holdMs()`; 1.5 s).
+
 ### 7.7 Progress (doc §40, §50, §58)
 ```
 Preparing your protected transaction…
@@ -387,6 +415,10 @@ Preparing your protected transaction…
 and the proving estimated from this device's last proof. The browser stays responsive (the crypto worker, §14.3).
 A large operation shows amounts, never step counts: `$80,000 ETH → BTC / Protected execution / Completed $20,000 /
 Executing $20,000 / Remaining $40,000`.
+
+Code (Stage 10): `apps/web/src/features/progress/model.ts` — the line from the engine's step before the submission and
+from the state after it, only ever moving forward (`furthestLine`: the relayer's terms are read before the notes sync);
+done, active, waiting, and failed where the operation stopped; "proof" stays in Advanced (the status line).
 
 ### 7.8 Activity, the detail, recovery (doc §39–§41, §73)
 Activity groups by day (`Today`, `Yesterday`, then the date in the user's locale) with a friendly icon per kind:
@@ -504,6 +536,16 @@ type ProtocolDeployment = { chainId: number; protocolVersion: string; privacyCor
 verifier, `vaultOf(asset)` for every registry asset, and every periphery contract's `CORE()`; the result's
 fingerprint is remembered, and a different fingerprint is a blocking notice ("This app does not match the deployed
 protocol."), never a silent switch.
+
+Code (Stage 10): `packages/sdk/src/deploymentGuard.ts` — `guardDeployment` runs before a session's first money operation
+(the engine's `submitShield`, `privateTransfer`, `privateWithdrawal`, `mergeNotes`, `splitNote`: before any request,
+proof or wallet prompt), never earlier (first launch stays request-free). Beyond `verifyDeployment` it checks that the
+configured vaults are the canonical ones and that ProtectRouter's `CORE()` is this core. The first fingerprint per
+chain is remembered in the journal's optional `deploymentFingerprints`; a problem or a changed fingerprint throws
+`DeploymentMismatch`, classified `deployment_mismatch` (nothing moved, FAILED); a failed read is the read's own error and
+is tried again. More → Advanced shows the remembered fingerprint and forgets it on request — the deliberate way to
+accept another deployment. The test configuration turns the check off (`deploymentCheck: false`); its own suite turns
+it on.
 
 ## 11. The periphery contracts (*V6*) — *Stages 7, 12, 14*
 

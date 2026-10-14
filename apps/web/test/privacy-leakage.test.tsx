@@ -178,11 +178,11 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     await connection.connect();
     expect(connection.get().account).toBe(OWNER);
     const { router } = await renderApp("/protect", { deployment });
-    await screen.findByTestId("protect", {}, LAZY);
-    type(await screen.findByTestId("protect-amount-input"), "1");
-    await waitFor(() => expect(screen.getByTestId("protect-submit")).toBeEnabled());
-    fireEvent.click(screen.getByTestId("protect-submit"));
-    await act(async () => { fireEvent.click(await screen.findByTestId("confirm-tap")); });
+    await screen.findByTestId("protect-view", {}, LAZY);
+    type(await screen.findByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("protect-review")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("protect-review"));
+    await act(async () => { fireEvent.click(await screen.findByTestId("review-confirm")); });
     await screen.findByTestId("protect-done", {}, LAZY);
     expect(noteStore.all()).toHaveLength(1);
     const deposit = providerCalls.find((c) => c.method === "eth_sendTransaction");
@@ -192,15 +192,15 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
 
     // send 0.4 ETH to a fresh public address: the real withdrawal — sync, plan, (mocked) proof, the relayer, the receipt
     await act(async () => { await router.navigate("/send"); });
-    await screen.findByTestId("send-tab", {}, LAZY);
-    fireEvent.click(screen.getByTestId("send-mode-public"));
-    const recipient = (await screen.findByTestId("send-to-input") as HTMLInputElement).value;
+    await screen.findByTestId("send-view", {}, LAZY);
+    fireEvent.click((await screen.findAllByTestId("address-book-entry"))[0]); // the fresh address of this wallet
+    const recipient = (screen.getByTestId("address-input") as HTMLInputElement).value;
     expect(recipient).toMatch(/^0x[0-9a-fA-F]{40}$/);
-    type(screen.getByTestId("send-amount-input"), "0.4");
-    await screen.findByTestId("send-fees", {}, LAZY);
+    type(screen.getByTestId("amount-input"), "0.4");
+    await screen.findByTestId("send-receive", {}, LAZY);
+    await waitFor(() => expect(screen.getByTestId("send-review")).toBeEnabled());
     fireEvent.click(screen.getByTestId("send-review"));
-    const review = await screen.findByTestId("review", {}, LAZY);
-    await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
+    await act(async () => { fireEvent.click(await screen.findByTestId("review-confirm", {}, LAZY)); });
     await screen.findByTestId("send-done", {}, { timeout: 60_000 });
     await waitFor(() => expect(finishedOperations().map((o) => [o.kind, o.state]), JSON.stringify(allOperations().map((o) => [o.kind, o.state, o.reason?.code, o.reason?.detail?.slice(0, 160)]))).toEqual(expect.arrayContaining([["protect", "COMPLETED"], ["withdraw", "COMPLETED"]])));
     expect(relayerBodies, "one submission").toHaveLength(1);
