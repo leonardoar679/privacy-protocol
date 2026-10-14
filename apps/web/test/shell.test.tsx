@@ -12,6 +12,7 @@ import { prefs } from "../src/storage/prefs";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { activeTab } from "../src/platform/activeTab";
 
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
 afterEach(() => { session.forget(); settings.reset(); prefs().reset(); connection.reset(); delete (window as unknown as Record<string, unknown>).ethereum; });
@@ -20,6 +21,22 @@ const LAZY = { timeout: 15_000 };
 async function unlockedWallet() { await session.create("a strong password"); session.acknowledgePhrase(); }
 
 describe("the application shell (spec §2)", () => {
+  it("a V6 follow-up: while another tab holds the wallet this one waits and says why (nothing behind the gate runs); then it opens", async () => {
+    await unlockedWallet();
+    act(() => activeTab.set("waiting"));
+    try {
+      await renderApp("/");
+      expect((await screen.findByTestId("other-tab")).textContent).toContain("The wallet is open in another tab");
+      expect(screen.queryByTestId("home")).toBeNull();
+      act(() => activeTab.set("checking"));
+      expect(screen.getByTestId("splash")).toBeInTheDocument();
+      act(() => activeTab.set("active"));
+      await screen.findByTestId("home", {}, LAZY);
+    } finally {
+      act(() => activeTab.set("active"));
+    }
+  });
+
   it("a V6 follow-up: an unlock looks for the wallet's notes in the pool; the first launch, request-free, does not", async () => {
     const deployment: Deployment = { chainId: 31337, core: "0x000000000000000000000000000000000000cccc", ethVault: "0x000000000000000000000000000000000000aaaa", rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [] };
     await unlockedWallet(); // created here: the first launch

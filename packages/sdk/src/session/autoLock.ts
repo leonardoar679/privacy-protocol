@@ -2,7 +2,9 @@
 //   - after the user's idle minutes (1, 5, 15 or 60; 15 by default; More → Security; kept in the encrypted journal);
 //   - 5 minutes after the tab is hidden;
 //   - on an explicit Lock;
-//   - on `pagehide`.
+//   - on `pagehide`;
+//   - when another tab of this wallet is unlocked (a V6 follow-up: one unlocked tab at a time, the platform's activeTab.ts),
+//     as soon as nothing is in progress, like every automatic lock.
 // Focus loss counts as idleness only: a wallet pop-up and the WalletConnect modal take focus. A critical section — the
 // signature prompt, proving, submission, commit → hand-over — holds the lock off (`session.hold(reason)`) for at most
 // 30 minutes; past that, the lock happens at the next safe point (a hold released, or the scheduler between two runner
@@ -27,8 +29,10 @@ export interface AutoLockFacts {
   hiddenSince: number | null;
   idleMinutes: number;
   holds: readonly Hold[];
+  /** another tab of this wallet asked this one to step aside */
+  elsewhere?: boolean;
 }
-export type LockCause = "idle" | "hidden";
+export type LockCause = "idle" | "hidden" | "elsewhere";
 export interface LockVerdict {
   /** why a lock is due now, or null */
   due: LockCause | null;
@@ -43,7 +47,7 @@ export interface LockVerdict {
 export function lockVerdict(f: AutoLockFacts): LockVerdict {
   const idleAt = f.lastActivity + f.idleMinutes * 60_000;
   const hiddenAt = f.hiddenSince === null ? Infinity : f.hiddenSince + HIDDEN_LOCK_MS;
-  const due: LockCause | null = f.now >= hiddenAt ? "hidden" : f.now >= idleAt ? "idle" : null;
+  const due: LockCause | null = f.elsewhere ? "elsewhere" : f.now >= hiddenAt ? "hidden" : f.now >= idleAt ? "idle" : null;
   if (!due) return { due: null, heldBy: null, atSafePoint: false, nextCheck: Math.min(idleAt, hiddenAt) };
   const live = f.holds.filter((h) => f.now - h.since < HOLD_CAP_MS);
   if (live.length) return { due, heldBy: live[0].reason, atSafePoint: false, nextCheck: Math.min(...live.map((h) => h.since + HOLD_CAP_MS)) };
@@ -71,6 +75,7 @@ export class AutoLock {
   private pendingSafePoint = false;
   private wasUnlocked = false;
   private holdCount = 0;
+  private elsewhere = false;
   private readonly clock: AutoLockClock;
 
   constructor(private readonly o: { session: WalletSession; minutes: () => number; clock?: AutoLockClock; onLock?: (trigger: LockTrigger) => void }) {
@@ -113,6 +118,12 @@ export class AutoLock {
     this.lock("pagehide");
   }
 
+  /** Another tab of this wallet was unlocked: this one locks as soon as nothing is in progress (the holds, then a safe point). */
+  stepAside(): void {
+    this.elsewhere = true;
+    if (this.o.session.isUnlocked()) this.check();
+  }
+
   /** A safe point: past the hold cap, the waiting lock happens here. */
   safePoint(): void {
     if (this.pendingSafePoint) this.check(true);
@@ -128,6 +139,7 @@ export class AutoLock {
       hiddenSince: this.hiddenSince,
       idleMinutes: this.o.minutes(),
       holds: this.o.session.holds(),
+      elsewhere: this.elsewhere,
     });
     if (v.due && !v.heldBy && (!v.atSafePoint || atSafePoint)) return this.lock(v.due);
     this.pendingSafePoint = v.atSafePoint;
@@ -137,7 +149,10 @@ export class AutoLock {
 
   private onSession(): void {
     const unlocked = this.o.session.isUnlocked();
-    if (unlocked && !this.wasUnlocked) this.lastActivity = this.clock.now(); // a fresh unlock starts the idle clock
+    if (unlocked && !this.wasUnlocked) {
+      this.lastActivity = this.clock.now(); // a fresh unlock starts the idle clock
+      this.elsewhere = false; // and is this tab's own
+    }
     this.wasUnlocked = unlocked;
     const holds = this.o.session.holds().length;
     const released = holds < this.holdCount; // a released hold is a safe point

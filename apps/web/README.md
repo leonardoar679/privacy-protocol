@@ -12,7 +12,7 @@ A mobile-first wallet for the shielded pool, rebuilt in V6 to the owner's comple
   do; the leakage gates read every request to prove it.
 
 > **Status (2026-10-14): builds ✅.**
-> - 515 vitest, plus 9 in the leakage gate and 6 live.
+> - 522 vitest, plus 9 in the leakage gate and 6 live.
 > - The screenshot harness: 189 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
 >   accessibility checks.
 > - The performance budget: the first route 185.6 KB gzipped of 250, Home 33.1 KB more of 80.
@@ -37,7 +37,8 @@ src/
                    Receive) · ai · guest
   hooks/           core.ts (the first route's: session, settings, prefs, connection, connectivity) · wallet.ts (Home's
                    data) · index.ts (the rest)
-  platform/        autoLock.ts · connectivity.ts · crypto/ (the long-lived crypto worker: protocol, engine, worker, client)
+  platform/        autoLock.ts · activeTab.ts (one unlocked tab at a time) · connectivity.ts · crypto/ (the long-lived crypto
+                   worker: protocol, engine, worker, client)
   storage/         the encrypted IndexedDB container: secureStore.ts, idb.ts, migrate.ts, prefs.ts, guard.ts
   prover/          client.ts (the proof's entry and the pins) · pins.ts
   fixtures/        registry.tsx + main.tsx: fixtures.html for the screenshot harness (vite --mode fixtures only)
@@ -47,7 +48,7 @@ src/
 scripts/           csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs · check-dist.mjs ·
                    copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
 public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored)
-test/              515 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
+test/              522 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
 ```
 
 ## What the wallet does (spec v2.0 §7)
@@ -77,6 +78,8 @@ test/              515 vitest tests (node; the screens under happy-dom or jsdom)
   controls), Classic Privacy, Private AI.
 - **Offline** — a banner. Nothing that moves money runs until the network is back, and an answer lost mid-submission
   is found by its nullifier, never sent twice.
+- **One tab at a time** — the wallet is unlocked in one tab: another tab waits ("The wallet is open in another tab")
+  while the first locks as soon as nothing is in progress there, so two tabs never overwrite each other's records.
 
 ## The gates (spec v2.0 §17–§19)
 - **Lint.** `npm run lint` runs ESLint over all of `src`: typescript-eslint, the rules of hooks, jsx-a11y strict, and the
@@ -112,7 +115,7 @@ npm ci                       # at the repository root (one lockfile for every wo
 cd apps/web
 npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
 npm run build                # dist/ with the policy in index.html; npm run preview sends the headers
-npm test                     # 515 tests; npm run lint
+npm test                     # 522 tests; npm run lint
 (cd ../api && npm start)     # the API the Swap screen talks to: http://127.0.0.1:8787/v1
 (cd ../relayer && npm run serve)   # private submission and the executors: http://127.0.0.1:8790
 ```

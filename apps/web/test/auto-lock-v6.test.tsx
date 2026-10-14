@@ -8,7 +8,8 @@ import { MemoryRouter } from "react-router-dom";
 import { getOperation, newOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { lockedAutomatically, startAutoLock } from "../src/platform/autoLock";
+import { lockedAutomatically, lockedElsewhere, startAutoLock, stepAside } from "../src/platform/autoLock";
+import { Unlock } from "../src/features/onboarding/Lock";
 import { returnPath } from "../src/app/Gate";
 import { SecurityRoute } from "../src/features/more/MoreRoutes";
 
@@ -54,6 +55,21 @@ describe("auto-lock on the page", () => {
     start();
     vi.advanceTimersByTime(MIN + 100);
     expect(session.isUnlocked()).toBe(false);
+  });
+
+  it("another tab unlocked (a V6 follow-up): the lock waits for the hand-over to end, and the lock screen says why", () => {
+    start();
+    const release = session.hold("hand-over");
+    stepAside();
+    expect(session.isUnlocked(), "never inside a hand-over").toBe(true);
+    release();
+    expect([session.isUnlocked(), lockedAutomatically(), lockedElsewhere()]).toEqual([false, true, true]);
+    render(
+      <MemoryRouter>
+        <Unlock />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("locked-elsewhere").textContent).toBe("The wallet was opened in another tab, so it locked here.");
   });
 
   it("pagehide locks at once", () => {

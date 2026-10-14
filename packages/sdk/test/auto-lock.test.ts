@@ -44,6 +44,14 @@ describe("lockVerdict", () => {
     });
     expect(lockVerdict({ ...base, now: 45 * MIN, holds: [] })).toMatchObject({ due: "idle", heldBy: null, atSafePoint: false });
   });
+  it("another tab unlocked: due at once, before idle or hidden, and deferred by a live hold like every automatic lock", () => {
+    expect(lockVerdict({ ...base, now: MIN, elsewhere: true })).toMatchObject({ due: "elsewhere", heldBy: null });
+    expect(lockVerdict({ ...base, now: 20 * MIN, hiddenSince: MIN, elsewhere: true }).due).toBe("elsewhere");
+    expect(lockVerdict({ ...base, now: MIN, elsewhere: true, holds: [{ reason: "submission", since: 0 }] })).toMatchObject({
+      due: "elsewhere",
+      heldBy: "submission",
+    });
+  });
   it("the four choices; anything else is the default", () => {
     expect(AUTO_LOCK_MINUTES).toEqual([1, 5, 15, 60]);
     expect(autoLockMinutesOf(5)).toBe(5);
@@ -116,6 +124,21 @@ describe("the controller", () => {
     c2.t += 6 * MIN; // a throttled background tab: no timer ran
     u.ctrl.visibility(false);
     expect([u.s.isUnlocked(), u.locks]).toEqual([false, ["hidden"]]);
+  });
+
+  it("another tab unlocked (one unlocked tab at a time): the lock at once, or as soon as the critical section ends; the next unlock is this tab's own", async () => {
+    const clock = manualClock();
+    const { s, ctrl, locks } = await unlocked(clock);
+    const release = s.hold("hand-over", clock.now());
+    ctrl.stepAside();
+    expect(s.isUnlocked(), "never inside a hand-over").toBe(true);
+    release();
+    expect([s.isUnlocked(), locks]).toEqual([false, ["elsewhere"]]);
+    expect(await s.unlock("pw")).toBe(true);
+    clock.advance(MIN);
+    expect(s.isUnlocked(), "unlocked here again: no leftover step-aside").toBe(true);
+    ctrl.stepAside();
+    expect([s.isUnlocked(), locks]).toEqual([false, ["elsewhere", "elsewhere"]]);
   });
 
   it("pagehide locks at once, holds or not", async () => {

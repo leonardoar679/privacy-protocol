@@ -6,6 +6,7 @@ import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privac
 import { useT } from "../../app/i18n/useT";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks/core";
+import { lockedElsewhere } from "../../platform/autoLock";
 
 export type LockMode = "unlock" | "create" | "restore";
 
@@ -43,6 +44,11 @@ export function Unlock() {
       <Page title={t("lock.unlockTitle")} testId="lock-screen">
         <Card padding="lg">
           <form onSubmit={submit} className="ds-page-body">
+            {lockedElsewhere() ? (
+              <p className="ds-note" data-testid="locked-elsewhere">
+                {t("tab.lockedElsewhere")}
+              </p>
+            ) : null}
             <Field label={t("lock.password")} htmlFor="unlock-password" error={error || undefined}>
               <Input id="unlock-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
             </Field>

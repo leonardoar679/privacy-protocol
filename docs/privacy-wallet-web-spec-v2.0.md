@@ -618,6 +618,23 @@ Code (Stage 15):
 - After an automatic lock, the unlock returns to the screen it interrupted (`returnPath`, an in-app path only). After
   the Lock button it opens Home.
 
+**One unlocked tab at a time (V6 follow-up, 2026-10-14).** Each tab keeps its own decrypted journal and writes it whole,
+so two unlocked tabs erased each other's changes (a swap journaled in one was gone once the other wrote), and both ran
+the same funding and signing ticks.
+- **The lock.** The unlocked tab holds the Web Lock `privacy-wallet:active`; every lock, automatic or explicit, gives
+  it back.
+- **A second tab.** A tab unlocked while another holds it shows "The wallet is open in another tab" and runs nothing
+  (the Gate renders no shell, so no scheduler). It asks the other over the BroadcastChannel `privacy-wallet` to step
+  aside. The other tab's auto-lock locks it as soon as nothing is in progress (the lock cause `elsewhere`: deferred by
+  the holds like any automatic lock), which releases the Web Lock, and the waiting tab opens.
+- **The last one wins.** A tab granted the lock after another asked steps aside in turn, so the tab unlocked last ends
+  up holding the wallet. The tab that stepped aside says why on its lock screen.
+- **Without Web Locks** (an old browser) nothing changes; without BroadcastChannel a waiting tab waits for the other to
+  lock by itself.
+
+Code: `apps/web/src/platform/activeTab.ts` (`startActiveTab`, the states `active` / `checking` / `waiting`),
+`apps/web/src/app/Gate.tsx` (`OtherTab`), `packages/sdk/src/session/autoLock.ts` (`stepAside`, the cause `elsewhere`).
+
 ## 9. Assets and chains (doc §20–§21, §72) — *Stage 3*
 
 `packages/protocol-types/src/assets.ts`:
