@@ -106,7 +106,7 @@ wallet's guard refuses a tip above 3 × its own estimate; the executor waits rat
 
 **Actual against estimated** (doc §43): the relayer records `gasUsed × effectiveGasPrice` from the receipt on
 every job (`/status/:txHash`, `/swap/:orderId`); the wallet reads its receipts itself and records `costs
-{estimated, charged, actualNetworkWei}` on the operation; Advanced shows `Estimated / Actual / Difference`; an
+{estimatedWei, actualWei, charged}` on the operation; Advanced shows `Estimated / Actual / Difference`; an
 actual cost above 1.5 × the estimate, or a charge at least 3 × the actual cost, adds a note to the operation and the
 API logs `fee.deviation` (no amounts).
 
@@ -559,10 +559,28 @@ goes `SUBMITTED → CONFIRMING → COMPLETED`.
 
 Record fields beyond V5: `reason? {code, fundsClass: "not-moved" | "still-protected" | "unknown"}` (replaces
 `failure`), `delayed? {since, code}` (a delay is an attribute of the phase state, never a state of its own),
-`declined?` (a signature prompt refused), `settlement?` (§12.4), `costs? {estimated, charged, actualNetworkWei}`
-(§3), `v: 2`.
+`declined? {at, code}` (a signature prompt refused), `settlement?` (§12.4), `costs? {estimatedWei, actualWei,
+charged}` (§3), `v: 2`.
+
+Code (Stage 8): the vocabulary `packages/protocol-types/src/operations.ts`, re-exported with the record by
+`packages/sdk/src/wallet/operationRecord.ts` (`PRE_SUBMISSION_STATES`, `SUBMITTED_STATES`, `wasSubmitted`). The
+reducer `packages/sdk/src/operations/reducer.ts`: `quoted` lands in REVIEW, a declined prompt (`rejected`) goes back to
+REVIEW with `declined` (the record is a draft again and leaves the journal; the next confirmation clears it), `delayed`
+is a field on the states from AWAITING_SIGNATURE to SETTLING and REFUNDING that every state event ends, `settlement` a
+field event; a self-transition updates fields without a history line (a re-quote in the review, a resumed execution
+ending a delay); a funded swap whose price moved waits as QUOTE_EXPIRED (from SUBMITTED, CONFIRMING or EXECUTING) for a
+new minimum (resume to EXECUTING) or the money back (REFUNDING); a reorg may send EXECUTING back to CONFIRMING and
+SETTLING back to EXECUTING. The adapters (`operations/adapters.ts`) map a swap's source legs to EXECUTING and the
+destination to SETTLING, a provider past its window, a congested chain, the velocity rule and a pause the user or the
+wallet asked for to `delayed`; the Activity never lists a draft.
 
 ### 12.2 The V5 → V6 mapping (applied to stored records when the journal is decrypted; idempotent; persisted at the next write)
+Code (Stage 8): `packages/sdk/src/operations/upgrade.ts` (`upgradeRecord`, `upgradeOperations`), called by
+`decryptJournal` and on every read of the list (a V6 record — `v: 2` — comes back as the same object); history lines
+are renamed the same way (a rejection or a failure the record moved past reads as the state it went back to) and
+consecutive equal lines merge. The store's §89 names: `OperationStore`, `OperationRepository`, `OperationService`
+(`packages/sdk/src/operations/store.ts`).
+
 | V5 | V6 |
 |---|---|
 | QUOTE_READY | REVIEW (drafts only; never journaled) |
@@ -570,7 +588,7 @@ Record fields beyond V5: `reason? {code, fundsClass: "not-moved" | "still-protec
 | NETWORK_CONFIRMING | CONFIRMING for protect / send / withdraw; EXECUTING for swap / cross-chain (the tracker's source legs) |
 | SETTLEMENT_VERIFYING | SETTLING |
 | SIGNATURE_REJECTED | live: back to REVIEW with `declined`; stored: CANCELLED with `user_rejected` |
-| SUBMISSION_FAILED | FAILED (reason kept) |
+| SUBMISSION_FAILED | FAILED (reason kept); RECOVERY_REQUIRED under I-O6 (an unknown funds class, or a code that leaves something to track or return) |
 | NETWORK_DELAYED | the phase state (funding → CONFIRMING, execution → EXECUTING, settlement → SETTLING) with `delayed` |
 | PROVIDER_FAILED | RECOVERY_REQUIRED (reason kept; settlement derived) |
 | every other name | unchanged |
@@ -583,6 +601,14 @@ destination still confirming. **I-O6** (*V6*) `FAILED` only when the funds class
 an unknown outcome is always `RECOVERY_REQUIRED`. **I-O7** (*V6*) after `SUBMITTED` a record never returns to a
 state before signing — nothing is ever re-sent. A 2,000-sequence property test holds them.
 
+Code (Stage 8): FAILED is terminal, so a failure goes there only when its catalog row also leaves nothing to track or
+return (`failureTarget` in `packages/sdk/src/operations/errors/codes.ts`: a code offering a resume, monitoring or a
+refund — `nullifier_in_flight`, the executor's refusals, `minimum_moved` — needs recovery even with a known class).
+I-O7 refuses every state up to SIGNED (`PRE_SUBMISSION_STATES`) once the history holds a submitted state (refusal
+`after-submission`). `apps/web/test/operations/property.test.ts` runs the 2,000 sequences (mulberry32, seeded) under
+I-O1–I-O4, I-O6 and I-O7 and sweeps I-O7 over every open state; `reducer.test.ts`, `adapters.test.ts`, `store.test.ts`
+and `packages/sdk/test/{upgrade,settlement,spec-sync}.test.ts` hold the rest.
+
 ### 12.4 Settlement and recovery (doc §41)
 `settlementOf(legs)` (a pure function in `packages/swap-engine`'s browser-safe entry, shared by the wallet and the
 API) derives one of `SOURCE_CONFIRMED`, `PROVIDER_PENDING`, `DESTINATION_PENDING`, `REFUND_AVAILABLE`, `REFUNDING`,
@@ -592,6 +618,16 @@ wait (`PROVIDER_PENDING`, `DESTINATION_PENDING`), return funds (`REFUND_AVAILABL
 watch the refund (`REFUNDING`), done. "Your funds are safe." is said only for `not-moved`, `still-protected`, or an
 escrow that can be refunded. A read that fails keeps the last known state (never a downgrade); a reorg sends the
 leg back to pending and nothing is re-sent.
+
+Code (Stage 8): `settlementOf` and `nextSettlement` live in `packages/protocol/src/wallet/settlement.ts` (the wallet
+cannot depend on `packages/swap-engine`, whose tests depend on the SDK) and `packages/swap-engine/src/settlement.ts`
+re-exports them for the API. The wallet's legs come from `legsOf` in `packages/sdk/src/orderTracker.ts` (null when the
+answer rests on a read that failed: the job of a handed-over order, the provider's track of an executed one, the escrow's
+balance before any job); `deriveState` carries the settlement on the tracker's result and the journal keeps it on
+`StoredSwap.track.settlement`; the order's record (`apps/web/src/features/swap/records.ts`) keeps the last one when a
+read could not tell. A refund is offered only while the escrow holds the money (`SOURCE_CONFIRMED`,
+`REFUND_AVAILABLE`); an open recovery follows the settlement (refund offered, refunding, monitoring). The scenarios of
+doc §82 run one by one in `packages/sdk/test/settlement.test.ts`.
 
 ### 12.5 Persistence, reconciliation, notifications (doc §38, §73–§76)
 The operation id persists locally (the journal) and survives a reload, a tab close, a browser restart, a mobile

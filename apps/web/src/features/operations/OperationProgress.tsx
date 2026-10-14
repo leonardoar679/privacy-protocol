@@ -4,22 +4,24 @@
 import type { ReactNode } from "react";
 import { ErrorCard, ProgressIndicator, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { isOpen, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, isOpen, wasSubmitted, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
 
-const SUBMITTED_OR_LATER: readonly OperationState[] = ["SUBMITTED", "RELAYER_EXECUTING", "NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "COMPLETED", "NETWORK_DELAYED", "PROVIDER_FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED"];
-const CONFIRMING: readonly OperationState[] = ["NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "RELAYER_EXECUTING", "NETWORK_DELAYED"];
+const UNDER_WAY: readonly OperationState[] = ["CONFIRMING", "EXECUTING", "SETTLING", "REFUNDING"];
 
 export function timelineOf(rec: OperationRecord, t: ReturnType<typeof useT>): TimelineStep[] {
   const s = rec.state;
-  const prepared: StepState = s === "AWAITING_SIGNATURE" ? "active" : s === "SIGNATURE_REJECTED" || s === "QUOTE_EXPIRED" ? "failed" : SUBMITTED_OR_LATER.includes(s) || s === "SIGNED" || s === "SUBMISSION_FAILED" ? "done" : "waiting";
-  const submitted: StepState = SUBMITTED_OR_LATER.includes(s) ? "done" : s === "SUBMISSION_FAILED" ? "failed" : s === "SIGNED" ? "active" : "waiting";
-  const confirming: StepState = s === "COMPLETED" || s === "REFUNDED" ? "done" : CONFIRMING.includes(s) ? "active" : s === "PROVIDER_FAILED" || s === "RECOVERY_REQUIRED" ? "failed" : s === "REFUNDING" ? "active" : "waiting";
+  // V6: submitted once the history holds a submitted state or a hash is known; a declined prompt leaves a draft
+  const sent = wasSubmitted(rec) || rec.refs.txHashes.length > 0 || s === "COMPLETED" || s === "REFUNDED";
+  const declined = !!rec.declined && isDraft(s);
+  const prepared: StepState = s === "AWAITING_SIGNATURE" ? "active" : declined || (s === "QUOTE_EXPIRED" && !sent) ? "failed" : sent || s === "SIGNED" || s === "FAILED" || s === "RECOVERY_REQUIRED" ? "done" : "waiting";
+  const submitted: StepState = sent ? "done" : s === "FAILED" ? "failed" : s === "SIGNED" ? "active" : "waiting";
+  const confirming: StepState = s === "COMPLETED" || s === "REFUNDED" ? "done" : UNDER_WAY.includes(s) ? "active" : s === "RECOVERY_REQUIRED" || (s === "FAILED" && sent) ? "failed" : "waiting";
   const completed: StepState = s === "COMPLETED" ? "done" : s === "REFUNDED" ? "done" : "waiting";
   return [
     { label: t("progress.stepPrepared"), state: prepared, ...(rec.progress && s === "AWAITING_SIGNATURE" ? { detail: progressWords(rec.progress, t) } : {}) },
     { label: t("progress.stepSubmitted"), state: submitted, ...(rec.refs.txHashes.length ? { detail: `${rec.refs.txHashes[rec.refs.txHashes.length - 1].slice(0, 10)}…` } : {}) },
-    { label: t("progress.stepConfirming"), state: confirming, ...(s === "NETWORK_DELAYED" ? { detail: stateWords(s, t) } : {}) },
+    { label: t("progress.stepConfirming"), state: confirming, ...(rec.delayed ? { detail: t("op.delayed") } : {}) },
     { label: s === "REFUNDED" || s === "REFUNDING" ? t("progress.stepRefunded") : t("progress.stepCompleted"), state: completed },
   ];
 }
@@ -39,7 +41,8 @@ export function headlineOf(rec: OperationRecord, t: ReturnType<typeof useT>): st
 export function OperationProgress({ record, actions, testId = "operation-progress" }: { record: OperationRecord; /** what a failure offers (the caller decides: back to the review, a new quote, the refund) */ actions?: ReactNode; testId?: string }) {
   const t = useT();
   const headline = headlineOf(record, t);
-  const v = record.failure ? verdict(record, t) : null;
+  // V6: a failure's reason, a declined prompt or a delay has its verdict card
+  const v = record.reason || record.delayed || (record.declined && isDraft(record.state)) ? verdict(record, t) : null;
   return (
     <div className="ds-stack" data-testid={testId} data-state={record.state}>
       <TransactionTimeline steps={timelineOf(record, t)} />

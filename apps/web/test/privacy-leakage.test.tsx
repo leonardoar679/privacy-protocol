@@ -202,7 +202,7 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     const review = await screen.findByTestId("review", {}, LAZY);
     await act(async () => { fireEvent.click(within(review).getByTestId("confirm-tap")); });
     await screen.findByTestId("send-done", {}, { timeout: 60_000 });
-    await waitFor(() => expect(finishedOperations().map((o) => [o.kind, o.state]), JSON.stringify(allOperations().map((o) => [o.kind, o.state, o.failure?.code, o.failure?.detail?.slice(0, 160)]))).toEqual(expect.arrayContaining([["protect", "COMPLETED"], ["withdraw", "COMPLETED"]])));
+    await waitFor(() => expect(finishedOperations().map((o) => [o.kind, o.state]), JSON.stringify(allOperations().map((o) => [o.kind, o.state, o.reason?.code, o.reason?.detail?.slice(0, 160)]))).toEqual(expect.arrayContaining([["protect", "COMPLETED"], ["withdraw", "COMPLETED"]])));
     expect(relayerBodies, "one submission").toHaveLength(1);
     expect(prover.inputs, "one proof").toHaveLength(1);
     stopRecording();

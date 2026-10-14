@@ -4,18 +4,29 @@
 // campaign's cancel) — never a blind Retry: a retry is a new quote or a tracked resume.
 import { Button, Card, StatusBadge, TransactionTimeline, type StepState } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, wasSubmitted, type OperationRecord, type SettlementState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { actionsFor, verdict } from "./recovery";
 
 export interface RecoveryLegs { source: StepState; swap: StepState; destination: StepState }
 
-/** The three legs from the record's state (a swap order; a send has the source leg only). */
+/** V6 (spec v2.0 §12.4): the legs from where the money is, when the tracker read it. */
+const BY_SETTLEMENT: Record<SettlementState, RecoveryLegs> = {
+  SOURCE_CONFIRMED: { source: "done", swap: "active", destination: "waiting" },
+  PROVIDER_PENDING: { source: "done", swap: "active", destination: "waiting" },
+  DESTINATION_PENDING: { source: "done", swap: "done", destination: "active" },
+  REFUND_AVAILABLE: { source: "done", swap: "failed", destination: "waiting" },
+  REFUNDING: { source: "done", swap: "waiting", destination: "waiting" },
+  COMPLETED: { source: "done", swap: "done", destination: "done" },
+};
+
+/** The three legs from the settlement, else from the record's state (a swap order; a send has the source leg only). */
 export function legsOf(rec: OperationRecord): RecoveryLegs {
   const s = rec.state;
-  const sourceDone = ["SUBMITTED", "RELAYER_EXECUTING", "NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "COMPLETED", "NETWORK_DELAYED", "PROVIDER_FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED"].includes(s);
-  const swap: StepState = s === "COMPLETED" || s === "SETTLEMENT_VERIFYING" ? "done" : s === "NETWORK_DELAYED" ? "failed" : s === "PROVIDER_FAILED" || s === "RECOVERY_REQUIRED" ? "failed" : s === "RELAYER_EXECUTING" || s === "NETWORK_CONFIRMING" ? "active" : s === "REFUNDING" || s === "REFUNDED" ? "waiting" : "waiting";
-  const destination: StepState = s === "COMPLETED" ? "done" : s === "SETTLEMENT_VERIFYING" ? "active" : "waiting";
-  return { source: sourceDone ? "done" : s === "SUBMISSION_FAILED" || s === "SIGNATURE_REJECTED" ? "failed" : "active", swap, destination };
+  if (rec.settlement && !(rec.settlement === "COMPLETED" && (s === "REFUNDED" || s === "REFUNDING"))) return BY_SETTLEMENT[rec.settlement];
+  const sourceDone = wasSubmitted(rec) || s === "COMPLETED" || s === "REFUNDED" || (s === "RECOVERY_REQUIRED" && rec.refs.txHashes.length > 0);
+  const swap: StepState = s === "COMPLETED" || s === "SETTLING" ? "done" : s === "RECOVERY_REQUIRED" ? "failed" : s === "EXECUTING" ? "active" : "waiting";
+  const destination: StepState = s === "COMPLETED" ? "done" : s === "SETTLING" ? "active" : "waiting";
+  return { source: sourceDone ? "done" : s === "FAILED" || (!!rec.declined && isDraft(s)) ? "failed" : "active", swap, destination };
 }
 
 export function Recovery({ record, onMonitor, onRefund, onNewQuote, onReview, testId = "recovery" }: { record: OperationRecord; onMonitor?: () => void; onRefund?: () => void; onNewQuote?: () => void; onReview?: () => void; testId?: string }) {

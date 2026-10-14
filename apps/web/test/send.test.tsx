@@ -122,7 +122,7 @@ describe("Send (spec §3.5)", () => {
     expect(calls.transfer).toEqual([{ amount: 989n * 10n ** 15n, recipient: to }]);
     const [rec] = finishedOperations();
     expect(rec).toMatchObject({ kind: "send", state: "COMPLETED", amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "989000000000000000" }, destination: { kind: "privacy-address", display: to }, refs: { txHashes: [HASH], leafIndex: 5 } });
-    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "NETWORK_CONFIRMING", "COMPLETED"]);
+    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
     expect(fetchSpy, "the relayer terms came from the mocked engine; nothing else was fetched").not.toHaveBeenCalled();
   });
   it("the public path: a fresh address of this wallet pre-filled with its card; a pasted privacy address switches to the private path; a Bitcoin address is refused by name; the withdrawal reserves the fresh address", async () => {
@@ -201,7 +201,7 @@ describe("Send (spec §3.5)", () => {
     expect(error.textContent).toContain("Your balance needs consolidating first");
     expect(error.textContent).toContain("Your funds were not moved.");
     expect(screen.getByTestId("consolidate-now")).toBeInTheDocument();
-    expect(openOperations()[0]).toMatchObject({ state: "SUBMISSION_FAILED", failure: { code: "housekeeping_needed", class: "not-moved" } });
+    expect(finishedOperations()[0], "V6: nothing moved and nothing to track — a final failure").toMatchObject({ state: "FAILED", reason: { code: "housekeeping_needed", fundsClass: "not-moved" } });
     fireEvent.click(screen.getByTestId("send-back-review"));
     behaviour = "unreachable-after-submit";
     await act(async () => { fireEvent.click(within(await screen.findByTestId("review")).getByTestId("confirm-tap")); });
@@ -209,7 +209,7 @@ describe("Send (spec §3.5)", () => {
     expect(error2.textContent).toContain("The relayer could not be reached");
     expect(error2.textContent).toContain("We are checking where your funds are.");
     const rec = openOperations().find((r) => r.state === "RECOVERY_REQUIRED")!;
-    expect(rec).toMatchObject({ failure: { code: "relayer_unreachable", class: "unknown" }, refs: { txHashes: [HASH] }, recovery: { state: "refund-offered" } });
+    expect(rec, "I-O6: an unknown outcome needs recovery; a send has no escrow to return — the wallet watches").toMatchObject({ reason: { code: "relayer_unreachable", fundsClass: "unknown" }, refs: { txHashes: [HASH] }, recovery: { state: "monitoring" } });
     expect(screen.queryByText(/transaction failed/i), "I-O5: never for a submission that may have gone through").toBeNull();
   });
 });

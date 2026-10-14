@@ -45,10 +45,10 @@ describe("the deviation rules", () => {
 
 describe("the record keeps its costs (the reducer)", () => {
   it("merges them while the operation is open and notes a deviation on the current line", () => {
-    const r = transition(record("NETWORK_CONFIRMING"), { type: "costs", costs: { estimatedWei: "100", actualWei: "200" } }, 2_000);
+    const r = transition(record("CONFIRMING"), { type: "costs", costs: { estimatedWei: "100", actualWei: "200" } }, 2_000);
     expect(r.ok).toBe(true);
     expect(r.record.costs).toEqual({ estimatedWei: "100", actualWei: "200" });
-    expect(r.record.state, "a field event: the state stays").toBe("NETWORK_CONFIRMING");
+    expect(r.record.state, "a field event: the state stays").toBe("CONFIRMING");
     expect(r.record.history.at(-1)!.note).toBe("the network cost was more than 1.5 × the estimate");
   });
   it("a completed record is frozen (I-O1): the costs come before the completion", () => {

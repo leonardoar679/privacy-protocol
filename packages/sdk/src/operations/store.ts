@@ -1,14 +1,18 @@
 // The operation store (spec §12): drafts (DRAFT … REVIEW) in memory, every record from AWAITING_SIGNATURE on in the
 // encrypted journal under `operations` — it survives a lock, a reload and a backup like the Activity list. The hooks
-// read through useSyncExternalStore with a stable snapshot per change.
+// read through useSyncExternalStore with a stable snapshot per change. V6 (spec v2.0 §12): the records are read in the
+// V6 vocabulary (./upgrade.ts; idempotent), a record that goes back to a draft state (a declined prompt) leaves the
+// journal, and §89 Step 8's names — OperationStore, OperationRepository, OperationService — group the functions.
 import type { JournalData } from "../wallet/journal";
 import { isDraft, isOpen, isTerminal, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
-import { transition } from "./reducer";
+import { replay, transition } from "./reducer";
 import type { OperationEvent, TransitionResult } from "./types";
+import { upgradeOperations, upgradeRecord } from "./upgrade";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
-export const operationsOf = (j: JournalData): OperationRecord[] => j.operations ?? [];
+/** The journal's records in the V6 vocabulary (a V5 record is upgraded; the journal's next write persists it). */
+export const operationsOf = (j: JournalData): OperationRecord[] => upgradeOperations(j.operations ?? []);
 
 const drafts = new Map<string, OperationRecord>();
 const listeners = new Set<() => void>();
@@ -39,7 +43,7 @@ export interface NewOperation {
 export function newOperation(i: NewOperation, now = Date.now()): OperationRecord {
   const state = i.state ?? "DRAFT";
   const rec: OperationRecord = {
-    id: i.id ?? newOperationId(i.kind, now), kind: i.kind, state, createdAt: now, updatedAt: now,
+    v: 2, id: i.id ?? newOperationId(i.kind, now), kind: i.kind, state, createdAt: now, updatedAt: now,
     amounts: i.amounts, fees: i.fees ?? [], destination: i.destination, refs: { txHashes: [], ...(i.refs ?? {}) }, tier: i.tier, history: [{ state, at: now }],
   };
   drafts.set(rec.id, rec);
@@ -54,9 +58,18 @@ export function getOperation(id: string, s: WalletSession = defaultSession): Ope
   return operationsOf(s.journal()).find((r) => r.id === id) ?? null;
 }
 
-/** Write a record where it belongs: a draft state in memory, anything else in the journal (when unlocked). */
-export function putOperation(rec: OperationRecord, s: WalletSession = defaultSession): void {
-  if (isDraft(rec.state)) { drafts.set(rec.id, rec); bump(); return; }
+/**
+ * Write a record where it belongs: a draft state in memory, anything else in the journal (when unlocked). V6: a
+ * journaled record that went back to a draft state (a declined prompt: AWAITING_SIGNATURE → REVIEW) leaves the journal.
+ */
+export function putOperation(record: OperationRecord, s: WalletSession = defaultSession): void {
+  const rec = upgradeRecord(record);
+  if (isDraft(rec.state)) {
+    drafts.set(rec.id, rec);
+    if (s.isUnlocked() && (s.journal().operations ?? []).some((r) => r.id === rec.id)) s.update((j) => { j.operations = (j.operations ?? []).filter((r) => r.id !== rec.id); });
+    bump();
+    return;
+  }
   if (s.isUnlocked()) {
     attach(s);
     s.update((j) => {
@@ -109,3 +122,10 @@ function snapshot(s: WalletSession): { open: OperationRecord[]; all: OperationRe
 /** The store's change feed and its stable snapshot (apps/web/src/hooks reads them for the screens). */
 export const subscribeOperations = (l: () => void, s: WalletSession = defaultSession): (() => void) => subscribe(l, s);
 export const operationsSnapshot = (s: WalletSession = defaultSession): { open: OperationRecord[]; all: OperationRecord[] } => snapshot(s);
+
+/** §89 Step 8: the journal adapter — the records as stored, read in the V6 vocabulary. */
+export const OperationRepository = { read: operationsOf, upgrade: upgradeOperations, upgradeRecord } as const;
+/** §89 Step 8: where a record lives — drafts in memory, the rest in the journal — and the lists the screens read. */
+export const OperationStore = { create: newOperation, get: getOperation, put: putOperation, remove: removeOperation, all: allOperations, open: openOperations, finished: finishedOperations, subscribe: subscribeOperations, snapshot: operationsSnapshot } as const;
+/** §89 Step 8: the state machine applied to a stored record (the reducer is pure; this stores its result). */
+export const OperationService = { apply: applyEvent, transition, replay } as const;

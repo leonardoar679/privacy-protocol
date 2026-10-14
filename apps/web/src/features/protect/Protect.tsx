@@ -107,14 +107,15 @@ export function Protect(p: ProtectProps) {
   const options: AssetOption[] = assets.map((a) => ({ id: a.vault, symbol: a.symbol, name: a.symbol, decimals: a.decimals, ...(a.token ? { address: a.token } : {}) }));
   const needsBackup = !pf.backup;
 
+  const router = p.deployment?.protectRouter;
   const checkLeftover = useCallback(async () => {
     if (!asset?.token) return;
     const eth = activeProvider();
     const [from] = (eth ? await eth.request({ method: "eth_accounts" }).catch(() => []) : []) as `0x${string}`[];
     if (!from) { setLeftover("unknown"); return; }
-    const a = await readAllowance(asset.token, from, p.deployment?.protectRouter ?? asset.vault); // V6: the router pulls a protect's tokens
+    const a = await readAllowance(asset.token, from, router ?? asset.vault); // V6: the router pulls a protect's tokens
     setLeftover(a === null ? "unknown" : a);
-  }, [asset]);
+  }, [asset, router]);
   async function revokeLeftover() {
     if (!asset?.token) return;
     try { const tx = await revokeAllowance(asset.token, p.deployment?.protectRouter ?? asset.vault); setRevoked(tx); setLeftover(0n); } catch (e) { setStatus(classify(e).detail); }

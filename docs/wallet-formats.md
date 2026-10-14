@@ -44,7 +44,11 @@ holds no secret and no financial figure. `localStorage` holds nothing of the wal
 records, read them back byte for byte and only then removed the old keys. The plaintext journal's optional fields —
 `activity`, `housekeeping`, `aiFunding`, `campaigns`, `addressBook`, `operations` (V5: the operation records from the
 signature on, spec §12) and `classic` (V5: the Classic Privacy module's deposits, spec §16) — are never written by
-`emptyJournal()`, so every earlier journal and the pinned vectors stay valid.
+`emptyJournal()`, so every earlier journal and the pinned vectors stay valid. V6 (spec v2.0 §12): an operation record
+carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
+`delayed {since, code}`, `declined {at, code}`, `settlement`; a V5 record is upgraded when the journal is decrypted
+(`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
+may carry `settlement` (where the money is, spec v2.0 §12.4).
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
 `orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
 `refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then

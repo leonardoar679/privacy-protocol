@@ -1,9 +1,9 @@
 // The operation vocabulary of the screens (spec §12): the record and its constants from the wallet layer, and the
 // events the reducer consumes. One module re-exports both so a feature imports from one place.
-import type { FundsClass, OperationCosts, OperationState, ProgressStep, SettlementRef } from "../wallet/operationRecord";
+import type { FundsClass, OperationCosts, OperationRecord, OperationState, ProgressStep, SettlementRef, SettlementState } from "../wallet/operationRecord";
 
-export type { DestinationKind, FeeLine, FundsClass, OperationKind, OperationPhase, OperationRecord, OperationState, ProgressStep, RecoveryState, SettlementRef } from "../wallet/operationRecord";
-export { DRAFT_STATES, FAILURE_STATES, OPERATION_STATES, PROGRESS_STATES, TERMINAL_STATES, isDraft, isFailure, isOpen, isTerminal } from "../wallet/operationRecord";
+export type { DestinationKind, FeeLine, FundsClass, OperationKind, OperationPhase, OperationReason, OperationRecord, OperationState, ProgressStep, RecoveryState, SettlementRef, SettlementState } from "../wallet/operationRecord";
+export { DRAFT_STATES, FAILURE_STATES, OPERATION_STATES, PRE_SUBMISSION_STATES, PROGRESS_STATES, SETTLEMENT_STATES, SUBMITTED_STATES, TERMINAL_STATES, isDraft, isFailure, isOpen, isTerminal, wasSubmitted } from "../wallet/operationRecord";
 
 /** The references an event may carry into the record. */
 export interface EventRefs { txHash?: string; jobId?: string; orderId?: string; campaignId?: string; executionTx?: string; executionRef?: string; quoteId?: string; provider?: string; activityId?: string }
@@ -23,8 +23,11 @@ export type OperationEvent =
   | ({ type: "verifying" } & EventRefs)
   | ({ type: "completed"; ref: SettlementRef; delivered?: string } & EventRefs)
   | { type: "quote-expired"; code?: string; detail?: string }
+  /** V6: the wallet prompt was declined — back to REVIEW with `declined` (nothing was signed) */
   | { type: "rejected"; code?: string; detail?: string }
+  /** V6: FAILED when the funds did not move or are still protected with nothing left to track or return, else RECOVERY_REQUIRED (I-O6) */
   | ({ type: "submission-failed"; code: string; detail?: string } & EventRefs)
+  /** V6: an attribute of the phase the state names, never a state (I-O5) */
   | ({ type: "delayed"; code?: string; detail?: string } & EventRefs)
   | ({ type: "provider-failed"; code: string; detail?: string } & EventRefs)
   | ({ type: "recovery-required"; code: string; detail?: string } & EventRefs)
@@ -36,12 +39,15 @@ export type OperationEvent =
   | { type: "monitor"; at?: number }
   | { type: "note"; note: string }
   /** V6 (spec v2.0 §3): the network cost, recorded before the completion freezes the record (I-O1) */
-  | { type: "costs"; costs: OperationCosts };
+  | { type: "costs"; costs: OperationCosts }
+  /** V6 (spec v2.0 §12.4): where a swap's money is, derived by settlementOf from the legs (a failed read sends none) */
+  | { type: "settlement"; settlement: SettlementState };
 
 export type OperationEventType = OperationEvent["type"];
 
-export interface TransitionOk { ok: true; record: import("../wallet/operationRecord").OperationRecord; changed: boolean }
-export interface TransitionRefused { ok: false; record: import("../wallet/operationRecord").OperationRecord; reason: "terminal" | "not-allowed" | "needs-settlement-ref" | "needs-code" }
+export interface TransitionOk { ok: true; record: OperationRecord; changed: boolean }
+/** `after-submission`: I-O7 — once submitted, a record never returns to a state before its submission. */
+export interface TransitionRefused { ok: false; record: OperationRecord; reason: "terminal" | "not-allowed" | "after-submission" | "needs-settlement-ref" | "needs-code" }
 export type TransitionResult = TransitionOk | TransitionRefused;
 
 /** The words of a failure's first sentence, by class (spec §13). */
@@ -50,9 +56,13 @@ export const FUNDS_HEADLINE_KEY: Record<FundsClass, "op.funds.notMoved" | "op.fu
 /** What a failed or delayed operation offers; a retry is a new quote or a tracked resume, never a re-send of the same transaction. */
 export type RecoveryAction = "edit" | "review" | "new-quote" | "wait" | "resume-tracking" | "continue-monitoring" | "start-refund" | "check-wallet" | "check-settings" | "housekeeping";
 
+/**
+ * The state an event moves a record to (null: a field event). V6: `quoted` lands in REVIEW, `rejected` goes back to
+ * REVIEW, `submission-failed` to FAILED (the reducer sends it to RECOVERY_REQUIRED under I-O6), `delayed` is a field.
+ */
 export const STATE_EVENT_TARGET: Record<OperationEventType, OperationState | null> = {
-  quote: "QUOTING", quoted: "QUOTE_READY", review: "REVIEW", edit: "DRAFT", confirm: "AWAITING_SIGNATURE", progress: null, signed: "SIGNED", submitted: "SUBMITTED",
-  "relayer-executing": "RELAYER_EXECUTING", confirming: "NETWORK_CONFIRMING", verifying: "SETTLEMENT_VERIFYING", completed: "COMPLETED", "quote-expired": "QUOTE_EXPIRED",
-  rejected: "SIGNATURE_REJECTED", "submission-failed": "SUBMISSION_FAILED", delayed: "NETWORK_DELAYED", "provider-failed": "PROVIDER_FAILED", "recovery-required": "RECOVERY_REQUIRED",
-  refunding: "REFUNDING", refunded: "REFUNDED", cancel: "CANCELLED", resume: null, monitor: null, note: null, costs: null,
+  quote: "QUOTING", quoted: "REVIEW", review: "REVIEW", edit: "DRAFT", confirm: "AWAITING_SIGNATURE", progress: null, signed: "SIGNED", submitted: "SUBMITTED",
+  "relayer-executing": "EXECUTING", confirming: "CONFIRMING", verifying: "SETTLING", completed: "COMPLETED", "quote-expired": "QUOTE_EXPIRED",
+  rejected: "REVIEW", "submission-failed": "FAILED", delayed: null, "provider-failed": "RECOVERY_REQUIRED", "recovery-required": "RECOVERY_REQUIRED",
+  refunding: "REFUNDING", refunded: "REFUNDED", cancel: "CANCELLED", resume: null, monitor: null, note: null, costs: null, settlement: null,
 };

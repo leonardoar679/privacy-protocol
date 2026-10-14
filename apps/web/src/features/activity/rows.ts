@@ -14,8 +14,8 @@ import { planWords } from "@privacy-wallet/sdk/tiers";
 import { activityId, activityOf, activityStatusLabel, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { ActivityRecord, JournalData, StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
-import { isTerminal, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
-import { stateWords } from "../operations/recovery";
+import { isDraft, isTerminal, wasSubmitted, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { recordWords } from "../operations/recovery";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 export type RowKind = ActivityRecord["kind"] | OperationRecord["kind"];
@@ -50,8 +50,8 @@ export const amountOf = (amount: string, decimals: number, asset: string): strin
 function toneOfRecord(r: OperationRecord): StatusTone {
   if (r.state === "COMPLETED" || r.state === "REFUNDED") return "ok";
   if (r.state === "CANCELLED") return "neutral";
-  if (r.state === "SUBMISSION_FAILED" || r.state === "SIGNATURE_REJECTED" || r.state === "QUOTE_EXPIRED") return "danger";
-  if (r.state === "RECOVERY_REQUIRED" || r.state === "PROVIDER_FAILED" || r.state === "NETWORK_DELAYED") return "warn";
+  if (r.state === "RECOVERY_REQUIRED" || r.delayed || (r.state === "QUOTE_EXPIRED" && wasSubmitted(r))) return "warn";
+  if (r.state === "FAILED" || r.state === "QUOTE_EXPIRED") return "danger";
   return "pending";
 }
 function toneOfLabel(label: string): StatusTone {
@@ -103,7 +103,7 @@ export function buildRows(j: JournalData | null, records: OperationRecord[], adv
     const record = recordFor(line, records);
     if (record) used.add(record.id);
     const swap = line.kind === "swap" ? swaps.get(line.id) : undefined;
-    const label = record ? stateWords(record.state, t) : (swap?.track?.label ?? activityStatusLabel(line));
+    const label = record ? recordWords(record, t) : (swap?.track?.label ?? activityStatusLabel(line));
     rows.push({
       id: line.id, kind: line.kind, at: line.at, title: t(KIND_KEY[line.kind]), amount: amountOf(line.amount, line.decimals, line.asset), status: label, tone: record ? toneOfRecord(record) : toneOfLabel(label), ref: line.ref,
       ...(line.note ? { note: line.note.replace(/ · (Preparing|Waiting for source|Executing|Waiting for destination|Partial|Refunding|Refunded|Completed|Not started|Needs attention)$/, "") } : {}),
@@ -111,11 +111,12 @@ export function buildRows(j: JournalData | null, records: OperationRecord[], adv
       ...(line.kind === "campaign" ? campaignFacts(line, now) : {}),
     });
   }
-  // records without a line of their own (a protect or a send that failed before it was recorded, an order not yet in the list)
+  // records without a line of their own (a protect or a send that failed before it was recorded, an order not yet in the list);
+  // V6: never a draft — nothing was signed (a declined prompt goes back to its review)
   for (const r of records) {
-    if (used.has(r.id) || r.kind === "classic-deposit" || r.kind === "classic-withdraw") continue;
+    if (used.has(r.id) || r.kind === "classic-deposit" || r.kind === "classic-withdraw" || isDraft(r.state)) continue;
     if (!advanced && r.refs.campaignId) continue;
-    rows.push({ id: r.id, kind: r.kind, at: r.createdAt, title: t(KIND_KEY[r.kind]), amount: amountOf(r.amounts.input, r.amounts.decimals, r.amounts.asset), status: stateWords(r.state, t), tone: toneOfRecord(r), ref: r.refs.orderId ?? r.refs.txHashes[0] ?? r.id, finished: isTerminal(r.state), icon: KIND_ICON[r.kind], record: r });
+    rows.push({ id: r.id, kind: r.kind, at: r.createdAt, title: t(KIND_KEY[r.kind]), amount: amountOf(r.amounts.input, r.amounts.decimals, r.amounts.asset), status: recordWords(r, t), tone: toneOfRecord(r), ref: r.refs.orderId ?? r.refs.txHashes[0] ?? r.id, finished: isTerminal(r.state), icon: KIND_ICON[r.kind], record: r });
   }
   return rows.sort((a, b) => b.at - a.at);
 }

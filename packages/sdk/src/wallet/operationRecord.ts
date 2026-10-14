@@ -1,35 +1,48 @@
-// The operation record (Privacy Wallet Web spec §12; plan §3, §29, §60): one record per money flow in one vocabulary
-// for every kind — protect, send, withdraw, swap, cross-chain swap, the Classic pool — journaled from the signature on
-// (`JournalData.operations?`, optional and never written by emptyJournal()). The engines keep their own states;
-// features/operations/adapters.ts reads them into this one. Pure types and constants: the reducer, the adapters,
-// the catalog and the store live under apps/web/src/features/operations.
+// The operation record (Privacy Wallet Web spec v2.0 §12; doc §37–§41): one record per money flow in one vocabulary for
+// every kind — protect, send, withdraw, swap, cross-chain swap, the Classic pool — journaled from the signature on
+// (`JournalData.operations?`, optional and never written by emptyJournal()). V6: the states are the frozen contract's
+// (`@privacy-wallet/protocol-types`, shared with the API) — the doc's fifteen and CANCELLED; a delay and a declined
+// signature are attributes, not states; `reason` replaces V5's `failure`; a V5 record upgrades on read
+// (../operations/upgrade.ts). The engines keep their own states; ../operations/adapters.ts reads them into this one.
+// Pure types and constants.
+import {
+  DRAFT_STATES as CONTRACT_DRAFT_STATES,
+  OPERATION_STATES as CONTRACT_STATES,
+  SETTLEMENT_STATES as CONTRACT_SETTLEMENT_STATES,
+  TERMINAL_STATES as CONTRACT_TERMINAL_STATES,
+  type FundsClass,
+  type OperationKind,
+  type OperationState,
+  type SettlementState,
+} from "@privacy-wallet/protocol-types";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
-export type OperationKind = "protect" | "send" | "withdraw" | "swap" | "cross-chain" | "classic-deposit" | "classic-withdraw";
+export type { FundsClass, OperationKind, OperationState, SettlementState };
 
-export const OPERATION_STATES = [
-  "DRAFT", "QUOTING", "QUOTE_READY", "REVIEW", "AWAITING_SIGNATURE", "SIGNED", "SUBMITTED", "RELAYER_EXECUTING", "NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "COMPLETED",
-  "QUOTE_EXPIRED", "SIGNATURE_REJECTED", "SUBMISSION_FAILED", "NETWORK_DELAYED", "PROVIDER_FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED", "CANCELLED",
-] as const;
-export type OperationState = (typeof OPERATION_STATES)[number];
+export const OPERATION_STATES: readonly OperationState[] = CONTRACT_STATES;
+export const SETTLEMENT_STATES: readonly SettlementState[] = CONTRACT_SETTLEMENT_STATES;
 
 /** I-O1: a terminal state never changes. */
-export const TERMINAL_STATES: readonly OperationState[] = ["COMPLETED", "REFUNDED", "CANCELLED"];
-/** I-O3: these carry a catalog reason (`failure.code`). */
-export const FAILURE_STATES: readonly OperationState[] = ["QUOTE_EXPIRED", "SIGNATURE_REJECTED", "SUBMISSION_FAILED", "NETWORK_DELAYED", "PROVIDER_FAILED", "RECOVERY_REQUIRED"];
+export const TERMINAL_STATES: readonly OperationState[] = CONTRACT_TERMINAL_STATES;
+/** I-O3: these carry a catalog reason (`reason.code`). */
+export const FAILURE_STATES: readonly OperationState[] = ["QUOTE_EXPIRED", "FAILED", "RECOVERY_REQUIRED"];
 /** Before the signature: in memory only, never journaled. */
-export const DRAFT_STATES: readonly OperationState[] = ["DRAFT", "QUOTING", "QUOTE_READY", "REVIEW"];
-/** The happy path from the signature to completion, in order. */
-export const PROGRESS_STATES: readonly OperationState[] = ["AWAITING_SIGNATURE", "SIGNED", "SUBMITTED", "RELAYER_EXECUTING", "NETWORK_CONFIRMING", "SETTLEMENT_VERIFYING", "COMPLETED"];
+export const DRAFT_STATES: readonly OperationState[] = CONTRACT_DRAFT_STATES;
+/** I-O7: the states before a submission — a record that reached SUBMITTED never returns to one of them (nothing is re-sent). */
+export const PRE_SUBMISSION_STATES: readonly OperationState[] = ["DRAFT", "QUOTING", "REVIEW", "AWAITING_SIGNATURE", "SIGNED"];
+/** Reached only once something was handed to the relayer or the network (I-O7 reads the history for them). */
+export const SUBMITTED_STATES: readonly OperationState[] = ["SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "REFUNDING"];
+/** The happy path from the signature to completion, in order (a Protect or a Send skips EXECUTING and SETTLING). */
+export const PROGRESS_STATES: readonly OperationState[] = ["AWAITING_SIGNATURE", "SIGNED", "SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "COMPLETED"];
 
 export const isTerminal = (s: OperationState): boolean => TERMINAL_STATES.includes(s);
 export const isFailure = (s: OperationState): boolean => FAILURE_STATES.includes(s);
 export const isDraft = (s: OperationState): boolean => DRAFT_STATES.includes(s);
 /** Open: signed or submitted and not yet terminal — what the Home's running line and the recovery tracking follow. */
 export const isOpen = (s: OperationState): boolean => !isTerminal(s) && !isDraft(s);
+/** I-O7: the record was submitted at some point (its history holds a submitted state). */
+export const wasSubmitted = (r: { state: OperationState; history: { state: OperationState }[] }): boolean => SUBMITTED_STATES.includes(r.state) || r.history.some((h) => SUBMITTED_STATES.includes(h.state));
 
-/** The first sentence of every failure (spec §13). */
-export type FundsClass = "not-moved" | "still-protected" | "unknown";
 export type RecoveryState = "monitoring" | "refund-offered" | "refunding" | "refunded" | "resolved";
 export type ProgressStep = "fee-terms" | "merging" | "syncing" | "verifying" | "witness" | "proof" | "local-verify" | "submitting";
 export type OperationPhase = "funding" | "execution" | "settlement";
@@ -47,7 +60,12 @@ export interface OperationCosts { estimatedWei?: string; actualWei?: string; cha
 /** What makes a completion true (I-O4): a leaf index, a destination transaction, the tracker's completion or a mined hash. */
 export interface SettlementRef { leafIndex?: number; txHash?: string; destinationTx?: string; tracker?: boolean; jobId?: string }
 
+/** I-O3: the catalog code of a failure, the class of its funds (the first sentence the user reads), the original detail. */
+export interface OperationReason { code: string; fundsClass: FundsClass; detail?: string }
+
 export interface OperationRecord {
+  /** V6: 2 (a record without it is V5's, upgraded on read) */
+  v?: 2;
   id: string;
   kind: OperationKind;
   state: OperationState;
@@ -62,7 +80,14 @@ export interface OperationRecord {
   tier: Tier;
   /** spec §3.8 at the `large-protected` band and above */
   protectedExecution?: { checklist: { destination: boolean; route: boolean; execution: boolean; limits: boolean } };
-  failure?: { code: string; class: FundsClass; detail?: string };
+  /** V6 (replaces V5's `failure`): the reason of a failure state, kept on a CANCELLED record that a declined signature ended */
+  reason?: OperationReason;
+  /** V6: a delay of the phase the state names — never a state of its own (I-O5) */
+  delayed?: { since: number; code: string };
+  /** V6: the signature prompt was refused; the record went back to REVIEW */
+  declined?: { at: number; code: string };
+  /** V6 (spec v2.0 §12.4): where a swap's money is */
+  settlement?: SettlementState;
   recovery?: { state: RecoveryState; since: number; lastCheckedAt?: number };
   /** the §47 lines while AWAITING_SIGNATURE */
   progress?: { step: ProgressStep; i?: number; n?: number };

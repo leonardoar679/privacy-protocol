@@ -7,7 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { getAddress } from "viem";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
-import { finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { allOperations, finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { Protect } from "../src/features/protect/Protect";
 import { setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -108,13 +108,13 @@ describe("Protect Assets (spec §3.4)", () => {
     expect(calls.native).toEqual([10n ** 18n]);
     const [rec] = finishedOperations();
     expect(rec).toMatchObject({ kind: "protect", state: "COMPLETED", refs: { txHashes: [HASH], leafIndex: 7 }, amounts: { asset: "ETH", input: "1000000000000000000" } });
-    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "NETWORK_CONFIRMING", "COMPLETED"]);
+    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
     expect(openOperations()).toEqual([]);
     expect(screen.getByTestId("operation-progress").getAttribute("data-state")).toBe("COMPLETED");
     fireEvent.click(screen.getByTestId("protect-finish"));
     expect(onDone).toHaveBeenCalled();
   });
-  it("a declined wallet prompt: SIGNATURE_REJECTED with 'Your funds were not moved.' and the way back; a reverted receipt after submission is a submission failure", async () => {
+  it("a declined wallet prompt: back to the review with 'Your funds were not moved.' and the way back; a reverted receipt after submission is a final failure (FAILED, not moved)", async () => {
     await unlocked();
     setActiveProvider(provider());
     nativeBehaviour = "rejected";
@@ -126,7 +126,9 @@ describe("Protect Assets (spec §3.4)", () => {
     expect(error.textContent).toContain("You declined in your wallet");
     expect(error.textContent).toContain("Your funds were not moved.");
     expect(error.getAttribute("data-state") ?? within(error).getByText("Your funds were not moved.").getAttribute("data-state")).toBe("not-moved");
-    expect(openOperations()[0]).toMatchObject({ state: "SIGNATURE_REJECTED", failure: { code: "user_rejected", class: "not-moved" } });
+    expect(openOperations(), "V6: a declined prompt is a draft again — nothing was signed").toEqual([]);
+    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "REVIEW", declined: { code: "user_rejected" } });
+    expect(session.journal().operations ?? [], "and it left the journal").toEqual([]);
     fireEvent.click(screen.getByTestId("protect-back"));
     expect(screen.getByTestId("protect-submit")).toBeInTheDocument();
     nativeBehaviour = "reverted";
@@ -134,7 +136,7 @@ describe("Protect Assets (spec §3.4)", () => {
     await act(async () => { fireEvent.click(await screen.findByTestId("confirm-tap")); });
     const error2 = await screen.findByTestId("operation-progress-error");
     expect(error2.textContent).toContain("The transaction reverted");
-    expect(openOperations().find((r) => r.state === "SUBMISSION_FAILED")).toMatchObject({ failure: { code: "receipt_reverted", class: "not-moved" }, refs: { txHashes: [HASH] } });
+    expect(finishedOperations().find((r) => r.state === "FAILED")).toMatchObject({ reason: { code: "receipt_reverted", fundsClass: "not-moved" }, refs: { txHashes: [HASH] } });
     expect(activityOf(session.journal())).toEqual([]);
   });
   it("an ERC-20 protect: the approval first (1 of 2), then the deposit; the record notes the approval; the backup nudge is shown once per session", async () => {

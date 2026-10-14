@@ -123,7 +123,7 @@ describe("Home (spec v2.0 §7.1)", () => {
           amounts: { asset: "ETH", decimals: 18, input: "1" },
           destination: { kind: "fresh", display: "0x01", chain: "ethereum" },
           tier: "standard",
-          state: "SUBMISSION_FAILED",
+          state: "FAILED",
         },
         1_000_000,
       );

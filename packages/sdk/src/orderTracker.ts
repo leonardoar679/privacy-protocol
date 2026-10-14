@@ -14,6 +14,8 @@ import { session as defaultSession, type WalletSession } from "./wallet/session"
 import { activityId, updateActivity } from "./wallet/activity";
 import { markAddressSettled } from "./wallet/addressBook";
 import { chainKindOf } from "./keys/chainKeys";
+import { nextSettlement, type SettlementLegs } from "@privacy-wallet/protocol/wallet/settlement";
+import type { SettlementState } from "@privacy-wallet/protocol-types";
 
 /** The spec's states (packages/swap-engine/src/order.ts), as the wallet derives them. */
 export type OrderState = "COMMITTED" | "SOURCE_SUBMITTED" | "SOURCE_FINAL" | "PROVIDER_EXECUTING" | "DESTINATION_SUBMITTED" | "DESTINATION_FINAL" | "COMPLETED" | "PARTIAL" | "REFUND_PENDING" | "PROVIDER_TIMEOUT" | "DESTINATION_FAILED" | "REFUNDED" | "EXPIRED" | "CANCELLED" | "FAILED";
@@ -41,6 +43,8 @@ export interface Tracked {
   refundedAmount?: string;
   destinationTxHash?: string;
   progress?: { parts: number; done: number };
+  /** V6 (spec v2.0 §12.4): where the money is — kept from the last read when this one could not tell */
+  settlement?: SettlementState;
 }
 
 const fmtUnits = (units: string | bigint | undefined, decimals: number): string => {
@@ -52,8 +56,42 @@ const fmtUnits = (units: string | bigint | undefined, decimals: number): string 
 const params = (s: StoredSwap) => s.params as { amount: string; executeDeadline: number; refundAfter: number };
 const req = (s: StoredSwap) => s.request as { from?: { symbol?: string; decimals?: number }; to?: { symbol?: string; decimals?: number } };
 
-/** Pure: the state a wallet should show for a journaled order given what it observed (spec §19 "recoverState"). */
+/**
+ * V6 (spec v2.0 §12.4): the legs of a journaled order for settlementOf — the funding (the escrow's balance, or a job
+ * that saw it), the execution, the provider's side, the refund. Null when the answer rests on a read that failed (the
+ * job of a handed-over order, the provider's track of an executed one, the escrow's balance before any job): the
+ * caller keeps the last settlement, never a downgrade. A reorg read correctly sends a leg back.
+ */
+export function legsOf(s: StoredSwap, f: TrackFacts): SettlementLegs | null {
+  const job = f.job?.state;
+  if (s.state === "abandoned") return { funded: false, executed: false, refundable: false };
+  if (f.refundFound || (s.refunds?.length ?? 0) > 0 || job === "refunded") return { funded: true, executed: false, refund: "done", refundable: false };
+  if (!s.fundedTx) return { funded: false, executed: false, refundable: false };
+  if (s.jobId && !f.job) return null; // the executor's job was not read
+  const t = f.track?.state;
+  const executed = job === "completed" || job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? s.executionTx));
+  if (job === "refunding" || job === "refund-only" || job === "expired" || (executed && job !== "completed" && (t === "refunded" || t === "failed"))) return { funded: true, executed, refund: "pending", refundable: false };
+  if (executed) {
+    if (job !== "completed" && !f.track) return null; // the provider's side was not read
+    const provider = job === "completed" || t === "completed" || t === "destination-final" ? "delivered" : t === "partial" ? "partial" : t === "destination-submitted" ? "destination-submitted" : "pending";
+    return { funded: true, executed: true, provider, refundable: false };
+  }
+  if (job === "execute-failed" || job === "refund-failed") return { funded: true, executed: false, refund: job === "refund-failed" ? "failed" : "none", refundable: true };
+  if (job === "executing") return { funded: true, executed: false, refundable: false }; // the executor saw the funding and sends the call
+  if (f.escrowBalance === null) return null; // the funding's finality rests on the escrow's balance, which was not read
+  const p = params(s);
+  if (f.escrowBalance < BigInt(p.amount)) return { funded: false, executed: false, refundable: false };
+  return { funded: true, executed: false, refundable: !job && Math.floor(f.now / 1000) > p.executeDeadline };
+}
+
+/** Pure: the state a wallet should show for a journaled order given what it observed (spec §19 "recoverState"), with the V6 settlement. */
 export function deriveState(s: StoredSwap, f: TrackFacts): Tracked {
+  const tracked = deriveOrderState(s, f);
+  const settlement = nextSettlement(s.track?.settlement as SettlementState | undefined, legsOf(s, f));
+  return settlement ? { ...tracked, settlement } : tracked;
+}
+
+function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const p = params(s), r = req(s);
   const nowS = Math.floor(f.now / 1000);
   const amount = BigInt(p.amount);
@@ -145,7 +183,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
       const x = j.swaps.find((y) => y.orderId.toLowerCase() === stored.orderId.toLowerCase());
       if (!x) return;
       if (!x.executionTx && executionTx) x.executionTx = executionTx;
-      x.track = { state: tracked.state, label: tracked.label, at: now, ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
+      x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
       const last = x.history?.[x.history.length - 1];
       if (!last || last.state !== tracked.state) x.history = [...(x.history ?? []), { state: tracked.state, at: now, note: tracked.label }];
       if (job && x.state !== job.state) x.state = job.state;

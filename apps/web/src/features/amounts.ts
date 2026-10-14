@@ -2,7 +2,7 @@
 // from a feed's 8-decimal price — bigint all the way, so a View never receives a float or a raw string.
 import { ASSETS } from "@privacy-wallet/config";
 import type { Amount, Status } from "./viewKit";
-import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, wasSubmitted, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { needsAttention } from "@privacy-wallet/sdk/operations/recovery";
 import type { MessageKey } from "../app/i18n/en";
 import type { Vars } from "../app/i18n/messages";
@@ -36,17 +36,15 @@ export function statusOf(r: OperationRecord): Status {
       return "refunded";
     case "CANCELLED":
       return "cancelled";
-    case "SIGNATURE_REJECTED": // the user declined: nothing moved, nothing failed (spec §12: stored as CANCELLED)
-      return "cancelled";
-    case "SUBMISSION_FAILED":
-    case "QUOTE_EXPIRED":
+    case "FAILED":
       return "failed";
+    case "QUOTE_EXPIRED": // V6: a submitted swap whose quote moved waits for the user's choice
+      return wasSubmitted(r) ? "action-needed" : "failed";
     case "DRAFT":
     case "QUOTING":
-    case "QUOTE_READY":
     case "REVIEW":
     case "AWAITING_SIGNATURE":
-      return "preparing";
+      return r.declined && isDraft(r.state) ? "cancelled" : "preparing"; // the user declined: nothing moved, nothing failed
     default:
       return needsAttention(r) ? "action-needed" : "executing";
   }

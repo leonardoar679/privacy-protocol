@@ -58,7 +58,7 @@ describe("the documented sequences drive a record from the signature to COMPLETE
     const { record: r, applied } = drive(signed("withdraw"), events);
     expect(r.state).toBe("COMPLETED");
     expect(r.refs).toEqual({ txHashes: [H2], leafIndex: 41 });
-    expect(r.history.map((h) => h.state)).toEqual(["AWAITING_SIGNATURE", "SUBMITTED", "NETWORK_CONFIRMING", "COMPLETED"]);
+    expect(r.history.map((h) => h.state)).toEqual(["AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
     expect(applied.filter((e) => e.type === "progress").map((e) => (e as { step: string }).step)).toEqual(["fee-terms", "merging", "syncing", "verifying", "proof", "local-verify", "submitting"]);
     expect(applied.filter((e) => e.type === "submitted")).toHaveLength(1);
   });

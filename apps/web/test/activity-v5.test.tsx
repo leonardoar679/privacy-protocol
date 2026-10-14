@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { Activity } from "../src/features/activity/Activity";
 import { Detail } from "../src/features/activity/Detail";
 import { buildRows, groupByDay } from "../src/features/activity/rows";
-import { newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { getOperation, newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
@@ -60,10 +60,11 @@ describe("the rows (spec §14)", () => {
     const protect = record({ id: "protect:1", kind: "protect", state: "COMPLETED", createdAt: NOW - 2000, updatedAt: NOW - 500, refs: { txHashes: [HASH], leafIndex: 7 }, history: [{ state: "COMPLETED", at: NOW - 500 }] });
     putOperation(protect);
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "executing", ref: ORDER, note: "→ BTC", at: NOW - 3000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "NETWORK_DELAYED", createdAt: NOW - 3000, updatedAt: NOW - 100, refs: { txHashes: [], orderId: ORDER }, failure: { code: "provider_timeout", class: "still-protected" }, history: [{ state: "NETWORK_DELAYED", at: NOW - 100 }] }));
-    putOperation(record({ id: "send:9", kind: "send", state: "SIGNATURE_REJECTED", createdAt: NOW - 4000, updatedAt: NOW - 4000, failure: { code: "user_rejected", class: "not-moved" }, history: [{ state: "SIGNATURE_REJECTED", at: NOW - 4000 }] }));
-    const rows = buildRows(session.journal(), [protect, ...[`swap:${ORDER}`, "send:9"].map((id) => session.journal().operations!.find((r) => r.id === id)!)], false, t, NOW);
-    expect(rows.map((r) => [r.id, r.title, r.status, r.tone])).toEqual([["shield:" + HASH, "Added funds", "Completed", "ok"], [`swap:${ORDER}`, "Swap", "Taking longer than expected", "warn"], ["send:9", "Sent privately", "Not signed", "danger"]]);
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 3000, updatedAt: NOW - 100, refs: { txHashes: [], orderId: ORDER }, delayed: { since: NOW - 100, code: "provider_timeout" }, history: [{ state: "EXECUTING", at: NOW - 100 }] }));
+    putOperation(record({ id: "send:9", kind: "send", state: "CANCELLED", createdAt: NOW - 4000, updatedAt: NOW - 4000, reason: { code: "user_rejected", fundsClass: "not-moved" }, declined: { at: NOW - 4000, code: "user_rejected" }, history: [{ state: "CANCELLED", at: NOW - 4000 }] }));
+    newOperation({ kind: "send", amounts: { asset: "ETH", decimals: 18, input: "1" }, destination: { kind: "entered", display: "0x12…", chain: "ethereum" }, tier: "standard", id: "send:draft" }, NOW - 50);
+    const rows = buildRows(session.journal(), [protect, ...[`swap:${ORDER}`, "send:9"].map((id) => session.journal().operations!.find((r) => r.id === id)!), getOperation("send:draft")!], false, t, NOW);
+    expect(rows.map((r) => [r.id, r.title, r.status, r.tone]), "V6: a delay is the phase taking longer; a declined send stored as cancelled; a draft is no row").toEqual([["shield:" + HASH, "Added funds", "Completed", "ok"], [`swap:${ORDER}`, "Swap", "Taking longer than expected", "warn"], ["send:9", "Sent privately", "Cancelled", "neutral"]]);
     expect(rows[0].record?.refs.leafIndex).toBe(7);
     expect(rows[1].finished).toBe(false);
     expect(rows[2].ref).toBe("send:9");
@@ -96,7 +97,7 @@ describe("the screens (spec §3.10)", () => {
     const stored = storedSwap();
     session.update((j) => { j.swaps = [stored]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "NETWORK_CONFIRMING", createdAt: NOW - 1000, updatedAt: NOW - 1000, refs: { txHashes: [stored.fundedTx!], orderId: ORDER, quoteId: "q-7", executionRef: "thor-123", provider: "thorchain" }, fees: [{ label: "Privacy fee (0.25 %)", value: "0.0025 ETH" }, { label: "Relayer / network", value: "0.001 ETH" }], destination: { kind: "fresh", display: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", chain: "bitcoin" }, history: [{ state: "NETWORK_CONFIRMING", at: NOW - 1000 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, refs: { txHashes: [stored.fundedTx!], orderId: ORDER, quoteId: "q-7", executionRef: "thor-123", provider: "thorchain" }, fees: [{ label: "Privacy fee (0.25 %)", value: "0.0025 ETH" }, { label: "Relayer / network", value: "0.001 ETH" }], destination: { kind: "fresh", display: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", chain: "bitcoin" }, history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
     settings.set({ advanced: true });
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("ETH → BTC");
@@ -120,7 +121,7 @@ describe("the screens (spec §3.10)", () => {
     const stored = storedSwap();
     session.update((j) => { j.swaps = [stored]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "execute-failed", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "PROVIDER_FAILED", createdAt: NOW - 1000, updatedAt: NOW - 100, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, failure: { code: "execute_failed", class: "still-protected" }, recovery: { state: "refund-offered", since: NOW - 100 }, history: [{ state: "PROVIDER_FAILED", at: NOW - 100 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "RECOVERY_REQUIRED", createdAt: NOW - 1000, updatedAt: NOW - 100, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, reason: { code: "execute_failed", fundsClass: "still-protected" }, recovery: { state: "refund-offered", since: NOW - 100 }, history: [{ state: "RECOVERY_REQUIRED", at: NOW - 100 }] }));
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
     const card = await screen.findByTestId("recovery");
     expect(card.textContent).toContain("Something needs attention");
@@ -131,9 +132,9 @@ describe("the screens (spec §3.10)", () => {
     await waitFor(() => expect(refundCalls).toEqual([ORDER]));
     expect(trackCalls, "the refund tracks the order again").toEqual([ORDER]);
   });
-  it("the detail of a record without a line (a declined protect) and an unknown id", () => {
+  it("the detail of a record without a line (a declined protect, stored as cancelled) and an unknown id", () => {
     const rec = newOperation({ kind: "protect", amounts: { asset: "ETH", decimals: 18, input: (10n ** 18n).toString() }, destination: { kind: "privacy-address", display: "Your protected balance", chain: "ethereum" }, tier: "standard" }, NOW - 500);
-    putOperation({ ...rec, state: "SIGNATURE_REJECTED", failure: { code: "user_rejected", class: "not-moved" }, history: [...rec.history, { state: "SIGNATURE_REJECTED", at: NOW - 400 }] });
+    putOperation({ ...rec, state: "CANCELLED", reason: { code: "user_rejected", fundsClass: "not-moved" }, declined: { at: NOW - 400, code: "user_rejected" }, history: [...rec.history, { state: "CANCELLED", at: NOW - 400 }] });
     render(<Detail id={rec.id} onBack={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Protected ETH");
     expect(screen.getByTestId("detail-status").textContent).toContain("Cancelled");

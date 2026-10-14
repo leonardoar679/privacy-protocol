@@ -159,8 +159,8 @@ describe("over a configured engine", () => {
       refs: { orderId: "0x01" },
       state: "SUBMITTED",
     });
-    putOperation({ ...rec, state: "PROVIDER_FAILED", failure: { code: "minimum_moved", class: "still-protected" } }, session);
-    expect(sdk.getOperation(rec.id, session)?.state).toBe("PROVIDER_FAILED");
+    putOperation({ ...rec, state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } }, session);
+    expect(sdk.getOperation(rec.id, session)?.state).toBe("RECOVERY_REQUIRED");
     const r = sdk.recoverOperation(rec.id, session)!;
     expect(r.record.id).toBe(rec.id);
     expect(r).toMatchObject({ code: "minimum_moved", fundsClass: "still-protected" });

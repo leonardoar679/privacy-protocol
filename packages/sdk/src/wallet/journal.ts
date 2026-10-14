@@ -11,6 +11,7 @@ import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import type { AddressBookEntry } from "@privacy-wallet/protocol/wallet/addressBook";
 import type { OperationRecord } from "./operationRecord";
 import type { ClassicDepositRecord } from "./classicRecord";
+import { upgradeOperations } from "../operations/upgrade";
 
 export interface StoredSwap {
   orderId: string;
@@ -53,8 +54,8 @@ export interface StoredSwap {
   executionTx?: string;
   /** the provider's own reference for tracking (NEAR Intents: the deposit address the escrow paid), journaled at hand-over */
   executionRef?: string;
-  /** the last derived settlement state (sdk/orderTracker.ts) and what the tracker read */
-  track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; at: number };
+  /** the last derived settlement state (sdk/orderTracker.ts) and what the tracker read; V6 (spec v2.0 §12.4): `settlement`, where the money is (optional) */
+  track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; settlement?: string; at: number };
   /** every settlement transition with its time (spec §25) */
   history?: { state: string; at: number; note?: string }[];
   /** V3 (High-Value Protection spec §7, §17): the campaign this order is a tranche of; such an order is funded and handed over by the campaign runner, never by a fund-escrow action */
@@ -107,7 +108,7 @@ export interface JournalData {
   /** V3 (High-Value Protection spec §17): the campaigns (tranches under an in-flight cap) and the address book. Optional, never written by emptyJournal(): the pinned at-rest vectors and V2 journals stay valid. */
   campaigns?: Campaign[];
   addressBook?: AddressBookEntry[];
-  /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. */
+  /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. V6 (spec v2.0 §12.2): a V5 record is upgraded when the journal is decrypted (`v: 2`). */
   operations?: OperationRecord[];
   /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
   classic?: { deposits: ClassicDepositRecord[] };
@@ -132,7 +133,9 @@ export function decryptJournal(key: Uint8Array, blob: EncryptedJournal): Journal
   if (!blob || blob.v !== 1) return null;
   try {
     const data = JSON.parse(bytesToUtf8(xchacha20poly1305(key, hexToBytes(blob.nonce), AAD).decrypt(hexToBytes(blob.ct)))) as JournalData;
-    return data?.v === 1 && Array.isArray(data.notes) ? { ...emptyJournal(), ...data } : null;
+    if (!(data?.v === 1 && Array.isArray(data.notes))) return null;
+    // V6 (spec v2.0 §12.2): the operation records in the V6 vocabulary from the decryption on (persisted at the next write)
+    return { ...emptyJournal(), ...data, ...(Array.isArray(data.operations) ? { operations: upgradeOperations(data.operations) } : {}) };
   } catch {
     return null;
   }

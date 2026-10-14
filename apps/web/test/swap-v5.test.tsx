@@ -111,7 +111,7 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
   });
   it("the recovery card: a cross-chain order needing attention offers monitoring and the refund — never a retry; a failure before the signature offers a new quote", () => {
     const onRefund = vi.fn(), onMonitor = vi.fn();
-    const swap = record({ id: "swap:1", kind: "cross-chain", state: "RECOVERY_REQUIRED", refs: { txHashes: ["0x" + "ab".repeat(32)], orderId: "0x1" }, failure: { code: "execute_failed", class: "still-protected" }, recovery: { state: "refund-offered", since: 1 } });
+    const swap = record({ id: "swap:1", kind: "cross-chain", state: "RECOVERY_REQUIRED", refs: { txHashes: ["0x" + "ab".repeat(32)], orderId: "0x1" }, reason: { code: "execute_failed", fundsClass: "still-protected" }, recovery: { state: "refund-offered", since: 1 } });
     render(<Recovery record={swap} onMonitor={onMonitor} onRefund={onRefund} />);
     expect(screen.getByText("Something needs attention")).toBeInTheDocument();
     expect(screen.getByTestId("recovery-funds").textContent).toBe("Your protected funds are safe.");
@@ -123,7 +123,7 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
     expect([...document.querySelectorAll("button")].some((b) => /retry/i.test(b.textContent ?? "")), "never a blind Retry").toBe(false);
     expect(document.body.textContent).toContain("The same transaction is never sent twice");
     cleanup();
-    const send = record({ id: "send:1", kind: "send", state: "SUBMISSION_FAILED", failure: { code: "simulation_failed", class: "not-moved" } });
+    const send = record({ id: "send:1", kind: "send", state: "FAILED", reason: { code: "simulation_failed", fundsClass: "not-moved" } });
     render(<Recovery record={send} onNewQuote={() => {}} onRefund={onRefund} />);
     expect(screen.getByTestId("recovery-funds").textContent).toBe("Your funds were not moved.");
     expect(screen.queryByTestId("recovery-refund"), "nothing to refund before the signature").toBeNull();
@@ -174,12 +174,12 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
     await session.create("a strong password"); session.acknowledgePhrase();
     const stored: StoredSwap = { orderId: "0x" + "0a".repeat(32), attemptId: "0x" + "0b".repeat(32), refundCounter: 1, provider: "thorchain", policy: "balanced", request: { from: ETH, to: BTC, amount: eth(1).toString(), destination: DEST, destinationKind: "fresh" }, params: { amount: eth(1).toString() }, endpoint: "0x" + "0c".repeat(20), createdAt: 1_000, fundedTx: "0x" + "11".repeat(32), state: "funded", tier: "large", approvedMin: "2985000" };
     let rec = syncSwapRecord(stored, { state: "DESTINATION_SUBMITTED", label: "Waiting for destination", steps: [true, true, true, false], detail: "sent", destinationTxHash: "0x" + "22".repeat(32) }, null, 2_000);
-    expect(rec).toMatchObject({ id: swapRecordId(stored.orderId), kind: "cross-chain", state: "SETTLEMENT_VERIFYING", phase: "settlement", tier: "large", amounts: { asset: "ETH", input: eth(1).toString(), minimumOutput: "2985000", outputAsset: "BTC" }, destination: { kind: "fresh", display: DEST, chain: "bitcoin" } });
+    expect(rec).toMatchObject({ v: 2, id: swapRecordId(stored.orderId), kind: "cross-chain", state: "SETTLING", phase: "settlement", tier: "large", amounts: { asset: "ETH", input: eth(1).toString(), minimumOutput: "2985000", outputAsset: "BTC" }, destination: { kind: "fresh", display: DEST, chain: "bitcoin" } });
     expect(rec.refs).toMatchObject({ orderId: stored.orderId, provider: "thorchain", txHashes: [stored.fundedTx, "0x" + "22".repeat(32)] });
-    expect(getOperation(rec.id)?.state).toBe("SETTLEMENT_VERIFYING");
+    expect(getOperation(rec.id)?.state).toBe("SETTLING");
     rec = syncSwapRecord({ ...stored, jobId: "job-1" }, null, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "execute-failed", updatedAt: 3_000, error: "ProviderCallFailed" }, 3_000);
-    expect(rec).toMatchObject({ state: "PROVIDER_FAILED", failure: { code: "execute_failed", class: "still-protected" }, recovery: { state: "refund-offered" }, refs: { jobId: "job-1" } });
-    expect(rec.history.map((h) => h.state)).toEqual(["SETTLEMENT_VERIFYING", "PROVIDER_FAILED"]);
+    expect(rec).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "execute_failed", fundsClass: "still-protected" }, recovery: { state: "refund-offered" }, refs: { jobId: "job-1" } });
+    expect(rec.history.map((h) => h.state)).toEqual(["SETTLING", "RECOVERY_REQUIRED"]);
     rec = syncSwapRecord(stored, { state: "COMPLETED", label: "Completed", steps: [true, true, true, true], detail: "delivered", deliveredAmount: "2990000" }, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "completed", updatedAt: 4_000 }, 4_000);
     expect(rec).toMatchObject({ state: "COMPLETED", amounts: { delivered: "2990000" } });
     rec = syncSwapRecord(stored, { state: "PROVIDER_EXECUTING", label: "Executing", steps: [true, true, false, false], detail: "x" }, null, 5_000);
