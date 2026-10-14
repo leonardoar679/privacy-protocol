@@ -33,9 +33,9 @@ export interface Posture { categories: PostureCategory[]; overall: Level | null;
 export const LIMITS: readonly string[] = [
   "Adding funds is public by design: the deposit shows your address and its amount; privacy starts with what happens after it.",
   "Your IP address is visible to the RPC endpoints and to the relayer; a native app with Tor or a light client is the upgrade.",
-  "A swap provider sees the one-time escrow, the destination and the amount, and some publish that link; your private source stays protected, but timing and amount can be correlated by a patient observer.",
+  "A swap provider sees the one-time deposit address, the destination and the amount, and some publish that link; your private source stays protected, but timing and amount can be correlated by a patient observer.",
   "The pool is the crowd you hide in: with few notes, or an unusual amount, the effective set is small and the numbers here say so.",
-  "No action here is untraceable by construction. Every score is a bound from the privacy lab, not a guarantee.",
+  "Every action here leaves some public trace by construction. Every score is a bound from the privacy lab, not a guarantee.",
 ];
 
 const clamp = (x: number) => Math.max(0, Math.min(100, Math.round(x)));

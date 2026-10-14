@@ -7,8 +7,8 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { formatNote, generateNote } from "@privacy-wallet/protocol/classic/note";
-import { ClassicHome, ClassicPoolScreen, classicDeposits } from "../src/features/classic-privacy/Classic";
-import { DEVNET_NET_ID, resetClassicPools } from "../src/features/classic-privacy/mockPool";
+import { ClassicHome, ClassicPoolScreen, classicDeposits, classicService } from "../src/features/classic-privacy/ClassicPrivacyUI";
+import { DEVNET_NET_ID, resetClassicPools } from "../src/features/classic-privacy/contracts";
 import { emptyJournal } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -22,7 +22,7 @@ describe("Classic Privacy (spec §16)", () => {
   it("More → Classic lists the three devnet pools with their sizes and the separation line; a pool opens", async () => {
     await session.create("pw");
     const open = vi.fn();
-    render(<ClassicHome onOpen={open} />);
+    render(<ClassicHome onOpen={open} onRecover={vi.fn()} onRelayers={vi.fn()} />);
     expect(screen.getByTestId("classic").textContent).toContain("never your protected balance");
     for (const id of ["eth-0.1", "eth-1", "eth-10"]) expect(screen.getByTestId(`classic-pool-${id}`)).toBeInTheDocument();
     expect(screen.getByTestId("classic-pool-eth-1").textContent).toMatch(/1[,.   ]?027 deposits/);
@@ -57,8 +57,10 @@ describe("Classic Privacy (spec §16)", () => {
     expect(screen.getByTestId("classic-position").textContent).toMatch(/1[,.   ]?028/); // the pool grew by one
   });
 
-  it("a withdrawal: the wrong pool's note and a malformed one are refused with the reason, the right note prepares a placeholder (the proof arrives with the circuit port); the Advanced rows only under the advanced experience", async () => {
+  it("a withdrawal: the wrong pool's note, a malformed one and one never deposited are refused with the reason, a deposited note prepares a placeholder (the proof arrives with the circuit port); the Advanced rows only under the advanced experience", async () => {
     await session.create("pw");
+    const deposited = generateNote("eth", "1", DEVNET_NET_ID, seeded);
+    classicService().deposit("eth-1", deposited); // V6 Stage 14: a withdrawal needs the deposit in the pool
     render(<ClassicPoolScreen poolId="eth-1" onBack={() => {}} />);
     expect(screen.queryByTestId("classic-advanced"), "Simple hides the roots and relayer detail").toBeNull();
     await act(async () => { settings.set({ advanced: true }); });
@@ -73,7 +75,11 @@ describe("Classic Privacy (spec §16)", () => {
     type(input, "tornado-eth-1-31337-0x1234");
     fireEvent.click(screen.getByTestId("classic-prepare"));
     expect(screen.getByTestId("classic-error").textContent).toContain("not a classic note");
-    type(input, formatNote(generateNote("eth", "1", DEVNET_NET_ID, seeded)));
+    type(input, formatNote(generateNote("eth", "1", DEVNET_NET_ID, (n) => Uint8Array.from({ length: n }, (_, i) => (i * 11 + 5) & 0xff))));
+    type(screen.getByTestId("classic-recipient"), "0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
+    fireEvent.click(screen.getByTestId("classic-prepare"));
+    expect(screen.getByTestId("classic-error").textContent, "a note never deposited").toContain("no deposit for this note");
+    type(input, formatNote(deposited));
     type(screen.getByTestId("classic-recipient"), "0x12");
     fireEvent.click(screen.getByTestId("classic-prepare"));
     expect(screen.getByTestId("classic-error").textContent).toContain("0x address");

@@ -32,6 +32,10 @@ import { ProgressView } from "../features/progress/View";
 import { ActivityView, DetailView } from "../features/activity/View";
 import { ACTIVITY_FIXTURES, DETAIL_FIXTURES } from "../features/activity/fixtures";
 import { PROGRESS_FIXTURES, PROTECT_FIXTURES, REVIEW_FIXTURES, SEND_FIXTURES, SWAP_FIXTURES } from "../features/flowFixtures";
+import { PrivacyCenterView } from "../features/privacy-center/View";
+import { PRIVACY_CENTER_FIXTURES } from "../features/privacy-center/fixtures";
+import { ClassicHomeView, ClassicPoolActions, ClassicPoolStatusView, ClassicRecoverView, ClassicRelayersView } from "../features/classic-privacy/View";
+import { CLASSIC_HOME_FIXTURE, CLASSIC_POOL_FIXTURE, CLASSIC_RECOVER_FIXTURE, CLASSIC_RELAYERS_FIXTURE } from "../features/classic-privacy/fixtures";
 
 export interface Fixture {
   id: string;
@@ -265,6 +269,39 @@ export const FIXTURES: readonly Fixture[] = [
   screen("progress", "Progress", () => inShell("/swap", <ProgressView model={PROGRESS_FIXTURES.standard} />)),
   screen("progress-large", "Progress — a large operation", () => inShell("/swap", <ProgressView model={PROGRESS_FIXTURES.large} />)),
   // Activity, the detail, recovery (§7.8)
+  // V6 Stage 14 (spec v2.0 §7.10): the Privacy Center's seven sections
+  screen("privacy-center", "Privacy Center — protected", () =>
+    inShell("/more", <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.protected} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop }} />),
+  ),
+  screen("privacy-center-entered", "Privacy Center — an entered destination, one read endpoint", () =>
+    inShell("/more", <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.entered} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop }} />),
+  ),
+  // V6 Stage 14 (spec v2.0 §7.11, §11.3): Classic Privacy under More
+  screen("classic", "Classic Privacy — the pools", () =>
+    inShell("/more", <ClassicHomeView model={CLASSIC_HOME_FIXTURE} actions={{ onOpen: noop, onRecover: noop, onRelayers: noop, onBack: noop }} />),
+  ),
+  screen("classic-pool", "Classic Privacy — a pool's status", () =>
+    inShell(
+      "/more",
+      <Page title="1 ETH pool" back={noop} testId="classic-pool">
+        <Card testId="classic-position">
+          <div className="ds-stack-sm">
+            <ClassicPoolStatusView model={CLASSIC_POOL_FIXTURE} />
+            <ClassicPoolActions onDeposit={noop} onWithdraw={noop} />
+          </div>
+        </Card>
+      </Page>,
+    ),
+  ),
+  screen("classic-recover", "Classic Privacy — a deposit recovered from its note", () =>
+    inShell("/more", <ClassicRecoverView model={CLASSIC_RECOVER_FIXTURE} actions={{ onNote: noop, onFind: noop, onWithdraw: noop, onBack: noop }} />),
+  ),
+  screen("classic-relayers", "Classic Privacy — the relayer choice", () =>
+    inShell(
+      "/more",
+      <ClassicRelayersView relayers={CLASSIC_RELAYERS_FIXTURE.relayers} chosen={CLASSIC_RELAYERS_FIXTURE.chosen} actions={{ onChoose: noop, onBack: noop }} />,
+    ),
+  ),
   screen("activity", "Activity", () => <Activity state="list" />),
   screen("activity-empty", "Activity — empty", () => <Activity state="empty" />),
   screen("detail", "Detail — ETH → BTC executing", () => inShell("/activity", <DetailView model={DETAIL_FIXTURES.executing} onBack={noop} onRefresh={noop} />)),

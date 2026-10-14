@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { MIGRATIONS, SCHEMA_VERSION, openDb } from "../src/db";
+import { apiOperationColumns } from "@privacy-wallet/protocol-types";
 
 const dir = mkdtempSync(join(tmpdir(), "api-schema-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -36,6 +37,13 @@ describe("the schema", () => {
     const columns = tables.flatMap((t) => (db.prepare(`PRAGMA table_info(${t.name})`).all() as { name: string }[]).map((c) => `${t.name}.${c.name}`));
     for (const c of columns) expect(c, c).not.toMatch(/(^|[._])(notes?|secret|phrase|seed|witness|balance|address|ip|agent|user|funding|destination)(_|$)/i);
     expect(columns).toContain("operations.order_blob"); // the one place the destination and the refund material live, until finalize
+    // V6 Stage 14: the Privacy Center words the API's record from protocol-types' list — it must be exactly these columns
+    expect(
+      columns
+        .filter((c) => c.startsWith("operations."))
+        .map((c) => c.slice("operations.".length))
+        .sort(),
+    ).toEqual(apiOperationColumns().sort());
     expect(columns.filter((c) => c.startsWith("quotes."))).toEqual([
       "quotes.id",
       "quotes.created_at",

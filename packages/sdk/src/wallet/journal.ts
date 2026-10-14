@@ -136,7 +136,7 @@ export interface JournalData {
   /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. V6 (spec v2.0 §12.2): a V5 record is upgraded when the journal is decrypted (`v: 2`). */
   operations?: OperationRecord[];
   /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
-  classic?: { deposits: ClassicDepositRecord[] };
+  classic?: { deposits: ClassicDepositRecord[]; /** V6 Stage 14: the classic relayer the user chose (its id) */ relayer?: string };
   /** V6 Stage 10 (doc §71; spec v2.0 §10): the deployment fingerprint first seen per chain id (deploymentGuard.ts) — a different one blocks every operation until it is forgotten under Advanced. Optional, never written by emptyJournal(). */
   deploymentFingerprints?: Record<string, string>;
 }

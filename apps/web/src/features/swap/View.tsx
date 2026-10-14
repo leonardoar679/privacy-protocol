@@ -6,9 +6,10 @@
 // the funds were not moved. The time is the quote's own estimate, never a constant. Right after a protect the
 // protection reads Medium with the way to delay the funding for more privacy. Pure: ./SwapScreen.tsx (V6 Stage 11)
 // wires the engine under it through ./model.ts.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AddressInput,
+  BottomSheet,
   Button,
   Card,
   Collapsible,
@@ -26,18 +27,25 @@ import type { MessageKey } from "../../app/i18n/en";
 import { Amt, Usd, type Amount } from "../viewKit";
 
 export type Level = "high" | "medium" | "low";
+/** V6 Stage 14 (doc §35): a line of "Why?" under the protection indicator — from the assessment, a failed one with its reason */
+export interface WhyLineView {
+  ok: boolean;
+  label: MessageKey;
+  reason?: MessageKey;
+}
 export interface SwapModel {
   pay: { symbol: string; decimals: number; amount: string; balance: Amount | null; usd?: string | null };
   receive: { symbol: string; chain: string };
   /** V6 Stage 11: a cross-chain destination — typed, or the fresh address of this wallet — and its three checks */
   destination?: { value: string; fresh: boolean; checks: { valid: CheckState; network: CheckState; compatible: CheckState }; error?: string | null } | null;
   quote:
-    | { kind: "same-chain"; expected: Amount; minimum: Amount; protection: Level; feesUsdCents: bigint; eta: [number, number] }
+    | { kind: "same-chain"; expected: Amount; minimum: Amount; protection: Level; why?: WhyLineView[]; feesUsdCents: bigint; eta: [number, number] }
     | {
         kind: "cross-chain";
         expected: Amount;
         minimum: Amount;
         protection: Level;
+        why?: WhyLineView[];
         fees: { privacyUsdCents: bigint; relayerUsdCents: bigint; providerUsdCents: bigint };
         eta: [number, number];
       }
@@ -97,6 +105,7 @@ export function SwapView({
   footer?: ReactNode;
 }) {
   const t = useT();
+  const [why, setWhy] = useState(false);
   if (m.expired) {
     return (
       <Page title={t("screen.swap.title")} back={a.onBack} testId="swap-view">
@@ -228,7 +237,12 @@ export function SwapView({
         <Card padding="md" testId="swap-quote">
           <div className="ds-quote-head">
             <span>{t("screen.swap.bestRoute")}</span>
-            <ProtectionBadge level={q.protection === "high" ? "High" : "Reduced"} label={t(LEVEL[q.protection])} />
+            <ProtectionBadge
+              level={q.protection === "high" ? "High" : "Reduced"}
+              label={t(LEVEL[q.protection])}
+              onPress={q.why ? () => setWhy(true) : undefined}
+              testId="swap-protection"
+            />
           </div>
           <dl className="ds-review-rows">
             {q.kind === "same-chain" ? (
@@ -311,6 +325,19 @@ export function SwapView({
             </TextButton>
           ) : null}
         </Card>
+      ) : null}
+      {q?.why ? (
+        <BottomSheet open={why} onClose={() => setWhy(false)} title={t("privacyCenter.why.title")} testId="swap-why" id="swap-why">
+          <ul className="ds-plain-list" data-testid="swap-why-lines">
+            {q.why.map((l) => (
+              <li key={l.label} data-ok={l.ok ? "1" : "0"}>
+                {l.ok ? "✓" : "⚠"} {t(l.label)}
+                {l.reason ? <p className="ds-note">{t(l.reason)}</p> : null}
+              </li>
+            ))}
+          </ul>
+          <p className="ds-note">{t("privacyCenter.metadataPublic")}</p>
+        </BottomSheet>
       ) : null}
       {m.privacy?.recent ? (
         <Card padding="md" testId="swap-recent">

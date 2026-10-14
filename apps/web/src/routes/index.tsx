@@ -13,7 +13,7 @@ import { Welcome } from "../features/onboarding/Welcome";
 import { Create, Restore, Unlock } from "../features/onboarding/Lock";
 import { More } from "../features/more/More";
 import { Home } from "../features/wallet/Home";
-import { AdvancedRoute, ClassicPoolRoute, ClassicRoute, PrivacyRoute, SecurityRoute, WalletRoute, WhatStaysPrivateRoute } from "../features/more/MoreRoutes";
+import { AdvancedRoute, ClassicPoolRoute, ClassicRecoverRoute, ClassicRelayersRoute, ClassicRoute, PrivacyRoute, SecurityRoute, WalletRoute, WhatStaysPrivateRoute } from "../features/more/MoreRoutes";
 import { ProtectRoute } from "../features/protect/ProtectRoute";
 import { SendRoute } from "../features/send/SendRoute";
 import { ReceiveRoute } from "../features/wallet/ReceiveRoute";
@@ -68,6 +68,8 @@ export function buildRoutes({ preview = false, deployment }: { preview?: boolean
     { path: "more/advanced", element: <AdvancedRoute /> },
     { path: "more/ai", element: <AIRoute /> },
     { path: "more/classic", element: <ClassicRoute /> },
+    { path: "more/classic/recover", element: <ClassicRecoverRoute /> },
+    { path: "more/classic/relayers", element: <ClassicRelayersRoute /> },
     { path: "more/classic/:poolId", element: <ClassicPoolRoute /> },
     { path: "*", element: <Navigate to="/" replace /> },
   ];

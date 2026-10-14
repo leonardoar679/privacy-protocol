@@ -8,6 +8,9 @@
 import { http, type HttpTransport } from "viem";
 
 export type Purpose = "rpc" | "relayer" | "swap-service" | "beacon" | "thornode" | "artifacts" | "zkapi" | "inference" | "guest" | "other";
+/** The purpose registry (V6 Stage 14, spec v2.0 §7.10): every purpose a request can carry — the Privacy Center words each
+ *  one ("Data sent to services"), and a purpose added here without its words fails apps/web/test/privacy-center.test.tsx. */
+export const PURPOSES: readonly Purpose[] = ["rpc", "relayer", "swap-service", "beacon", "thornode", "artifacts", "zkapi", "inference", "guest", "other"];
 export interface RequestRecord { url: string; host: string; method: string; purpose: Purpose; at: number }
 
 /** The policy every request carries; a caller's own `credentials` or `redirect` never overrides it. */

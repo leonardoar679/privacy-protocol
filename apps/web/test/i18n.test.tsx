@@ -68,7 +68,7 @@ describe("the locale (spec §19)", () => {
     const prefixes = [...src.matchAll(/`([a-zA-Z0-9]+(?:\.[a-zA-Z0-9-]+)*\.)\$\{/g)].map((m) => m[1]);
     const dead = Object.keys(en).filter((k) => !src.includes(`"${k}"`) && !src.includes(`'${k}'`) && !prefixes.some((p) => k.startsWith(p)));
     expect(dead).toEqual([]);
-    expect(prefixes).toEqual(expect.arrayContaining(["op.error.", "op.state.", "privacyCenter.level.", "wallet.status."]));
+    expect(prefixes).toEqual(expect.arrayContaining(["op.error.", "op.state.", "privacyCenter.sent.", "wallet.status."]));
   });
   it("the pseudo-locale lengthens and accents every string, keeps placeholders and the marks, and the screens render it without an English leak", () => {
     expect(pseudoLocalize("Send {amount} now")).toBe("[Šéñđ {amount} ñóŵ ~~~]");

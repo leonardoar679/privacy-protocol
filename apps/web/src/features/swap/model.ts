@@ -12,6 +12,7 @@ import type { CheckState } from "@privacy-wallet/ui";
 import { feeSummary, type QuoteSet, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { amountOf, centsOf } from "../amounts";
 import { hours, type Target } from "./targets";
+import { whyLines } from "../privacy-center/model";
 import type { Level, SwapModel } from "./View";
 
 /** What the funding adds to the provider's time: the proof and the withdrawal's confirmation (until Stage 15 measures this device). */
@@ -96,6 +97,7 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
       expected,
       minimum,
       protection: level,
+      ...(f.privacy ? { why: whyLines(f.privacy.reasons) } : {}),
       feesUsdCents: cents(split.privacy) + cents(split.network + tip) + shieldCents + providerCents,
       eta,
     };
@@ -105,6 +107,7 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
     expected,
     minimum,
     protection: level,
+    ...(f.privacy ? { why: whyLines(f.privacy.reasons) } : {}),
     fees: { privacyUsdCents: cents(split.privacy), relayerUsdCents: cents(split.network + tip), providerUsdCents: providerCents },
     eta,
   };

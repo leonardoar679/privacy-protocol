@@ -12,7 +12,8 @@ import { Security } from "../src/features/more/Security";
 import { Wallet } from "../src/features/more/Wallet";
 import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";
 import { WhatStaysPrivate } from "../src/features/privacy-center/WhatStaysPrivate";
-import { FRESH_WINDOW_MS, freshDestinations, privacyRows, sessionFacts } from "../src/features/privacy-center/status";
+import { FRESH_WINDOW_MS, freshDestinations } from "../src/features/privacy-center/status";
+import { listedPurposes, privacyCenterModel } from "../src/features/privacy-center/model";
 import { addAddress, findEntry, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -100,29 +101,33 @@ describe("the Privacy Center (spec §3.13, §15)", () => {
     const book = session.journal().addressBook!;
     expect(freshDestinations(book, now)).toBe(false);
     expect(freshDestinations(book, now + FRESH_WINDOW_MS)).toBe(true);
-    expect(sessionFacts(settings.get(), book, now)).toEqual({ analyticsOff: true, trackingOff: true, walletDataLocal: true, privateOperation: true, destinationIsolated: false });
-    const rows = privacyRows({ categories: [], overall: "Good", limits: [] }, deployment, settings.get(), book, now);
-    expect(Object.fromEntries(rows.map((r) => [r.id, r.ok]))).toEqual({ protection: true, walletData: true, analytics: true, privateRpc: true, shielded: true, freshDestination: false });
-    const later = privacyRows({ categories: [], overall: "Reduced", limits: [] }, { ...deployment, rpcUrls: ["http://127.0.0.1:1"] }, { ...settings.get(), submission: { kind: "wallet" } }, book, now + FRESH_WINDOW_MS);
-    expect(later.map((r) => r.ok), "one endpoint, the wallet submitting, a reduced posture").toEqual([false, true, true, false, false, true]);
+    // V6 Stage 14 (spec v2.0 §7.10): the seven sections, every row a fact
+    const facts = { posture: { categories: [], overall: "Good" as const, limits: [] }, rpcEndpoints: 2, lightClient: true, relayerSubmission: true, freshDestinations: freshDestinations(book, now), stored: { notes: 1, operations: 2, addressBook: 1 }, purposes: listedPurposes(false), poolNotes: 12 };
+    const m = privacyCenterModel(facts);
+    expect(m.sections.map((x) => x.id)).toEqual(["protection", "wallet", "network", "transaction", "stored", "sent", "advanced"]);
+    const tone = (mm: typeof m) => Object.fromEntries(mm.sections.flatMap((x) => x.rows).map((r) => [r.id, r.tone]));
+    expect(m.level).toBe("medium");
+    expect(tone(m)).toMatchObject({ protection: "ok", walletData: "ok", analytics: "ok", tracking: "ok", privateTransport: "ok", privateSubmission: "ok", freshDestination: "warn" });
+    const later = privacyCenterModel({ ...facts, posture: { ...facts.posture, overall: "Reduced" }, rpcEndpoints: 1, relayerSubmission: false, freshDestinations: freshDestinations(book, now + FRESH_WINDOW_MS) });
+    expect(later.level).toBe("low");
+    expect(tone(later), "one endpoint, the wallet submitting, a reduced posture").toMatchObject({ protection: "warn", privateTransport: "warn", privateSubmission: "warn", freshDestination: "ok" });
 
     const learn = vi.fn();
     render(<PrivacyCenter deployment={deployment} onLearnMore={learn} />);
     const center = screen.getByTestId("privacy-center");
-    expect(screen.getByTestId("session-checks").querySelector('[data-fact="destination"]')!.getAttribute("data-ok")).toBe("0");
-    expect(screen.getByTestId("session-checks").querySelector('[data-fact="analytics"]')!.getAttribute("data-ok")).toBe("1");
-    expect(center.querySelector('[data-row="freshDestination"]')!.getAttribute("data-ok")).toBe("0");
-    expect(center.querySelector('[data-row="privateRpc"]')!.getAttribute("data-ok")).toBe("1");
-    expect(center.querySelector('[data-row="walletData"]')!.textContent).toContain("Stored locally");
+    expect(center.querySelector('[data-row="freshDestination"]')!.getAttribute("data-tone")).toBe("warn");
+    expect(center.querySelector('[data-row="privateTransport"]')!.getAttribute("data-tone")).toBe("ok");
+    expect(center.querySelector('[data-row="walletData"]')!.textContent).toContain("Encrypted locally");
     expect(screen.getByTestId("privacy-limits").querySelectorAll("li")).toHaveLength(LIMITS.length);
-    for (const c of CATEGORIES) expect(center.textContent, "collapsed until asked").not.toContain(c);
+    // the six categories are not rendered until asked (a section title — "Network privacy" — may share a category's name)
+    expect(screen.queryByTestId("privacy-categories"), "collapsed until asked").toBeNull();
     fireEvent.click(screen.getByTestId("privacy-advanced-toggle"));
     for (const c of CATEGORIES) expect(screen.getByTestId("privacy-categories").textContent).toContain(c);
     fireEvent.click(screen.getByTestId("learn-more"));
     expect(learn).toHaveBeenCalledTimes(1);
     expect(center.textContent!.toLowerCase(), "the LIMITS say what is not untraceable; nothing here claims anonymity").not.toMatch(/anonymous|mixer|undetectable/);
     await act(async () => { settings.set({ submission: { kind: "wallet" } }); });
-    expect(screen.getByTestId("session-checks").querySelector('[data-fact="private"]')!.getAttribute("data-ok"), "a fact, recomputed").toBe("0");
+    expect(center.querySelector('[data-row="privateSubmission"]')!.getAttribute("data-tone"), "a fact, recomputed").toBe("warn");
   });
 
   it("What stays private? lists the LIMITS verbatim and never promises anonymity", () => {

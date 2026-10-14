@@ -12,7 +12,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../../src/storage/prefs";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
-import { resetClassicPools } from "../../src/features/classic-privacy/mockPool";
+import { resetClassicPools } from "../../src/features/classic-privacy/contracts";
 
 afterEach(() => { cleanup(); session.forget(); settings.reset(); prefs().reset(); connection.reset(); resetClassicPools(); });
 const LAZY = { timeout: 20_000 };
@@ -39,6 +39,8 @@ const SCREENS: { path: string; id: string; wallet: boolean }[] = [
   { path: "/more/wallet", id: "wallet-screen", wallet: true },
   { path: "/more/classic", id: "classic", wallet: true },
   { path: "/more/classic/eth-1", id: "classic-pool", wallet: true },
+  { path: "/more/classic/recover", id: "classic-recover", wallet: true },
+  { path: "/more/classic/relayers", id: "classic-relayers", wallet: true },
 ];
 
 describe("the screens are accessible (spec §19)", () => {

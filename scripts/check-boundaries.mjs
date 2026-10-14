@@ -7,7 +7,11 @@
 //      tests, scripts and configs), and the declared workspace graph has no cycle;
 //   6. among the wallet's code, only the privacy engine's chain transport makes a viem client (doc §65) — the Private
 //      AI's own funding account on its pinned chain excepted (docs/zkapi-integration-spec.md §6);
-//   7. only the wallet engine's injected.ts reads the browser's injected provider (window.ethereum).
+//   7. only the wallet engine's injected.ts reads the browser's injected provider (window.ethereum);
+//   8. Classic Privacy is a module apart (spec v2.0 §11.3; V6 Stage 14): its files import nothing of the protected-wallet
+//      engine but the session that keeps its journal field, its record type and the build's configuration, nothing of
+//      the protocol but the classic note, and nothing of the app but its words and hooks; outside it, only More's routes,
+//      the route table and the fixtures registry import it (tests may).
 // Usage: node scripts/check-boundaries.mjs (exit 1 with every violation listed).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -36,6 +40,17 @@ const WALLET_CODE = [
 ];
 const CLIENT_MAKERS = ["packages/privacy-engine/src/transport/chain.ts", "apps/web/src/zkapi/freshAccountProvider.ts"];
 const INJECTED_READER = "packages/wallet-engine/src/injected.ts";
+const CLASSIC_DIR = "apps/web/src/features/classic-privacy/";
+const CLASSIC_IMPORTERS = ["apps/web/src/features/more/MoreRoutes.tsx", "apps/web/src/routes/index.tsx", "apps/web/src/fixtures/registry.tsx"];
+const CLASSIC_ALLOWED = [
+  /^@privacy-wallet\/sdk\/wallet\/(session|classicRecord)$/,
+  /^@privacy-wallet\/sdk\/config$/,
+  /^@privacy-wallet\/protocol\/classic\/[\w.-]+$/,
+  /^@privacy-wallet\/ui$/,
+  /^@privacy-wallet\/privacy-engine\/transport\/http$/,
+  /^(react|zod)$/,
+];
+const CLASSIC_APP = ["apps/web/src/app/i18n/", "apps/web/src/hooks"];
 
 const posix = (p) => p.split(sep).join("/");
 const rel = (p) => posix(relative(ROOT, p));
@@ -101,8 +116,19 @@ export function check() {
           if (spec.startsWith(".")) {
             const target = owner(resolve(dirname(abs), spec));
             if (target && target !== w) report(file, line, `rule 1: a relative import crosses into ${target.root} (${spec}); import ${target.name} by name`);
+            const into = rel(resolve(dirname(abs), spec));
+            if (file.startsWith(CLASSIC_DIR) && !dev && !into.startsWith(CLASSIC_DIR) && !CLASSIC_APP.some((d) => into.startsWith(d)))
+              report(file, line, `rule 8: Classic Privacy imports ${spec} from outside its module`);
+            if (!file.startsWith(CLASSIC_DIR) && !dev && into.startsWith(CLASSIC_DIR) && !CLASSIC_IMPORTERS.includes(file))
+              report(file, line, `rule 8: ${spec} is Classic Privacy's: only More's routes, the route table and the fixtures import it`);
             continue;
           }
+          if (file.startsWith(CLASSIC_DIR) && !dev && !CLASSIC_ALLOWED.some((rx) => rx.test(spec)))
+            report(
+              file,
+              line,
+              `rule 8: Classic Privacy imports ${spec} (only the session, its record, the configuration, the classic note, the UI, the transport, react and zod)`,
+            );
           const pkg = packageOf(spec);
           const isPackage = w.root.startsWith("packages/");
           if (isPackage && APPS.has(pkg)) report(file, line, `rule 2: a package imports the app ${pkg}`);

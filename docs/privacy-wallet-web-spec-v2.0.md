@@ -496,10 +496,28 @@ the rows `Protection High`, `Wallet data Encrypted locally`, `Analytics Off`, `T
 Enabled`, `Fresh destination Enabled`, each computed from a fact (V5 §15), "Data sent to services" generated from
 the transport's purpose registry and the API's field list.
 
+Code (Stage 14): `apps/web/src/features/privacy-center/model.ts` `privacyCenterModel(facts)` builds the seven sections
+in order, every row from a fact — the level from the posture (`levelOf`: Excellent → high, Good → medium, Reduced →
+low), Private transport enabled only with two read endpoints and the light client, Fresh destination off once a
+destination was typed in recently. "Data sent to services" lists `listedPurposes` (the transport's `PURPOSES` of
+`packages/privacy-engine/src/transport/http.ts` without `other`; `zkapi` and `inference` only where the build has
+Private AI), each with what that service receives, then "What the swap API keeps" (the groups of `API_OPERATION_FIELDS`)
+and "What the swap API never keeps" (`NEVER_STORED`), both in `packages/protocol-types/src/services.ts` and pinned to
+the API's `operations` columns by `apps/api/test/schema.test.ts`; a purpose, a group or an item without its words
+fails `apps/web/test/privacy-center.test.tsx`. The relayer's row says it keeps each job and its transaction. The
+protection section is the indicator and "Some blockchain metadata remains public."; Advanced settings keeps the six
+categories with their "Why" and the link to the remaining settings. The Swap screen's indicator opens the "Why?" sheet
+(`whyLines`: source, destination, provider, execution — a failed line with its plain reason;
+`apps/web/src/features/swap/View.tsx`). The View is pure (`View.tsx` holds the types); the fixtures are literal
+view-models the test pins to the model over the real posture.
+
 ### 7.11 More, Classic Privacy, offline (doc §36, §52–§53, §75)
 More lists Receive (no longer on Home, §7.1), Privacy Center, Classic Privacy, Security, Wallet, Networks,
 Advanced, Language (and Private AI where the build has it); the desktop's Wallet menu holds the same list (§6). Classic Privacy (§11.3) keeps its own screens: pool selection, deposit, deposit recovery,
-withdrawal, relayer, status. A lost connection shows, over every screen:
+withdrawal, relayer, status (Code, Stage 14: the routes `/more/classic`, `/more/classic/:poolId`,
+`/more/classic/recover` and `/more/classic/relayers` in `apps/web/src/routes/index.tsx` over
+`apps/web/src/features/more/MoreRoutes.tsx`; one list of entries for More and the Wallet menu,
+`apps/web/src/features/more/entries.ts`). A lost connection shows, over every screen:
 ```
 Connection interrupted
 Your transaction state is being preserved.
@@ -636,6 +654,18 @@ An isolated module (`apps/web/src/features/classic-privacy/`): `ClassicPrivacySe
 review stay deferred, owner V5), `ClassicPrivacyRelayer` (the zod relayer API). Its own journal field, its own
 state, no import to or from the protected-wallet engine (lint), More only. The dedicated review is
 `docs/classic-privacy-review.md`.
+
+Code (Stage 14): `apps/web/src/features/classic-privacy/` — `contracts.ts` (`ClassicPrivacyContracts`: `pools()`,
+`pool(id)`; the devnet `MockPool` in a development build, `noClassicContracts` in a production one, whose home says
+Classic Privacy is not available in this build yet), `relayer.ts` (`ClassicPrivacyRelayer`: the zod schemas and a
+client over an injected `fetch`; no relayer is called in this pass), `service.ts` (`ClassicPrivacyService`: a deposit
+journaled with its commitment, never the note; a pasted note recovered on the device — its pool, its deposit, withdrawn
+or not, journaled here or not; a pool's status with its root's age, stale after an hour; a withdrawal prepared only for
+a deposited, unspent note, a 0x recipient and an online relayer, another pool's note refused on a pool's screen),
+`View.tsx` and `ClassicPrivacyUI.tsx` (the screens; the relayer choice kept in `journal.classic.relayer`). Rule 8 of
+`scripts/check-boundaries.mjs` enforces the boundary both ways: the module imports only the session, its record, the
+configuration, the classic note, the UI, the transport, react and zod, and only More's routes, the route table and
+the fixtures registry import it. The review's findings: C-1 (the mock in a production build) fixed; C-2 to C-5 open.
 
 ## 12. The operation contract (doc §37–§38, §41, §73–§76) — *Stage 8*
 
