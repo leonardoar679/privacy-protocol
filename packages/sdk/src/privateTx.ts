@@ -365,7 +365,42 @@ function olderInputs(vault: Address, maxTiming: number, needed: bigint): OwnedNo
   return notes;
 }
 
-export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number } & Progress): Promise<Submitted> {
+// ---- one private spend at a time (a V6 follow-up of 2026-10-14). A spend's inputs are marked spent only once its
+// transaction is mined, so two spends planned at once — a Send started while a confirmed swap funds its escrow, a
+// housekeeping step — picked the same notes, and the second failed on the nullifier the first had just spent. Every
+// spend entry point now takes its turn: the second waits for the first to be recorded, then plans from the notes as
+// they are, the first's change note included. The merges a spend needs first run inside their caller's turn. One
+// unlocked tab at a time (apps/web/src/platform/activeTab.ts) keeps it to this tab.
+let spendTail: Promise<void> = Promise.resolve();
+let spendBusy = false;
+/** Runs `fn` when no other private spend of this tab is under way; a failed spend never blocks the next. */
+function inTurn<T>(o: { onStatus?: (line: string) => void }, fn: () => Promise<T>): Promise<T> {
+  if (spendBusy) o.onStatus?.("Waiting for the other private operation to finish…");
+  const run = spendTail.then(async () => {
+    spendBusy = true;
+    try {
+      return await fn();
+    } finally {
+      spendBusy = false;
+    }
+  });
+  spendTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+export const privateWithdrawal = (o: Parameters<typeof privateWithdrawalInTurn>[0]): Promise<Submitted> => inTurn(o, () => privateWithdrawalInTurn(o));
+export const privateTransfer = (o: Parameters<typeof privateTransferInTurn>[0]): ReturnType<typeof privateTransferInTurn> => inTurn(o, () => privateTransferInTurn(o));
+/** Perform one merge on chain (private self-transfer) and record the merged note. */
+export const mergeNotes = (o: Parameters<typeof mergeNotesInTurn>[0]): ReturnType<typeof mergeNotesInTurn> => inTurn(o, () => mergeNotesInTurn(o));
+/** Merge until two notes cover `needed` (+ the fee of each merge and of the final spend). Returns the number of merges performed. */
+export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]): Promise<number> => inTurn(o, () => ensureSpendableInTurn(o));
+/** Perform one split on chain (private self-transfer) and record both notes. */
+export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
+
+async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number } & Progress): Promise<Submitted> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
@@ -374,7 +409,7 @@ export async function privateWithdrawal(o: { masterSeed: Uint8Array; deployment:
   const needed = o.amount + (terms?.fee.amount ?? 0n);
   // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
   if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
-  await ensureSpendable({ ...o, submission, vault, needed: o.amount });
+  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
@@ -428,7 +463,7 @@ export class HousekeepingNeeded extends Error {
 }
 
 /** Perform one merge on chain (private self-transfer) and record the merged note. */
-export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote } & Progress): Promise<Submitted & { merged: OwnedNote }> {
+async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote } & Progress): Promise<Submitted & { merged: OwnedNote }> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.a.note.vaultId;
@@ -449,7 +484,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
 }
 
 /** Merge until two notes cover `needed` (+ the fee of each merge and of the final spend). Returns the number of merges performed. */
-export async function ensureSpendable(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address } & Progress): Promise<number> {
+async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address } & Progress): Promise<number> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   const vaultId = BigInt(vault);
@@ -466,7 +501,7 @@ export async function ensureSpendable(o: { masterSeed: Uint8Array; deployment: D
     const a = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ia)!, b = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ib)!;
     o.onStatus?.(`${sched.pairs.length} merge(s) needed before this spend; merging notes ${a.leafIndex} + ${b.leafIndex}…`);
     o.onEvent?.({ type: "merging", i: done + 1, n: done + sched.pairs.length });
-    await mergeNotes({ ...o, a, b, submission });
+    await mergeNotesInTurn({ ...o, a, b, submission });
     done++;
   }
 }
@@ -493,7 +528,7 @@ export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote
 }
 
 /** Perform one split on chain (private self-transfer) and record both notes. */
-export async function splitNote(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
+async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.note.note.vaultId;
@@ -520,7 +555,7 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  * of a transaction. Outputs: the recipient's note (their owner commitment, payload encrypted to
  * their view key — they find it by rescanning), our change, the relayer's fee note or a dummy.
  */
-export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
+async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
@@ -529,7 +564,7 @@ export async function privateTransfer(o: { masterSeed: Uint8Array; deployment: D
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
-  await ensureSpendable({ ...o, submission, vault, needed: o.amount });
+  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);

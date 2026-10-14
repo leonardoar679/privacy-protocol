@@ -1022,6 +1022,17 @@ Code (Stage 15):
 - The Rust prover on wasm32: `privacy-core/privacy-prover-wasm` (bench-only) and `benchmarks/proof/` (`build.mjs`,
   `rust-wasm-vs-snarkjs.mjs`, the dated results).
 
+**One private spend at a time (V6 follow-up, 2026-10-14).** A spend's inputs are marked spent only once its
+transaction is mined. So two spends planned at once in one tab picked the same notes, and the second failed on the
+nullifier the first had just spent: a Send started while a confirmed swap funds its escrow, or a housekeeping step.
+- Every spend entry point (`privateWithdrawal`, `privateTransfer`, `mergeNotes`, `ensureSpendable`, `splitNote`)
+  takes its turn. The second waits for the first to be recorded (its status line says so), then plans from the notes
+  as they are, the first's change note included.
+- The merges a spend needs first run inside their caller's turn. A failed spend never blocks the next.
+- One unlocked tab at a time (§8) keeps it to one tab.
+
+Code: `packages/sdk/src/privateTx.ts` (`inTurn`); `packages/sdk/test/spend-turns.test.ts`.
+
 ## 15. The API (doc §44–§46, §63–§64, §67–§68) — *Stage 9*
 
 `apps/api`: Express 5 on `node:sqlite` (`DatabaseSync`, WAL, `synchronous=NORMAL`, `foreign_keys=ON`,
