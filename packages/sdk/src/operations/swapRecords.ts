@@ -67,12 +67,12 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
       ...(stored.approvedMin ? { minimumOutput: stored.approvedMin } : {}),
       outputAsset: req.to?.symbol,
       outputDecimals: req.to?.decimals,
-      ...(tracked?.deliveredAmount ? { delivered: tracked.deliveredAmount } : {}),
+      ...(tracked?.deliveredUnits ? { delivered: tracked.deliveredUnits } : {}),
     },
     fees: prev?.fees ?? [],
     destination: {
       kind: stored.campaign ? "fresh" : (stored.request as { destinationKind?: string }).destinationKind === "entered" ? "entered" : "fresh",
-      display: req.destination ?? "",
+      display: stored.shield ? "" : (req.destination ?? ""), // V6 Stage 12: into the protected balance — the one-time receiver is no address of the user's
       chain: req.to?.chain ?? "ethereum",
     },
     refs: {

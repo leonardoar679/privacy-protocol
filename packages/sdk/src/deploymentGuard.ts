@@ -2,7 +2,7 @@
 // a protect, a send, a withdrawal, a swap's funding, a merge or a split — the engine reads what the configured contracts
 // are (@privacy-wallet/contracts verifyDeployment: the core's protocol, circuit and hash identifiers, its verifier and
 // vault factory, the canonical vault of every asset and its version), checks that the configured vaults are those
-// canonical vaults and that ProtectRouter answers to this core, and compares the fingerprint with the one this wallet
+// canonical vaults, that ProtectRouter answers to this core and the shield receiver factory deposits into its pool, and compares the fingerprint with the one this wallet
 // remembered for the chain (the encrypted journal's optional `deploymentFingerprints`). A problem or a changed
 // fingerprint is a blocking error — "This app does not match the deployed protocol." — never a silent switch; the first
 // sight is remembered. Nothing is read before the user confirms an operation (first launch stays request-free), and a
@@ -41,6 +41,7 @@ export function claimOf(d: Deployment): DeploymentClaim {
     assets: Object.fromEntries(assetsOf(d).map((a) => [a.symbol.toLowerCase(), (a.token ?? null) as Address | null])),
     ...(d.swapFactory ? { swapFactory: d.swapFactory } : {}),
     ...(d.protectRouter ? { protectRouter: d.protectRouter } : {}),
+    ...(d.shieldFactory ? { shieldFactory: d.shieldFactory } : {}),
   };
 }
 

@@ -11,6 +11,8 @@ import poseidon2Hasher from "../../../contracts/abi/Poseidon2Hasher.json";
 import swapOrderEscrow from "../../../contracts/abi/periphery/SwapOrderEscrow.json";
 import swapOrderFactory from "../../../contracts/abi/periphery/SwapOrderFactory.json";
 import protectRouter from "../../../contracts/abi/periphery/ProtectRouter.json";
+import shieldReceiverFactory from "../../../contracts/abi/periphery/ShieldReceiverFactory.json";
+import shieldReceiver from "../../../contracts/abi/periphery/ShieldReceiver.json";
 
 export const ABI = {
   privacyCore: privacyCore as Abi,
@@ -22,12 +24,16 @@ export const ABI = {
   swapOrderEscrow: swapOrderEscrow.abi as Abi,
   swapOrderFactory: swapOrderFactory.abi as Abi,
   protectRouter: protectRouter.abi as Abi,
+  shieldReceiverFactory: shieldReceiverFactory.abi as Abi,
+  shieldReceiver: shieldReceiver.abi as Abi,
 } as const;
 
-/** Creation code: the escrow's is part of its CREATE2 address (the wallet recomputes every escrow it funds); the
- *  router's deploys it on a devnet. */
+/** Creation code: the escrow's and the shield receiver's are part of their CREATE2 addresses (the wallet recomputes
+ *  every escrow it funds and every receiver it names); the router's and the factories' deploy them on a devnet. */
 export const BYTECODE = {
   swapOrderEscrow: swapOrderEscrow.bytecode as Hex,
   swapOrderFactory: swapOrderFactory.bytecode as Hex,
   protectRouter: protectRouter.bytecode as Hex,
+  shieldReceiverFactory: shieldReceiverFactory.bytecode as Hex,
+  shieldReceiver: shieldReceiver.bytecode as Hex,
 } as const;

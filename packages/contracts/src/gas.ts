@@ -14,6 +14,10 @@ export const GAS_UNITS = {
   escrowExecuteETH: 1_900_000n,
   /** SwapOrderFactory.deployAndRefund of an ETH order: the escrow's deployment and the re-shielding deposit */
   escrowRefundETH: 3_450_000n,
+  /** V6 Stage 12: ShieldReceiverFactory.deployAndShield of an ETH receipt — the receiver's deployment, the tip, the deposit */
+  shieldETH: 2_850_000n,
+  /** the same for an ERC-20 receipt (the tip and the exact approval in the token) */
+  shieldERC20: 2_880_000n,
 } as const;
 
 /** Not measured by the bench — a standard ERC-20 approve (an approval transaction before protectERC20), with headroom. */

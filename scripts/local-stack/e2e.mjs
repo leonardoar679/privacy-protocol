@@ -17,6 +17,11 @@
 //      waits for the user's choice; a refused one is tried again; else the funds return) → the executor → the tracker
 //   6. a reload: unlock, Home's card opens the swap's progress from the encrypted journal; nothing is funded again
 //   7. Activity: every money flow has a row, never a bare "failed"
+//  7b. V6 Stage 12 (spec v2.0 §7.5, §11.2): Swap 8,000 USDC → ETH into the protected balance — the quote and the Review
+//      name "Your protected balance", ONE confirmation, the order pays a one-time shield receiver the wallet named and the
+//      relayer watches from the hand-over; THORChain's outbound is the real router's transferOut (a 2300-gas send to the
+//      receiver); the relayer deploys the receiver and shields the delivery (the tip once, the rest as the committed
+//      note); the wallet finds the note and the progress ends on what was added
 //   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
 //      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
 //      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
@@ -31,7 +36,8 @@
 //   VIEWPORTS=360x800,1280x800 node e2e.mjs  the shell pass on these viewports only
 //   SKIP_CAMPAIGN=1 node e2e.mjs             without the $10M protected swap (section 8)
 import { chromium } from "playwright";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { encodeFunctionData, parseAbi } from "viem";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +69,17 @@ const figure = (s) => Number((/([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:ETH|USDC)/.exec(
 const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
 const usdRe = (n, prefix = "") => new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\$" + Math.round(n).toLocaleString("en-US").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\.\\d{1,2})?(?!\\d)");
 const text = async (locator) => ((await locator.textContent()) ?? "").replace(/\s+/g, " ");
+/** V6 Stage 12: the relayer's shield jobs (its journal file: there is no list endpoint) created by this run */
+function shieldJobsOfThisRun() {
+  const file = join(HERE, "run", "relayer-journal", "shield-jobs.json");
+  if (!existsSync(file)) return [];
+  try { return JSON.parse(readFileSync(file, "utf8")).filter((j) => Number(j.createdAt ?? 0) >= RUN_START - 60_000); } catch { return []; }
+}
+/** polls `f` every `ms` until it returns something truthy or `timeout` passes */
+async function until(page, f, timeout, ms = 2000) {
+  for (const end = Date.now() + timeout; Date.now() < end; await page.waitForTimeout(ms)) { const v = await f(); if (v) return v; }
+  return null;
+}
 /** the relayer's swap jobs created by this run (its journal keeps earlier runs' jobs) */
 async function jobsOfThisRun() {
   const jobs = await (await fetch(`${RELAYER}/swap`, { headers: { authorization: "Bearer local-stack" } })).json().catch(() => null); // the operator token start-services.mjs sets
@@ -754,6 +771,81 @@ try {
   await snap(page, "activity");
   const activityText = await text(byId(page, "activity"));
   check("the swap row never says a bare failed", !/\bfailed\b/i.test(activityText), activityText.slice(0, 300));
+
+  // 7b. V6 Stage 12 (spec v2.0 §7.5, §11.2): a same-chain swap into the protected balance — 8,000 USDC → ETH ----------------
+  if (stack.usdc && stack.shieldFactory) {
+    phase = "swap-protected";
+    await openProtect(page, 10000, "USDC"); // 9,900 USDC more in the protected balance (2,450 are left from 2b)
+    await clickId(page, "protect-review");
+    await waitReview(page);
+    await confirmReview(page);
+    await byId(page, "protect-done").waitFor({ timeout: 180_000 });
+    await nav(page, "Swap");
+    await byId(page, "swap-view").waitFor({ timeout: 30_000 });
+    await chooseAsset(page, "swap-from-asset", "swap-from-selector-option", "USDC");
+    await chooseAsset(page, "swap-to-asset", "swap-to-selector-option", "Ethereum"); // ETH on the pool's chain (the source USDC is no target)
+    const toSide = await text(byId(page, "swap-to"));
+    check("a same-chain target lands in the protected balance: no destination to type (spec v2.0 §7.5)", (await byId(page, "swap-destination").count()) === 0 && /Your protected balance/.test(toSide), toSide);
+    await fillId(page, "amount-input", "8000");
+    await byId(page, "swap-quote").waitFor({ timeout: 180_000 });
+    const pq = await text(byId(page, "swap-quote"));
+    log(`the protected quote: ${pq.slice(0, 220)} | ${await text(byId(page, "swap-to"))}`);
+    check("the quote: You receive ≈ ETH, Minimum receive, Fees in dollars", /Minimum receive/.test(pq) && /Fees\s*\$[\d,]+\.\d\d/.test(pq) && /≈/.test(await text(byId(page, "swap-to"))), pq.slice(0, 200));
+    const pqBodies = requests.filter((r) => r.phase === "swap-protected" && r.url.endsWith("/v1/quotes") && r.body).map((r) => JSON.parse(r.body));
+    check("the quotes ask for a protected destination and carry no address (spec v2.0 §12)", pqBodies.length > 0 && pqBodies.every((b) => b.destinationType === "protected" && !b.destination), `${pqBodies.length} quote requests`);
+    await snap(page, "swap-protected-quote");
+    await clickId(page, "swap-review");
+    await waitReview(page);
+    const prv = await text(byId(page, "review-view"));
+    check("the Review: destination Your protected balance, a tap below $50K", /Your protected balance/.test(prv) && (await byId(page, "review-confirm").count()) === 1 && (await byId(page, "hold-to-confirm").count()) === 0, prv.slice(0, 260));
+    const minimumShown = figure(await text(byId(page, "review-minimum")));
+    await snap(page, "swap-protected-review");
+    const vaultEthBefore = await balanceEth(stack.ethVault);
+    await confirmReview(page);
+    await page.waitForURL(/\/swap\/progress\/swap:0x[0-9a-f]{64}$/, { timeout: 120_000 });
+    check("ONE confirmation: committed, and its progress says where it arrives", (await byId(page, "swap-into-protected").count()) + (await byId(page, "swap-adding-to-protected").count()) >= 1);
+    const commitBody = requests.filter((r) => r.phase === "swap-protected" && /\/v1\/operations$/.test(r.url) && r.method === "POST" && r.body).map((r) => JSON.parse(r.body)).find((b) => b.orderSigner);
+    const receiver = commitBody?.destination ?? "";
+    check("the commit names the one-time shield receiver as the destination", commitBody?.destinationType === "protected" && /^0x[0-9a-fA-F]{40}$/.test(receiver), receiver);
+    await snap(page, "swap-protected-committed");
+    // the runner: the funding (a proof), the hard quote, the checks, the signature, the shield job, the hand-over
+    let handed = null;
+    for (let round = 1; round <= 6 && !handed; round++) {
+      handed = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.params?.assetType) === 1 && j.executionTx) ?? null, 30_000);
+      if (handed) break;
+      if (await byId(page, "swap-minimum-moved").count()) { log("the price moved before signing: accepted, as a user would"); await clickId(page, "swap-accept-minimum"); continue; }
+      if (await byId(page, "swap-try-again").count()) { log(`the hard quote was refused (attempt ${round}): trying again`); await clickId(page, "swap-try-again"); continue; }
+      handed = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.params?.assetType) === 1 && j.executionTx) ?? null, PROOF_TIMEOUT / 6);
+    }
+    const shieldJob = shieldJobsOfThisRun().find((j) => j.receiver.toLowerCase() === receiver.toLowerCase());
+    check("the relayer watches the receiver from the hand-over (POST /shield before the execution)", !!shieldJob && !!handed && Number(shieldJob.createdAt) <= Number(handed.updatedAt), shieldJob ? `${shieldJob.id.slice(0, 18)}… ${shieldJob.state}, tip ${shieldJob.params.shieldTip} wei, minAmount ${shieldJob.params.minAmount}` : "no shield job");
+    if (handed && shieldJob) {
+      const exec = await rpc("eth_getTransactionReceipt", [handed.executionTx]);
+      check("the executor's deployAndExecute of the USDC order is mined (the router deposit, the memo naming the receiver)", exec?.status === "0x1", handed.executionTx);
+      // THORChain's outbound, as its vault sends it: the real router's transferOut — `to.send(value)`, 2300 gas — to the receiver
+      const tip = BigInt(shieldJob.params.shieldTip);
+      const deliver = BigInt(Math.round(minimumShown * 1e6)) * 10n ** 12n + tip; // the worst case the route guarantees: the minimum and the tip
+      const data = encodeFunctionData({ abi: parseAbi(["function transferOut(address to, address asset, uint256 amount, string memo) payable"]), functionName: "transferOut", args: [receiver, "0x0000000000000000000000000000000000000000", deliver, `OUT:${handed.executionTx.slice(2).toUpperCase()}`] });
+      const outTx = await rpc("eth_sendTransaction", [{ from: stack.funding, to: stack.pins.thorchainRouter, data, value: "0x" + deliver.toString(16), gas: "0x30d40" }]);
+      const out = await rpc("eth_getTransactionReceipt", [outTx]);
+      const atReceiver = BigInt(await rpc("eth_getBalance", [receiver, "latest"]));
+      check("THORChain's router paid the receiver with its 2300-gas send (before the receiver exists)", out?.status === "0x1" && (atReceiver === deliver || shieldJobsOfThisRun().some((j) => j.id === shieldJob.id && j.state !== "waiting-delivery")), `${Number(deliver) / 1e18} ETH; the receiver holds ${Number(atReceiver) / 1e18}`);
+      const done = await until(page, () => shieldJobsOfThisRun().find((j) => j.id === shieldJob.id && j.state === "shielded") ?? null, 120_000);
+      const s0 = done?.shields?.[0];
+      check("the relayer deployed the receiver and shielded the delivery: the tip once, the rest as the committed note", !!done && done.paid === true && BigInt(s0?.tip ?? -1) === tip && BigInt(s0?.amount ?? -1) === deliver - tip && Number.isInteger(s0?.leafIndex), done ? `leaf ${s0?.leafIndex}, ${Number(BigInt(s0?.amount ?? 0)) / 1e18} ETH, tip ${s0?.tip} wei, gas ${done.gasUsed}` : JSON.stringify(shieldJobsOfThisRun().find((j) => j.id === shieldJob.id) ?? {}).slice(0, 300));
+      const code = await rpc("eth_getCode", [receiver, "latest"]);
+      const left = BigInt(await rpc("eth_getBalance", [receiver, "latest"]));
+      check("the receiver is deployed and holds nothing", code !== "0x" && left === 0n, `${(code.length - 2) / 2} bytes, ${left} wei left`);
+      const vaultGain = (await balanceEth(stack.ethVault)) - vaultEthBefore;
+      check("the ETH vault received the delivery less the tip", Math.abs(vaultGain - Number(deliver - tip) / 1e18) < 1e-9, `${vaultGain} ETH`);
+      report.outcome.shield = { receiver, receiptId: shieldJob.id, delivered: deliver.toString(), tip: tip.toString(), leafIndex: s0?.leafIndex ?? null, gasUsed: done?.gasUsed ?? null };
+      // the wallet: its runner asks the relayer, finds the note in the pool, and the order completes with what was added
+      await byId(page, "swap-done").waitFor({ timeout: 240_000 });
+      const doneText = await text(byId(page, "swap-done"));
+      check("the wallet found the note: the progress ends on \"Added to your protected balance\" with the amount", /Added to your protected balance: [0-9.,]+ ETH/.test(doneText) && Math.abs(figure(doneText) - Number(deliver - tip) / 1e18) < 1e-6, doneText);
+      await snap(page, "swap-protected-done");
+    }
+  }
 
   // 8. the $10M protected swap (V3 on the V5 screens) ----------------------------------------------------------------------
   if (!process.env.SKIP_CAMPAIGN) { phase = "campaign"; await campaignRun(page); }

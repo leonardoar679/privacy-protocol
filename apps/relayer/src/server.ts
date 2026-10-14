@@ -1,16 +1,19 @@
 // HTTP front of the relayer: GET /info (fee, privacy address), POST /submit (a proven transact +
 // the fee note's opening), GET /status/:txHash, GET /jobs; swap orders: POST /swap/execute
 // (factory, params, signed execution, refund payload), POST /swap/refund (factory, params, refund payload:
-// return a funded order to the pool without executing it), GET /swap/:orderId, GET /swap. Loopback by default; CORS for the Vite
+// return a funded order to the pool without executing it), GET /swap/:orderId, GET /swap; V6 Stage 12 (spec v2.0 §11.2) shield
+// receipts: POST /shield (factory, receiver params, payload, deliverBy), GET /shield/:receiptId. Loopback by default; CORS for the Vite
 // dev origins. Env: RPC_URL, CORE, FEE_VAULT, CHAIN_ID, RELAYER_PRIVATE_KEY (gas EOA), RELAYER_SEED
 // (fee-note wallet seed: utf8 or 0x-hex), MIN_FEE_WEI, GAS_ESTIMATE, FEE_MARGIN_BPS,
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
-// RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs),
-// RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open), PORT (8790), HOST (127.0.0.1).
+// RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs + shield jobs), SHIELD_FACTORY (the ShieldReceiverFactory
+// this relayer shields for; unset: no shield jobs), LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS,
+// RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open, swap and shield jobs each), PORT (8790), HOST (127.0.0.1).
 import { createServer } from "node:http";
 import type { Hex } from "viem";
 import { Relayer, RelayerError, type RelayerConfig } from "./relayer";
 import { SwapExecutor, SwapJobError, loadEscrowCreationCode } from "./swapExecutor";
+import { ShieldExecutor, ShieldJobError } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { adminAuthorized } from "./admin";
@@ -38,8 +41,14 @@ const cfg: RelayerConfig = {
 const relayer = Relayer.fromConfig(cfg);
 // swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window
 const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: process.env.LATE_REFUND_WATCH_SECONDS ? Number(process.env.LATE_REFUND_WATCH_SECONDS) : undefined, maxUnpaidRefunds: process.env.MAX_UNPAID_REFUNDS ? Number(process.env.MAX_UNPAID_REFUNDS) : undefined });
+// shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
+const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
+const shields = shieldFactory
+  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: process.env.LATE_DELIVERY_WATCH_SECONDS ? Number(process.env.LATE_DELIVERY_WATCH_SECONDS) : undefined, maxUnpaidShields: process.env.MAX_UNPAID_SHIELDS ? Number(process.env.MAX_UNPAID_SHIELDS) : undefined })
+  : null;
 const pollMs = Number(process.env.SWAP_POLL_MS ?? "15000");
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
+if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", (e as Error).message)), pollMs).unref();
 const ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
 const limiter = new RateLimiter({ perMinute: Number(env("RATE_PER_MINUTE", "60")), burst: Math.min(20, Number(env("RATE_PER_MINUTE", "60"))) });
 const MAX_SWAP_JOBS = Number(env("MAX_SWAP_JOBS", "1000"));
@@ -57,7 +66,7 @@ const server = createServer(async (req, res) => {
   if (req.method === "POST" && !String(req.headers["content-type"] ?? "").startsWith("application/json")) return send(415, { error: "send application/json", code: "unsupported_media_type" });
   try {
     const url = new URL(req.url ?? "/", "http://relayer");
-    if (req.method === "GET" && url.pathname === "/info") return send(200, await relayer.info());
+    if (req.method === "GET" && url.pathname === "/info") return send(200, { ...(await relayer.info()), ...(shields ? { shieldFactory: shields.cfg.factory } : {}) });
     if (req.method === "GET" && url.pathname === "/jobs") return send(200, relayer.jobs_());
     if (req.method === "GET" && url.pathname.startsWith("/status/")) {
       const job = await relayer.status(url.pathname.slice("/status/".length) as Hex);
@@ -71,6 +80,19 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname.startsWith("/swap/")) {
       const job = executor.get(url.pathname.slice("/swap/".length));
       return job ? send(200, job) : send(404, { error: "unknown swap job" });
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/shield/")) {
+      const job = shields?.get(url.pathname.slice("/shield/".length));
+      return job ? send(200, job) : send(404, { error: "unknown shield job", code: "unknown_shield" });
+    }
+    if (req.method === "POST" && url.pathname === "/shield") {
+      if (!shields) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
+      if (shields.open() >= MAX_SWAP_JOBS) return send(503, { error: "too many open shield jobs", code: "capacity" });
+      let body = "";
+      for await (const chunk of req) { body += chunk; if (body.length > 100_000) throw new RelayerError("too_large", "request too large"); }
+      const job = await shields.add(JSON.parse(body));
+      shields.tick().catch(() => {}); // shield at once if the delivery is already there
+      return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/refund") {
       // return a funded order to the pool after its window, without executing it (no execution needed)
@@ -97,7 +119,7 @@ const server = createServer(async (req, res) => {
     send(404, { error: "not found" });
   } catch (e) {
     if (e instanceof RelayerError) return send(e.code === "simulation_failed" || e.code === "nullifier_in_flight" ? 409 : 400, { error: e.message, code: e.code });
-    if (e instanceof SwapJobError) return send(400, { error: e.message, code: e.code });
+    if (e instanceof SwapJobError || e instanceof ShieldJobError) return send(400, { error: e.message, code: e.code });
     send(500, { error: String((e as Error).message ?? e) });
   }
 });

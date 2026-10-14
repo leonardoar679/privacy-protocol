@@ -27,7 +27,7 @@ import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
 import { protectSplit } from "@privacy-wallet/protocol/wallet/fees";
 import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
-import { hasRefundCandidates, matchRefunds, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
+import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerSubmit, type RelayerInfo } from "./relayer";
 import { poolStats } from "./wallet/poolStats";
@@ -535,10 +535,10 @@ async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]):
 /** The refund claims of the journaled orders (none while locked). */
 const journaledRefundClaims = (): RefundClaim[] => (session.isUnlocked() ? refundClaims(session.journal().swaps) : []);
 
-/** Refund notes of this wallet's orders (PP-S09); the vault deposits are read only when an insert carries a claimed payload. */
+/** Refund and delivery notes of this wallet's orders (PP-S09; V6 §11.2); the vault deposits are read only when an insert carries a claimed payload. */
 async function findRefunds(d: Deployment, keys: WalletKeys, logs: NoteInsertedLog[], claims: RefundClaim[]): Promise<RecoveredRefund[]> {
   if (!hasRefundCandidates(logs, claims)) return [];
-  return matchRefunds(keys, logs, await depositedLogsQuorum(d), claims);
+  return matchCommittedDeposits(keys, logs, await depositedLogsQuorum(d), claims);
 }
 
 /** The journal's claims, then the seed's for every counter up to `upTo` (a journal-less wallet's refunds), one per payload. */
@@ -549,15 +549,24 @@ function allRefundClaims(masterSeed: Uint8Array, journal: RefundClaim[], upTo: n
 /** How far past the highest counter found a refund is still looked for (refunds are rarer than notes). */
 const REFUND_COUNTER_MARGIN = 1024;
 
-const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: "swap refund", counter: r.counter });
+const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: r.kind === "shield" ? "swap" : "swap refund", counter: r.counter });
 
-/** Each order a refund came back for: its refund notes and the refunded state (a completed order keeps its state). */
+/**
+ * Each order a committed deposit came for: a refund's notes and the refunded state (a completed order keeps its state);
+ * a same-chain swap's delivered notes on its shield receipt (V6 §11.2: the order's tracker reads them as completed).
+ */
 function journalRefunds(refunds: RecoveredRefund[]): void {
   if (!refunds.length || !session.isUnlocked()) return;
   session.update((j) => {
     for (const r of refunds) {
       const s = j.swaps.find((x) => x.orderId.toLowerCase() === r.orderId.toLowerCase());
       if (!s) continue;
+      if (r.kind === "shield") {
+        if (!s.shield) continue;
+        const leaves = (s.shield.leaves ??= []);
+        if (!leaves.some((x) => x.leafIndex === r.leafIndex)) leaves.push({ leafIndex: r.leafIndex, vault: "0x" + r.note.vaultId.toString(16).padStart(40, "0"), amount: r.note.amount.toString() });
+        continue;
+      }
       const list = (s.refunds ??= []);
       if (!list.some((x) => x.leafIndex === r.leafIndex)) list.push({ leafIndex: r.leafIndex, vault: "0x" + r.note.vaultId.toString(16).padStart(40, "0"), amount: r.note.amount.toString() });
       if (s.state !== "completed") s.state = "refunded";
@@ -586,6 +595,11 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
   return { scanned: logs.length, ...r, refunds: refunds.length };
+}
+
+/** V6 Stage 12: the delivered note of a same-chain swap into the protected balance, once the executor reports a shield. */
+export async function recoverShieldDelivery(o: { masterSeed: Uint8Array; deployment: Deployment; orderId: string; shield: { noteData: string; counter: number } } & Progress): Promise<RecoveredRefund[]> {
+  return recoverSwapRefunds({ ...o, refunds: [{ orderId: o.orderId, noteData: o.shield.noteData as Hex, counter: o.shield.counter, kind: "shield" }] });
 }
 
 /** Record the refund notes of this wallet's orders without a payload scan: right after the executor reports a refund (PP-S09). */

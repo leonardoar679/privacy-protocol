@@ -6,7 +6,18 @@
 // units and the formula are @privacy-wallet/contracts' (forge's measured deployAndExecute plus the provider's call), the
 // conversion @privacy-wallet/protocol's — the wallet checks the tip against its own estimate with the same pieces.
 // The privacy fee is not here: it is the wallet's fee note (packages/protocol/src/wallet/fees.ts).
-import { ERC20_ORDER_UNITS, PROVIDER_CALL_UNITS, executionUnits as unitsOf, gasCeilingWei, type GasFees } from "@privacy-wallet/contracts";
+// V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance also pays a shield tip — the receiver's
+// deployment and deposit at the same fees, in the OUTPUT asset; a route whose minimum could not pay it a hundred times
+// over (the receiver's own 1 % rule) cannot be shielded.
+import {
+  ERC20_ORDER_UNITS,
+  GAS_UNITS,
+  PROVIDER_CALL_UNITS,
+  SHIELD_TIP_DIVISOR,
+  executionUnits as unitsOf,
+  gasCeilingWei,
+  type GasFees,
+} from "@privacy-wallet/contracts";
 import { weiInAsset, type Prices } from "@privacy-wallet/protocol/wallet/valuation";
 import type { AssetRef } from "./types";
 import type { Valuer } from "./valuation";
@@ -29,10 +40,12 @@ export class TipError extends Error {
 export interface FeeSource {
   fees(): Promise<GasFees>;
 }
-/** What the engine asks for an order's tip (./engine.ts EngineConfig.tips). */
+/** What the engine asks for an order's tip (./engine.ts EngineConfig.tips), and a protected destination's shield tip. */
 export interface TipSource {
   tipFor(from: AssetRef, amount: bigint): Promise<bigint>;
+  shieldTipFor?(to: AssetRef): Promise<bigint>;
 }
+export { SHIELD_TIP_DIVISOR };
 
 /** The gas units of an order's execution. */
 export const executionUnits = (from: AssetRef): bigint => unitsOf(from.asset !== "native");
@@ -62,8 +75,26 @@ export async function executorTip(from: AssetRef, amount: bigint, d: { fees: Fee
   return tip;
 }
 
-/** The service's tips: the gas from its fee source, an ERC-20 order's valued by its valuer. */
-export const gasTips = (fees: FeeSource, valuer?: Valuer): TipSource => ({ tipFor: (from, amount) => executorTip(from, amount, { fees, valuer }) });
+/** The gas units of a shield receiver's deployAndShield: forge's measurement for an ETH or a token receipt. */
+export const shieldUnits = (to: AssetRef): bigint => (to.asset === "native" ? GAS_UNITS.shieldETH : GAS_UNITS.shieldERC20);
+
+/** A protected destination's shield tip: the receiver's deployment, tip transfer and deposit at today's fees, in the output asset. */
+export async function shieldTip(to: AssetRef, d: { fees: FeeSource; valuer?: Valuer }): Promise<bigint> {
+  let fees: GasFees;
+  try {
+    fees = await d.fees.fees();
+  } catch (e) {
+    throw new TipError("fee_history_unavailable", `the gas price cannot be read: ${String((e as Error)?.message ?? e)}`);
+  }
+  const prices = to.asset === "native" ? null : ((await d.valuer?.prices().catch(() => null)) ?? null);
+  return tipInAsset(tipWei(shieldUnits(to), fees), to, prices);
+}
+
+/** The service's tips: the gas from its fee source, an ERC-20 order's (and a token receipt's) valued by its valuer. */
+export const gasTips = (fees: FeeSource, valuer?: Valuer): TipSource => ({
+  tipFor: (from, amount) => executorTip(from, amount, { fees, valuer }),
+  shieldTipFor: (to) => shieldTip(to, { fees, valuer }),
+});
 
 async function feeHistory(fetchImpl: typeof fetch, url: string, timeoutMs: number): Promise<GasFees> {
   const r = await fetchImpl(url, {

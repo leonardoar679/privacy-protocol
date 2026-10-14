@@ -66,6 +66,25 @@ export interface StoredSwap {
   runner?: { confirmedAt: number; delayUntil?: number };
   /** V6 Stage 11: why the runner stopped and what it waits for — `minimum_moved` (the user's choice: `minOut` vs the `approved` one), `execution_unavailable`, `unsafe_contract_call`, `reconcile` */
   paused?: { code: string; detail?: string; minOut?: string; approved?: string; at: number };
+  /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance — the shield receiver this wallet named as
+   *  the destination (its factory and parameters, the counter its note derives from, the payload), whether the executor
+   *  has its shield job, what the executor last reported, and the note once it is found in the pool */
+  shield?: StoredShield;
+}
+
+/** A same-chain swap's shield receipt (sdk/shieldReceiver.ts); the integers are decimal strings. */
+export interface StoredShield {
+  factory: string;
+  receiver: string;
+  params: { receiptId: string; asset: string; minAmount: string; shieldTip: string; ownerCommitment: string; noteSecret: string; noteDataHash: string; fallbackRecipient: string };
+  counter: number;
+  noteData: string;
+  /** when the executor accepted the shield job (unix ms) */
+  registeredAt?: number;
+  /** the executor's last report: `waiting-delivery`, `shielding`, `shielded`, `shield-failed` */
+  job?: { state: string; leafIndex?: number; txHash?: string; amount?: string; tip?: string; error?: string; at: number };
+  /** the delivered note(s) found in the pool, each proven by its commitment (a late second delivery is shielded again) */
+  leaves?: { leafIndex: number; vault: string; amount: string }[];
 }
 
 /**

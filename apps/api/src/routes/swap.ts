@@ -95,6 +95,7 @@ function request(b: any): QuoteRequest {
     slippageBps: Number(b.slippageBps ?? 50),
     ...(b.destinationKind === "entered" ? { destinationKind: "entered" as const } : {}),
     ...(b.preferNative === true ? { preferNative: true } : {}),
+    ...(b.destinationType === "protected" ? { destinationType: "protected" as const } : {}),
   };
 }
 function paramsOf(p: any): OrderParams {

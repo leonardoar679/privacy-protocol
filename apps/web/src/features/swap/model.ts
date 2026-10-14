@@ -1,6 +1,7 @@
 // The Swap screen's model (spec v2.0 §3, §7.5, §13.4, §14.1; doc §26, §29–§33): the destination of a cross-chain swap and
 // its three checks, the quote's lines in dollars from the one funding split (the privacy fee p(A), the relayer's F plus
-// the executor's tip, the provider's own fees), the minimum, the time (the provider's estimate plus the funding's),
+// the executor's tip, the provider's own fees; V6 Stage 12: a same-chain swap's shield tip, in the output asset — what
+// reaches the protected balance is the delivery less it), the minimum, the time (the provider's estimate plus the funding's),
 // the protection from the privacy assessment, the countdown to the quote's expiry, the route's facts under Advanced,
 // and the blockers re-checked when the user confirms (packages/risk-engine assessRisk). Pure: the screen gathers the
 // facts.
@@ -42,8 +43,13 @@ export interface QuoteFacts {
   units: bigint;
   from: { symbol: string; decimals: number; usd1e8: bigint | null };
   to: Target;
+  /** the output asset's price (a same-chain swap's shield tip is in it) */
+  toUsd1e8?: bigint | null;
   privacy: SwapPrivacy | null;
 }
+
+/** V6 Stage 12: a protected destination's shield tip, in the output's base units (0 elsewhere). */
+export const shieldTipOf = (q: QuoteSet | null): bigint => BigInt(q?.shieldTip ?? "0");
 
 /** The chosen route's quote, or null. */
 export const chosenQuoteOf = (q: QuoteSet | null): ServiceQuote | null =>
@@ -60,10 +66,19 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   const providerCents = BigInt(Math.round(providerUsd * 100));
   const level: Level = f.privacy?.level ?? "medium";
   const eta: [number, number] = [quote.etaSeconds + FUNDING_SECONDS[0], quote.etaSeconds + FUNDING_SECONDS[1]];
-  const expected = amountOf(BigInt(quote.toAmount), f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
-  const minimum = amountOf(BigInt(quote.toAmountMin), f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
+  const shield = f.to.protected ? shieldTipOf(f.quotes) : 0n;
+  const expected = amountOf(BigInt(quote.toAmount) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
+  const minimum = amountOf(BigInt(quote.toAmountMin) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
   if (f.to.ref.chain === "ethereum") {
-    return { kind: "same-chain", expected, minimum, protection: level, feesUsdCents: cents(split.privacy) + cents(split.network + tip) + providerCents, eta };
+    const shieldCents = shield > 0n && f.toUsd1e8 ? centsOf(shield, f.to.ref.decimals, f.toUsd1e8) : 0n;
+    return {
+      kind: "same-chain",
+      expected,
+      minimum,
+      protection: level,
+      feesUsdCents: cents(split.privacy) + cents(split.network + tip) + shieldCents + providerCents,
+      eta,
+    };
   }
   return {
     kind: "cross-chain",

@@ -60,6 +60,7 @@ start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
   // V6 (spec v2.0 §3): the USDC vault's minimum 3.727273 USDC — with the wallet's 10 % margin F = 4.10 USDC, the document's example
   ...(stack.usdc ? { FEE_VAULTS: JSON.stringify({ [stack.usdc.vault]: { symbol: "USDC", decimals: 6, minFee: "3727273" } }) } : {}),
   RELAYER_JOURNAL_DIR: join(RUN, "relayer-journal"),
+  ...(stack.shieldFactory ? { SHIELD_FACTORY: stack.shieldFactory } : {}), // V6 Stage 12 (spec v2.0 §11.2): the shield executor
   SWAP_POLL_MS: "5000",
   LATE_REFUND_WATCH_SECONDS: "86400",
   MAX_UNPAID_REFUNDS: "3",
@@ -77,6 +78,7 @@ start("wallet", "apps/web", ["vite", "--port", "5173", "--strictPort", "--host",
   VITE_FROM_BLOCK: "0",
   VITE_SWAP_FACTORY: stack.swapFactory,
   ...(stack.protectRouter ? { VITE_PROTECT_ROUTER: stack.protectRouter } : {}), // V6 (spec v2.0 §11.1): a protect pays its 1 % through it
+  ...(stack.shieldFactory ? { VITE_SHIELD_FACTORY: stack.shieldFactory } : {}), // V6 Stage 12 (spec v2.0 §11.2): same-chain swaps into the protected balance
   ...(stack.usdc ? { VITE_ERC20_VAULTS: `USDC:${stack.usdc.token}:${stack.usdc.vault}:6` } : {}),
   VITE_PRICE_FEEDS: JSON.stringify(stack.feeds),
   VITE_SWAP_SERVICE: "http://127.0.0.1:8787",

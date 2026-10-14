@@ -4,7 +4,8 @@
 // and DeploySwapPeriphery.s.sol deploy: the dev-setup Groth16 verifier (the real circuit's key, an insecure setup), its
 // adapter, the Poseidon2 hasher, PrivacyCore (which creates its own vault factory), the ETH vault and the
 // SwapOrderFactory, and (V6) DeployProtectRouter.s.sol's ProtectRouter with a 6-decimal USDC at the mainnet address and
-// its vault. Then it places, with hardhat_setCode, the mainnet bytecode of the contracts the wallet pins
+// its vault, and (V6 Stage 12) DeployShieldReceiver.s.sol's ShieldReceiverFactory (the core's vault factory, WETH9). Then
+// it places, with hardhat_setCode, the mainnet bytecode of the contracts the wallet pins
 // (THORChain's router, Chainflip's vault, WETH9) at their mainnet addresses, and mock Chainlink feeds at the mainnet
 // proxy addresses, so the wallet's and the service's valuation read a price through the RPC and a signed execution is
 // simulated against real provider code. Output: run/stack.json, read by start-services.mjs and e2e.mjs.
@@ -133,6 +134,12 @@ const routerCore = await pub.readContract({ address: router.address, abi: router
 if (routerCore.toLowerCase() !== core.address.toLowerCase() || usdcVault === "0x0000000000000000000000000000000000000000") throw new Error("the protect router or the USDC vault is not in place");
 console.log(`${"USDC (6 decimals)".padEnd(24)} ${USDC}  vault ${usdcVault}; fee recipient ${feeRecipient}`);
 
+// 3c. V6 Stage 12 (spec v2.0 §11.2): the shield receiver factory — a same-chain swap's one-time receivers deposit into this
+// pool's vaults; an ETH receipt unwraps WETH9
+const shieldFactory = await deploy("ShieldReceiverFactory", [vaultFactory, PINS.weth9]);
+const shieldPool = await pub.readContract({ address: shieldFactory.address, abi: shieldFactory.abi, functionName: "VAULT_FACTORY" });
+if (shieldPool.toLowerCase() !== vaultFactory.toLowerCase()) throw new Error("the shield receiver factory deposits into another pool");
+
 // 4. the price feeds: the mock's runtime at every proxy, the answer in slot 0, the description in slot 1
 const feedRuntime = "0x" + readFileSync(join(HERE, "contracts/out/MockFeed.bin-runtime"), "utf8").trim();
 const registryRuntime = "0x" + readFileSync(join(HERE, "contracts/out/MockRegistry.bin-runtime"), "utf8").trim();
@@ -163,6 +170,7 @@ const stack = {
   ethVault,
   swapFactory: swapFactory.address,
   protectRouter: router.address,
+  shieldFactory: shieldFactory.address,
   feeRecipient,
   usdc: { token: USDC, vault: usdcVault, decimals: 6 },
   verifier: verifier.address,

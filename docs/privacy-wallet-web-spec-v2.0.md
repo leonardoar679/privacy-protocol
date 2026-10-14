@@ -599,6 +599,37 @@ derived from the seed by counter, so a phrase restore finds it). An unsupported 
 committed `fallbackRecipient`. Provider refunds still go to the order's escrow. No second 1 %: the receiver
 deposits directly.
 
+The receiver's `minAmount` is a hundred tips (`shieldMinAmount`): the tip may be at most 1 % of it, so claiming the tip
+with a donation costs the donor ninety-nine times what it pays — and any delivery of a route that can be shielded at all
+pays it, a lower minimum the user accepted later included (the engine filters a route whose minimum output is below a
+hundred tips). The shield tip `S` is the receiver's deployment, tip transfer and deposit at today's gas (forge's
+measured `shieldETH` / `shieldERC20` units × the fee history × 1.2), in the output asset (a token's at the agreed
+Chainlink prices, `tip_unpriced` otherwise); the wallet refuses one above three times its own estimate. The note's
+secret is the one of a fresh note counter and its payload the seed's `/shield-payload/` family, so a wallet restored from
+its phrase finds the delivery and tells it from a refund of the same counter. The wallet recomputes the receiver from
+its own factory and the journaled parameters before it signs (`ShieldReceiptMismatch` pauses the order as
+`unsafe_contract_call`), and registers the executor's shield job before it hands the execution over; the order is
+COMPLETED when the delivered note is in the pool, whatever the provider's own tracking says.
+
+Code (Stage 12): `contracts/src/periphery/shield/{ShieldReceiverTypes,ShieldReceiver,ShieldReceiverFactory}.sol`,
+`contracts/test/periphery/ShieldReceiver.t.sol` (predict = deploy, the 2300-gas send before and after the deployment,
+ETH / USDC / USDT-style outputs, dust below the minimum, the WETH unwrap, a foreign token into its existing vault, an
+unsupported one swept only to the fallback, a wrong payload, nothing to shield, re-entry, the fuzzed `tip + deposited ==
+balance`, the vector `test/periphery/vectors/shield.json`), the NoPrivilege scan, the gas bench (`shieldETH`,
+`shieldERC20` pinned in `packages/contracts/src/gas.ts`), `contracts/script/DeployShieldReceiver.s.sol`;
+`packages/contracts/src/shield.ts` (the parameters, `predictReceiver` checked against forge's vector,
+`shieldMinAmount`), the deployment check (the factory's `VAULT_FACTORY` must be the core's); the engine's
+`destinationType: "protected"` (`ProtectedDestinationError` → 400 `destination_not_protectable`; providers with the
+`sameChain` capability only — THORChain; `shieldTip` on every quote and the set), the API's §46 quote net of `S`;
+`apps/relayer/src/shieldExecutor.ts` (`POST /shield`, `GET /shield/:receiptId`, `shield-jobs.json`, `waiting-delivery →
+shielding → shielded | shield-failed | expired`, the one-pass guard, an ETH shield waits while it would cost more than
+its tip until the swap is over, at most `MAX_UNPAID_SHIELDS` shields no tip pays for, each above its floor);
+`packages/sdk/src/shieldReceiver.ts` (`buildShieldReceipt`, `checkShieldReceipt`, `shieldJobRequest`), the commit,
+the check before signing, the hand-over and the order runner's `refreshShield`; `refunds.ts` `matchCommittedDeposits`
+(claims of kind `refund` | `shield`, the seed's two families); the Swap screen's same-chain targets ("Your protected
+balance", the shield tip in the fees, "Added to your protected balance"). LI.FI's same-chain route (a GenericSwapFacet
+verifier in adapter and wallet) is a follow-up behind the capability.
+
 ### 11.3 Classic Privacy (doc §52–§53)
 An isolated module (`apps/web/src/features/classic-privacy/`): `ClassicPrivacyService`, `ClassicPrivacyUI`,
 `ClassicPrivacyContracts` (an interface — still the devnet mock pool; the contracts, the circuit port and the legal

@@ -4,8 +4,11 @@
 import { CHAINS, assetLabel, crossChainTargets } from "@privacy-wallet/config";
 import type { AssetRef } from "@privacy-wallet/sdk/swapService";
 import type { Asset } from "@privacy-wallet/sdk/assets";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { protectable } from "@privacy-wallet/sdk/shieldReceiver";
 
-export interface Target { id: string; ref: AssetRef; network: string }
+/** `protected`: V6 Stage 12 (spec v2.0 §11.2) — a same-chain target, received into the protected balance through a shield receiver. */
+export interface Target { id: string; ref: AssetRef; network: string; protected?: boolean }
 /** The cross-chain destinations, from the asset registry (V6 Stage 3: no token named in a component). */
 export const TARGETS: Record<string, Target> = Object.fromEntries(
   crossChainTargets().map((a) => {
@@ -16,6 +19,14 @@ export const TARGETS: Record<string, Target> = Object.fromEntries(
 export const targetFor = (symbol: string, chain: string): Target => Object.values(TARGETS).find((x) => x.ref.symbol === symbol && x.ref.chain === chain) ?? TARGETS.BTC;
 
 export const refOf = (a: Asset): AssetRef => ({ chain: "ethereum", asset: a.token ?? "native", decimals: a.decimals, symbol: a.symbol });
+
+/** V6 Stage 12: the pool's assets this deployment can receive into the protected balance (a shield receiver factory and a canonical vault). */
+export function sameChainTargets(assets: Asset[], deployment: Deployment | null): Record<string, Target> {
+  if (!deployment?.shieldFactory) return {};
+  return Object.fromEntries(
+    assets.filter((a) => protectable(deployment, a.token ?? "native")).map((a) => [a.symbol, { id: a.symbol, ref: refOf(a), network: CHAINS.ethereum.name, protected: true }]),
+  );
+}
 export const hours = (s: number): string => (s >= 3600 ? `${Math.round(s / 3600)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
 export const durationWords = (seconds: number): string => (seconds >= 2 * 86400 ? `${Math.round(seconds / 86400)} days` : seconds >= 3600 ? `${Math.round(seconds / 3600)} h` : `${Math.round(seconds / 60)} min`);
 export const riskWord = (security: number): "Low" | "Medium" | "High" => (security >= 85 ? "Low" : security >= 70 ? "Medium" : "High");

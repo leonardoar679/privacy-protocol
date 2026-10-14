@@ -17,7 +17,7 @@ import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
 import { normalizeQuote } from "./normalize";
 import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
-import type { TipSource } from "./tips";
+import { SHIELD_TIP_DIVISOR, type TipSource } from "./tips";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];
@@ -69,6 +69,8 @@ export interface QuoteSet {
   policy: Policy;
   /** V6 (spec v2.0 §3): the executor tip every quote here is net of (the wallet's "Relayer/network" line adds it) */
   executorTip: bigint;
+  /** V6 Stage 12 (spec v2.0 §11.2): a protected destination's shield tip, in the output asset (the receiver's parameters commit it) */
+  shieldTip?: bigint;
   /** whale spec §2: every capable provider and what it answered */
   competition: CompetitionEntry[];
   /** High-Value Protection spec §10: the recommendation for the chosen route and the risk view of every provider that quoted, from the enhanced tier (advice: the wallet keeps its own accounting) */
@@ -85,6 +87,12 @@ export const DELAY_BUDGET: Record<Policy, [number, number]> = {
   "best-execution": [3600, 24 * 3600],
   "high-privacy": [6 * 3600, 72 * 3600],
 };
+
+/** V6 Stage 12 (spec v2.0 §12): `destinationType: "protected"` asks for what this deployment cannot shield — another
+ *  chain's output, or an asset without a canonical vault in the pool. */
+export class ProtectedDestinationError extends Error {
+  readonly code = "destination_not_protectable";
+}
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the wallet asks for consent. */
 export class MinimumMovedError extends Error {
@@ -176,13 +184,22 @@ export class PrivateSwapEngine {
     const preference = typeof policyOrPreference === "string" ? hint.preference : policyOrPreference.preference;
     const policy: Policy = typeof policyOrPreference === "string" ? policyOrPreference : policyFor(policyOrPreference.preference, tier, hint.mode);
     const preferNative = hint.preferNative ?? preference === "native";
+    // V6 Stage 12 (spec v2.0 §11.2): into the protected balance only on the pool's own chain, only for an asset with a canonical vault
+    const sameChain = gross.from.chain === gross.to.chain;
+    const protectedDestination = gross.destinationType === "protected";
+    if (protectedDestination) {
+      if (!sameChain) throw new ProtectedDestinationError(`only a swap on ${gross.from.chain} itself delivers into the protected balance, not one to ${gross.to.chain}`);
+      if (!this.cfg.refundVaults[gross.to.asset]) throw new ProtectedDestinationError(`the pool has no canonical vault for ${gross.to.symbol}: it cannot be received into the protected balance`);
+      if (!this.cfg.tips.shieldTipFor) throw new ProtectedDestinationError("this service cannot price a shield tip");
+    }
     // V6 (spec v2.0 §3): the execution's gas at today's fees, in the order's asset; refused when the escrow could not pay it
     const executorTip = await this.cfg.tips.tipFor(gross.from, gross.amount);
+    const shieldTip = protectedDestination ? await this.cfg.tips.shieldTipFor!(gross.to) : undefined;
     const req = this.net(gross, executorTip);
     // phase 1: the fresh destination goes only to the chosen provider at prepare (whale spec §5)
     const indicative: QuoteRequest = { ...req, destination: req.source ? req.destination : (placeholderDestination(req.to.chain) ?? req.destination), tier, plan: req.plan ?? (atLeast(tier, "enhanced") ? "stream" : undefined), preferNative };
     const category = categoryOf(req.from, req.to);
-    const capable = this.cfg.adapters.filter((a) => a.capabilities().routes.includes(category) && a.capabilities().chains.includes(req.from.chain) && a.capabilities().chains.includes(req.to.chain));
+    const capable = this.cfg.adapters.filter((a) => a.capabilities().routes.includes(category) && a.capabilities().chains.includes(req.from.chain) && a.capabilities().chains.includes(req.to.chain) && (!sameChain || a.capabilities().sameChain === true));
     const ordered = [...capable].sort((a, b) => CATEGORY_PREFERENCE[category].indexOf(a.id) - CATEGORY_PREFERENCE[category].indexOf(b.id));
     const now = Date.now();
     const budget = this.cfg.quoteTimeoutMs ?? QUOTE_TIMEOUT_MS;
@@ -208,12 +225,14 @@ export class PrivateSwapEngine {
         return { id: a.id, health, quote: undefined, error: msg };
       }
     }));
-    const quotes = results.flatMap((r) => (r.quote ? [{ ...r.quote, executorTip }] : []));
+    const quotes = results.flatMap((r) => (r.quote ? [{ ...r.quote, executorTip, ...(shieldTip !== undefined ? { shieldTip } : {}) }] : []));
     const health = Object.fromEntries(results.map((r) => [r.id, r.health])) as Record<ProviderId, Health>;
     const errors = Object.fromEntries(results.filter((r) => r.error).map((r) => [r.id, r.error])) as Partial<Record<ProviderId, string>>;
     const unexecutable = Object.fromEntries(ordered.filter((a) => a.capabilities().contractSender === false).map((a) => [a.id, "ingress from a contract sender unconfirmed by the provider"])) as Partial<Record<ProviderId, string>>;
     const filteredBy: Partial<Record<ProviderId, string>> = {};
     if (preferNative && quotes.some((q) => q.nativeAssets)) for (const q of quotes) if (!q.nativeAssets) filteredBy[q.provider] = "a wrapped or bridged leg (a native route quoted; preference: native assets)";
+    // a receiver pays its tip only from a delivery of at least a hundred tips (its 1 % rule): a smaller minimum cannot be shielded
+    if (shieldTip !== undefined) for (const q of quotes) if (q.toAmountMin < shieldTip * SHIELD_TIP_DIVISOR) filteredBy[q.provider] = `the minimum output cannot pay the shield's gas (${shieldTip} of ${req.to.symbol}'s base units) within 1 %`;
     const scores = scoreRoutes(quotes, health, policy, now, unexecutable, { tier, amount: req.amount, chains: [req.from.chain, req.to.chain], skipped, filteredBy });
     for (const s of scores) if (s.filtered) { const c = competition.find((x) => x.provider === s.provider && x.outcome === "quoted"); if (c) { c.outcome = "filtered"; c.reason = s.filtered; } }
     const links = Object.fromEntries(ordered.map((a) => [a.id, { public: a.capabilities().destinationLinkPublic, evidence: a.capabilities().linkEvidence }])) as QuoteSet["links"];
@@ -223,7 +242,7 @@ export class PrivateSwapEngine {
       const quote = quotes.find((x) => x.provider === c.provider), s = scores.find((x) => x.provider === c.provider);
       if (quote && s) c.normalized = normalizeQuote(quote, { req: gross, score: s, health: health[c.provider], breakerOpen: !!skipped[c.provider], linkPublic: this.linkPublic(c.provider), now });
     }
-    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition, executorTip };
+    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition, executorTip, ...(shieldTip !== undefined ? { shieldTip } : {}) };
     // V3 (High-Value Protection spec §10): the recommendation rides on the competition from the enhanced tier; the USD per source unit comes from the same valuation as the tier
     const units = Number(gross.amount) / 10 ** gross.from.decimals;
     const usdPerUnit = "usd" in assessment.value && units > 0 ? assessment.value.usd / units : null;

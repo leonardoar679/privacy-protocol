@@ -54,7 +54,14 @@ may carry `settlement` (where the money is, spec v2.0 §12.4), and the record it
 first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); never written by `emptyJournal()`. V6
 Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil? }` and,
 while it waits, `paused { code, detail?, minOut?, approved?, at }`; its ticks are scheduled actions of the kind
-`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional.
+`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. V6
+Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carries `shield { factory, receiver, params
+{ receiptId, asset, minAmount, shieldTip, ownerCommitment, noteSecret, noteDataHash, fallbackRecipient }, counter,
+noteData, registeredAt?, job? { state, leafIndex?, txHash?, amount?, tip?, error?, at }, leaves? [{ leafIndex, vault,
+amount }] }` (integers as decimal strings; `request.destination` is the receiver and `request.destinationType` is
+`"protected"`); its note's payload is `0x01` then keccak256(seed ‖ "/shield-payload/" ‖ counter (4 bytes BE) ‖ i) for
+i = 0…5, truncated to 169 bytes — the refund payload's construction under its own domain, so a rescan without the
+journal finds the delivery and tells it from a refund — optional, never written by `emptyJournal()`.
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
 `orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
 `refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then

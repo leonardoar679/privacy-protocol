@@ -22,12 +22,14 @@ export interface SwapRequest {
   policy?: Policy; preference?: Preference; tier?: Tier; destinationKind?: "fresh" | "entered"; preferNative?: boolean;
   /** V3 (High-Value Protection spec §3, §14): the protection mode the recommendation is computed under, and a tranche's short execution window */
   mode?: "balanced" | "max-privacy" | "max-safety" | "best-execution"; executeWindowSeconds?: number;
+  /** V6 Stage 12 (spec v2.0 §11.2, §12): a same-chain swap into the protected balance — `destination` is this wallet's shield receiver */
+  destinationType?: "protected";
 }
 
 export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; parts: number; intervalBlocks: number; expectedSeconds: number }
 export interface RouteScore { provider: string; total: number; filtered?: string; components: { price: number; security: number; privacy: number; latency: number; liquidity: number; reliability: number } }
 export interface ServiceFee { kind: string; /** base units of `asset` in the unit `decimals` gives */ amount: string; asset: string; decimals?: number; usd?: number }
-export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[]; plan?: ExecutionPlan; impactBps?: number; sizeSignals?: string[] }
+export interface ServiceQuote { provider: string; category: string; toAmount: string; toAmountMin: string; /** V6 Stage 12: a protected destination's shield tip, in the output's base units */ shieldTip?: string; fees?: ServiceFee[]; etaSeconds: number; expiresAt: number; nativeAssets: boolean; minOutEncoded: boolean; minOutVerified?: boolean; refundTarget?: string; hops: string[]; plan?: ExecutionPlan; impactBps?: number; sizeSignals?: string[] }
 /** V4 (contract §3.2): the quote in the common shape, on a quoted or filtered competition line. */
 export interface NormalizedQuote { provider: string; netAmountOut: string; grossAmountOut: string; providerFee: string | null; networkFee: string | null; estimatedGas: string | null; estimatedDuration: number; routeRisk: { class: string; flags: string[]; exposureTier: "R0" | "R1" | "R2" | "R3" | "R4"; security: number; reliability: number }; privacyRisk: { score: number; linkPublic: boolean } }
 export interface CompetitionEntry { provider: string; outcome: "quoted" | "refused" | "timeout" | "halted" | "filtered" | "skipped"; reason?: string; ms: number; plan?: ExecutionPlan; normalized?: NormalizedQuote }
@@ -60,6 +62,8 @@ export interface QuoteSet {
   protection?: Protection; risk?: Record<string, ProviderRiskView>;
   /** V6 (spec v2.0 §3): the executor tip every quote is net of — the execution's gas, in the input's base units */
   executorTip?: string;
+  /** V6 Stage 12 (spec v2.0 §11.2): a protected destination's shield tip — the receiver's gas, in the OUTPUT's base units */
+  shieldTip?: string;
   /** V6 (spec v2.0 §15): the API's quote id and the chosen route as the §46 quote (indicative: the wallet computes its own fees) */
   id?: string;
   quote?: ApiQuote;

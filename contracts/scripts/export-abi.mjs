@@ -20,7 +20,7 @@ for (const c of CORE) {
 writeFileSync(join(root, "abi", "SHA256SUMS"), sums.join("\n") + "\n");
 
 mkdirSync(join(root, "abi", "periphery"), { recursive: true });
-const PERIPHERY = ["SwapOrderEscrow", "SwapOrderFactory", "ProtectRouter"];
+const PERIPHERY = ["SwapOrderEscrow", "SwapOrderFactory", "ProtectRouter", "ShieldReceiverFactory", "ShieldReceiver"];
 for (const c of PERIPHERY) {
   const a = art(c);
   writeFileSync(join(root, "abi", "periphery", `${c}.json`), JSON.stringify({ abi: a.abi, bytecode: a.bytecode.object }, null, 2) + "\n");

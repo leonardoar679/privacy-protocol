@@ -2,8 +2,12 @@
 // reference, not the service's echo of it: the escrow is recomputed from the journaled params and this
 // wallet's factory; the digest must be the digest of exactly the call shown, within the order's limits
 // (swapGuard.checkPrepared); the call must do what the wallet asked for (providerCall); and it must
-// guarantee at least the minimum the user approved, or the user is asked again.
+// guarantee at least the minimum the user approved, or the user is asked again. V6 Stage 12: a same-chain swap into the
+// protected balance pays a shield receiver, recomputed here from the journal and this wallet's factory (sdk/shieldReceiver.ts).
 import type { Address } from "viem";
+import type { Deployment } from "./chain";
+import { checkShieldReceipt } from "./shieldReceiver";
+import type { StoredShield } from "./wallet/journal";
 import { checkPrepared, predictEscrow } from "./swapGuard";
 import { checkMinimum, checkProviderCall, MinimumMoved, type CheckedCall, type InboundLookup } from "./providerCall";
 import type { AssetRef, Policy, Prepared, ServiceOrder, ServiceOrderParams } from "./swapService";
@@ -15,6 +19,8 @@ export interface JournaledOrder {
   policy: Policy;
   approvedMin?: string;
   quote?: { toAmountMin?: string };
+  /** V6 Stage 12: the shield receiver a same-chain swap into the protected balance pays */
+  shield?: StoredShield;
 }
 
 export type SignCheck =
@@ -27,8 +33,15 @@ export async function checkBeforeSigning(a: {
   acceptMin?: bigint; inbound?: InboundLookup; now?: number;
   /** tokens the pool has a vault for (the wallet's configured ERC-20 assets) */
   pooled?: string[];
+  /** V6 Stage 12: the deployment whose shield receiver factory a protected destination must recompute from, and the seed its note derives from */
+  deployment?: Deployment;
+  masterSeed?: Uint8Array;
 }): Promise<SignCheck> {
   const { params, request, policy } = a.journaled;
+  if (a.journaled.shield) {
+    if (!a.deployment) throw new Error("the shield receiver cannot be recomputed without the deployment — not signing it");
+    checkShieldReceipt(a.journaled, a.deployment, a.masterSeed); // the destination is this wallet's receiver, or nothing is signed
+  }
   const escrow = predictEscrow(a.factory, params);
   checkPrepared(a.prepared, { ...a.order, orderId: params.orderId, endpoint: escrow, params }, a.chainId, a.now);
   const call = await checkProviderCall(

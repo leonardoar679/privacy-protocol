@@ -36,7 +36,7 @@ export interface ReviewProps {
   usd: string | null;
   amount: string;
   from: string;
-  to: { network: string; asset: string; address: string; kind: "fresh" | "entered" | "privacy-address" };
+  to: { network: string; asset: string; address: string; kind: "fresh" | "entered" | "privacy-address"; label?: string };
   receiveMin?: string | null;
   execution?: { words: string; detail?: string; eta: string } | null;
   privacy: { level: Level; score?: number };
@@ -136,7 +136,7 @@ export function Review(p: ReviewProps) {
       <div className="ds-numeral ds-review-usd" data-testid="review-usd">{p.usd ?? "—"}</div>
       <div className="ds-review-amount-v5">{p.amount}</div>
       <Row label={t("review.from")}>{p.from}</Row>
-      <DestinationCard title={t("review.to")} network={p.to.network} asset={p.to.asset} address={p.to.address} kind={p.to.kind} />
+      <DestinationCard title={t("review.to")} network={p.to.network} asset={p.to.asset} address={p.to.address} kind={p.to.kind} label={p.to.label} />
       {p.receiveMin ? <Row label={t("review.receiveAtLeast")}>{p.receiveMin}</Row> : null}
       {p.execution ? (
         <>

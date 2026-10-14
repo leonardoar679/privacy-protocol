@@ -31,13 +31,14 @@ describe("coverage (spec §13: a test scans the sources and fails on a code with
     const found = new Set<string>();
     for (const dir of ["apps/relayer/src", "packages/swap-engine/src", "apps/api/src", "packages/server-kit/src"]) for (const f of sources(join(ROOT, dir))) {
       const s = readFileSync(f, "utf8");
-      for (const m of s.matchAll(/(?:RelayerError|SwapJobError)\("([a-z_]+)"/g)) found.add(m[1]);
+      for (const m of s.matchAll(/(?:RelayerError|SwapJobError|ShieldJobError)\("([a-z_]+)"/g)) found.add(m[1]);
+      for (const m of s.matchAll(/readonly code = "([a-z_]+)"/g)) found.add(m[1]);
       for (const m of s.matchAll(/code: "([a-z_]+)"/g)) found.add(m[1]);
     }
     expect(found.size).toBeGreaterThanOrEqual(30);
     const missing = [...found].filter((c) => !hasCode(c));
     expect(missing, `codes without a catalog row: ${missing.join(", ")}`).toEqual([]);
-    for (const c of ["fee_below_percent", "nullifier_in_flight", "minimum_moved", "price_guard", "rate_limited", "capacity", "bad_signature"]) expect(found).toContain(c);
+    for (const c of ["fee_below_percent", "nullifier_in_flight", "minimum_moved", "price_guard", "rate_limited", "capacity", "bad_signature", "payload_mismatch", "no_vault", "destination_not_protectable"]) expect(found).toContain(c);
   });
   it("every row has a title and a reason in the message catalog, a funds class, known actions, and never a re-send", () => {
     expect(CODES.length).toBeGreaterThan(60);

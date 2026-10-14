@@ -7,6 +7,8 @@ import {ERC20Mock} from "../mocks/ERC20Mock.sol";
 import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
 import {SwapOrderTypes} from "../../src/periphery/swap/SwapOrderTypes.sol";
 import {ProtectRouter} from "../../src/periphery/protect/ProtectRouter.sol";
+import {ShieldReceiverFactory} from "../../src/periphery/shield/ShieldReceiverFactory.sol";
+import {ShieldReceiverTypes} from "../../src/periphery/shield/ShieldReceiverTypes.sol";
 
 /// Invariant 10 (spec §16, plan §74): no privileged state transition exists. Walks the deployed
 /// RUNTIME bytecode of every production contract (skipping PUSH immediates, so data bytes are not
@@ -123,6 +125,20 @@ contract NoPrivilegeTest is PPTestBase {
     function test_ProtectRouterHasNoPrivilegedPath() public {
         ProtectRouter r = new ProtectRouter(address(core), address(0xFEE5));
         _assertStateMachineOnly(address(r), "ProtectRouter");
+    }
+
+    /// Periphery (Privacy Wallet Web spec v2.0 §11.2): the shield receiver is a plain state machine (no owner, no setter,
+    /// no upgrade path, it creates nothing — the vault always comes from the pool's factory); its factory only CREATE2s.
+    function test_ShieldPeripheryHasNoPrivilegedPath() public {
+        ShieldReceiverFactory f = new ShieldReceiverFactory(address(factory), address(0));
+        Scan memory fs = _scan(address(f), _adminSelectors());
+        assertFalse(fs.delegatecall || fs.callcode || fs.selfdestruct || fs.create, "shield factory: privileged opcode");
+        assertTrue(fs.create2, "shield factory deploys receivers with CREATE2");
+        ShieldReceiverTypes.ReceiverParams memory p;
+        p.receiptId = keccak256("scan");
+        p.minAmount = 1 ether;
+        p.fallbackRecipient = address(0xFA11);
+        _assertStateMachineOnly(address(f.deploy(p)), "ShieldReceiver");
     }
 
     /// The walker itself is sound: it does find the opcodes when they are really there.

@@ -45,6 +45,9 @@ export interface QuoteRequest {
   preferNative?: boolean;
   /** whale spec §21: a fresh wallet-derived address (the default) or one the user entered */
   destinationKind?: "fresh" | "entered";
+  /** V6 Stage 12 (spec v2.0 §11.2, §12): "protected" — a same-chain swap into the protected balance, `destination` the
+   *  wallet's shield receiver (a placeholder while indicative); absent or "external": an address */
+  destinationType?: "protected" | "external";
 }
 
 export interface Fee {
@@ -73,6 +76,9 @@ export interface Quote {
   /** V6 (Privacy Wallet Web spec v2.0 §3): the executor tip this quote is net of — the execution's gas in the order's
    *  asset; PrivateSwapEngine.quoteAll stamps it and buildOrder commits exactly it */
   executorTip?: bigint;
+  /** V6 Stage 12 (spec v2.0 §11.2): a protected destination's shield tip — the receiver's deployment and deposit at
+   *  today's gas, in the OUTPUT asset; what arrives in the protected balance is the delivery less this */
+  shieldTip?: bigint;
   /** where a provider-level refund lands: the escrow (re-shieldable) or the fresh destination address (spec §7) */
   refundTarget?: "escrow" | "destination";
   hops: string[];
@@ -142,6 +148,9 @@ export interface Capabilities {
   chains: Chain[];
   /** false when the provider has not confirmed that an ingress sent BY A CONTRACT (our escrow) is credited; such routes are quoted but never chosen */
   contractSender?: boolean;
+  /** V6 Stage 12 (spec v2.0 §11.2): quotes a swap whose input and output are on the same chain (into a shield receiver);
+   *  absent: never asked for one (LI.FI's same-chain route is a follow-up) */
+  sameChain?: boolean;
   /**
    * Whether the escrow → destination link is public: the ingress (memo, event, calldata) or the
    * provider's own outbound names the destination. Harmless by design — it reaches only the one-time

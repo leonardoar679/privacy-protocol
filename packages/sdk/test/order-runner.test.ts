@@ -4,13 +4,15 @@
 // QUOTE_EXPIRED until the user accepts it or returns the funds; a funding whose outcome is unknown is reconciled from the
 // escrow and never sent twice; a hand-over another tab made is found by orderId; a failure before anything was sent goes
 // to the scheduler's backoff; "Delay for more privacy" funds no earlier than its drawn time; a campaign's tranche is
-// never run here. The operation record follows every step.
+// never run here. The operation record follows every step. V6 Stage 12: a same-chain swap into the protected balance has
+// its shield job asked while it is tracked (registered again when the executor forgot it), and its delivered note looked
+// for once the executor reports a shield; the order completes on that note.
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
 import type { ScheduledAction, StoredSwap } from "../src/wallet/journal";
-import type { SwapJob } from "../src/relayer";
+import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved } from "../src/providerCall";
@@ -86,6 +88,9 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
     simOk: o.simOk ?? true,
     fund: o.fund ?? "ok",
     handOver: o.handOver ?? "ok",
+    shield: null as ShieldJob | null,
+    shieldRegistrations: 0,
+    shieldRecoveries: 0,
   };
   const io: OrderIo = {
     fund: async (st, onStatus) => {
@@ -117,6 +122,21 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
       w.refunds++;
       w.job = { id: "refund-1", escrow: st.endpoint as `0x${string}`, state: "refunding", updatedAt: T0 } as SwapJob;
       return w.job;
+    },
+    shieldStatus: async () => w.shield,
+    registerShield: async (st) => {
+      w.shieldRegistrations++;
+      w.shield = { id: st.shield!.params.receiptId, receiver: st.shield!.receiver as `0x${string}`, state: "waiting-delivery", updatedAt: T0 };
+      return w.shield;
+    },
+    recoverShield: async (st) => {
+      w.shieldRecoveries++;
+      const last = w.shield?.shields?.[w.shield.shields.length - 1];
+      if (last?.leafIndex === undefined) return 0;
+      patchSwap(st.orderId, {
+        shield: { ...st.shield!, leaves: [{ leafIndex: last.leafIndex, vault: "0x00000000000000000000000000000000000000e1", amount: last.amount ?? "0" }] },
+      });
+      return 1;
     },
   };
   return { w, io };
@@ -254,6 +274,62 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(retryOrder(ORDER, session, T0 + 2000)).toBe(true);
     expect(await drive(io, 2, T0 + 2000)).toEqual(["handed-over", "track"]);
     expect(w.handOvers).toBe(1);
+  });
+
+  it("V6 Stage 12: a swap into the protected balance — the shield job asked while tracked (registered again when forgotten), the delivered note found once shielded", async () => {
+    const shield = {
+      factory: "0x00000000000000000000000000000000000000f2",
+      receiver: "0x00000000000000000000000000000000000000c7",
+      params: {
+        receiptId: "0x" + "5e".repeat(32),
+        asset: "0x0000000000000000000000000000000000000000",
+        minAmount: "200",
+        shieldTip: "2",
+        ownerCommitment: "1",
+        noteSecret: "2",
+        noteDataHash: "0x" + "00".repeat(32),
+        fallbackRecipient: "0x00000000000000000000000000000000000000fa",
+      },
+      counter: 9,
+      noteData: "0x01",
+      registeredAt: T0,
+    };
+    order({ fundedTx: "0xf00d", state: "executing", jobId: "job-1", shield });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.job = { id: "job-1", escrow: "0x00000000000000000000000000000000000000e5", state: "executed", updatedAt: T0 } as SwapJob;
+    io.track = async () => {
+      const done = (stored().shield?.leaves?.length ?? 0) > 0;
+      return {
+        tracked: {
+          state: done ? "COMPLETED" : "PROVIDER_EXECUTING",
+          label: done ? "Completed" : "Executing",
+          steps: [true, true, done, done],
+          detail: "",
+        } as Tracked,
+        job: w.job,
+      };
+    };
+    // the executor forgot the receipt (no journal after a restart): it is registered again
+    expect((await runOrderTick(action(), deps(io)))?.step).toBe("track");
+    expect(w.shieldRegistrations).toBe(1);
+    expect(stored().shield?.job?.state).toBe("waiting-delivery");
+    expect(w.shieldRecoveries, "nothing shielded yet: the pool is not read").toBe(0);
+    // the executor shielded the delivery: the note is looked for once, and the order completes
+    w.shield = {
+      ...w.shield!,
+      state: "shielded",
+      shields: [{ txHash: ("0x" + "77".repeat(32)) as `0x${string}`, leafIndex: 42, amount: "2278000000000000000", tip: "2", at: T0 }],
+    };
+    const r = await runOrderTick(action(T0 + 15_000), deps(io, T0 + 15_000));
+    expect(r?.step).toBe("settled");
+    expect(w.shieldRegistrations).toBe(1);
+    expect(w.shieldRecoveries).toBe(1);
+    expect(stored().shield?.job).toMatchObject({ state: "shielded", leafIndex: 42, amount: "2278000000000000000" });
+    expect(stored().shield?.leaves).toEqual([{ leafIndex: 42, vault: "0x00000000000000000000000000000000000000e1", amount: "2278000000000000000" }]);
+    expect(pending(), "a settled order plans no more ticks").toBeUndefined();
   });
 
   it("'Delay for more privacy' funds no earlier than its drawn time (1–24 h); a campaign's tranche is never run here", async () => {

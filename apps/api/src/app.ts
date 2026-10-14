@@ -14,6 +14,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { CHAINS } from "@privacy-wallet/config";
 import { MAX_BODY_BYTES, RateLimiter, callerKey, corsHeaders, securityHeaders, type Logger } from "@privacy-wallet/server-kit";
 import { TipError } from "@privacy-wallet/swap-engine/tips";
+import { ProtectedDestinationError } from "@privacy-wallet/swap-engine/engine";
 import { BadRequest, SwapApi, type Answer, type SwapApiDeps } from "./routes/swap";
 
 export interface AppOptions {
@@ -96,6 +97,7 @@ export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
       return void res.status(400).json({ error: e instanceof BadRequest ? e.message : "the body is not JSON", code: "invalid_request" });
     // V6 (spec v2.0 §3): an escrow that cannot pay the execution's gas, or a tip that cannot be priced, is the caller's answer; a fee history the API cannot read is its own outage
     if (e instanceof TipError) return void res.status(e.code === "fee_history_unavailable" ? 503 : 400).json({ error: e.message, code: e.code });
+    if (e instanceof ProtectedDestinationError) return void res.status(400).json({ error: e.message, code: e.code });
     deps.store.event({ event: "http.error", level: "error", state: "500", errorClass: "internal" });
     res.status(500).json({ error: String(err?.message ?? e) });
   });

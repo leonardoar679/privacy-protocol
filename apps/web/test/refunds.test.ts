@@ -16,7 +16,7 @@ import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { deriveRefundNote, refundPayload } from "@privacy-wallet/sdk/keys/swapKeys";
 import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
-import { hasRefundCandidates, matchRefunds, refundClaims, usedCounters } from "@privacy-wallet/sdk/refunds";
+import { hasRefundCandidates, matchCommittedDeposits, refundClaims, usedCounters } from "@privacy-wallet/sdk/refunds";
 import { recoverSwapRefunds, scanNotes } from "@privacy-wallet/sdk/privateTx";
 import type { DepositedLog, Deployment, NoteInsertedLog } from "@privacy-wallet/sdk/chain";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -49,20 +49,20 @@ describe("matching refunds: the payload makes a candidate, the commitment makes 
   const deposits = [dep(ETH_VAULT, 0, 5n, OTHER_OC), dep(ETH_VAULT, 4, AMOUNT), dep(ETH_VAULT, 12, 3_000_000n)];
 
   it("recovers every refund of the order, with the vault's amount; a copied payload in a transaction output is not ours", () => {
-    const r = matchRefunds(keys, logs, deposits, [claim]);
+    const r = matchCommittedDeposits(keys, logs, deposits, [claim]);
     expect(r.map((x) => [x.leafIndex, x.note.amount])).toEqual([[4, AMOUNT], [12, 3_000_000n]]);
     expect(r[0]).toMatchObject({ orderId: ORDER, counter: COUNTER, note: first, txHash: tx(4) });
   });
   it("an endpoint that lies about the amount, the vault or the owner gets nothing accepted; neither does another secret", () => {
-    expect(matchRefunds(keys, logs, [dep(ETH_VAULT, 4, AMOUNT + 1n)], [claim])).toEqual([]);
-    expect(matchRefunds(keys, logs, [dep(USDC_VAULT, 4, AMOUNT)], [claim])).toEqual([]);
-    expect(matchRefunds(keys, logs, [dep(ETH_VAULT, 4, AMOUNT, OTHER_OC)], [claim])).toEqual([]);
-    expect(matchRefunds(keys, logs, deposits, [{ ...claim, counter: COUNTER + 1 }])).toEqual([]);
-    expect(matchRefunds(deriveKeys(utf8ToBytes("someone else")), logs, deposits, [claim])).toEqual([]);
+    expect(matchCommittedDeposits(keys, logs, [dep(ETH_VAULT, 4, AMOUNT + 1n)], [claim])).toEqual([]);
+    expect(matchCommittedDeposits(keys, logs, [dep(USDC_VAULT, 4, AMOUNT)], [claim])).toEqual([]);
+    expect(matchCommittedDeposits(keys, logs, [dep(ETH_VAULT, 4, AMOUNT, OTHER_OC)], [claim])).toEqual([]);
+    expect(matchCommittedDeposits(keys, logs, deposits, [{ ...claim, counter: COUNTER + 1 }])).toEqual([]);
+    expect(matchCommittedDeposits(deriveKeys(utf8ToBytes("someone else")), logs, deposits, [claim])).toEqual([]);
   });
   it("a refund into another vault (an ERC-20 order) is recovered in that vault", () => {
     const usdc = refundNote(USDC_VAULT, 1_000_000_000n);
-    expect(matchRefunds(keys, [ins(4, cm(usdc, 4), PAYLOAD)], [dep(USDC_VAULT, 4, 1_000_000_000n)], [claim])[0].note.vaultId).toBe(BigInt(USDC_VAULT));
+    expect(matchCommittedDeposits(keys, [ins(4, cm(usdc, 4), PAYLOAD)], [dep(USDC_VAULT, 4, 1_000_000_000n)], [claim])[0].note.vaultId).toBe(BigInt(USDC_VAULT));
   });
   it("the deposits are read only when an insert carries a journaled payload", () => {
     expect(hasRefundCandidates(logs, [claim])).toBe(true);
@@ -71,7 +71,7 @@ describe("matching refunds: the payload makes a candidate, the commitment makes 
   });
   it("claims come from the journaled orders that kept their payload", () => {
     const s = (o: Partial<StoredSwap>) => ({ orderId: ORDER, attemptId: "0x01", refundCounter: COUNTER, provider: "thorchain", policy: "best-privacy", request: {}, params: {}, endpoint: "0x", createdAt: 0, state: "funded", ...o }) as StoredSwap;
-    expect(refundClaims([s({ refundNoteData: PAYLOAD }), s({ orderId: "0x02" })])).toEqual([claim]);
+    expect(refundClaims([s({ refundNoteData: PAYLOAD }), s({ orderId: "0x02" })])).toEqual([{ ...claim, kind: "refund" }]);
   });
 });
 

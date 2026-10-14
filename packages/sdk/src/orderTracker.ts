@@ -3,7 +3,9 @@
 // execution transaction it records once), the escrow's balance read through the RPC quorum, and the
 // service's stateless GET /track/:provider for the destination side — and journals every transition
 // with its time. The user sees the labels of plan §61 and the four-step line of plan §60; a funded order
-// is never a bare "failed": the label says where the money is. Nothing here says "atomic".
+// is never a bare "failed": the label says where the money is. Nothing here says "atomic". V6 Stage 12 (spec v2.0
+// §11.2): a same-chain swap into the protected balance is complete when its delivered note is in the pool (the shield
+// receipt's leaves), whatever the provider's own tracking says.
 import type { Address } from "viem";
 import { clientsFor, type Deployment } from "./chain";
 import { erc20Abi } from "./privacyProtocol";
@@ -40,6 +42,8 @@ export interface Tracked {
   /** one sentence: where the money is, what came back, what happens next */
   detail: string;
   deliveredAmount?: string;
+  /** the delivered amount in the output's base units (the record's `delivered`; deliveredAmount is its words) */
+  deliveredUnits?: string;
   refundedAmount?: string;
   destinationTxHash?: string;
   progress?: { parts: number; done: number };
@@ -63,10 +67,11 @@ const req = (s: StoredSwap) => s.request as { from?: { symbol?: string; decimals
  */
 export function legsOf(s: StoredSwap, f: TrackFacts): SettlementLegs | null {
   const p = params(s);
+  const shielded = (s.shield?.leaves?.length ?? 0) > 0; // the delivery is in the protected balance: the destination is final
   return legsFrom({
     fundingSent: !!s.fundedTx, abandoned: s.state === "abandoned", refundFound: f.refundFound || (s.refunds?.length ?? 0) > 0,
     job: f.job ? { state: f.job.state, ...(f.job.executionTx ? { executionTx: f.job.executionTx } : {}) } : null, jobUnread: !!s.jobId && !f.job,
-    ...(s.executionTx ? { executionTx: s.executionTx } : {}), track: f.track, escrowBalance: f.escrowBalance, amount: BigInt(p.amount), executeDeadline: p.executeDeadline, now: Math.floor(f.now / 1000),
+    ...(s.executionTx ? { executionTx: s.executionTx } : {}), track: shielded ? { state: "destination-final" } : f.track, escrowBalance: f.escrowBalance, amount: BigInt(p.amount), executeDeadline: p.executeDeadline, now: Math.floor(f.now / 1000),
   });
 }
 
@@ -87,11 +92,26 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const t = f.track;
   const delivered = t?.deliveredAmount !== undefined ? `${fmtUnits(t.deliveredAmount, to.decimals ?? 0)} ${to.symbol ?? ""}`.trim() : undefined;
   const refunded = t?.refundedAmount !== undefined ? `${fmtUnits(t.refundedAmount, from.decimals ?? 18)} ${from.symbol ?? ""}`.trim() : undefined;
-  const extras = { deliveredAmount: delivered, refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
+  const extras = { deliveredAmount: delivered, ...(t?.deliveredAmount !== undefined ? { deliveredUnits: String(t.deliveredAmount) } : {}), refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
 
   if (s.state === "abandoned") return out("CANCELLED", "Not started", [true, false, false, false], "Abandoned before funding: nothing left your private balance.");
-  if (f.refundFound || (s.refunds?.length ?? 0) > 0 || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
+  const refundedToo = f.refundFound || (s.refunds?.length ?? 0) > 0;
+  // V6 Stage 12: the delivered note found in the pool is the destination's settlement
+  const leaves = s.shield?.leaves ?? [];
+  if (leaves.length) {
+    const units = leaves.reduce((a, l) => a + BigInt(l.amount), 0n);
+    const got = `${fmtUnits(units, to.decimals ?? 18)} ${to.symbol ?? ""}`.trim();
+    const into = { ...extras, deliveredAmount: got, deliveredUnits: units.toString() };
+    if (refundedToo) return out("PARTIAL", "Partial", [true, true, true, true], `${got} added to your protected balance; the rest came back to the escrow and was re-shielded.`, into);
+    return out("COMPLETED", "Completed", [true, true, true, true], `${got} added to your protected balance.`, into);
+  }
+  if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   const job = f.job?.state;
+  if (s.shield && (job === "completed" || job === "executed" || job === "executing")) {
+    const sj = s.shield.job?.state;
+    if (sj === "shielding" || sj === "shielded" || job === "completed" || t?.state === "completed" || t?.state === "destination-final")
+      return out("DESTINATION_FINAL", "Waiting for destination", [true, true, true, false], "Delivered to the one-time receiver; adding it to your protected balance.", extras);
+  }
   if (job === "completed") {
     if (t?.state === "partial") return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded.`, extras);
     return out("COMPLETED", "Completed", [true, true, true, true], `${delivered ? `${delivered} delivered` : "Delivered"} at your fresh address; the executor's watch for a late refund ended with nothing left in the escrow.`, extras);

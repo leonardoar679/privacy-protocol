@@ -12,13 +12,16 @@ import {ProtectRouter} from "../../src/periphery/protect/ProtectRouter.sol";
 import {SwapOrderTypes as T} from "../../src/periphery/swap/SwapOrderTypes.sol";
 import {SwapOrderFactory} from "../../src/periphery/swap/SwapOrderFactory.sol";
 import {MockSwapProvider} from "../mocks/MockSwapProvider.sol";
+import {ShieldReceiverFactory} from "../../src/periphery/shield/ShieldReceiverFactory.sol";
+import {ShieldReceiverTypes as S} from "../../src/periphery/shield/ShieldReceiverTypes.sol";
 import {MockVerifier} from "../mocks/MockVerifier.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
 
 /// The gas units the wallet and the services price with (Privacy Wallet Web spec v2.0 §3): a protect through the
 /// router (ETH and ERC-20) beside a direct deposit, and a swap escrow's two endings — the executor's
 /// deployAndExecute (a minimal provider call: packages/swap-engine adds the provider's own allowance) and the refund
-/// that re-shields the order. Production configuration (real Poseidon2, depth 32), steady state (the average of 8
+/// that re-shields the order — and (V6 Stage 12) a same-chain swap's receiver deployed and shielded, ETH and ERC-20.
+/// Production configuration (real Poseidon2, depth 32), steady state (the average of 8
 /// after a cold first call). Units only — a cost is units × the live fee history, never a fixed gas price.
 /// packages/contracts/src/gas.ts pins these (its test reads test/periphery/vectors/gas.json, which
 /// GAS_VECTOR=true rewrites and test_GasVectorIsCurrent keeps current).
@@ -31,6 +34,7 @@ contract PeripheryGasBenchTest is Test {
     ProtectRouter internal router;
     SwapOrderFactory internal swapFactory;
     MockSwapProvider internal provider;
+    ShieldReceiverFactory internal shieldFactory;
 
     address internal alice = address(0xA11CE);
     address internal executor = address(0xE8EC);
@@ -44,6 +48,8 @@ contract PeripheryGasBenchTest is Test {
         uint256 protectERC20;
         uint256 escrowExecuteETH;
         uint256 escrowRefundETH;
+        uint256 shieldETH;
+        uint256 shieldERC20;
     }
 
     function setUp() public {
@@ -56,6 +62,7 @@ contract PeripheryGasBenchTest is Test {
         router = new ProtectRouter(address(core), address(0xFEE5));
         swapFactory = new SwapOrderFactory(address(0));
         provider = new MockSwapProvider();
+        shieldFactory = new ShieldReceiverFactory(address(factory), address(0));
         vm.deal(alice, 1_000 ether);
         token.mint(alice, 1_000_000e6);
         vm.roll(1_000);
@@ -124,30 +131,66 @@ contract PeripheryGasBenchTest is Test {
         gas = g0 - gasleft();
     }
 
+    function _receipt(uint256 salt, address asset, uint256 min) internal view returns (S.ReceiverParams memory p) {
+        p.receiptId = keccak256(abi.encode("bench-shield", salt, asset));
+        p.asset = asset;
+        p.minAmount = min;
+        p.shieldTip = min / 100;
+        p.ownerCommitment = 900 + salt;
+        p.noteSecret = 901 + salt;
+        p.noteDataHash = keccak256(noteData);
+        p.fallbackRecipient = alice;
+    }
+
+    function _shieldETH(uint256 salt) internal returns (uint256 gas) {
+        S.ReceiverParams memory p = _receipt(salt, address(0), 1 ether);
+        vm.deal(shieldFactory.predict(p), 1 ether); // the provider's delivery
+        vm.prank(executor);
+        uint256 g0 = gasleft();
+        shieldFactory.deployAndShield(p, noteData);
+        gas = g0 - gasleft();
+    }
+
+    function _shieldERC20(uint256 salt) internal returns (uint256 gas) {
+        S.ReceiverParams memory p = _receipt(salt, address(token), 1_000e6);
+        token.mint(shieldFactory.predict(p), 1_000e6);
+        vm.prank(executor);
+        uint256 g0 = gasleft();
+        shieldFactory.deployAndShield(p, noteData);
+        gas = g0 - gasleft();
+    }
+
     function _measure() internal returns (Units memory u) {
         _deposit();
         _protectETH();
         _protectERC20();
         _escrowExecute(0);
         _escrowRefund(0);
+        _shieldETH(0);
+        _shieldERC20(0);
         for (uint256 i = 1; i <= 8; ++i) {
             u.deposit += _deposit();
             u.protectETH += _protectETH();
             u.protectERC20 += _protectERC20();
             u.escrowExecuteETH += _escrowExecute(i);
             u.escrowRefundETH += _escrowRefund(i);
+            u.shieldETH += _shieldETH(i);
+            u.shieldERC20 += _shieldERC20(i);
         }
         u.deposit /= 8;
         u.protectETH /= 8;
         u.protectERC20 /= 8;
         u.escrowExecuteETH /= 8;
         u.escrowRefundETH /= 8;
+        u.shieldETH /= 8;
+        u.shieldERC20 /= 8;
     }
 
     function _json(Units memory u) internal pure returns (string memory) {
         return string.concat(
             '{"deposit":', vm.toString(u.deposit), ',"protectETH":', vm.toString(u.protectETH), ',"protectERC20":', vm.toString(u.protectERC20),
-            ',"escrowExecuteETH":', vm.toString(u.escrowExecuteETH), ',"escrowRefundETH":', vm.toString(u.escrowRefundETH), "}\n"
+            ',"escrowExecuteETH":', vm.toString(u.escrowExecuteETH), ',"escrowRefundETH":', vm.toString(u.escrowRefundETH),
+            ',"shieldETH":', vm.toString(u.shieldETH), ',"shieldERC20":', vm.toString(u.shieldERC20), "}\n"
         );
     }
 
@@ -159,6 +202,8 @@ contract PeripheryGasBenchTest is Test {
         log("protectERC20   steady-state", u.protectERC20);
         log("escrow execute (ETH, minimal provider call)", u.escrowExecuteETH);
         log("escrow refund  (ETH, re-shield)", u.escrowRefundETH);
+        log("shield receiver (ETH: deploy, tip, deposit)", u.shieldETH);
+        log("shield receiver (ERC-20: deploy, tip, deposit)", u.shieldERC20);
         assertTrue(u.protectETH > u.deposit && u.protectETH - u.deposit < 60_000, "the router adds a fee transfer, not a second deposit");
         string memory json = _json(u);
         if (vm.envOr("GAS_VECTOR", false)) vm.writeFile("test/periphery/vectors/gas.json", json);

@@ -2,7 +2,8 @@
 // source asset (the privacy fee by the formula, the relayer's F from its terms plus the executor tip, the provider's own
 // fees in the source asset; a fee the provider takes in another asset is already in the rate), the expiry, the time, the
 // route-only privacy assessment and assessRisk. Indicative: the wallet stays canonical for money (it computes the
-// escrow's W with its own relayer terms, spec v2.0 §3).
+// escrow's W with its own relayer terms, spec v2.0 §3). V6 Stage 12: into the protected balance, the expected and minimum
+// output are what the note receives — the delivery less the shield tip, which is in the output asset (in the rate).
 import { assetOn } from "@privacy-wallet/config";
 import { PRIVACY_FEE_BPS, privacyFee } from "@privacy-wallet/protocol/wallet/fees";
 import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -78,8 +79,8 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     sourceAsset: src,
     destinationAsset: dst,
     inputAmount: req.amount.toString(),
-    expectedOutput: chosen.toAmount.toString(),
-    minimumOutput: chosen.toAmountMin.toString(),
+    expectedOutput: (chosen.toAmount - (chosen.shieldTip ?? 0n)).toString(),
+    minimumOutput: (chosen.toAmountMin - (chosen.shieldTip ?? 0n)).toString(),
     privacyFee: p.toString(),
     relayerFee: relayer.toString(),
     providerFee: provider.toString(),

@@ -9,13 +9,27 @@
 // and its journal entry never funds or hands over twice; a failure before anything was sent is thrown to the scheduler's
 // backoff, one after a send started pauses the order until the escrow or the executor says what happened. The ticks run
 // from the App-level scheduler on any tab while the wallet is unlocked (`order-tick:<orderId>`); a campaign's tranches
-// are never run here (wallet/campaignRunner.ts runs them).
+// are never run here (wallet/campaignRunner.ts runs them). V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the
+// protected balance also has a shield job — registered before the hand-over, asked again while the order is tracked (and
+// registered again if the executor forgot it), and once it reports a shield the delivered note is looked for in the pool.
 import type { Hex } from "viem";
 import type { Deployment } from "../chain";
 import type { MinimumMoved } from "../providerCall";
 import { trackOrder, type Tracked } from "../orderTracker";
-import { relayerSwapStatus, type SwapJob } from "../relayer";
-import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type CommitInput, type Committed, type Signed } from "../swapExecute";
+import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, type ShieldJob, type SwapJob } from "../relayer";
+import {
+  commitOrder,
+  handOverSigned,
+  prepareAndSign,
+  resumeOrder,
+  returnOrderToBalance,
+  shieldJobView,
+  type CommitInput,
+  type Committed,
+  type Signed,
+} from "../swapExecute";
+import { shieldJobRequest } from "../shieldReceiver";
+import { recoverShieldDelivery } from "../privateTx";
 import { abandonSwap, fundEscrow, isOpenSwap, patchSwap } from "../swapFunding";
 import type { ServiceOrder } from "../swapService";
 import { escrowBalance } from "../orderTracker";
@@ -46,6 +60,11 @@ export interface OrderIo {
   job(stored: StoredSwap): Promise<SwapJob | null>;
   track(stored: StoredSwap): Promise<{ tracked: Tracked; job: SwapJob | null }>;
   refund(stored: StoredSwap): Promise<SwapJob>;
+  /** V6 Stage 12: the executor's shield job of a same-chain swap into the protected balance (null: it knows none) */
+  shieldStatus(stored: StoredSwap): Promise<ShieldJob | null>;
+  registerShield(stored: StoredSwap): Promise<ShieldJob>;
+  /** the delivered note(s) looked for in the pool and journaled on the receipt; how many were found */
+  recoverShield(stored: StoredSwap): Promise<number>;
 }
 
 export interface OrderDeps {
@@ -95,7 +114,40 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
     job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
     track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session }),
     refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission }),
+    shieldStatus: (stored) =>
+      relayerUrl && stored.shield
+        ? relayerShieldStatus(relayerUrl, stored.shield.params.receiptId).catch((e) => {
+            if (e instanceof RelayerRefusal && e.status === 404) return null;
+            throw e;
+          })
+        : Promise.resolve(null),
+    registerShield: async (stored) => {
+      if (!relayerUrl) throw new Error("a swap into the protected balance needs a relayer to shield its delivery");
+      return relayerShieldRegister(relayerUrl, shieldJobRequest(stored));
+    },
+    recoverShield: async (stored) =>
+      d.deployment && stored.shield
+        ? (await recoverShieldDelivery({ masterSeed: d.masterSeed, deployment: d.deployment, orderId: stored.orderId, shield: stored.shield })).length
+        : 0,
   };
+}
+
+/**
+ * V6 Stage 12: the shield job's last state journaled — registered again when the executor does not know it (a restart
+ * without its journal) — and, once it reports a shield the journal has no note for, the delivered note looked for in the
+ * pool. A failed read changes nothing: the next tick asks again.
+ */
+async function refreshShield(orderId: string, stored: StoredSwap, io: OrderIo, s: WalletSession, now: number): Promise<StoredSwap> {
+  try {
+    const job = (await io.shieldStatus(stored)) ?? (await io.registerShield(stored));
+    const sh = journaled(orderId, s)?.shield ?? stored.shield!;
+    patchSwap(orderId, { shield: { ...sh, registeredAt: sh.registeredAt ?? now, job: shieldJobView(job, now) } }, s);
+    const reported = job.shields?.filter((x) => x.leafIndex !== undefined).length ?? 0;
+    if (reported > (sh.leaves?.length ?? 0)) await io.recoverShield(journaled(orderId, s) ?? stored);
+  } catch {
+    // the executor or the pool could not be read: asked again at the next tick
+  }
+  return journaled(orderId, s) ?? stored;
 }
 
 const actionId = (orderId: string) => `order-tick:${orderId}`;
@@ -215,6 +267,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       }
     }
     if (stored.jobId) {
+      if (stored.shield) stored = await refreshShield(a.orderId, stored, io, s, now);
       const r = await io.track(stored);
       const st = journaled(a.orderId, s) ?? stored;
       syncSwapRecord(st, r.tracked, r.job, now);

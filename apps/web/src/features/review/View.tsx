@@ -18,6 +18,8 @@ export interface ReviewFee {
   kind: "privacy" | "relayer" | "provider";
   usdCents: bigint | null;
   amount?: Amount;
+  /** a part in another asset, shown after the amount when no price joins them (V6 Stage 12: a same-chain swap's shield tip) */
+  also?: Amount;
 }
 export interface ReviewModel {
   kind: "protect" | "send" | "swap" | "cross-chain";
@@ -99,7 +101,20 @@ export function ReviewView({
       </Page>
     );
   }
-  const fee = (f: ReviewFee) => (f.usdCents !== null ? <Usd cents={f.usdCents} /> : f.amount ? <Amt a={f.amount} rounding="up" /> : "—");
+  const fee = (f: ReviewFee) =>
+    f.usdCents !== null ? (
+      <Usd cents={f.usdCents} />
+    ) : f.amount ? (
+      f.also ? (
+        <>
+          <Amt a={f.amount} rounding="up" /> + <Amt a={f.also} rounding="up" />
+        </>
+      ) : (
+        <Amt a={f.amount} rounding="up" />
+      )
+    ) : (
+      "—"
+    );
   const sections: ReviewSection[] = [
     {
       testId: "review-receive",

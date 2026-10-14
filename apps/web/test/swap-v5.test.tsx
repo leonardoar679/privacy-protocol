@@ -180,7 +180,7 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
     rec = syncSwapRecord({ ...stored, jobId: "job-1" }, null, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "execute-failed", updatedAt: 3_000, error: "ProviderCallFailed" }, 3_000);
     expect(rec).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "execute_failed", fundsClass: "still-protected" }, recovery: { state: "refund-offered" }, refs: { jobId: "job-1" } });
     expect(rec.history.map((h) => h.state)).toEqual(["SETTLING", "RECOVERY_REQUIRED"]);
-    rec = syncSwapRecord(stored, { state: "COMPLETED", label: "Completed", steps: [true, true, true, true], detail: "delivered", deliveredAmount: "2990000" }, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "completed", updatedAt: 4_000 }, 4_000);
+    rec = syncSwapRecord(stored, { state: "COMPLETED", label: "Completed", steps: [true, true, true, true], detail: "delivered", deliveredAmount: "0.0299 BTC", deliveredUnits: "2990000" }, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "completed", updatedAt: 4_000 }, 4_000);
     expect(rec).toMatchObject({ state: "COMPLETED", amounts: { delivered: "2990000" } });
     rec = syncSwapRecord(stored, { state: "PROVIDER_EXECUTING", label: "Executing", steps: [true, true, false, false], detail: "x" }, null, 5_000);
     expect(rec.state, "I-O1: a completed record never changes").toBe("COMPLETED");

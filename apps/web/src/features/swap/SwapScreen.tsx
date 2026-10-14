@@ -7,7 +7,9 @@
 // /swap/progress/:opId the operation's lines, the paused order's choice (accept the new minimum or return the funds),
 // the result. A protected execution (the service's plan at its band) continues on /swap/protected — V5's screen until
 // Stage 13 rebuilds large trades. The quote carries no destination (the engine quotes a placeholder); the destination
-// — a fresh address of this wallet unless one is typed — is reserved and sent at the confirmation.
+// — a fresh address of this wallet unless one is typed — is reserved and sent at the confirmation. V6 Stage 12 (spec v2.0
+// §11.2): a same-chain target lands in the protected balance — the quote asks for a protected destination (its shield tip
+// is in the lines), the confirmation builds the one-time shield receiver the order pays, and the result says what arrived.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { availablePrice, atLeast, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -48,10 +50,10 @@ import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
 import { CompareRoutes } from "./CompareRoutes";
 import { Swap, type SwapPrefill } from "./Swap";
 import { SwapView } from "./View";
-import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, quoteLines, routeDetails } from "./model";
+import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, quoteLines, routeDetails, shieldTipOf } from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
-import { TARGETS, refOf, riskWord } from "./targets";
+import { TARGETS, refOf, riskWord, sameChainTargets } from "./targets";
 import { useCampaigns, useOperation, usePoolStats, usePrices, useSession, useSettings, useNotes } from "../../hooks";
 
 export interface SwapScreenProps {
@@ -78,7 +80,9 @@ export function SwapScreen(p: SwapScreenProps) {
   const running = useCampaigns().filter((c) => !TERMINAL_STATES.includes(c.state));
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
   const [fromAsset, setFromAsset] = useState<Asset | undefined>(() => assets.find((a) => a.vault === p.prefill?.fromVault) ?? assets[0]);
-  const [target, setTarget] = useState(() => (p.prefill?.target && TARGETS[p.prefill.target] ? p.prefill.target : "BTC"));
+  // the cross-chain targets, and (V6 Stage 12) the pool's assets this deployment receives into the protected balance
+  const targets = useMemo(() => ({ ...sameChainTargets(assets, p.deployment), ...TARGETS }), [assets, p.deployment]);
+  const [target, setTarget] = useState(() => (p.prefill?.target && targets[p.prefill.target] ? p.prefill.target : "BTC"));
   const [amount, setAmount] = useState(p.prefill?.amount ?? "");
   const [typed, setTyped] = useState(p.prefill?.destination ?? ""); // empty: the fresh address of this wallet
   const [delay, setDelay] = useState(false);
@@ -100,7 +104,8 @@ export function SwapScreen(p: SwapScreenProps) {
   const [busy, setBusy] = useState(false);
   const [holders, setHolders] = useState<number | null>(null);
 
-  const to = TARGETS[target];
+  const to = targets[target] ?? TARGETS.BTC;
+  const intoProtected = !!to.protected; // a same-chain swap: the destination is the protected balance (spec v2.0 §11.2)
   const chain = chainKindOf(to.ref.chain);
   const units = fromAsset ? parseAmount(fromAsset, amount) : 0n;
   const fresh = peekFreshAddress(p.masterSeed, chain).address;
@@ -172,6 +177,7 @@ export function SwapScreen(p: SwapScreenProps) {
             destinationKind: edited ? "entered" : "fresh",
             preferNative: preference === "native",
             mode: protection.mode,
+            ...(intoProtected ? { destinationType: "protected" as const } : {}),
           });
           if (seq.current !== mine) return;
           setTerms(tm);
@@ -215,8 +221,12 @@ export function SwapScreen(p: SwapScreenProps) {
         })
       : null;
   const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol) : null;
+  const priceTo = availablePrice(prices.prices, to.ref.symbol);
   const protectionPlan = quotes?.protection ?? null;
+  // the protected screen (V5's, until Stage 13) knows only cross-chain targets: a swap into the protected balance stays
+  // one order here, with the hold from $50K
   const campaignMode =
+    !intoProtected &&
     !!protectionPlan &&
     protection.enabled &&
     (controls.campaign ||
@@ -275,6 +285,7 @@ export function SwapScreen(p: SwapScreenProps) {
                 units,
                 from: { symbol: fromAsset.symbol, decimals: fromAsset.decimals, usd1e8: priceFrom?.usd1e8 ?? null },
                 to,
+                toUsd1e8: priceTo?.usd1e8 ?? null,
                 privacy,
               })
             : null,
@@ -316,7 +327,12 @@ export function SwapScreen(p: SwapScreenProps) {
     setBusy(true);
     setStatus("");
     try {
-      const dest = edited ? destination : consumeFreshAddress(p.masterSeed, chain).address; // the fresh address is reserved now
+      // the fresh address is reserved now; into the protected balance the order pays a shield receiver built at the commit,
+      // and a fresh address of this wallet is its fallback for a token the pool cannot hold
+      const dest = intoProtected ? "" : edited ? destination : consumeFreshAddress(p.masterSeed, chain).address;
+      const shield = intoProtected
+        ? { shieldTip: shieldTipOf(quotes), fallbackRecipient: consumeFreshAddress(p.masterSeed, "evm").address as `0x${string}` }
+        : undefined;
       const r = await confirmOrder({
         masterSeed: p.masterSeed,
         deployment: p.deployment,
@@ -332,6 +348,7 @@ export function SwapScreen(p: SwapScreenProps) {
           preferNative: preference === "native",
           mode: protection.mode,
         },
+        ...(shield ? { shield } : {}),
         policy,
         provider: chosen.provider,
         fromAsset,
@@ -357,13 +374,15 @@ export function SwapScreen(p: SwapScreenProps) {
     decimals: a.decimals,
     ...(a.token ? { address: a.token } : {}),
   }));
-  const toOptions: AssetOption[] = Object.values(TARGETS).map((x) => ({
-    id: x.id,
-    symbol: x.ref.symbol,
-    name: x.network,
-    decimals: x.ref.decimals,
-    chain: x.network,
-  }));
+  const toOptions: AssetOption[] = Object.values(targets)
+    .filter((x) => !(x.protected && x.ref.asset === (fromAsset?.token ?? "native"))) // never the asset paid with
+    .map((x) => ({
+      id: x.id,
+      symbol: x.ref.symbol,
+      name: x.network,
+      decimals: x.ref.decimals,
+      chain: x.network,
+    }));
   const reset = () => {
     setAcknowledged([]);
     setDestAck(false);
@@ -434,6 +453,7 @@ export function SwapScreen(p: SwapScreenProps) {
             if (a) {
               setFromAsset(a);
               setAmount("");
+              if (to.protected && to.ref.asset === (a.token ?? "native")) setTarget("BTC"); // the asset paid with is no destination
               reset();
             }
             setPicking(null);
@@ -448,9 +468,9 @@ export function SwapScreen(p: SwapScreenProps) {
           assets={toOptions}
           value={target}
           onChange={(id) => {
-            if (TARGETS[id]) {
+            if (targets[id]) {
               setTarget(id);
-              if (TARGETS[id].ref.chain !== to.ref.chain) setTyped(""); // another chain: back to a fresh address of that chain
+              if (targets[id].ref.chain !== to.ref.chain || targets[id].protected) setTyped(""); // another chain, or the protected balance: no typed address
               reset();
             }
             setPicking(null);
@@ -518,8 +538,14 @@ export function SwapScreen(p: SwapScreenProps) {
             usd={usd !== null ? formatUsd(usd) : null}
             amount={`${formatAmount(fromAsset, units)} ${fromAsset.symbol}`}
             from={t("swap.fromProtected", { symbol: fromAsset.symbol })}
-            to={{ network: to.network, asset: to.ref.symbol, address: destination, kind: edited ? "entered" : "fresh" }}
-            receiveMin={`${displayAmount(amountOf(BigInt(quote.toAmountMin), to.ref.symbol, to.ref.decimals, to.ref.chain))} ${to.ref.symbol}`}
+            to={{
+              network: to.network,
+              asset: to.ref.symbol,
+              address: intoProtected ? "" : destination,
+              kind: intoProtected ? "privacy-address" : edited ? "entered" : "fresh",
+              ...(intoProtected ? { label: t("screen.swap.protectedBalance") } : {}),
+            }}
+            receiveMin={`${displayAmount(amountOf(BigInt(quote.toAmountMin) - (intoProtected ? shieldTipOf(quotes) : 0n), to.ref.symbol, to.ref.decimals, to.ref.chain))} ${to.ref.symbol}`}
             execution={commitExecution(ctx, quote)}
             privacy={{ level: levelOf(privacy?.score ?? score.components.privacy), score: privacy?.score ?? score.components.privacy }}
             lint={lintItems ?? []}
@@ -556,18 +582,27 @@ export function SwapScreen(p: SwapScreenProps) {
     const tip = BigInt(quotes.executorTip ?? "0");
     const providerCents = BigInt(Math.round((quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0) * 100));
     const privacyCents = cents(split.privacy);
-    const relayerCents = cents(split.network + tip);
+    // into the protected balance the relayer also gets the shield tip, in the output asset: what arrives is the delivery less it
+    const shieldTip = intoProtected ? shieldTipOf(quotes) : 0n;
+    const shieldCents = shieldTip > 0n ? (priceTo ? centsOf(shieldTip, to.ref.decimals, priceTo.usd1e8) : null) : 0n;
+    const sourceRelayerCents = cents(split.network + tip);
+    const relayerCents = sourceRelayerCents !== null && shieldCents !== null ? sourceRelayerCents + shieldCents : null;
     const large = atLeast(tier, "large-protected");
     const review: ReviewModel = {
       kind: crossChain ? "cross-chain" : "swap",
       pay: { usdCents: cents(units), amount: amountOf(units, fromAsset.symbol, fromAsset.decimals) },
-      receive: { amount: amountOf(BigInt(quote.toAmount), to.ref.symbol, to.ref.decimals, to.ref.chain), approx: true },
-      minimum: amountOf(BigInt(quote.toAmountMin), to.ref.symbol, to.ref.decimals, to.ref.chain),
+      receive: { amount: amountOf(BigInt(quote.toAmount) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain), approx: true },
+      minimum: amountOf(BigInt(quote.toAmountMin) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain),
       fees: [
         ...(split.privacy > 0n
           ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, fromAsset.symbol, fromAsset.decimals) }]
           : []),
-        { kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network + tip, fromAsset.symbol, fromAsset.decimals) },
+        {
+          kind: "relayer" as const,
+          usdCents: relayerCents,
+          amount: amountOf(split.network + tip, fromAsset.symbol, fromAsset.decimals),
+          ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),
+        },
         { kind: "provider" as const, usdCents: providerCents },
       ],
       totalFeesUsdCents: privacyCents !== null && relayerCents !== null ? privacyCents + relayerCents + providerCents : null,
@@ -689,12 +724,13 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     }
   };
   const giveBack = act(() => returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment }));
+  const intoProtected = !!stored?.shield;
   if (record.state === "COMPLETED" || record.state === "REFUNDED" || record.state === "CANCELLED") {
     const delivered = record.amounts.delivered ?? record.amounts.minimumOutput;
     const title =
       record.state === "COMPLETED"
         ? delivered
-          ? t("screen.swap.done", { amount: displayAmount(amountFrom(delivered, sym, outDecimals)), symbol: sym })
+          ? t(intoProtected ? "screen.swap.doneProtected" : "screen.swap.done", { amount: displayAmount(amountFrom(delivered, sym, outDecimals)), symbol: sym })
           : t("screen.swap.doneNoAmount")
         : record.state === "REFUNDED"
           ? t("screen.swap.returned")
@@ -770,9 +806,16 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     );
   }
   const waiting = stored?.runner?.delayUntil && !stored.fundedTx && stored.runner.delayUntil > Date.now();
+  const shielding =
+    intoProtected && !stored?.shield?.leaves?.length && (stored?.shield?.job?.state === "shielding" || stored?.shield?.job?.state === "shielded");
   return (
     <div data-state={record.state} data-testid="swap-progress">
       <ProgressView model={progressModelOf(record, furthest)} />
+      {intoProtected ? (
+        <p className="ds-note" data-testid={shielding ? "swap-adding-to-protected" : "swap-into-protected"}>
+          {t(shielding ? "screen.swap.addingToProtected" : "screen.swap.intoProtected")}
+        </p>
+      ) : null}
       {waiting ? (
         <p className="ds-note" data-testid="swap-funding-at">
           {t("screen.swap.fundingAt", { time: new Date(stored!.runner!.delayUntil!).toLocaleString() })}

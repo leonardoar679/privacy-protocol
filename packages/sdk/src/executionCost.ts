@@ -3,7 +3,7 @@
 // RPC (eth_feeHistory), an ERC-20's cost at this wallet's agreed prices. The order guard refuses a tip more than three
 // times this estimate (swapGuard.checkOrder maxTip); without a fee read or a price there is no estimate, and the
 // escrow's 1 % cap stands alone.
-import { executionUnits, gasCeilingWei, type GasFees } from "@privacy-wallet/contracts";
+import { GAS_UNITS, executionUnits, gasCeilingWei, type GasFees } from "@privacy-wallet/contracts";
 import { weiInAsset, type Prices } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Asset } from "./assets";
 import { clientFor, type Deployment } from "./chain";
@@ -34,5 +34,27 @@ export async function executionCostIn(deployment: Deployment, asset: Asset, pric
 /** The most an order's tip may be: three times this wallet's own estimate; null when the wallet cannot estimate. */
 export async function tipCeiling(deployment: Deployment, asset: Asset, prices?: Prices | null): Promise<bigint | null> {
   const cost = await executionCostIn(deployment, asset, prices);
+  return cost === null ? null : cost * TIP_CEILING_MULTIPLE;
+}
+
+/** V6 Stage 12 (spec v2.0 §11.2): the most a same-chain swap's shield tip may be — three times this wallet's own estimate
+ *  of the receiver's deployment and deposit, in the output asset; null when the wallet cannot estimate. */
+export async function shieldTipCeiling(
+  deployment: Deployment,
+  out: { symbol: string; decimals: number; asset: string },
+  prices: Prices | null = priceStore.state().prices,
+): Promise<bigint | null> {
+  let fees: GasFees;
+  try {
+    fees = await feesOf(deployment);
+  } catch {
+    return null;
+  }
+  const native = out.asset === "native";
+  const cost = weiInAsset(
+    gasCeilingWei(native ? GAS_UNITS.shieldETH : GAS_UNITS.shieldERC20, fees),
+    { symbol: out.symbol, decimals: out.decimals, native },
+    prices,
+  );
   return cost === null ? null : cost * TIP_CEILING_MULTIPLE;
 }

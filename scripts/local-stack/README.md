@@ -14,7 +14,7 @@ cd scripts/local-stack && npm install          # hardhat 2, playwright, viem —
 (cd ../../contracts && forge build)            # the artifacts deploy.mjs reads (contracts/out)
 
 npm run chain                                   # 1. the devnet: Hardhat as chain id 1 on 127.0.0.1:8546 (keep it running)
-npm run deploy                                  # 2. the pool, the ETH vault, the SwapOrderFactory, the mainnet pins, the feeds → run/stack.json
+npm run deploy                                  # 2. the pool, the ETH vault, the SwapOrderFactory, ProtectRouter + USDC, the ShieldReceiverFactory, the mainnet pins, the feeds → run/stack.json
 npm run services                                # 3. the swap service (8787), the relayer (8790), the wallet (5173); logs in run/
 BROWSER_CHANNEL=chrome npm run e2e              # 4. the browser run → run/e2e/NN-step.png + report.json (HEADED=1 to watch)
 ```
@@ -85,7 +85,16 @@ first-time explanation. What a devnet cannot show stays with the vitest flows an
   the vitest suites (`campaign-runner`, `campaign-flow`), not here.
 
 The devnet keeps state across runs (each run makes a new wallet and new deposits); restart `npm run chain` and
-`npm run deploy` for a clean chain. The relayer's journal lives in `run/relayer-journal`.
+`npm run deploy` for a clean chain. The relayer's journal lives in `run/relayer-journal` (`swap-jobs.json`, and V6 Stage 12's
+`shield-jobs.json`, which the run reads for the receiver it watches: the relayer has no shield job list).
+
+**V6 Stage 12: a same-chain swap into the protected balance** (e2e section 7b). THORChain's quote for USDC → ETH is live,
+but nothing outside the devnet sees the escrow's router deposit, so the run plays THORChain's outbound itself: the real
+router's `transferOut(receiver, address(0), amount, "OUT:<execution tx>")` from the devnet's funding account, which pays
+the receiver with the router's own 2300-gas `send` — before the receiver exists, as on mainnet. The amount is the Review's
+minimum plus the committed shield tip (the worst case the route guarantees). The relayer's shield executor (polling every
+`SWAP_POLL_MS`) then deploys the receiver and shields the delivery; the wallet's order runner asks for the shield job at its
+next tracking tick (15 s), finds the note in the pool and the progress ends on "Added to your protected balance".
 
 **Expected log lines.** During the protected swap the log shows `console error: Failed to load resource: … 404` once per
 ten-second tick while step 1 is funded or signed and not yet handed over (27 on the follow-up run, whose step waited through

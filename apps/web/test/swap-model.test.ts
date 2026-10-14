@@ -67,6 +67,36 @@ describe("the quote's lines (spec v2.0 §3)", () => {
     expect(lines?.kind === "cross-chain" ? lines.fees.privacyUsdCents : null).toBe(0n);
     expect(lines?.kind === "cross-chain" ? lines.fees.relayerUsdCents : null).toBe(30n);
   });
+  it("V6 Stage 12: into the protected balance — what arrives is the delivery less the shield tip, which joins the fees in dollars", () => {
+    const sameChain: ServiceQuote = { ...quote, toAmount: "2310000000000000000", toAmountMin: "2280000000000000000", fees: [] };
+    const target = { id: "ETH", ref: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, network: "Ethereum", protected: true };
+    const USDC = { symbol: "USDC", decimals: 6, usd1e8: 1_00000000n };
+    const lines = quoteLines({
+      quotes: { ...set, quotes: [sameChain], executorTip: "5000000", shieldTip: "2000000000000000" } as QuoteSet,
+      terms: { minimum: 4_100_000n, feePercentBps: 100 },
+      units: 8_000n * 10n ** 6n,
+      from: USDC,
+      to: target,
+      toUsd1e8: 3_500_00000000n,
+      privacy: null,
+    });
+    expect(lines?.kind).toBe("same-chain");
+    if (lines?.kind !== "same-chain") return;
+    expect(lines.expected.units).toBe(2_308_000_000_000_000_000n);
+    expect(lines.minimum.units).toBe(2_278_000_000_000_000_000n);
+    // 1 % privacy ($80) + the relayer's F and the 5 USDC tip + the 0.002 ETH shield tip ($7) — F is 4.10 USDC with the 1 % of what leaves
+    expect(lines.feesUsdCents > 8_000n + 500n + 700n).toBe(true);
+    const without = quoteLines({
+      quotes: { ...set, quotes: [sameChain], executorTip: "5000000" } as QuoteSet,
+      terms: { minimum: 4_100_000n, feePercentBps: 100 },
+      units: 8_000n * 10n ** 6n,
+      from: USDC,
+      to: target,
+      toUsd1e8: 3_500_00000000n,
+      privacy: null,
+    });
+    expect(without?.kind === "same-chain" ? lines.feesUsdCents - without.feesUsdCents : null, "the shield tip's $7.00").toBe(700n);
+  });
   it("no chosen route, no lines; the countdown from the quote's expiry; the route's facts under Advanced", () => {
     expect(quoteLines({ quotes: { ...set, chosen: undefined }, terms: null, units: 1n, from: ETH, to: TARGETS.BTC, privacy: null })).toBeNull();
     expect(chosenQuoteOf(set)).toBe(quote);

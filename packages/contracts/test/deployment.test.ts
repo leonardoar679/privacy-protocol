@@ -12,7 +12,11 @@ const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
 const USDC_VAULT = "0x00000000000000000000000000000000000000c2";
 const ID = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
 
-function chain(o: { chainId?: number; verifier?: string; vaults?: Record<string, string>; versions?: Record<string, number> } = {}): DeploymentReader {
+const SHIELD_FACTORY = "0x00000000000000000000000000000000000000f5";
+
+function chain(
+  o: { chainId?: number; verifier?: string; vaults?: Record<string, string>; versions?: Record<string, number>; shieldPool?: string } = {},
+): DeploymentReader {
   const vaults = o.vaults ?? { "0x0000000000000000000000000000000000000000": ETH_VAULT, [USDC.toLowerCase()]: USDC_VAULT };
   return {
     getChainId: async () => o.chainId ?? 1,
@@ -29,6 +33,7 @@ function chain(o: { chainId?: number; verifier?: string; vaults?: Record<string,
         )[functionName];
       if (address === FACTORY && functionName === "vaultOf") return vaults[String(args![0]).toLowerCase()] ?? "0x0000000000000000000000000000000000000000";
       if (functionName === "VAULT_VERSION") return BigInt(o.versions?.[address] ?? 1);
+      if (address === SHIELD_FACTORY && functionName === "VAULT_FACTORY") return o.shieldPool ?? FACTORY;
       throw new Error(`unexpected read ${address}.${functionName}`);
     },
   };
@@ -68,6 +73,15 @@ describe("verifyDeployment", () => {
     expect((await verifyDeployment(chain({ versions: { [USDC_VAULT]: 2 } }), claim)).problems[0]).toMatch(/usdc is version 2/);
   });
 
+  it("V6 Stage 12: a shield receiver factory of another pool is named; this pool's is part of the fingerprint", async () => {
+    const ok = await verifyDeployment(chain(), { ...claim, shieldFactory: SHIELD_FACTORY });
+    expect(ok.problems).toEqual([]);
+    expect(ok.fingerprint.read.shieldFactory).toBe(SHIELD_FACTORY);
+    expect(ok.fingerprint.hash).not.toBe((await verifyDeployment(chain(), claim)).fingerprint.hash);
+    const other = await verifyDeployment(chain({ shieldPool: "0x00000000000000000000000000000000000000f9" }), { ...claim, shieldFactory: SHIELD_FACTORY });
+    expect(other.problems[0]).toMatch(/shield receiver factory deposits into 0x0+f9, not this core's vault factory/);
+  });
+
   it("the address case of the claim does not change the fingerprint", async () => {
     const a = await verifyDeployment(chain(), { ...claim, swapFactory: "0xA0Cb889707d426A7A386870A03bc70d1b0697598" });
     const b = await verifyDeployment(chain(), { ...claim, swapFactory: "0xa0cb889707d426a7a386870a03bc70d1b0697598" });
@@ -82,5 +96,10 @@ describe("the ABIs", () => {
     expect(names(ABI.assetVaultFactory)).toEqual(expect.arrayContaining(["vaultOf", "isCanonical"]));
     expect(BYTECODE.swapOrderEscrow).toBe(escrowJson.bytecode);
     expect(BYTECODE.swapOrderEscrow.startsWith("0x")).toBe(true);
+    expect(names(ABI.shieldReceiverFactory)).toEqual(
+      expect.arrayContaining(["predict", "deployAndShield", "deployAndShieldToken", "VAULT_FACTORY", "WRAPPED_NATIVE"]),
+    );
+    expect(names(ABI.shieldReceiver)).toEqual(expect.arrayContaining(["shield", "shieldToken", "sweepUnsupported", "tipPaid"]));
+    expect(BYTECODE.shieldReceiver.startsWith("0x")).toBe(true);
   });
 });

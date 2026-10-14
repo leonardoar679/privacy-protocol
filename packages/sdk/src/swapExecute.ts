@@ -14,17 +14,18 @@ import { simulateExecution, type Simulation } from "./simulate";
 import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ResumeRequest, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
 import { ApiError } from "./api/client";
 import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
-import { tipCeiling } from "./executionCost";
+import { shieldTipCeiling, tipCeiling } from "./executionCost";
+import { buildShieldReceipt, shieldJobRequest } from "./shieldReceiver";
 import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
 import type { CheckedCall, MinimumMoved } from "./providerCall";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote } from "./keys/swapKeys";
-import { relayerInfo, relayerSwapExecute, relayerSwapRefund, type SwapJob } from "./relayer";
+import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type ShieldJob, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
 import { DELAY_WINDOW } from "./policy";
 import { noteStore } from "./wallet/notes";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
 import type { Submission } from "./wallet/settings";
-import type { StoredSwap } from "./wallet/journal";
+import type { StoredShield, StoredSwap } from "./wallet/journal";
 import { activityId, recordActivity } from "./wallet/activity";
 import { markAddressUsed } from "./wallet/addressBook";
 import { chainKindOf } from "./keys/chainKeys";
@@ -57,6 +58,9 @@ export interface CommitInput {
   /** a plain order: the funding is scheduled inside the policy's window (no earlier than the review hold); a tranche passes nothing — its campaign funds it */
   schedule?: { reviewHoldUntil?: number } | null;
   campaign?: { id: string; index: number };
+  /** V6 Stage 12 (spec v2.0 §11.2): into the protected balance — the quote's shield tip and a fresh address of this wallet
+   *  for a token the pool cannot hold; the order's destination becomes the shield receiver built here */
+  shield?: { shieldTip: bigint; fallbackRecipient: Address };
   now?: number;
 }
 export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { privateKey: Hex; address: Hex }; refund: RefundNote; response: Awaited<ReturnType<typeof swapService.order>> }
@@ -71,7 +75,16 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const key = deriveOrderKey(i.masterSeed, attemptId);
   const refundCounter = noteStore.allocateCounter();
   const refund = deriveRefundNote(i.masterSeed, refundCounter);
-  const req = i.request;
+  // a same-chain swap into the protected balance pays a one-time shield receiver: its note, tip and fallback fixed now
+  let req = i.request;
+  let shield: StoredShield | undefined;
+  if (i.shield) {
+    if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
+    const ceiling = await shieldTipCeiling(i.deployment, req.to);
+    if (ceiling !== null && i.shield.shieldTip > ceiling) throw new OrderMismatch("shieldTip", `${i.shield.shieldTip} is more than three times this wallet's own estimate of the shield's gas`);
+    shield = buildShieldReceipt({ masterSeed: i.masterSeed, deployment: i.deployment, counter: noteStore.allocateCounter(), asset: req.to.asset, shieldTip: i.shield.shieldTip, fallbackRecipient: i.shield.fallbackRecipient });
+    req = { ...req, destination: shield.receiver, destinationType: "protected" };
+  }
   const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3)
@@ -87,10 +100,11 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const sampled = i.schedule ? (orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy], now)) : undefined;
   const dueAt = i.schedule ? (reviewHoldUntil !== undefined ? Math.max(sampled ?? 0, reviewHoldUntil) : sampled) : undefined;
   const stored: StoredSwap = {
-    orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps },
+    orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps, ...(req.destinationType ? { destinationType: req.destinationType } : {}) },
     params: order.params, endpoint: order.endpoint, quote: order.quote, approvedMin: (i.shown ?? order.quote).toAmountMin, createdAt: now, dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     ...(i.campaign ? { campaign: i.campaign } : {}),
+    ...(shield ? { shield } : {}),
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });
@@ -177,7 +191,7 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   i.onStatus?.("Re-quoting with the escrow as sender, then checking the call…");
   const prepared = await onOperation(i.deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
-  const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(i.deployment), chainId: BigInt(i.deployment.chainId), acceptMin: i.acceptMin, pooled: (i.deployment.erc20Vaults ?? []).map((v) => v.token) });
+  const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(i.deployment), chainId: BigInt(i.deployment.chainId), acceptMin: i.acceptMin, pooled: (i.deployment.erc20Vaults ?? []).map((v) => v.token), deployment: i.deployment, masterSeed: i.masterSeed });
   if (!gate.ok) return { moved: gate.moved };
   const { params, call } = gate;
   i.onStatus?.("Signing locally…");
@@ -201,6 +215,12 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   if (!signed.sim.ok) throw new Error(`Not handed over: ${signed.sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
   const refundNoteData = stored.refundNoteData as Hex | undefined;
   if (!refundNoteData) throw new Error("this order has no refund payload in the journal; it is not handed over");
+  // V6 Stage 12: the executor watches the shield receiver before the order can deliver into it (idempotent by receipt)
+  if (stored.shield) {
+    if (i.submission.kind !== "relayer") throw new Error("Not handed over: a swap into the protected balance needs a relayer to shield its delivery (Settings → relayer submission).");
+    const job = await relayerShieldRegister(i.submission.url, shieldJobRequest(stored));
+    patchSwap(order.orderId, { shield: { ...stored.shield, registeredAt: Date.now(), job: shieldJobView(job) } }, s);
+  }
   const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature));
   if (i.submission.kind !== "relayer") return {};
   const health = await swapService.health();
@@ -211,8 +231,22 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   const job = await relayerSwapExecute(i.submission.url, { factory, params: signed.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
   patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider }, s); // the provider's reference for tracking (NEAR Intents: the deposit address)
   const r = stored.request as { to?: { chain?: string }; destination?: string };
-  if (r.to?.chain && r.destination) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
+  if (r.to?.chain && r.destination && !stored.shield) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
   return { job };
+}
+
+/** What the journal keeps of the executor's shield job: its state, the last shield's leaf, deposit and tip. */
+export function shieldJobView(job: ShieldJob, now = Date.now()): NonNullable<StoredShield["job"]> {
+  const last = job.shields?.[job.shields.length - 1];
+  return {
+    state: job.state,
+    at: now,
+    ...(last?.leafIndex !== undefined ? { leafIndex: last.leafIndex } : {}),
+    ...(last?.txHash ? { txHash: last.txHash } : {}),
+    ...(last?.amount ? { amount: last.amount } : {}),
+    ...(last?.tip ? { tip: last.tip } : {}),
+    ...(job.error ? { error: job.error.slice(0, 200) } : {}),
+  };
 }
 
 /**

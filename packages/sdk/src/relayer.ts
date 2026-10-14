@@ -1,12 +1,14 @@
 // Client of a relayer (apps/relayer): private submission of a proven transact, paid by a
-// private fee note to the relayer's privacy address, and the swap-order executor (deploy + execute
-// a funded escrow, refund after the window). Any URL works; the wallet keeps a list of relayers and
+// private fee note to the relayer's privacy address, the swap-order executor (deploy + execute
+// a funded escrow, refund after the window) and (V6 Stage 12) the shield executor (deploy a same-chain swap's
+// receiver and shield its delivery). Any URL works; the wallet keeps a list of relayers and
 // self-submission as fallbacks (plan §85 rule 5). The relayer never receives keys — only proofs,
 // public inputs, payloads, the fee note's opening (its own note), signed executions and refund payloads.
 import { feeForWithdrawal } from "@privacy-wallet/protocol/wallet/fees";
 import { fetchFor } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): the policy fetch is the default implementation
 const relayerFetch: typeof fetch = fetchFor("relayer");
 import type { Address, Hex } from "viem";
+import type { ReceiverParamsJson } from "@privacy-wallet/contracts";
 import { config } from "./config";
 
 export const defaultRelayerUrl = (): string => config().relayer.url;
@@ -22,6 +24,8 @@ export interface RelayerInfo {
   /** V5 (spec §10): the privacy fee in basis points of a delivered amount (absent or 0: none) and the floor it never goes below */
   feePercentBps?: number;
   feeMinimumWei?: string;
+  /** V6 Stage 12: the ShieldReceiverFactory this relayer shields for (absent: no shield executor) */
+  shieldFactory?: Address;
 }
 export interface RelayerSubmitRequest { proof: Hex; publicInputs: string[]; noteData: [Hex, Hex, Hex]; fee: { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address } }
 export interface RelayerSubmitResult { txHash: Hex; feeWei: string; feeVault?: Address; gas: string; feePayloadReadable: boolean }
@@ -42,6 +46,11 @@ export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;
 export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
 /** `executionTx`: the deployAndExecute transaction (whale spec §19), set once; `txHash` is reused by the executor's refund transactions. */
 export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; updatedAt: number }
+/** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap's receipt for the shield executor; `deliverBy` the order's refundAfter. */
+export interface ShieldRegisterRequest { factory: Address; params: ReceiverParamsJson; noteData: Hex; deliverBy: number }
+export type ShieldJobState = "waiting-delivery" | "shielding" | "shielded" | "shield-failed" | "expired";
+/** Each mined shield: the deposit's leaf, the amount deposited and the tip paid (the receipt asset's base units). */
+export interface ShieldJob { id: string; receiver: Address; state: ShieldJobState; paid?: boolean; shields?: { txHash: Hex; leafIndex?: number; amount?: string; tip?: string; at: number }[]; error?: string; balance?: string; updatedAt: number }
 
 export class RelayerRefusal extends Error {
   constructor(message: string, public readonly code: string | undefined, public readonly status: number) { super(message); }
@@ -65,6 +74,8 @@ export const relayerStatus = (url: string, txHash: Hex, fetchImpl: typeof fetch 
 export const relayerSwapExecute = (url: string, req: SwapExecuteRequest, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, "/swap/execute", req, fetchImpl);
 export const relayerSwapRefund = (url: string, req: SwapRefundRequest, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, "/swap/refund", req, fetchImpl);
 export const relayerSwapStatus = (url: string, orderId: string, fetchImpl: typeof fetch = relayerFetch) => call<SwapJob>(url, `/swap/${orderId}`, undefined, fetchImpl);
+export const relayerShieldRegister = (url: string, req: ShieldRegisterRequest, fetchImpl: typeof fetch = relayerFetch) => call<ShieldJob>(url, "/shield", req, fetchImpl);
+export const relayerShieldStatus = (url: string, receiptId: string, fetchImpl: typeof fetch = relayerFetch) => call<ShieldJob>(url, `/shield/${receiptId}`, undefined, fetchImpl);
 
 /** A refusal is the relayer's decision (4xx with a code); anything else (network, 5xx) is a reason to try the next relayer. */
 export const isRefusal = (e: unknown): boolean => e instanceof RelayerRefusal && e.status < 500;

@@ -1,6 +1,7 @@
 // Per-order wallet keys for private swaps (spec v1.1 §2, §6): a ONE-TIME secp256k1 order key that
-// authorizes exactly one provider call, and the pre-committed refund note that a failed order becomes.
-// Both derive from the master seed; nothing here is ever persisted to dapp-origin storage (TC-01).
+// authorizes exactly one provider call, the pre-committed refund note that a failed order becomes, and (V6, spec v2.0
+// §11.2) the note a same-chain swap's shield receiver deposits. All derive from the master seed; nothing here is ever
+// persisted to dapp-origin storage (TC-01).
 import { hexToBytes, keccak256, type Hex } from "viem";
 import { privateKeyToAddress, sign } from "viem/accounts";
 import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
@@ -45,15 +46,35 @@ export interface RefundNote {
  * the payloads of its counters and find its refunds on chain (sdk/refunds.ts).
  */
 export function refundPayload(masterSeed: Uint8Array, counter: number): Hex {
+  return seedPayload(masterSeed, "/refund-payload/", counter);
+}
+
+/**
+ * V6 (spec v2.0 §11.2): the 169-byte payload a same-chain swap's shield receiver deposits with — the same construction
+ * under its own domain, so a wallet restored from its phrase tells a delivered swap from a refund.
+ */
+export function shieldPayload(masterSeed: Uint8Array, counter: number): Hex {
+  return seedPayload(masterSeed, "/shield-payload/", counter);
+}
+
+function seedPayload(masterSeed: Uint8Array, domain: string, counter: number): Hex {
   const c = Uint8Array.of((counter >>> 24) & 0xff, (counter >>> 16) & 0xff, (counter >>> 8) & 0xff, counter & 0xff);
-  const stream = Array.from({ length: Math.ceil((NOTE_DATA_BYTES - 1) / 32) }, (_, i) => hexToBytes(keccak256(concat(masterSeed, enc.encode("/refund-payload/"), c, Uint8Array.of(i)))));
+  const stream = Array.from({ length: Math.ceil((NOTE_DATA_BYTES - 1) / 32) }, (_, i) => hexToBytes(keccak256(concat(masterSeed, enc.encode(domain), c, Uint8Array.of(i)))));
   const payload = concat(Uint8Array.of(0x01), ...stream).subarray(0, NOTE_DATA_BYTES);
   return ("0x" + Array.from(payload, (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
 }
 
 /** The fresh note a refund re-shields into. `counter` must be unique per order (the wallet's note counter). */
 export function deriveRefundNote(masterSeed: Uint8Array, counter: number): RefundNote {
+  return committedNote(masterSeed, counter, refundPayload(masterSeed, counter));
+}
+
+/** V6 (spec v2.0 §11.2): the note a shield receiver deposits a same-chain swap's output as; `counter` is the wallet's next note counter. */
+export function deriveShieldNote(masterSeed: Uint8Array, counter: number): RefundNote {
+  return committedNote(masterSeed, counter, shieldPayload(masterSeed, counter));
+}
+
+function committedNote(masterSeed: Uint8Array, counter: number, noteData: Hex): RefundNote {
   const keys = deriveKeys(masterSeed);
-  const noteData = refundPayload(masterSeed, counter);
   return { ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter), noteData, noteDataHash: keccak256(noteData) };
 }

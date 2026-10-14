@@ -16,6 +16,7 @@ const CORE_ABI = [
 ] as const;
 const FACTORY_ABI = [{ type: "function", name: "vaultOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "address" }] }] as const;
 const VAULT_ABI = [{ type: "function", name: "VAULT_VERSION", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }] as const;
+const SHIELD_FACTORY_ABI = [{ type: "function", name: "VAULT_FACTORY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 
 /** The two reads the check needs (a viem PublicClient satisfies it; tests pass a fake). */
 export interface DeploymentReader {
@@ -84,6 +85,14 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
     const v = Number(await client.readContract({ address: vault, abi: VAULT_ABI, functionName: "VAULT_VERSION" }));
     if (vaultVersion && v !== vaultVersion) problems.push(`the vault of ${id} is version ${v}, the others ${vaultVersion}`);
     vaultVersion ||= v;
+  }
+  // V6 Stage 12 (spec v2.0 §11.2): a shield receiver deposits into its factory's pool — it must be this core's
+  if (claim.shieldFactory) {
+    const pool = (await client
+      .readContract({ address: claim.shieldFactory, abi: SHIELD_FACTORY_ABI, functionName: "VAULT_FACTORY" })
+      .catch(() => null)) as Address | null;
+    if (!pool || lower(pool) !== lower(vaultFactory))
+      problems.push(`the shield receiver factory deposits into ${pool ?? "no pool"}, not this core's vault factory ${vaultFactory}`);
   }
   const deployment: ProtocolDeployment = {
     chainId,
