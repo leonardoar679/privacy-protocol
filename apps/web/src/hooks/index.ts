@@ -10,7 +10,7 @@ import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
 import { notifications, type WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
 import { poolStats, type PoolStats } from "@privacy-wallet/sdk/wallet/poolStats";
-import { completeAction, isDue, pendingActions, schedulerStatus, type SchedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
+import { completeAction, isDue, onSchedulerKick, pendingActions, schedulerStatus, type SchedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
 import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
 import { session as defaultSession, type SessionState, type WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { settings, type Settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -142,6 +142,10 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
     };
     void tick();
     const t = setInterval(tick, pollMs);
-    return () => clearInterval(t);
+    const unkick = onSchedulerKick(() => void tick()); // V6 Stage 11: an action due now runs at once (a confirmed swap)
+    return () => {
+      clearInterval(t);
+      unkick();
+    };
   }, [st.status, run, pollMs, s]);
 }

@@ -11,7 +11,7 @@ import { isOpenSwap } from "@privacy-wallet/sdk/swapFunding";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { buildRows, groupByDay } from "./rows";
 import { activityModel } from "./model";
-import { reconcileOpenSwaps } from "../swap/records";
+import { reconcileOpenSwaps } from "@privacy-wallet/sdk/operations/swapRecords";
 import { ActivityView } from "./View";
 import { useAllOperations, useSession, useSettings } from "../../hooks";
 

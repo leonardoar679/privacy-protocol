@@ -118,7 +118,7 @@ describe("the application shell (spec §2)", () => {
     await screen.findByTestId("home");
     fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Swap" }));
     expect(pathname()).toBe("/swap");
-    expect(await screen.findByTestId("swap", {}, LAZY)).toBeInTheDocument();
+    expect(await screen.findByTestId("swap-view", {}, LAZY)).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Swap" })).toHaveAttribute("aria-current", "page");
   });
   it("the component preview exists only where the build carries it (dev and fixtures), outside the wallet's gates", async () => {

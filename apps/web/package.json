@@ -20,6 +20,7 @@
     "@privacy-wallet/privacy-engine": "*",
     "@privacy-wallet/protocol": "*",
     "@privacy-wallet/protocol-types": "*",
+    "@privacy-wallet/risk-engine": "*",
     "@privacy-wallet/sdk": "*",
     "@privacy-wallet/ui": "*",
     "@privacy-wallet/wallet-engine": "*",

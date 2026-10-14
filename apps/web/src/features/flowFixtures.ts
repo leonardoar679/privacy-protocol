@@ -88,8 +88,9 @@ export const SWAP_FIXTURES = {
       protection: "high",
       fees: { privacyUsdCents: usd("120"), relayerUsdCents: usd("18.40"), providerUsdCents: usd("24.10") },
       eta: [120, 300],
-      destination: { address: BTC_TO, checks: { valid: true, network: true, compatible: true } },
     },
+    destination: { value: BTC_TO, fresh: false, checks: { valid: "ok", network: "ok", compatible: "ok" } },
+    expiresIn: 45,
   },
   expired: {
     pay: { symbol: "USDC", decimals: 6, amount: "8000", balance: USDC("12400") },

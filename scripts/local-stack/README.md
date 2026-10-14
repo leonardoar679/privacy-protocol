@@ -92,7 +92,9 @@ ten-second tick while step 1 is funded or signed and not yet handed over (27 on 
 three price consents), each preceded by the request behind it (`http 404 GET /swap/0x…`): the runner asks the relayer for a job
 by the step's order id at the start of each such tick, and once more right before the hand-over, so a hand-over interrupted
 before its journal entry is found instead of repeated. With no job yet the relayer answers `unknown swap job`, Chrome prints
-every 404 as a console error, and no check depends on it.
+every 404 as a console error, and no check depends on it. V6 Stage 11: the $850K swap shows the same lines — the order
+runner (`packages/sdk/src/wallet/orderRunner.ts`) asks by order id at each tick once the order is funded and once more
+right before the hand-over, for the same reason.
 
 ## Found by this run (fixed in the tree)
 

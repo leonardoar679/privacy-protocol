@@ -62,13 +62,17 @@ export interface StoredSwap {
   history?: { state: string; at: number; note?: string }[];
   /** V3 (High-Value Protection spec §7, §17): the campaign this order is a tranche of; such an order is funded and handed over by the campaign runner, never by a fund-escrow action */
   campaign?: { id: string; index: number };
+  /** V6 Stage 11 (spec v2.0 §7.6): the order runner runs this order after its one confirmation — funded at once, or not before `delayUntil` (unix ms) for more privacy */
+  runner?: { confirmedAt: number; delayUntil?: number };
+  /** V6 Stage 11: why the runner stopped and what it waits for — `minimum_moved` (the user's choice: `minOut` vs the `approved` one), `execution_unavailable`, `unsafe_contract_call`, `reconcile` */
+  paused?: { code: string; detail?: string; minOut?: string; approved?: string; at: number };
 }
 
 /**
  * A scheduled action (plan §30; V2 Stage 4): `attempts` and `nextAttemptAt` are the runner's backoff after a
  * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried.
  */
-export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick"; orderId: string; dueAt: number; done?: boolean; error?: string; attempts?: number; nextAttemptAt?: number }
 
 /** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
 export interface ActivityRecord {

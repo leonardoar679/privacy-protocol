@@ -13,10 +13,12 @@ export interface OwnedNote {
   spent: boolean;
   txHash?: Hex;
   label?: string;
+  /** V6 Stage 11 (spec v2.0 §14.1): when this wallet created the note (a protect, a change, a merge, a split), unix ms; absent for a note a scan found — its age is unknown */
+  addedAt?: number;
 }
 
 /** JSON form of a note for the encrypted journal (bigints as decimal strings). */
-export interface SerializedNote { vaultId: string; amount: string; ownerCommitment: string; noteSecret: string; leafIndex: number; noteData: Hex; counter?: number; spent: boolean; txHash?: Hex; label?: string }
+export interface SerializedNote { vaultId: string; amount: string; ownerCommitment: string; noteSecret: string; leafIndex: number; noteData: Hex; counter?: number; spent: boolean; txHash?: Hex; label?: string; addedAt?: number }
 
 type Listener = () => void;
 
@@ -62,13 +64,13 @@ export class NoteStore {
   /** Everything the journal keeps. */
   serialize(): { notes: SerializedNote[]; noteCounter: number } {
     return {
-      notes: this.notes.map((n) => ({ vaultId: n.note.vaultId.toString(), amount: n.note.amount.toString(), ownerCommitment: n.note.ownerCommitment.toString(), noteSecret: n.note.noteSecret.toString(), leafIndex: n.leafIndex, noteData: n.noteData, counter: n.counter, spent: n.spent, txHash: n.txHash, label: n.label })),
+      notes: this.notes.map((n) => ({ vaultId: n.note.vaultId.toString(), amount: n.note.amount.toString(), ownerCommitment: n.note.ownerCommitment.toString(), noteSecret: n.note.noteSecret.toString(), leafIndex: n.leafIndex, noteData: n.noteData, counter: n.counter, spent: n.spent, txHash: n.txHash, label: n.label, ...(n.addedAt !== undefined ? { addedAt: n.addedAt } : {}) })),
       noteCounter: this.counter,
     };
   }
   /** Replace the contents with a journal's (on unlock). The counter never goes backwards. */
   load(data: { notes: SerializedNote[]; noteCounter: number }): void {
-    this.notes = data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label }));
+    this.notes = data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}) }));
     this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
     this.emit();
   }

@@ -96,8 +96,17 @@ export function fromCampaign(c: Pick<Campaign, "state" | "tranches" | "pause">):
   return m.state === "REVIEW" || m.state === "AWAITING_SIGNATURE" || m.state === "SIGNED" ? { state: "SUBMITTED", phase: "execution" } : m; // I-O7: a running campaign was submitted
 }
 
+/** V6 Stage 11: an order the runner stopped before its hand-over → the operation state (spec v2.0 §12): a moved minimum waits as QUOTE_EXPIRED for the user's choice; the rest need a decision about the escrow. */
+export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
+  minimum_moved: { state: "QUOTE_EXPIRED", phase: "execution", code: "minimum_moved" },
+  execution_unavailable: { state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_unavailable" },
+  unsafe_contract_call: { state: "RECOVERY_REQUIRED", phase: "execution", code: "unsafe_contract_call" },
+  reconcile: { state: "RECOVERY_REQUIRED", phase: "funding", code: "reconcile" },
+};
+
 /** A journaled order with (or without) the tracker's last derivation. */
-export function fromStoredSwap(s: Pick<StoredSwap, "state" | "fundedTx" | "jobId" | "executionTx" | "campaign">, tracked: Pick<Tracked, "state"> | null): Mapped {
+export function fromStoredSwap(s: Pick<StoredSwap, "state" | "fundedTx" | "jobId" | "executionTx" | "campaign" | "paused">, tracked: Pick<Tracked, "state"> | null): Mapped {
+  if (s.paused && !s.jobId && PAUSED_ORDER_MAP[s.paused.code]) return PAUSED_ORDER_MAP[s.paused.code];
   if (tracked) return ORDER_STATE_MAP[tracked.state];
   const own = STORED_SWAP_MAP[s.state];
   if (own) return own;

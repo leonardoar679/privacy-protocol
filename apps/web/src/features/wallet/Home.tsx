@@ -89,7 +89,8 @@ export function Home() {
         onSwap: () => navigate("/swap"),
         onPrivacy: () => navigate("/more/privacy"),
         onSettings: () => navigate("/more/security"),
-        onOperation: (id) => navigate(`/activity/${encodeURIComponent(id)}`),
+        // V6 Stage 11: a swap's card opens its progress — where a paused order's choice is made; the rest open their detail
+        onOperation: (id) => navigate(/^swap:0x[0-9a-f]{64}$/i.test(id) ? `/swap/progress/${id.toLowerCase()}` : `/activity/${encodeURIComponent(id)}`),
       }}
     />
   );

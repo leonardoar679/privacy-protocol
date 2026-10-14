@@ -48,7 +48,8 @@ const FEE: Record<ReviewFee["kind"], MessageKey> = {
   provider: "screen.review.providerFee",
 };
 const LEVEL: Record<Level, MessageKey> = { high: "screen.swap.protectionHigh", medium: "screen.swap.protectionMedium", low: "screen.swap.protectionLow" };
-const BLOCKER: Record<BlockerCode, MessageKey> = {
+/** The second line of "We stopped this transaction": the blocker in words (spec v2.0 §7.9). */
+export const BLOCKER_WORDS: Record<BlockerCode, MessageKey> = {
   quote_expired: "screen.review.blocker.quoteExpired",
   asset_unsupported: "screen.review.blocker.assetUnsupported",
   destination_invalid: "screen.review.blocker.destinationInvalid",
@@ -81,7 +82,7 @@ export function ReviewView({
             title={t("screen.review.blocked.title")}
             body={
               <>
-                <p className="ds-callout-body">{t(BLOCKER[m.blocked])}</p>
+                <p className="ds-callout-body">{t(BLOCKER_WORDS[m.blocked])}</p>
                 <p className="ds-callout-body" data-testid="review-not-moved">
                   {t("screen.review.blocked.notMoved")}
                 </p>

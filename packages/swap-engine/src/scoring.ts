@@ -73,8 +73,11 @@ export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>,
     const others = liveQuotes.filter((o) => o.provider !== q.provider && !unexecutable[o.provider] && !ctx.skipped?.[o.provider] && !ctx.filteredBy?.[o.provider] && inLimits(o) && healthy(o)); // V4: a route above its own limit, unreachable or halted is no alternative
     const impactCap = ctx.tier && atLeast(ctx.tier, "high-value") && bps(q) > IMPACT_CAP_BPS && others.some((o) => bps(o) <= IMPACT_CAP_BPS);
     const longStream = !!q.plan && q.plan.mode !== "single" && q.plan.expectedSeconds > STREAM_MAX_SECONDS && others.some((o) => !(o.plan && o.plan.mode !== "single" && o.plan.expectedSeconds > STREAM_MAX_SECONDS));
+    // V6 Stage 11 (spec v2.0 §13.3): a partial quote — no expiry, no minimum output — is refused, whatever its output
+    const partial = !(Number(q.expiresAt) > 0) ? "a partial quote: no expiry" : !(q.toAmountMin > 0n) ? "a partial quote: no minimum output" : undefined;
     const filtered =
-      !live(q, now) ? "quote expired"
+      partial ? partial
+      : !live(q, now) ? "quote expired"
       : h && !h.reachable ? "provider unreachable"
       : h && h.halted ? "provider halted"
       : haltedOn ? `provider halted on ${haltedOn}`

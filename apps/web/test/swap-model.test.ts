@@ -1,0 +1,106 @@
+// The Swap screen's model (spec v2.0 §3, §7.5, §13.4): the three destination checks; the quote's lines in integer cents
+// from the one funding split — the privacy fee p(A), the relayer's F with the executor's tip, the provider's own fees —
+// the minimum and the time (the provider's estimate plus the funding's); the countdown; the route's facts; and the
+// blockers re-checked when the user confirms, each of which stops the operation before anything moves.
+import { describe, expect, it } from "vitest";
+import type { QuoteSet, ServiceQuote } from "@privacy-wallet/sdk/swapService";
+import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, FUNDING_SECONDS, quoteLines, routeDetails } from "../src/features/swap/model";
+import { TARGETS } from "../src/features/swap/targets";
+
+const NOW = Date.parse("2026-10-13T12:00:00Z");
+const quote: ServiceQuote = {
+  provider: "thorchain",
+  category: "A",
+  toAmount: "17800000",
+  toAmountMin: "17600000",
+  fees: [{ kind: "network", amount: "1000", asset: "BTC", usd: 24.1 }],
+  etaSeconds: 600,
+  expiresAt: Math.floor(NOW / 1000) + 45,
+  nativeAssets: true,
+  minOutEncoded: true,
+  hops: ["ETH.ETH", "BTC.BTC"],
+};
+const score = { provider: "thorchain", total: 80, components: { price: 90, security: 90, privacy: 72, latency: 60, liquidity: 80, reliability: 90 } };
+const set: QuoteSet = { quotes: [quote], scores: [score], errors: {}, chosen: score, executorTip: "100000000000000" } as QuoteSet;
+const ETH = { symbol: "ETH", decimals: 18, usd1e8: 3_000_00000000n };
+
+describe("the destination's checks (doc §31)", () => {
+  it("idle while empty; a valid address of the right chain passes all three; another chain's fails the network", () => {
+    expect(destinationChecks({ value: "", fresh: false, ok: false, otherChain: null }, "bitcoin")).toEqual({
+      valid: "idle",
+      network: "idle",
+      compatible: "idle",
+    });
+    expect(destinationChecks({ value: "bc1q…", fresh: true, ok: true, otherChain: null }, "bitcoin")).toEqual({ valid: "ok", network: "ok", compatible: "ok" });
+    expect(destinationChecks({ value: "0x…", fresh: false, ok: false, otherChain: "evm" }, "bitcoin")).toEqual({
+      valid: "fail",
+      network: "fail",
+      compatible: "fail",
+    });
+  });
+});
+
+describe("the quote's lines (spec v2.0 §3)", () => {
+  it("cross-chain: the minimum leads, the three fees in cents from one split, the time is the provider's plus the funding's", () => {
+    const lines = quoteLines({
+      quotes: set,
+      terms: { minimum: 10n ** 15n, feePercentBps: 100 },
+      units: 4n * 10n ** 18n,
+      from: ETH,
+      to: TARGETS.BTC,
+      privacy: null,
+    });
+    expect(lines?.kind).toBe("cross-chain");
+    if (lines?.kind !== "cross-chain") return;
+    expect(lines.minimum.units).toBe(17_600_000n);
+    expect(lines.expected.units).toBe(17_800_000n);
+    expect(lines.fees).toEqual({
+      privacyUsdCents: 12_000n /* 1 % of 4 ETH at $3,000 */,
+      relayerUsdCents: 330n /* 0.001 + the 0.0001 tip */,
+      providerUsdCents: 2410n,
+    });
+    expect(lines.eta).toEqual([600 + FUNDING_SECONDS[0], 600 + FUNDING_SECONDS[1]]);
+    expect(lines.protection, "no assessment yet: medium").toBe("medium");
+  });
+  it("funded by the connected wallet (no relayer terms): no fee note, the tip alone on the relayer line", () => {
+    const lines = quoteLines({ quotes: set, terms: null, units: 10n ** 18n, from: ETH, to: TARGETS.BTC, privacy: null });
+    expect(lines?.kind === "cross-chain" ? lines.fees.privacyUsdCents : null).toBe(0n);
+    expect(lines?.kind === "cross-chain" ? lines.fees.relayerUsdCents : null).toBe(30n);
+  });
+  it("no chosen route, no lines; the countdown from the quote's expiry; the route's facts under Advanced", () => {
+    expect(quoteLines({ quotes: { ...set, chosen: undefined }, terms: null, units: 1n, from: ETH, to: TARGETS.BTC, privacy: null })).toBeNull();
+    expect(chosenQuoteOf(set)).toBe(quote);
+    expect(expiresInOf(set, NOW)).toBe(45);
+    expect(expiresInOf(set, NOW + 50_000)).toBe(-5);
+    expect(routeDetails(set, TARGETS.BTC, null, "Low")).toMatchObject({
+      provider: "thorchain",
+      route: "ETH.ETH → BTC.BTC",
+      fee: "$24.10",
+      risk: "Low",
+      privacy: "72 / 100",
+    });
+  });
+});
+
+describe("the blockers at the confirmation (spec v2.0 §13.4)", () => {
+  const base = {
+    now: NOW,
+    quotedAt: NOW - 5_000,
+    quote,
+    approvedMin: 17_600_000n,
+    destinationValid: true,
+    providerHealthy: true,
+    chainId: 1,
+    crossChain: true,
+    largeTrade: false,
+  };
+  it("none for a fresh, honest quote", () => {
+    expect(confirmBlockers(base)).toEqual([]);
+  });
+  it("each fact that fails stops it: the quote expired, a minimum below the approved one, an invalid destination, an unhealthy provider", () => {
+    expect(confirmBlockers({ ...base, now: NOW + 46_000 })).toEqual(["quote_expired"]);
+    expect(confirmBlockers({ ...base, approvedMin: 17_700_000n })).toEqual(["minimum_below_limit"]);
+    expect(confirmBlockers({ ...base, destinationValid: false })).toEqual(["destination_invalid"]);
+    expect(confirmBlockers({ ...base, providerHealthy: false })).toEqual(["provider_unhealthy"]);
+  });
+});

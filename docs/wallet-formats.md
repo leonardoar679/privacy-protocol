@@ -51,7 +51,10 @@ carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}
 may carry `settlement` (where the money is, spec v2.0 §12.4), and the record itself `operationId` (V6 Stage 9: the API's
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional
 `deploymentFingerprints` maps a chain id (a decimal string) to the deployment fingerprint the wallet saw before its
-first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); never written by `emptyJournal()`.
+first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); never written by `emptyJournal()`. V6
+Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil? }` and,
+while it waits, `paused { code, detail?, minOut?, approved?, at }`; its ticks are scheduled actions of the kind
+`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional.
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
 `orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
 `refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then

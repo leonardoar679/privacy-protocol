@@ -137,7 +137,7 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
   const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash);
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
-  noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield" });
+  noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield", addedAt: Date.now() });
   return { leafIndex: mine.leafIndex, costWei };
 }
 
@@ -283,7 +283,7 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
     const hit = find(o.change.note);
     if (!hit) throw new Error("mined, but the change note's commitment was not found in the receipt");
     change = { note: o.change.note, leafIndex: hit.leafIndex, noteData: o.change.noteData, counter: o.change.counter, spent: false, txHash, label: "change" };
-    noteStore.add(change);
+    noteStore.add({ ...change, addedAt: Date.now() });
   }
   let extraLeaf: number | undefined;
   if (o.extra) {
@@ -392,7 +392,7 @@ export async function mergeNotes(o: { masterSeed: Uint8Array; deployment: Deploy
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
-  noteStore.add(merged);
+  noteStore.add({ ...merged, addedAt: Date.now() });
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: merged.note.amount.toString(), status: "completed", ref: r.txHash, note: "two notes merged privately before a spend" });
   return { ...r, merged };
 }
@@ -456,7 +456,7 @@ export async function splitNote(o: { masterSeed: Uint8Array; deployment: Deploym
   const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note });
   const pieceNote: OwnedNote = { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };
-  noteStore.add(pieceNote);
+  noteStore.add({ ...pieceNote, addedAt: Date.now() });
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: o.piece.toString(), status: "completed", ref: r.txHash, note: "a common-sized piece split off privately" });
   return { ...r, pieceNote, restNote: r.change! };
 }

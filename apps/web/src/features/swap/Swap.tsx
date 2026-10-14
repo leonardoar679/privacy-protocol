@@ -1,3 +1,6 @@
+// V6 Stage 11: this V5 screen serves /swap/protected only — the protected execution (a campaign at its band, the
+// wizard, the campaign Review, its progress) — until Stage 13 rebuilds large trades on the V6 screens; every other swap
+// runs on ./SwapScreen.tsx with one confirmation.
 // Swap (spec §3.6–§3.9, §3.12, §11–§13; private-swap spec; whale spec §23–§24; High-Value Protection spec §14–§16;
 // plan §17–§18, §22–§26, §37, §61): one card — From (the protected balance), To (the destination asset, a fresh address
 // of this wallet by default), the best protected route as a quote card, the fee summary, the estimated time, the
@@ -60,7 +63,7 @@ import { ProtectedExecutionNotice } from "./ProtectedExecutionNotice";
 import { Wizard } from "./Wizard";
 import { alternativesOf, campaignFacts, campaignLines, commitDetails, commitExecution, commitLines, executeLines, liveQuotesOf, orderTarget, rerouteLines, usdOfUnits, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy, strictQuote } from "./protectedChecks";
-import { swapRecordId, syncSwapRecord } from "./records";
+import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { TARGETS, durationWords, hours, refOf, settlementWords, type Target } from "./targets";
 import { useOperation, useSession, useSettings } from "../../hooks";
 
@@ -69,9 +72,9 @@ type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"
 
 /** V6 Stage 10: what Send hands over when a Bitcoin or another chain's destination continues as a cross-chain send (spec v2.0 §7.4). */
 export interface SwapPrefill { fromVault?: string; amount?: string; target?: string; destination?: string }
-export interface SwapProps { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null; onBack?: () => void; prefill?: SwapPrefill | null }
+export interface SwapProps { masterSeed: Uint8Array; deployment: Deployment | null; /** the connected public wallet, if any: a destination equal to it is flagged */ account?: string | null; onBack?: () => void; prefill?: SwapPrefill | null; /** V6 Stage 11: open this protected swap's view at once */ campaignId?: string | null }
 
-export function Swap({ masterSeed, deployment, account = null, onBack, prefill = null }: SwapProps) {
+export function Swap({ masterSeed, deployment, account = null, onBack, prefill = null, campaignId = null }: SwapProps) {
   const t = useT();
   const { submission, advanced, preference, verifyReads, secondFactor, protection } = useSettings();
   useSession(); // re-render when the journal-backed session changes
@@ -105,7 +108,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const [destAck, setDestAck] = useState(false);
   const [tracked, setTracked] = useState<Tracked | null>(null);
   const [wizard, setWizard] = useState<{ provider: string; step: 0 | 1 | 2 } | null>(null);
-  const [campaignView, setCampaignView] = useState<string | null>(null);
+  const [campaignView, setCampaignView] = useState<string | null>(campaignId);
   const [relayerFee, setRelayerFee] = useState<bigint | null>(null);
   const [protectThis, setProtectThis] = useState(false);
   const [tick, setTick] = useState(0);

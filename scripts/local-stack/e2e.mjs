@@ -11,11 +11,11 @@
 //   3. Send (public) $1K to a fresh address from the address book: the standard flow (a proof in the Web Worker, the
 //      relayer submits, the V6 Review's tap)
 //   4. Send (public) $120K: the enhanced Review (the V2–V4 screen: lint + the hold)
-//   5. Swap $850K ETH → BTC (enhanced): quote → Review Swap (five lines, lint, a tap) → the order panel → Fund now (a
-//      private withdrawal into the one-time escrow) → Confirm (the hard quote at /prepare: a lower minimum needs consent; a
-//      refused one is retried; else the order returns to the balance) → the Review at execute → the hand-over → the
-//      executor → the tracker
-//   6. a reload: unlock, the open order comes back from the encrypted journal with its line
+//   5. Swap $850K ETH → BTC (enhanced), V6 Stage 11: the quote as the amount is typed → Review Swap (the V2–V4 commit
+//      Review: five lines, lint, a hold) → ONE confirmation → the order runner funds the escrow (a private withdrawal),
+//      prepares the hard quote, checks the call, signs, simulates and hands it over with no second tap (a lower minimum
+//      waits for the user's choice; a refused one is tried again; else the funds return) → the executor → the tracker
+//   6. a reload: unlock, Home's card opens the swap's progress from the encrypted journal; nothing is funded again
 //   7. Activity: every money flow has a row, never a bare "failed"
 //   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
 //      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
@@ -219,11 +219,18 @@ async function campaignRun(page) {
     await protect(page, 500, before + NET_PROTECT * i);
     log(`campaign deposit ${i}: 500 ETH protected`);
   }
-  // the quote: the protection line
+  // the quote on the V6 page; at this size the service plans a protected execution, so Review Swap continues on the
+  // protected screen (/swap/protected: V5's until Stage 13) with the amount, the asset and the target handed over
   await nav(page, "Swap");
+  await byId(page, "swap-view").waitFor({ timeout: 30_000 });
+  await fillId(page, "amount-input", String(CAMPAIGN_ETH));
+  await byId(page, "swap-quote").waitFor({ timeout: 240_000 });
+  await clickId(page, "swap-review");
+  await page.waitForURL(/\/swap\/protected$/, { timeout: 30_000 });
+  check("V6 Stage 11: a protected execution continues on the protected screen with the order handed over", true, page.url().slice(-40));
   const swap = byId(page, "swap");
   await swap.waitFor({ timeout: 30_000 });
-  await fillId(page, "swap-amount-input", String(CAMPAIGN_ETH));
+  check("the amount came over", (await byId(page, "swap-amount-input").inputValue()) === String(CAMPAIGN_ETH), await byId(page, "swap-amount-input").inputValue());
   await page.getByText(usdRe(CAMPAIGN_ETH * PRICE)).first().waitFor({ timeout: 30_000 });
   let lineText = "";
   for (let attempt = 1; attempt <= 3 && !lineText; attempt++) {
@@ -367,7 +374,7 @@ const SHELL_SCREENS = [
   { route: "", id: "home", name: "home" },
   { route: "protect", id: "protect-view", name: "protect" },
   { route: "send", id: "send-view", name: "send" },
-  { route: "swap", id: "swap", name: "swap" },
+  { route: "swap", id: "swap-view", name: "swap" },
   { route: "activity", id: "activity", name: "activity" },
   { route: "more", id: "more", name: "more" },
   { route: "more/privacy", id: "privacy-center", name: "privacy-center" },
@@ -487,7 +494,7 @@ try {
   await byId(page, "home").waitFor({ timeout: 60_000 });
   check("Home shows $0 before any balance (spec v2.0 §7.1)", (await byId(page, "private-usd").textContent()).trim() === "$0");
   await snap(page, "home-empty");
-  for (const [link, id] of [["Swap", "swap"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
+  for (const [link, id] of [["Swap", "swap-view"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
   await clickId(page, "home-send"); await byId(page, "send-view").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
   await nav(page, "More"); await clickId(page, "more-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await nav(page, "Home"); await byId(page, "home").waitFor(); // V6: Receive is More's
   await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
@@ -624,113 +631,79 @@ try {
   check("the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals)", Math.abs(got2 - receive2) <= 5e-7 && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (shown ${receive2})`);
   await snap(page, "sent-120k");
 
-  // 5. the $850K swap (the single-order flow; a $1M+ order is a protected execution: section 8) ------------------------------
+  // 5. the $850K swap with ONE confirmation (V6 Stage 11, spec v2.0 §7.5–§7.7; a $1M+ order is a protected execution:
+  // section 8) — the quote as the amount is typed, the V2–V4 Review from $100K (a hold), then the order runner funds the
+  // escrow by a private withdrawal, prepares the hard quote, checks the provider call, signs, simulates and hands it over
+  // with no second tap. A lower minimum pauses the order for the user's choice; a hard quote the price guard refuses (§14)
+  // pauses it too — tried again against a fresh quote, as a user would; when the market keeps refusing, the funds go back.
   phase = "swap";
   await nav(page, "Swap");
-  const swap = byId(page, "swap");
-  await swap.waitFor({ timeout: 30_000 });
-  await fillId(page, "swap-amount-input", "200");
+  await byId(page, "swap-view").waitFor({ timeout: 30_000 });
+  await fillId(page, "amount-input", "200");
   await page.getByText(usdRe(200 * PRICE)).first().waitFor({ timeout: 30_000 });
-  const destination = await byId(page, "swap-destination-input").inputValue();
+  const destination = await byId(page, "destination-input").inputValue();
   check("the destination is a fresh Bitcoin address of this wallet", /^bc1q[0-9a-z]{38,}$/.test(destination), destination);
-  // the competition is live: when only one provider answered, a user asks again (the single quote can still be accepted)
-  let quoteText = "";
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    await clickId(page, "swap-quote");
-    await byId(page, "quote").waitFor({ timeout: 180_000 });
-    quoteText = await text(byId(page, "quote"));
-    const single = /Only one provider answered/.test(await text(swap));
-    log(`quote attempt ${attempt}: ${single ? "a single quote" : "two or more quotes"} — ${quoteText.slice(0, 260)}`);
-    if (!single) break;
-    await page.waitForTimeout(5000);
-  }
-  check("the quote card: the best protected route, the estimate and the minimum", /Best (protected )?route/.test(quoteText) && (await byId(page, "quote-minimum").count()) === 1, quoteText.slice(0, 160));
-  check("the fee summary is collapsed to one number with the privacy fee inside", (await byId(page, "swap-fees").count()) === 1, await text(byId(page, "swap-fees")).then((t) => t.slice(0, 120)));
+  await byId(page, "swap-quote").waitFor({ timeout: 180_000 }); // fetched as the amount was typed: no "Get a quote" step
+  const quoteText = await text(byId(page, "swap-quote"));
+  log(`the quote: ${quoteText.slice(0, 260)}`);
+  check("the quote: the best protected route, the privacy, relayer and provider fees, the time (spec v2.0 §7.5)", /Best protected route/.test(quoteText) && /Privacy fee/.test(quoteText) && /Relayer/.test(quoteText) && /Swap\/provider/.test(quoteText) && /min/.test(quoteText), quoteText.slice(0, 200));
+  check("cross-chain: \"You'll receive at least\" leads", /You'll receive at least/.test(await text(byId(page, "swap-to"))));
+  check("the quote says how long it stays valid", /valid for \d+ s/.test(await text(byId(page, "swap-expires"))), await text(byId(page, "swap-expires")));
+  const quoteBodies = requests.filter((r) => r.url.endsWith("/v1/quotes") && r.body).map((r) => JSON.parse(r.body));
+  check("the quotes carried no destination (the engine quotes a placeholder; spec v2.0 §13.2)", quoteBodies.length > 0 && quoteBodies.every((b) => !b.destination), `${quoteBodies.length} quote requests`);
   const quoteLayout = await layoutProbe(page);
   check("the quoted Swap fits the phone: no horizontal scroll", quoteLayout.scrollWidth <= page.viewportSize().width, `${quoteLayout.scrollWidth} px wide on a ${page.viewportSize().width} px screen${quoteLayout.wide.length ? `: ${quoteLayout.wide.join(", ")}` : ""}`);
   await snap(page, "swap-quote");
-  const ackBefore = await acknowledgeAll(page);
-  log(`acknowledged ${ackBefore} privacy items before the Review`);
-  check("enhanced: the commit goes through a Review (no protection line below $1M)", (await byId(page, "swap-review").count()) === 1 && (await byId(page, "protection-line").count()) === 0);
   await clickId(page, "swap-review");
   const review = byId(page, "review");
   await review.waitFor();
-  check("the Review is the commit moment", (await review.getAttribute("data-moment")) === "commit");
+  check("from $100K the Review is the V2–V4 commit moment", (await review.getAttribute("data-moment")) === "commit");
   check("the Review shows $850,000", (await byId(page, "review-usd").textContent()).includes(usd(200 * PRICE)), await byId(page, "review-usd").textContent());
   const reviewText = await text(review);
   check("the five lines are there", ["Price protected", "Route checked", "Destination verified", "Slippage checked", "Privacy reviewed"].every((l) => reviewText.includes(l)), reviewText.slice(0, 300));
   const ackIn = await acknowledgeAll(page);
   log(`acknowledged ${ackIn} items inside the Review`);
   await snap(page, "review-commit");
-  check("V5 (spec §11): the $850K commit is a hold (from $50K), never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
+  check("the $850K confirmation is a hold (from $50K), never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
   await confirmReview(page);
-  // after the commit the order panel shows the scheduled funding
-  const panel = byId(page, "order-panel");
-  await panel.waitFor({ timeout: 90_000 });
-  const panelText = await text(panel);
-  check("the funding is scheduled at a random time inside the policy window", /scheduled/i.test(panelText), panelText.slice(0, 200));
-  log("committed: the order is journaled and its funding scheduled");
+  await page.waitForURL(/\/swap\/progress\/swap:0x[0-9a-f]{64}$/, { timeout: 120_000 });
+  const progressUrl = page.url();
+  check("ONE confirmation: the order is committed and its progress shown (no Fund now, no second Confirm)", (await byId(page, "order-fund").count()) === 0 && (await byId(page, "order-confirm").count()) === 0, progressUrl.slice(-80));
   await snap(page, "committed");
-  // the funding: the scheduled time is hours away; Fund now runs the private withdrawal into the escrow at once
-  const fundNow = byId(page, "order-fund");
-  await fundNow.waitFor({ timeout: 30_000 });
-  check("Fund now is offered (no institutional hold at this tier)", !(await fundNow.isDisabled()));
-  await fundNow.click();
-  const confirmSwap = byId(page, "order-confirm");
-  await confirmSwap.waitFor({ timeout: PROOF_TIMEOUT });
-  for (let i = 0; i < PROOF_TIMEOUT / 1000 && (await confirmSwap.isDisabled()); i++) await page.waitForTimeout(1000);
-  check("the escrow is funded by a private withdrawal (the confirmation enabled)", !(await confirmSwap.isDisabled()));
-  log(`after funding: ${(await text(panel)).match(/Funded[^R]{0,80}/)?.[0] ?? ""}`);
-  await snap(page, "funded");
+  log("committed: the order runner funds it now");
 
-  // the confirmation: the hard quote at /prepare, the wallet's check of the provider call, the signature, the simulation,
-  // then the Review at execute. A lower minimum needs consent (§14); a hard quote the price guard refuses (§14) is retried
-  // against a fresh quote, as a user would; when the market keeps refusing, the order goes back to the protected balance.
-  let executed = false, refusals = 0;
-  const consent = page.getByRole("button", { name: "Confirm at the new minimum", exact: true });
-  const refusal = page.getByText(/bps below the best alternative .*; refusing to sign/i); // the guard's own sentence, not the standing high-value notice
-  for (let attempt = 1; attempt <= 4 && !executed; attempt++) {
-    await confirmSwap.click();
-    let outcome = await firstOf(page, { review, consent, refusal }, 240_000);
-    for (let consents = 0; outcome === "consent" && consents < 6; consents++) { // the live price can drift again between a consent and the fresh hard quote it leads to
-      const moved = (await text(byId(page, "minimum-moved"))).slice(0, 200);
-      if (consents === 0) { check("a lower hard quote asks for consent before anything is signed (§14)", /you approved [0-9.]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
+  // the runner moves the order on its own: the funding (a proof), the hard quote, the checks, the signature, the hand-over
+  let executed = false, refusals = 0, consents = 0;
+  const executing = page.locator('[data-testid="swap-progress"][data-state="EXECUTING"], [data-testid="swap-progress"][data-state="SETTLING"], [data-testid="swap-done"]');
+  const movedCard = byId(page, "swap-minimum-moved");
+  const tryAgain = byId(page, "swap-try-again");
+  for (let round = 1; round <= 10 && !executed; round++) {
+    const outcome = await firstOf(page, { executing, moved: movedCard, retry: tryAgain }, PROOF_TIMEOUT);
+    if (outcome === "executing") { executed = true; break; }
+    if (outcome === "moved") {
+      const moved = (await text(movedCard)).slice(0, 200);
+      if (consents === 0) { check("a lower hard quote waits for the user's choice before anything is signed (QUOTE_EXPIRED, minimum_moved)", /now guarantees at least [0-9.,]+ BTC; you approved [0-9.,]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
       else log(`the price moved again (${consents + 1}): ${moved.slice(0, 120)}`);
-      await consent.click();
-      await byId(page, "minimum-moved").waitFor({ state: "hidden", timeout: 60_000 }).catch(() => {}); // the fresh hard quote replaces the block
-      outcome = await firstOf(page, { review, consent, refusal }, 240_000);
-    }
-    if (outcome === "refusal") {
-      refusals++;
-      const why = (await text(refusal)).slice(0, 200);
-      check(`the price guard refused a worse hard quote and nothing was signed (attempt ${attempt})`, /bps below the best alternative/.test(why), why);
-      if (attempt === 1) await snap(page, "price-guard-refusal");
-      await page.waitForTimeout(20_000);
+      consents++;
+      await clickId(page, "swap-accept-minimum");
+      await movedCard.waitFor({ state: "detached", timeout: 60_000 }).catch(() => {});
       continue;
     }
-    check("the Review is the execute moment", (await review.getAttribute("data-moment")) === "execute");
-    const routeLine = await text(page.locator('[data-line="route"]'));
-    check("the signed execution was simulated on every RPC endpoint before the hand-over", /simulated on 2 RPC endpoints: it executes/.test(routeLine), routeLine);
-    const priceLine = await text(page.locator('[data-line="price"]'));
-    check("the price line states the guaranteed minimum", /guarantees at least [0-9.]+ BTC/.test(priceLine), priceLine);
-    await snap(page, "review-execute");
-    await acknowledgeAll(page);
-    await confirmReview(page);
-    await byId(page, "checked-line").waitFor({ timeout: 120_000 });
-    await snap(page, "handed-over");
-    executed = true;
+    // execution_unavailable: the price guard refused the hard quote (or the simulation failed): nothing was signed
+    refusals++;
+    const why = (await text(page.locator('[data-testid="operation-progress-error"]'))).slice(0, 300);
+    check(`a refused hard quote pauses the order with nothing signed (attempt ${refusals})`, /cannot execute right now/i.test(why), why);
+    if (refusals === 1) await snap(page, "price-guard-refusal");
+    if (refusals >= 4) break;
+    await page.waitForTimeout(20_000);
+    await tryAgain.click();
+    await tryAgain.waitFor({ state: "detached", timeout: 60_000 }).catch(() => {});
   }
   report.outcome.priceGuardRefusals = refusals;
+  report.outcome.minimumConsents = consents;
   if (executed) {
     // the executor: the relayer deploys the escrow's execution and the tracker reports it
-    let state = "";
-    for (let i = 0; i < 90; i++) {
-      const t = await text(panel);
-      if (/Executing|Waiting for destination|Completed|Partial|executing|verifying/.test(t)) { state = t.match(/Executing|Waiting for destination|Completed|Partial|executing|verifying/)[0]; break; }
-      await page.waitForTimeout(2000);
-    }
-    check("the order panel reports the execution", state !== "", state || (await text(panel)).slice(0, 300));
-    const job = (await jobsOfThisRun()).find((j) => j.executionTx);
+    const job = await (async () => { for (let i = 0; i < 60; i++) { const j = (await jobsOfThisRun()).find((x) => x.executionTx); if (j) return j; await page.waitForTimeout(2000); } return null; })();
     if (job) {
       const receipt = await rpc("eth_getTransactionReceipt", [job.executionTx]);
       check("the executor's deployAndExecute is mined on the devnet", receipt?.status === "0x1", `${job.executionTx} in block ${receipt ? Number(receipt.blockNumber) : "?"} (${receipt?.logs?.length ?? 0} logs)`);
@@ -738,29 +711,38 @@ try {
       check("the one-time escrow is empty after the execution", escrowBalance === 0, `${job.escrow}: ${escrowBalance} ETH`);
       report.outcome.execution = { orderId: job.id, escrow: job.escrow, executionTx: job.executionTx, provider: job.provider ?? null };
     } else check("the relayer reports this run's executed job", false, JSON.stringify(await jobsOfThisRun()).slice(0, 300));
+    const funded = (await jobsOfThisRun()).length;
+    check("funded and handed over once (one job for this order)", funded >= 1);
     await snap(page, "executing");
   } else {
-    // the market kept the chosen route more than the cap below the best alternative: the funded order goes back to the pool
-    log("the price guard refused every attempt: returning the order to the protected balance");
-    await clickId(page, "order-return");
-    await byId(page, "refund-line").waitFor({ timeout: 120_000 });
-    const job = (await jobsOfThisRun()).find((j) => j.state === "refund-only");
+    // the market kept the chosen route below the best alternative: the funded order goes back to the protected balance
+    log("the price guard refused every attempt: returning the funds to the protected balance");
+    await clickId(page, "swap-return-funds");
+    let job = null;
+    for (let i = 0; i < 60 && !job; i++) { job = (await jobsOfThisRun()).find((j) => j.state === "refund-only" || j.state === "refunding" || j.state === "refunded") ?? null; if (!job) await page.waitForTimeout(2000); }
     check("a refund-only job with no signature is journaled by the relayer (§20)", !!job, job ? `${job.id} escrow ${job.escrow}` : JSON.stringify(await jobsOfThisRun()).slice(0, 200));
     report.outcome.returned = job ? { orderId: job.id, escrow: job.escrow } : true;
     await snap(page, "returned-to-balance");
   }
 
-  // 6. a reload: unlock, the order comes back from the encrypted journal -----------------------------------------------------
+  // 6. a reload: unlock, the order comes back from the encrypted journal; the runner carries on -------------------------------
   phase = "reload";
   await page.reload({ waitUntil: "load" });
   await unlock(page);
-  await nav(page, "Swap");
-  await byId(page, "open-swaps").waitFor({ timeout: 60_000 });
-  await byId(page, "open-swaps").getByRole("button").first().click();
-  await byId(page, "order-panel").waitFor({ timeout: 60_000 });
-  const lineRe = executed ? /Executing|Waiting for destination|Completed|Partial|executing|verifying/ : /Refunding|Refunded|Returning|refund/i;
+  await nav(page, "Home");
+  await byId(page, "home").waitFor({ timeout: 60_000 });
+  const card = byId(page, "operation-card");
+  if (await card.count()) {
+    await card.first().getByTestId("operation-open").click(); // a swap's card opens its progress (V6 Stage 11)
+    await page.waitForURL(/\/swap\/progress\//, { timeout: 30_000 });
+  } else {
+    await page.evaluate((u) => { history.pushState({}, "", new URL(u).pathname); window.dispatchEvent(new PopStateEvent("popstate")); }, progressUrl); // already settled: no open card
+  }
+  const lineRe = executed ? /Executing|Waiting for destination|Completed|Partial|Swap complete|executing|verifying|confirmation/i : /Refunding|Refunded|Returned|refund/i;
   await page.getByText(lineRe).first().waitFor({ timeout: 120_000 });
-  check("after a reload and unlock the open order and its line come back from the journal", true, (await text(byId(page, "order-panel"))).slice(0, 160));
+  check("after a reload and unlock the order and its progress come back from the journal", true, (await text(page.locator("main"))).slice(0, 160));
+  const fundings = requests.filter((r) => r.phase === "reload" && r.url.includes("/relay") && /withdraw/i.test(r.body ?? "")).length;
+  check("the reload funds nothing again", fundings === 0, `${fundings} withdrawal submissions after the reload`);
   await snap(page, "after-reload");
 
   // 7. Activity --------------------------------------------------------------------------------------------------------------

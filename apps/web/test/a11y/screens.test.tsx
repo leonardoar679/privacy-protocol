@@ -30,7 +30,7 @@ const SCREENS: { path: string; id: string; wallet: boolean }[] = [
   { path: "/protect", id: "protect-view", wallet: true },
   { path: "/send", id: "send-view", wallet: true },
   { path: "/receive", id: "sheet-receive", wallet: true },
-  { path: "/swap", id: "swap", wallet: true },
+  { path: "/swap", id: "swap-view", wallet: true },
   { path: "/activity", id: "activity", wallet: true },
   { path: "/more", id: "more", wallet: true },
   { path: "/more/privacy", id: "privacy-center", wallet: true },
@@ -63,12 +63,12 @@ describe("the screens are accessible (spec §19)", () => {
   it("a sheet is a labelled modal dialog that traps focus and closes on Escape", async () => {
     await unlocked();
     await renderApp("/swap");
-    await screen.findByTestId("swap", {}, LAZY);
-    fireEvent.click(screen.getByTestId("swap-to")); // the destination picker always has several assets; the source has one without ERC-20 vaults
+    await screen.findByTestId("swap-view", {}, LAZY);
+    fireEvent.click(screen.getByTestId("swap-to-asset")); // the destination picker always has several assets; the source has one without ERC-20 vaults
     const dialog = await screen.findByRole("dialog");
     expect(dialog.getAttribute("aria-labelledby") || dialog.getAttribute("aria-label")).toBeTruthy();
     // modality: the dialog says so, or everything else is hidden from assistive technology while it is open
-    expect(dialog.getAttribute("aria-modal") === "true" || screen.getByTestId("swap").closest("[aria-hidden=\"true\"]") !== null).toBe(true);
+    expect(dialog.getAttribute("aria-modal") === "true" || screen.getByTestId("swap-view").closest("[aria-hidden=\"true\"]") !== null).toBe(true);
     expect(await violations()).toEqual([]);
     fireEvent.keyDown(dialog, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

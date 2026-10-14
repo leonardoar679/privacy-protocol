@@ -18,7 +18,7 @@ import { CompareRoutes } from "../src/features/swap/CompareRoutes";
 import { ProtectedExecutionNotice } from "../src/features/swap/ProtectedExecutionNotice";
 import { cappedSlippageBps, healthyProviders, providerHealthy, strictQuote } from "../src/features/swap/protectedChecks";
 import { CampaignProgress } from "../src/features/swap/protected/CampaignProgress";
-import { swapRecordId, syncSwapRecord } from "../src/features/swap/records";
+import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { Review } from "../src/features/review/ReviewScreen";
 import { Recovery } from "../src/features/operations/RecoveryCard";
 import { getOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";

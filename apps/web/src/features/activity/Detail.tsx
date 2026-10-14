@@ -15,7 +15,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { needsAttention } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
-import { syncSwapRecord } from "../swap/records";
+import { syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { campaignStatus } from "../swap/protected/CampaignProgress";
 import { buildRows, type ActivityRow } from "./rows";
 import { detailModel } from "./model";

@@ -70,7 +70,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "Swap", "Activity", "More"]);
     fireEvent.click(within(nav).getByRole("link", { name: "Swap" }));
-    expect(await screen.findByTestId("swap", {}, LAZY)).toBeInTheDocument();
+    expect(await screen.findByTestId("swap-view", {}, LAZY)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Priority/); // the preference lives in Settings
     expect(fetchSpy, "after Swap").not.toHaveBeenCalled();
     fireEvent.click(within(nav).getByRole("link", { name: "Activity" }));

@@ -29,6 +29,16 @@ export const backoffMs = (attempts: number): number => Math.min(BACKOFF_BASE_MS 
 
 export const isDue = (a: ScheduledAction, now = Date.now()): boolean => !a.done && a.dueAt <= now && (a.nextAttemptAt ?? 0) <= now;
 
+/** V6 Stage 11: an action due now wakes the scheduler at once instead of at its next poll (the one-confirmation swap). */
+const kickListeners = new Set<() => void>();
+export function kickScheduler(): void {
+  for (const l of kickListeners) l();
+}
+export function onSchedulerKick(listener: () => void): () => void {
+  kickListeners.add(listener);
+  return () => kickListeners.delete(listener);
+}
+
 export function scheduleAction(a: Omit<ScheduledAction, "id">, s: WalletSession = defaultSession): ScheduledAction {
   const action: ScheduledAction = { id: `${a.kind}:${a.orderId}`, ...a };
   s.update((j) => { j.schedule = [...j.schedule.filter((x) => x.id !== action.id), action]; });

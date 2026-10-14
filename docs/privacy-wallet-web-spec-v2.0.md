@@ -378,6 +378,16 @@ Your funds were not moved.
 [ Get new quote ]
 ```
 
+Code (Stage 11): `apps/web/src/features/swap/SwapScreen.tsx` serves `/swap`, `/swap/review`, `/swap/progress/:opId` and
+`/swap/protected` from one container over `apps/web/src/features/swap/model.ts` (`destinationChecks`, `quoteLines` — the
+fees in integer cents from the one funding split: p(A), F plus the executor's tip, the provider's own —, `expiresInOf`,
+`routeDetails`, `confirmBlockers`). The quote is fetched as the user types (700 ms after the last keystroke; an older
+answer is dropped) and carries no destination — the engine quotes a placeholder —; the destination, a fresh address of
+this wallet unless one is typed, is reserved and sent at the confirmation. The time is the provider's estimate plus the
+funding's (`FUNDING_SECONDS`, until Stage 15 measures the device). A protected execution — the service's plan at its
+band — continues on `/swap/protected` (V5's screen, the order handed over as the navigation's state) until Stage 13.
+The SwapView's destination is editable with its three checks and the address book's status where it locks.
+
 ### 7.6 Review and confirmation (doc §26, §31, §51, §86–§87)
 The Review shows, for a $10,000 USDC → ETH swap: `You pay $10,000 (10,000 USDC)`, `You receive ≈ x ETH`, `Minimum
 y ETH`, `Privacy fee $100.00`, `Relayer/network $…`, `Swap/provider $…`, `Total fees $…`, the destination, the
@@ -396,6 +406,18 @@ immediately, and signs the provider call by itself while the fresh hard quote's 
 one (the existing `swapSign` checks run first); a worse minimum pauses the operation (`QUOTE_EXPIRED`, reason
 `price_moved`) with `Accept new minimum` or `Return funds`. "Delay for more privacy" schedules the funding at a
 random time in 1–24 h instead.
+
+Code (Stage 11): `packages/sdk/src/wallet/orderRunner.ts` — `confirmOrder` commits (no `fund-escrow` action; an execute
+window of 1800 s when funded at once), journals `StoredSwap.runner` and plans `order-tick:<orderId>`, which the App's
+scheduler runs (woken at once by `kickScheduler`). `runOrderTick` reconciles first — the executor's job by orderId, the
+escrow's balance — then takes one step: the funding, or the hard quote checked, signed, simulated and handed over in the
+same tick (the signature never waits in memory across ticks), or the tracking. Pauses (`StoredSwap.paused`):
+`minimum_moved` (the existing catalog row stands for the plan's `price_moved`: QUOTE_EXPIRED, "Accept new minimum" /
+"Return funds"), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
+`unsafe_contract_call` (the call did not pass the wallet's checks: return), `reconcile` (a send whose outcome is unknown:
+the escrow or the executor is read before anything is sent again). A failure before anything was sent goes to the
+scheduler's backoff. The swap's operation record follows through `packages/sdk/src/operations/swapRecords.ts` (moved
+from the app). The blockers are re-checked at the confirmation (`confirmBlockers`); the $100K+ Review is the V2–V4 one.
 
 Code (Stage 10): `ReviewView` takes `hold` apart from `large` (a protect or a send from $50K holds without the swap's
 checks), `confirmDisabled` (an unacknowledged lint block, a locked destination, a destination not yet re-confirmed),
@@ -667,7 +689,7 @@ re-exports them; Stage 9 moved the legs' derivation (`legsFrom`) and the job tab
 wallet's tracker and the API's reconcile read an order the same way. The wallet's legs come from `legsOf` in `packages/sdk/src/orderTracker.ts` (null when the
 answer rests on a read that failed: the job of a handed-over order, the provider's track of an executed one, the escrow's
 balance before any job); `deriveState` carries the settlement on the tracker's result and the journal keeps it on
-`StoredSwap.track.settlement`; the order's record (`apps/web/src/features/swap/records.ts`) keeps the last one when a
+`StoredSwap.track.settlement`; the order's record (`packages/sdk/src/operations/swapRecords.ts`) keeps the last one when a
 read could not tell. A refund is offered only while the escrow holds the money (`SOURCE_CONFIRMED`,
 `REFUND_AVAILABLE`); an open recovery follows the settlement (refund offered, refunding, monitoring). The scenarios of
 doc §82 run one by one in `packages/sdk/test/settlement.test.ts`.
@@ -717,6 +739,10 @@ unsafe route (expired, halted, breaker open, no hard minimum, an unverifiable mi
 limits, a high impact at high value, a stream above four hours when a faster route exists) is scored for
 information and **never chosen, whatever its nominal output**. A partial quote (no minimum, no expiry) is refused.
 
+Code (Stage 11): `packages/swap-engine/src/scoring.ts` filters "a partial quote: no expiry" and "a partial quote: no
+minimum output" before every other reason; `packages/swap-engine/test/selection.test.ts` (the lowest fee under the
+best-price preference, partial quotes never chosen, a delivered swap with its callback late stays pending).
+
 ### 13.4 Risk and blockers (doc §47–§48)
 ```ts
 type RiskAssessment = { score: number; level: "low" | "medium" | "high"; blockers: BlockerCode[]; warnings: string[] }
@@ -746,6 +772,15 @@ from the youngest note the funding spends — its age and the deposits since its
 deposits, 0.7 under six hours or fifty, 0.3 under a day, else 0. Right after a Protect the level reads Medium with
 "You protected these funds recently; waiting makes this swap harder to link." and `Delay for more privacy` (spend
 older notes first, else fund at a random time in 1–24 h).
+
+Code (Stage 11): `packages/protocol/src/wallet/privacyAssessment.ts` `timingOfFunding` (the rule above; an unknown age
+counts by the deposits alone; a delayed funding ages by the delay's lower bound) and `assessSwapPrivacy` (the six
+components with that timing, `privacyLevelOf`, at most medium while `recent`, reason codes); the facts from
+`packages/sdk/src/wallet/privacyTiming.ts` `fundingTiming` — the youngest note the withdrawal's own selection would
+spend, its age from the note's optional `addedAt` (set when this wallet creates a note; absent for a note a scan found)
+and the deposits since its leaf from the pool's last sync; a funding that needs a merge first spends a note made just
+then. "Delay for more privacy" is the random funding time; spending older notes first is a later refinement of the
+withdrawal's selection.
 
 ### 14.2 Transport (doc §65)
 `packages/privacy-engine/src/transport/`: `http.ts` (the V5 policy: no credentials, no redirect, no cache, no
@@ -810,7 +845,7 @@ refund material and the one-time signer only in `order_blob`, nulled by finalize
 operation answers the order and stores nothing; a re-sign sends the journaled params with its prepare, and its finalize
 clears them again). The wallet (`packages/sdk/src/api/client.ts`; `swapService.ts` a thin adapter) journals
 `StoredSwap.operationId`, resumes an operation the API no longer holds (a 404) once and retries, and Activity reconciles
-its open swaps when it opens (`apps/web/src/features/swap/records.ts`: one call per operation per 5 s; the API's
+its open swaps when it opens (`packages/sdk/src/operations/swapRecords.ts`: one call per operation per 5 s; the API's
 settlement only fills a record that has none). Deviations: the engine's `.`/`./server` entry split is not made (the API
 imports the engine's modules by path through its `./*` export); an unknown route answers 404 with `invalid_request`; the
 §46 quote is indicative — the wallet computes the escrow's W with its own relayer terms. Tests: `apps/api/test`

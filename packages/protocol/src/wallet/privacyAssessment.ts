@@ -5,6 +5,7 @@
 // provider 0.10 + bridge 0.08; the cross-chain leg 0.05), and the level the Review and the Home badge show. The plan's
 // §112 pattern (equal pieces on a fixed cadence) is flagged on amount and timing together. Pure; nothing here says
 // "anonymous": the score measures, it never promises.
+import { privacyLevelOf, type PrivacyAssessment as V6Assessment } from "@privacy-wallet/protocol-types";
 import { levelOf, type Level } from "./privacyCenter";
 
 export interface PrivacyAssessmentFacts {
@@ -46,6 +47,54 @@ export function crossChainEffectiveSet(c: { coverPerHour: number; etaSeconds: nu
 }
 
 const round2 = (x: number): number => Math.round(x * 100) / 100;
+
+/**
+ * V6 (spec v2.0 §14.1): the timing linkability of a funding from the youngest note it spends — 1 under an hour or ten
+ * deposits since its leaf, 0.7 under six hours or fifty, 0.3 under a day, else 0. An unknown age (a note a scan found)
+ * counts by the deposits alone; with a delayed funding the age grows by the delay's lower bound and the deposits still to
+ * come are not counted against it. Nothing known at all reads 0.3.
+ */
+export function timingOfFunding(t: { ageSeconds: number | null; depositsSince: number | null; delaySeconds?: number }): number {
+  const delay = t.delaySeconds ?? 0;
+  if (t.ageSeconds === null && t.depositsSince === null) return 0.3;
+  const age = t.ageSeconds === null ? Infinity : t.ageSeconds + delay;
+  const deposits = delay > 0 || t.depositsSince === null ? Infinity : t.depositsSince;
+  if (age < 3600 || deposits < 10) return 1;
+  if (age < 6 * 3600 || deposits < 50) return 0.7;
+  if (age < 86400) return 0.3;
+  return 0;
+}
+
+export interface SwapPrivacy extends V6Assessment {
+  score: number;
+  /** the funds were protected (or moved) recently: the level is at most medium and "Delay for more privacy" is offered */
+  recent: boolean;
+  components: PrivacyAssessment["components"];
+}
+
+/**
+ * V6 (spec v2.0 §14.1): the six components with the funding's timing from its youngest note, the score's level (high ≥ 75,
+ * medium ≥ 50), at most medium right after a protect; the reasons are codes the app words ("recent", "exact-amount",
+ * "entered-destination", "public-link").
+ */
+export function assessSwapPrivacy(f: Omit<PrivacyAssessmentFacts, "delaySeconds"> & { timing: { ageSeconds: number | null; depositsSince: number | null }; delaySeconds?: number }): SwapPrivacy {
+  const base = assessPrivacy({ ...f, delaySeconds: 0 });
+  const timing = timingOfFunding({ ...f.timing, delaySeconds: f.delaySeconds });
+  const components = { ...base.components, timing: round2(timing) };
+  let s = 1;
+  for (const k of Object.keys(ASSESSMENT_WEIGHTS) as (keyof typeof ASSESSMENT_WEIGHTS)[]) s *= 1 - ASSESSMENT_WEIGHTS[k] * components[k];
+  const score = Math.round(100 * s);
+  const recent = timing >= 1;
+  const scored = privacyLevelOf(score);
+  const level = recent && scored === "high" ? "medium" : scored;
+  const reasons = [
+    ...(recent ? ["recent"] : []),
+    ...(components.amount >= 0.5 ? ["exact-amount"] : []),
+    ...(components.destination >= 1 ? ["entered-destination"] : []),
+    ...(f.provider.linkPublic ? ["public-link"] : []),
+  ];
+  return { level, reasons, score, recent, components };
+}
 
 export function assessPrivacy(f: PrivacyAssessmentFacts): PrivacyAssessment {
   const basis: string[] = [];
