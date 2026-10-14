@@ -137,11 +137,24 @@ export interface JournalData {
   operations?: OperationRecord[];
   /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
   classic?: { deposits: ClassicDepositRecord[]; /** V6 Stage 14: the classic relayer the user chose (its id) */ relayer?: string };
+  /** V6 Stage 15 (spec v2.0 §14.3): this device's last proof — the key's fetch (or cache read) and the proving, in ms */
+  proofStats?: ProofStats;
   /** V6 Stage 10 (doc §71; spec v2.0 §10): the deployment fingerprint first seen per chain id (deploymentGuard.ts) — a different one blocks every operation until it is forgotten under Advanced. Optional, never written by emptyJournal(). */
   deploymentFingerprints?: Record<string, string>;
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }
+
+/** How long this device's last proof took (V6 Stage 15): the progress estimates the next one from it. */
+export interface ProofStats {
+  /** fetching and checking the proving key and the witness generator (a few ms from the Cache API) */
+  keyMs: number;
+  /** building the circuit inputs, the witness and the proof */
+  proveMs: number;
+  /** the key came from the cache */
+  keyCached: boolean;
+  at: number;
+}
 
 const AAD = utf8ToBytes("privacy-protocol/v1/journal");
 

@@ -1,0 +1,134 @@
+// The crypto worker's client (V6 Stage 15; spec v2.0 §14.3): one long-lived worker, started by the first core call or
+// proof — never at first launch — and terminated at every lock (whatever it was doing then fails with "locked"). It
+// builds the SDK's two ports:
+//   - `workerCore`: the tree layers and note discovery;
+//   - `proveSpend`: a spend plan in, a proof out (the circuit inputs are built in the worker).
+// Each proof's timings go to the encrypted journal (`proofStats`), so the progress can estimate the next one. Secrets
+// cross only into this worker: the spend plan (the spending key and the notes) and the view key for discovery.
+import type { Hex } from "viem";
+import { publicInputsFromSignals } from "@privacy-wallet/protocol/prover";
+import type { TxSpec } from "@privacy-wallet/protocol/txInputs";
+import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
+import { config, type CoreBackend, type ProofResult, type ProveStatus } from "@privacy-wallet/sdk/config";
+import { CORE_PATH } from "@privacy-wallet/sdk/core";
+import { recordProof } from "@privacy-wallet/sdk/wallet/proofStats";
+import { artifactUrls, loadPins } from "../../prover/client";
+import type { CryptoRequest, CryptoResponse, PlanMessage, ProvePhase } from "./protocol";
+
+type Req = CryptoRequest extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
+interface Pending {
+  resolve: (r: CryptoResponse) => void;
+  reject: (e: Error) => void;
+  onProgress?: (phase: ProvePhase) => void;
+}
+
+let worker: Worker | null = null;
+let seq = 0;
+const pending = new Map<number, Pending>();
+
+function failAll(message: string): void {
+  for (const p of pending.values()) p.reject(new Error(message));
+  pending.clear();
+}
+
+function spawn(): Worker {
+  const w = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  w.onmessage = (e: MessageEvent<CryptoResponse>) => {
+    const r = e.data;
+    const p = pending.get(r.id);
+    if (!p) return;
+    if (r.type === "progress") return p.onProgress?.(r.phase);
+    pending.delete(r.id);
+    if (r.type === "error") p.reject(new Error(r.error));
+    else p.resolve(r);
+  };
+  w.onerror = (e) => {
+    failAll(`the crypto worker failed: ${e.message}`);
+    w.terminate();
+    if (worker === w) worker = null;
+  };
+  return w;
+}
+
+/** Ends the worker and everything it was doing (every lock does this: the spend plan and the keys it held go with it). */
+export function stopCryptoWorker(): void {
+  worker?.terminate();
+  worker = null;
+  failAll("locked");
+}
+
+/** Is the worker running (tests, the leakage gate). */
+export const cryptoWorkerRunning = (): boolean => worker !== null;
+
+function call(req: Req, transfer: Transferable[] = [], onProgress?: (phase: ProvePhase) => void): Promise<CryptoResponse> {
+  worker ??= spawn();
+  const id = ++seq;
+  return new Promise<CryptoResponse>((resolve, reject) => {
+    pending.set(id, { resolve, reject, onProgress });
+    worker!.postMessage({ ...req, id } as CryptoRequest, transfer);
+  });
+}
+
+function bytesOf(r: CryptoResponse): { out: Uint8Array; engine: "wasm" | "typescript" } {
+  if (r.type !== "bytes") throw new Error("the crypto worker answered out of turn");
+  return { out: r.out, engine: r.engine };
+}
+
+/** The SDK's core port: each argument is transferred (the view key leaves this thread with the call). */
+export const workerCore: CoreBackend = {
+  async merkleLayers(leaves, levels) {
+    return bytesOf(await call({ op: "layers", leaves, levels, coreBase: CORE_PATH }, [leaves.buffer]));
+  },
+  async scanNotePayloads(viewKey, ownerCommitment, leafIndexes, commitments, payloads) {
+    const r = await call({ op: "scan", viewKey, ownerCommitment, leafIndexes, commitments, payloads, coreBase: CORE_PATH }, [
+      viewKey.buffer,
+      ownerCommitment.buffer,
+      leafIndexes.buffer,
+      commitments.buffer,
+      payloads.buffer,
+    ]);
+    return bytesOf(r);
+  },
+};
+
+/** The plan as it crosses: the MerkleLayers instance as its arrays. */
+export function planMessage(spec: TxSpec): PlanMessage {
+  const { tree, ...rest } = spec;
+  return { ...rest, ...(tree ? { layers: { levels: tree.levels, upper: tree.layers.slice(1) } } : {}) };
+}
+
+/** The SDK's prover port: the plan to the worker; the device's timings to the journal. */
+export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<ProofResult> {
+  let verificationKey: unknown;
+  try {
+    const r = await secureFetch(artifactUrls().verificationKey, {}, "artifacts");
+    if (r.ok) verificationKey = await r.json();
+  } catch {
+    /* no local verification; the chain verifies anyway */
+  }
+  const pins = await loadPins();
+  const urls = artifactUrls();
+  const r = await call(
+    { op: "prove", plan: planMessage(spec), artifacts: { wasmUrl: urls.wasm, zkeyUrl: urls.zkey, verificationKey, pins, production: config().production } },
+    [],
+    (phase) =>
+      onStatus?.(
+        phase === "key"
+          ? "Fetching the proving key (kept on this device after the first time)…"
+          : verificationKey
+            ? "Proving locally in a Web Worker (the proof is verified locally before submission)…"
+            : "Proving locally in a Web Worker…",
+      ),
+  );
+  if (r.type !== "proved") throw new Error("the crypto worker answered out of turn");
+  recordProof({ keyMs: r.keyMs, proveMs: r.proveMs, keyCached: r.keyCached });
+  const publicSignals = r.publicSignals.map(BigInt);
+  return {
+    proof: r.proof as Hex,
+    publicInputs: publicInputsFromSignals(publicSignals),
+    publicSignals,
+    ms: r.ms,
+    verifiedLocally: verificationKey !== undefined,
+    pins: r.pins,
+  };
+}

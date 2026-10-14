@@ -5,7 +5,7 @@
 import type { Address, Hex } from "viem";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { Note } from "@privacy-wallet/protocol/note";
-import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
+import type { TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { txDomainOf, type Deployment } from "./chain";
 import { prove, type ProofResult, type ProveStatus } from "./config";
 import { diagnose, type Diagnosis } from "./operations/recovery";
@@ -79,7 +79,8 @@ export async function prepareCrossChainSwap(req: SwapRequest): Promise<QuoteSet>
 }
 
 /** Proves a spend's circuit inputs with the platform's prover (the web: a Web Worker over snarkjs). */
-export const generateProof = (inputs: CircuitInputs, onStatus?: ProveStatus): Promise<ProofResult> => prove(inputs, onStatus);
+/** V6 Stage 15 (spec v2.0 §14.3): a spend plan in, a proof out — the circuit inputs are built where the proof is made. */
+export const generateProof = (spec: TxSpec, onStatus?: ProveStatus): Promise<ProofResult> => prove(spec, onStatus);
 
 /** One operation's record (the journal's, or a draft's), or null. */
 export const getOperation = (id: string, s: WalletSession = session): OperationRecord | null => operationById(id, s);

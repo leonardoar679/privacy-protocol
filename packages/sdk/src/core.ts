@@ -11,6 +11,7 @@ import { noteFromPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope"
 import { ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { NOTE_DATA_BYTES } from "@privacy-wallet/protocol/payload";
 import type { WalletKeys } from "@privacy-wallet/protocol/keys";
+import { config, isConfigured, type CoreBackend, type CoreEngine } from "./config";
 
 export interface CoreModule {
   /** layers 1..levels over k 32-byte leaves, concatenated (layer l has ceil(size(l-1)/2) words) */
@@ -24,12 +25,15 @@ export const CORE_PATH = "/core";
 
 let module: CoreModule | null = null;
 let status: CoreStatus = "untried";
+/** useCoreModule() was called (tests, a native shell): the module handed in wins over the platform's worker port */
+let forced = false;
 let loading: Promise<CoreModule | null> | null = null;
 const listeners = new Set<() => void>();
 const notify = () => { for (const l of listeners) l(); };
 
 /** Tests and native shells hand the module in directly (the node package, or a host binding); null forces the TypeScript path. */
 export function useCoreModule(m: CoreModule | null): void {
+  forced = true;
   module = m;
   status = m ? "wasm" : "typescript";
   loading = null;
@@ -83,11 +87,32 @@ export function wordsToBigInts(b: Uint8Array): bigint[] {
   return out;
 }
 
-/** The layers over `leaves` (proofs are then lookups): one core call, or the TypeScript build. */
+/** V6 Stage 15 (spec v2.0 §14.3): the platform's core behind its crypto worker, unless a module was handed in directly. */
+function corePort(): CoreBackend | null {
+  if (forced) return null;
+  return isConfigured() ? (config().core ?? null) : null;
+}
+function answeredBy(engine: CoreEngine): void {
+  if (status === engine) return;
+  status = engine;
+  notify();
+}
+
+/** The layers over `leaves` (proofs are then lookups): one core call — in the crypto worker when the platform has one —, or the TypeScript build. */
 export async function treeLayers(leaves: bigint[], levels: number): Promise<MerkleLayers> {
+  const port = corePort();
+  if (port) {
+    const r = await port.merkleLayers(bigIntsToWords(leaves), levels);
+    answeredBy(r.engine);
+    return layersFromBytes(leaves, r.out, levels);
+  }
   const core = await coreModule();
   if (!core) return MerkleLayers.build(leaves, levels);
-  const out = core.merkle_layers(bigIntsToWords(leaves), levels);
+  return layersFromBytes(leaves, core.merkle_layers(bigIntsToWords(leaves), levels), levels);
+}
+
+/** Layers 1..levels from the core's bytes (its one number format), their sizes checked. */
+function layersFromBytes(leaves: bigint[], out: Uint8Array, levels: number): MerkleLayers {
   const sizes: number[] = [];
   let size = leaves.length;
   for (let l = 0; l < levels; l++) sizes.push((size = Math.ceil(size / 2)));
@@ -112,13 +137,20 @@ export interface DiscoveredNote { leafIndex: number; note: Note }
 export async function discoverNotes(keys: WalletKeys, items: PayloadItem[], onProgress?: (done: number, total: number) => void): Promise<DiscoveredNote[]> {
   const oc = ownerCommitmentOf(keys.spendKey);
   const wellFormed = items.filter((it) => it.noteData.length === NOTE_DATA_BYTES);
-  const core = await coreModule();
-  if (core) {
+  const port = corePort();
+  const core = port ? null : await coreModule();
+  if (port || core) {
     const idx = new Uint32Array(wellFormed.length);
     const cms = new Uint8Array(wellFormed.length * 32);
     const pls = new Uint8Array(wellFormed.length * NOTE_DATA_BYTES);
     wellFormed.forEach((it, i) => { idx[i] = it.leafIndex; cms.set(be32(it.commitment), i * 32); pls.set(it.noteData, i * NOTE_DATA_BYTES); });
-    const out = core.scan_note_payloads(be32(keys.viewKey), be32(oc), idx, cms, pls);
+    // the view key goes to the worker (or the core) for discovery; the spending key never does — only its commitment
+    let out: Uint8Array;
+    if (port) {
+      const r = await port.scanNotePayloads(be32(keys.viewKey), be32(oc), idx, cms, pls);
+      answeredBy(r.engine);
+      out = r.out;
+    } else out = core!.scan_note_payloads(be32(keys.viewKey), be32(oc), idx, cms, pls);
     if (out.length % 100 !== 0) throw new Error("the core returned discovery records of an unexpected size");
     const found: DiscoveredNote[] = [];
     const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);

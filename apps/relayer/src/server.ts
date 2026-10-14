@@ -16,6 +16,8 @@ import { SwapExecutor, SwapJobError, loadEscrowCreationCode } from "./swapExecut
 import { ShieldExecutor, ShieldJobError } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
+import { originsFrom } from "@privacy-wallet/server-kit/http";
+import { edge } from "./edge";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
@@ -49,25 +51,25 @@ const shields = shieldFactory
 const pollMs = Number(process.env.SWAP_POLL_MS ?? "15000");
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
 if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", (e as Error).message)), pollMs).unref();
-const ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+const ORIGINS = originsFrom(process.env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]);
+const TLS = process.env.TLS === "1"; // the relayer terminates TLS itself: HSTS (the API's setting of the same name)
 const limiter = new RateLimiter({ perMinute: Number(env("RATE_PER_MINUTE", "60")), burst: Math.min(20, Number(env("RATE_PER_MINUTE", "60"))) });
 const MAX_SWAP_JOBS = Number(env("MAX_SWAP_JOBS", "1000"));
 const openSwapJobs = () => executor.list().filter((j) => !["refunded", "completed", "refund-failed"].includes(j.state)).length;
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 
 const server = createServer(async (req, res) => {
-  const origin = req.headers.origin;
-  if (origin && ORIGINS.has(origin)) { res.setHeader("access-control-allow-origin", origin); res.setHeader("access-control-allow-headers", "content-type"); res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS"); }
-  if (req.method === "OPTIONS") { res.statusCode = 204; return res.end(); }
-  res.setHeader("content-type", "application/json");
+  // V6 Stage 15 (doc §68): the security headers on every answer, CORS for the allowed origins, the rate limit, JSON only
+  if (edge(req, res, { origins: ORIGINS, limiter, tls: TLS })) return;
   const send = (status: number, body: unknown) => { res.statusCode = status; res.end(json(body)); };
-  const caller = req.socket.remoteAddress ?? "unknown";
-  if (!limiter.allow(caller)) { res.setHeader("retry-after", String(limiter.retryAfterSeconds(caller))); return send(429, { error: "too many requests", code: "rate_limited" }); }
-  if (req.method === "POST" && !String(req.headers["content-type"] ?? "").startsWith("application/json")) return send(415, { error: "send application/json", code: "unsupported_media_type" });
   try {
     const url = new URL(req.url ?? "/", "http://relayer");
     if (req.method === "GET" && url.pathname === "/info") return send(200, { ...(await relayer.info()), ...(shields ? { shieldFactory: shields.cfg.factory } : {}) });
     if (req.method === "GET" && url.pathname === "/jobs") return send(200, relayer.jobs_());
+    if (req.method === "GET" && url.pathname.startsWith("/jobs/by-nullifier/")) {
+      const job = relayer.jobByNullifier(decodeURIComponent(url.pathname.slice("/jobs/by-nullifier/".length)));
+      return job ? send(200, job) : send(404, { error: "no job spends this nullifier", code: "unknown_nullifier" });
+    }
     if (req.method === "GET" && url.pathname.startsWith("/status/")) {
       const job = await relayer.status(url.pathname.slice("/status/".length) as Hex);
       return job ? send(200, job) : send(404, { error: "unknown transaction" });

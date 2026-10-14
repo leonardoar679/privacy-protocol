@@ -77,6 +77,20 @@ export const relayerSwapStatus = (url: string, orderId: string, fetchImpl: typeo
 export const relayerShieldRegister = (url: string, req: ShieldRegisterRequest, fetchImpl: typeof fetch = relayerFetch) => call<ShieldJob>(url, "/shield", req, fetchImpl);
 export const relayerShieldStatus = (url: string, receiptId: string, fetchImpl: typeof fetch = relayerFetch) => call<ShieldJob>(url, `/shield/${receiptId}`, undefined, fetchImpl);
 
+/**
+ * V6 Stage 15 (doc §75): the relayer's job spending these nullifiers, if it has one — how a submission whose answer was
+ * lost is found again instead of being sent twice (the relayer refuses a second one with `nullifier_in_flight`).
+ */
+export async function relayerJobFor(url: string, nullifiers: [bigint, bigint], fetchImpl: typeof fetch = relayerFetch): Promise<{ txHash: Hex } | null> {
+  try {
+    const job = await call<{ txHash?: unknown }>(url, `/jobs/by-nullifier/${nullifiers[0].toString(10)}`, undefined, fetchImpl);
+    return typeof job.txHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(job.txHash) ? { txHash: job.txHash as Hex } : null;
+  } catch (e) {
+    if (e instanceof RelayerRefusal && e.status === 404) return null;
+    throw e;
+  }
+}
+
 /** A refusal is the relayer's decision (4xx with a code); anything else (network, 5xx) is a reason to try the next relayer. */
 export const isRefusal = (e: unknown): boolean => e instanceof RelayerRefusal && e.status < 500;
 

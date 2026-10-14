@@ -1,0 +1,16 @@
+[package]
+name = "privacy-prover-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Bench-only (V6 Stage 15): the native prover compiled to wasm32 behind wasm-bindgen, timed against snarkjs by benchmarks/proof/. Not shipped in the wallet."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+privacy-prover = { path = "../privacy-prover" }
+wasm-bindgen = "=0.2.117"
+serde_json = "1"
+ark-ff = { version = "0.5", default-features = false }

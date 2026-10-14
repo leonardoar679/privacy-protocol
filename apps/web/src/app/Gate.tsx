@@ -8,6 +8,7 @@ import { type SessionState } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { Phrase } from "../features/onboarding/Phrase";
 import { usePrefs, useSession } from "../hooks";
+import { lockedAutomatically } from "../platform/autoLock";
 
 export function Splash() {
   return <main className="ds-main" data-testid="splash" aria-busy="true"><Skeleton height={120} /></main>;
@@ -31,11 +32,20 @@ export function RequireUnlocked() {
   return <Outlet />;
 }
 
+/** Where an unlock returns to: the screen the lock interrupted (an in-app path only), else Home. */
+export const returnPath = (state: unknown): string => {
+  const from = (state as { from?: unknown } | null)?.from;
+  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") && !["/unlock", "/welcome", "/create", "/restore"].includes(from) ? from : "/";
+};
+
 export function RequireLocked() {
   const s = useSession();
+  const location = useLocation();
   if (!s.ready) return <Splash />;
   if (s.pendingPhrase) return <Phrase phrase={s.pendingPhrase} />;
-  if (unlocked(s)) return <Navigate to="/" replace />;
+  // V6 Stage 15 (spec v2.0 §8): after an automatic lock the unlock goes back to the screen it interrupted; after the
+  // Lock button, Home
+  if (unlocked(s)) return <Navigate to={lockedAutomatically() ? returnPath(location.state) : "/"} replace />;
   return <Outlet />;
 }
 

@@ -3,6 +3,7 @@ import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } f
 import { defaultRelayerUrl } from "../relayer";
 import type { ProtectionMode, Sizing } from "@privacy-wallet/protocol/wallet/campaign";
 import { EXPOSURE_POLICY } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+import { AUTO_LOCK_MINUTES, type AutoLockMinutes } from "../session/autoLock";
 
 /** Private by default: a relayer submits and is paid by a private fee note; the connected wallet is the public fallback. */
 export type Submission = { kind: "relayer"; url: string } | { kind: "wallet" };
@@ -26,6 +27,9 @@ export interface Settings {
   secondFactor: { enabled: boolean; credentialId?: string };
   /** High-Value Protection spec §14: how a large order is protected (tranches under an in-flight cap) */
   protection: ProtectionSettings;
+  /** V6 Stage 15 (spec v2.0 §8): the idle minutes before the wallet locks (1, 5, 15, 60); absent = 15. Optional, so an
+   *  earlier journal and the pinned at-rest vectors stay as they are. */
+  autoLockMinutes?: AutoLockMinutes;
 }
 
 export type { ProtectionMode };
@@ -86,6 +90,7 @@ export function healSettings(stored: Partial<Settings> | undefined): Settings {
   s.housekeeping = { ...defaults.housekeeping, ...(stored?.housekeeping ?? {}) };
   s.secondFactor = { ...defaults.secondFactor, ...(stored?.secondFactor ?? {}) };
   s.protection = healProtection(stored?.protection);
+  if (s.autoLockMinutes !== undefined && !AUTO_LOCK_MINUTES.includes(s.autoLockMinutes)) delete s.autoLockMinutes;
   return s;
 }
 

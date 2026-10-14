@@ -6,6 +6,7 @@
 // it. The viem transport carries the same policy. A private read transport (Tor, a mixnet, a native light client)
 // plugs in here and nowhere else.
 import { http, type HttpTransport } from "viem";
+import { observed } from "./connectivity";
 
 export type Purpose = "rpc" | "relayer" | "swap-service" | "beacon" | "thornode" | "artifacts" | "zkapi" | "inference" | "guest" | "other";
 /** The purpose registry (V6 Stage 14, spec v2.0 §7.10): every purpose a request can carry — the Privacy Center words each
@@ -66,7 +67,8 @@ function announce(url: string, method: string, purpose: Purpose): void {
 export async function secureFetch(url: string, init: RequestInit = {}, purpose: Purpose = "other"): Promise<Response> {
   checkUrl(url);
   announce(url, init.method ?? "GET", purpose);
-  return fetch(url, { ...POLICY, ...init, credentials: POLICY.credentials, redirect: POLICY.redirect });
+  // V6 Stage 15 (doc §75): every answer and every network failure feeds the connectivity state
+  return observed(fetch(url, { ...POLICY, ...init, credentials: POLICY.credentials, redirect: POLICY.redirect }));
 }
 
 /** A `fetch`-shaped function under the policy, for the modules that take a fetch implementation as a parameter. */
@@ -98,6 +100,7 @@ export function viemTransport(url: string): HttpTransport {
     batch: true,
     fetchOptions: { credentials: POLICY.credentials, redirect: POLICY.redirect, referrerPolicy: POLICY.referrerPolicy },
     onFetchRequest: (request) => { announce(request.url, request.method, "rpc"); },
+    fetchFn: (input, init) => observed(fetch(input, init)),
   });
 }
 

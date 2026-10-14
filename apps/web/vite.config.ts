@@ -81,6 +81,25 @@ export function zkapiSdk(): { bundled: boolean; alias: { find: RegExp; replaceme
  * that renders the component preview and the screens' Views from fixtures — never the wallet. In any other mode the dev
  * server answers it 404 and a build leaves it out (apps/web/scripts/check-dist.mjs proves both sentinels absent from dist).
  */
+/**
+ * V6 Stage 15: the local stack's dev server runs without its websocket (PW_NO_HMR=1, server.ws false). With nobody to
+ * answer it, the client's upgrade request hung, and a socket reset under it (a browser closed mid-run) crashed the
+ * server on an unhandled ECONNRESET. The upgrade is refused at once instead: the client's two attempts fail
+ * immediately, never opened, so it never reloads the page.
+ */
+function refuseUpgrades(): Plugin {
+  return {
+    name: "pw-refuse-upgrades",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.on("upgrade", (_req, socket) => {
+        socket.on("error", () => {});
+        socket.destroy();
+      });
+    },
+  };
+}
+
 function fixturesOnly(mode: string): Plugin {
   return {
     name: "fixtures-only",
@@ -101,7 +120,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, "VITE_");
   const zkapi = zkapiSdk();
   return {
-    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json")))],
+    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json"))), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },
@@ -117,6 +136,9 @@ export default defineConfig(({ mode }) => {
     // the fixtures build has a second entry; every other build has the wallet's page only
     ...(mode === "fixtures" ? { build: { outDir: "dist-fixtures", rollupOptions: { input: { main: join(root, "index.html"), fixtures: join(root, "fixtures.html") } } } } : {}),
     server: {
+      // V6 Stage 15: the local stack's browser run starts the dev server without its websocket (PW_NO_HMR=1) — going offline
+      // would drop it, and Vite reloads the page when it comes back, which ends the session in the middle of a step
+      ...(process.env.PW_NO_HMR === "1" ? { ws: false as const, hmr: false } : {}),
       // the repository, and the zkAPI clone beside it when the build carries the SDK
       fs: { allow: [fileURLToPath(new URL("../..", import.meta.url)), ...(zkapi.bundled ? [process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url))] : [])] },
       // the zkAPI SDK expects its deployment manifest behind a same-origin rewrite (sdk/README.md);

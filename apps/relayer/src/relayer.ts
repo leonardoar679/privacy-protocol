@@ -200,4 +200,12 @@ export class Relayer {
 
   /** Public journal (nullifiers and hashes are on chain anyway); the fee secrets are the relayer's own notes. */
   jobs_(): Job[] { return [...this.jobs.values()]; }
+  /**
+   * V6 Stage 15 (doc §75): the job spending this nullifier — its transaction and status only —, so a wallet whose answer
+   * was lost finds its submission again instead of sending it twice. Nothing else of the job leaves the relayer.
+   */
+  jobByNullifier(nullifier: string): { txHash: Hex; status: Job["status"] } | null {
+    for (const j of this.jobs.values()) if (j.nullifiers.includes(nullifier)) return { txHash: j.txHash, status: j.status };
+    return null;
+  }
 }

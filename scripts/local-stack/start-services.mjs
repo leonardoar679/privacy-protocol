@@ -85,6 +85,7 @@ start("wallet", "apps/web", ["vite", "--port", "5173", "--strictPort", "--host",
   VITE_RELAYER_URL: "http://127.0.0.1:8790",
   VITE_THORCHAIN_ROUTER: stack.pins.thorchainRouter,
   VITE_REVIEW_HOLD_MINUTES: "1", // the institutional review hold, shortened for the browser run (V3 Stage 7)
+  PW_NO_HMR: "1", // V6 Stage 15: no HMR websocket — the offline step would drop it and Vite would reload the page on its return
 });
 
 const stop = () => { for (const { p } of procs) try { p.kill(); } catch {} ; process.exit(0); };

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { MerkleTree } from "@privacy-wallet/protocol/merkle";
 import { noteBody, noteCommitment, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
-import { TX_LEVELS, buildTxInputs, type CircuitInputs } from "@privacy-wallet/protocol/txInputs";
+import { TX_LEVELS, buildTxInputs, type CircuitInputs, type TxSpec } from "@privacy-wallet/protocol/txInputs";
 import * as sdk from "../src/index";
 import { configure, defaultConfig, type ProofResult } from "../src/config";
 import { newOperation, putOperation, resetOperationsMemory } from "../src/operations/store";
@@ -45,8 +45,9 @@ const deployment: Deployment = {
 const VAULT = BigInt(deployment.ethVault);
 const store = memoryStorage();
 const proofs: CircuitInputs[] = [];
-const prover = vi.fn(async (inputs: CircuitInputs): Promise<ProofResult> => {
-  proofs.push(inputs);
+// V6 Stage 15 (spec v2.0 §14.3): the platform's prover takes the spend plan and builds the circuit inputs itself
+const prover = vi.fn(async (spec: TxSpec): Promise<ProofResult> => {
+  proofs.push(buildTxInputs(spec));
   return { proof: "0x01", publicInputs: {} as ProofResult["publicInputs"], publicSignals: [1n], ms: 5, verifiedLocally: true };
 });
 const session = new WalletSession(() => store, { N: 1 << 12, r: 8, p: 1 });
@@ -121,10 +122,9 @@ describe("over a configured engine", () => {
     );
     expect(plan.spec.withdrawal).toEqual({ vault: VAULT, amount: 4n * 10n ** 17n, recipient: 0xb0b0n });
     expect(plan.change?.note.amount).toBe(6n * 10n ** 17n);
-    const inputs = buildTxInputs(plan.spec);
-    const proof = await sdk.generateProof(inputs);
+    const proof = await sdk.generateProof(plan.spec);
     expect(prover).toHaveBeenCalledTimes(1);
-    expect(proofs[0]).toBe(inputs);
+    expect(proofs[0], "the prover built the witness the reference builder makes").toEqual(buildTxInputs(plan.spec));
     expect(proof.verifiedLocally).toBe(true);
   });
 

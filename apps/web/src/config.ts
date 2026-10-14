@@ -9,6 +9,7 @@ import { configure, defaultConfig, DEFAULTS, type SdkConfig } from "@privacy-wal
 import { feedsFromEnv } from "@privacy-wallet/sdk/prices";
 import { secureStore } from "./storage/secureStore";
 import { configureWalletConnect } from "@privacy-wallet/wallet-engine/walletConnect";
+import { workerCore } from "./platform/crypto/client";
 
 type Env = Record<string, string | boolean | undefined>;
 
@@ -87,8 +88,14 @@ export function configFromEnv(raw: Env): SdkConfig {
 /** Installs a configuration: the engine's, the transport's allowlist (with the THORNode gateways) and its strictness. */
 export function applyConfig(c: SdkConfig): SdkConfig {
   // the web platform's ports (V6 Stage 4): the IndexedDB container and the worker prover, unless the caller brings its own
-  // the prover module is loaded at the first proof (and a test that mocks it is honoured)
-  configure({ storage: secureStore, prover: async (inputs, onStatus) => (await import("./prover/client")).proveInBrowser(inputs, onStatus), ...c });
+  // the prover module is loaded at the first proof (and a test that mocks it is honoured); V6 Stage 15: the prover takes
+  // the spend plan, and the core runs in the same long-lived crypto worker where the page has workers
+  configure({
+    storage: secureStore,
+    prover: async (spec, onStatus) => (await import("./prover/client")).proveInBrowser(spec, onStatus),
+    ...(typeof Worker === "function" ? { core: workerCore } : {}),
+    ...c,
+  });
   configureWalletConnect(c.walletConnectProjectId);
   allowHosts(...c.hosts, ...c.thornode.gateways);
   setStrict(c.production);

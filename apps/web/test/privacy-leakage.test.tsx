@@ -12,7 +12,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { decodeFunctionData, getAddress, type Hex } from "viem";
 import { expectedPublicSignals, publicInputsFromSignals } from "@privacy-wallet/protocol/prover";
-import { TX_LEVELS, ZERO_LEAF, type CircuitInputs } from "@privacy-wallet/protocol/txInputs";
+import { TX_LEVELS, ZERO_LEAF, buildTxInputs, type CircuitInputs, type TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { noteBody, noteCommitment } from "@privacy-wallet/protocol/note";
 import { allowedHosts, onRequest, type RequestRecord } from "@privacy-wallet/privacy-engine/transport/http";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
@@ -39,7 +39,9 @@ vi.mock("../src/prover/client", () => ({
   PIN_URL: "/artifacts.json",
   loadPins: async () => ({}),
   resetPins: () => {},
-  proveInBrowser: async (inputs: CircuitInputs) => {
+  // V6 Stage 15: the platform's prover takes the spend plan and builds the inputs where it proves (the crypto worker)
+  proveInBrowser: async (spec: TxSpec) => {
+    const inputs = buildTxInputs(spec);
     prover.inputs.push(inputs);
     const publicSignals = expectedPublicSignals(inputs);
     return { proof: ("0x" + "11".repeat(256)) as Hex, publicInputs: publicInputsFromSignals(publicSignals), publicSignals, ms: 1, verifiedLocally: false };
@@ -255,5 +257,10 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     }
     expect(localStorage.length).toBe(0);
     expect(leaks(JSON.stringify(prefs().get()), secrets)).toEqual([]);
+    // V6 Stage 15 (doc §83): nothing in sessionStorage, nothing secret in the address bar or the history's state
+    expect(sessionStorage.length).toBe(0);
+    expect(leaks(`${location.href}
+${JSON.stringify(history.state ?? null)}`, secrets), "the location and the history").toEqual([]);
+    expect(location.search + location.hash, "no query and no fragment carry state").toBe("");
   }, 120_000);
 });

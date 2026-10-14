@@ -5,7 +5,8 @@
 // typed confirmation in a dialog. Everything is journaled (encrypted); nothing is sent anywhere.
 import { useState } from "react";
 import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, Field, Modal, Page, StatusBadge, Input } from "@privacy-wallet/ui";
+import { Button, Card, Collapsible, Field, Modal, Page, Segmented, StatusBadge, Input } from "@privacy-wallet/ui";
+import { AUTO_LOCK_MINUTES, autoLockMinutesOf } from "@privacy-wallet/sdk/session/autoLock";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { registerSecondFactor, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
@@ -89,6 +90,21 @@ export function Security({ onBack }: { onBack?: () => void }) {
                 <p className="ds-note">{t("security.phrase.note")}</p>
               </div>
             ) : null}
+          </div>
+        </Card>
+
+        {/* V6 Stage 15 (spec v2.0 §8; doc §18): the idle minutes before the wallet locks, kept in the encrypted journal */}
+        <Card testId="auto-lock">
+          <div className="ds-stack-sm">
+            <h2 className="ds-review-title">{t("security.autoLock.title")}</h2>
+            <p className="ds-note">{t("security.autoLock.body")}</p>
+            <Segmented
+              value={String(autoLockMinutesOf(s.autoLockMinutes))}
+              onChange={(v) => settings.set({ autoLockMinutes: autoLockMinutesOf(Number(v)) })}
+              options={AUTO_LOCK_MINUTES.map((m) => ({ value: String(m), label: t("security.autoLock.minutes", { n: m }), testId: `auto-lock-${m}` }))}
+              ariaLabel={t("security.autoLock.title")}
+              name="auto-lock-minutes"
+            />
           </div>
         </Card>
 

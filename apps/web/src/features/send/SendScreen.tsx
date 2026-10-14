@@ -46,7 +46,7 @@ import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
 import type { SwapPrefill } from "../swap/Swap";
 import { SendView } from "./View";
 import { crossTargetOf, destinationOf, sendModel, sendSplit } from "./model";
-import { useAddressBook, useNotes, useOperation, usePrices, useSettings } from "../../hooks";
+import { useAddressBook, useConnectivity, useNotes, useOperation, usePrices, useSettings } from "../../hooks";
 
 export interface SendScreenProps {
   masterSeed: Uint8Array;
@@ -69,6 +69,7 @@ export function SendScreen(p: SendScreenProps) {
   const t = useT();
   const navigate = useNavigate();
   const { submission, advanced, verifyReads, secondFactor } = useSettings();
+  const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
   const book = useAddressBook();
   const prices = usePrices();
   useNotes();
@@ -465,7 +466,7 @@ export function SendScreen(p: SendScreenProps) {
       protection: dest.kind === "private" ? "high" : destinationKind === "fresh" ? "medium" : "low",
       large: false,
       hold: controls.hold,
-      confirmDisabled: blocked || destinationLocked || (needsDestAck && !destAck),
+      confirmDisabled: blocked || destinationLocked || (needsDestAck && !destAck) || !net.online,
     };
     const extra = (
       <>

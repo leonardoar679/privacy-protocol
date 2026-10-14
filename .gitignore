@@ -25,6 +25,8 @@ apps/web/tsconfig.tsbuildinfo
 # Rust core build output
 privacy-core/target/
 privacy-core/pkg/
+# V6 Stage 15: the bench-only Rust prover built for wasm32 (benchmarks/proof/build.mjs)
+benchmarks/proof/pkg/
 
 # the screenshot harness: actual images, diffs and the report (tests/visual/run.mjs)
 tests/visual/run/

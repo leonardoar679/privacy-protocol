@@ -29,6 +29,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   fee_too_low: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
   fee_below_percent: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
   nullifier_in_flight: { source: "relayer", fundsClass: "still-protected", actions: ["resume-tracking"] },
+  // V6 Stage 15 (doc §75): the relayer has no job spending these notes — after a lost answer, the submission never reached it
+  unknown_nullifier: { source: "relayer", fundsClass: "still-protected", actions: ["review"] },
   simulation_failed: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
   send_failed: { source: "relayer", fundsClass: "unknown", actions: ["resume-tracking"] },
   too_large: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },

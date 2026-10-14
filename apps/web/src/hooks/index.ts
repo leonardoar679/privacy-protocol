@@ -21,6 +21,7 @@ import { connection, type ConnectionState } from "@privacy-wallet/wallet-engine/
 import { postureFacts } from "@privacy-wallet/sdk/wallet/posture";
 import { privacyPosture, type Posture } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { connectivity, type ConnectivityState } from "@privacy-wallet/privacy-engine/transport/connectivity";
 
 export const usePrices = (): PriceState =>
   useSyncExternalStore(
@@ -53,6 +54,12 @@ export const useNotes = (): OwnedNote[] =>
   useSyncExternalStore(
     (l) => noteStore.subscribe(l),
     () => noteStore.all(),
+  );
+/** V6 Stage 15 (doc §75): online, or offline and why. */
+export const useConnectivity = (): ConnectivityState =>
+  useSyncExternalStore(
+    (l) => connectivity.subscribe(l),
+    () => connectivity.get(),
   );
 export const useNotifications = (): WalletNotification[] =>
   useSyncExternalStore(
@@ -124,7 +131,9 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
       busy.current = true;
       try {
         for (const a of pendingActions(s)) {
-          if (!isDue(a) || !s.isUnlocked()) continue;
+          // V6 Stage 15 (doc §75): nothing runs while offline — the action stays due, and back online each runner
+          // reconciles before it sends
+          if (!isDue(a) || !s.isUnlocked() || !connectivity.get().online) continue;
           // done unless the run re-scheduled the same action for later (a campaign tick plans its own next tick under its id)
           try {
             await run(a);

@@ -4,7 +4,18 @@
 import type { AlertKind } from "@privacy-wallet/protocol/wallet/campaign";
 import { settings as defaultSettings, type ProtectionSettings } from "./settings";
 
-export interface WalletNotification { id: string; at: number; kind: AlertKind | "info"; title: string; body: string; campaignId?: string; read?: boolean }
+export interface WalletNotification {
+  id: string;
+  at: number;
+  kind: AlertKind | "info";
+  title: string;
+  body: string;
+  campaignId?: string;
+  /** V6 Stage 15 (doc §76): the operation it is about, and the tone its toast takes */
+  operationId?: string;
+  tone?: "info" | "success" | "warn";
+  read?: boolean;
+}
 
 export const GENERIC_TEXT = "Your private operation has updated";
 const MAX_KEPT = 50;
@@ -43,11 +54,11 @@ function browserSystem(title: string, body: string): void {
 }
 
 /** Deliver one notification by the user's settings: in-app when allowed; the system one only when enabled and the tab is hidden, generic unless amounts are allowed. */
-export function notify(n: { kind: AlertKind | "info"; title: string; body: string; campaignId?: string }, deps: NotifyDeps = {}): WalletNotification | null {
+export function notify(n: { kind: AlertKind | "info"; title: string; body: string; campaignId?: string; operationId?: string; tone?: WalletNotification["tone"] }, deps: NotifyDeps = {}): WalletNotification | null {
   const s = deps.settings ?? defaultSettings.get().protection.notifications;
   const hidden = deps.hidden ?? (typeof document !== "undefined" ? document.hidden : false);
   let shown: WalletNotification | null = null;
-  if (s.inApp) shown = notifications.push({ kind: n.kind, title: n.title, body: n.body, campaignId: n.campaignId, at: deps.now });
+  if (s.inApp) shown = notifications.push({ kind: n.kind, title: n.title, body: n.body, campaignId: n.campaignId, ...(n.operationId ? { operationId: n.operationId } : {}), ...(n.tone ? { tone: n.tone } : {}), at: deps.now });
   if (s.system && hidden) (deps.system ?? browserSystem)("Privacy Wallet", s.generic ? GENERIC_TEXT : n.body);
   return shown;
 }

@@ -18,6 +18,37 @@ the mobile column of the decision rule (plan §41–42) is still open.
 The setup used here is the deterministic dev setup (`circuits/scripts/dev-setup.sh`), insecure by
 design. Timings do not depend on who contributed, so they carry over to a ceremony key.
 
+## The Rust prover on wasm32 (V6 Stage 15; spec v2.0 §14.3)
+
+The rule: the wallet adopts the Rust prover in the browser only if it is at least 1.5× faster than snarkjs, run as
+the browser runs it (with worker threads), and its public signals are identical. Otherwise snarkjs stays and the
+numbers stay here.
+
+The Rust prover is `privacy-core/privacy-prover-wasm`, a bench-only crate. It is the native prover compiled to
+wasm32: the witness through the `wasmi` interpreter, arkworks Groth16 on a single thread.
+
+Measured on 2026-10-14 on the authoring desktop (28 threads, Node 24): the dev zkey, the `ok-transfer` inputs, all
+bytes in memory, three runs after a warm-up (`results-2026-10-14.json`).
+
+| Prover | Median | Runs |
+|---|---|---|
+| snarkjs `fullProve`, worker threads | **934 ms** | 916 / 934 / 1716 ms |
+| snarkjs `fullProve`, single thread | 7,490 ms | 7549 / 7450 / 7490 ms |
+| Rust on wasm32, single thread | 6,340 ms | 6248 / 6412 / 6340 ms |
+
+- The public signals are identical, and both proofs verify under the dev verification key.
+- The Rust prover is **0.15×** threaded snarkjs and 1.18× single-threaded snarkjs: **not adopted**. The difference is
+  threads, not the arithmetic.
+- The way back in is a threaded build (wasm-bindgen-rayon). It needs `SharedArrayBuffer`, so the app must be
+  cross-origin isolated (COOP/COEP headers). The benchmark would then compare threaded with threaded; that is a later
+  pass.
+
+Reproduce:
+```
+node build.mjs                       # CARGO, CARGO_HOME, WASM_BINDGEN (0.2.117) as for privacy-core/scripts/build-wasm.mjs
+node rust-wasm-vs-snarkjs.mjs 3      # writes results-<date>.json
+```
+
 ## Still pending (Stage 12)
 - Mobile proving (mid-range and flagship) and browser proving in a Web Worker; the proving-key
   download is itself a mobile UX cost.

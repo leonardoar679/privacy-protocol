@@ -217,7 +217,8 @@ button.ds-badge { cursor: pointer; }
 .ds-toast-danger { border-color: var(--danger); }
 
 /* controls */
-.ds-segmented { display: inline-flex; width: 100%; padding: 3px; border-radius: var(--radius-md); background: var(--surface-2); }
+/* V6 Stage 15: options that do not fit on one line (four, or a longer language) wrap to a second row instead of scrolling the page */
+.ds-segmented { display: inline-flex; flex-wrap: wrap; row-gap: 3px; width: 100%; padding: 3px; border-radius: var(--radius-md); background: var(--surface-2); }
 .ds-segmented-item { flex: 1 1 0; min-height: 38px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--body-small-size); font-weight: var(--weight-medium); white-space: nowrap; cursor: pointer; }
 .ds-segmented-item[data-state="checked"] { background: var(--surface); color: var(--fg); box-shadow: var(--elevation-1); font-weight: var(--weight-semibold); }
 .ds-switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--touch); }
@@ -254,6 +255,11 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-hold-hidden { visibility: hidden; }
 .ds-hold-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .ds-hold-ring { width: 22px; height: 22px; border-radius: var(--radius-full); flex: 0 0 22px; }
+
+/* V6 Stage 15 (doc §75): the connection banner above every screen while offline */
+.ds-connection-banner { margin: var(--space-3) 0; }
+@media (min-width: 1024px) { .ds-connection-banner { width: 100%; max-width: var(--content-max); margin: var(--space-3) auto; } }
+.ds-connection-banner .ds-callout-body p { margin: 0; }
 
 /* error, warning, success, security */
 .ds-error-card { border-color: var(--warn); }

@@ -40,7 +40,7 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under More → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
+## What a run checks (V6 Stage 15: 197/197 checks on the quick pass, `results/report-2026-10-14-v6-stage15.json`; 165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
 
 V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
 More → Advanced for the light client and More → Wallet for the connection; Protect through the connected wallet's own provider; Send (public),
@@ -49,6 +49,26 @@ the order panel (Fund now, the hard quote — a lower minimum asks for consent, 
 new screens (a step whose hard quote comes back below the approved minimum pauses the campaign for consent; Resume accepts it) — then the viewport matrix (1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024: no horizontal scroll, 44 px controls, a screenshot per screen; once more under
 `?locale=pseudo`) and the leakage twin (every request body read for the phrase and the password; `localStorage` empty; the two ciphertext
 blobs in IndexedDB). On the devnet the light client is switched off under More → Advanced.
+V6 Stage 15 (`docs/privacy-wallet-web-spec-v2.0.md` §7.11, §8, §12.5, §14.3): section 9b, the hardening in the browser.
+
+- `pagehide` locks the wallet, and the unlock returns to the screen it interrupted.
+- With the auto-lock at one minute under Security, a minute without activity locks it. The run then sets 60 minutes
+  again: from section 0 on, it keeps 60, since some of its screens wait longer than the default 15.
+- A wallet that disconnects between a USDC Protect's approval and its deposit moves nothing; the retry deposits once.
+- A tab closed and opened again keeps every Activity row; so does the browser restarted on its profile. The run uses a
+  persistent profile at `run/<dir>/profile`, made fresh at its start.
+- A Send whose answer is lost as the network drops: `context.route` lets the submission reach the relayer, then goes
+  offline and drops the answer. The wallet then:
+  - shows the banner;
+  - submits nothing while offline;
+  - once back online, finds its one transaction by nullifier (`GET /jobs/by-nullifier/<n>`): one relayer job, the
+    recipient paid once.
+- The proving key is downloaded once for the whole run — reloads, the tab and the restart included — and kept in the
+  Cache API under its pin.
+
+The dev server runs without its websocket for the run (`PW_NO_HMR=1`, set by `start-services.mjs`): going offline would
+drop it, and Vite reloads the page when it comes back.
+
 `probes/` keeps two diagnostic scripts from the V5 pass: `probe-hold.mjs` (the hold button under three gestures on the campaign Review,
 the ring's progress sampled) and `probe-layout.mjs` (the elements whose content overflows their box, the fixed elements' geometry, under
 `?locale=pseudo` at 360×800); run them from this folder with the stack up.
@@ -122,6 +142,19 @@ right before the hand-over, for the same reason.
   interval's — and both sent `deployAndExecute` for the same funded escrow: the second was refused on the nonce and marked
   the mined execution `execute-failed`, so the order panel never reported the execution and the run stopped at 32/33.
   One pass at a time now (`apps/relayer/src/swapExecutor.ts`; `test/executorMore.test.ts` drives three ticks at once).
+
+- (V6 Stage 15) the run's hold sometimes never started. The pointer events it dispatches are synthetic, so they cannot
+  capture the pointer, while Playwright's real mouse rested where the last lint acknowledgment was clicked. The hold's
+  scroll moved the button from under it, and the real pointer's `pointerleave` cancelled the hold at once (the hold
+  button cancels on leave, as it should for a person's finger). The run now rests the real pointer on the button before
+  pressing, and holds until the ring is full; a hold that does not fill names the pointer events the button saw.
+- (V6 Stage 15) with the websocket off, the client's upgrade requests hung unanswered, and a socket reset under them (a
+  browser killed mid-run) crashed the dev server on an unhandled `ECONNRESET`. Under `PW_NO_HMR` the upgrade is now
+  refused at once (`apps/web/vite.config.ts`).
+- (V6 Stage 15) the viewport pass found the Security screen's new auto-lock choice 412 px wide at 360 px under the
+  pseudo-locale: a segmented control's options now wrap to a second row instead of scrolling the page.
+- (V6 Stage 15) the live providers once answered no route for the $850K quote ("No route available right now"); the
+  same request answered a minute later. That is a live dependency, not the wallet.
 
 ## Notes for this machine
 

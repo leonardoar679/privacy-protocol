@@ -5,13 +5,14 @@
 // route; the background jobs run beside it while the wallet is unlocked.
 import { Suspense } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AppShell, Button, Icon, ListRow, Skeleton, StatusBadge, type NavItem, type ShellNav, type StatusTone } from "@privacy-wallet/ui";
+import { AppShell, Button, Icon, ListRow, Skeleton, StatusBadge, WarningCard, type NavItem, type ShellNav, type StatusTone } from "@privacy-wallet/ui";
 import { shortAccount, type ConnectionStatus } from "@privacy-wallet/wallet-engine/connection";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useT } from "./i18n/useT";
 import type { MessageKey } from "./i18n/en";
 import { Background } from "./Background";
-import { useConnection, usePrefs, useSession } from "../hooks";
+import { NotificationToasts } from "./notifications";
+import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks";
 import { moreEntries } from "../features/more/entries";
 
 const TONE: Record<ConnectionStatus, StatusTone> = {
@@ -75,6 +76,8 @@ export function Shell() {
   return (
     <AppShell nav={nav}>
       <Background />
+      <NotificationToasts />
+      <ConnectionBanner />
       {s.journalUnreadable ? (
         <div className="notice" data-testid="journal-unreadable">
           <p>
@@ -100,5 +103,26 @@ export function Shell() {
         <Outlet />
       </Suspense>
     </AppShell>
+  );
+}
+
+/** Doc §75 (spec v2.0 §7.11): over every screen while the connection is interrupted; the operations pause meanwhile. */
+function ConnectionBanner() {
+  const t = useT();
+  const net = useConnectivity();
+  if (net.online) return null;
+  return (
+    <div role="status" aria-live="polite" className="ds-connection-banner">
+      <WarningCard
+        title={t("offline.title")}
+        body={
+          <>
+            <p>{t("offline.preserved")}</p>
+            <p>{t("offline.noSubmit")}</p>
+          </>
+        }
+        testId="offline-banner"
+      />
+    </div>
   );
 }

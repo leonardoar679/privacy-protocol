@@ -7,12 +7,12 @@ import type { Hex } from "viem";
 import type { FeedSpec } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "./chain";
 import type { PublicInputs } from "@privacy-wallet/protocol/prover";
-import type { CircuitInputs } from "@privacy-wallet/protocol/txInputs";
+import type { TxSpec } from "@privacy-wallet/protocol/txInputs";
 import type { KeyValueStorage } from "./wallet/storage";
 
 /** A status line of the proving (shown while the proof is made). */
 export type ProveStatus = (message: string) => void;
-/** A proof the platform made from circuit inputs (the web: a Web Worker over snarkjs, apps/web/src/prover/client.ts). */
+/** A proof the platform made from a spend plan (the web: the crypto worker over snarkjs, apps/web/src/platform/crypto/). */
 export interface ProofResult {
   proof: Hex;
   publicInputs: PublicInputs;
@@ -22,8 +22,28 @@ export interface ProofResult {
   /** what the worker found for the proving key and the witness generator */
   pins?: { zkey: string; wasm: string };
 }
-/** The platform's prover. */
-export type Prover = (inputs: CircuitInputs, onStatus?: ProveStatus) => Promise<ProofResult>;
+/**
+ * The platform's prover (V6 Stage 15, spec v2.0 §14.3): it takes the spend plan and builds the circuit inputs where it
+ * proves — on the web, inside the crypto worker, so the inputs never exist on the main thread.
+ */
+export type Prover = (spec: TxSpec, onStatus?: ProveStatus) => Promise<ProofResult>;
+
+/** What answered a core call: the Rust core's WASM build, or the TypeScript reference. */
+export type CoreEngine = "wasm" | "typescript";
+/**
+ * The platform's core behind a worker (V6 Stage 15, spec v2.0 §14.3): the two batch calls of the Rust core
+ * (packages/sdk/src/core.ts CoreModule), asynchronous, in the core's byte formats, with the engine that answered.
+ */
+export interface CoreBackend {
+  merkleLayers(leaves: Uint8Array, levels: number): Promise<{ out: Uint8Array; engine: CoreEngine }>;
+  scanNotePayloads(
+    viewKey: Uint8Array,
+    ownerCommitment: Uint8Array,
+    leafIndexes: Uint32Array,
+    commitments: Uint8Array,
+    payloads: Uint8Array,
+  ): Promise<{ out: Uint8Array; engine: CoreEngine }>;
+}
 
 export interface SdkConfig {
   /** the pool this wallet talks to; null when none is configured (the screens say so) */
@@ -62,6 +82,8 @@ export interface SdkConfig {
   storage?: () => KeyValueStorage;
   /** the platform's prover */
   prover?: Prover;
+  /** V6 Stage 15: the platform's core behind its crypto worker; absent = the core in this thread (tests, a native shell) */
+  core?: CoreBackend;
 }
 
 export const DEFAULTS = {
@@ -113,11 +135,11 @@ export function config(): SdkConfig {
 
 export const isConfigured = (): boolean => current !== null;
 
-/** Proves through the platform's prover (every private spend). */
-export function prove(inputs: CircuitInputs, onStatus?: ProveStatus): Promise<ProofResult> {
+/** Proves a spend plan through the platform's prover (every private spend; the circuit inputs are built there). */
+export function prove(spec: TxSpec, onStatus?: ProveStatus): Promise<ProofResult> {
   const p = config().prover;
   if (!p) throw new Error("no prover configured: the platform passes its prover to configure() (apps/web/src/config.ts)");
-  return p(inputs, onStatus);
+  return p(spec, onStatus);
 }
 
 /** Called on every configure() (the transport refreshes its allowlist from it). */

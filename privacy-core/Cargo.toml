@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["privacy-core", "privacy-core-wasm", "privacy-prover", "privacy-ffi", "uniffi-bindgen"]
+# privacy-prover-wasm is bench-only (V6 Stage 15: the Rust prover on wasm32 against snarkjs, benchmarks/proof/)
+members = ["privacy-core", "privacy-core-wasm", "privacy-prover", "privacy-prover-wasm", "privacy-ffi", "uniffi-bindgen"]
 
 [profile.release]
 opt-level = 3

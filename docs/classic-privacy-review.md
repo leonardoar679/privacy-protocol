@@ -81,9 +81,9 @@ relayer's fee and status).
 **Inputs.** The note and recipient fields set `autoComplete="off"` and `spellCheck={false}`, because a browser's enhanced
 spell check can send a field's text to a server.
 
-**Where the note never goes.** A URL, the history, `sessionStorage`, the console, any service request. Stage 15's §83
-gates (sessionStorage, history, worker messages, the bundle scan) will check this for these screens along with the rest
-of the wallet.
+**Where the note never goes.** A URL, the history, `sessionStorage`, the console, any service request. The §83 gates
+(V6 Stage 15: sessionStorage, the location and history, worker messages, the bundle scan) check the wallet's flows;
+the classic screens hold the note in a component's memory only.
 
 **Residual risks**, stated here and not solved in this pass:
 
@@ -97,12 +97,15 @@ of the wallet.
   halves fresh for every deposit, so reuse needs a failure of the random source. The journal keeps the commitment, not
   the nullifier hash, so the wallet cannot check reuse yet (C-2).
 - **N-4 The served code (TC-01).** Whoever controls the code the browser runs controls the note when it is generated and
-  when it is pasted. The wallet's measures today:
+  when it is pasted. The wallet's measures:
   - no third-party script, and self-hosted fonts;
+  - a content security policy written into the production build's `index.html` (`apps/web/scripts/csp.mjs`), with
+    the server headers of `docs/deployment.md`;
+  - the bundle scan (`scripts/scan-bundle.mjs`, V6 Stage 15): no tracker, no source map, no test seed in `dist/`;
   - the runtime artifacts (proving key, core WASM) pinned by hash (`docs/build-hashes.md`).
 
-  Planned for Stage 15: the bundle scan, and the served app's headers in `docs/deployment.md`. What remains is the
-  host's integrity. The upgrade is a signed native app, or a content-addressed build checked against its hash.
+  What remains is the host's integrity. The upgrade is a signed native app, or a content-addressed build checked
+  against its hash.
 
 ## 4. The research's findings
 

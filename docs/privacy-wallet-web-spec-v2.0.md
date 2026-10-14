@@ -524,6 +524,25 @@ Your transaction state is being preserved.
 We will not submit another transaction until the current state is verified.
 ```
 
+Code (Stage 15): `packages/privacy-engine/src/transport/connectivity.ts` decides when the wallet is offline:
+- the browser's offline event; or
+- three requests in a row that never reached their host (a network error or a timeout; any HTTP answer, whatever its
+  status, counts as reached, and a caller's own abort is no failure).
+
+Any answer, or the browser's online event, ends it. `secureFetch` and the RPC transport (viem's `fetchFn`) feed it.
+`apps/web/src/platform/connectivity.ts` adds the browser's events, asks the relayer's `/info` every 10 s while offline
+for want of answers, and kicks the scheduler on the way back.
+
+While offline:
+- the Shell shows the banner (`offline-banner`);
+- the scheduler runs no action (each stays due);
+- Protect, Send and Swap disable Confirm;
+- a private spend waits for the connection before every relayer attempt, and an offline attempt does not count.
+
+An attempt the network swallowed may have reached the relayer. Once back, the wallet asks the relayer for the job
+spending the first nullifier (`GET /jobs/by-nullifier/<n>`: the hash and the status only) before it would send
+anything again.
+
 ## 8. External wallet and protected wallet (doc §15–§19) — *Stages 4, 15*
 
 `packages/wallet-engine` exposes `connect`, `disconnect`, `switchNetwork`, `getAddress`, `signMessage`,
@@ -542,6 +561,29 @@ Focus loss counts as idleness only (wallet pop-ups and the WalletConnect modal t
 defers a lock through a critical section — the signature prompt, proving, submission, commit → hand-over — for at
 most 30 minutes, then the lock happens at the runner's next safe point. A lock clears the seed and keys, the notes,
 the runners' caches, drafts and the crypto worker; unlocking reconciles open operations.
+
+Code (Stage 15):
+- `packages/sdk/src/session/autoLock.ts` holds the policy and the controller. The verdict `lockVerdict` is pure. The
+  `AutoLock` controller keeps the clock and one timer and locks only an unlocked session.
+- The session (`packages/sdk/src/wallet/session.ts`) gains:
+  - `hold(reason)`, which returns the release;
+  - `holds()`;
+  - `onLock(fn)`, hooks that run inside every lock (a lock also ends every hold);
+  - `safePoint()` / `onSafePoint(fn)`. The scheduler calls `safePoint()` between two runner ticks
+    (`apps/web/src/app/Background.tsx`), and a released hold is a safe point too.
+- The holds:
+  - the wallet's prompts and the submission of a protect (`submitShield`);
+  - proving and the submission of a private spend (`submitAndRecord`);
+  - an order's commit → hand-over (`packages/sdk/src/wallet/orderRunner.ts`; a privacy delay holds nothing).
+- `apps/web/src/platform/autoLock.ts` listens:
+  - pointer, key, wheel, touch and scroll are activity (at most once a second);
+  - `visibilitychange` (5 minutes hidden; checked again on return, since a background tab's timer may not run);
+  - `pagehide`;
+  - no focus or blur listener.
+- What a lock forgets: the drafts, both runners' memory, and the crypto worker (`stopCryptoWorker`).
+- The setting is the journal's optional `settings.autoLockMinutes` (More → Security, "Auto-lock").
+- After an automatic lock, the unlock returns to the screen it interrupted (`returnPath`, an in-app path only). After
+  the Lock button it opens Home.
 
 ## 9. Assets and chains (doc §20–§21, §72) — *Stage 3*
 
@@ -764,6 +806,17 @@ pause and resume only after the state is verified (§7.11). `notificationFor(pre
 kinds (Quote ready, Transaction confirmed, Cross-chain executing, Completed, Recovery required) without amounts
 unless the user opted in (the V3 preview setting); delivery (web push) is later.
 
+Code (Stage 15):
+- `packages/sdk/src/operations/notify.ts`:
+  - `kindFor(prev, next)`: QUOTING → REVIEW is "Quote ready"; SUBMITTED or CONFIRMING → EXECUTING is "Transaction
+    confirmed" ("Cross-chain executing" for a cross-chain swap); → COMPLETED and → RECOVERY_REQUIRED.
+  - `notificationFor(prev, next, prefs)`: nothing for a record seen for the first time or a state it already had;
+    amounts only when `prefs.amounts`.
+  - `watchOperationNotifications`: the records at unlock are a baseline; a lock forgets them.
+- `apps/web/src/app/notifications.tsx` gives each kind its catalog words (`notification.<kind>.title/body`) and delivers
+  through the engine's notifier: the in-app list, shown once as a toast, and the browser's Notification API while the
+  tab is hidden, generic unless amounts are allowed.
+
 ## 13. Swap engine, providers, risk (doc §27–§33, §45–§48, §81–§82) — *Stages 3, 9, 11, 12*
 
 ### 13.1 Interfaces
@@ -883,6 +936,26 @@ proving key is cached in the Cache API under its pinned SHA-256 and re-verified 
 the main thread (unlocking inside the worker is a later pass). A Rust prover compiled to wasm32 is adopted only if
 a benchmark shows it at least 1.5× faster than snarkjs with identical public signals (`benchmarks/proof/`).
 
+Code (Stage 15):
+- The SDK's ports (`packages/sdk/src/config.ts`):
+  - the prover takes the spend plan, `Prover = (spec: TxSpec, onStatus?) => Promise<ProofResult>`. `privateTx.ts` no
+    longer builds circuit inputs, and the facade's `generateProof(spec)` follows.
+  - the optional `core: CoreBackend` is the core's two batch calls, asynchronous, in the core's byte formats.
+    `packages/sdk/src/core.ts` uses it unless a module was handed in with `useCoreModule`.
+- `apps/web/src/platform/crypto/`:
+  - `protocol.ts`: the messages. A plan's Merkle layers cross as arrays.
+  - `engine.ts`: the core (WASM, or the TypeScript reference in the same formats), `buildTxInputs`, snarkjs loaded at
+    the first proof, and the artifact cache (`privacy-wallet-artifacts-v1`, keyed by name and pinned SHA-256, hashed
+    on every read, never an unpinned artifact, an older pin removed).
+  - `worker.ts`: the wiring.
+  - `client.ts`: one worker, started by the first call, ended by `stopCryptoWorker` at every lock. It builds the
+    `workerCore` and `proveSpend` ports and records each proof's timings in the journal (`proofStats`,
+    `packages/sdk/src/wallet/proofStats.ts`).
+- The page configures the core port only where `Worker` exists.
+- The swap's time estimate uses the device's last proof (`fundingSeconds`) once there is one.
+- The Rust prover on wasm32: `privacy-core/privacy-prover-wasm` (bench-only) and `benchmarks/proof/` (`build.mjs`,
+  `rust-wasm-vs-snarkjs.mjs`, the dated results).
+
 ## 15. The API (doc §44–§46, §63–§64, §67–§68) — *Stage 9*
 
 `apps/api`: Express 5 on `node:sqlite` (`DatabaseSync`, WAL, `synchronous=NORMAL`, `foreign_keys=ON`,
@@ -957,6 +1030,15 @@ resolved from `ZKAPI_SDK_DIR` when the clone exists, else a stub that says Priva
 **CI** (`.github/workflows/ci.yml`, actions pinned by commit, `permissions: contents: read`): checkout → Node 24 →
 Foundry → the lockfile check → `npm ci` → `node scripts/verify-all.mjs --ci --forge 0.8.24`; a dependency-review job
 on pull requests. Rust, the live suites, the screenshot harness and the local-stack browser run stay local.
+
+Code (Stage 15):
+- `apps/relayer/src/edge.ts` puts the relayer behind the server kit's headers, as the API is: `no-store`, `nosniff`,
+  no referrer, `default-src 'none'; frame-ancestors 'none'`, and HSTS with `TLS=1`.
+- CORS goes to `ALLOWED_ORIGINS` only. The rate limit is by the socket's address. A POST that is not JSON answers 415.
+- `apps/relayer/test/logs.test.ts` scans every console call of the relayer: none names a request, a body, an address,
+  a proof, a payload or a secret.
+- `scripts/scan-bundle.mjs` refuses a tracker SDK or host, a source map (file or comment) and a test seed in
+  `apps/web/dist`. Its self-test sees each kind first, and verify-all runs it after the build.
 
 ## 18. Localization and accessibility (doc §77–§78) — *Stage 16*
 

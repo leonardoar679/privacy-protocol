@@ -15,7 +15,7 @@ import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } fr
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
 import { FIELD } from "@privacy-wallet/protocol/field";
 import { selectInputs } from "@privacy-wallet/protocol/wallet/amounts";
-import { buildTxInputs, type SpendNote, type TxSpec } from "@privacy-wallet/protocol/txInputs";
+import type { SpendNote, TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { nullifier } from "@privacy-wallet/protocol/nullifier";
@@ -29,7 +29,8 @@ import { protectSplit } from "@privacy-wallet/protocol/wallet/fees";
 import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
-import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerSubmit, type RelayerInfo } from "./relayer";
+import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo } from "./relayer";
+import { connectivity, whenOnline } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { poolStats } from "./wallet/poolStats";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
@@ -142,6 +143,15 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
 }
 
 export async function submitShield(p: PreparedShield, o: Progress & { /** V6: the network cost shown before signing */ estimatedWei?: bigint } = {}): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
+  // V6 Stage 15 (spec v2.0 §8): the wallet's prompts and the submission are a critical section for the auto-lock
+  const release = session.hold("signature");
+  try {
+    return await submitShieldHeld(p, o);
+  } finally {
+    release();
+  }
+}
+async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?: bigint }): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
   let approveTx: Hex | undefined;
   let approvalWei = 0n;
@@ -243,11 +253,22 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
 
 export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number }
 
-async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number } } & Progress): Promise<Submitted> {
+/** V6 Stage 15 (spec v2.0 §8): proving and the submission are a critical section for the auto-lock. */
+async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Promise<Submitted> {
+  const release = session.hold("spend");
+  try {
+    return await submitAndRecordHeld(o);
+  } finally {
+    release();
+  }
+}
+async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number } } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
-  const inputs = buildTxInputs(o.spec); // throws if a note does not open its leaf or value is not conserved
   o.onEvent?.({ type: "proving" });
-  const proof = await prove(inputs, o.onStatus);
+  // V6 Stage 15 (spec v2.0 §14.3): the plan goes to the prover, which builds the circuit inputs where it proves (the
+  // crypto worker on the web) — and throws, as the builder always did, when a note does not open its leaf or the value
+  // is not conserved
+  const proof = await prove(o.spec, o.onStatus);
   o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
   let txHash: Hex;
   let submittedBy: Submitted["submittedBy"];
@@ -257,10 +278,28 @@ async function submitAndRecord(o: { deployment: Deployment; spec: TxSpec; noteDa
     const url = o.relayerUrl ?? o.submission.url;
     o.onEvent?.({ type: "submitting", by: "relayer" });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
-    let r: Awaited<ReturnType<typeof relayerSubmit>> | undefined;
+    let r: { txHash: Hex } | undefined;
+    // V6 Stage 15 (doc §75): nothing is submitted while offline; an attempt the network swallowed may have reached the
+    // relayer, so once back the state is verified — the relayer's job for these nullifiers — before anything is resent
+    let unanswered = false;
+    const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
     for (let attempt = 1; ; attempt++) {
+      await whenOnline();
       try { r = await relayerSubmit(url, body); break; }
-      catch (e) { if (isRefusal(e) || attempt >= 3) throw e; o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`); o.onEvent?.({ type: "relayer-retry", attempt }); await new Promise((res) => setTimeout(res, 1500 * attempt)); }
+      catch (e) {
+        if (isRefusal(e)) {
+          // after a lost answer the relayer refuses the same spend again (in flight, or already mined): its job is the answer
+          if (unanswered) {
+            const known = await relayerJobFor(url, nullifiers).catch(() => null);
+            if (known) { r = known; break; }
+          }
+          throw e;
+        }
+        unanswered = true;
+        if (!connectivity.get().online) { attempt--; continue; } // offline: wait for the connection, the attempt does not count
+        if (attempt >= 3) throw e;
+        o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`); o.onEvent?.({ type: "relayer-retry", attempt }); await new Promise((res) => setTimeout(res, 1500 * attempt));
+      }
     }
     txHash = r!.txHash;
     submittedBy = "relayer";

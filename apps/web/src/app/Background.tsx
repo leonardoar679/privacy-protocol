@@ -11,6 +11,7 @@ import { runOrderTick } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useNotes, useScheduler, useSession, useSettings } from "../hooks";
+import { startOperationNotifications } from "./notifications";
 
 export function Background() {
   const deployment = useDeployment();
@@ -20,11 +21,17 @@ export function Background() {
   useScheduler(useCallback(async (a) => {
     const seed = session.state().seed;
     if (!seed) return;
-    if (a.kind === "campaign-tick" || a.kind === "campaign-shape") { await runCampaignTick(a, { masterSeed: seed, deployment }); return; }
-    if (a.kind === "order-tick") { await runOrderTick(a, { masterSeed: seed, deployment }); return; }
-    await runScheduledAction(a, { masterSeed: seed, deployment });
+    try {
+      if (a.kind === "campaign-tick" || a.kind === "campaign-shape") await runCampaignTick(a, { masterSeed: seed, deployment });
+      else if (a.kind === "order-tick") await runOrderTick(a, { masterSeed: seed, deployment });
+      else await runScheduledAction(a, { masterSeed: seed, deployment });
+    } finally {
+      session.safePoint(); // between two runner ticks: a lock past the hold cap happens here (V6 Stage 15)
+    }
   }, [deployment]));
   useEffect(() => { if (s.status === "unlocked" && housekeeping.enabled && notes.length) scheduleHousekeeping(deployment); }, [s.status, housekeeping.enabled, notes, deployment]);
   useEffect(() => { if (s.status === "unlocked" && s.seed) mirrorExperience(); }, [s.status, s.seed]);
+  // V6 Stage 15 (doc §76): the five operation notifications while unlocked
+  useEffect(() => (s.status === "unlocked" ? startOperationNotifications() : undefined), [s.status]);
   return null;
 }

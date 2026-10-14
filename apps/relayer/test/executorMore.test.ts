@@ -475,6 +475,9 @@ describe("journals", () => {
     const r2 = new Relayer(cfg, clients); // restart
     expect((await r2.info()).inflight).toBe(2);
     await expect(r2.submit(req)).rejects.toMatchObject({ code: "nullifier_in_flight" });
+    // V6 Stage 15 (doc §75): a wallet whose answer was lost finds its submission by nullifier — the hash and status only
+    expect(r2.jobByNullifier(publicInputs[1])).toEqual({ txHash: first.txHash, status: "submitted" });
+    expect(r2.jobByNullifier("12345")).toBeNull();
     receiptStatus = "0x1";
     expect((await r2.status(first.txHash))?.status).toBe("mined");
     expect(journal.load()[0].status).toBe("mined");

@@ -26,6 +26,9 @@ export interface SessionState {
 
 export interface Backup { v: 1; keystore: Keystore; journal: EncryptedJournal | null }
 
+/** A critical section that defers an automatic lock (spec v2.0 §8; ../session/autoLock.ts). */
+export interface Hold { reason: string; since: number }
+
 export class WalletSession {
   private seed: Uint8Array | null = null;
   private key: Uint8Array | null = null;
@@ -36,6 +39,10 @@ export class WalletSession {
   private readyFlag = false;
   private snapshot: SessionState | null = null;
   private readyPromise: Promise<void> | null = null;
+  private holdList = new Map<number, Hold>();
+  private holdSeq = 0;
+  private lockHooks = new Set<() => void>();
+  private safeHooks = new Set<() => void>();
   /** resolves once the store has hydrated and the status reflects the device (V5); started by the first read (V6 Stage 4) */
   get ready(): Promise<void> {
     this.init();
@@ -159,8 +166,30 @@ export class WalletSession {
     this.seed = null; this.key = null; this.data = null;
     this.unreadable = false;
     noteStore.clear();
+    this.holdList.clear(); // a lock ends every critical section; a stale release is a no-op
+    // V6 Stage 15 (spec v2.0 §8): the runners' caches, the drafts and the crypto worker go with the keys
+    for (const h of this.lockHooks) { try { h(); } catch { /* a hook never stops a lock */ } }
     this.emit();
   }
+
+  /**
+   * Defers an automatic lock through a critical section — the signature prompt, proving, submission, commit → hand-over
+   * (spec v2.0 §8) — for at most 30 minutes (../session/autoLock.ts). Returns the release; an explicit lock ignores holds.
+   */
+  hold(reason: string, now = Date.now()): () => void {
+    const id = ++this.holdSeq;
+    this.holdList.set(id, { reason, since: now });
+    this.emit();
+    return () => {
+      if (this.holdList.delete(id)) this.emit();
+    };
+  }
+  holds(): Hold[] { return [...this.holdList.values()]; }
+  /** Runs at every lock (explicit or automatic), before the screens hear of it. */
+  onLock(fn: () => void): () => void { this.lockHooks.add(fn); return () => { this.lockHooks.delete(fn); }; }
+  /** A safe point: the scheduler between two runner ticks (a lock past the hold cap waits for one). */
+  safePoint(): void { for (const h of this.safeHooks) h(); }
+  onSafePoint(fn: () => void): () => void { this.safeHooks.add(fn); return () => { this.safeHooks.delete(fn); }; }
 
   /** Forget this wallet on this device (the phrase or a backup file is then the only way back). */
   forget(): void {

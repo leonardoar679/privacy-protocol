@@ -31,6 +31,12 @@
 //      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
 //   9. V5: the shell pass per viewport (VIEWPORTS, default 360x800,390x844,412x915,768x1024,1280x800,1440x900) — no horizontal
 //      scroll, the controls 44 px tall, a screenshot per screen — and the same pass under ?locale=pseudo
+//  9b. V6 Stage 15 (spec v2.0 §7.11, §8, §12.5, §14.3; doc §18, §74–§75, §83): the hardening in the browser — pagehide
+//      locks and the unlock returns to the interrupted screen; a minute idle locks (the minutes chosen under Security);
+//      a wallet disconnected mid-Protect moves nothing and the retry deposits once; a tab closed and the browser
+//      restarted (a persistent profile) keep the journal; a Send whose answer is lost as the network drops waits under
+//      the banner, submits nothing while offline, and finds its one transaction by nullifier once back; the proving key
+//      downloaded once for the whole run (the crypto worker's cache under the pin)
 //  10. V5: the leakage twin — every request body read for the phrase and the password; localStorage empty; the secure
 //      store holds the two ciphertext blobs only
 // Output: run/e2e/NN-step.png screenshots and run/e2e/report.json (results/ keeps a committed report).
@@ -41,7 +47,7 @@
 //   SKIP_CAMPAIGN=1 node e2e.mjs             without the $10M protected swap (section 8)
 import { chromium } from "playwright";
 import { encodeFunctionData, parseAbi } from "viem";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -117,10 +123,34 @@ async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a po
   if (await b.isDisabled()) throw new Error(`the hold is still disabled: ${await b.getAttribute("title")}`);
   await b.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
   await page.waitForTimeout(150);
+  // V6 Stage 15: the real pointer rests on the button, as a person's does while holding. The pointer events below are
+  // synthetic, so they cannot capture the pointer; when the real one sat elsewhere (a lint acknowledgment just above),
+  // the scroll moved the button from under it, and its trusted pointerleave cancelled the hold at once.
+  const box = await b.boundingBox();
+  if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // the element's own pointer events are kept, for a hold that does not fill
+  await b.evaluate((el) => {
+    el.__holdEvents = [];
+    for (const type of ["pointerdown", "pointerup", "pointerleave", "pointercancel"]) el.addEventListener(type, (e) => el.__holdEvents.push(`${type}${e.isTrusted ? " (trusted)" : ""}`));
+  });
   // the pointer events dispatched on the button itself (as the unit tests do): no overlay, no emulated long-press can cancel them
   await b.dispatchEvent("pointerdown");
-  await page.waitForTimeout(ms);
-  await b.dispatchEvent("pointerup", {}, { timeout: 2_000 }).catch(() => {}); // the hold fires at HOLD_MS and the screen may already have moved on
+  // V6 Stage 15: held until the ring is full or the screen moved on, as a person releases after the ring completes — a
+  // release at a fixed time raced the hold's own timer whenever the page was busy past HOLD_MS (the input event runs
+  // before the overdue timer, and the hold is cancelled)
+  const samples = [];
+  let filled = false;
+  for (const end = Date.now() + Math.max(ms, 1500) + 15_000; Date.now() < end; await page.waitForTimeout(100)) {
+    if ((await b.count()) === 0) { filled = true; break; }
+    const ring = await b.locator(".ds-hold-ring").first().getAttribute("data-progress", { timeout: 500 }).catch(() => null);
+    samples.push(ring);
+    if (ring === "1.00") { filled = true; break; }
+  }
+  await b.dispatchEvent("pointerup", {}, { timeout: 2_000 }).catch(() => {}); // the screen may already have moved on
+  if (!filled) {
+    const seen = await b.evaluate((el) => el.__holdEvents ?? []).catch(() => ["(the button is gone)"]);
+    log(`the hold did not fill: ring progress ${samples.filter((x, i) => i % 10 === 0).join(" ")} (url ${new URL(page.url()).pathname}); the button's pointer events: ${seen.join(", ")}`);
+  }
 }
 /** the Review's confirmation: a hold from the protected band, a tap below it (V6 Stage 10: the V6 Review's tap or the V2–V4 one) */
 async function confirmReview(page) {
@@ -144,11 +174,12 @@ async function chooseAsset(page, openId, optionId, symbol) {
 async function firstOf(page, candidates, timeout) {
   return Promise.any(Object.entries(candidates).map(([key, loc]) => loc.first().waitFor({ state: "visible", timeout }).then(() => key)));
 }
-async function launch() {
+/** V6 Stage 15: a persistent profile, so the run can close the browser and start it again on the same storage (doc §74) */
+const PROFILE = join(OUT, "profile");
+async function launchContext() {
   // Chrome 154's new headless mode does not come up under Playwright 1.64 here; its old headless shell does
   const args = CHANNEL === "chrome" && HEADLESS ? ["--headless=old"] : [];
-  const opts = { headless: HEADLESS, timeout: 30_000, args, ...(CHANNEL ? { channel: CHANNEL } : {}) };
-  return chromium.launch(opts);
+  return chromium.launchPersistentContext(PROFILE, { headless: HEADLESS, timeout: 30_000, args, ...(CHANNEL ? { channel: CHANNEL } : {}), viewport: { width: 430, height: 932 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 }
 /** unlock after a reload */
 async function unlock(page) {
@@ -445,8 +476,7 @@ async function shellPass(page, viewport, locale) {
 }
 
 // --- the run ------------------------------------------------------------------------------------------------------------
-const browser = await launch();
-log(`browser ${browser.version()} (${CHANNEL ?? "playwright chromium"}, ${HEADLESS ? "headless" : "headed"})`);
+rmSync(PROFILE, { recursive: true, force: true }); // every run starts on a fresh profile
 // the devnet keeps every earlier run's spending: the funding wallet is topped up to 10,000 ETH when a run could exhaust it
 // (two 500 ETH protects, the sends and the swaps spend about 1,100 ETH; a full run's campaign more)
 {
@@ -456,9 +486,11 @@ log(`browser ${browser.version()} (${CHANNEL ?? "playwright chromium"}, ${HEADLE
     log(`the funding wallet topped up: ${before.toFixed(2)} → ${await balanceEth(stack.funding)} ETH (devnet)`);
   }
 }
-const context = await browser.newContext({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-// the injected funding wallet: an EIP-1193 provider over one of the devnet's unlocked accounts (what MetaMask would be here)
-await context.addInitScript(({ rpcUrl, account }) => {
+const requests = []; // every request the page makes, with the phase it happened in and its body (the leakage twin)
+let phase = "first-launch";
+/** The injected funding wallet: an EIP-1193 provider over one of the devnet's unlocked accounts (what MetaMask would be
+ *  here). V6 Stage 15: `window.__allowSends = n` lets n more transactions through, then the wallet answers as disconnected (4900). */
+function injectedWallet({ rpcUrl, account }) {
   let id = 0;
   const call = async (method, params) => {
     const r = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params: params ?? [] }) });
@@ -472,22 +504,36 @@ await context.addInitScript(({ rpcUrl, account }) => {
       if (method === "eth_requestAccounts" || method === "eth_accounts") return [account];
       if (method === "eth_chainId") return "0x1";
       if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") return null;
-      if (method === "eth_sendTransaction") return call("eth_sendTransaction", [{ ...params[0], from: account }]);
+      if (method === "eth_sendTransaction") {
+        if (typeof window.__allowSends === "number") {
+          if (window.__allowSends <= 0) { const e = new Error("The wallet is disconnected"); e.code = 4900; throw e; }
+          window.__allowSends--;
+        }
+        return call("eth_sendTransaction", [{ ...params[0], from: account }]);
+      }
       return call(method, params);
     },
     on() { return this; }, removeListener() { return this; },
   };
-}, { rpcUrl: stack.rpc, account: stack.funding });
-
-const requests = []; // every request the page makes, with the phase it happened in and its body (the leakage twin)
-let phase = "first-launch";
-context.on("request", (r) => requests.push({ phase, url: r.url(), method: r.method(), body: r.postData() ?? null }));
-const page = await context.newPage();
-page.on("pageerror", (e) => log(`page error: ${e.message}`));
-page.on("console", (m) => { if (m.type() === "error") log(`console error: ${m.text().slice(0, 200)}`); });
-// a 4xx/5xx answer is what Chrome prints as "Failed to load resource": name the request behind it (the path only)
-page.on("response", (r) => { if (r.status() >= 400) log(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`); });
-page.on("requestfailed", (r) => { const u = new URL(r.url()); log(`request failed ${r.method()} ${u.host}${u.pathname}: ${r.failure()?.errorText ?? "?"}`); });
+}
+/** A context's wallet and request log (again after a restart). */
+async function prepare(ctx) {
+  await ctx.addInitScript(injectedWallet, { rpcUrl: stack.rpc, account: stack.funding });
+  ctx.on("request", (r) => requests.push({ phase, url: r.url(), method: r.method(), body: r.postData() ?? null }));
+}
+/** A page's error log. */
+function watch(pg) {
+  pg.on("pageerror", (e) => log(`page error: ${e.message}`));
+  pg.on("console", (m) => { if (m.type() === "error") log(`console error: ${m.text().slice(0, 200)}`); });
+  // a 4xx/5xx answer is what Chrome prints as "Failed to load resource": name the request behind it (the path only)
+  pg.on("response", (r) => { if (r.status() >= 400) log(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`); });
+  pg.on("requestfailed", (r) => { const u = new URL(r.url()); log(`request failed ${r.method()} ${u.host}${u.pathname}: ${r.failure()?.errorText ?? "?"}`); });
+  return pg;
+}
+let context = await launchContext();
+log(`browser ${context.browser()?.version() ?? "(a persistent profile)"} (${CHANNEL ?? "playwright chromium"}, ${HEADLESS ? "headless" : "headed"})`);
+await prepare(context);
+let page = watch(context.pages()[0] ?? (await context.newPage()));
 let phrase = "";
 
 try {
@@ -519,7 +565,11 @@ try {
   await clickId(page, "home-send"); await byId(page, "send-view").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
   await nav(page, "More"); await clickId(page, "more-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await nav(page, "Home"); await byId(page, "home").waitFor(); // V6: Receive is More's
   await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
-  await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "security"); await clickId(page, "back"); await byId(page, "home").waitFor();
+  await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "security");
+  // V6 Stage 15 (spec v2.0 §8; doc §18): 15 idle minutes by default; this run waits longer than that on some screens
+  check("auto-lock: 15 minutes by default (1 / 5 / 15 / 60 under Security)", (await byId(page, "auto-lock-15").getAttribute("aria-checked")) === "true");
+  await clickId(page, "auto-lock-60");
+  await clickId(page, "back"); await byId(page, "home").waitFor();
   const offOrigin = requests.filter((r) => r.phase === "first-launch" && !r.url.startsWith(WALLET));
   check("first launch: no request left the page's origin (creating a wallet, every route and screen)", offOrigin.length === 0, offOrigin.length ? offOrigin.slice(0, 5).map((r) => r.url).join(", ") : `${requests.length} same-origin loads`);
 
@@ -884,7 +934,24 @@ try {
     await snap(page, "steps-80k");
     // the runner by itself: the first step funded (a proof), signed and handed over to the executor — its amount is Executing
     // from the funding on (a funded step counts as executing), so the hand-over is read from the relayer's jobs
-    const firstJob = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null, PROOF_TIMEOUT);
+    // the live price may move between the approval and a step's hard quote: the steps pause ("Price changed") and a person
+    // accepts with Resume — as the $10M campaign's section does; the run says so when it happens
+    let priceMoves = 0;
+    const firstJob = await until(
+      page,
+      async () => {
+        const resume = byId(page, "swap-steps-resume");
+        if ((await resume.count()) && /Price changed/i.test(await text(page.locator("main")))) {
+          priceMoves++;
+          log(`the live price moved before step 1's hard quote (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
+          await resume.first().click();
+          await large80.waitFor({ timeout: 30_000 }).catch(() => {});
+        }
+        return (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null;
+      },
+      PROOF_TIMEOUT,
+    );
+    if (priceMoves) log(`step 1 went ahead after ${priceMoves} price consent(s)`);
     const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(await text(large80)) ? await text(large80) : null;
     check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (await text(large80))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? "none"}…`);
     if (firstJob) {
@@ -908,6 +975,120 @@ try {
   await shellPass(page, VIEWPORTS[0], "pseudo");
   await page.goto(WALLET, { waitUntil: "load" }); // the locale back to the preference
   await page.setViewportSize({ width: 430, height: 932 });
+
+  // 9b. V6 Stage 15 (spec v2.0 §7.11, §8, §12.5, §14.3; doc §18, §74–§75, §83): the hardening, in the browser ----------------
+  phase = "hardening";
+  {
+    // section 9 ended on a reload: the wallet is locked
+    if ((await firstOf(page, { home: byId(page, "home"), lock: byId(page, "lock-screen") }, 120_000)) === "lock") await unlock(page);
+    // pagehide locks at once; the unlock returns to the screen it interrupted
+    await nav(page, "More"); await clickId(page, "more-privacy"); await byId(page, "privacy-center").waitFor({ timeout: 30_000 });
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await byId(page, "lock-screen").waitFor({ timeout: 30_000 });
+    await page.locator('input[type="password"]').first().fill(PASSWORD);
+    await clickId(page, "unlock");
+    const back = await firstOf(page, { privacy: byId(page, "privacy-center"), home: byId(page, "home") }, 60_000);
+    check("pagehide locks; the unlock returns to the screen it interrupted (spec v2.0 §8)", back === "privacy", `landed on ${back}`);
+
+    // a minute idle under the 1-minute setting locks; back on the interrupted screen; 60 minutes again for the rest of the run
+    await nav(page, "Home"); await clickId(page, "home-settings"); await byId(page, "settings").waitFor();
+    await clickId(page, "auto-lock-1");
+    await nav(page, "Activity"); await byId(page, "activity").waitFor();
+    const idleStart = Date.now();
+    await byId(page, "lock-screen").waitFor({ timeout: 120_000 });
+    const idleS = Math.round((Date.now() - idleStart) / 1000);
+    check("a minute without activity locks the wallet (the minutes chosen under Security)", idleS >= 55 && idleS <= 90, `${idleS} s`);
+    await snap(page, "auto-locked");
+    await page.locator('input[type="password"]').first().fill(PASSWORD);
+    await clickId(page, "unlock");
+    check("the unlock after an automatic lock returns to Activity", (await firstOf(page, { activity: byId(page, "activity"), home: byId(page, "home") }, 60_000)) === "activity");
+    await nav(page, "Home"); await clickId(page, "home-settings"); await byId(page, "settings").waitFor();
+    await clickId(page, "auto-lock-60");
+    await clickId(page, "back"); await byId(page, "home").waitFor();
+
+    // the wallet disconnects between the approval and the protect: nothing moves; the retry deposits exactly once
+    if (stack.usdc) {
+      const vaultBefore = await balanceUsdc(stack.usdc.vault);
+      await openProtect(page, 1000, "USDC");
+      await clickId(page, "protect-review");
+      await waitReview(page);
+      await page.evaluate(() => { window.__allowSends = 1; }); // the approval goes through, then the wallet is gone
+      await confirmReview(page);
+      await page.getByText(/disconnected/i).first().waitFor({ timeout: 120_000 });
+      const said = await text(page.locator("main"));
+      check("a wallet disconnected mid-Protect: the progress says so and that the funds have not moved (doc §74)", /disconnected/i.test(said) && /not moved|Nothing was sent/i.test(said), said.slice(0, 200));
+      check("nothing reached the vault", (await balanceUsdc(stack.usdc.vault)) === vaultBefore);
+      await snap(page, "protect-disconnected");
+      await page.evaluate(() => { delete window.__allowSends; }); // reconnected
+      await openProtect(page, 1000, "USDC");
+      await clickId(page, "protect-review");
+      await waitReview(page);
+      await confirmReview(page);
+      await byId(page, "protect-done").waitFor({ timeout: 180_000 });
+      const gained = (await balanceUsdc(stack.usdc.vault)) - vaultBefore;
+      check("the retry deposits exactly once: the vault gains 990 USDC (1,000 less the 1 %)", gained === 990_000_000n, `${gained} base units`);
+    }
+
+    // a tab closed: a new tab of the same profile opens on the lock screen; the journal is all there
+    await nav(page, "Activity"); await byId(page, "activity").waitFor();
+    const rowsBefore = await byId(page, "activity-row").count();
+    await page.close();
+    page = watch(await context.newPage());
+    await page.goto(WALLET, { waitUntil: "load" });
+    await unlock(page);
+    await nav(page, "Activity"); await byId(page, "activity").waitFor();
+    const rowsTab = await byId(page, "activity-row").count();
+    check("a tab closed and opened again: unlock, and every Activity row is there (doc §74)", rowsTab === rowsBefore, `${rowsTab} of ${rowsBefore}`);
+
+    // the browser restarted on the same profile: the same
+    await context.close();
+    context = await launchContext();
+    await prepare(context);
+    page = watch(context.pages()[0] ?? (await context.newPage()));
+    await page.goto(WALLET, { waitUntil: "load" });
+    await unlock(page);
+    await nav(page, "Activity"); await byId(page, "activity").waitFor();
+    const rowsRestart = await byId(page, "activity-row").count();
+    check("the browser restarted: unlock, and every Activity row is there (doc §74)", rowsRestart === rowsBefore, `${rowsRestart} of ${rowsBefore}`);
+
+    // a Send whose answer is lost as the network drops: the banner, nothing submitted offline, the one transaction found again
+    phase = "offline-send";
+    const jobsOf = async () => { const j = await (await fetch(`${RELAYER}/jobs`)).json().catch(() => []); return Array.isArray(j) ? j.length : 0; };
+    const jobsBefore = await jobsOf();
+    const { recipient: rOff, receive: receiveOff } = await sendPublic(page, 0.05);
+    await clickId(page, "send-review");
+    await waitReview(page);
+    let dropped = false;
+    await context.route(`${RELAYER}/submit`, async (route) => {
+      if (dropped) return route.continue();
+      dropped = true;
+      const answered = await route.fetch(); // the relayer receives the submission and sends the transaction
+      log(`the relayer answered ${answered.status()}; the answer is lost as the network drops`);
+      await context.setOffline(true);
+      await route.abort("internetdisconnected");
+    });
+    await confirmReview(page);
+    await byId(page, "offline-banner").waitFor({ timeout: PROOF_TIMEOUT });
+    const banner = await text(byId(page, "offline-banner"));
+    check("offline: the banner's words (doc §75)", /Connection interrupted/.test(banner) && /being preserved/.test(banner) && /will not submit another transaction until the current state is verified/.test(banner), banner);
+    await snap(page, "offline-banner");
+    const submitsAt = requests.filter((r) => r.url === `${RELAYER}/submit`).length;
+    await page.waitForTimeout(8_000);
+    check("nothing is submitted while offline", requests.filter((r) => r.url === `${RELAYER}/submit`).length === submitsAt);
+    await context.setOffline(false);
+    await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
+    await context.unroute(`${RELAYER}/submit`);
+    const gotOff = await balanceEth(rOff);
+    const newJobs = (await jobsOf()) - jobsBefore;
+    check("back online: the one transaction is found by its nullifier — one relayer job, the recipient paid once (doc §74–§75)", newJobs === 1 && Math.abs(gotOff - receiveOff) <= 5e-7, `${newJobs} job(s); ${gotOff} ETH (shown ${receiveOff})`);
+    check("the banner is gone once the state is verified", (await byId(page, "offline-banner").count()) === 0);
+    await snap(page, "offline-send-done");
+
+    // the proving key: downloaded once for the whole run — reloads, a tab closed and a browser restart included
+    const zkeyDownloads = requests.filter((r) => r.url.includes("/transaction_final.zkey")).length;
+    const cached = await page.evaluate(async () => { try { return (await (await caches.open("privacy-wallet-artifacts-v1")).keys()).map((k) => new URL(k.url).pathname); } catch (e) { return [String(e)]; } });
+    check("the proving key downloaded once for every proof of the run, kept under its pin by the crypto worker (spec v2.0 §14.3)", zkeyDownloads === 1 && cached.some((x) => x.startsWith("/__artifact-cache/transaction_final.zkey/")), `${zkeyDownloads} download(s); cache: ${cached.join(", ")}`);
+  }
 
   // 10. the leakage twin -------------------------------------------------------------------------------------------------------
   const words = phrase.split(/\s+/);
@@ -941,6 +1122,6 @@ try {
   report.requests = requests.length;
   writeFileSync(join(OUT, "report.json"), JSON.stringify(report, null, 2));
   log(`${report.checks.filter((c) => c.ok).length}/${report.checks.length} checks passed; ${report.failures.length} failure(s)`);
-  await browser.close();
+  await context.close();
   process.exitCode = report.failures.length ? 1 : 0;
 }

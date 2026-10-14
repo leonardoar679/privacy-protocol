@@ -78,9 +78,21 @@ export interface OrderDeps {
 
 /** The service forgets orders at a restart: the runner keeps the ones it saw and rebuilds the others from the journal. */
 const orders = new Map<string, ServiceOrder>();
-/** Tests: forget what the runner keeps in memory. */
+/** V6 Stage 15 (spec v2.0 §8): commit → hand-over is a critical section — the auto-lock waits for it (at most 30 minutes). */
+const handOverHolds = new Map<string, () => void>();
+function holdUntilHandedOver(orderId: string, s: WalletSession, now: number): void {
+  const k = orderId.toLowerCase();
+  if (!handOverHolds.has(k)) handOverHolds.set(k, s.hold("hand-over", now));
+}
+function releaseHandOver(orderId: string): void {
+  const k = orderId.toLowerCase();
+  handOverHolds.get(k)?.();
+  handOverHolds.delete(k);
+}
+/** Tests, and every lock: forget what the runner keeps in memory (a lock already ended the holds). */
 export function resetOrderRunnerMemory(): void {
   orders.clear();
+  handOverHolds.clear();
 }
 
 export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | null; session: WalletSession; submission: Settings["submission"] }): OrderIo {
@@ -177,6 +189,7 @@ export async function confirmOrder(i: Omit<CommitInput, "schedule"> & { delay?: 
   patchSwap(committed.stored.orderId, { runner: { confirmedAt: now, ...(delayUntil !== undefined ? { delayUntil } : {}) } }, s);
   const stored = journaled(committed.stored.orderId, s) ?? committed.stored;
   syncSwapRecord(stored, null, null, now);
+  if (delayUntil === undefined) holdUntilHandedOver(stored.orderId, s, now); // a privacy delay holds nothing
   tickAt(stored.orderId, delayUntil ?? now, s, now);
   return { ...committed, stored };
 }
@@ -365,5 +378,8 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     return { step: "handed-over", stored: st };
   } finally {
     schedulerStatus.finish();
+    // handed over, paused for the user, or over: the critical section ends
+    const st = journaled(a.orderId, s);
+    if (!st || st.jobId || st.paused || !isOpenSwap(st)) releaseHandOver(a.orderId);
   }
 }

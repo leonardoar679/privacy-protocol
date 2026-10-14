@@ -4,7 +4,16 @@
 // blockers re-checked when the user confirms, each of which stops the operation before anything moves.
 import { describe, expect, it } from "vitest";
 import type { QuoteSet, ServiceQuote } from "@privacy-wallet/sdk/swapService";
-import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, FUNDING_SECONDS, quoteLines, routeDetails } from "../src/features/swap/model";
+import {
+  chosenQuoteOf,
+  confirmBlockers,
+  destinationChecks,
+  expiresInOf,
+  FUNDING_SECONDS,
+  fundingSeconds,
+  quoteLines,
+  routeDetails,
+} from "../src/features/swap/model";
 import { TARGETS } from "../src/features/swap/targets";
 
 const NOW = Date.parse("2026-10-13T12:00:00Z");
@@ -42,14 +51,15 @@ describe("the destination's checks (doc §31)", () => {
 
 describe("the quote's lines (spec v2.0 §3)", () => {
   it("cross-chain: the minimum leads, the three fees in cents from one split, the time is the provider's plus the funding's", () => {
-    const lines = quoteLines({
+    const facts = {
       quotes: set,
       terms: { minimum: 10n ** 15n, feePercentBps: 100 },
       units: 4n * 10n ** 18n,
       from: ETH,
       to: TARGETS.BTC,
       privacy: null,
-    });
+    };
+    const lines = quoteLines(facts);
     expect(lines?.kind).toBe("cross-chain");
     if (lines?.kind !== "cross-chain") return;
     expect(lines.minimum.units).toBe(17_600_000n);
@@ -60,6 +70,9 @@ describe("the quote's lines (spec v2.0 §3)", () => {
       providerUsdCents: 2410n,
     });
     expect(lines.eta).toEqual([600 + FUNDING_SECONDS[0], 600 + FUNDING_SECONDS[1]]);
+    // V6 Stage 15: once the device has proven, its own time — the proof plus a block, twice it plus two minutes
+    expect(quoteLines({ ...facts, proofMs: 4_200 })!.eta).toEqual([600 + 5 + 15, 600 + 10 + 120]);
+    expect(fundingSeconds(null)).toEqual(FUNDING_SECONDS);
     expect(lines.protection, "no assessment yet: medium").toBe("medium");
   });
   it("funded by the connected wallet (no relayer terms): no fee note, the tip alone on the relayer line", () => {

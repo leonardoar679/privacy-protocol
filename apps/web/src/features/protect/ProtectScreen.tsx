@@ -32,7 +32,7 @@ import { ProtectView } from "./View";
 import { protectModel } from "./model";
 import { estimateShieldCost, type NetworkEstimate } from "./estimate";
 import { readPublicBalance } from "./publicBalance";
-import { useOperation, usePrefs, usePrices, useSettings } from "../../hooks";
+import { useConnectivity, useOperation, usePrefs, usePrices, useSettings } from "../../hooks";
 
 export interface ProtectScreenProps {
   masterSeed: Uint8Array;
@@ -63,6 +63,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
   const t = useT();
   const navigate = useNavigate();
   const { advanced } = useSettings();
+  const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
   const prices = usePrices();
   const pf = usePrefs();
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
@@ -275,6 +276,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
           protection: "high",
           large: false,
           hold: controlsFor(tier).hold,
+          confirmDisabled: !net.online,
         }
       : null;
 

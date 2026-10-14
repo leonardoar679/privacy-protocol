@@ -15,8 +15,18 @@ import { hours, type Target } from "./targets";
 import { whyLines } from "../privacy-center/model";
 import type { Level, SwapModel } from "./View";
 
-/** What the funding adds to the provider's time: the proof and the withdrawal's confirmation (until Stage 15 measures this device). */
+/** What the funding adds to the provider's time before this device has proven once: the proof and the withdrawal's confirmation. */
 export const FUNDING_SECONDS: [number, number] = [30, 150];
+
+/**
+ * V6 Stage 15 (spec v2.0 §14.3): the funding's time from this device's own last proof — the proof plus one block at
+ * best, twice the proof plus two minutes of confirmation at worst; the constant range until the device has proven.
+ */
+export function fundingSeconds(proofMs: number | null | undefined): [number, number] {
+  if (proofMs === null || proofMs === undefined || !Number.isFinite(proofMs) || proofMs <= 0) return FUNDING_SECONDS;
+  const s = Math.ceil(proofMs / 1000);
+  return [s + 15, 2 * s + 120];
+}
 
 export interface SwapDestinationFacts {
   value: string;
@@ -47,6 +57,8 @@ export interface QuoteFacts {
   /** the output asset's price (a same-chain swap's shield tip is in it) */
   toUsd1e8?: bigint | null;
   privacy: SwapPrivacy | null;
+  /** V6 Stage 15: this device's last proof (ms), when it has proven once */
+  proofMs?: number | null;
 }
 
 /** V6 Stage 12: a protected destination's shield tip, in the output's base units (0 elsewhere). */
@@ -86,7 +98,8 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   const providerUsd = (quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0);
   const providerCents = BigInt(Math.round(providerUsd * 100));
   const level: Level = f.privacy?.level ?? "medium";
-  const eta: [number, number] = [quote.etaSeconds + FUNDING_SECONDS[0], quote.etaSeconds + FUNDING_SECONDS[1]];
+  const funding = fundingSeconds(f.proofMs);
+  const eta: [number, number] = [quote.etaSeconds + funding[0], quote.etaSeconds + funding[1]];
   const shield = f.to.protected ? shieldTipOf(f.quotes) : 0n;
   const expected = amountOf(BigInt(quote.toAmount) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
   const minimum = amountOf(BigInt(quote.toAmountMin) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);

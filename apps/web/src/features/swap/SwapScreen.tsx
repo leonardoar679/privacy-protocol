@@ -37,6 +37,7 @@ import { walletLint, topBucket } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
+import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { buildCampaign, cancelCampaign, progressLine, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
@@ -61,7 +62,7 @@ import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, protect
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
 import { TARGETS, refOf, riskWord, sameChainTargets } from "./targets";
-import { useCampaigns, useOperation, usePoolStats, usePrices, useSession, useSettings, useNotes } from "../../hooks";
+import { useCampaigns, useConnectivity, useOperation, usePoolStats, usePrices, useSession, useSettings, useNotes } from "../../hooks";
 
 export interface SwapScreenProps {
   masterSeed: Uint8Array;
@@ -80,6 +81,7 @@ export function SwapScreen(p: SwapScreenProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { submission, advanced, preference, verifyReads, secondFactor, protection } = useSettings();
+  const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
   useSession();
   useNotes();
   usePoolStats();
@@ -325,6 +327,7 @@ export function SwapScreen(p: SwapScreenProps) {
                 to,
                 toUsd1e8: priceTo?.usd1e8 ?? null,
                 privacy,
+                proofMs: session.isUnlocked() && session.journal().proofStats ? proofEstimateMs() : null,
               })
             : null,
         expiresIn,
@@ -719,7 +722,7 @@ export function SwapScreen(p: SwapScreenProps) {
       protection: privacy?.level ?? "medium",
       large,
       hold: controls.hold,
-      confirmDisabled: busy || lintBlocked || destinationLocked || (needsDestAck && !destAck) || !health.ok,
+      confirmDisabled: busy || lintBlocked || destinationLocked || (needsDestAck && !destAck) || !health.ok || !net.online,
       blocked,
     };
     const extra = (

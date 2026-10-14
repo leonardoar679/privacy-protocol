@@ -98,11 +98,32 @@ wallet.example {
   ceremony's.
 - `/core/privacy_core_wasm.js`, `/core/privacy_core_wasm_bg.wasm`: `npm run core:assets` copies the Rust core's package
   into `public/core` before the build; without it the wallet runs the TypeScript reference.
-- `/artifacts.json`: the pins (`node scripts/pin-artifacts.mjs`; `docs/build-hashes.md` records them). The prover worker
+- `/artifacts.json`: the pins (`node scripts/pin-artifacts.mjs`; `docs/build-hashes.md` records them). The crypto worker
   hashes the proving key and the witness generator it fetched and refuses a mismatch in a production build; a build
-  without a pin file refuses to prove in production. `node scripts/check-artifact-pins.mjs` checks the pins against
+  without a pin file refuses to prove in production. V6 Stage 15: the worker keeps both in the browser's Cache API
+  (`privacy-wallet-artifacts-v1`) under their pinned SHA-256 and hashes them again on every read. An entry that no
+  longer matches is dropped and fetched again, a new pin replaces the old entry, and an unpinned artifact is never
+  cached, so the 31 MB key is downloaded once per device and per ceremony, not once per proof. `node scripts/check-artifact-pins.mjs` checks the pins against
   the files on the build machine and, when `dist/` exists, that `index.html` carries the policy and ships the pin file.
 - `/zkapi/*` (Private AI): `npm run zkapi:assets` and `npm run zkapi:pins` (docs/zkapi-integration-spec.md).
+
+## The API and the relayer
+
+Both services send the same headers on every answer, from `packages/server-kit/src/http.ts`:
+
+- `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`;
+- `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, since they serve JSON only;
+- `Strict-Transport-Security` when the service terminates TLS itself (`TLS=1`).
+
+Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit by the socket's address
+(`RATE_PER_MINUTE`). No proxy header is trusted, and the address is never logged. A POST that is not JSON answers 415.
+The relayer's edge is `apps/relayer/src/edge.ts` (`apps/relayer/test/edge.test.ts`), the API's `apps/api/src/app.ts`.
+
+Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS.
+
+The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
+wallet whose answer was lost (the network dropped mid-submission) finds its submission again instead of sending it
+twice (spec v2.0 §7.11).
 
 ## What the host never sees
 
@@ -113,7 +134,9 @@ the balance, the notes and the journal live encrypted in the browser's IndexedDB
 
 ## Checks before a release
 
-1. `node scripts/verify-all.mjs` (every suite, the lint, the leakage gate, the artifact pins, the dependency audit, the build).
+1. `node scripts/verify-all.mjs` (every suite, the lint, the leakage gate, the artifact pins, the dependency audit, the
+   build, and the bundle scan: `node scripts/scan-bundle.mjs` refuses a tracker SDK or host, a source map and a test
+   seed in `dist/`).
 2. `cd apps/web && npm run build && npm run preview`, open the preview: the console shows no CSP violation on first
    launch, Protect, Send, Swap, the Privacy Center.
 3. `node scripts/check-artifact-pins.mjs` on the build machine; `docs/build-hashes.md --dist` for the record.
