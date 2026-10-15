@@ -247,9 +247,10 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     from the health cache within that budget, and the wallet ends every API call after 90 s (`ApiTimeout`).
     - What remains: the prepare's hard quote and ingress are bounded only by each adapter's own request limits
       (THORChain: up to three gateways in turn). The order runner retries a prepare that timed out.
-    - The wallet's relayer client (`packages/sdk/src/relayer.ts`) has no timeout of its own: a relayer that keeps the
-      connection open without answering holds the step. A lost answer is already resolved by the lookup by nullifier
-      (gap 42).
+    - The wallet's relayer calls end too (the same day): a read after 20 s, a submission or a hand-over after 90 s
+      (`packages/sdk/src/relayer.ts`). A timeout is a lost answer, resolved by the lookup by nullifier (gap 42), and the
+      failover moves on from a relayer that does not answer its terms. The API's reads of the relayer and of the RPC
+      endpoints end after 10 s.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

@@ -8,7 +8,7 @@ import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/sched
 import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useConnectivity, useScheduler } from "../src/hooks";
-import { probe, startConnectivity } from "../src/platform/connectivity";
+import { PROBE_MS, probe, startConnectivity } from "../src/platform/connectivity";
 import { FAILURES_TO_OFFLINE } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { en } from "../src/app/i18n/en";
 
@@ -19,6 +19,8 @@ beforeEach(async () => {
   stop = startConnectivity();
 });
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   stop?.();
   connectivity.reset();
   session.forget();
@@ -49,6 +51,27 @@ describe("offline (doc §75)", () => {
     fetchSpy.mockClear();
     await probe();
     expect(fetchSpy, "online: no probe").not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("a probe the relayer never answers ends when the next one starts: probes never pile up", async () => {
+    for (let i = 0; i < FAILURES_TO_OFFLINE; i++) connectivity.unreachable();
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    let done = false;
+    void probe().then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(PROBE_MS - 1);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toBe(true);
+    expect(connectivity.get().online, "no answer: still offline").toBe(false);
+    expect(vi.getTimerCount() <= 1, "only the probe interval is left").toBe(true);
     fetchSpy.mockRestore();
   });
 

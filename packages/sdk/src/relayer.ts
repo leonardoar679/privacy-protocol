@@ -56,16 +56,44 @@ export class RelayerRefusal extends Error {
   constructor(message: string, public readonly code: string | undefined, public readonly status: number) { super(message); }
 }
 
+/**
+ * How long the wallet waits for a relayer: a read (its terms, a job, a status) 20 s, a submission or a hand-over 90 s. A
+ * relayer answers a submission once it is sent, not mined, so only a stuck relayer or a lost connection reaches these.
+ * Without them, a relayer that kept the connection open and never answered held the failover on its terms, and held a
+ * spend, and every spend queued behind it, for good.
+ */
+export const RELAYER_READ_TIMEOUT_MS = 20_000;
+export const RELAYER_WRITE_TIMEOUT_MS = 90_000;
+
+/**
+ * A relayer that did not answer in time. It is not a refusal: a submission may have reached it, so a spend treats it as a
+ * lost answer and asks the relayer for its job by nullifier before anything is sent again; the failover moves on.
+ */
+export class RelayerTimeout extends Error {
+  constructor(readonly ms: number) { super(`relayer: no answer within ${Math.round(ms / 1000)} s`); }
+}
+
 async function call<T>(url: string, path: string, body: unknown | undefined, fetchImpl: typeof fetch): Promise<T> {
-  const r = await fetchImpl(url.replace(/\/$/, "") + path, {
-    method: body === undefined ? "GET" : "POST", headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: "omit", redirect: "error",
-  });
-  const text = await r.text();
-  let j: any;
-  try { j = JSON.parse(text); } catch { j = { error: text.slice(0, 200) }; }
-  if (!r.ok) throw new RelayerRefusal(`relayer: ${j.error ?? r.status}${j.code ? ` (${j.code})` : ""}`, j.code, r.status);
-  return j as T;
+  const ms = body === undefined ? RELAYER_READ_TIMEOUT_MS : RELAYER_WRITE_TIMEOUT_MS;
+  // aborted as a TimeoutError, which counts toward offline like any other timeout (privacy-engine's connectivity)
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new DOMException(`no answer within ${ms} ms`, "TimeoutError")), ms);
+  try {
+    const r = await fetchImpl(url.replace(/\/$/, "") + path, {
+      method: body === undefined ? "GET" : "POST", headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "omit", redirect: "error", signal: ctl.signal,
+    });
+    const text = await r.text(); // a body cut off by the timeout rejects here: never read as the relayer's answer
+    let j: any;
+    try { j = JSON.parse(text); } catch { j = { error: text.slice(0, 200) }; }
+    if (!r.ok) throw new RelayerRefusal(`relayer: ${j.error ?? r.status}${j.code ? ` (${j.code})` : ""}`, j.code, r.status);
+    return j as T;
+  } catch (e) {
+    if (ctl.signal.aborted) throw new RelayerTimeout(ms);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const relayerInfo = (url: string, fetchImpl: typeof fetch = relayerFetch) => call<RelayerInfo>(url, "/info", undefined, fetchImpl);

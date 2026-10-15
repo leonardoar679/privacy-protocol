@@ -6,7 +6,7 @@ import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http"
 import { RpcDisagreement } from "../../chain";
 import { GuestInstructionMismatch } from "../../guestGuard";
 import { MinimumMoved, ProviderCallMismatch } from "../../providerCall";
-import { RelayerRefusal } from "../../relayer";
+import { RelayerRefusal, RelayerTimeout } from "../../relayer";
 import { OrderMismatch } from "../../swapGuard";
 import { ServiceMinimumMoved } from "../../swapService";
 import type { FundsClass } from "../../wallet/operationRecord";
@@ -31,6 +31,7 @@ export function classify(e: unknown): Classified {
   const detail = e instanceof Error ? e.message : typeof e === "string" ? e : "";
   const row = (code: string): Classified => ({ code, fundsClass: CATALOG[code].fundsClass, actions: CATALOG[code].actions, detail });
   if (e instanceof RelayerRefusal) return row(e.code && hasCode(e.code) ? e.code : e.status === 429 ? "rate_limited" : e.status === 503 ? "capacity" : "service_rejected");
+  if (e instanceof RelayerTimeout) return row("relayer_unreachable"); // a lost answer: the chain and the relayer's job are read before anything is sent again
   if (e instanceof ServiceMinimumMoved || e instanceof MinimumMoved) return row("minimum_moved");
   if (e instanceof RpcDisagreement) return row("rpc_disagreement");
   if (e instanceof TransportRefusal) return row("transport_refused");

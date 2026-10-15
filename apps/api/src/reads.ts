@@ -8,8 +8,19 @@ import type { ReconcileReads, RelayerJobView } from "./reconcile";
 
 type Fetch = typeof fetch;
 
-async function rpc<T>(url: string, method: string, params: unknown[], f: Fetch): Promise<T> {
-  const r = await f(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+/**
+ * How long the API waits for one read of the relayer or of an RPC endpoint. Without it, a relayer that never answered held
+ * every quote (its terms) and every reconcile, and a hung RPC endpoint kept the next one from being asked.
+ */
+export const READ_TIMEOUT_MS = 10_000;
+
+async function rpc<T>(url: string, method: string, params: unknown[], f: Fetch, ms: number): Promise<T> {
+  const r = await f(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(ms),
+  });
   const j = (await r.json()) as { result?: T; error?: { message?: string } };
   if (j.error || j.result === undefined) throw new Error(j.error?.message ?? `${method} failed`);
   return j.result;
@@ -24,17 +35,20 @@ export interface ReadsConfig {
   engine: PrivateSwapEngine;
   fetch?: Fetch;
   now?: () => number;
+  /** one read's limit (READ_TIMEOUT_MS) */
+  timeoutMs?: number;
 }
 
 export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Promise<RelayerTerms | null>; blockNumber(): Promise<number | null> } {
   const f = c.fetch ?? fetch;
   const now = c.now ?? Date.now;
+  const ms = c.timeoutMs ?? READ_TIMEOUT_MS;
   let terms: { at: number; value: RelayerTerms | null } | null = null;
   /** the first endpoint that answers */
   const firstAnswer = async <T>(method: string, params: unknown[]): Promise<T | null> => {
     for (const url of c.rpcUrls) {
       try {
-        return await rpc<T>(url, method, params, f);
+        return await rpc<T>(url, method, params, f, ms);
       } catch {
         /* the next endpoint */
       }
@@ -45,7 +59,7 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
     async job(orderId: string): Promise<RelayerJobView | "none" | null> {
       if (!c.relayerUrl) return "none";
       try {
-        const r = await f(`${c.relayerUrl}/swap/${orderId.toLowerCase()}`);
+        const r = await f(`${c.relayerUrl}/swap/${orderId.toLowerCase()}`, { signal: AbortSignal.timeout(ms) });
         if (r.status === 404) return "none";
         if (!r.ok) return null;
         const j = (await r.json()) as RelayerJobView;
@@ -76,7 +90,7 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
       if (terms && now() - terms.at < 30_000) return terms.value;
       let value: RelayerTerms | null = null;
       try {
-        const r = await f(`${c.relayerUrl}/info`);
+        const r = await f(`${c.relayerUrl}/info`, { signal: AbortSignal.timeout(ms) });
         if (r.ok) {
           const j = (await r.json()) as RelayerTerms;
           value = { minFeeWei: String(j.minFeeWei), ...(j.feeVaults ? { feeVaults: j.feeVaults } : {}) };

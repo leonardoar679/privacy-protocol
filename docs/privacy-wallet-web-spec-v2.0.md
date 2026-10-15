@@ -576,6 +576,13 @@ An attempt the network swallowed may have reached the relayer. Once back, the wa
 spending the first nullifier (`GET /jobs/by-nullifier/<n>`: the hash and the status only) before it would send
 anything again.
 
+*V6 follow-up (2026-10-14):* every relayer call ends. A read (its terms, a job, a status) ends after 20 s; a submission
+or a hand-over after 90 s (`packages/sdk/src/relayer.ts`, `RelayerTimeout`). A timeout is such a swallowed attempt, not
+a refusal, and the failover moves on from a relayer that does not answer its terms. Before, a relayer that kept the
+connection open held a spend for good, and with it every spend queued behind it (§14). The offline probe of the
+relayer's terms ends when the next one starts (`apps/web/src/platform/connectivity.ts`). The API's own reads of the
+relayer and of the RPC endpoints end after 10 s (`apps/api/src/reads.ts`).
+
 ## 8. External wallet and protected wallet (doc §15–§19) — *Stages 4, 15*
 
 `packages/wallet-engine` exposes `connect`, `disconnect`, `switchNetwork`, `getAddress`, `signMessage`,

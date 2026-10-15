@@ -10,11 +10,18 @@ import { kickScheduler } from "@privacy-wallet/sdk/wallet/schedule";
 
 export const PROBE_MS = 10_000;
 
-/** One request to the relayer while offline for want of answers: any answer is the network back. */
+/**
+ * One request to the relayer while offline for want of answers: any answer is the network back. It ends when the next one
+ * starts, so a relayer that keeps the connection open without answering never piles probes up.
+ */
 export async function probe(): Promise<void> {
   const s = connectivity.get();
   if (s.online || s.cause !== "unreachable") return;
-  await secureFetch(`${config().relayer.url.replace(/\/$/, "")}/info`, {}, "relayer").catch(() => {});
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new DOMException("no answer before the next probe", "TimeoutError")), PROBE_MS);
+  await secureFetch(`${config().relayer.url.replace(/\/$/, "")}/info`, { signal: ctl.signal }, "relayer")
+    .catch(() => {})
+    .finally(() => clearTimeout(timer));
 }
 
 export function startConnectivity(): () => void {
