@@ -10,6 +10,7 @@ import { orderSignerAddress, signExecution } from "@privacy-wallet/swap-engine/e
 import { NO_VALUER } from "@privacy-wallet/swap-engine/valuation";
 import type { Capabilities, Health, Ingress, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "@privacy-wallet/swap-engine/types";
 import { createApp } from "../src/app";
+import type { SwapApiDeps } from "../src/routes/swap";
 import { openDb } from "../src/db";
 import type { RelayerTerms } from "../src/quote";
 import type { RelayerJobView } from "../src/reconcile";
@@ -86,6 +87,8 @@ export interface Harness {
   lines: string[];
   script: Scripted;
   clock: { now: number };
+  /** what the app was built on: a test may build its own SwapApi over the same store */
+  deps: SwapApiDeps;
   post(path: string, body: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any; headers: Headers }>;
   get(path: string, headers?: Record<string, string>): Promise<{ status: number; body: any; headers: Headers }>;
   close(): Promise<void>;
@@ -109,17 +112,20 @@ export async function harness(o: { ratePerMinute?: number; origins?: string[]; t
   });
   store.seedProviders(["thorchain"]);
   const script: Scripted = { job: "none", balance: 0n };
-  const app = createApp(
-    {
-      engine,
-      store,
-      gateway: { upstream: null },
-      now: () => clock.now,
-      relayerTerms: async () => o.terms ?? null,
-      reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
-    },
-    { origins: new Set(o.origins ?? ["http://localhost:5173"]), tls: o.tls ?? false, ratePerMinute: o.ratePerMinute ?? 10_000, log },
-  );
+  const deps: SwapApiDeps = {
+    engine,
+    store,
+    gateway: { upstream: null },
+    now: () => clock.now,
+    relayerTerms: async () => o.terms ?? null,
+    reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
+  };
+  const app = createApp(deps, {
+    origins: new Set(o.origins ?? ["http://localhost:5173"]),
+    tls: o.tls ?? false,
+    ratePerMinute: o.ratePerMinute ?? 10_000,
+    log,
+  });
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
   });
@@ -136,6 +142,7 @@ export async function harness(o: { ratePerMinute?: number; origins?: string[]; t
     lines,
     script,
     clock,
+    deps,
     post: async (path, body, headers = {}) =>
       answer(
         await fetch(url + path, {

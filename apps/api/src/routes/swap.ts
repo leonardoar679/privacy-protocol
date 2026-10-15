@@ -138,8 +138,11 @@ export interface SwapApiDeps {
 
 const unknownOperation: Answer = { status: 404, body: { error: "unknown order", code: "unknown_order" } };
 
+/** reconcile: one read per operation per this window; a caller in between gets the last answer */
+export const RECONCILE_THROTTLE_MS = 5_000;
+
 export class SwapApi {
-  /** reconcile: one read per operation per 5 s; a caller in between gets the last answer */
+  /** the answers the throttle serves, each kept only while it serves it */
   private readonly reconciled = new Map<string, { at: number; result: Reconciled }>();
   constructor(readonly d: SwapApiDeps) {}
 
@@ -405,9 +408,13 @@ export class SwapApi {
   async reconcile(id: string): Promise<Answer> {
     const row = this.operation(id);
     if (!row) return unknownOperation;
+    // An answer is kept only while the throttle serves it. Before, every operation's last answer (its state and its
+    // transactions) stayed in memory for the process's life, past the database's own retention.
+    const now = this.d.now();
+    for (const [k, v] of this.reconciled) if (now - v.at >= RECONCILE_THROTTLE_MS) this.reconciled.delete(k);
     const last = this.reconciled.get(id);
-    if (last && this.d.now() - last.at < 5_000) return { status: 200, body: last.result };
-    const result = await reconcileOperation(this.d.store, row, this.d.reads, this.d.now());
+    if (last) return { status: 200, body: last.result };
+    const result = await reconcileOperation(this.d.store, row, this.d.reads, now);
     this.reconciled.set(id, { at: this.d.now(), result });
     return { status: 200, body: result };
   }

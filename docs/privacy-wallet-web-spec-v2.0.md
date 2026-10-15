@@ -1063,7 +1063,8 @@ only in `operations.order_blob` until `finalize` nulls it. Retention (a purge ev
 expiry; terminal operations after 7 days; an abandoned operation 2 days after `refund_after`; `system_events` 7 days;
 `provider_health` 48 h. Reconcile reads the relayer job, the chain (escrow balance, receipts, the receiver) and
 `adapter.track`, computes `settlementOf`, persists, answers `{state, settlement, refs, checkedAt, sources}`; one call
-per id per 5 s. Security: a CORS allowlist, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+per id per 5 s, the answer kept in memory only for those 5 s (a V6 follow-up of 2026-10-14: it had stayed for the
+process's life, past the retention above). Security: a CORS allowlist, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, HSTS behind
 TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory token buckets, `trust proxy` off.
 **Logs** (doc §67, `packages/server-kit`): one JSON line per event with keys ⊆ {`at`, `level`, `event`,

@@ -17,7 +17,8 @@ schedule (`src/db.ts` `RETENTION`):
 - quotes, 1 h after they expire;
 - a finished operation, after 7 days;
 - an abandoned order, 2 days past its refund window;
-- events after 7 days; provider health after 48 h.
+- events after 7 days; provider health after 48 h;
+- in memory, a reconcile's answer only while its 5-second throttle serves it.
 
 ## Routes
 
@@ -50,7 +51,7 @@ schedule (`src/db.ts` `RETENTION`):
 ```
 cd apps/api && cp .env.example .env      # PORT, DB_PATH, ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (+ the engine's: packages/swap-engine/.env.example)
 npm start                                # http://127.0.0.1:8787/v1
-npm test                                 # 30 tests: schema, routes, reconcile, retention, security, logs, a full flow, the reads, provider failures
+npm test                                 # 31 tests: schema, routes, reconcile, retention, security, logs, a full flow, the reads, provider failures
 ```
 
 The local stack starts it on 8787 with `run/api.sqlite` (`scripts/local-stack/start-services.mjs service`).

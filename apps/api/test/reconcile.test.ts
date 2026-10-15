@@ -4,6 +4,7 @@
 // unreachable (nothing downgraded), the execution failed (the refund available), a reorg (the funding pending again), an
 // unfunded order past its window; one read per 5 s; a cost above 1.5 × the tip logged once as fee.deviation, no amount.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RECONCILE_THROTTLE_MS, SwapApi } from "../src/routes/swap";
 import { harness, orderBody, TIP, type Harness } from "./helpers";
 
 let h: Harness;
@@ -96,6 +97,16 @@ describe("reconcile — the legs of doc §82", () => {
     const second = await h.post(`/v1/operations/${id}/reconcile`, {});
     expect(second.body).toEqual(first.body);
     expect((await h.post(`/v1/operations/op_${"b".repeat(26)}/reconcile`, {})).status).toBe(404);
+  });
+  it("the throttle keeps an answer only while it serves it: nothing of an operation stays in memory past the window", async () => {
+    const api = new SwapApi(h.deps);
+    const held = () => (api as unknown as { reconciled: Map<string, unknown> }).reconciled;
+    const other = (await h.post("/v1/operations", orderBody())).body.operationId as string;
+    await api.reconcile(id);
+    expect([...held().keys()]).toEqual([id]);
+    h.clock.now += RECONCILE_THROTTLE_MS;
+    await api.reconcile(other);
+    expect([...held().keys()], "the first answer is gone once the throttle no longer serves it").toEqual([other]);
   });
   it("a relayer cost above 1.5 × the committed tip of an ETH order is logged once as fee.deviation, without an amount", async () => {
     h.script.job = { state: "executed", executionTx: EXEC, actualNetworkWei: ((TIP * 3n) / 2n + 1n).toString() };
