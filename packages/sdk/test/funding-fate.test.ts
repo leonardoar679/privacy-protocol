@@ -1,6 +1,7 @@
 // What became of a funding sent for an order (a V6 follow-up of 2026-10-14). It is journaled before it is sent, and no
-// runner sends another before its fate is known. Landed: its notes are spent. Pending: the relayer has a job for them,
-// the node knows its transaction, or it is younger than FUNDING_SETTLE_MS. Dead: none of these. Unknown: a read failed.
+// runner sends another before its fate is known. Landed: its notes are spent (or its transaction mined). Pending: the
+// relayer has a job for them, the node knows its transaction, or it is younger than FUNDING_SETTLE_MS. Dead: its
+// transaction reverted, or none of these. Unknown: a read failed.
 import { describe, expect, it } from "vitest";
 import type { Hex } from "viem";
 import { FUNDING_SETTLE_MS, fundingFate, type FundingReads } from "../src/swapFunding";
@@ -16,7 +17,9 @@ const attempt = (over: Partial<FundingAttempt> = {}): FundingAttempt => ({
   ...over,
 });
 
-function reads(o: { spent?: string[]; job?: boolean; known?: boolean; fail?: "spent" | "job" | "tx" } = {}): FundingReads & { asked: string[] } {
+function reads(
+  o: { spent?: string[]; job?: boolean; known?: boolean; receipt?: "success" | "reverted" | null; fail?: "spent" | "job" | "tx" | "receipt" } = {},
+): FundingReads & { asked: string[] } {
   const asked: string[] = [];
   return {
     asked,
@@ -29,6 +32,11 @@ function reads(o: { spent?: string[]; job?: boolean; known?: boolean; fail?: "sp
       asked.push(`job:${url}`);
       if (o.fail === "job") throw new Error("relayer: no answer within 20 s");
       return o.job ? { txHash: `0x${"ab".repeat(32)}` as Hex } : null;
+    },
+    receipt: async (hash) => {
+      asked.push(`receipt:${hash.slice(0, 6)}`);
+      if (o.fail === "receipt") throw new Error("fetch failed");
+      return o.receipt ?? null;
     },
     txKnown: async (hash) => {
       asked.push(`tx:${hash.slice(0, 6)}`);
@@ -52,7 +60,7 @@ describe("a funding's fate", () => {
   it("dead when old, unspent, without a job and unknown to the node: a new funding may go", async () => {
     const r = reads();
     expect(await fundingFate(attempt({ txHash: `0x${"cd".repeat(32)}` }), r, NOW)).toBe("dead");
-    expect(r.asked).toEqual(["spent:11", "spent:12", "job:http://relayer.test", "tx:0xcdcd"]);
+    expect(r.asked).toEqual(["spent:11", "spent:12", "job:http://relayer.test", "receipt:0xcdcd", "tx:0xcdcd"]);
     // sent by the connected wallet: no relayer to ask
     const w = reads();
     expect(await fundingFate(attempt({ by: "wallet", relayerUrl: undefined }), w, NOW)).toBe("dead");
@@ -60,8 +68,19 @@ describe("a funding's fate", () => {
     expect(FUNDING_SETTLE_MS).toBe(600_000);
   });
 
+  it("dead at once when its transaction was mined and reverted — the journaled one, or the relayer's for its notes — however young", async () => {
+    // before (2026-10-14) a reverted funding read as pending for good: the relayer keeps the job and the node the transaction
+    const young = { at: NOW - 1_000 };
+    expect(await fundingFate(attempt({ ...young, txHash: `0x${"cd".repeat(32)}` }), reads({ receipt: "reverted", known: true }), NOW)).toBe("dead");
+    expect(await fundingFate(attempt(young), reads({ job: true, receipt: "reverted", known: true }), NOW)).toBe("dead");
+    // mined and successful while the nullifier read lagged: landed
+    expect(await fundingFate(attempt(young), reads({ job: true, receipt: "success" }), NOW)).toBe("landed");
+    // not mined yet: the relayer's job keeps it pending
+    expect(await fundingFate(attempt(), reads({ job: true, receipt: null }), NOW)).toBe("pending");
+  });
+
   it("unknown when the chain or the relayer cannot be read: never dead", async () => {
-    for (const fail of ["spent", "job", "tx"] as const)
+    for (const fail of ["spent", "job", "tx", "receipt"] as const)
       expect(await fundingFate(attempt({ txHash: `0x${"cd".repeat(32)}` }), reads({ fail }), NOW), fail).toBe("unknown");
   });
 });

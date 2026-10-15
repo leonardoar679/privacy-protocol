@@ -389,6 +389,51 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "funding_unconfirmed", fundsClass: "still-protected" } });
   });
 
+  it("a funding that may still land keeps the order past its window; landing late, it is returned, never left in the escrow", async () => {
+    // 2026-10-14: the window's end had stopped such an order whatever its funding's fate, and a funding that landed after
+    // it stayed in the escrow with no way back
+    const end = Math.floor(T0 / 1000) + 1800;
+    order({
+      params: { amount: AMOUNT.toString(), executeDeadline: end, refundAfter: end + 7200 },
+      fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 },
+    } as Partial<StoredSwap>);
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    let fate: FundingFate = "pending";
+    io.fundingFate = async () => fate;
+    const late = end * 1000 + 60_000;
+    expect((await runOrderTick(pending()!, deps(io, late)))?.step, "pending past the window: still reconciling").toBe("paused");
+    expect(stored().paused?.code).toBe("reconcile");
+    fate = "unknown";
+    expect((await runOrderTick(pending()!, deps(io, late + 15_000)))?.step, "an unreadable fate decides nothing").toBe("paused");
+    expect(stored().state).not.toBe("abandoned");
+    // it lands: the escrow holds the funds, which can only come back through its refund
+    fate = "landed";
+    w.escrow = AMOUNT;
+    expect((await runOrderTick(pending()!, deps(io, late + 30_000)))?.step).toBe("funded");
+    expect((await runOrderTick(pending()!, deps(io, late + 45_000)))?.step).toBe("paused");
+    expect(stored().paused?.code).toBe("execution_window_closed");
+    expect(w.signs + w.funds, "nothing signed, nothing sent again").toBe(0);
+    expect(await returnFunds(ORDER, deps(io, late + 60_000))).toBe("refunding");
+    expect(w.refunds).toBe(1);
+    // a dead funding past the window still stops the order: nothing moved
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action()];
+    });
+    resetOperationsMemory();
+    order({
+      params: { amount: AMOUNT.toString(), executeDeadline: end, refundAfter: end + 7200 },
+      fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 },
+    } as Partial<StoredSwap>);
+    const dead = world();
+    dead.io.fundingFate = async () => "dead";
+    expect((await runOrderTick(pending()!, deps(dead.io, late)))?.step).toBe("stopped");
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "funding_unconfirmed" } });
+  });
+
   it("THORNode gateways that do not answer at signing: an outage tried again, never an unsafe call; signed once they answer", async () => {
     // 2026-10-14: the local stack's run stopped a funded swap into the protected balance here, for good
     order();

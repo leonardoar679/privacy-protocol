@@ -491,7 +491,7 @@ export const en = {
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",
-  "op.error.funding_unconfirmed.reason": "Its funding was sent but never confirmed, and a funding is never sent twice on its own. Your funds are still in your protected balance, or come back through the escrow's refund if that funding lands late. Review the swap again.",
+  "op.error.funding_unconfirmed.reason": "Its funding was sent but never landed, and a funding is never sent twice on its own. Your funds are still in your protected balance. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",
   "op.error.unsafe_contract_call.reason": "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
   "op.error.execution_window_closed.title": "The swap ran out of time",

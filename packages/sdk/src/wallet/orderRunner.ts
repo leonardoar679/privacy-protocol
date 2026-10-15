@@ -338,10 +338,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         patchSwap(a.orderId, { state: "funded", paused: undefined }, s);
       } else if (fate !== null || stored.paused?.code === "reconcile") {
         // A funding with an unknown outcome: the escrow is read again before anything is sent again. A dead one (its notes
-        // unspent, no relayer job, past FUNDING_SETTLE_MS) stops the order at once; so does the order's closed window with
-        // the escrow read and still short. Its notes were never spent, and a funding mined after all comes back through
-        // the escrow's refund. Before (to 2026-10-14), a funding that was sent and dropped kept the order reconciling for good.
-        if (fate === "dead" || (bal !== null && now / 1000 > Number((stored.params as { executeDeadline?: number }).executeDeadline))) {
+        // unspent, no relayer job, past FUNDING_SETTLE_MS, or its transaction reverted) stops the order at once. One that may
+        // still land keeps the order reconciling past its window: landed late, the escrow holds the funds and the order stops
+        // for "Return funds" (`execution_window_closed`). Before (to 2026-10-14) the window's end stopped the order whatever
+        // the funding's fate, and a funding that landed after it stayed in the escrow with no way back. Only an order
+        // reconciling with no journaled funding (a journal from before those were kept) stops at the window's end, with the
+        // escrow read and still short. (Before that, a funding sent and dropped had kept the order reconciling for good.)
+        if (fate === "dead" || (fate === null && bal !== null && now > windowEndOf(stored))) {
           const detail = "Its funding was sent but never confirmed; a funding is never sent twice on its own.";
           patchSwap(a.orderId, { paused: { code: "funding_unconfirmed", detail, at: now } }, s);
           abandonSwap(a.orderId, s);

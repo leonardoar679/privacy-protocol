@@ -534,7 +534,7 @@ export const ko: Record<MessageKey, string> = {
   "op.error.transaction_dropped.reason": "전송되었지만 처리되기 전에 누락되어 아무것도 이동하지 않았습니다. 다시 보내세요.",
   "op.error.funding_unconfirmed.title": "자금 투입이 확인되지 않아 스왑이 중단되었습니다",
   "op.error.funding_unconfirmed.reason":
-    "자금 투입이 전송되었지만 확인되지 않았고, 자금 투입은 저절로 두 번 전송되지 않습니다. 자금은 보호 잔액에 그대로 있거나, 그 투입이 늦게 처리되면 에스크로의 환불로 돌아옵니다. 스왑을 다시 검토하세요.",
+    "자금 투입이 전송되었지만 처리되지 않았고, 자금 투입은 저절로 두 번 전송되지 않습니다. 자금은 보호 잔액에 그대로 있습니다. 스왑을 다시 검토하세요.",
   "op.error.unsafe_contract_call.title": "이 거래를 중단했습니다",
   "op.error.unsafe_contract_call.reason":
     "컨트랙트 호출이 점검을 통과하지 못해 아무것도 서명하지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",

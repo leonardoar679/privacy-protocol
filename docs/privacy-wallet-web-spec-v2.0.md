@@ -436,9 +436,13 @@ the escrow or the executor is read before anything is sent again; *V6 follow-ups
 submission is journaled before it is sent (`StoredSwap.fundingAttempt`: its nullifiers, the relayer, the transaction),
 so a reload or a lost answer still knows it, and its fate decides (`packages/sdk/src/swapFunding.ts` `fundingFate`):
 landed (its notes spent), pending (a relayer job for them, the node knows it, or under 10 minutes old), dead, or
-unknown. A funding is never sent twice on its own (plan §86): a dead one, or a funding still unconfirmed when the
-order's window closes with the escrow read and short, stops the order as `funding_unconfirmed`, CANCELLED and still
-protected. Before, a reload during a funding sent a second one, and a dropped one kept the order reconciling for good). A failure before anything was sent goes to the
+unknown. A funding is never sent twice on its own (plan §86): a dead one (its transaction reverted, or its notes
+unspent with no relayer job and no transaction the node knows, past 10 minutes) stops the order as
+`funding_unconfirmed`, CANCELLED and still protected; one that may still land keeps the order reconciling past its window
+(a V6 follow-up of 2026-10-14 — before, the window's end stopped it whatever the fate, and a funding landing after that
+stayed in the escrow with no way back), and, landed, the order stops for "Return funds" (`execution_window_closed`).
+Only an order reconciling without a journaled funding (a journal from before they were kept) stops at the window's end
+with the escrow read and short. Before, a reload during a funding sent a second one, and a dropped one kept the order reconciling for good). A failure before anything was sent goes to the
 scheduler's backoff — except `older_notes_unavailable` (§14.1): the order is stopped unfunded (CANCELLED with that
 reason, "Review again"), since its escrow's window cannot wait 1–24 h and younger notes would break what the Review
 showed. *A V6 follow-up of 2026-10-14 — the execution window:* an order with less than five minutes of its window left

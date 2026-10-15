@@ -3,7 +3,7 @@
 // tab, since the runner lives at the App level. Every check the Swap screen made stays here: the escrow
 // is recomputed from the wallet's own factory and the journaled params before a single note is spent,
 // and an order that is no longer open (abandoned, already funded) is never funded.
-import { TransactionNotFoundError, type Address, type Hex } from "viem";
+import { TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex } from "viem";
 import { clientFor, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { coreAbi } from "./privacyProtocol";
@@ -66,15 +66,19 @@ export const FUNDING_MARGIN_MS = 5 * 60_000;
  * - landed: its notes are spent on chain, and the escrow's balance follows.
  * - pending: the relayer still has a job for its notes, the node still knows its transaction, or it is younger than
  *   FUNDING_SETTLE_MS.
- * - dead: none of these. A new funding is safe: nothing of the old one can land twice, since the chain refuses a spent
- *   nullifier, and a late landing returns through the escrow's refund.
+ * - dead: its transaction was mined and reverted, or none of the above. It never lands, and its notes stay unspent; a new
+ *   funding is safe, since the chain refuses a spent nullifier.
  * - unknown: the chain or the relayer could not be read.
+ * A V6 follow-up of 2026-10-14: a reverted funding had read as pending for good (the relayer keeps the job, the node
+ * knows the transaction).
  */
 export type FundingFate = "landed" | "pending" | "dead" | "unknown";
 
 export interface FundingReads {
   spent(nullifier: bigint): Promise<boolean>;
   relayerJob(url: string, nullifiers: [bigint, bigint]): Promise<{ txHash: Hex } | null>;
+  /** the receipt's status, or null while the transaction is not mined; throws when it cannot be read */
+  receipt(hash: Hex): Promise<"success" | "reverted" | null>;
   /** the node knows the transaction (pending or mined); false when it does not; throws when it cannot be read */
   txKnown(hash: Hex): Promise<boolean>;
 }
@@ -85,6 +89,14 @@ export function fundingReads(d: Deployment): FundingReads {
   return {
     spent: async (n) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean,
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
+    receipt: async (hash) => {
+      try {
+        return (await client.getTransactionReceipt({ hash })).status;
+      } catch (e) {
+        if (e instanceof TransactionReceiptNotFoundError) return null;
+        throw e;
+      }
+    },
     txKnown: async (hash) => {
       try {
         await client.getTransaction({ hash });
@@ -101,7 +113,16 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
   try {
     const spent = await Promise.all(a.nullifiers.map((n) => reads.spent(BigInt(n))));
     if (spent.some(Boolean)) return "landed";
-    if (a.by === "relayer" && a.relayerUrl && (await reads.relayerJob(a.relayerUrl, [BigInt(a.nullifiers[0]), BigInt(a.nullifiers[1])]))) return "pending";
+    const job = a.by === "relayer" && a.relayerUrl ? await reads.relayerJob(a.relayerUrl, [BigInt(a.nullifiers[0]), BigInt(a.nullifiers[1])]) : null;
+    // its transaction (the journaled one, else the one the relayer sent for these notes): mined and reverted, it never lands;
+    // mined, it landed (the nullifier read lagged)
+    const hash = (a.txHash as Hex | undefined) ?? job?.txHash;
+    if (hash) {
+      const r = await reads.receipt(hash);
+      if (r === "reverted") return "dead";
+      if (r === "success") return "landed";
+    }
+    if (job) return "pending";
     if (a.txHash && (await reads.txKnown(a.txHash as Hex))) return "pending";
   } catch {
     return "unknown";

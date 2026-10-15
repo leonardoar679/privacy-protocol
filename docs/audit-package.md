@@ -216,8 +216,11 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     only cause a second attempt that fails on chain (a nullifier spends once) — a wasted fee, never a double spend. The
     same holds for a transaction the relayer counts as dropped (unknown to its node 10 minutes after it was sent, its
     nullifiers unspent) that is mined after all: the wallet's next attempt reverts (2026-10-14). A swap's funding that is
-    sent and never confirmed is never sent again: the order runner stops the swap once its window closes with the escrow
-    still short (`funding_unconfirmed`). A funding mined after that comes back through the escrow's refund. Since the
+    sent and never confirmed is never sent again: a dead one (its notes unspent and its transaction reverted or gone)
+    stops the swap (`funding_unconfirmed`), and one that may still land keeps it reconciling past its window; landed late,
+    the swap stops for "Return funds" (`execution_window_closed`). Until a follow-up later that day, the window's end
+    stopped the swap whatever the funding's fate, and the claim here that a later landing "comes back through the escrow's
+    refund" had no one to trigger it: the escrow's `refund()` needs the refund note data, which only the wallet holds. Since the
     same day, a funding is journaled before it is sent and never sent twice on its own: a reload during a funding had
     sent a second one (both landed when the notes differed, the excess held in the escrow until its refund). A dead
     funding (its notes unspent, no relayer job, older than 10 minutes) stops a swap, and only the user's Resume funds a
