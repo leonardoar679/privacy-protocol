@@ -137,7 +137,8 @@ Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS, and set `TRUS
 (1 for one). Without it every caller shares the proxy's address and so one bucket, which a single client can use up
 for everyone (a V6 follow-up of 2026-10-15). Set it only when the service cannot be reached past those proxies.
 
-The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
+The relayer's job lists (`GET /swap`, `GET /jobs`) are operator data: they answer only with `RELAYER_ADMIN_TOKEN` as a
+bearer token, and are closed when it is unset. The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
 wallet whose answer was lost (the network dropped mid-submission) finds its submission again instead of sending it
 twice (spec v2.0 §7.11).
 

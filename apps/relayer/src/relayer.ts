@@ -250,7 +250,7 @@ export class Relayer {
     }
   }
 
-  /** Public journal (nullifiers and hashes are on chain anyway); the fee secrets are the relayer's own notes. */
+  /** Every submission, the fee notes' openings included: operator data (GET /jobs needs RELAYER_ADMIN_TOKEN, src/admin.ts). */
   jobs_(): Job[] { return [...this.jobs.values()]; }
   /**
    * V6 Stage 15 (doc §75): the job spending this nullifier — its transaction and status only —, so a wallet whose answer

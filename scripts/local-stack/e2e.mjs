@@ -1099,7 +1099,7 @@ try {
 
     // a Send whose answer is lost as the network drops: the banner, nothing submitted offline, the one transaction found again
     phase = "offline-send";
-    const jobsOf = async () => { const j = await (await fetch(`${RELAYER}/jobs`)).json().catch(() => []); return Array.isArray(j) ? j.length : 0; };
+    const jobsOf = async () => { const j = await (await fetch(`${RELAYER}/jobs`, { headers: { authorization: "Bearer local-stack" } })).json().catch(() => []); return Array.isArray(j) ? j.length : 0; }; // operator data: the token start-services.mjs sets
     const jobsBefore = await jobsOf();
     const { recipient: rOff, receive: receiveOff } = await sendPublic(page, 0.05);
     await clickId(page, "send-review");

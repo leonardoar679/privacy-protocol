@@ -1,5 +1,5 @@
 // HTTP front of the relayer: GET /info (fee, privacy address), POST /submit (a proven transact +
-// the fee note's opening), GET /status/:txHash, GET /jobs; swap orders: POST /swap/execute
+// the fee note's opening), GET /status/:txHash, GET /jobs (operators only); swap orders: POST /swap/execute
 // (factory, params, signed execution, refund payload), POST /swap/refund (factory, params, refund payload:
 // return a funded order to the pool without executing it), GET /swap/:orderId, GET /swap; V6 Stage 12 (spec v2.0 §11.2) shield
 // receipts: POST /shield (factory, receiver params, payload, deliverBy), GET /shield/:receiptId. Loopback by default; CORS for the Vite
@@ -71,7 +71,11 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://relayer");
     if (req.method === "GET" && url.pathname === "/info") return send(200, { ...(await relayer.info()), ...(shields ? { shieldFactory: shields.cfg.factory } : {}) });
-    if (req.method === "GET" && url.pathname === "/jobs") return send(200, relayer.jobs_());
+    if (req.method === "GET" && url.pathname === "/jobs") {
+      // every submission with its fee note's opening is operator data, as the swap jobs are (src/admin.ts)
+      const auth = adminAuthorized(req.headers.authorization, process.env.RELAYER_ADMIN_TOKEN);
+      return auth.ok ? send(200, relayer.jobs_()) : send(auth.status, { error: auth.error, code: auth.code });
+    }
     if (req.method === "GET" && url.pathname.startsWith("/jobs/by-nullifier/")) {
       const job = relayer.jobByNullifier(decodeURIComponent(url.pathname.slice("/jobs/by-nullifier/".length)));
       return job ? send(200, job) : send(404, { error: "no job spends this nullifier", code: "unknown_nullifier" });

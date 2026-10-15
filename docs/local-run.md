@@ -58,7 +58,7 @@ curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's p
 ```
 V3 (`docs/high-value-protection-spec-v1.0.md`): the API reads its risk database from `packages/swap-engine/risk/`
 (`RISK_DB_DIR` to point elsewhere; `INCIDENTS_FILE` for an operator's incident list, re-read every minute) and answers
-`GET /v1/risk/:provider`; the relayer's `GET /swap` (the whole job list) opens only to `RELAYER_ADMIN_TOKEN`. V6 (spec
+`GET /v1/risk/:provider`; the relayer's `GET /swap` and `GET /jobs` (the whole job lists) open only to `RELAYER_ADMIN_TOKEN`. V6 (spec
 v2.0 §15): the API keeps swap records in `DB_PATH` (WAL), purges them on its retention schedule and logs one JSON line
 per event, never an address, a hash or an amount; `scripts/local-stack/start-services.mjs service` starts it on 8787
 with `run/api.sqlite`.
@@ -101,7 +101,8 @@ The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the sa
    *Advanced* then shows the finalized block and how many leaves are proven; a local `anvil` has no light
    client and says so; the RPC endpoints must serve `eth_getProof` at the finalized block), the proof is
    produced in the Web Worker (≈ 1–3 s on a laptop), the relayer submits from its own key, the change
-   note and the relayer's fee note are on chain; the relayer's `GET /jobs` shows the submission mined.
+   note and the relayer's fee note are on chain; the relayer's `GET /jobs` (with its operator token) shows the
+   submission mined.
    A note shielded in the last ~13 minutes is newer than finality: it is spendable, but proven only once
    its block is final.
 3. **Send** to a second wallet's `pp1…` address (its **Receive** screen shows it with a QR) → the transfer stays inside

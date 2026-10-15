@@ -65,7 +65,7 @@ start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
   LATE_REFUND_WATCH_SECONDS: "86400",
   MAX_UNPAID_REFUNDS: "3",
   RATE_PER_MINUTE: "600",
-  RELAYER_ADMIN_TOKEN: "local-stack", // opens GET /swap (the whole job list) to the browser run; operator data otherwise
+  RELAYER_ADMIN_TOKEN: "local-stack", // opens GET /swap and GET /jobs (the whole job lists) to the browser run; operator data otherwise
   PORT: "8790",
   HOST: "127.0.0.1",
 });
