@@ -95,7 +95,7 @@ export interface Harness {
 }
 
 export async function harness(
-  o: { ratePerMinute?: number; origins?: string[]; tls?: boolean; trustProxyHops?: number; terms?: RelayerTerms | null } = {},
+  o: { ratePerMinute?: number; origins?: string[]; tls?: boolean; trustProxyHops?: number; terms?: RelayerTerms | null; gatewayUpstream?: string } = {},
 ): Promise<Harness> {
   const lines: string[] = [];
   const log = createLogger((l) => lines.push(l));
@@ -117,7 +117,7 @@ export async function harness(
   const deps: SwapApiDeps = {
     engine,
     store,
-    gateway: { upstream: null },
+    gateway: { upstream: o.gatewayUpstream ?? null },
     now: () => clock.now,
     relayerTerms: async () => o.terms ?? null,
     reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },

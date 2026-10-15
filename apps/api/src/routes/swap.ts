@@ -31,7 +31,7 @@ import { gatewayHealth, gatewayQuote, type GatewayConfig } from "@privacy-wallet
 import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
-import { redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
+import { redactUrls, redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
 import { decodeBlob, encodeBlob, wire } from "../blob";
 import { newId, OPERATION_ID } from "../ids";
 import { quoteOf, type RelayerTerms } from "../quote";
@@ -631,7 +631,27 @@ export class SwapApi {
   gatewayHealth(): Answer {
     return { status: 200, body: gatewayHealth(this.d.gateway) };
   }
+  /**
+   * The quote set as /v1/quotes answers it: its bigints as strings (`wire`) and the engine's words with their URLs' hosts
+   * only (`scrubSet`). A malformed body is the caller's 400 once the gateway read its key, and an upstream's error keeps
+   * only its URLs' hosts. A V6 follow-up of 2026-10-15: the set went out raw, so `res.json` refused its bigints and every
+   * metered quote was a 500 the moment ZKAPI_UPSTREAM was set, and a malformed body was a 502, the upstream's fault.
+   */
   async gatewayQuote(headers: Record<string, string | string[] | undefined>, body: unknown): Promise<Answer> {
-    return gatewayQuote(this.d.gateway, headers, body, async (b: unknown) => this.engine.quoteAll(request(b), policyOf(b), hintsOf(b)));
+    let req: QuoteRequest | BadRequest;
+    try {
+      req = request(body);
+    } catch (e) {
+      if (!(e instanceof BadRequest)) throw e;
+      req = e;
+    }
+    const a = await gatewayQuote(this.d.gateway, headers, body, async (b: unknown) => {
+      if (req instanceof BadRequest) throw req;
+      return wire(scrubSet(await this.engine.quoteAll(req, policyOf(b), hintsOf(b))));
+    });
+    if (a.status !== 502) return a;
+    if (req instanceof BadRequest) throw req; // the caller's 400, after its key was read
+    const failed = a.body as Record<string, unknown>;
+    return { status: 502, body: { ...failed, error: redactUrls(String(failed.error ?? "")), code: "provider_unavailable" } };
   }
 }

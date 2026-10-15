@@ -151,3 +151,25 @@ describe("the registries, the status, the risk view, the track, the guest quote"
     expect((await h.get("/v1/gateway/health")).status).toBe(200);
   });
 });
+
+describe("the metered quote gateway, once it has an upstream (a V6 follow-up of 2026-10-15)", () => {
+  it("answers the quote set as /v1/quotes does; a missing key is 401, a malformed body the caller's 400, an upstream's error without a key", async () => {
+    await h.close();
+    h = await harness({ gatewayUpstream: "zkapi-test:private-swap" });
+    const key = { authorization: "zkapi rk_0123456789abcdef" };
+    expect((await h.post("/v1/gateway/quote", swapRequest())).status, "no runtime key").toBe(401);
+    const ok = await h.post("/v1/gateway/quote", swapRequest(), key);
+    expect(ok.status, "the quote set's bigints went to res.json raw: a 500").toBe(200);
+    expect(ok.body.requestId).toMatch(/^[0-9a-f]{32}$/);
+    expect(ok.body.result.quotes).toHaveLength(1);
+    expect(typeof ok.body.result.quotes[0].toAmountMin, "a bigint as a string").toBe("string");
+    const bad = await h.post("/v1/gateway/quote", { nope: true }, key);
+    expect([bad.status, bad.body.code], "the caller's mistake, not the upstream's").toEqual([400, "invalid_request"]);
+    h.adapter.quote = async () => {
+      throw new Error("HTTP 401 from https://thornode.example/v2/SECRET-KEY-123");
+    };
+    const refused = await h.post("/v1/gateway/quote", swapRequest(), key);
+    expect(JSON.stringify(refused.body)).toContain("https://thornode.example/…");
+    expect(JSON.stringify(refused.body)).not.toContain("SECRET-KEY-123");
+  });
+});
