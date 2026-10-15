@@ -83,8 +83,10 @@ function quoteSetFor(body: any) {
   const usd = (Number(req.amount) / 1e18) * 2500;
   const tier = tierOf(usd);
   const set = { quotes: [q], scores: [score], errors: {}, chosen: score, links: { thorchain: { public: true, evidence: "memo" } }, policy: "privacy-execution", tier, value: { usd, at: Date.now(), source: "chainlink" }, competition: [{ provider: "thorchain", outcome: "quoted", ms: 900 }, { provider: "chainflip", outcome: "refused", reason: "insufficient liquidity", ms: 1200 }], health: {} };
-  // the real risk layer (packages/swap-engine/src/risk/protection.ts) on the mock's competition: the recommendation the wallet turns into its own bounds
-  const protection = recommendProtection({ set: set as any, req, amount: req.amount, tier: tier as any, mode: body.mode ?? "balanced", usdPerUnit: 2500, rng: () => 0.5 });
+  // the real risk layer (packages/swap-engine/src/risk/protection.ts) on the mock's competition: the recommendation the wallet turns into its own bounds,
+  // its records read at a fixed clock — at the real one THORChain's decaying incident moved its score past the band's
+  // edge when the date turned 2026-10-15 (69 → 70), and the $1M plan's band with it
+  const protection = recommendProtection({ set: set as any, req, amount: req.amount, tier: tier as any, mode: body.mode ?? "balanced", usdPerUnit: 2500, rng: () => 0.5, now: Date.parse("2026-10-07T00:00:00Z") });
   return { ...set, ...(protection ? { protection } : {}) };
 }
 async function service(path: string, body: any): Promise<Response> {
