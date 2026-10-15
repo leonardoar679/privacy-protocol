@@ -17,7 +17,8 @@ import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
-import { patchSwap, type FundingFate } from "../src/swapFunding";
+import { FUNDING_MARGIN_MS, patchSwap, type FundingFate } from "../src/swapFunding";
+import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId } from "../src/operations/swapRecords";
 import type { Prepared } from "../src/swapService";
@@ -407,6 +408,78 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     outage = false;
     expect((await runOrderTick(pending()!, deps(io, T0 + 20_000)))?.step).toBe("handed-over");
     expect(w.handOvers).toBe(1);
+  });
+
+  // 2026-10-14: an order whose execution window closes — a funding delayed for privacy run at a late unlock, a tab closed
+  // after its funding, a moved minimum left for an hour — had been funded anyway, or retried its signature for good
+  const END = Math.floor(T0 / 1000) + 3600; // the escrow's executeDeadline
+  const windowed = (extra: Partial<StoredSwap> = {}) =>
+    order({ params: { amount: AMOUNT.toString(), executeDeadline: END } as StoredSwap["params"], ...extra });
+
+  it("an order whose execution window has closed, or is about to, is never funded: stopped unfunded with nothing sent", async () => {
+    windowed();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    // with more than the margin left it is funded as usual
+    expect((await runOrderTick(pending()!, deps(io, END * 1000 - FUNDING_MARGIN_MS - 60_000)))?.step).toBe("funded");
+    expect(w.funds).toBe(1);
+    // a second order whose funding comes four minutes before its window closes
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action()];
+    });
+    resetOperationsMemory();
+    windowed();
+    const late = world();
+    expect((await runOrderTick(pending()!, deps(late.io, END * 1000 - 4 * 60_000)))?.step).toBe("stopped");
+    expect(late.w.funds, "nothing sent").toBe(0);
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "order_expired" } });
+    expect(pending(), "its ticks end").toBeUndefined();
+    expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "order_expired", fundsClass: "not-moved" } });
+  });
+
+  it("a funded order whose window closed before its hand-over stops for Return funds: nothing signed, never retried on its own", async () => {
+    windowed({ fundedTx: "0xf00d", state: "funded" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.escrow = AMOUNT;
+    const late = END * 1000 + 60_000; // the tab came back after the window
+    expect((await runOrderTick(pending()!, deps(io, late)))?.step).toBe("paused");
+    expect(w.signs, "no signature that cannot execute").toBe(0);
+    expect(stored().paused).toMatchObject({ code: "execution_window_closed" });
+    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "execution_window_closed", fundsClass: "still-protected" } });
+    expect(actionsFor(record()!), "the way back is offered").toContain("start-refund");
+    // a tick that still comes (another tab, a stale schedule) waits for the user
+    session.update((j) => {
+      j.schedule = [action(late)];
+    });
+    expect((await runOrderTick(pending()!, deps(io, late + 1000)))?.step).toBe("waiting");
+    expect(w.signs).toBe(0);
+    // "Return funds": the refund-only job
+    expect(await returnFunds(ORDER, deps(io, late + 2000))).toBe("refunding");
+    expect(w.refunds).toBe(1);
+    expect(stored()).toMatchObject({ jobId: "refund-1" });
+  });
+
+  it("a lower minimum accepted after the window closed is not signed: the order stops for Return funds", async () => {
+    windowed({ fundedTx: "0xf00d", state: "funded" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world({ minOut: 2_900_000n });
+    w.escrow = AMOUNT;
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step).toBe("paused");
+    expect(stored().paused?.code).toBe("minimum_moved");
+    // the user comes back after the window and accepts
+    const late = END * 1000 + 5 * 60_000;
+    acceptNewMinimum(ORDER, session, late);
+    expect((await runOrderTick(pending()!, deps(io, late)))?.step).toBe("paused");
+    expect(stored().paused?.code).toBe("execution_window_closed");
+    expect(w.signs, "only the first signing, which asked for the new minimum").toBe(1);
   });
 
   it("a hand-over whose answer was lost, or that another tab made, is found by orderId: never handed over twice", async () => {

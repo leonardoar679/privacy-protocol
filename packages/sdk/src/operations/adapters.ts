@@ -106,6 +106,10 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   older_notes_unavailable: { state: "CANCELLED", phase: "funding", code: "older_notes_unavailable" },
   // a funding sent and never confirmed before the order's window closed: stopped, never sent again
   funding_unconfirmed: { state: "CANCELLED", phase: "funding", code: "funding_unconfirmed" },
+  // the order's execution window closed: before its funding, stopped with nothing sent; after it and before the hand-over,
+  // the escrow only refunds — the user returns the funds
+  order_expired: { state: "CANCELLED", phase: "funding", code: "order_expired" },
+  execution_window_closed: { state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_window_closed" },
 };
 
 /** A journaled order with (or without) the tracker's last derivation. */

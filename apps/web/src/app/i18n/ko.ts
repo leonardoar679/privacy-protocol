@@ -538,6 +538,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.unsafe_contract_call.title": "이 거래를 중단했습니다",
   "op.error.unsafe_contract_call.reason":
     "컨트랙트 호출이 점검을 통과하지 못해 아무것도 서명하지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",
+  "op.error.execution_window_closed.title": "스왑 실행 시간이 지났습니다",
+  "op.error.execution_window_closed.reason":
+    "서명하고 인계하기 전에 실행 기간이 끝나 아무것도 교환되지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",
   "op.error.housekeeping_needed.reason":
     "이 금액은 한 번의 사용으로 합칠 수 있는 것보다 많은 노트에 나뉘어 있습니다. 아무것도 전송되지 않았습니다. 비공개 잔액 관리를 실행한 뒤 다시 확인하세요.",
   "op.error.insufficient_balance.title": "보호 잔액이 부족합니다",

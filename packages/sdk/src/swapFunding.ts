@@ -53,6 +53,14 @@ export function abandonSwap(orderId: string, s: WalletSession = defaultSession):
  */
 export const FUNDING_SETTLE_MS = 10 * 60_000;
 
+/** The end of an order's execution window (ms): after it the escrow's execute reverts, and only its refund is left. */
+export const windowEndOf = (stored: Pick<StoredSwap, "params">): number => Number((stored.params as { executeDeadline?: number }).executeDeadline) * 1000;
+/**
+ * An order is funded only with at least this long left of its execution window, so that the funding, the signature and
+ * the execution fit in it; an order with less is never funded (a V6 follow-up of 2026-10-14).
+ */
+export const FUNDING_MARGIN_MS = 5 * 60_000;
+
 /**
  * What became of a journaled funding.
  * - landed: its notes are spent on chain, and the escrow's balance follows.

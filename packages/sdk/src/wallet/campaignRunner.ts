@@ -23,7 +23,7 @@ import { priceStore } from "../prices";
 import { ensureSpendable } from "../privateTx";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "../relayer";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../swapExecute";
-import { abandonSwap, fundEscrow, fundingFate, fundingReads, patchSwap, type FundingFate } from "../swapFunding";
+import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, patchSwap, windowEndOf, type FundingFate } from "../swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
@@ -406,6 +406,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           }
           patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
         }
+        // a step whose order's execution window has closed, or is about to, is never funded: its order is abandoned and the
+        // step planned again, as when the route changed before its funding (a V6 follow-up of 2026-10-14)
+        if (now + FUNDING_MARGIN_MS >= windowEndOf(stored)) {
+          abandonSwap(stored.orderId, s);
+          c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's execution window closed before it was funded: the order is abandoned and the step planned again");
+          nextAt = now + 1000; break;
+        }
         schedulerStatus.progress(`Protected swap: funding step ${t.index + 1} from your private balance…`);
         let sent = false;
         try {
@@ -428,7 +435,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         // Only when it cannot (a lower minimum, the price guard's refusal, an open breaker, a new incident) does the step
         // return through its own refund (§8), which waits for the escrow's window, and is planned again.
         const leftBehind = !!t.provider && !!c.provider && t.provider !== c.provider;
-        let leftRefund = leftBehind ? await leftRouteUnsound(t.provider!, c, io, now) : null;
+        // a funded step whose execution window has closed can only refund: it returns through its refund and is planned again
+        // (§8) — before (to 2026-10-14) it retried its signature on the scheduler's backoff for good
+        const closed = now >= windowEndOf(stored);
+        let leftRefund = closed ? "its execution window closed before it was signed" : leftBehind ? await leftRouteUnsound(t.provider!, c, io, now) : null;
         if (!leftRefund) {
           schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
           try {
@@ -460,7 +470,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           }
         }
         if (leftRefund) {
-          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider} and ${leftRefund}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `${closed ? leftRefund : `the route changed to ${c.provider} and ${leftRefund}`}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
           catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
         }
         break;
@@ -472,9 +482,11 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const existing = stored.jobId ? { id: stored.jobId, state: stored.state } : await io.job(stored);
         if (existing) { c = withTrancheState(c, t.index, "executing", now, { jobId: existing.id, handedOverAt: now }, "already handed over (reconciled)"); nextAt = now + TRACK_INTERVAL_MS; break; }
         // audit gap 44: a step signed on a route the campaign has since left is handed over there while that route stays sound
-        const unsound = t.provider && c.provider && t.provider !== c.provider ? await leftRouteUnsound(t.provider, c, io, now) : null;
+        // a signed step whose execution window has closed is not handed over either: it returns through its refund
+        const closed = now >= windowEndOf(stored);
+        const unsound = closed ? "its execution window closed before it was handed over" : t.provider && c.provider && t.provider !== c.provider ? await leftRouteUnsound(t.provider, c, io, now) : null;
         if (unsound) {
-          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `the route changed to ${c.provider} and ${unsound}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
+          try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `${closed ? unsound : `the route changed to ${c.provider} and ${unsound}`}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
           catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
           break;
         }

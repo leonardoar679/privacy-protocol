@@ -32,7 +32,7 @@ import {
 } from "../swapExecute";
 import { shieldJobRequest } from "../shieldReceiver";
 import { recoverShieldDelivery } from "../privateTx";
-import { abandonSwap, fundEscrow, fundingFate, fundingReads, isOpenSwap, patchSwap, type FundingFate } from "../swapFunding";
+import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, isOpenSwap, patchSwap, windowEndOf, type FundingFate } from "../swapFunding";
 import type { Prepared, ServiceOrder } from "../swapService";
 import { escrowBalance } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
@@ -316,7 +316,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       return { step: "track", stored: st };
     }
     // 2. a pause that waits for the user: nothing moves until they choose (the choice plans the next tick)
-    if (stored.paused?.code === "minimum_moved" || stored.paused?.code === "execution_unavailable") {
+    if (stored.paused?.code === "minimum_moved" || stored.paused?.code === "execution_unavailable" || stored.paused?.code === "execution_window_closed") {
       syncSwapRecord(stored, null, null, now);
       cancelAction(a.id, s);
       return { step: "waiting", stored };
@@ -358,6 +358,18 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
         return { step: "paused", stored: journaled(a.orderId, s)! };
       } else {
+        // An order whose execution window has closed, or is about to, is never funded: its escrow could only refund, after
+        // the funding's fees were paid for nothing. It stops unfunded (`order_expired`). A V6 follow-up of 2026-10-14: a
+        // funding delayed for privacy runs at the next unlock, which can come after the window — it had funded such orders.
+        if (now + FUNDING_MARGIN_MS >= windowEndOf(stored)) {
+          const detail = "Its execution window closed before it was funded; nothing was sent.";
+          patchSwap(a.orderId, { paused: { code: "order_expired", detail, at: now } }, s);
+          abandonSwap(a.orderId, s);
+          cancelAction(a.id, s);
+          const st = journaled(a.orderId, s)!;
+          syncSwapRecord(st, null, null, now);
+          return { step: "stopped", stored: st };
+        }
         let sent = false;
         schedulerStatus.progress("Swap: funding the order from your protected balance…");
         try {
@@ -390,7 +402,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       tickAt(a.orderId, now + 1000, s, now); // the next tick signs
       return { step: "funded", stored: st };
     }
-    // 4. sign while the minimum holds, and hand over at once
+    // 4. sign while the minimum holds, and hand over at once — while the order can still execute. Once its execution window
+    // has closed with nothing handed over (the executor was asked above) the escrow only refunds: the order stops for the
+    // user's "Return funds". A V6 follow-up of 2026-10-14: such an order — a tab closed after its funding, a moved minimum
+    // left for an hour, a long outage — retried its signature on the scheduler's growing backoff for good, every attempt
+    // refused as outside the window, and its screen offered no way back.
+    if (now >= windowEndOf(stored))
+      return pause("execution_window_closed", "Its execution window closed before it was signed and handed over; nothing was swapped.");
     if (stored.paused?.code === "reconcile") patchSwap(a.orderId, { paused: undefined }, s);
     // the minimum the user just accepted signs the call it was read from, checked again, while that call stays valid
     const key = a.orderId.toLowerCase();

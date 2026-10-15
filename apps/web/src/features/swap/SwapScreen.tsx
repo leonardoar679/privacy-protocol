@@ -932,7 +932,9 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   };
   const giveBack = act(() => returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment }));
   const intoProtected = !!stored?.shield;
-  if (record.state === "CANCELLED" && record.reason?.code === "older_notes_unavailable") {
+  // an order the runner stopped before anything was swapped says why, with "Review again" (2026-10-14: an expired order's
+  // and an unconfirmed funding's reasons had been hidden behind the plain cancelled card)
+  if (record.state === "CANCELLED" && ["older_notes_unavailable", "order_expired", "funding_unconfirmed"].includes(record.reason?.code ?? "")) {
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
         <OperationProgress

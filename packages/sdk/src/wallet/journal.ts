@@ -70,7 +70,8 @@ export interface StoredSwap {
    *  V6 follow-up (spec v2.0 §14.1): `maxTiming`, funded at once from older notes only — each with its own timing at most it (0, 0.3 or 0.7) */
   runner?: { confirmedAt: number; delayUntil?: number; maxTiming?: number };
   /** V6 Stage 11: why the runner stopped and what it waits for — `minimum_moved` (the user's choice: `minOut` vs the `approved` one), `execution_unavailable`, `unsafe_contract_call`, `reconcile`;
-   *  on an order it gave up before funding, `older_notes_unavailable` (the older notes no longer covered it) */
+   *  on an order it gave up before funding, `older_notes_unavailable` (the older notes no longer covered it) or `order_expired` (its
+   *  execution window closed, or was about to); on a funded one whose window closed before its hand-over, `execution_window_closed` */
   paused?: { code: string; detail?: string; minOut?: string; approved?: string; at: number };
   /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance — the shield receiver this wallet named as
    *  the destination (its factory and parameters, the counter its note derives from, the payload), whether the executor

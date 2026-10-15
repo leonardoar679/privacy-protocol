@@ -88,6 +88,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   interrupted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   unsafe_contract_call: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
+  // the order runner: a funded order whose execution window closed before its hand-over — the escrow only refunds now
+  execution_window_closed: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
   deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   wallet_insufficient_funds: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },

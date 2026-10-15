@@ -354,6 +354,31 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state).toBe("signed");
   });
 
+  // 2026-10-14: a step whose window closed was funded anyway, or retried its signature on the scheduler's backoff for good
+  it("a step whose order's execution window has closed is never funded (planned again) and, funded, returns through its refund", async () => {
+    // every order the scripted world commits ends its execution window at T0 + 600 s + 7200 s
+    const END = (Math.floor(T0 / 1000) + 600 + 7200) * 1000;
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    clock = END - 4 * 60_000; // the funding comes four minutes before the window closes
+    let r = await tick(c); expect(r?.action.kind).toBe("fund");
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "nothing sent").toEqual([]);
+    expect(current(c).tranches[0].state).toBe("planned");
+    expect(current(c).tranches[0].orderId, "its order abandoned").toBeUndefined();
+    expect(JSON.stringify(current(c).tranches[0].history)).toContain("execution window closed before it was funded");
+    // a second campaign whose first step is funded, then signed only after its window
+    clock = T0; world = new World(session, () => clock);
+    const d = await fresh();
+    await tick(d); clock += 2000; // commit
+    r = await tick(d); expect(r?.action.kind).toBe("fund"); clock += 2000;
+    clock = END + 60_000;
+    r = await tick(d); expect(r?.action.kind).toBe("sign");
+    expect(world.calls.filter((x) => x.startsWith("sign:")), "no signature that cannot execute").toEqual([]);
+    expect(world.calls.filter((x) => x.startsWith("refund:"))).toEqual(["refund:0"]);
+    expect(current(d).tranches[0].state).toBe("refunding");
+    expect(JSON.stringify(current(d).tranches[0].history)).toContain("its execution window closed before it was signed: the funded step returns through its refund and is planned again");
+  });
+
   it("never funds or hands over twice: an unknown outcome pauses with reconcile and the next tick continues from the facts", async () => {
     const c = await fresh();
     await tick(c); clock += 2000; // commit

@@ -494,6 +494,8 @@ export const en = {
   "op.error.funding_unconfirmed.reason": "Its funding was sent but never confirmed, and a funding is never sent twice on its own. Your funds are still in your protected balance, or come back through the escrow's refund if that funding lands late. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",
   "op.error.unsafe_contract_call.reason": "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
+  "op.error.execution_window_closed.title": "The swap ran out of time",
+  "op.error.execution_window_closed.reason": "Its window to execute closed before it was signed and handed over, so nothing was swapped. Your funds wait in your one-time escrow; return them to your protected balance.",
   "op.error.housekeeping_needed.reason": "This amount is spread over more notes than one spend can merge. Nothing was sent; run Private balance maintenance, then confirm again.",
   "op.error.insufficient_balance.title": "Not enough protected balance",
   "op.error.insufficient_balance.reason": "The amount plus the fees of the merges it needs exceeds your protected balance. Nothing was sent.",

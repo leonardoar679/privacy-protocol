@@ -364,6 +364,53 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(execute?.body?.toLowerCase(), "the signed call deposits into the vault THORChain lists now").toContain(VAULT_2.slice(2).toLowerCase());
   }, 60_000);
 
+  // 2026-10-14: an order whose execution window closed had been funded anyway, or retried its signature for good with no way
+  // back on its screen
+  const windowEnd = (orderId: string) => Number((stored(orderId).params as { executeDeadline: number }).executeDeadline) * 1000;
+  async function tickAt(orderId: string, now: number) {
+    const a = session.journal().schedule.find((x) => x.id === `order-tick:${orderId}`)!;
+    let step: string | undefined;
+    await act(async () => {
+      step = (await runOrderTick(a, { masterSeed: session.state().seed!, deployment, now: () => now }))?.step;
+    });
+    return step;
+  }
+
+  it("an order whose window is about to close before its funding is stopped with nothing sent: the card says why, Review again", async () => {
+    await wallet();
+    const { router, orderId } = await confirmed();
+    expect(await tickAt(orderId, windowEnd(orderId) - 60_000)).toBe("stopped");
+    expect(funding.count, "nothing sent").toBe(0);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "CANCELLED", reason: { code: "order_expired", fundsClass: "not-moved" } });
+    const card = await screen.findByTestId("operation-progress-error");
+    expect(card.textContent).toContain("The order expired before it was funded");
+    fireEvent.click(screen.getByTestId("swap-review-again"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/swap"));
+  }, 60_000);
+
+  it("a funded swap left past its execution window says it ran out of time and offers Return funds; nothing is signed", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    expect(await tickAt(orderId, windowEnd(orderId) + 60_000)).toBe("paused");
+    expect(
+      calls.some((c) => c.endsWith("/prepare")),
+      "no quote prepared, nothing signed",
+    ).toBe(false);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({
+      state: "RECOVERY_REQUIRED",
+      reason: { code: "execution_window_closed", fundsClass: "still-protected" },
+    });
+    expect((await screen.findByTestId("operation-progress-error")).textContent).toContain("The swap ran out of time");
+    expect(screen.queryByTestId("swap-try-again"), "trying again cannot work").toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("swap-return-funds"));
+    });
+    await waitFor(() => expect(relayerBodies).toHaveLength(1));
+    expect(relayerBodies[0].execution, "a refund-only job: no signature").toBeUndefined();
+    expect(stored(orderId)).toMatchObject({ state: "refund-only" });
+  }, 60_000);
+
   it("an expired quote says so and that nothing moved; a new quote brings the Review back", async () => {
     await wallet();
     world.ttlSeconds = 0;
