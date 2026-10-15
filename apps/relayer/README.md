@@ -103,7 +103,12 @@ RELAYER_PRIVATE_KEY=0x… RELAYER_SEED="relayer wallet seed" npm run serve      
 The gas key only ever holds gas. The seed is the relayer's own wallet (it spends fee notes with the
 same wallet software as any user: rescan with the view key, withdraw with a proof). **Journals are
 durable**: `RELAYER_JOURNAL_DIR` (default `journal/`, gitignored) holds `submissions.json`,
-`swap-jobs.json` and `shield-jobs.json`, written atomically on every change; a restarted relayer resumes open swap jobs and
+`swap-jobs.json` and `shield-jobs.json`, rewritten on every change: written whole to a temporary file, flushed to the
+disk, then renamed over the journal, so a crash leaves the old file or the new one. A journal that cannot be read
+stops the relayer at start, naming the file, and is left as it is: restore it, or move it aside to start without its
+jobs. Before (a V6 follow-up of 2026-10-15) it loaded as no jobs and the next save overwrote it, every funded escrow's
+execution and refund, shield and fee-note opening in it forgotten without a word (`test/journal.test.ts`). A
+restarted relayer resumes open swap jobs and
 keeps the in-flight nullifiers of unmined submissions (tested). Not verified here: a live chain run
 (this machine cannot run a node — `docs/testnet.md`).
 
