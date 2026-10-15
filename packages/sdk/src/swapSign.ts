@@ -9,7 +9,7 @@ import type { Deployment } from "./chain";
 import { checkShieldReceipt } from "./shieldReceiver";
 import type { StoredShield } from "./wallet/journal";
 import { checkPrepared, predictEscrow } from "./swapGuard";
-import { checkMinimum, checkProviderCall, MinimumMoved, type CheckedCall, type InboundLookup } from "./providerCall";
+import { checkMinimum, checkProviderCall, MinimumMoved, type ActiveVaultLookup, type CheckedCall, type InboundLookup } from "./providerCall";
 import type { AssetRef, Policy, Prepared, ServiceOrder, ServiceOrderParams } from "./swapService";
 
 /** What the wallet journaled when it committed the order (wallet/journal.ts StoredSwap). */
@@ -30,7 +30,7 @@ export type SignCheck =
 export async function checkBeforeSigning(a: {
   prepared: Prepared; order: ServiceOrder; journaled: JournaledOrder; factory: Address; chainId: bigint;
   /** the user consented to this lower minimum after a MinimumMoved */
-  acceptMin?: bigint; inbound?: InboundLookup; now?: number;
+  acceptMin?: bigint; inbound?: InboundLookup; active?: ActiveVaultLookup; now?: number;
   /** tokens the pool has a vault for (the wallet's configured ERC-20 assets) */
   pooled?: string[];
   /** V6 Stage 12: the deployment whose shield receiver factory a protected destination must recompute from, and the seed its note derives from */
@@ -47,7 +47,7 @@ export async function checkBeforeSigning(a: {
   const call = await checkProviderCall(
     { provider: a.prepared.provider, value: BigInt(a.prepared.value), calldata: a.prepared.calldata },
     { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, chainId: a.chainId, now: a.now, pooled: a.pooled },
-    { inbound: a.inbound },
+    { inbound: a.inbound, active: a.active },
   );
   const approved = a.acceptMin ?? BigInt(a.journaled.approvedMin ?? a.journaled.quote?.toAmountMin ?? "0");
   try { checkMinimum(call, approved); } catch (e) { if (e instanceof MinimumMoved) return { ok: false, moved: e }; throw e; }

@@ -1,11 +1,12 @@
 // Walletless mode (plan §49): a guest sends coins from any wallet to a deposit address with a memo, both
 // handed out by the swap service. Before the instruction is shown, this browser checks it itself, the way
-// the wallet checks a provider call (providerCall.ts): the address must be THORChain's current inbound
-// vault for that chain as a quorum of public THORNode gateways reports it (the same request for every
+// the wallet checks a provider call (providerCall.ts): the address must be THORChain's inbound vault for
+// that chain as a quorum of public THORNode gateways reports it, or another of its active vaults that every
+// gateway that answers lists (THORChain moves its inbound vault between them; the same requests for every
 // user), and the memo must swap into the asset the guest chose, pay the destination the guest typed,
 // fit the chain's 80-byte OP_RETURN, and enforce a minimum no lower than the quote the guest saw. The
 // memo carries no refund address: THORChain refunds the sender, which here is the guest's own wallet.
-import { from1e8, MinimumMoved, ProviderCallMismatch, THOR_CHAIN, thorAsset, thorAssetShort, thornodeInbound, type InboundLookup } from "./providerCall";
+import { from1e8, MinimumMoved, ProviderCallMismatch, THOR_CHAIN, thorAsset, thorAssetShort, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "./providerCall";
 import type { AssetRef } from "./swapService";
 
 /** A guest signs nothing here: the instruction is simply not shown. */
@@ -26,7 +27,7 @@ const UTXO_MEMO_BYTES = 80;
 export async function checkGuestInstruction(ins: GuestInstruction, e: {
   from: AssetRef; to: AssetRef; destination: string; amount: bigint;
   /** the minimum the guest saw in the quote; a lower one throws MinimumMoved (shown, then accepted or not) */
-  approvedMin: bigint; inbound?: InboundLookup; now?: number;
+  approvedMin: bigint; inbound?: InboundLookup; active?: ActiveVaultLookup; now?: number;
 }): Promise<CheckedGuest> {
   const fail = (field: string, detail: string): never => { throw new GuestInstructionMismatch(field, detail); };
   const now = e.now ?? Math.floor(Date.now() / 1000);
@@ -38,7 +39,15 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   const v = await (e.inbound ?? ((c: string) => thornodeInbound(c)))(chain);
   if (v.halted) fail("inbound", `THORChain has halted ${chain} inbound`);
   // the refusal never repeats the address the service named: a guest must have nothing to copy
-  if (ins.ingress.to.toLowerCase() !== v.address.toLowerCase()) fail("vault", `the address it names is not the ${chain} vault ${v.agreeing.length} THORNode gateways report`);
+  let gateways = v.agreeing.length;
+  if (!v.address || ins.ingress.to.toLowerCase() !== v.address.toLowerCase()) {
+    try {
+      gateways = (await (e.active ?? ((c: string, x: string) => thornodeActiveVault(c, x)))(chain, ins.ingress.to)).confirmedBy.length;
+    } catch (err) {
+      if (err instanceof ProviderCallMismatch) fail("vault", `the address it names is not a ${chain} vault the THORNode gateways list`);
+      throw err;
+    }
+  }
   const memo = ins.ingress.memo ?? "";
   if (new TextEncoder().encode(memo).length > UTXO_MEMO_BYTES) fail("memo", `${memo.length} bytes do not fit a ${chain} OP_RETURN (80)`);
   const m = /^=:([^:]+):([^:/]+):(\d+)$/.exec(memo);
@@ -49,5 +58,5 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   if (evmDest ? dest.toLowerCase() !== e.destination.toLowerCase() : dest !== e.destination) fail("receiver", "the memo pays another address than the one you typed");
   const minOut = from1e8(BigInt(limit), e.to.decimals);
   if (minOut < e.approvedMin) throw new MinimumMoved(minOut, e.approvedMin);
-  return { depositAddress: v.address, memo, minOut, gateways: v.agreeing.length };
+  return { depositAddress: ins.ingress.to, memo, minOut, gateways };
 }

@@ -16,7 +16,7 @@
 // registered again if the executor forgot it), and once it reports a shield the delivered note is looked for in the pool.
 import type { Hex } from "viem";
 import type { Deployment } from "../chain";
-import type { MinimumMoved } from "../providerCall";
+import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { trackOrder, type Tracked } from "../orderTracker";
 import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, type ShieldJob, type SwapJob } from "../relayer";
 import {
@@ -405,6 +405,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     try {
       r = await io.sign(stored, reuse);
     } catch (e) {
+      if (e instanceof ProviderCallUnverified) throw e; // the gateways did not answer: an outage, tried again (backoff), never an unsafe call
       const m = (e as Error)?.message ?? String(e);
       if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
         return pause("unsafe_contract_call", m);

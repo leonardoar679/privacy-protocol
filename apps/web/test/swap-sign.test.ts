@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { getAddress, type Hex } from "viem";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { checkBeforeSigning, type JournaledOrder } from "@privacy-wallet/sdk/swapSign";
-import { MinimumMoved, PINNED, ProviderCallMismatch, thorAsset, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { MinimumMoved, PINNED, ProviderCallMismatch, thorAsset, type ActiveVaultLookup, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
 import { OrderMismatch } from "@privacy-wallet/sdk/swapGuard";
 import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
 import type { Prepared, ServiceOrder } from "@privacy-wallet/sdk/swapService";
@@ -62,7 +62,12 @@ async function commitAndPrepare(bend: Bend = {}) {
   const prepared: Prepared = wire({ digest: p.digest, provider: p.provider, value: p.value, calldata: p.calldata, deadline: p.deadline });
   return { order: wire(order) as ServiceOrder, journaled, prepared };
 }
-const gate = (x: Awaited<ReturnType<typeof commitAndPrepare>>, acceptMin?: bigint) => checkBeforeSigning({ ...x, factory: FACTORY, chainId: 1n, inbound, acceptMin });
+/** the gateways' lists of THORChain's active vaults (offline): only the vault they suggest */
+const active: ActiveVaultLookup = async (_chain, v) => {
+  if (v.toLowerCase() !== VAULT.toLowerCase()) throw new ProviderCallMismatch("thorchain", "vault", `${v} is not an active THORChain ETH vault`);
+  return { confirmedBy: ["g1", "g2", "g3"] };
+};
+const gate = (x: Awaited<ReturnType<typeof commitAndPrepare>>, acceptMin?: bigint) => checkBeforeSigning({ ...x, factory: FACTORY, chainId: 1n, inbound, active, acceptMin });
 
 describe("checkBeforeSigning: the engine's honest THORChain call passes; a bent one is not signed", () => {
   it("honest: the escrow is recomputed from the journal, the call pays the fresh address, refunds to the escrow, at the approved minimum", async () => {

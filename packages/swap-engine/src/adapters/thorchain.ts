@@ -92,12 +92,16 @@ export async function thornode<T>(path: string, timeoutMs = 20000): Promise<{ da
   throw new Error(`no THORNode endpoint reachable: ${String(lastErr)}`);
 }
 
+/** `address` is the inbound vault every reachable gateway reports, or "" while they report different ones (a vault on the move). */
 export interface InboundQuorum { address: string; router?: string; halted: boolean; agreeing: string[]; unreachable: string[] }
 
 /**
  * The inbound vault + router for `chain`, confirmed by at least THORNODE_QUORUM distinct gateways
  * (plan §74 "THORChain compromised" at the API level: one lying gateway cannot redirect the deposit).
- * Any reachable gateway that disagrees fails the check — fail closed.
+ * Any reachable gateway that reports another router fails the check — fail closed —, and halted on any of
+ * them is halted. Gateways that report different vaults leave `address` empty: THORChain moves its inbound
+ * vault between its active vaults several times an hour, and a gateway a block behind reports the previous
+ * one; a vault is then confirmed against their lists of active vaults (activeVaultQuorum).
  */
 export async function inboundQuorum(chain: string, timeoutMs = 20000): Promise<InboundQuorum> {
   const results: { base: string; entry?: any; error?: string }[] = await Promise.all(THORNODE_URLS.map(async (base) => {
@@ -107,11 +111,41 @@ export async function inboundQuorum(chain: string, timeoutMs = 20000): Promise<I
   const reachable = results.filter((r) => r.entry);
   const unreachable = results.filter((r) => !r.entry).map((r) => r.base);
   if (reachable.length < THORNODE_QUORUM) throw new Error(`THORNode quorum not reached: ${reachable.length}/${THORNODE_QUORUM} gateways answered for ${chain} (unreachable: ${unreachable.join(", ") || "none"})`);
-  const key = (e: any) => `${String(e.address).toLowerCase()}|${String(e.router ?? "").toLowerCase()}`;
-  const first = key(reachable[0].entry);
-  if (reachable.some((r) => key(r.entry) !== first)) throw new Error(`THORNode gateways disagree on the ${chain} inbound vault/router: ${reachable.map((r) => `${r.base} -> ${key(r.entry)}`).join("; ")}`);
+  const router = (e: any) => String(e.router ?? "").toLowerCase();
+  if (reachable.some((r) => router(r.entry) !== router(reachable[0].entry))) throw new Error(`THORNode gateways disagree on the ${chain} router: ${reachable.map((r) => `${r.base} -> ${router(r.entry)}`).join("; ")}`);
   const e = reachable[0].entry;
-  return { address: String(e.address).toLowerCase(), router: e.router ? String(e.router).toLowerCase() : undefined, halted: !!(e.halted || e.global_trading_paused || e.chain_trading_paused), agreeing: reachable.map((r) => r.base), unreachable };
+  const address = String(e.address).toLowerCase();
+  const moving = reachable.some((r) => String(r.entry.address).toLowerCase() !== address);
+  return {
+    address: moving ? "" : address,
+    router: e.router ? String(e.router).toLowerCase() : undefined,
+    halted: reachable.some(({ entry: x }) => !!(x.halted || x.global_trading_paused || x.chain_trading_paused)),
+    agreeing: reachable.map((r) => r.base),
+    unreachable,
+  };
+}
+
+/**
+ * `vault` as one of THORChain's active vaults for `chain`: listed among its ActiveVault addresses by every gateway that
+ * answers (at least THORNODE_QUORUM of them; one that does not list it fails the check — fail closed). THORNode processes
+ * a deposit into any of its vaults that is not inactive; the inbound vault is the one it suggests at that moment, and it
+ * moves (2026-10-14: the wallet's check of a call naming the vault suggested half a minute earlier stopped a funded swap).
+ */
+export async function activeVaultQuorum(chain: string, vault: string, timeoutMs = 20000): Promise<{ confirmedBy: string[] }> {
+  const lists: { base: string; active?: string[] }[] = await Promise.all(THORNODE_URLS.map(async (base) => {
+    try {
+      const { data } = await fetchFrom<any[]>(base, "/thorchain/vaults/asgard", timeoutMs);
+      const active = (Array.isArray(data) ? data : [])
+        .filter((v) => v?.status === "ActiveVault" && Array.isArray(v.addresses))
+        .flatMap((v) => v.addresses.filter((a: any) => a?.chain === chain && typeof a.address === "string").map((a: any) => String(a.address).toLowerCase()));
+      return active.length ? { base, active } : { base }; // a list without one active vault for the chain is no answer
+    } catch { return { base }; }
+  }));
+  const answered = lists.filter((l): l is { base: string; active: string[] } => !!l.active);
+  if (answered.length < THORNODE_QUORUM) throw new Error(`THORNode quorum not reached: ${answered.length}/${THORNODE_QUORUM} gateways listed the ${chain} vaults`);
+  const missing = answered.filter((l) => !l.active.includes(vault.toLowerCase()));
+  if (missing.length) throw new Error(`${vault} is not an active ${chain} vault on ${missing.map((l) => l.base).join(", ")}`);
+  return { confirmedBy: answered.map((l) => l.base) };
 }
 
 interface ThorQuote {
@@ -205,10 +239,19 @@ export class ThorchainAdapter implements ProviderAdapter {
     if (inbound.halted) throw new Error(`THORChain: ${CHAIN[req.from.chain]} inbound is halted`);
     // an ERC-20 escrow approves the router for its whole balance: even agreeing gateways cannot name another contract
     if (req.from.chain === "ethereum" && inbound.router !== THORCHAIN_ROUTER_ETHEREUM) throw new Error(`THORChain: the gateways report router ${inbound.router}, not the pinned Ethereum router ${THORCHAIN_ROUTER_ETHEREUM} (set THORCHAIN_ROUTER after a router upgrade)`);
-    if (q.inbound_address.toLowerCase() !== inbound.address) throw new Error(`THORChain: the quote's inbound address ${q.inbound_address} is not confirmed by the gateway quorum (${inbound.address})`);
+    // the vault the quote names: the one the gateways suggest, or — THORChain moves that suggestion between its active vaults
+    // several times an hour, and the quote may carry the previous one — another active vault every gateway lists
+    let vaultFact = `inbound vault (${inbound.agreeing.length} gateways agree)`;
+    if (q.inbound_address.toLowerCase() !== inbound.address) {
+      try {
+        vaultFact = `an active THORChain vault (${(await activeVaultQuorum(CHAIN[req.from.chain], q.inbound_address)).confirmedBy.length} gateways agree)`;
+      } catch (e) {
+        throw new Error(`THORChain: the quote's inbound address ${q.inbound_address} is not confirmed by the gateway quorum (${inbound.address || "the gateways differ"}; ${(e as Error).message})`);
+      }
+    }
     if ((q.router ?? "").toLowerCase() !== (inbound.router ?? "")) throw new Error(`THORChain: the quote's router ${q.router} is not confirmed by the gateway quorum (${inbound.router})`);
     const verified = [
-      `inbound vault (${inbound.agreeing.length} gateways agree)`, req.from.chain === "ethereum" ? "router (quorum + pinned)" : "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`,
+      vaultFact, req.from.chain === "ethereum" ? "router (quorum + pinned)" : "router (quorum)", `memo: destination + limit${evmSource ? " + refund to the escrow" : ""} built locally`,
       streaming ? `streaming: ${streaming.quantity} sub-swaps, one every ${streaming.interval} block(s); the limit applies per sub-swap, unexecuted sub-swaps refund the escrow` : "one swap",
     ];
     if (!evmSource) {

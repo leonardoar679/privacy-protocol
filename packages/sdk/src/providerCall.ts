@@ -130,6 +130,18 @@ export class ProviderCallMismatch extends Error {
   }
 }
 
+/**
+ * The call cannot be checked right now: too few THORNode gateways answered. Nothing goes ahead, and the runner tries again
+ * later. It is an outage, not a call that does something else (ProviderCallMismatch). Before (a V6 follow-up of
+ * 2026-10-14), a gateway outage at signing stopped a funded swap as an unsafe call, and a protected execution's step as an
+ * unexpected destination.
+ */
+export class ProviderCallUnverified extends Error {
+  constructor(public readonly provider: string, detail: string) {
+    super(`the provider call cannot be checked right now (${provider}: ${detail}); nothing goes ahead until it can be`);
+  }
+}
+
 /** The call is sound but guarantees less than the user approved; signing needs the user's consent to the new minimum. */
 export class MinimumMoved extends Error {
   constructor(public readonly minOut: bigint, public readonly approved: bigint) {
@@ -137,11 +149,17 @@ export class MinimumMoved extends Error {
   }
 }
 
-/** `router` is set for EVM chains only (UTXO chains are paid at the vault address directly). */
+/**
+ * `router` is set for EVM chains only (UTXO chains are paid at the vault address directly). `address` is the inbound vault
+ * every gateway that answered reports, or "" while they report different ones: THORChain is moving it between its active
+ * vaults, and a vault is then confirmed against their lists of active vaults (ActiveVaultLookup).
+ */
 export interface InboundVault { address: string; router?: string; halted: boolean; agreeing: string[] }
 /** THORChain's EVM chains: their inbound entries carry a router contract. */
 const THOR_EVM_CHAINS = ["ETH", "BASE", "AVAX", "BSC"];
 export type InboundLookup = (chain: string) => Promise<InboundVault>;
+/** Confirms `vault` as one of THORChain's active vaults for `chain` (thornodeActiveVault), or throws. */
+export type ActiveVaultLookup = (chain: string, vault: string) => Promise<{ confirmedBy: string[] }>;
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const bytesEqual = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -184,8 +202,12 @@ export const thornodeQuorum = (): number => Math.max(2, config().thornode.quorum
 
 /**
  * The inbound vault + router for `chain` (THORChain notation, e.g. "ETH"), as at least `quorum` gateways
- * report it; any reachable gateway that disagrees fails the lookup (fail closed). The request is the
- * same for every user (all chains, no amounts, no addresses), and carries no cookie or referrer.
+ * report it; any reachable gateway that reports another router fails the lookup (fail closed), and halted
+ * on any of them is halted. Gateways that report different vaults leave `address` empty: THORChain moves
+ * its inbound vault between its active vaults several times an hour, and a gateway a block behind still
+ * reports the previous one — the vault is then confirmed against every gateway's list of active vaults
+ * (thornodeActiveVault). The request is the same for every user (all chains, no amounts, no addresses),
+ * and carries no cookie or referrer.
  */
 export async function thornodeInbound(chain: string, opts: { gateways?: string[]; quorum?: number; fetchFn?: typeof fetch; timeoutMs?: number } = {}): Promise<InboundVault> {
   const gateways = opts.gateways ?? thornodeGateways(), quorum = opts.quorum ?? thornodeQuorum(), fetchFn = opts.fetchFn ?? fetchFor("thornode");
@@ -200,12 +222,46 @@ export async function thornodeInbound(chain: string, opts: { gateways?: string[]
     } catch { return { base }; }
   }));
   const reachable = answers.filter((a) => a.entry);
-  if (reachable.length < quorum) throw new ProviderCallMismatch("thorchain", "vault", `only ${reachable.length} of ${gateways.length} THORNode gateways answered for ${chain}; ${quorum} must agree`);
-  const key = (e: any) => `${String(e.address).toLowerCase()}|${String(e.router ?? "").toLowerCase()}`;
-  if (reachable.some((a) => key(a.entry) !== key(reachable[0].entry))) throw new ProviderCallMismatch("thorchain", "vault", `THORNode gateways disagree on the ${chain} inbound vault/router`);
+  if (reachable.length < quorum) throw new ProviderCallUnverified("thorchain", `only ${reachable.length} of ${gateways.length} THORNode gateways answered for ${chain}; ${quorum} must agree`);
+  const router = (e: any) => String(e.router ?? "").toLowerCase();
+  if (reachable.some((a) => router(a.entry) !== router(reachable[0].entry))) throw new ProviderCallMismatch("thorchain", "router", `THORNode gateways disagree on the ${chain} router`);
   const e: any = reachable[0].entry;
+  const moving = reachable.some((a) => !same(String(a.entry.address), String(e.address)));
   const evm = THOR_EVM_CHAINS.includes(chain);
-  return { address: evm ? getAddress(e.address) : String(e.address), router: evm ? getAddress(e.router) : undefined, halted: !!(e.halted || e.global_trading_paused || e.chain_trading_paused), agreeing: reachable.map((a) => a.base) };
+  return {
+    address: moving ? "" : evm ? getAddress(e.address) : String(e.address),
+    router: evm ? getAddress(e.router) : undefined,
+    halted: reachable.some(({ entry: x }: any) => !!(x.halted || x.global_trading_paused || x.chain_trading_paused)),
+    agreeing: reachable.map((a) => a.base),
+  };
+}
+
+/**
+ * `vault` as one of THORChain's active vaults for `chain`: listed among its ActiveVault addresses by every gateway that
+ * answers (at least `quorum` of them; one that does not list it fails the check — fail closed: a lying gateway cannot add
+ * a vault, and an honest one is never outvoted). THORNode processes a deposit into any of its vaults that is not inactive;
+ * the inbound vault is the one it suggests at that moment, and it moves the suggestion between its active vaults several
+ * times an hour (2026-10-14: a swap whose call named the vault suggested half a minute earlier had stopped as an unsafe
+ * call). The request is the same for every user.
+ */
+export async function thornodeActiveVault(chain: string, vault: string, opts: { gateways?: string[]; quorum?: number; fetchFn?: typeof fetch; timeoutMs?: number } = {}): Promise<{ confirmedBy: string[] }> {
+  const gateways = opts.gateways ?? thornodeGateways(), quorum = opts.quorum ?? thornodeQuorum(), fetchFn = opts.fetchFn ?? fetchFor("thornode");
+  const lists = await Promise.all(gateways.map(async (base) => {
+    try {
+      const r = await fetchFn(`${base}/thorchain/vaults/asgard`, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });
+      if (!r.ok) return { base };
+      const vaults = (await r.json()) as any[];
+      const active = (Array.isArray(vaults) ? vaults : [])
+        .filter((v) => v?.status === "ActiveVault" && Array.isArray(v.addresses))
+        .flatMap((v) => v.addresses.filter((a: any) => a?.chain === chain && typeof a.address === "string").map((a: any) => String(a.address)));
+      return active.length ? { base, active } : { base }; // a list without one active vault for the chain is no answer
+    } catch { return { base }; }
+  }));
+  const answered = lists.filter((l): l is { base: string; active: string[] } => !!l.active);
+  if (answered.length < quorum) throw new ProviderCallUnverified("thorchain", `only ${answered.length} of ${gateways.length} THORNode gateways listed THORChain's ${chain} vaults; ${quorum} must agree`);
+  const missing = answered.filter((l) => !l.active.some((a) => same(a, vault)));
+  if (missing.length) throw new ProviderCallMismatch("thorchain", "vault", `${vault} is not an active THORChain ${chain} vault on ${missing.length} of the ${answered.length} THORNode gateways that answered`);
+  return { confirmedBy: answered.map((l) => l.base) };
 }
 
 // ---- ABIs (the provider contracts' entry points the engine's adapters produce) --------------------
@@ -270,7 +326,7 @@ function decode<A extends readonly unknown[]>(provider: ProviderName, abi: A, da
  * contract, paying `e.destination` in `e.to`, spending `e.net` of `e.from`, with provider refunds to the
  * escrow. Returns what it confirmed, including the minimum output (compare it with `checkMinimum`).
  */
-export async function checkProviderCall(call: ProviderCall, e: CallExpectation, deps: { inbound?: InboundLookup } = {}): Promise<CheckedCall> {
+export async function checkProviderCall(call: ProviderCall, e: CallExpectation, deps: { inbound?: InboundLookup; active?: ActiveVaultLookup } = {}): Promise<CheckedCall> {
   if (e.from.chain !== "ethereum") throw new ProviderCallMismatch("escrow", "source", "escrows live on Ethereum");
   // on a testnet the pinned addresses hold no contract: the escrow's call would succeed and pay an empty address
   if (e.chainId !== undefined && e.chainId !== 1n) throw new ProviderCallMismatch("escrow", "chain", `the provider contracts are on Ethereum mainnet; this deployment is chain ${e.chainId}, where they do not exist (return the order to your private balance instead)`);
@@ -278,9 +334,11 @@ export async function checkProviderCall(call: ProviderCall, e: CallExpectation, 
   const now = e.now ?? Math.floor(Date.now() / 1000);
   let checked: CheckedCall;
   const guarded = async (name: ProviderName, f: () => CheckedCall | Promise<CheckedCall>) => {
-    try { return await f(); } catch (err) { throw err instanceof ProviderCallMismatch ? err : new ProviderCallMismatch(name, "call", String((err as Error).message ?? err)); }
+    // an outage stays an outage: the runner tries again, it never reads it as a call that does something else
+    try { return await f(); } catch (err) { throw err instanceof ProviderCallMismatch || err instanceof ProviderCallUnverified ? err : new ProviderCallMismatch(name, "call", String((err as Error).message ?? err)); }
   };
-  if (same(call.provider, PINNED.thorchainRouter)) checked = await guarded("thorchain", () => thorchain(call, e, now, deps.inbound ?? ((chain) => thornodeInbound(chain))));
+  if (same(call.provider, PINNED.thorchainRouter))
+    checked = await guarded("thorchain", () => thorchain(call, e, now, deps.inbound ?? ((chain) => thornodeInbound(chain)), deps.active ?? ((chain, vault) => thornodeActiveVault(chain, vault))));
   else if (same(call.provider, PINNED.chainflipVault)) checked = await guarded("chainflip", () => chainflip(call, e));
   else if (same(call.provider, PINNED.acrossSpokePool)) checked = await guarded("across", () => across(call, e, now));
   else if (same(call.provider, PINNED.acrossPeriphery)) checked = await guarded("across", () => acrossSwap(call, e, now));
@@ -307,14 +365,18 @@ function must(ok: boolean, provider: ProviderName, field: string, detail: string
   if (!ok) throw new ProviderCallMismatch(provider, field, detail);
 }
 
-async function thorchain(call: ProviderCall, e: CallExpectation, now: number, inbound: InboundLookup): Promise<CheckedCall> {
+async function thorchain(call: ProviderCall, e: CallExpectation, now: number, inbound: InboundLookup, active: ActiveVaultLookup): Promise<CheckedCall> {
   const P: ProviderName = "thorchain";
   const { args } = decode(P, THOR_ABI, call.calldata);
   const [vault, asset, amount, memo, expiry] = args as [Address, Address, bigint, string, bigint];
   const v = await inbound("ETH");
   must(!v.halted, P, "inbound", "THORChain has halted Ethereum inbound");
   must(!!v.router && same(v.router, call.provider), P, "router", `the gateways report router ${v.router}, the call targets ${call.provider}`);
-  must(same(vault, v.address), P, "vault", `${vault} is not the inbound vault ${v.agreeing.length} gateways report (${v.address})`);
+  // the vault THORChain suggests now, or another of its active vaults (it moves the suggestion between them several times
+  // an hour; a call prepared a moment before names the previous one): every gateway that answers must list it
+  const vaultFact = v.address && same(vault, v.address)
+    ? `inbound vault confirmed by ${v.agreeing.length} THORNode gateways`
+    : `an active THORChain vault, listed by the ${(await active("ETH", vault)).confirmedBy.length} THORNode gateways that answered`;
   must(same(asset, e.from.asset === "native" ? ZERO : e.from.asset), P, "asset", `deposits ${asset}, not ${e.from.symbol}`);
   must(amount === e.net, P, "amount", `${amount} != ${e.net}`);
   must(call.value === (e.from.asset === "native" ? e.net : 0n), P, "value", `${call.value} forwarded`);
@@ -335,7 +397,7 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   const minOut = from1e8(BigInt(limit), e.to.decimals);
   return {
     provider: P, receiver: memoDest, minOut, refundTo: "escrow",
-    facts: [`router pinned; inbound vault confirmed by ${v.agreeing.length} THORNode gateways`, "memo pays your fresh address", "a THORChain refund goes to the escrow", `limit ${limit} (1e8 units)`, planFact],
+    facts: [`router pinned; ${vaultFact}`, "memo pays your fresh address", "a THORChain refund goes to the escrow", `limit ${limit} (1e8 units)`, planFact],
   };
 }
 

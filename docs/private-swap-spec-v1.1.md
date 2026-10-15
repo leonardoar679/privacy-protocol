@@ -66,7 +66,8 @@ where the provider can only refund at the destination, that address, §7), the a
 escrow forwards, and the minimum the call guarantees MUST be at least the minimum the user approved
 at commit (journaled). A lower minimum is signed only after the user consents to that exact value; a
 call the wallet cannot read is not signed; a minimum it cannot read is accepted only under `fastest`
-(§9). THORChain's inbound vault is confirmed by the wallet's own quorum of public THORNode gateways.
+(§9). THORChain's inbound vault is confirmed by the wallet's own quorum of public THORNode gateways (since a V6
+follow-up of 2026-10-14, also another of THORChain's active vaults that every gateway that answers lists).
 
 ## 3. Route state machine (plan §34) — non-atomic by construction
 ```

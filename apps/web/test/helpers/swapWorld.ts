@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { vi } from "vitest";
 import { encodeAbiParameters, encodeErrorResult, getAddress, parseAbi, type Hex } from "viem";
-import { PINNED, thorAsset } from "@privacy-wallet/sdk/providerCall";
+import { PINNED, thorAsset, thornodeGateways } from "@privacy-wallet/sdk/providerCall";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-engine/engine";
 import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
@@ -44,16 +44,24 @@ export const engine = new PrivateSwapEngine({
   tips: { tipFor: async (_from, amount) => amount / 400n } /* a fixed 0.25 %: the service prices the gas (swap-engine tips.ts) */,
   refundWindowSeconds: 7200,
 });
+/** another of THORChain's active ETH vaults (THORChain moves its suggestion between them) */
+export const VAULT_2 = getAddress("0x46f3fb8c14006268d153b18000495c8ee858e94b");
 export const world: {
   bend: { dest?: string; limit?: bigint };
   rpcBend: { revert?: Hex; providerReason?: string };
   ttlSeconds: number;
   /** V6 Stage 13: the service's protection plan for the $50K band (the engine's recommendation), when set */
   protection?: unknown;
+  /** the THORNode gateways (2026-10-14): the vault they suggest, the active vaults they list, how many (the first) do not answer */
+  gateways: { inbound: string; active: string[]; down: number };
+  /** the vault the service's THORChain deposit names */
+  callVault: string;
 } = {
   bend: {},
   rpcBend: {},
   ttlSeconds: 600,
+  gateways: { inbound: VAULT, active: [VAULT, VAULT_2], down: 0 },
+  callVault: VAULT,
 };
 const now = () => Math.floor(Date.now() / 1000);
 export const thorQuote = (): Quote => ({
@@ -81,7 +89,7 @@ export const thorchain: ProviderAdapter = {
     return {
       kind: "contract-call",
       to: PINNED.thorchainRouter,
-      calldata: encodeDepositWithExpiry(VAULT, "0x0000000000000000000000000000000000000000", req.amount, memo, BigInt(now() + 600)),
+      calldata: encodeDepositWithExpiry(world.callVault, "0x0000000000000000000000000000000000000000", req.amount, memo, BigInt(now() + 600)),
       value: req.amount,
       memo,
       expiresAt: q.expiresAt,
@@ -214,7 +222,17 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   requests.push({ url, body: init?.body ? String(init.body) : null });
   const u = new URL(url);
   calls.push(`${u.host}${u.pathname.replace(/\/op_[a-z0-9]+\//, "/:id/")}`); // an operation's opaque id as :id
-  if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
+  if (u.pathname.endsWith("/thorchain/inbound_addresses") || u.pathname.endsWith("/thorchain/vaults/asgard")) {
+    if (
+      thornodeGateways()
+        .slice(0, world.gateways.down)
+        .some((g) => url.startsWith(g + "/"))
+    )
+      throw new TypeError("fetch failed");
+    if (u.pathname.endsWith("/inbound_addresses"))
+      return json([{ chain: "ETH", address: world.gateways.inbound, router: PINNED.thorchainRouter, halted: false }]);
+    return json(world.gateways.active.map((address) => ({ status: "ActiveVault", addresses: [{ chain: "ETH", address }] })));
+  }
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)
   if (u.host === "127.0.0.1:8787") return api(u.pathname, body); // V6: the API's /v1 routes in front of the V5-shaped mock
   if (u.host === "127.0.0.1:8790") {
@@ -247,6 +265,8 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
 /** Forget what a test changed in the world. */
 export function resetWorld(): void {
   world.bend = {};
+  world.gateways = { inbound: VAULT, active: [VAULT, VAULT_2], down: 0 };
+  world.callVault = VAULT;
   world.protection = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;

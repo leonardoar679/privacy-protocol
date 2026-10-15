@@ -15,7 +15,7 @@ import type { ScheduledAction, StoredSwap } from "../src/wallet/journal";
 import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
-import { MinimumMoved } from "../src/providerCall";
+import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
 import { patchSwap, type FundingFate } from "../src/swapFunding";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
@@ -386,6 +386,27 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(dead.w.funds).toBe(0);
     expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "funding_unconfirmed" } });
     expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "funding_unconfirmed", fundsClass: "still-protected" } });
+  });
+
+  it("THORNode gateways that do not answer at signing: an outage tried again, never an unsafe call; signed once they answer", async () => {
+    // 2026-10-14: the local stack's run stopped a funded swap into the protected balance here, for good
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    const sign = io.sign;
+    let outage = true;
+    io.sign = async (st, reuse) => {
+      if (outage) throw new ProviderCallUnverified("thorchain", "only 1 of 3 THORNode gateways answered for ETH; 2 must agree");
+      return sign(st, reuse);
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    await expect(runOrderTick(pending()!, deps(io, T0 + 2_000))).rejects.toBeInstanceOf(ProviderCallUnverified);
+    expect(stored().paused, "not paused: the scheduler's backoff tries again").toBeUndefined();
+    outage = false;
+    expect((await runOrderTick(pending()!, deps(io, T0 + 20_000)))?.step).toBe("handed-over");
+    expect(w.handOvers).toBe(1);
   });
 
   it("a hand-over whose answer was lost, or that another tab made, is found by orderId: never handed over twice", async () => {

@@ -5,7 +5,7 @@
 import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http";
 import { RpcDisagreement } from "../../chain";
 import { GuestInstructionMismatch } from "../../guestGuard";
-import { MinimumMoved, ProviderCallMismatch } from "../../providerCall";
+import { MinimumMoved, ProviderCallMismatch, ProviderCallUnverified } from "../../providerCall";
 import { RelayerRefusal, RelayerTimeout } from "../../relayer";
 import { OrderMismatch } from "../../swapGuard";
 import { ServiceMinimumMoved } from "../../swapService";
@@ -38,6 +38,7 @@ export function classify(e: unknown): Classified {
   if (e instanceof OrderMismatch) return row("order_mismatch");
   if (e instanceof GuestInstructionMismatch) return row("guest_instruction_mismatch");
   if (e instanceof ProviderCallMismatch) return row("provider_call_mismatch");
+  if (e instanceof ProviderCallUnverified) return row("provider_unavailable"); // an outage: nothing signed, tried again
   const code = (e as { code?: unknown })?.code;
   if (typeof code === "number") {
     if (code === 4001) return row("user_rejected");

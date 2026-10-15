@@ -4,7 +4,7 @@
 // cannot carry, or a lower minimum is caught before anything is shown. Offline: THORNode answers stubbed.
 import { describe, it, expect } from "vitest";
 import { checkGuestInstruction, type GuestInstruction } from "@privacy-wallet/sdk/guestGuard";
-import { MinimumMoved, ProviderCallMismatch, thorAsset, thorAssetShort, thornodeInbound, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { MinimumMoved, ProviderCallMismatch, thorAsset, thorAssetShort, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
 import { buildMemo, thorAsset as engineThorAsset, thorAssetShort as engineThorAssetShort, UTXO_MEMO_BYTES } from "@privacy-wallet/swap-engine/adapters/thorchain";
 import type { AssetRef } from "@privacy-wallet/sdk/swapService";
 
@@ -17,11 +17,17 @@ const NOW = 1_790_000_000;
 const AMOUNT = 1_000_000n; // 0.01 BTC
 const LIMIT = 30_000_000n; // 0.3 ETH in 1e8 units
 const inbound = (over: Record<string, unknown> = {}): InboundLookup => async (chain) => (chain === "BTC" ? { address: VAULT, halted: false, agreeing: ["g1", "g2", "g3"], ...over } : Promise.reject(new Error(`unexpected chain ${chain}`)));
+/** another of THORChain's active BTC vaults: THORChain moves its suggestion between them (2026-10-14) */
+const OTHER_VAULT = "bc1qothervaultothervaultothervaultothervau";
+const active = (vaults = [VAULT, OTHER_VAULT]): ActiveVaultLookup => async (chain, v) => {
+  if (chain !== "BTC" || !vaults.includes(v)) throw new ProviderCallMismatch("thorchain", "vault", `${v} is not an active THORChain ${chain} vault`);
+  return { confirmedBy: ["g1", "g2", "g3"] };
+};
 const instruction = (o: { to?: string; memo?: string; amount?: string; expiresAt?: number; provider?: string } = {}): GuestInstruction => ({
   provider: o.provider ?? "thorchain",
   ingress: { to: o.to ?? VAULT, memo: o.memo ?? buildMemo(engineThorAsset(ETH as any), DEST, LIMIT), amount: o.amount ?? AMOUNT.toString(), expiresAt: o.expiresAt ?? NOW + 900 },
 });
-const expectation = (over: Record<string, unknown> = {}) => ({ from: BTC, to: ETH, destination: DEST, amount: AMOUNT, approvedMin: LIMIT * 10n ** 10n, inbound: inbound(), now: NOW, ...over });
+const expectation = (over: Record<string, unknown> = {}) => ({ from: BTC, to: ETH, destination: DEST, amount: AMOUNT, approvedMin: LIMIT * 10n ** 10n, inbound: inbound(), active: active(), now: NOW, ...over });
 const refused = async (p: Promise<unknown>, field: RegExp) => { await expect(p).rejects.toThrow(ProviderCallMismatch); await expect(p).rejects.toThrow(field); };
 
 describe("the browser checks a guest's deposit instruction before showing it", () => {
@@ -58,6 +64,14 @@ describe("the browser checks a guest's deposit instruction before showing it", (
     await refused(checkGuestInstruction(instruction({ provider: "near-intents" }), expectation()), /provider/);
     await refused(checkGuestInstruction(instruction(), expectation({ from: ETH })), /source/);
   });
+  it("THORChain moved its suggestion: an instruction naming another of its active vaults is shown; one the gateways do not list is refused without repeating it (2026-10-14)", async () => {
+    await expect(checkGuestInstruction(instruction({ to: OTHER_VAULT }), expectation())).resolves.toMatchObject({ depositAddress: OTHER_VAULT, gateways: 3 });
+    // the gateways differ on the suggestion (one a block behind): the instruction's vault is looked up in their lists
+    await expect(checkGuestInstruction(instruction(), expectation({ inbound: inbound({ address: "" }) }))).resolves.toMatchObject({ depositAddress: VAULT });
+    const p = checkGuestInstruction(instruction({ to: "bc1qattackerattackerattackerattackerattack" }), expectation());
+    await refused(p, /vault/);
+    expect(((await p.catch((e: Error) => e)) as Error).message, "a guest must have nothing to copy").not.toContain("attacker");
+  });
   it("a lower minimum is reported against the quote the guest saw, for consent", async () => {
     const p = checkGuestInstruction(instruction({ memo: buildMemo("ETH.ETH", DEST, LIMIT - 1n) }), expectation());
     await expect(p).rejects.toBeInstanceOf(MinimumMoved);
@@ -65,7 +79,7 @@ describe("the browser checks a guest's deposit instruction before showing it", (
   });
 });
 
-describe("THORNode gateways for a UTXO chain: a vault address, no router; all that answer must agree", () => {
+describe("THORNode gateways for a UTXO chain: a vault address, no router; a vault they differ on is confirmed by none", () => {
   const gateways = ["https://g1", "https://g2", "https://g3"];
   const fetchFrom = (answers: Record<string, unknown>) => (async (url: string) => {
     const base = url.slice(0, url.indexOf("/thorchain"));
@@ -73,8 +87,8 @@ describe("THORNode gateways for a UTXO chain: a vault address, no router; all th
     return new Response(JSON.stringify(answers[base]), { status: 200 });
   }) as unknown as typeof fetch;
   const btc = (address: string) => [{ chain: "BTC", address, router: "", halted: false }, { chain: "ETH", address: "0x755e7849e47cbbfaf0efe8c76a2def21dd4a85bb", router: "0xD37BbE5744D730a1d98d8DC97c42F0Ca46aD7146" }];
-  it("three gateways reporting the same BTC vault confirm it; one naming another fails closed", async () => {
+  it("three gateways reporting the same BTC vault confirm it; one naming another leaves it unconfirmed (then the lists of active vaults decide)", async () => {
     await expect(thornodeInbound("BTC", { gateways, fetchFn: fetchFrom(Object.fromEntries(gateways.map((g) => [g, btc(VAULT)]))) })).resolves.toMatchObject({ address: VAULT, router: undefined, agreeing: gateways });
-    await expect(thornodeInbound("BTC", { gateways, fetchFn: fetchFrom({ "https://g1": btc(VAULT), "https://g2": btc(VAULT), "https://g3": btc("bc1qattackerattackerattackerattackerattack") }) })).rejects.toThrow(/disagree/);
+    await expect(thornodeInbound("BTC", { gateways, fetchFn: fetchFrom({ "https://g1": btc(VAULT), "https://g2": btc(VAULT), "https://g3": btc("bc1qattackerattackerattackerattackerattack") }) })).resolves.toMatchObject({ address: "" });
   });
 });

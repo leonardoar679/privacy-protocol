@@ -16,8 +16,8 @@ import { ApiError } from "./api/client";
 import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
 import { shieldTipCeiling, tipCeiling } from "./executionCost";
 import { buildShieldReceipt, shieldJobRequest } from "./shieldReceiver";
-import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
-import type { CheckedCall, MinimumMoved } from "./providerCall";
+import { checkBeforeSigning, type JournaledOrder, type SignCheck } from "./swapSign";
+import { ProviderCallMismatch, type CheckedCall, type MinimumMoved } from "./providerCall";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote } from "./keys/swapKeys";
 import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type ShieldJob, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
@@ -190,11 +190,24 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
   const journaled = stored as unknown as JournaledOrder; // the wallet's own record: what it asked for, the params it committed, the minimum approved
   const orderKey = deriveOrderKey(i.masterSeed, stored.attemptId as Hex);
+  const deployment = i.deployment;
   i.onStatus?.(i.reuse ? "Checking the call whose minimum you accepted…" : "Re-quoting with the escrow as sender, then checking the call…");
-  const prepared =
-    i.reuse ?? (await onOperation(i.deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored))));
+  const fresh = () => onOperation(deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
+  let prepared = i.reuse ?? (await fresh());
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
-  const gate = await checkBeforeSigning({ prepared, order, journaled, factory: swapFactoryOf(i.deployment), chainId: BigInt(i.deployment.chainId), acceptMin: i.acceptMin, pooled: (i.deployment.erc20Vaults ?? []).map((v) => v.token), deployment: i.deployment, masterSeed: i.masterSeed });
+  const check = (p: Prepared) =>
+    checkBeforeSigning({ prepared: p, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => v.token), deployment, masterSeed: i.masterSeed });
+  let gate: SignCheck;
+  try {
+    gate = await check(prepared);
+  } catch (e) {
+    // the call whose minimum the user accepted names a vault THORChain no longer lists as active (it retires its vaults
+    // at each churn): outdated, not unsafe — a fresh call is prepared and checked in full, and a lower minimum is asked again
+    if (!(i.reuse && e instanceof ProviderCallMismatch && e.field === "vault")) throw e;
+    i.onStatus?.("Re-quoting with the escrow as sender, then checking the call…");
+    prepared = await fresh();
+    gate = await check(prepared);
+  }
   if (!gate.ok) return { moved: gate.moved, prepared }; // the call whose minimum the user is asked to accept
   const { params, call } = gate;
   i.onStatus?.("Signing locally…");

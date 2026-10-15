@@ -25,7 +25,7 @@ import { relayerInfo, relayerSwapStatus, type SwapJob } from "../relayer";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../swapExecute";
 import { abandonSwap, fundEscrow, fundingFate, fundingReads, patchSwap, type FundingFate } from "../swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
-import type { MinimumMoved } from "../providerCall";
+import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
@@ -449,6 +449,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             }
           } catch (e) {
             const m = (e as Error)?.message ?? String(e);
+            // the gateways did not answer: an outage, tried again at the next tick, never an unexpected destination
+            if (e instanceof ProviderCallUnverified) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
             if (/receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
             else if (/below the best alternative|price_guard/i.test(m)) {
               if (leftBehind) leftRefund = "its own route is refused against the better one";

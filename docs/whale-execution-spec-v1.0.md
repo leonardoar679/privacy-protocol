@@ -215,7 +215,7 @@ and the placeholders (`types.ts`, `placeholders.ts`, `adapters/*`).
 | | |
 |---|---|
 | Quote | `GET /thorchain/quote/swap?from_asset&to_asset&amount(1e8)&tolerance_bps` (+ `destination` only at phase 3; + `streaming_interval` and `streaming_quantity` for a streamed plan, §12), from the first answering gateway of `THORNODE_URLS` (three independent operators). |
-| Verified locally | the inbound vault and router MUST agree across ≥ `THORNODE_QUORUM` (2) gateways (`inboundQuorum`); the Ethereum router is pinned (`THORCHAIN_ROUTER_ETHEREUM`); the memo is built locally, never taken from the API; the limit is `expected × (1 − slippage)` and, from this document, MUST also be ≥ `approvedMin` (§14). |
+| Verified locally | the router MUST agree across ≥ `THORNODE_QUORUM` (2) gateways (`inboundQuorum`), and the quote's vault MUST be the one they all suggest or — THORChain moves that suggestion between its active vaults, a V6 follow-up of 2026-10-14 — one every gateway that answers lists as active (`activeVaultQuorum`); the Ethereum router is pinned (`THORCHAIN_ROUTER_ETHEREUM`); the memo is built locally, never taken from the API; the limit is `expected × (1 − slippage)` and, from this document, MUST also be ≥ `approvedMin` (§14). |
 | Ingress | EVM source: `router.depositWithExpiry(vault, asset, amount, memo, expiry)`; UTXO source (guest mode): a plain deposit to the vault with the memo (≤ 80 bytes, short asset form as fallback, no refund field). |
 | Memo | `=:ASSET:DEST/ESCROW:LIMIT` single; `=:ASSET:DEST/ESCROW:LIMIT/INTERVAL/QUANTITY` streaming (§12). The refund field is the escrow: without it THORChain refunds the transaction's originator, the relayer (PP-S02). |
 | Refund target | escrow (router `send`, 2300 gas: the escrow's empty `receive()`). |

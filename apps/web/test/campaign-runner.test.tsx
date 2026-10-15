@@ -25,6 +25,7 @@ import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notification
 import type { Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
+import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
 import type { FundingFate } from "@privacy-wallet/sdk/swapFunding";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -62,6 +63,8 @@ class World implements CampaignIo {
   /** what the runner learns of a journaled funding */
   fate: FundingFate = "unknown";
   handOverThrows = false;
+  /** the next signature fails with this (then signs normally) */
+  signThrows: Error | null = null;
   /** the settlement read fails (the service or the network is down) */
   trackThrows = false;
   moved = false;
@@ -117,6 +120,7 @@ class World implements CampaignIo {
   async fundingFate(): Promise<FundingFate> { return this.fate; }
   async sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: any }> {
     this.calls.push(`sign:${stored.campaign!.index}`);
+    if (this.signThrows) { const e = this.signThrows; this.signThrows = null; throw e; }
     this.acceptMins.push(acceptMin);
     if (this.moved) return { moved: { minOut: 1n, approved: 2n } };
     if (this.minOutAtSign !== null) {
@@ -335,6 +339,19 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     r = await tick(c); expect(r?.action.kind).toBe("fund");
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
     expect(current(c).tranches[0].state).toBe("funded");
+  });
+
+  it("THORNode gateways that do not answer at a step's signing: tried again at the next tick, never an unexpected destination (2026-10-14)", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    let r = await tick(c); expect(r?.action.kind).toBe("fund"); clock += 2000;
+    world.signThrows = new ProviderCallUnverified("thorchain", "only 1 of 3 THORNode gateways answered for ETH; 2 must agree");
+    await expect(tick(c)).rejects.toBeInstanceOf(ProviderCallUnverified);
+    expect(current(c).state, "no pause: an outage").toBe("running");
+    expect(current(c).pause).toBeUndefined();
+    clock += 60_000;
+    r = await tick(c); expect(r?.action.kind).toBe("sign");
+    expect(current(c).tranches[0].state).toBe("signed");
   });
 
   it("never funds or hands over twice: an unknown outcome pauses with reconcile and the next tick continues from the facts", async () => {

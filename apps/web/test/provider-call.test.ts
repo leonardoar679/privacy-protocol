@@ -7,7 +7,7 @@
 // (packages/swap-engine/test/chainflip-unit.test.ts). Offline: THORNode answers are stubbed.
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, encodeFunctionData, getAddress, padHex, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
-import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeInbound, type CallExpectation, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { ACROSS_DESTINATION, PINNED, ProviderCallMismatch, ProviderCallUnverified, MinimumMoved, bytes32Of, checkMinimum, checkProviderCall, decodeCfParameters, thorAsset, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type CallExpectation, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
 import { buildMemo, encodeDepositWithExpiry, thorAsset as engineThorAsset } from "@privacy-wallet/swap-engine/adapters/thorchain";
 import { CF_ASSET_ID, CF_CHAIN_ID, CHAINFLIP_VAULT_ETHEREUM, SEL_X_SWAP_NATIVE, SEL_X_SWAP_TOKEN, decodeVaultSwapCalldata, minOutFromPrice } from "@privacy-wallet/swap-engine/adapters/chainflip";
 import { SPOKE_POOL, WETH as ENGINE_WETH, encodeDepositV3 } from "@privacy-wallet/swap-engine/adapters/across";
@@ -62,6 +62,12 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
   const VAULT = getAddress("0x755e7849e47cbbfaf0efe8c76a2def21dd4a85bb");
   const LIMIT = 3_000_000n;
   const inbound = (over: Partial<Awaited<ReturnType<InboundLookup>>> = {}): InboundLookup => async () => ({ address: VAULT, router: PINNED.thorchainRouter, halted: false, agreeing: ["a", "b", "c"], ...over });
+  /** the gateways' lists of THORChain's active vaults: a vault they list is confirmed, any other refused */
+  const listed = (vaults: string[]): ActiveVaultLookup => async (_chain, v) => {
+    if (!vaults.some((x) => x.toLowerCase() === v.toLowerCase())) throw new ProviderCallMismatch("thorchain", "vault", `${v} is not an active THORChain ETH vault on 3 of the 3 THORNode gateways that answered`);
+    return { confirmedBy: ["a", "b", "c"] };
+  };
+  const OTHER_VAULT = getAddress("0x46f3fb8c14006268d153b18000495c8ee858e94b");
   const call = (o: { vault?: string; asset?: string; amount?: bigint; memo?: string; expiry?: bigint; value?: bigint } = {}) => ({
     provider: PINNED.thorchainRouter, value: o.value ?? NET,
     calldata: encodeDepositWithExpiry(o.vault ?? VAULT, o.asset ?? ZERO, o.amount ?? NET, o.memo ?? buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW), o.expiry ?? BigInt(NOW + 600)) as Hex,
@@ -73,6 +79,37 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
     expect(() => checkMinimum(c, LIMIT)).not.toThrow();
     expect(() => checkMinimum(c, LIMIT + 1n)).toThrow(MinimumMoved);
   });
+  it("THORChain moved its inbound vault since the call was prepared: another of its active vaults passes, and says so (2026-10-14)", async () => {
+    // the local stack's run of 2026-10-14 stopped a funded swap here: the call named 0x718f…, the gateways suggested 0x46F3…
+    // a few seconds later — both active THORChain vaults
+    const c = await checkProviderCall(call(), expectation(), { inbound: inbound({ address: OTHER_VAULT }), active: listed([VAULT, OTHER_VAULT]) });
+    expect(c).toMatchObject({ provider: "thorchain", minOut: LIMIT });
+    expect(c.facts[0]).toBe("router pinned; an active THORChain vault, listed by the 3 THORNode gateways that answered");
+    // the gateways differ on the suggestion (one a block behind): the call's vault is looked up the same way
+    await expect(checkProviderCall(call(), expectation(), { inbound: inbound({ address: "" }), active: listed([VAULT]) })).resolves.toMatchObject({ minOut: LIMIT });
+    // the suggested vault needs no list
+    const never: ActiveVaultLookup = async () => {
+      throw new Error("not asked");
+    };
+    expect((await checkProviderCall(call(), expectation(), { inbound: inbound(), active: never })).facts[0]).toBe("router pinned; inbound vault confirmed by 3 THORNode gateways");
+  });
+  it("gateways that do not answer are an outage, never a mismatch: the check passes it through for the runner to try again", async () => {
+    const outage = new ProviderCallUnverified("thorchain", "only 1 of 3 THORNode gateways answered for ETH; 2 must agree");
+    const down: InboundLookup = async () => {
+      throw outage;
+    };
+    await expect(checkProviderCall(call(), expectation(), { inbound: down })).rejects.toBe(outage);
+    await expect(
+      checkProviderCall(call(), expectation(), {
+        inbound: inbound({ address: OTHER_VAULT }),
+        active: async () => {
+          throw outage;
+        },
+      }),
+    ).rejects.toBe(outage);
+    // any other failure inside the check is still a mismatch: nothing is signed
+    await refused(checkProviderCall(call(), expectation(), { inbound: async () => Promise.reject(new Error("boom")) }), /call/);
+  });
   it("an ERC-20 order deposits the token and forwards no ETH", async () => {
     const e = expectation({ from: USDC, net: 1_000_000_000n });
     await expect(checkProviderCall(call({ asset: USDC.asset, amount: 1_000_000_000n, value: 0n }), e, { inbound: inbound() })).resolves.toMatchObject({ minOut: LIMIT });
@@ -80,7 +117,7 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
   });
   it("refuses: another vault, router or halted inbound; another receiver, refund, asset, limit form; another amount or value", async () => {
     const e = expectation();
-    await refused(checkProviderCall(call({ vault: ATTACKER }), e, { inbound: inbound() }), /vault/);
+    await refused(checkProviderCall(call({ vault: ATTACKER }), e, { inbound: inbound(), active: listed([VAULT, OTHER_VAULT]) }), /vault/);
     await refused(checkProviderCall(call(), e, { inbound: inbound({ router: ATTACKER }) }), /router/);
     await refused(checkProviderCall(call(), e, { inbound: inbound({ halted: true }) }), /inbound/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), "bc1qattacker", LIMIT, ESCROW) }), e, { inbound: inbound() }), /receiver/);
@@ -110,7 +147,7 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
   });
 });
 
-describe("THORNode gateways queried by the wallet: all that answer must agree, a quorum must answer", () => {
+describe("THORNode gateways queried by the wallet: a quorum must answer, all that answer must agree on the router", () => {
   const entry = (address: string, router = PINNED.thorchainRouter) => [{ chain: "BTC", address: "bc1qvault", router: "" }, { chain: "ETH", address, router, halted: false }];
   const gateways = ["https://g1", "https://g2", "https://g3"];
   const fetchFrom = (answers: Record<string, unknown>, seen: { url: string; init: RequestInit }[] = []) => (async (url: string, init: RequestInit) => {
@@ -132,10 +169,57 @@ describe("THORNode gateways queried by the wallet: all that answer must agree, a
       expect(Object.keys(s.init.headers as Record<string, string>)).toEqual(["accept"]);
     }
   });
-  it("one gateway naming another vault fails closed; so does a single answering gateway", async () => {
-    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V), "https://g3": entry(ATTACKER) }) })).rejects.toThrow(/disagree/);
+  it("gateways naming different vaults confirm none (THORChain moving it: the call's vault is then looked up in their lists); another router fails closed; a single answering gateway is an outage", async () => {
+    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V), "https://g3": entry(ATTACKER) }) })).resolves.toMatchObject({ address: "", agreeing: gateways });
+    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V), "https://g3": entry(V, ATTACKER) }) })).rejects.toBeInstanceOf(ProviderCallMismatch);
+    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V), "https://g3": entry(V, ATTACKER) }) })).rejects.toThrow(/disagree on the ETH router/);
+    // halted on one gateway is halted
+    const halted = [{ chain: "ETH", address: V, router: PINNED.thorchainRouter, halted: true }];
+    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V), "https://g3": halted }) })).resolves.toMatchObject({ halted: true });
+    // too few answers: nothing is signed, but it is tried again later (2026-10-14: it had stopped a funded swap as an unsafe call)
+    await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V) }) })).rejects.toBeInstanceOf(ProviderCallUnverified);
     await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V) }) })).rejects.toThrow(/only 1 of 3/);
     await expect(thornodeInbound("ETH", { gateways, fetchFn: fetchFrom({ "https://g1": entry(V), "https://g2": entry(V) }) })).resolves.toMatchObject({ agreeing: ["https://g1", "https://g2"] });
+  });
+});
+
+describe("THORChain's active vaults, as the gateways list them (2026-10-14: its inbound vault moves between them several times an hour)", () => {
+  const gateways = ["https://g1", "https://g2", "https://g3"];
+  const V = "0x718f6c9df785bc4e323086de024ca822efbe8ab9";
+  const W = "0x46f3fb8c14006268d153b18000495c8ee858e94b";
+  const RETIRING = "0x587c7c3ba9e47b1afd9da9a79c127ade753ac53a";
+  const asgard = (...active: string[]) => [
+    ...active.map((address) => ({ status: "ActiveVault", addresses: [{ chain: "BTC", address: "bc1qvault" }, { chain: "ETH", address }] })),
+    { status: "RetiringVault", addresses: [{ chain: "ETH", address: RETIRING }] },
+  ];
+  const fetchFrom = (answers: Record<string, unknown>, seen: { url: string; init: RequestInit }[] = []) => (async (url: string, init: RequestInit) => {
+    seen.push({ url, init });
+    const base = url.slice(0, url.indexOf("/thorchain"));
+    if (!(base in answers)) throw new TypeError("network error");
+    return new Response(JSON.stringify(answers[base]), { status: 200 });
+  }) as unknown as typeof fetch;
+  const all = (...active: string[]) => Object.fromEntries(gateways.map((g) => [g, asgard(...active)]));
+
+  it("a vault every answering gateway lists as active is confirmed (any case); the request is the same for every user", async () => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    await expect(thornodeActiveVault("ETH", getAddress(W), { gateways, fetchFn: fetchFrom(all(V, W), seen) })).resolves.toEqual({ confirmedBy: gateways });
+    for (const s of seen) {
+      expect(s.url).toMatch(/\/thorchain\/vaults\/asgard$/);
+      expect(s.init).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" });
+      expect(Object.keys(s.init.headers as Record<string, string>)).toEqual(["accept"]);
+    }
+  });
+  it("one answering gateway that does not list it fails closed; a retiring vault is not active; too few lists are an outage", async () => {
+    const one = fetchFrom({ ...all(V, W), "https://g3": asgard(V) });
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: one })).rejects.toBeInstanceOf(ProviderCallMismatch);
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: one })).rejects.toThrow(/is not an active THORChain ETH vault on 1 of the 3/);
+    await expect(thornodeActiveVault("ETH", RETIRING, { gateways, fetchFn: fetchFrom(all(V, W)) })).rejects.toThrow(/not an active THORChain ETH vault on 3 of the 3/);
+    await expect(thornodeActiveVault("ETH", "0x000000000000000000000000000000000000bad1", { gateways, fetchFn: fetchFrom(all(V, W)) })).rejects.toBeInstanceOf(ProviderCallMismatch);
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: fetchFrom({ "https://g1": asgard(V, W) }) })).rejects.toBeInstanceOf(ProviderCallUnverified);
+    // a list with no active vault for the chain is no answer (an error page, a gateway mid-restart), never a refusal
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: fetchFrom({ "https://g1": asgard(V, W), "https://g2": [], "https://g3": { error: "x" } }) })).rejects.toThrow(/only 1 of 3 THORNode gateways listed/);
+    // two of three answering, both listing it: confirmed by those two
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: fetchFrom({ "https://g1": asgard(V, W), "https://g2": asgard(W) }) })).resolves.toEqual({ confirmedBy: ["https://g1", "https://g2"] });
   });
 });
 

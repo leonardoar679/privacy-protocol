@@ -26,7 +26,23 @@ import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
 import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
-import { calls, deployment, ETH_VAULT, FACTORY, fetchMock, jobs, LIMIT, relayerBodies, requests, resetWorld, rpcSeen, world } from "./helpers/swapWorld";
+import {
+  calls,
+  deployment,
+  ETH_VAULT,
+  FACTORY,
+  fetchMock,
+  jobs,
+  LIMIT,
+  relayerBodies,
+  requests,
+  resetWorld,
+  rpcSeen,
+  VAULT,
+  VAULT_2,
+  world,
+} from "./helpers/swapWorld";
+import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
 
 // the private withdrawal into the escrow has its own suites (privacy-leakage, the local stack): here it is counted
 const funding = vi.hoisted(() => ({ count: 0, runner: undefined as unknown, olderGone: false }));
@@ -277,6 +293,75 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(await tick(orderId)).toBe("handed-over");
     expect(prepares(), "the accepted call was checked and signed: no fresh quote").toBe(quoted);
     expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
+  }, 60_000);
+
+  // 2026-10-14: the local stack's run stopped a funded swap here as an unsafe call — the call named the vault THORChain had
+  // suggested a few seconds before, and the gateways now suggested another of its active vaults
+  it("THORChain suggests another of its active vaults by the time the call is checked: it is signed and handed over, never stopped", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    world.gateways = { inbound: VAULT_2, active: [VAULT_2, VAULT], down: 0 }; // the service's call still names VAULT
+    expect(await tick(orderId)).toBe("handed-over");
+    expect(stored(orderId).paused).toBeUndefined();
+    expect(
+      calls.some((c) => c.endsWith("/thorchain/vaults/asgard")),
+      "the gateways' lists of active vaults were read",
+    ).toBe(true);
+    expect(calls.filter((c) => c === "127.0.0.1:8790/swap/execute")).toHaveLength(1);
+  }, 60_000);
+
+  it("a vault the gateways do not list as active is still stopped with nothing signed", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    world.gateways = { inbound: VAULT_2, active: [VAULT_2], down: 0 };
+    expect(await tick(orderId)).toBe("paused");
+    expect(stored(orderId).paused).toMatchObject({ code: "unsafe_contract_call" });
+    expect(stored(orderId).paused?.detail).toMatch(/vault/);
+    expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
+  }, 60_000);
+
+  it("THORNode gateways that do not answer at signing: nothing signed, the order is not stopped, and it is signed once they answer", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    world.gateways.down = 2;
+    const a = session.journal().schedule.find((x) => x.id === `order-tick:${orderId}`)!;
+    let thrown: unknown;
+    await act(async () => {
+      thrown = await runOrderTick(a, { masterSeed: session.state().seed!, deployment }).then(
+        () => null,
+        (e) => e,
+      );
+    });
+    expect(thrown, "an outage, for the scheduler's backoff").toBeInstanceOf(ProviderCallUnverified);
+    expect(stored(orderId).paused).toBeUndefined();
+    expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
+    world.gateways.down = 0;
+    expect(await tick(orderId)).toBe("handed-over");
+    expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
+  }, 60_000);
+
+  it("the call whose lower minimum was accepted names a vault THORChain has retired since: a fresh call is prepared, checked and signed", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    world.bend = { limit: LIMIT - 60_000n };
+    expect(await tick(orderId)).toBe("paused");
+    await screen.findByTestId("swap-minimum-moved");
+    const prepares = () => calls.filter((c) => c.endsWith("/prepare")).length;
+    const quoted = prepares();
+    // a churn: VAULT retires, VAULT_2 is suggested, and the service's next call names it
+    world.gateways = { inbound: VAULT_2, active: [VAULT_2], down: 0 };
+    world.callVault = VAULT_2;
+    fireEvent.click(screen.getByTestId("swap-accept-minimum"));
+    expect(await tick(orderId)).toBe("handed-over");
+    expect(prepares(), "the accepted call was outdated: one fresh quote").toBe(quoted + 1);
+    expect(stored(orderId).paused).toBeUndefined();
+    expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
+    const execute = requests.filter((r) => r.url.endsWith("/swap/execute")).at(-1); // the scenario's requests accumulate across tests
+    expect(execute?.body?.toLowerCase(), "the signed call deposits into the vault THORChain lists now").toContain(VAULT_2.slice(2).toLowerCase());
   }, 60_000);
 
   it("an expired quote says so and that nothing moved; a new quote brings the Review back", async () => {

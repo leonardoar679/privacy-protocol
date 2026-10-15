@@ -26,6 +26,8 @@ beforeAll(() => {
     const u = new URL(String(input));
     calls.push(u.pathname);
     if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "BTC", address: VAULT, router: "", halted: false }]);
+    // THORChain's active vaults: an address other than the one it suggests is looked up here (2026-10-14)
+    if (u.pathname.endsWith("/thorchain/vaults/asgard")) return json([{ status: "ActiveVault", addresses: [{ chain: "BTC", address: VAULT }] }]);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     if (u.pathname === "/v1/guest/quote") return json({ quotes: [thorQuote], scores: [], errors: {}, chosen: undefined });
     if (u.pathname === "/v1/guest/ingress") {
@@ -67,6 +69,7 @@ describe("walletless deposit instruction, checked in the browser (happy-dom)", (
     bent = { to: "bc1qattackerattackerattackerattackerattack" };
     await act(async () => { button(container, "Show my deposit instruction")!.click(); });
     await vi.waitFor(() => expect(container.textContent).toMatch(/deposit instruction does not match what you asked for \(vault/));
+    expect(calls.filter((c) => c.endsWith("/thorchain/vaults/asgard")), "not the vault suggested: the gateways' lists of active vaults were read").toHaveLength(3);
     expect(container.textContent).not.toContain("bc1qattacker");
     expect(container.querySelector("svg"), "no QR code").toBeNull();
   });

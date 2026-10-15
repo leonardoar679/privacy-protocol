@@ -427,7 +427,11 @@ same tick (the signature never waits in memory across ticks), or the tracking. P
 `minimum_moved` (the existing catalog row stands for the plan's `price_moved`: QUOTE_EXPIRED, "Accept new minimum" /
 "Return funds"; an accepted minimum signs the very call it was read from — kept in memory, checked again — while at
 least two minutes of it remain, else a fresh quote: audit gap 43), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
-`unsafe_contract_call` (the call did not pass the wallet's checks: return), `reconcile` (a send whose outcome is unknown:
+`unsafe_contract_call` (the call did not pass the wallet's checks: return; *a V6 follow-up of 2026-10-14:* a THORChain call
+whose vault is not the one the gateways suggest passes when every gateway that answers lists it among THORChain's active
+vaults — THORChain moves its suggestion between them several times an hour —, an accepted call whose vault has retired
+since is prepared afresh, and gateways that do not answer are an outage, `ProviderCallUnverified`: nothing signed, the
+scheduler's backoff), `reconcile` (a send whose outcome is unknown:
 the escrow or the executor is read before anything is sent again; *V6 follow-ups of 2026-10-14:* the funding's own
 submission is journaled before it is sent (`StoredSwap.fundingAttempt`: its nullifiers, the relayer, the transaction),
 so a reload or a lost answer still knows it, and its fate decides (`packages/sdk/src/swapFunding.ts` `fundingFate`):

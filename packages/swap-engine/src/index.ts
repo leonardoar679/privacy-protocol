@@ -11,7 +11,7 @@ export * from "./gateway";
 export * from "./risk/riskDb";
 export * from "./risk/security";
 export * from "./risk/protection";
-export { ThorchainAdapter, thorAsset, buildMemo, encodeDepositWithExpiry, inboundQuorum, THORNODE_QUORUM, THORNODE_URLS } from "./adapters/thorchain";
+export { ThorchainAdapter, thorAsset, buildMemo, encodeDepositWithExpiry, activeVaultQuorum, inboundQuorum, THORNODE_QUORUM, THORNODE_URLS } from "./adapters/thorchain";
 export { LifiAdapter, lifiToken, LIFI_DIAMOND, NON_EVM_RECEIVER, decodeLifiCall, verifyLifiTransaction } from "./adapters/lifi";
 export { AcrossAdapter, SPOKE_POOL, WETH, encodeDepositV3 } from "./adapters/across";
 export { NearIntentsAdapter, ONECLICK_API, oneClickAssetId, oneClickTokens } from "./adapters/nearIntents";
