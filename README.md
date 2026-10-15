@@ -191,6 +191,9 @@ cd circuits && npm install
 # --browser for the screenshot harness in Chrome, --ledger <file> for the per-step counts): 52/52 with --forge --rust --live --browser on 2026-10-14
 node scripts/verify-all.mjs --forge $SOLC --rust --browser    # CARGO / WASM_BINDGEN env point at the offline toolchain (docs/mobile.md)
 # the CI form (.github/workflows/ci.yml, on every push and pull request): node scripts/check-lockfile.mjs && npm ci && node scripts/verify-all.mjs --ci --forge 0.8.24
+# a vitest step whose test worker exited natively with no failing test runs once more, and its line says "ran twice"; a
+# failing test never does (on the Windows workstation, a VPN client's Winsock provider makes a process that opens many
+# sockets exit with 0xC0000409 now and then: about one run in twenty of apps/api)
 # run order for a workstation with a browser and a chain: docs/local-run.md (.env.example in apps/web/, apps/relayer/, packages/swap-engine/)
 
 # the wallet (+ the API the Swap screen talks to and the relayer); Private AI needs the zkAPI clone beside this repository

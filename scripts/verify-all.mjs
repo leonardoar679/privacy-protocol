@@ -110,7 +110,7 @@ const steps = [
   // concentration, the §70 states and gates, recovery, provider failure, the privacy invariants, the journal, the §118 chaos test
   { name: "tests/high-value (62: V6 Stage 13 — the $50K band's exact quarters and 500 worlds through the runner's reducer (in flight ≤ a quarter, one step at a time, every world ends); V5 policy — the ladder monotone with the consumer bands, the $50K band's quarter unmoved by tier and mode; the plan's §116 tree — order, quote, exposure incl. 1,000 random campaigns, tranche, rfq, streaming, routing, settlement, recovery, provider-failure, privacy, mobile, adversarial chaos)", cwd: ".", cmd: process.execPath, args: ["node_modules/vitest/vitest.mjs", "run", "--root", "tests/high-value"] },
   { name: "packages/swap-engine typecheck (tsc --noEmit)", cwd: "packages/swap-engine", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
-  { name: "packages/swap-engine offline (103: V6 Stage 12 — same-chain swaps into the protected balance (the same-chain providers only, a canonical vault, the shield tip in the output asset, a minimum below a hundred tips filtered); Stage 11 — the route selection (partial quotes refused, the lowest fee, best price); V6 — the executor tip is the execution's gas (eth_feeHistory, the 1 % cap, an ERC-20's valued tip, the committed tip at prepare); V5 — the $50K band's four exact sequential quarters under a 30-minute window, the ladder's seven names; state machine, scoring, privacy score incl. the link composition, endpoints == forge, restore, escrow call per ingress + asset, what an escrow can re-shield, unit; V2: the five policies and filters, the competition record, the health tracker and breaker, placeholders, MinimumMoved, the price guard's typed refusal, the valuer, the zkAPI gateway; V3: the risk database loader, the security breakdown, the breaker's new triggers and probe, the protection recommendation, the execution window; V4: the presets, PAES, the normalized line, the exposure tier / caps / remedy / share cap)", cwd: "packages/swap-engine", cmd: npx, args: ["vitest", "run", "test/engine-core.test.ts", "test/engine-v2.test.ts", "test/valuation.test.ts", "test/gateway.test.ts", "test/endpoints.test.ts", "test/restore.test.ts", "test/escrow-call.test.ts", "test/escrow-assets.test.ts", "test/chainflip-unit.test.ts", "test/mayan-unit.test.ts", "test/price-guard.test.ts", "test/risk.test.ts", "test/tips.test.ts", "test/selection.test.ts", "test/same-chain.test.ts"] },
+  { name: "packages/swap-engine offline (105: a V6 follow-up — the health check inside the per-provider time budget (a check that hangs is a timeout, its late answer cached, the status view bounded too); V6 Stage 12 — same-chain swaps into the protected balance (the same-chain providers only, a canonical vault, the shield tip in the output asset, a minimum below a hundred tips filtered); Stage 11 — the route selection (partial quotes refused, the lowest fee, best price); V6 — the executor tip is the execution's gas (eth_feeHistory, the 1 % cap, an ERC-20's valued tip, the committed tip at prepare); V5 — the $50K band's four exact sequential quarters under a 30-minute window, the ladder's seven names; state machine, scoring, privacy score incl. the link composition, endpoints == forge, restore, escrow call per ingress + asset, what an escrow can re-shield, unit; V2: the five policies and filters, the competition record, the health tracker and breaker, placeholders, MinimumMoved, the price guard's typed refusal, the valuer, the zkAPI gateway; V3: the risk database loader, the security breakdown, the breaker's new triggers and probe, the protection recommendation, the execution window; V4: the presets, PAES, the normalized line, the exposure tier / caps / remedy / share cap)", cwd: "packages/swap-engine", cmd: npx, args: ["vitest", "run", "test/engine-core.test.ts", "test/engine-v2.test.ts", "test/valuation.test.ts", "test/gateway.test.ts", "test/endpoints.test.ts", "test/restore.test.ts", "test/escrow-call.test.ts", "test/escrow-assets.test.ts", "test/chainflip-unit.test.ts", "test/mayan-unit.test.ts", "test/price-guard.test.ts", "test/risk.test.ts", "test/tips.test.ts", "test/selection.test.ts", "test/same-chain.test.ts"] },
   ...(live ? [{ name: "packages/swap-engine LIVE (107: adapters incl. the Uniswap-Across leg, Mayan SWIFT and swap & lock, THORChain streaming plans, adversarial, privacy flow incl. USDC-sourced orders and the phase-1 placeholders, guest deposit, the wallet's own provider-call check on every prepared call)", cwd: "packages/swap-engine", cmd: npx, args: ["vitest", "run", "test/adapters-live.test.ts", "test/adversarial.test.ts", "test/privacy-flow.test.ts", "test/guest.test.ts", "test/wallet-check.test.ts"] }] : []),
   { name: "apps/relayer typecheck (tsc --noEmit)", cwd: "apps/relayer", cmd: npx, args: ["tsc", "--noEmit", "-p", "."] },
   // V6 Stage 9 (spec v2.0 §15): the API — Express 5 over the engine and node:sqlite
@@ -156,14 +156,28 @@ function countsOf(out) {
 
 // a failed step's whole output is kept here: a live suite spends rate-limited quota, so a failure must be readable without a rerun
 const logDir = join(tmpdir(), "privacy-protocol-verify");
+// On the Windows workstation these suites run on, a process that opens many sockets now and then exits natively with
+// 0xC0000409 and nothing on stderr. A Winsock layered service provider (a VPN client's) is the likely cause: the API service
+// died the same way after four days, and the browser run's harness once. A vitest worker that serves and fetches over HTTP
+// does it in about one run in twenty of apps/api (2026-10-14; reproduced with a plain node:http server and fetch, none of
+// this repository's code). Such a step runs once more and its line says so. A step with a failing test is never run again.
+const workerDied = (out) => /Worker exited unexpectedly/.test(out) && !/^\s*FAIL\s+\S+ >/m.test(out);
 const results = [];
 for (const [i, s] of steps.entries()) {
   const cwd = join(root, s.cwd);
   if (!existsSync(cwd)) { results.push({ ...s, ok: false, ms: 0, note: "missing directory" }); continue; }
   const t0 = Date.now();
   const extraEnv = typeof s.env === "function" ? s.env() : (s.env ?? {});
-  const r = spawnSync(s.cmd, s.args, { cwd, encoding: "utf8", shell: process.platform === "win32" && s.cmd !== process.execPath, env: { ...process.env, ...extraEnv } });
-  const out = ((r.stdout ?? "") + (r.stderr ?? "")).replace(/\x1b\[[0-9;]*m/g, ""); // plain text summaries
+  const run = () => spawnSync(s.cmd, s.args, { cwd, encoding: "utf8", shell: process.platform === "win32" && s.cmd !== process.execPath, env: { ...process.env, ...extraEnv } });
+  const plain = (x) => ((x.stdout ?? "") + (x.stderr ?? "")).replace(/\x1b\[[0-9;]*m/g, ""); // plain text summaries
+  let r = run();
+  let out = plain(r);
+  const rerun = r.status !== 0 && workerDied(out);
+  if (rerun) {
+    r = run();
+    out = plain(r);
+  }
+  const rerunNote = rerun ? "  [ran twice: the first run's test worker exited natively with no failing test]" : "";
   const cargoRuns = [...out.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
   // vitest's count line is anchored: its stderr (appended last) opens the failure list with "Failed Tests N"
   const summary = cargoRuns.length > 1
@@ -178,13 +192,13 @@ for (const [i, s] of steps.entries()) {
     mkdirSync(logDir, { recursive: true });
     const log = join(logDir, `${String(i + 1).padStart(2, "0")}-${s.cwd.replace(/\W+/g, "_")}.log`);
     writeFileSync(log, out);
-    note = [note, ...failing.slice(0, 10), `full output: ${log}`].join("\n      ");
+    note = [note + rerunNote, ...failing.slice(0, 10), `full output: ${log}`].join("\n      ");
   }
-  results.push({ ...s, ok: r.status === 0, ms: Date.now() - t0, note, counts: countsOf(out) });
-  console.log(`${r.status === 0 ? "PASS" : "FAIL"}  ${s.name}  (${((Date.now() - t0) / 1000).toFixed(0)} s)  ${summary ?? ""}`);
+  results.push({ ...s, ok: r.status === 0, ms: Date.now() - t0, note, counts: countsOf(out), ...(rerun ? { rerun: true } : {}) });
+  console.log(`${r.status === 0 ? "PASS" : "FAIL"}  ${s.name}  (${((Date.now() - t0) / 1000).toFixed(0)} s)  ${summary ?? ""}${rerunNote}`);
 }
 if (ledgerFile) {
-  const ledger = results.map((r) => ({ step: r.name.split(" (")[0], cwd: r.cwd, ok: r.ok, ...r.counts }));
+  const ledger = results.map((r) => ({ step: r.name.split(" (")[0], cwd: r.cwd, ok: r.ok, ...r.counts, ...(r.rerun ? { rerun: true } : {}) }));
   writeFileSync(ledgerFile, JSON.stringify(ledger, null, 2) + "\n");
   console.log(`ledger: ${ledgerFile}`);
 }

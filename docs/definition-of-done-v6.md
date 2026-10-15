@@ -125,7 +125,12 @@ On the final code, 2026-10-14 (the V6 table of `docs/roadmap.md`, row 17):
   acceptance and accessibility checks.
 - **The local stack's full run**: **212/212** (`scripts/local-stack/results/report-2026-10-14-v6.json`).
 
-After the V6 follow-ups the same day (`25baf33` older notes first, `77a84b0` audit gap 43, `8191b3f` audit gap 44, then
-note discovery):
-- **verify-all** `--browser`: 44/44, with the web wallet at 515 and the sdk at 92.
-- **The local stack's quick pass**: 197/197 (`scripts/local-stack/results/report-2026-10-14-v6-discovery.json`).
+After the V6 follow-ups the same day (`25baf33` older notes first, `77a84b0` audit gap 43, `8191b3f` audit gap 44,
+`d6e1eba` note discovery, `03d877c` the production floors, `71faabd` one unlocked tab, `82a5fbf` one private spend at a
+time, `c0c8753` the campaign's price bound, `05f6af4` the API's time limits, then verify-all's second run of a test
+worker that exits natively):
+- **verify-all** `--browser`: 44/44, with the web wallet at 523, the sdk at 101 and the swap engine at 105. The API
+  suite ran twice: its first worker exited natively with no failing test, the workstation fault described in
+  `docs/roadmap.md`.
+- **The local stack's quick pass**: 196/196 (`scripts/local-stack/results/report-2026-10-14-v6-timeouts.json`). The
+  check that runs only when the live price moves before signing did not run.
