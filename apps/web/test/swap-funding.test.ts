@@ -15,11 +15,13 @@ import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
 // the private withdrawal has its own suites: here what the funding hands it is recorded
-const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[] }));
+const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[], events: [] as unknown[], afterEach: undefined as ((e: unknown) => void) | undefined }));
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   privateWithdrawal: async (o: Record<string, unknown>) => {
     withdrawals.calls.push(o);
+    const on = o.onEvent as ((e: unknown) => void) | undefined;
+    for (const e of withdrawals.events) { on?.(e); withdrawals.afterEach?.(e); }
     return { txHash: "0x" + "33".repeat(32) };
   },
 }));
@@ -91,5 +93,39 @@ describe("swap funding", () => {
     await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s });
     expect(withdrawals.calls[1]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint });
     expect(withdrawals.calls[1]).not.toHaveProperty("maxTiming");
+  });
+
+  it("the funding's own submission is journaled before it is sent, then its transaction; a merge before it never is", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const params = {
+      orderId: ("0x" + "cd".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [stored]; });
+    const own = { type: "submitting", by: "relayer", nullifiers: ["7", "8"], relayerUrl: "http://relayer.test" };
+    withdrawals.events = [
+      { type: "fee-terms" },
+      { type: "merging", i: 1, n: 1 },
+      { type: "proving" }, { type: "submitting", by: "relayer", nullifiers: ["1", "2"], relayerUrl: "http://relayer.test" }, { type: "submitted", txHash: "0x" + "aa".repeat(32), by: "relayer" },
+      { type: "syncing" }, { type: "proving" }, own, { type: "submitted", txHash: "0x" + "bb".repeat(32), by: "relayer" },
+    ];
+    const seen: unknown[] = [];
+    withdrawals.afterEach = (e) => {
+      const attempt = s.journal().swaps[0].fundingAttempt;
+      if (e === own || (e as { type?: string }).type === "submitting") seen.push(attempt ? { ...attempt } : null);
+    };
+    await fundEscrow({ masterSeed: seed, deployment, stored, session: s });
+    expect(seen, "nothing for the merge; the funding's nullifiers as soon as it is submitted, before any answer").toEqual([
+      null,
+      { nullifiers: ["7", "8"], by: "relayer", relayerUrl: "http://relayer.test", at: expect.any(Number) },
+    ]);
+    expect(s.journal().swaps[0].fundingAttempt).toMatchObject({ nullifiers: ["7", "8"], txHash: "0x" + "bb".repeat(32) });
+    expect(s.journal().swaps[0]).toMatchObject({ state: "funded" });
+    withdrawals.events = [];
+    withdrawals.afterEach = undefined;
   });
 });

@@ -32,7 +32,7 @@ import {
 } from "../swapExecute";
 import { shieldJobRequest } from "../shieldReceiver";
 import { recoverShieldDelivery } from "../privateTx";
-import { abandonSwap, fundEscrow, isOpenSwap, patchSwap } from "../swapFunding";
+import { abandonSwap, fundEscrow, fundingFate, fundingReads, isOpenSwap, patchSwap, type FundingFate } from "../swapFunding";
 import type { Prepared, ServiceOrder } from "../swapService";
 import { escrowBalance } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
@@ -58,6 +58,8 @@ const TERMINAL_JOB = ["completed", "refunded"];
 /** Everything the runner reads or moves, behind one interface: the wallet's modules by default, fakes in the tests. */
 export interface OrderIo {
   fund(stored: StoredSwap, onStatus: (line: string) => void): Promise<{ txHash: string }>;
+  /** what became of the order's journaled funding (swapFunding.ts `fundingFate`); absent: unknown, so nothing is sent */
+  fundingFate?(stored: StoredSwap): Promise<FundingFate>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
   /** `reuse`: the call whose moved minimum the user accepted, checked again and signed instead of a fresh quote */
   sign(stored: StoredSwap, reuse?: Prepared): Promise<Signed | { moved: MinimumMoved; prepared?: Prepared }>;
@@ -118,6 +120,7 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
   };
   return {
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus }),
+    fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment)) : "unknown"),
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
@@ -326,15 +329,20 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         return { step: "delayed", stored };
       }
       const bal = await io.escrowBalance(stored);
+      // A funding already sent is never sent again on its own (plan §86: no automatic retry on money movement). It is
+      // journaled before it is sent, so a reload, a lost answer or a receipt never seen still knows it, and its fate decides
+      // (2026-10-14: a reload during a funding had sent a second one, and when the notes differed both landed).
+      const fate =
+        bal !== null && bal >= amount ? null : stored.fundingAttempt ? await (io.fundingFate?.(stored) ?? Promise.resolve<FundingFate>("unknown")) : null;
       if (bal !== null && bal >= amount) {
         patchSwap(a.orderId, { state: "funded", paused: undefined }, s);
-      } else if (stored.paused?.code === "reconcile") {
-        // A funding with an unknown outcome: the escrow is read again before anything is sent again. Once the order can no
-        // longer execute (past its deadline, the escrow read and still short), it stops. Its notes were never spent, and a
-        // funding mined after all comes back through the escrow's refund. Before (to 2026-10-14), a funding that was sent
-        // and dropped kept the order reconciling for good, its record "Reconciling".
-        if (bal !== null && now / 1000 > Number((stored.params as { executeDeadline?: number }).executeDeadline)) {
-          const detail = "Its funding was sent but not confirmed before the order's window closed; nothing is sent again.";
+      } else if (fate !== null || stored.paused?.code === "reconcile") {
+        // A funding with an unknown outcome: the escrow is read again before anything is sent again. A dead one (its notes
+        // unspent, no relayer job, past FUNDING_SETTLE_MS) stops the order at once; so does the order's closed window with
+        // the escrow read and still short. Its notes were never spent, and a funding mined after all comes back through
+        // the escrow's refund. Before (to 2026-10-14), a funding that was sent and dropped kept the order reconciling for good.
+        if (fate === "dead" || (bal !== null && now / 1000 > Number((stored.params as { executeDeadline?: number }).executeDeadline))) {
+          const detail = "Its funding was sent but never confirmed; a funding is never sent twice on its own.";
           patchSwap(a.orderId, { paused: { code: "funding_unconfirmed", detail, at: now } }, s);
           abandonSwap(a.orderId, s);
           cancelAction(a.id, s);
@@ -342,8 +350,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           syncSwapRecord(st, null, null, now);
           return { step: "stopped", stored: st };
         }
+        if (stored.paused?.code !== "reconcile") {
+          const detail = "A funding was sent and is not confirmed yet; the escrow is read before anything is sent again.";
+          patchSwap(a.orderId, { paused: { code: "reconcile", detail, at: now } }, s);
+          syncSwapRecord(journaled(a.orderId, s)!, null, null, now);
+        }
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
-        return { step: "paused", stored };
+        return { step: "paused", stored: journaled(a.orderId, s)! };
       } else {
         let sent = false;
         schedulerStatus.progress("Swap: funding the order from your protected balance…");

@@ -217,7 +217,11 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     same holds for a transaction the relayer counts as dropped (unknown to its node 10 minutes after it was sent, its
     nullifiers unspent) that is mined after all: the wallet's next attempt reverts (2026-10-14). A swap's funding that is
     sent and never confirmed is never sent again: the order runner stops the swap once its window closes with the escrow
-    still short (`funding_unconfirmed`). A funding mined after that comes back through the escrow's refund.
+    still short (`funding_unconfirmed`). A funding mined after that comes back through the escrow's refund. Since the
+    same day, a funding is journaled before it is sent and never sent twice on its own: a reload during a funding had
+    sent a second one (both landed when the notes differed, the excess held in the escrow until its refund). A dead
+    funding (its notes unspent, no relayer job, older than 10 minutes) stops a swap, and only the user's Resume funds a
+    protected execution's step again.
 43. **V6 — a trending price can ask the user again** (narrowed 2026-10-14). The local stack's run had accepted six moved
     minimums in a row: after "Accept new minimum" the runner prepared a fresh hard quote, which in a market moving one way
     was lower again. Now the runner keeps the call behind the pause and, once its minimum is accepted, checks it again

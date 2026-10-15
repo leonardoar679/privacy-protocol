@@ -25,6 +25,7 @@ import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notification
 import type { Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
+import type { FundingFate } from "@privacy-wallet/sdk/swapFunding";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { useScheduler } from "../src/hooks";
@@ -56,6 +57,10 @@ class World implements CampaignIo {
   delivered = new Map<string, string>();
   refundsBack = new Set<string>();
   fundThrowsAfterSend = false;
+  /** the funding is sent and journaled (as fundEscrow does) but has not landed; its answer is lost */
+  fundPendingAfterSend = false;
+  /** what the runner learns of a journaled funding */
+  fate: FundingFate = "unknown";
   handOverThrows = false;
   /** the settlement read fails (the service or the network is down) */
   trackThrows = false;
@@ -94,6 +99,11 @@ class World implements CampaignIo {
   }
   async fund(stored: StoredSwap, onStatus: (l: string) => void) {
     this.calls.push(`fund:${stored.campaign!.index}`);
+    if (this.fundPendingAfterSend) {
+      onStatus("Proof ready in 1.0 s; handing it to the relayer (your address never touches the chain)…");
+      this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: this.now() }; });
+      throw new Error("relayer unreachable");
+    }
     if (this.fundThrowsAfterSend) {
       onStatus("Proof ready in 1.0 s; handing it to the relayer (your address never touches the chain)…");
       this.escrow.set(stored.orderId, BigInt((stored.params as { amount: string }).amount)); // the withdrawal landed although the answer was lost
@@ -104,6 +114,7 @@ class World implements CampaignIo {
     return { txHash: "0x" + "33".repeat(32) };
   }
   async escrowBalance(stored: StoredSwap) { this.calls.push(`balance:${stored.campaign!.index}`); return this.escrow.get(stored.orderId) ?? 0n; }
+  async fundingFate(): Promise<FundingFate> { return this.fate; }
   async sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: any }> {
     this.calls.push(`sign:${stored.campaign!.index}`);
     this.acceptMins.push(acceptMin);
@@ -281,6 +292,49 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action).toMatchObject({ kind: "commit", index: 1 });
     expect(current(c).tranches[1]).toMatchObject({ state: "committed", destination: "bc1qfresh1" });
     expect(notes).toHaveLength(0);
+  });
+
+  it("a funding sent and not yet landed is never sent again, even after Resume; a dead one is replaced once (2026-10-14)", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    world.fundPendingAfterSend = true;
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c).pause).toMatchObject({ reason: "reconcile", trancheIndex: 0 });
+    world.fundPendingAfterSend = false;
+    // the user resumes at once: the funding may still land, so nothing is sent again and the step pauses once more
+    world.fate = "pending";
+    resumeCampaign(c.id, session, clock);
+    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
+    r = await tick(c); expect(r?.action.kind).toBe("fund"); clock += 2000;
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "no second withdrawal").toEqual(["fund:0"]);
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "reconcile", trancheIndex: 0 } });
+    // the funding is dead: the next Resume funds the step once more
+    world.fate = "dead";
+    resumeCampaign(c.id, session, clock);
+    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
+    r = await tick(c); expect(r?.action.kind).toBe("fund");
+    expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0", "fund:0"]);
+    expect(current(c).tranches[0].state).toBe("funded");
+  });
+
+  it("a reload during a step's funding: a dead funding is never replaced on its own; the user's Resume funds the step once (2026-10-14)", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    // the funding was sent and journaled, then the tab reloaded before any answer: the campaign is still running
+    const orderId = current(c).tranches[0].orderId!;
+    session.update((j) => { const x = j.swaps.find((y) => y.orderId === orderId)!; x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: clock - 1_000 }; });
+    world.fate = "dead";
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "never sent again on its own").toEqual([]);
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "reconcile", trancheIndex: 0 } });
+    expect(current(c).pause!.detail).toMatch(/never landed; nothing moved\. Resume to fund it again/);
+    resumeCampaign(c.id, session, clock);
+    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
+    r = await tick(c); expect(r?.action.kind).toBe("fund");
+    expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
+    expect(current(c).tranches[0].state).toBe("funded");
   });
 
   it("never funds or hands over twice: an unknown outcome pauses with reconcile and the next tick continues from the facts", async () => {

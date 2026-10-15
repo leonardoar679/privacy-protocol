@@ -281,7 +281,12 @@ are still tracked and may settle during the pause. Every pause journals its reas
   `fundedTx`, or whose escrow already holds the amount, is never funded twice; a tranche with a `jobId` is
   never handed over twice; the relayer keys jobs by `orderId` and replaces only its `REPLACEABLE` states
   (V2 §20). **No automatic retry on money movement** (plan §86): a network failure after a send is
-  `reconcile` (§8), never "send again".
+  `reconcile` (§8), never "send again". *V6 follow-up (2026-10-14):* the facts did not include the funding sent: it was
+  journaled only once mined, so a Resume while it was still pending found the escrow empty and funded the step again.
+  Now the funding is journaled before it is sent (`StoredSwap.fundingAttempt`) and its fate decides
+  (`packages/sdk/src/swapFunding.ts` `fundingFate`): while it may land the step pauses `reconcile`, and a dead one
+  (its notes unspent, no relayer job, older than 10 minutes) is replaced only after the user resumed since it was sent
+  (`campaignRunner.ts`; `apps/web/test/campaign-runner.test.tsx`).
 - **Unique ids** (plan §87): one `orderId` per tranche attempt (a requote after a pause is a new attempt
   with a new one-time key, `keys/swapKeys.ts`); the relayer's job id is the execution id; a retry MUST first
   prove the previous attempt did not settle (the facts above).

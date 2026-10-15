@@ -13,7 +13,8 @@ export type EngineEvent =
   | { type: "proved"; ms: number; verifiedLocally: boolean }
   | { type: "wallet-prompt"; step: "approve" | "deposit" | "transact"; i: number; n: number }
   | { type: "approved"; txHash: Hex }
-  | { type: "submitting"; by: "relayer" | "wallet" }
+  /** `nullifiers` (decimal) and, through a relayer, its `relayerUrl`: what an order journals before its funding is sent */
+  | { type: "submitting"; by: "relayer" | "wallet"; nullifiers?: [string, string]; relayerUrl?: string }
   | { type: "relayer-retry"; attempt: number }
   | { type: "submitted"; txHash: Hex; by: "relayer" | "wallet" }
   | { type: "waiting-receipt"; txHash: Hex }

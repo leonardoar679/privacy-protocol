@@ -56,7 +56,10 @@ first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); ne
 Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil?,
 maxTiming? }` (`maxTiming`, a V6 follow-up: funded at once from older notes only, each with its own timing at most it —
 0, 0.3 or 0.7) and, while it waits, `paused { code, detail?, minOut?, approved?, at }` (on an order stopped unfunded
-because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`); its ticks are scheduled actions of the kind
+because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`; on one whose funding
+was sent and never confirmed, `funding_unconfirmed`, a V6 follow-up); a V6 follow-up of 2026-10-14: a swap order's
+funding, journaled before it is sent, is `fundingAttempt { nullifiers: [decimal, decimal], by: "relayer" | "wallet",
+relayerUrl?, txHash?, at }` (the transaction once known); its ticks are scheduled actions of the kind
 `order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. A V6
 follow-up (note discovery): a scheduled action of the kind `discovery` (id `discovery:pool`, one at a time, planned again
 while unlocked), and an Activity line of the kind `receive` (a private transfer received, id `receive:<leafIndex>`). V6

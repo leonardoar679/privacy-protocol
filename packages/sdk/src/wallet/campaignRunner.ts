@@ -23,7 +23,7 @@ import { priceStore } from "../prices";
 import { ensureSpendable } from "../privateTx";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "../relayer";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../swapExecute";
-import { abandonSwap, fundEscrow } from "../swapFunding";
+import { abandonSwap, fundEscrow, fundingFate, fundingReads, patchSwap, type FundingFate } from "../swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
 import type { MinimumMoved } from "../providerCall";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
@@ -44,6 +44,8 @@ export interface CampaignIo {
   commit(c: Campaign, t: Tranche, destination: string): Promise<{ stored: StoredSwap; order: ServiceOrder; protection?: unknown }>;
   /** the private withdrawal into the tranche's escrow; `onStatus` lines say when the submission starts (the reconcile boundary) */
   fund(stored: StoredSwap, onStatus: (line: string) => void): Promise<{ txHash: string }>;
+  /** what became of the step's journaled funding (swapFunding.ts `fundingFate`); absent: unknown, so nothing is sent */
+  fundingFate?(stored: StoredSwap): Promise<FundingFate>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
   /** `acceptMin`: the least the step's call may guarantee — the campaign's price bound for it (V3 §3), not its own quote at commit */
   sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: MinimumMoved }>;
@@ -135,6 +137,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
       return { stored: r.stored, order: r.order, protection: r.response.protection ?? null };
     },
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus }),
+    fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment)) : "unknown"),
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
@@ -387,6 +390,22 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (stored.fundedTx) { c = withTrancheState(c, t.index, "funded", now, {}, "already funded"); nextAt = now + 1000; break; }
         const bal = await io.escrowBalance(stored);
         if (bal !== null && bal >= BigInt(t.amount)) { c = withTrancheState(c, t.index, "funded", now, {}, "funded (the escrow already holds the amount)"); nextAt = now + 1000; break; }
+        // A funding already sent is never sent again before its fate is known (journaled before it was sent): a Resume after
+        // an unknown outcome, or a reload, waits for it. A dead one is replaced only after the user resumed since it was
+        // sent (plan §86: no automatic retry on money movement); a V6 follow-up of 2026-10-14.
+        if (stored.fundingAttempt) {
+          const sentAt = stored.fundingAttempt.at;
+          const fate = await (io.fundingFate?.(stored) ?? Promise.resolve<FundingFate>("unknown"));
+          const resumedSince = c.history.some((h) => h.state === "reassessing" && h.at > sentAt); // only resumeCampaign enters it
+          if (fate !== "dead" || !resumedSince) {
+            const detail = fate === "dead"
+              ? `The funding of step ${t.index + 1} never landed; nothing moved. Resume to fund it again.`
+              : `The funding of step ${t.index + 1} was sent and is not confirmed yet; the escrow is read before anything is sent again.`;
+            c = pauseWith(c, "reconcile", detail, now, t.index);
+            break;
+          }
+          patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
+        }
         schedulerStatus.progress(`Protected swap: funding step ${t.index + 1} from your private balance…`);
         let sent = false;
         try {

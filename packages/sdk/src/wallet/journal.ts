@@ -32,6 +32,10 @@ export interface StoredSwap {
   createdAt: number;
   dueAt?: number; // scheduled funding time (plan §30), unix ms
   fundedTx?: string;
+  /** the funding's own submission, journaled before it is sent (a V6 follow-up of 2026-10-14): its two nullifiers
+   *  (decimal), who sent it, the relayer, the transaction once known. Until its fate is known (swapFunding.ts
+   *  `fundingFate`) no runner sends another: a reload or a Resume had funded an escrow twice when the notes differed. */
+  fundingAttempt?: FundingAttempt;
   jobId?: string;
   /** tokens other than the order's asset the signed provider call may pay back to the escrow (handed to the executor) */
   refundTokens?: string[];
@@ -72,6 +76,15 @@ export interface StoredSwap {
    *  the destination (its factory and parameters, the counter its note derives from, the payload), whether the executor
    *  has its shield job, what the executor last reported, and the note once it is found in the pool */
   shield?: StoredShield;
+}
+
+/** A funding sent for an order (StoredSwap.fundingAttempt). */
+export interface FundingAttempt {
+  nullifiers: [string, string];
+  by: "relayer" | "wallet";
+  relayerUrl?: string;
+  txHash?: string;
+  at: number;
 }
 
 /** A same-chain swap's shield receipt (sdk/shieldReceiver.ts); the integers are decimal strings. */

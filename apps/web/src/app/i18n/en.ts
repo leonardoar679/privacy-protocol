@@ -487,7 +487,7 @@ export const en = {
   "op.error.older_notes_unavailable.title": "Your older funds no longer cover this swap",
   "op.error.older_notes_unavailable.reason": "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",
-  "op.error.funding_unconfirmed.reason": "Its funding was sent but not confirmed before the swap's window closed, so it can no longer execute. Your funds are still in your protected balance, or come back through the escrow's refund if that funding is confirmed late. Review the swap again.",
+  "op.error.funding_unconfirmed.reason": "Its funding was sent but never confirmed, and a funding is never sent twice on its own. Your funds are still in your protected balance, or come back through the escrow's refund if that funding lands late. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",
   "op.error.unsafe_contract_call.reason": "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
   "op.error.housekeeping_needed.reason": "This amount is spread over more notes than one spend can merge. Nothing was sent; run Private balance maintenance, then confirm again.",

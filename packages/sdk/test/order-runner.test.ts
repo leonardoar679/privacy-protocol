@@ -17,7 +17,7 @@ import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
-import { patchSwap } from "../src/swapFunding";
+import { patchSwap, type FundingFate } from "../src/swapFunding";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId } from "../src/operations/swapRecords";
 import type { Prepared } from "../src/swapService";
@@ -353,6 +353,41 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(pending(), "no more ticks").toBeUndefined();
     expect(w.funds).toBe(1);
   });
+  it("a funding already sent is never sent again on its own: a reload while it may land waits; a dead one stops the order", async () => {
+    // a reload during a funding (2026-10-14): nothing paused, the escrow still empty, so the runner had sent a second one
+    order({ fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 } } as Partial<StoredSwap>);
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    let fate: FundingFate = "pending";
+    io.fundingFate = async () => fate;
+    expect(await drive(io, 1)).toEqual(["paused"]);
+    expect(w.funds, "nothing sent again while it may land").toBe(0);
+    expect(stored().paused?.code).toBe("reconcile");
+    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "reconcile" } });
+    // its notes are spent: the escrow follows, and the runner waits for it
+    fate = "landed";
+    expect((await runOrderTick(pending()!, deps(io, T0 + 20_000)))?.step).toBe("paused");
+    w.escrow = AMOUNT;
+    expect((await runOrderTick(pending()!, deps(io, T0 + 40_000)))?.step).toBe("funded");
+    expect(w.funds).toBe(0);
+    // another order whose funding is dead (its notes unspent, no relayer job, past FUNDING_SETTLE_MS): stopped at once,
+    // never funded again on its own (plan §86) — still protected, "Review the swap again"
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action()];
+    });
+    resetOperationsMemory();
+    order({ fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 } } as Partial<StoredSwap>);
+    const dead = world();
+    dead.io.fundingFate = async () => "dead";
+    expect(await drive(dead.io, 1)).toEqual(["stopped"]);
+    expect(dead.w.funds).toBe(0);
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "funding_unconfirmed" } });
+    expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "funding_unconfirmed", fundsClass: "still-protected" } });
+  });
+
   it("a hand-over whose answer was lost, or that another tab made, is found by orderId: never handed over twice", async () => {
     order({ fundedTx: "0xf00d", state: "funded" });
     session.update((j) => {

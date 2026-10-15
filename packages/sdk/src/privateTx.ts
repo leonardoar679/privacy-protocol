@@ -279,13 +279,13 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     if (!o.fee) throw new Error("relayer submission needs a fee output");
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; handing it to the relayer (your address never touches the chain)…`);
     const url = o.relayerUrl ?? o.submission.url;
-    o.onEvent?.({ type: "submitting", by: "relayer" });
+    const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
+    o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
     let r: { txHash: Hex } | undefined;
     // V6 Stage 15 (doc §75): nothing is submitted while offline; an attempt the network swallowed may have reached the
     // relayer, so once back the state is verified — the relayer's job for these nullifiers — before anything is resent
     let unanswered = false;
-    const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
     for (let attempt = 1; ; attempt++) {
       await whenOnline();
       try { r = await relayerSubmit(url, body); break; }
@@ -309,7 +309,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onEvent?.({ type: "submitted", txHash, by: "relayer" });
   } else {
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
-    o.onEvent?.({ type: "submitting", by: "wallet" });
+    o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()] });
     o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
     txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData));
     submittedBy = "wallet";

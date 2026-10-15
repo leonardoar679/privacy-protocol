@@ -3,14 +3,17 @@
 // tab, since the runner lives at the App level. Every check the Swap screen made stays here: the escrow
 // is recomputed from the wallet's own factory and the journaled params before a single note is spent,
 // and an order that is no longer open (abandoned, already funded) is never funded.
-import type { Address } from "viem";
-import type { Deployment } from "./chain";
+import { TransactionNotFoundError, type Address, type Hex } from "viem";
+import { clientFor, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
+import { coreAbi } from "./privacyProtocol";
+import { relayerJobFor } from "./relayer";
+import type { OnEvent } from "./operations/engineEvents";
 import { assetsOf, type Asset } from "./assets";
 import { OrderMismatch, predictEscrow } from "./swapGuard";
 import { noteStore } from "./wallet/notes";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
-import type { ScheduledAction, StoredSwap } from "./wallet/journal";
+import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
@@ -43,6 +46,61 @@ export function abandonSwap(orderId: string, s: WalletSession = defaultSession):
   patchSwap(orderId, { state: "abandoned" }, s);
 }
 
+/**
+ * How long a sent funding is waited for before, its notes unspent and no relayer job for them, it counts as dead: a new
+ * funding may then go. The relayer drops a transaction its node no longer knows after the same time (apps/relayer
+ * `DROP_AFTER_MS`).
+ */
+export const FUNDING_SETTLE_MS = 10 * 60_000;
+
+/**
+ * What became of a journaled funding.
+ * - landed: its notes are spent on chain, and the escrow's balance follows.
+ * - pending: the relayer still has a job for its notes, the node still knows its transaction, or it is younger than
+ *   FUNDING_SETTLE_MS.
+ * - dead: none of these. A new funding is safe: nothing of the old one can land twice, since the chain refuses a spent
+ *   nullifier, and a late landing returns through the escrow's refund.
+ * - unknown: the chain or the relayer could not be read.
+ */
+export type FundingFate = "landed" | "pending" | "dead" | "unknown";
+
+export interface FundingReads {
+  spent(nullifier: bigint): Promise<boolean>;
+  relayerJob(url: string, nullifiers: [bigint, bigint]): Promise<{ txHash: Hex } | null>;
+  /** the node knows the transaction (pending or mined); false when it does not; throws when it cannot be read */
+  txKnown(hash: Hex): Promise<boolean>;
+}
+
+/** The wallet's reads of a funding's fate: PrivacyCore through its RPC, the relayer by nullifier. */
+export function fundingReads(d: Deployment): FundingReads {
+  const client = clientFor(d);
+  return {
+    spent: async (n) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean,
+    relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
+    txKnown: async (hash) => {
+      try {
+        await client.getTransaction({ hash });
+        return true;
+      } catch (e) {
+        if (e instanceof TransactionNotFoundError) return false;
+        throw e;
+      }
+    },
+  };
+}
+
+export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now()): Promise<FundingFate> {
+  try {
+    const spent = await Promise.all(a.nullifiers.map((n) => reads.spent(BigInt(n))));
+    if (spent.some(Boolean)) return "landed";
+    if (a.by === "relayer" && a.relayerUrl && (await reads.relayerJob(a.relayerUrl, [BigInt(a.nullifiers[0]), BigInt(a.nullifiers[1])]))) return "pending";
+    if (a.txHash && (await reads.txKnown(a.txHash as Hex))) return "pending";
+  } catch {
+    return "unknown";
+  }
+  return now - a.at < FUNDING_SETTLE_MS ? "pending" : "dead";
+}
+
 export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deployment | null; stored: StoredSwap; onStatus?: (line: string) => void; session?: WalletSession }): Promise<Submitted> {
   const s = o.session ?? defaultSession;
   const { stored } = o;
@@ -56,6 +114,19 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
+  // the funding's own submission is journaled before it is sent, then its transaction (a merge before it is nested: from
+  // "merging" to the spend's own "syncing", as engineListener reads it); no runner sends another before its fate is known
+  let nested = false;
+  const onEvent: OnEvent = (e) => {
+    if (e.type === "merging") nested = true;
+    else if (e.type === "syncing") nested = false;
+    else if (!nested && e.type === "submitting" && e.nullifiers)
+      patchSwap(stored.orderId, { fundingAttempt: { nullifiers: e.nullifiers, by: e.by, ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), at: Date.now() } }, s);
+    else if (!nested && e.type === "submitted") {
+      const attempt = s.journal().swaps.find((x) => x.orderId === stored.orderId)?.fundingAttempt;
+      if (attempt) patchSwap(stored.orderId, { fundingAttempt: { ...attempt, txHash: e.txHash } }, s);
+    }
+  };
   const w = await privateWithdrawal({
     masterSeed: o.masterSeed,
     deployment: o.deployment,
@@ -63,6 +134,7 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
     recipient: predicted,
     vault: a.vault,
     onStatus: o.onStatus,
+    onEvent,
     record: false,
     // "Delay for more privacy" (spec v2.0 §14.1): from the older notes the Review showed, or not at all
     ...(stored.runner?.maxTiming !== undefined ? { maxTiming: stored.runner.maxTiming } : {}),
