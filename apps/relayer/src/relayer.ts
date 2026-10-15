@@ -169,14 +169,18 @@ export class Relayer {
     if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of the ${pi.withdrawalAmount + feeWei} leaving the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
+    // reserved in the same step as the check, before anything is awaited (a V6 follow-up of 2026-10-15): they were
+    // reserved only after the simulation, so two requests spending one note, at once, both passed the check, both were
+    // sent, and the second reverted on chain at the relayer's cost
+    nullifiers.forEach((n) => this.inflight.add(n));
     const data = encodeTransact(req.proof, pi, req.noteData);
     let gas: bigint;
     try {
       gas = await this.clients.publicClient.estimateGas({ account: this.account.address, to: this.cfg.core, data });
     } catch (e) {
+      nullifiers.forEach((n) => this.inflight.delete(n));
       throw new RelayerError("simulation_failed", `transact would revert: ${String((e as Error).message).split("\n")[0].slice(0, 200)}`);
     }
-    nullifiers.forEach((n) => this.inflight.add(n));
     // one send of this account at a time; a broadcast whose answer was lost, the node holding it, is submitted (`monitor`
     // drops it if it never lands), and only one that never left or that the node refused is send_failed
     const sent = await this.sender.send({ to: this.cfg.core, data, gas: (gas * 12n) / 10n });

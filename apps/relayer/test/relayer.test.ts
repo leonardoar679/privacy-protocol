@@ -164,6 +164,22 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
     await relayer.status(r.txHash); // mined: its notes leave in flight
     receiptStatus = null;
   });
+  it("two requests spending one note, at once: one is sent, the other is nullifier_in_flight (2026-10-15)", async () => {
+    const { req } = fixtureRequest();
+    taken.clear();
+    const before = raws.length;
+    const both = await Promise.allSettled([relayer.submit(req), relayer.submit(req)]);
+    const sent = both.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<Relayer["submit"]>>> => r.status === "fulfilled");
+    const refused = both.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(sent).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(refused[0].reason).toMatchObject({ code: "nullifier_in_flight" });
+    expect(raws.length, "one transaction broadcast").toBe(before + 1);
+    receiptStatus = "0x1";
+    await relayer.status(sent[0].value.txHash); // mined: its notes leave in flight
+    receiptStatus = null;
+    expect((await relayer.info()).inflight).toBe(0);
+  });
   it("a broadcast the node refused and does not know is send_failed in the node's words, and its notes are free again", async () => {
     const { req } = fixtureRequest();
     taken.clear();

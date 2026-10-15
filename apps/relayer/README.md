@@ -27,7 +27,10 @@ so the relayer can also rediscover the note from chain like any wallet.
 3. every payload hashes to its proven `noteDataHash`;
 4. the fee output is `noteBody(feeVault, amount, relayer's ownerCommitment, noteSecret)`;
 5. the fee: the vault's minimum `m` — in the ETH vault max(floor, gasEstimate × gasPrice × (1 + margin)), live; in an ERC-20 vault the fixed `FEE_VAULTS` minimum (no oracle: the operator reprices by config); an unlisted vault is refused (`fee_vault_not_accepted`). With `FEE_PERCENT_BPS` set (V6, spec v2.0 §3), a withdrawal of W pays `f ≥ ⌈(W + f) × bps / 10000⌉ + m` — the 1 % of the input plus the minimum, a swap's escrow funding included (`fee_too_low` when `f < m`, else `fee_below_percent`; the same `feeMeetsTerms` the wallet splits by); a transfer's amount is private, so only the minimum applies there (`docs/audit-package.md` gap 31);
-6. the nullifiers are not already in flight here;
+6. the nullifiers are not already in flight here; they are reserved in the same step as this check, before anything
+   is awaited, and given back if the simulation fails. Two requests spending one note at once: one is sent, the other
+   answers `nullifier_in_flight` (a V6 follow-up of 2026-10-15). Before, they were reserved after the simulation, so
+   both passed the check and both were sent, the second to revert at the relayer's cost;
 7. `eth_estimateGas` from the relayer's address succeeds (proof, root and nullifier set are checked by
    the contract; a reverting call never reaches the chain);
 8. optionally (`REQUIRE_READABLE_FEE_PAYLOAD=1`) the fee payload decrypts with the relayer's view key.
