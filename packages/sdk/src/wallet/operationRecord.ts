@@ -76,7 +76,9 @@ export interface OperationRecord {
   amounts: { asset: string; decimals: number; input: string; expectedOutput?: string; minimumOutput?: string; delivered?: string; outputAsset?: string; outputDecimals?: number };
   fees: FeeLine[];
   destination: { kind: DestinationKind; display: string; chain: string };
-  refs: { activityId?: string; orderId?: string; campaignId?: string; jobId?: string; txHashes: string[]; executionTx?: string; executionRef?: string; leafIndex?: number; quoteId?: string; provider?: string };
+  /** `noteCounter` (a Protect's note), `nullifiers` and `relayerUrl` (a Send's spend): kept at "submitting", so a record whose
+   *  page went away is settled from the chain (a V6 follow-up of 2026-10-14; operations/stale.ts) */
+  refs: { activityId?: string; orderId?: string; campaignId?: string; jobId?: string; txHashes: string[]; executionTx?: string; executionRef?: string; leafIndex?: number; quoteId?: string; provider?: string; noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string };
   tier: Tier;
   /** spec §3.8 at the `large-protected` band and above */
   protectedExecution?: { checklist: { destination: boolean; route: boolean; execution: boolean; limits: boolean } };

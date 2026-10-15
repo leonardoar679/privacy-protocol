@@ -870,7 +870,10 @@ it and stayed open for good. After each note scan the chain now moves it (`packa
 - its receipt completes it or fails it;
 - a transaction the node has not known for 10 minutes fails it, nothing moved;
 - a flow that stopped before "submitting" fails it, nothing moved (`interrupted`);
-- a submission still without its answer is left as it is.
+- a submission without its answer is settled from what the record kept at "submitting" (the same day). The note it
+  makes for the wallet (a Protect's deposit, a Send's change), once the scan found it, completes it. A Send's relayer,
+  asked by its nullifiers, names the transaction, whose receipt decides. Nothing found and nothing spent past 10
+  minutes: nothing moved. Spent nullifiers without a known transaction leave it as it is.
 While offline, money-moving steps pause and resume only after the state is verified (§7.11). `notificationFor(prev, next, prefs)` produces the five
 kinds (Quote ready, Transaction confirmed, Cross-chain executing, Completed, Recovery required) without amounts
 unless the user opted in (the V3 preview setting); delivery (web push) is later.

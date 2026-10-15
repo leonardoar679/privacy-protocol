@@ -10,6 +10,7 @@ import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
 import { applyEvent, getOperation, newOperation, resetOperationsMemory } from "../src/operations/store";
 import { reconcileStaleOperations, STALE_DROP_MS, type StaleReads } from "../src/operations/stale";
+import { noteStore } from "../src/wallet/notes";
 import type { OperationKind } from "../src/wallet/operationRecord";
 
 const store = memoryStorage();
@@ -23,13 +24,20 @@ afterEach(() => {
     j.operations = [];
   });
   resetOperationsMemory();
+  noteStore.clear();
 });
 
 const T0 = 1_800_000_000_000;
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 
 /** A record taken as far as its flow got before the page went away. */
-function record(kind: OperationKind, upTo: "proof" | "submitting" | "confirming", n: number, at = T0): string {
+function record(
+  kind: OperationKind,
+  upTo: "proof" | "submitting" | "confirming",
+  n: number,
+  at = T0,
+  kept: { noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string } = {},
+): string {
   const r = newOperation(
     {
       kind,
@@ -42,7 +50,7 @@ function record(kind: OperationKind, upTo: "proof" | "submitting" | "confirming"
   applyEvent(r.id, { type: "review" }, session, at);
   applyEvent(r.id, { type: "confirm" }, session, at);
   applyEvent(r.id, { type: "progress", step: "proof" }, session, at);
-  if (upTo !== "proof") applyEvent(r.id, { type: "progress", step: "submitting" }, session, at);
+  if (upTo !== "proof") applyEvent(r.id, { type: "progress", step: "submitting", ...kept }, session, at);
   if (upTo === "confirming") {
     applyEvent(r.id, { type: "submitted", by: "relayer", txHash: hash(n) }, session, at);
     applyEvent(r.id, { type: "confirming", txHash: hash(n) }, session, at);
@@ -50,7 +58,9 @@ function record(kind: OperationKind, upTo: "proof" | "submitting" | "confirming"
   return r.id;
 }
 
-function chain(o: { mined?: number[]; reverted?: number[]; known?: number[]; down?: boolean } = {}): StaleReads {
+function chain(
+  o: { mined?: number[]; reverted?: number[]; known?: number[]; down?: boolean; spent?: string[]; jobs?: Record<string, number> } = {},
+): StaleReads {
   const has = (list: number[] | undefined, h: Hex) => (list ?? []).some((n) => hash(n) === h);
   return {
     receipt: async (h) => {
@@ -60,6 +70,15 @@ function chain(o: { mined?: number[]; reverted?: number[]; known?: number[]; dow
     txKnown: async (h) => {
       if (o.down) throw new Error("fetch failed");
       return has(o.known, h) || has(o.mined, h) || has(o.reverted, h);
+    },
+    spent: async (n) => {
+      if (o.down) throw new Error("fetch failed");
+      return (o.spent ?? []).includes(n.toString());
+    },
+    relayerJob: async (_url, nullifiers) => {
+      if (o.down) throw new Error("relayer: no answer within 20 s");
+      const n = o.jobs?.[nullifiers[0].toString()];
+      return n === undefined ? null : { txHash: hash(n) };
     },
   };
 }
@@ -90,6 +109,53 @@ describe("operations whose flow is gone", () => {
     expect(await reconcileStaleOperations(chain(), T0 + 1_000)).toBe(1);
     expect(getOperation(proof)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
     expect(getOperation(submitting)!.state).toBe("AWAITING_SIGNATURE");
+  });
+
+  it("a Protect waiting for the wallet when its page went away: its note, once the scan found it, completes it; none past the limit, nothing moved", async () => {
+    const landed = record("protect", "submitting", 10, T0, { noteCounter: 42 });
+    const unanswered = record("protect", "submitting", 11, T0, { noteCounter: 43 });
+    resetOperationsMemory();
+    noteStore.add({
+      note: { vaultId: 1n, amount: 990n, ownerCommitment: 2n, noteSecret: 3n },
+      leafIndex: 7,
+      noteData: "0x",
+      counter: 42,
+      spent: false,
+      txHash: hash(42),
+    });
+    expect(await reconcileStaleOperations(chain(), T0 + 60_000)).toBe(1);
+    expect(getOperation(landed)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 7, txHashes: [hash(42)] } });
+    expect(getOperation(unanswered)!.state, "the wallet may still be asking: waited for").toBe("AWAITING_SIGNATURE");
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1)).toBe(1);
+    expect(getOperation(unanswered)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
+  });
+
+  it("a Send whose answer its page never got: the relayer, asked by its nullifiers, names the transaction; unspent and unknown past the limit, nothing moved; spent, left", async () => {
+    const relayer = "http://relayer.test";
+    const answered = record("send", "submitting", 20, T0, { nullifiers: ["201", "202"], relayerUrl: relayer });
+    const lost = record("send", "submitting", 21, T0, { nullifiers: ["211", "212"], relayerUrl: relayer });
+    const spentElsewhere = record("withdraw", "submitting", 22, T0, { nullifiers: ["221", "222"], relayerUrl: relayer });
+    resetOperationsMemory();
+    const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"] });
+    expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(1);
+    expect(getOperation(answered)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(20)] } });
+    expect(getOperation(lost)!.state).toBe("AWAITING_SIGNATURE");
+    expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
+    expect(getOperation(lost)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
+    expect(getOperation(spentElsewhere)!.state, "sent, its transaction unknown here: never called interrupted").toBe("AWAITING_SIGNATURE");
+    // sent through the connected wallet (no relayer to ask): its change note, once the scan found it, completes it
+    const own = record("send", "submitting", 23, T0, { nullifiers: ["231", "232"], noteCounter: 77 });
+    resetOperationsMemory();
+    noteStore.add({
+      note: { vaultId: 1n, amount: 5n, ownerCommitment: 2n, noteSecret: 3n },
+      leafIndex: 9,
+      noteData: "0x",
+      counter: 77,
+      spent: false,
+      txHash: hash(23),
+    });
+    await reconcileStaleOperations(chain({ spent: ["231"] }), T0 + 60_000);
+    expect(getOperation(own)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 9, txHashes: [hash(23)] } });
   });
 
   it("a record this page still drives, a swap, an unread chain: nothing moves", async () => {

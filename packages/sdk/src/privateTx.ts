@@ -159,17 +159,17 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   let approvalWei = 0n;
   if (p.approve) {
     o.onStatus?.(`1/2 Approving ${p.deployment.protectRouter ? "the protect router" : "the vault"} for exactly this amount (connected wallet)…`);
-    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2 });
+    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2, noteCounter: p.counter });
     approveTx = await sendViaInjectedWallet(p.approve);
     const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash: approveTx });
     if (approval.status !== "success") throw new Error(`the approval ${approveTx} reverted`);
     approvalWei = approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
     o.onEvent?.({ type: "approved", txHash: approveTx });
     o.onStatus?.("2/2 Depositing into the vault (a shield is public by design)…");
-    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2 });
+    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2, noteCounter: p.counter });
   } else {
     o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
-    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
+    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1, noteCounter: p.counter });
   }
   const txHash = await sendViaInjectedWallet(p.deposit);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
@@ -280,7 +280,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; handing it to the relayer (your address never touches the chain)…`);
     const url = o.relayerUrl ?? o.submission.url;
     const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
-    o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url });
+    o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url, ...(o.change ? { noteCounter: o.change.counter } : {}) });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
     let r: { txHash: Hex } | undefined;
     // V6 Stage 15 (doc §75): nothing is submitted while offline; an attempt the network swallowed may have reached the
@@ -309,7 +309,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onEvent?.({ type: "submitted", txHash, by: "relayer" });
   } else {
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
-    o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()] });
+    o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()], ...(o.change ? { noteCounter: o.change.counter } : {}) });
     o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
     txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData));
     submittedBy = "wallet";

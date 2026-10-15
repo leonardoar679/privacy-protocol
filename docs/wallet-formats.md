@@ -47,7 +47,9 @@ records, read them back byte for byte and only then removed the old keys. The pl
 signature on, spec §12) and `classic` (V5: the Classic Privacy module's deposits, spec §16) — are never written by
 `emptyJournal()`, so every earlier journal and the pinned vectors stay valid. V6 (spec v2.0 §12): an operation record
 carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
-`delayed {since, code}`, `declined {at, code}`, `settlement`; a V5 record is upgraded when the journal is decrypted
+`delayed {since, code}`, `declined {at, code}`, `settlement`, and (a V6 follow-up of 2026-10-14) optional `refs`
+`noteCounter` (the note a Protect deposits or a Send makes as change), `nullifiers` (a Send's two, decimal) and
+`relayerUrl`, kept at "submitting"; a V5 record is upgraded when the journal is decrypted
 (`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
 may carry `settlement` (where the money is, spec v2.0 §12.4), and the record itself `operationId` (V6 Stage 9: the API's
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional

@@ -529,7 +529,7 @@ export const ko: Record<MessageKey, string> = {
   "op.error.older_notes_unavailable.reason":
     "이 스왑은 이전에 보호한 자금으로 지불될 예정이었습니다. 해당 자금이 사용되었거나 수수료를 포함한 금액에 미치지 못해 자금을 투입하기 전에 중단했습니다. 스왑을 다시 검토하세요.",
   "op.error.interrupted.title": "전송되기 전에 중단되었습니다",
-  "op.error.interrupted.reason": "준비하는 동안 페이지가 닫히거나 새로고침되었습니다. 아무것도 전송되지 않았으니 다시 시작하세요.",
+  "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",
   "op.error.transaction_dropped.reason": "전송되었지만 처리되기 전에 누락되어 아무것도 이동하지 않았습니다. 다시 보내세요.",
   "op.error.funding_unconfirmed.title": "자금 투입이 확인되지 않아 스왑이 중단되었습니다",

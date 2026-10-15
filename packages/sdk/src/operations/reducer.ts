@@ -89,7 +89,12 @@ const same = (a: OperationRecord, b: OperationRecord): boolean => JSON.stringify
 /** The events that change fields, not the state. */
 function fieldEvent(rec: OperationRecord, ev: OperationEvent, at: number): TransitionResult {
   switch (ev.type) {
-    case "progress": return { ok: true, changed: true, record: { ...rec, updatedAt: at, progress: { step: ev.step, ...(ev.i !== undefined ? { i: ev.i } : {}), ...(ev.n !== undefined ? { n: ev.n } : {}) } } };
+    case "progress": {
+      // what a submission leaves for its settlement from the chain (operations/stale.ts): the deposit's note, the spend's nullifiers
+      const kept = { ...(ev.noteCounter !== undefined ? { noteCounter: ev.noteCounter } : {}), ...(ev.nullifiers ? { nullifiers: ev.nullifiers } : {}), ...(ev.relayerUrl ? { relayerUrl: ev.relayerUrl } : {}) };
+      const refs = Object.keys(kept).length ? { ...rec.refs, ...kept } : rec.refs;
+      return { ok: true, changed: true, record: { ...rec, updatedAt: at, refs, progress: { step: ev.step, ...(ev.i !== undefined ? { i: ev.i } : {}), ...(ev.n !== undefined ? { n: ev.n } : {}) } } };
+    }
     case "monitor": {
       const since = rec.recovery?.since ?? at;
       return { ok: true, changed: true, record: { ...rec, updatedAt: at, recovery: { ...(rec.recovery ?? {}), state: rec.recovery?.state ?? "monitoring", since, lastCheckedAt: ev.at ?? at } } };

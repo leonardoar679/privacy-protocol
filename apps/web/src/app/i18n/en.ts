@@ -487,7 +487,7 @@ export const en = {
   "op.error.older_notes_unavailable.title": "Your older funds no longer cover this swap",
   "op.error.older_notes_unavailable.reason": "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
   "op.error.interrupted.title": "Stopped before anything was sent",
-  "op.error.interrupted.reason": "The page was closed or reloaded while it was being prepared. Nothing was sent: start it again.",
+  "op.error.interrupted.reason": "The page was closed or reloaded before it was sent. Nothing moved: start it again.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",

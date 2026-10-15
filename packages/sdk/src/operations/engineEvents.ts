@@ -11,10 +11,12 @@ export type EngineEvent =
   | { type: "merging"; i: number; n: number }
   | { type: "proving" }
   | { type: "proved"; ms: number; verifiedLocally: boolean }
-  | { type: "wallet-prompt"; step: "approve" | "deposit" | "transact"; i: number; n: number }
+  /** `noteCounter`: the deposit's note (a Protect), so a record its page left can be matched to the note the scan finds */
+  | { type: "wallet-prompt"; step: "approve" | "deposit" | "transact"; i: number; n: number; noteCounter?: number }
   | { type: "approved"; txHash: Hex }
-  /** `nullifiers` (decimal) and, through a relayer, its `relayerUrl`: what an order journals before its funding is sent */
-  | { type: "submitting"; by: "relayer" | "wallet"; nullifiers?: [string, string]; relayerUrl?: string }
+  /** `nullifiers` (decimal) and, through a relayer, its `relayerUrl`: what an order journals before its funding is sent;
+   *  `noteCounter`: the change note this spend makes for the wallet, which the note scan finds once it is mined */
+  | { type: "submitting"; by: "relayer" | "wallet"; nullifiers?: [string, string]; relayerUrl?: string; noteCounter?: number }
   | { type: "relayer-retry"; attempt: number }
   | { type: "submitted"; txHash: Hex; by: "relayer" | "wallet" }
   | { type: "waiting-receipt"; txHash: Hex }
@@ -39,9 +41,9 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
     case "verifying": return { type: "progress", step: "verifying" };
     case "proving": return opts.nested ? null : { type: "progress", step: "proof" };
     case "proved": return opts.nested ? null : { type: "progress", step: "local-verify" };
-    case "wallet-prompt": return opts.nested ? null : { type: "progress", step: "submitting", i: e.i, n: e.n };
+    case "wallet-prompt": return opts.nested ? null : { type: "progress", step: "submitting", i: e.i, n: e.n, ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}) };
     case "approved": return opts.nested ? null : { type: "note", note: `approval ${e.txHash}` };
-    case "submitting": return opts.nested ? null : { type: "progress", step: "submitting" };
+    case "submitting": return opts.nested ? null : { type: "progress", step: "submitting", ...(e.nullifiers ? { nullifiers: e.nullifiers } : {}), ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}) };
     case "relayer-retry": return opts.nested ? null : { type: "note", note: `relayer unreachable, attempt ${e.attempt}` };
     case "submitted": return opts.nested ? null : { type: "submitted", txHash: e.txHash, by: e.by };
     case "waiting-receipt": return opts.nested ? null : { type: "confirming", txHash: e.txHash };

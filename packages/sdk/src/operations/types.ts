@@ -15,7 +15,8 @@ export type OperationEvent =
   | { type: "review" }
   | { type: "edit" }
   | { type: "confirm"; checklist?: { destination: boolean; route: boolean; execution: boolean; limits: boolean } }
-  | { type: "progress"; step: ProgressStep; i?: number; n?: number }
+  /** at "submitting", what the record keeps to be settled from the chain if its page goes away (operations/stale.ts) */
+  | { type: "progress"; step: ProgressStep; i?: number; n?: number; noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string }
   | ({ type: "signed" } & EventRefs)
   | ({ type: "submitted"; by?: "relayer" | "wallet" } & EventRefs)
   | ({ type: "relayer-executing" } & EventRefs)
