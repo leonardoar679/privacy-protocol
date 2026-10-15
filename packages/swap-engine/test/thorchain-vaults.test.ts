@@ -3,8 +3,16 @@
 // A quote's vault is checked by a quorum of THORNode gateways before the API builds the escrow's deposit: the vault
 // they suggest, or another one every gateway that answers lists as active; the router they all agree on, and pinned.
 // Offline: the gateways answer through a stubbed fetch.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { activeVaultQuorum, inboundQuorum, ThorchainAdapter, THORCHAIN_ROUTER_ETHEREUM, THORNODE_URLS } from "../src/adapters/thorchain";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  activeVaultQuorum,
+  inboundQuorum,
+  quorumFrom,
+  ThorchainAdapter,
+  THORCHAIN_ROUTER_ETHEREUM,
+  THORNODE_QUORUM,
+  THORNODE_URLS,
+} from "../src/adapters/thorchain";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
 
 const V1 = "0x718f6c9df785bc4e323086de024ca822efbe8ab9";
@@ -111,5 +119,25 @@ describe("THORChain's inbound vault on the move, at the API (2026-10-14)", () =>
     // the gateways differ on the suggestion (one a block behind): the quote's vault is looked up in their lists
     gateways = [{ inbound: V1 }, { inbound: V2 }, { inbound: V2 }];
     await expect(a.prepareIngress(req, quote(V1))).resolves.toMatchObject({ kind: "contract-call" });
+  });
+});
+
+describe("the quorum itself (a V6 follow-up of 2026-10-15)", () => {
+  it("is a whole number from 1 to 16, 2 when unset; anything else stops the engine from loading, never one gateway taken for the quorum", () => {
+    expect(THORNODE_QUORUM, "unset in the tests").toBe(2);
+    expect([quorumFrom(undefined), quorumFrom(""), quorumFrom("1"), quorumFrom("3"), quorumFrom(" 16 ")]).toEqual([2, 2, 1, 3, 16]);
+    // a bare Number() read these as NaN or 0, and `answered < NaN` is false for any count of gateways
+    for (const bad of ["two", "0", "17", "-1", "1.5", "NaN", "2x"])
+      expect(() => quorumFrom(bad), bad).toThrow(/^THORNODE_QUORUM must be a whole number from 1 to 16/);
+  });
+  it("set to a word, the adapter does not load: it loaded with a NaN quorum and took one gateway's answer for it", async () => {
+    vi.resetModules();
+    process.env.THORNODE_QUORUM = "two";
+    try {
+      await expect(import("../src/adapters/thorchain")).rejects.toThrow(/THORNODE_QUORUM must be a whole number from 1 to 16, not "two"/);
+    } finally {
+      delete process.env.THORNODE_QUORUM;
+      vi.resetModules();
+    }
   });
 });

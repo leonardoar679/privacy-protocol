@@ -49,8 +49,19 @@ export const from1e8 = (amount1e8: bigint, decimals: number) => (amount1e8 * 10n
 /** THORChain's Ethereum router (v4.1.1), pinned like every other provider contract an escrow calls; the wallet pins it too (THORCHAIN_ROUTER after a router upgrade). */
 export const THORCHAIN_ROUTER_ETHEREUM = (process.env.THORCHAIN_ROUTER ?? "0xd37bbe5744d730a1d98d8dc97c42f0ca46ad7146").toLowerCase();
 
-/** Distinct gateways that must agree on the inbound vault/router before an ingress is produced (plan §74). */
-export const THORNODE_QUORUM = Number(process.env.THORNODE_QUORUM ?? "2");
+/**
+ * The distinct gateways that must agree on the inbound vault and router before an ingress is produced (plan §74): a whole
+ * number from 1 to 16, as the wallet's VITE_THORNODE_QUORUM, or the engine does not load. A V6 follow-up of 2026-10-15:
+ * it was read with a bare Number(), and a malformed value (NaN) or 0 made `answered < quorum` false for any count, so one
+ * gateway's answer was taken for the quorum.
+ */
+export const THORNODE_QUORUM = quorumFrom(process.env.THORNODE_QUORUM);
+export function quorumFrom(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 2;
+  const n = /^\d{1,2}$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+  if (!(n >= 1 && n <= 16)) throw new Error(`THORNODE_QUORUM must be a whole number from 1 to 16, not ${JSON.stringify(raw)}`);
+  return n;
+}
 
 /** A THORNode endpoint named by its host only: an operator's own (THORNODE_URL) may carry a key in its path (2026-10-15). */
 const hostOf = (url: string): string => {
