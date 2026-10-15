@@ -96,6 +96,14 @@ export const gasTips = (fees: FeeSource, valuer?: Valuer): TipSource => ({
   shieldTipFor: (to) => shieldTip(to, { fees, valuer }),
 });
 
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "an RPC endpoint";
+  }
+};
+
 async function feeHistory(fetchImpl: typeof fetch, url: string, timeoutMs: number): Promise<GasFees> {
   const r = await fetchImpl(url, {
     method: "POST",
@@ -104,7 +112,8 @@ async function feeHistory(fetchImpl: typeof fetch, url: string, timeoutMs: numbe
     signal: AbortSignal.timeout(timeoutMs),
   });
   const j = (await r.json()) as { result?: { baseFeePerGas?: string[]; reward?: string[][] }; error?: { message: string } };
-  if (j.error || !j.result?.baseFeePerGas?.length) throw new Error(`${url}: ${j.error?.message ?? "no fee history"}`);
+  // the endpoint named by its host only: its path carries a key (a V6 follow-up of 2026-10-15)
+  if (j.error || !j.result?.baseFeePerGas?.length) throw new Error(`${hostOf(url)}: ${j.error?.message ?? "no fee history"}`);
   const base = BigInt(j.result.baseFeePerGas[j.result.baseFeePerGas.length - 1]); // the next block's
   const rewards = (j.result.reward ?? []).map((x) => BigInt(x[0] ?? "0x0")).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return { baseFeePerGas: base, priorityFeePerGas: rewards.length ? rewards[rewards.length >> 1] : 0n };

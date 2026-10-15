@@ -11,13 +11,14 @@
 // RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open, swap and shield jobs each), PORT (8790), HOST (127.0.0.1).
 import { createServer } from "node:http";
 import type { Hex } from "viem";
-import { Relayer, RelayerError, type RelayerConfig } from "./relayer";
-import { SwapExecutor, SwapJobError, loadEscrowCreationCode } from "./swapExecutor";
-import { ShieldExecutor, ShieldJobError } from "./shieldExecutor";
+import { Relayer, type RelayerConfig } from "./relayer";
+import { SwapExecutor, loadEscrowCreationCode } from "./swapExecutor";
+import { ShieldExecutor } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { originsFrom } from "@privacy-wallet/server-kit/http";
 import { edge } from "./edge";
+import { errorAnswer, readJson } from "./answers";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
@@ -92,39 +93,31 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/shield") {
       if (!shields) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
       if (shields.open() >= MAX_SWAP_JOBS) return send(503, { error: "too many open shield jobs", code: "capacity" });
-      let body = "";
-      for await (const chunk of req) { body += chunk; if (body.length > 100_000) throw new RelayerError("too_large", "request too large"); }
-      const job = await shields.add(JSON.parse(body));
+      const job = await shields.add((await readJson(req, 100_000)) as never);
       shields.tick().catch(() => {}); // shield at once if the delivery is already there
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/refund") {
       // return a funded order to the pool after its window, without executing it (no execution needed)
       if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
-      let body = "";
-      for await (const chunk of req) { body += chunk; if (body.length > 1_000_000) throw new RelayerError("too_large", "request too large"); }
-      const job = executor.addRefund(JSON.parse(body));
+      const job = executor.addRefund((await readJson(req, 1_000_000)) as never);
       executor.tick().catch(() => {}); // refund at once if the window has already passed
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/execute") {
       if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
-      let body = "";
-      for await (const chunk of req) { body += chunk; if (body.length > 1_000_000) throw new RelayerError("too_large", "request too large"); }
-      const job = executor.add(JSON.parse(body));
+      const job = executor.add((await readJson(req, 1_000_000)) as never);
       executor.tick().catch(() => {}); // act immediately if the escrow is already funded
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/submit") {
-      let body = "";
-      for await (const chunk of req) { body += chunk; if (body.length > 1_000_000) throw new RelayerError("too_large", "request too large"); }
-      return send(200, await relayer.submit(JSON.parse(body)));
+      return send(200, await relayer.submit((await readJson(req, 1_000_000)) as never));
     }
     send(404, { error: "not found" });
   } catch (e) {
-    if (e instanceof RelayerError) return send(e.code === "simulation_failed" || e.code === "nullifier_in_flight" ? 409 : 400, { error: e.message, code: e.code });
-    if (e instanceof SwapJobError || e instanceof ShieldJobError) return send(400, { error: e.message, code: e.code });
-    send(500, { error: String((e as Error).message ?? e) });
+    // a caller's mistake its code and words (URLs reduced to their host); anything else a bare 500 (answers.ts)
+    const a = errorAnswer(e);
+    send(a.status, a.body);
   }
 });
 const port = Number(env("PORT", "8790")), host = env("HOST", "127.0.0.1");

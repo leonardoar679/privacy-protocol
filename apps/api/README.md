@@ -42,7 +42,9 @@ schedule (`src/db.ts` `RETENTION`):
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).
 - **Errors.** A caller's mistake answers `4xx` with a catalog code: every field of a body is checked before any
-  provider is asked (`test/validation.test.ts`). A provider that failed, or answered what the engine
+  provider is asked (`test/validation.test.ts`). The API's own error answers `500 { code: "internal" }` and nothing of
+  itself; a provider's or the gas price's words keep only their URLs' hosts (`redactUrls`, `packages/server-kit`),
+  since RPC and provider URLs carry keys. A provider that failed, or answered what the engine
   will not build on (at prepare, at track, on the guest routes), answers `502 provider_unavailable` and is logged as
   `provider.failed` with the provider, never its message (`test/provider-failure.test.ts`). Anything else is the API's
   own error: `500`, logged as `http.error` with `internal`.

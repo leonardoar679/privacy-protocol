@@ -1103,6 +1103,10 @@ TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory to
 Every field of a request body is checked at the edge (a V6 follow-up of 2026-10-14): integer slippage 0–10000 bps,
 decimals 0–36, an amount of at most 78 digits, a destination of at most 256 characters, and a journaled order's params
 in shape, before any provider is asked. A malformed one is `400 invalid_request`, never a 500 or a provider's error.
+The words of an error that leave the API or the relayer (a V6 follow-up of 2026-10-15) keep a URL's scheme and host and
+lose its credentials, path and query (`packages/server-kit/src/redact.ts`): RPC and provider URLs carry their keys
+there, and viem writes the whole URL, with the request's body, into its errors. Their own error is a bare
+`500 { code: "internal" }`; a body that is not JSON is the caller's `400`.
 **Logs** (doc §67, `packages/server-kit`): one JSON line per event with keys ⊆ {`at`, `level`, `event`,
 `operationId`, `provider`, `state`, `errorClass`, `network`} — the typed logger accepts nothing else; no address,
 transaction hash, amount, Bitcoin or Solana string ever (the §19 log gate).

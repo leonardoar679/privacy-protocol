@@ -12,7 +12,7 @@
 // There is no listing of operations, and an order id never appears in a URL.
 import express, { type NextFunction, type Request, type Response } from "express";
 import { CHAINS } from "@privacy-wallet/config";
-import { MAX_BODY_BYTES, RateLimiter, callerKey, corsHeaders, securityHeaders, type Logger } from "@privacy-wallet/server-kit";
+import { MAX_BODY_BYTES, RateLimiter, callerKey, corsHeaders, redactUrls, securityHeaders, type Logger } from "@privacy-wallet/server-kit";
 import { TipError } from "@privacy-wallet/swap-engine/tips";
 import { ProtectedDestinationError, ProviderFailure } from "@privacy-wallet/swap-engine/engine";
 import { BadRequest, SwapApi, type Answer, type SwapApiDeps } from "./routes/swap";
@@ -96,16 +96,18 @@ export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
     if (err?.type === "entity.parse.failed" || e instanceof BadRequest)
       return void res.status(400).json({ error: e instanceof BadRequest ? e.message : "the body is not JSON", code: "invalid_request" });
     // V6 (spec v2.0 §3): an escrow that cannot pay the execution's gas, or a tip that cannot be priced, is the caller's answer; a fee history the API cannot read is its own outage
-    if (e instanceof TipError) return void res.status(e.code === "fee_history_unavailable" ? 503 : 400).json({ error: e.message, code: e.code });
+    if (e instanceof TipError) return void res.status(e.code === "fee_history_unavailable" ? 503 : 400).json({ error: redactUrls(e.message), code: e.code });
     if (e instanceof ProtectedDestinationError) return void res.status(400).json({ error: e.message, code: e.code });
     // a provider that failed, or answered what the engine will not build on (whale spec §16): a gateway's error, logged
     // with the provider. Before, a provider's outage and its unknown transactions were logged as the API's own errors.
     if (e instanceof ProviderFailure) {
       deps.store.event({ event: "provider.failed", level: "warn", provider: e.provider, state: "502", errorClass: "provider" });
-      return void res.status(502).json({ error: e.message, code: "provider_unavailable" });
+      return void res.status(502).json({ error: redactUrls(e.message), code: "provider_unavailable" });
     }
+    // the API's own error says nothing of itself (a V6 follow-up of 2026-10-15): its message could carry an RPC's URL and
+    // its key, as a viem error does; a provider's or the gas price's words above keep only their URLs' hosts
     deps.store.event({ event: "http.error", level: "error", state: "500", errorClass: "internal" });
-    res.status(500).json({ error: String(err?.message ?? e) });
+    res.status(500).json({ error: "internal error", code: "internal" });
   });
   return app;
 }

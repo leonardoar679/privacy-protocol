@@ -3,7 +3,8 @@
 // track and on the guest routes was logged as the API's own error (500 "internal"). The local stack's log of that day
 // held six such lines, and without a message it cannot tell what they were.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { harness, orderBody, type Harness } from "./helpers";
+import { TipError } from "@privacy-wallet/swap-engine/tips";
+import { harness, orderBody, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
 beforeEach(async () => {
@@ -33,6 +34,34 @@ describe("a provider's failure", () => {
     ).toBe(false);
     h.adapter.prepareIngress = real;
     expect((await h.post(`/v1/operations/${id}/prepare`, {})).status, "the next try prepares").toBe(200);
+  });
+
+  it("the API's own error says nothing of itself; a provider's and the gas price's words keep only their URLs' hosts (2026-10-15)", async () => {
+    const KEYED = "https://eth-mainnet.g.alchemy.com/v2/SECRET-KEY-123";
+    // its own error: a viem error names the RPC's URL, its key in the path, and the request
+    const quoteAll = h.deps.engine.quoteAll.bind(h.deps.engine);
+    h.deps.engine.quoteAll = async () => {
+      throw new Error(`HTTP request failed.\n\nURL: ${KEYED}\nRequest body: {"method":"eth_feeHistory"}`);
+    };
+    const q = await h.post("/v1/quotes", swapRequest());
+    expect([q.status, q.body]).toEqual([500, { error: "internal error", code: "internal" }]);
+    h.deps.engine.quoteAll = quoteAll;
+    // a provider's failure naming a keyed URL
+    const c = await h.post("/v1/operations", orderBody());
+    h.adapter.prepareIngress = async () => {
+      throw new Error("HTTP 401 from https://api.provider.example/v1/deposit?apiKey=SECRET-KEY-123");
+    };
+    const p = await h.post(`/v1/operations/${c.body.operationId}/prepare`, {});
+    expect([p.status, p.body]).toEqual([502, { error: "HTTP 401 from https://api.provider.example/…", code: "provider_unavailable" }]);
+    // the gas price that cannot be read, when an order is committed
+    const engine = h.deps.engine as unknown as { cfg: { tips: { tipFor: () => Promise<bigint> } } };
+    engine.cfg.tips.tipFor = async () => {
+      throw new TipError("fee_history_unavailable", `the gas price cannot be read: ${KEYED}: rate limited`);
+    };
+    const t = await h.post("/v1/operations", orderBody());
+    expect(t.status).toBe(503);
+    expect(t.body).toEqual({ error: "the gas price cannot be read: https://eth-mainnet.g.alchemy.com/…: rate limited", code: "fee_history_unavailable" });
+    for (const r of [q, p, t]) expect(JSON.stringify(r.body)).not.toContain("SECRET-KEY-123");
   });
 
   it("at track and on the guest routes: 502 provider_unavailable", async () => {

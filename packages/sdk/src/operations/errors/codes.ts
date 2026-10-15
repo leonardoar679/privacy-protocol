@@ -36,6 +36,10 @@ export const CATALOG: Record<string, CatalogRow> = {
   too_large: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
   rate_limited: { source: "relayer", fundsClass: "not-moved", actions: ["wait"] },
   unsupported_media_type: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
+  // a V6 follow-up of 2026-10-15: a body the relayer could not read as JSON; a service's own error, which says nothing of
+  // itself (its words could carry an RPC's key) — its outcome unknown until the chain is read
+  bad_json: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
+  internal: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   capacity: { source: "relayer", fundsClass: "not-moved", actions: ["wait"] },
   admin_closed: { source: "relayer", fundsClass: "not-moved", actions: ["wait", "check-settings"] },
   admin_token: { source: "relayer", fundsClass: "not-moved", actions: ["check-settings"] },

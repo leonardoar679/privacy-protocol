@@ -127,6 +127,13 @@ describe("the fee history (RpcFeeSource)", () => {
     const source = new RpcFeeSource(["https://a"], mockFetch({ "https://a": { jsonrpc: "2.0", id: 1, error: { message: "method not found" } } }, []));
     await expect(source.fees()).rejects.toThrow(/method not found/);
   });
+  it("an endpoint's error names its host, never its path, where a key lives (2026-10-15)", async () => {
+    const url = "https://eth-mainnet.g.alchemy.com/v2/SECRET-KEY-123";
+    const source = new RpcFeeSource([url], mockFetch({ [url]: { jsonrpc: "2.0", id: 1, error: { message: "rate limited" } } }, []));
+    const e = (await source.fees().catch((x: Error) => x)) as Error;
+    expect(e.message).toContain("eth-mainnet.g.alchemy.com: rate limited");
+    expect(e.message).not.toContain("SECRET-KEY-123");
+  });
 });
 
 /** A provider that quotes 1:30 of what it is asked to swap and remembers the amounts. */
