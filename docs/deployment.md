@@ -126,7 +126,8 @@ Both services send the same headers on every answer, from `packages/server-kit/s
 - `Strict-Transport-Security` when the service terminates TLS itself (`TLS=1`).
 
 Their configuration: `apps/api/.env.example` (and the engine's, `packages/swap-engine/.env.example`) and
-`apps/relayer/.env.example`. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit per caller
+`apps/relayer/.env.example`. Every number in it is read strictly (`packages/server-kit/src/env.ts`): one that is not a
+whole number in its range stops the service at start, naming the setting. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit per caller
 (`RATE_PER_MINUTE`), and the address is never logged. By default the caller is the socket's address and no proxy header
 is read. `TRUST_PROXY_HOPS` names how many proxies in front of the service append to `X-Forwarded-For`; the caller is
 then the entry the outermost of them wrote, so what a client writes there itself buys nothing. A request with fewer

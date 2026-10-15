@@ -13,17 +13,21 @@
 import { createServer } from "node:http";
 import type { Hex } from "viem";
 import { Relayer, type RelayerConfig } from "./relayer";
-import { SwapExecutor, loadEscrowCreationCode } from "./swapExecutor";
-import { ShieldExecutor } from "./shieldExecutor";
+import { LATE_REFUND_WATCH_SECONDS, MAX_UNPAID_REFUNDS, SwapExecutor, loadEscrowCreationCode } from "./swapExecutor";
+import { LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS, ShieldExecutor } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
+import { bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
 import { edge } from "./edge";
 import { errorAnswer, readJson } from "./answers";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
 const env = (k: string, d?: string): string => { const v = process.env[k] ?? d; if (v === undefined) throw new Error(`missing env ${k}`); return v; };
+// every number is read strictly: a malformed one stops the start, naming it (a V6 follow-up of 2026-10-15)
+const int = (k: string, d: number, min: number, max: number): number => intSetting(process.env, k, d, { min, max });
+const DAY = 86_400;
 const seed = (s: string): Uint8Array => (s.startsWith("0x") ? Uint8Array.from(s.slice(2).match(/../g)!.map((x) => parseInt(x, 16))) : new TextEncoder().encode(s));
 
 /** FEE_VAULTS='{"0xvault":{"symbol":"USDC","decimals":6,"minFee":"2000000"}}' → lowercase vault -> fixed terms */
@@ -35,23 +39,23 @@ function feeVaults(): RelayerConfig["feeVaults"] {
 }
 
 const cfg: RelayerConfig = {
-  chainId: Number(env("CHAIN_ID", "31337")), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex, feeVaults: feeVaults(),
-  minFeeWei: BigInt(env("MIN_FEE_WEI", "0")), gasEstimate: BigInt(env("GAS_ESTIMATE", "1800000")), feeMarginBps: Number(env("FEE_MARGIN_BPS", "2000")),
+  chainId: int("CHAIN_ID", 31337, 1, Number.MAX_SAFE_INTEGER), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex, feeVaults: feeVaults(),
+  minFeeWei: bigintSetting(process.env, "MIN_FEE_WEI", 0n), gasEstimate: bigintSetting(process.env, "GAS_ESTIMATE", 1_800_000n), feeMarginBps: int("FEE_MARGIN_BPS", 2000, 0, 100_000),
   privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: seed(env("RELAYER_SEED")), rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",
   journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json")),
-  feePercentBps: Number(env("FEE_PERCENT_BPS", "0")), // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
+  feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 10_000), // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
 };
 const relayer = Relayer.fromConfig(cfg);
 // swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window
 // every transaction of the relayer's account goes through its one sender (src/sender.ts): one at a time
-const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: process.env.LATE_REFUND_WATCH_SECONDS ? Number(process.env.LATE_REFUND_WATCH_SECONDS) : undefined, maxUnpaidRefunds: process.env.MAX_UNPAID_REFUNDS ? Number(process.env.MAX_UNPAID_REFUNDS) : undefined });
+const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });
 // shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
 const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
 const shields = shieldFactory
-  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: process.env.LATE_DELIVERY_WATCH_SECONDS ? Number(process.env.LATE_DELIVERY_WATCH_SECONDS) : undefined, maxUnpaidShields: process.env.MAX_UNPAID_SHIELDS ? Number(process.env.MAX_UNPAID_SHIELDS) : undefined })
+  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: int("LATE_DELIVERY_WATCH_SECONDS", LATE_DELIVERY_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidShields: int("MAX_UNPAID_SHIELDS", MAX_UNPAID_SHIELDS, 0, 100) })
   : null;
-const pollMs = Number(process.env.SWAP_POLL_MS ?? "15000");
+const pollMs = int("SWAP_POLL_MS", 15_000, 500, 600_000);
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
 if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", (e as Error).message)), pollMs).unref();
 // the submissions: a receipt settles a job, a dropped transaction releases its notes (Relayer.monitor)
@@ -59,8 +63,9 @@ setInterval(() => relayer.monitor().catch((e) => console.error("submission monit
 const ORIGINS = originsFrom(process.env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]);
 const TLS = process.env.TLS === "1"; // the relayer terminates TLS itself: HSTS (the API's setting of the same name)
 const PROXY_HOPS = proxyHopsFrom(process.env.TRUST_PROXY_HOPS); // the proxies in front of it (the API's setting of the same name)
-const limiter = new RateLimiter({ perMinute: Number(env("RATE_PER_MINUTE", "60")), burst: Math.min(20, Number(env("RATE_PER_MINUTE", "60"))) });
-const MAX_SWAP_JOBS = Number(env("MAX_SWAP_JOBS", "1000"));
+const RATE_PER_MINUTE = int("RATE_PER_MINUTE", 60, 1, 1_000_000);
+const limiter = new RateLimiter({ perMinute: RATE_PER_MINUTE, burst: Math.min(20, RATE_PER_MINUTE) });
+const MAX_SWAP_JOBS = int("MAX_SWAP_JOBS", 1000, 1, 1_000_000);
 const openSwapJobs = () => executor.list().filter((j) => !["refunded", "completed", "refund-failed"].includes(j.state)).length;
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 
@@ -127,5 +132,5 @@ const server = createServer(async (req, res) => {
     send(a.status, a.body);
   }
 });
-const port = Number(env("PORT", "8790")), host = env("HOST", "127.0.0.1");
+const port = int("PORT", 8790, 0, 65_535), host = env("HOST", "127.0.0.1");
 server.listen(port, host, () => console.log(`relayer ${relayer.account.address} on http://${host}:${port} — chain ${cfg.chainId}, core ${cfg.core}, fee vault ${cfg.feeVault}, privacy address ${relayer.identity.privacyAddress}`));

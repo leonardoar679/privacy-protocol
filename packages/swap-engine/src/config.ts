@@ -37,6 +37,14 @@ function erc20RefundVaults(): Record<string, string> {
   return out;
 }
 
+/** A whole number of seconds from the environment, strictly: a malformed one stops the start (a V6 follow-up of 2026-10-15). */
+function seconds(name: string, fallback: number, max: number): number {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^\d{1,9}$/.test(raw) || Number(raw) < 60 || Number(raw) > max) throw new Error(`${name} must be a whole number of seconds from 60 to ${max}, not ${JSON.stringify(process.env[name])}`);
+  return Number(raw);
+}
+
 export function defaultEngine(over: Partial<EngineConfig> = {}): PrivateSwapEngine {
   return new PrivateSwapEngine({
     adapters: [new ThorchainAdapter(), new LifiAdapter(), new ChainflipAdapter(), new MayanAdapter(), new NearIntentsAdapter(), new AcrossAdapter()],
@@ -45,7 +53,7 @@ export function defaultEngine(over: Partial<EngineConfig> = {}): PrivateSwapEngi
     chainId: BigInt(process.env.CHAIN_ID ?? "1"),
     refundVaults: { native: process.env.NATIVE_VAULT ?? "0x0000000000000000000000000000000000000002", ...erc20RefundVaults() },
     tips: gasTips(feesFromEnv(), valuerFromEnv(Number(process.env.CHAIN_ID ?? "1"))),
-    refundWindowSeconds: Number(process.env.REFUND_WINDOW_SECONDS ?? String(2 * 3600)),
+    refundWindowSeconds: seconds("REFUND_WINDOW_SECONDS", 2 * 3600, 30 * 86_400), // a NaN window gave every order a NaN refundAfter
     valuer: valuerFromEnv(Number(process.env.CHAIN_ID ?? "1")),
     ...over,
   });

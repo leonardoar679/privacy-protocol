@@ -5,7 +5,7 @@
 // and valuation reads), TLS (1 when the API terminates TLS itself: HSTS), RATE_PER_MINUTE (120), TRUST_PROXY_HOPS (the proxies in front of it; default none), and the engine's own
 // (CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT, ERC20_VAULTS, REFUND_WINDOW_SECONDS).
 import { ASSETS, CHAINS } from "@privacy-wallet/config";
-import { createLogger, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
+import { createLogger, intSetting, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
 import { defaultEngine } from "@privacy-wallet/swap-engine/config";
 import { gatewayConfigFromEnv } from "@privacy-wallet/swap-engine/gateway";
 import { createApp } from "./app";
@@ -35,7 +35,7 @@ const app = createApp(
   {
     origins: originsFrom(env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]),
     tls: env.TLS === "1",
-    ratePerMinute: Number(env.RATE_PER_MINUTE ?? 120),
+    ratePerMinute: intSetting(env, "RATE_PER_MINUTE", 120, { min: 1, max: 1_000_000 }), // strict: a malformed number stops the start
     trustProxyHops: proxyHopsFrom(env.TRUST_PROXY_HOPS),
     log,
   },
@@ -61,5 +61,5 @@ setInterval(purge, 10 * 60_000).unref();
 void sample();
 setInterval(() => void sample(), 5 * 60_000).unref();
 
-const port = Number(env.PORT ?? 8787);
+const port = intSetting(env, "PORT", 8787, { min: 0, max: 65_535 });
 app.listen(port, env.HOST ?? "127.0.0.1", () => store.event({ event: "api.started", network }));
