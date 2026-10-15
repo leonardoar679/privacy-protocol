@@ -122,7 +122,7 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -135,6 +135,12 @@ export class SwapExecutor {
   private checkOrder(req: { factory: Address; params: SwapParamsJson; refundNoteData: Hex }): void {
     const p = req?.params;
     if (!p || !isHex(req.factory, 20)) throw new SwapJobError("bad_request", "factory and params are required");
+    // the factory the executor calls is the deployment's (a V6 follow-up of 2026-10-15): it called whatever a request named,
+    // so a contract of anyone's could take deployAndExecute and deployAndRefund at the relayer's gas, keeping the escrow's
+    // tip — or paying none — while the escrow it "funded" was predicted from that same contract
+    if (!this.cfg.factory) throw new SwapJobError("swap_unavailable", "this relayer runs no swap executor (SWAP_FACTORY is unset)");
+    if (req.factory.toLowerCase() !== this.cfg.factory.toLowerCase())
+      throw new SwapJobError("unknown_swap_factory", `this relayer executes swaps for ${this.cfg.factory}, not ${req.factory}`);
     if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
     if (!isHex(req.refundNoteData, 169)) throw new SwapJobError("bad_refund_payload", "refundNoteData must be the 169-byte payload");
     if (keccak256(req.refundNoteData) !== String(p.refundNoteDataHash).toLowerCase()) throw new SwapJobError("refund_payload_mismatch", "refundNoteData does not hash to the committed refundNoteDataHash");

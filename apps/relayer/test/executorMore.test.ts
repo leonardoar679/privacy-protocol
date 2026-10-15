@@ -86,7 +86,7 @@ function makeRequest(orderId: Hex, deadline: number, assetType: 0 | 1 = 0, value
   const digest = executionDigest(BigInt(CHAIN_ID), escrow, orderId, vector.execution.provider, BigInt(v), providerCalldata, deadline);
   return { factory: vector.factory, params, execution: { provider: vector.execution.provider, value: v, providerCalldata, deadline, signature: signExecution(ORDER_KEY, digest) }, refundNoteData };
 }
-const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds });
+const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds });
 
 beforeAll(async () => {
   server = createServer((req, res) => { let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handle) : handle(j))); }); });

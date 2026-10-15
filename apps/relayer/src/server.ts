@@ -6,7 +6,8 @@
 // dev origins. Env: RPC_URL, CORE, FEE_VAULT, CHAIN_ID, RELAYER_PRIVATE_KEY (gas EOA), RELAYER_SEED
 // (fee-note wallet seed: utf8 or 0x-hex), MIN_FEE_WEI, GAS_ESTIMATE, FEE_MARGIN_BPS,
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
-// RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs + shield jobs), SHIELD_FACTORY (the ShieldReceiverFactory
+// RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs + shield jobs), SWAP_FACTORY (the SwapOrderFactory this
+// relayer executes for; unset: no swap jobs), SHIELD_FACTORY (the ShieldReceiverFactory
 // this relayer shields for; unset: no shield jobs), LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS,
 // RATE_PER_MINUTE (60 per caller, burst 20), TRUST_PROXY_HOPS (the proxies in front of it; default none), MAX_SWAP_JOBS
 // (1000 open, swap and shield jobs each), PORT (8790), HOST (127.0.0.1).
@@ -47,9 +48,13 @@ const cfg: RelayerConfig = {
   feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 10_000), // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
 };
 const relayer = Relayer.fromConfig(cfg);
-// swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window
+// swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window,
+// for the deployment's factory only (SWAP_FACTORY: a malformed address stops the start; unset, the swap routes answer 503)
+const swapFactoryEnv = process.env.SWAP_FACTORY?.trim();
+if (swapFactoryEnv && !/^0x[0-9a-fA-F]{40}$/.test(swapFactoryEnv)) throw new Error(`SWAP_FACTORY must be the SwapOrderFactory's address, not ${JSON.stringify(process.env.SWAP_FACTORY)}`);
+const swapFactory = swapFactoryEnv ? (swapFactoryEnv as Hex) : null;
 // every transaction of the relayer's account goes through its one sender (src/sender.ts): one at a time
-const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });
+const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, ...(swapFactory ? { factory: swapFactory } : {}), journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });
 // shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
 const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
 const shields = shieldFactory
@@ -111,12 +116,14 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/swap/refund") {
       // return a funded order to the pool after its window, without executing it (no execution needed)
+      if (!swapFactory) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
       if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
       const job = executor.addRefund((await readJson(req, 1_000_000)) as never);
       executor.tick().catch(() => {}); // refund at once if the window has already passed
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/execute") {
+      if (!swapFactory) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
       if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
       const job = executor.add((await readJson(req, 1_000_000)) as never);
       executor.tick().catch(() => {}); // act immediately if the escrow is already funded

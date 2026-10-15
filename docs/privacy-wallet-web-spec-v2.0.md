@@ -1147,7 +1147,8 @@ the escrow's W with its own relayer terms. Tests: `apps/api/test`
 ## 16. The relayer (doc §42–§43) — *Stages 7, 12*
 
 `apps/relayer` accepts, validates, estimates, submits, monitors, reconciles and reports: private submissions paid
-by a fee note (§3's rule), the swap executor (one pass at a time), the refund-only jobs, and (*V6*) the shield
+by a fee note (§3's rule), the swap executor (one pass at a time; for the deployment's `SWAP_FACTORY` only, since a V6
+follow-up of 2026-10-15 — it had called whatever factory a request named, at its own gas), the refund-only jobs, and (*V6*) the shield
 executor (`POST /shield`, `GET /shield/:receiptId`, states `waiting-delivery → shielding → shielded |
 shield-failed`, a journal `shield-jobs.json`, the tip checked against the estimated gas, unpaid re-shields bounded).
 It never receives a protected wallet's key, recovery phrase, raw note secret or full witness. Every job records its

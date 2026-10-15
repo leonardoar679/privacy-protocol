@@ -68,7 +68,7 @@ beforeAll(async () => {
   const chain = { id: CHAIN_ID, name: "test", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } } as const;
   const transport = http(rpcUrl, { batch: true });
   const account = privateKeyToAccount(RELAYER_KEY);
-  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
+  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
   // a job for the vector's order, re-signed by a key we hold (the vector's signer key is forge's)
   const refundNoteData = ("0x" + "cd".repeat(169)) as Hex;
   const params = { ...vector.params, orderSigner: orderSignerAddress(ORDER_KEY), refundNoteDataHash: keccak256(refundNoteData) };
@@ -94,6 +94,23 @@ describe("job admission", () => {
     expect(code({ ...request, execution: { ...request.execution, value: (BigInt(request.params.amount)).toString() } })).toBe("bad_signature"); // a changed value changes the digest
     expect(code({ ...request, execution: { ...request.execution, deadline: Number(request.params.executeDeadline) + 1 } })).toBe("bad_deadlines");
     expect(code({ ...request, params: { ...request.params, assetType: 1 } })).toBe("bad_execution"); // an ERC-20 order must forward no ETH value
+  });
+  it("admits orders for the factory it serves only, and none without one: no other contract is ever called (2026-10-15)", () => {
+    // before, a request's own "factory" was called with deployAndExecute and deployAndRefund at the relayer's gas
+    const code = (f: () => unknown) => { try { f(); return "admitted"; } catch (e) { return (e as SwapJobError).code; } };
+    const theirs = "0x00000000000000000000000000000000000000ba" as Hex;
+    // an order of their own, signed for the escrow their factory predicts: the old executor admitted it, then called it
+    const params = { ...request.params, orderId: ("0x" + "bb".repeat(32)) as Hex };
+    const escrow = predictEscrow(theirs, creationCode, { ...params, assetType: 0, amount: BigInt(params.amount), refundOwnerCommitment: BigInt(params.refundOwnerCommitment), refundNoteSecret: BigInt(params.refundNoteSecret), executorTip: BigInt(params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, params.orderId, request.execution.provider, BigInt(request.execution.value), request.execution.providerCalldata, request.execution.deadline);
+    expect(code(() => executor.add({ ...request, factory: theirs, params, execution: { ...request.execution, signature: signExecution(ORDER_KEY, digest) } }))).toBe("unknown_swap_factory");
+    expect(code(() => executor.addRefund({ factory: theirs, params: request.params, refundNoteData: request.refundNoteData }))).toBe("unknown_swap_factory");
+    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+    const mine = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, ...offline });
+    expect(code(() => mine.add({ ...request, factory: vector.factory.toUpperCase().replace("0X", "0x") }))).toBe("admitted"); // its own, in any case
+    const none = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, ...offline });
+    expect(code(() => none.add(request))).toBe("swap_unavailable");
+    expect(code(() => none.addRefund({ factory: request.factory, params: request.params, refundNoteData: request.refundNoteData }))).toBe("swap_unavailable");
   });
   it("accepts the signed order, predicts its escrow, and is idempotent per orderId", () => {
     const job = executor.add(request);

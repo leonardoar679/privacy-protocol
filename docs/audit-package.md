@@ -277,6 +277,19 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     - the wallet registers a shield job again when the relayer does not know it, which for a delivery shielded long ago
       would read as expired.
     Until a retention rule settles those, the files grow; `GET /jobs` and `GET /swap` (operator only) show how far.
+47. **V6 — the swap executor pays for orders it cannot value** (noted 2026-10-15). It admits orders from anyone who can
+    sign one (the order key is the committer's own). Since the same day it serves only the deployment's factory: it had
+    called whatever factory an order named, at its own gas. Each order's terms on that factory are still its committer's:
+    - an ERC-20 order's tip is in the order's token, and the executor does not value it. The API valued it when it
+      committed the order, but the relayer never sees whether the API did. A token of no value, or a tip below the
+      gas, costs the relayer the execution's gas, and the provider call the order signed can make that gas large;
+    - the first refund of an order that never executed pays the committed tip, which is sized for the execution, and
+      is sent with no cost check;
+    - the refund vault is the one the order names (checked against the pool's own vault from the next commit on).
+    Closing the first two is a decision about who pays for what: the executor valuing ERC-20 tips through the API's
+    Chainlink feeds (and waiting below cost, as it does for ETH), an operator's list of tokens with minimum tips, or
+    orders the API vouches for. Meanwhile an operator bounds the exposure with the rate limit, `MAX_SWAP_JOBS` and the
+    gas account's balance.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
