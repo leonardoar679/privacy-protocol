@@ -213,7 +213,9 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     and tested for placeholders and the words the wallet never uses, but a person has not read it.
 42. **V6 — offline is inferred** (the browser's event, or three unanswered requests in a row) and a lost answer is resolved
     by asking the relayer for the job by its nullifier: a relayer that answers "unknown" for a submission it did make can
-    only cause a second attempt that fails on chain (a nullifier spends once) — a wasted fee, never a double spend.
+    only cause a second attempt that fails on chain (a nullifier spends once) — a wasted fee, never a double spend. The
+    same holds for a transaction the relayer counts as dropped (unknown to its node 10 minutes after it was sent, its
+    nullifiers unspent) that is mined after all: the wallet's next attempt reverts (2026-10-14).
 43. **V6 — a trending price can ask the user again** (narrowed 2026-10-14). The local stack's run had accepted six moved
     minimums in a row: after "Accept new minimum" the runner prepared a fresh hard quote, which in a market moving one way
     was lower again. Now the runner keeps the call behind the pause and, once its minimum is accepted, checks it again

@@ -51,6 +51,8 @@ const shields = shieldFactory
 const pollMs = Number(process.env.SWAP_POLL_MS ?? "15000");
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
 if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", (e as Error).message)), pollMs).unref();
+// the submissions: a receipt settles a job, a dropped transaction releases its notes (Relayer.monitor)
+setInterval(() => relayer.monitor().catch((e) => console.error("submission monitor failed:", (e as Error).message)), pollMs).unref();
 const ORIGINS = originsFrom(process.env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]);
 const TLS = process.env.TLS === "1"; // the relayer terminates TLS itself: HSTS (the API's setting of the same name)
 const limiter = new RateLimiter({ perMinute: Number(env("RATE_PER_MINUTE", "60")), burst: Math.min(20, Number(env("RATE_PER_MINUTE", "60"))) });

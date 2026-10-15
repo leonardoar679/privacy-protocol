@@ -14,7 +14,7 @@
 // the fee output really is a note to it in an accepted vault with at least that vault's current
 // minimum, that the nullifiers are not already in flight here, and that the call simulates without
 // reverting (which covers the proof, the root and the nullifier set).
-import { createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { TransactionNotFoundError, createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { noteBody, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
@@ -51,7 +51,11 @@ export interface RelayerConfig {
 export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address }
 export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening }
 /** V6 (spec v2.0 §3): `gasUsed` and `actualNetworkWei` (gasUsed × effectiveGasPrice) from the receipt, once mined */
-export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted"; gasUsed?: string; actualNetworkWei?: string }
+/** `dropped`: the node no longer knew the transaction and its nullifiers were unspent (`monitor`); they were released */
+export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" | "dropped"; gasUsed?: string; actualNetworkWei?: string; droppedAt?: number }
+
+/** How long a submitted transaction may be unknown to the node before its job counts as dropped (`monitor`). */
+export const DROP_AFTER_MS = 10 * 60_000;
 
 export class RelayerError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -73,6 +77,7 @@ export class Relayer {
   readonly identity: RelayerIdentity;
   private jobs = new Map<Hex, Job>();
   private inflight = new Set<string>();
+  private monitoring = false;
 
   constructor(readonly cfg: RelayerConfig, readonly clients: { publicClient: PublicClient; walletClient: WalletClient }) {
     this.account = privateKeyToAccount(cfg.privateKey);
@@ -198,6 +203,53 @@ export class Relayer {
     return { ...job };
   }
 
+  /**
+   * The submitted transactions, looked at again on the relayer's own tick (a V6 follow-up of 2026-10-14). Before, a job
+   * left "submitted" only when someone asked GET /status/:txHash and found its receipt, and nothing asked. Every
+   * nullifier ever submitted stayed "in flight" for good (436 in the local stack's relayer, every one of them), and a
+   * restart loaded them again. A transaction dropped or replaced never got a receipt, so its notes could never be
+   * submitted here again.
+   * A receipt settles the job (`status`). A transaction the node no longer knows DROP_AFTER_MS after it was sent, with
+   * its nullifiers unspent on chain, is dropped: they are released, and the wallet's next attempt is accepted. A
+   * dropped transaction mined after all spends nothing twice: the chain refuses a spent nullifier. One pass at a time.
+   */
+  async monitor(now = Date.now()): Promise<void> {
+    if (this.monitoring) return;
+    this.monitoring = true;
+    try {
+      for (const job of [...this.jobs.values()]) {
+        if (job.status !== "submitted") continue;
+        if ((await this.status(job.txHash))?.status !== "submitted") continue;
+        if (now - job.submittedAt < DROP_AFTER_MS || !(await this.unknownToTheNode(job.txHash))) continue;
+        const spent = await Promise.all(job.nullifiers.map((n) => this.nullifierSpent(BigInt(n))));
+        if (spent.some((s) => s !== false)) continue; // spent by another transaction, or unread: watched again
+        job.status = "dropped";
+        job.droppedAt = now;
+        job.nullifiers.forEach((n) => this.inflight.delete(n));
+        this.persist();
+      }
+    } finally {
+      this.monitoring = false;
+    }
+  }
+  /** The node answers that it does not know the transaction (never a failed read). */
+  private async unknownToTheNode(hash: Hex): Promise<boolean> {
+    try {
+      await this.clients.publicClient.getTransaction({ hash });
+      return false;
+    } catch (e) {
+      return e instanceof TransactionNotFoundError;
+    }
+  }
+  /** PrivacyCore's answer, or null when it cannot be read. */
+  private async nullifierSpent(n: bigint): Promise<boolean | null> {
+    try {
+      return (await this.clients.publicClient.readContract({ address: this.cfg.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean;
+    } catch {
+      return null;
+    }
+  }
+
   /** Public journal (nullifiers and hashes are on chain anyway); the fee secrets are the relayer's own notes. */
   jobs_(): Job[] { return [...this.jobs.values()]; }
   /**
@@ -205,7 +257,9 @@ export class Relayer {
    * was lost finds its submission again instead of sending it twice. Nothing else of the job leaves the relayer.
    */
   jobByNullifier(nullifier: string): { txHash: Hex; status: Job["status"] } | null {
-    for (const j of this.jobs.values()) if (j.nullifiers.includes(nullifier)) return { txHash: j.txHash, status: j.status };
-    return null;
+    // the latest that may still spend it: a dropped one never will, so the wallet's next attempt is not sent to wait on it
+    let found: Job | undefined;
+    for (const j of this.jobs.values()) if (j.status !== "dropped" && j.nullifiers.includes(nullifier)) found = j;
+    return found ? { txHash: found.txHash, status: found.status } : null;
   }
 }

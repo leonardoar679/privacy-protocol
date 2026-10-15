@@ -13,8 +13,8 @@ any URL, and self-submission as the fallback.
 |---|---|
 | `GET /info` | `{ chainId, core, feeVault, relayer (gas EOA), privacyAddress (pp1…: where fee notes go), minFeeWei, gasPriceWei, gasEstimate, feeMarginBps, requireReadableFeePayload, inflight, feePercentBps, feeMinimumWei, feeVaults: [{ vault, symbol, decimals, minFee }] }` — `feePercentBps` / `feeMinimumWei` (V5, `FEE_PERCENT_BPS`): the privacy fee as bps of a withdrawal's public amount, never below the live minimum; — the ERC-20 vaults it takes fee notes in, each with a fixed minimum in token units (`FEE_VAULTS`, plan §36) |
 | `POST /submit` | `{ proof (abi.encode(a,b,c)), publicInputs (14 decimal strings), noteData[3], fee: { outputIndex, amount, noteSecret, vault? } }` → `{ txHash, feeWei, feeVault, gas, feePayloadReadable }` — `fee.vault` names the vault of the fee note (default: the ETH vault); a transaction is single-asset, so a USDC withdrawal pays in USDC. (V5's `swap` field and its exemption are gone in V6: a swap's escrow funding pays the percentage like any withdrawal.) |
-| `GET /status/:txHash` | the job (`submitted` / `mined` / `reverted`), with V6's `gasUsed` and `actualNetworkWei` from the receipt once mined |
-| `GET /jobs/by-nullifier/:nullifier` | V6 Stage 15: the job that spent this nullifier — its transaction hash and status only — so a wallet whose answer was lost finds its submission instead of sending it twice; `404` `unknown_nullifier` |
+| `GET /status/:txHash` | the job (`submitted` / `mined` / `reverted` / `dropped`), with V6's `gasUsed` and `actualNetworkWei` from the receipt once mined |
+| `GET /jobs/by-nullifier/:nullifier` | V6 Stage 15: the latest job that may spend this nullifier — its transaction hash and status only — so a wallet whose answer was lost finds its submission instead of sending it twice; never a dropped job; `404` `unknown_nullifier` |
 | `POST /shield`, `GET /shield/:receiptId` | V6 Stage 12: the shield executor (below) |
 
 The wallet includes the fee note's opening so the relayer can verify it is really paid before it
@@ -102,6 +102,14 @@ durable**: `RELAYER_JOURNAL_DIR` (default `journal/`, gitignored) holds `submiss
 `swap-jobs.json` and `shield-jobs.json`, written atomically on every change; a restarted relayer resumes open swap jobs and
 keeps the in-flight nullifiers of unmined submissions (tested). Not verified here: a live chain run
 (this machine cannot run a node — `docs/testnet.md`).
+
+**The submissions are looked at again on the relayer's own tick** (`Relayer.monitor`, every `SWAP_POLL_MS`; a V6
+follow-up of 2026-10-14). A receipt settles a job and takes its nullifiers out of flight. A transaction the node no
+longer knows 10 minutes after it was sent, with its nullifiers unspent on chain, is `dropped`: its nullifiers are
+released and the wallet's next attempt is accepted. A dropped transaction mined after all spends nothing twice, since
+the chain refuses a spent nullifier; the second attempt reverts at the relayer's cost. Before, nothing settled a job
+but a `GET /status` that nobody sent. Every nullifier stayed in flight (436 in the local stack's relayer, reloaded at
+every restart), and a dropped transaction's notes could never be submitted here again (`test/monitor.test.ts`).
 
 ## Abuse limits
 Per-caller token bucket (`RATE_PER_MINUTE`, default 60, burst ≤ 20; `429` + `retry-after`), a cap on
