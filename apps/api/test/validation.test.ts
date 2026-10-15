@@ -8,13 +8,20 @@ import { harness, orderBody, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
 let asked = 0;
+let tracked = 0;
 beforeEach(async () => {
   h = await harness();
   asked = 0;
+  tracked = 0;
   const quote = h.adapter.quote.bind(h.adapter);
   h.adapter.quote = async (req) => {
     asked++;
     return quote(req);
+  };
+  const track = h.adapter.track.bind(h.adapter);
+  h.adapter.track = async () => {
+    tracked++;
+    return track();
   };
 });
 afterEach(() => h.close());
@@ -44,6 +51,24 @@ describe("the request bodies, checked at the edge", () => {
       h.lines.some((l) => l.includes('"http.error"')),
       "never the API's own error",
     ).toBe(false);
+  });
+
+  it("a tracking query out of shape: 400 before the provider is asked — nothing else reaches a provider's URL", async () => {
+    for (const path of [
+      "/v1/track/thorchain?tx=abc",
+      "/v1/track/thorchain?tx=" + "e1".repeat(32) + "%2F..%2Fvaults",
+      "/v1/track/thorchain?ref=a%2F..%2Fb",
+      "/v1/track/thorchain?ref=" + "x".repeat(129),
+      "/v1/guest/track/thorchain/notatxid",
+    ]) {
+      const r = await h.get(path);
+      expect({ status: r.status, code: r.body.code }, path).toEqual({ status: 400, code: "invalid_request" });
+    }
+    expect(tracked).toBe(0);
+    // a transaction hash, with or without 0x, and a plain reference are read
+    for (const path of ["/v1/track/thorchain?tx=0x" + "e1".repeat(32), "/v1/guest/track/thorchain/" + "AB".repeat(32), "/v1/track/thorchain?ref=deposit.near"])
+      expect((await h.get(path)).status, path).toBe(200);
+    expect(tracked).toBe(3);
   });
 
   it("an order's journaled params out of shape: 400 before any provider is asked, never a crash", async () => {

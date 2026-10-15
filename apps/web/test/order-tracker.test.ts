@@ -120,6 +120,31 @@ describe("trackOrder", () => {
     expect(j.track?.deliveredAmount).toBe("3000000");
   });
 
+  it("a suspected stall names the order's operation, never the wallet's own timing: the service decides from its records (2026-10-14)", async () => {
+    const urls: string[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ track: { state: "pending" }, status: "Pending" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      const st = order({ fundedTx: "0x1", state: "executing", jobId: "j", operationId: "op_aaaaaaaaaaaaaaaaaaaaaaaaaa" });
+      const readers = { job: async () => job("executed", { executionTx: "0x" + "ee".repeat(32) }), balance: async () => null };
+      // on schedule: the transaction alone
+      await trackOrder(st, { deployment: null, now: NOW, readers, stall: { since: sec - 600, expected: 600 } });
+      // past three times the plan by the wallet's clock: the operation named, so the service can check its own records
+      await trackOrder(st, { deployment: null, now: NOW, readers, stall: { since: sec - 3 * 600 - 1, expected: 600 } });
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(urls).toHaveLength(2);
+    const [first, second] = urls.map((u) => new URL(u).searchParams);
+    expect([...first.keys()]).toEqual(["tx"]);
+    expect([...second.keys()].sort()).toEqual(["operation", "tx"]);
+    expect(second.get("operation")).toBe("op_aaaaaaaaaaaaaaaaaaaaaaaaaa");
+    for (const u of urls) expect(u, "the wallet's own timing never leaves it").not.toMatch(/since=|expected=/);
+  });
+
   it("without a relayer job or a deployment it still derives from the journal, and reads nothing", async () => {
     const o = order({ dueAt: NOW + 10_000 });
     s.update((j) => { j.swaps = [o]; });

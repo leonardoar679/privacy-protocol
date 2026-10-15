@@ -322,7 +322,10 @@ are still tracked and may settle during the pause. Every pause journals its reas
   visibility) are kept and feed the score; the route engine never forgets a previous failure.
 - **Circuit breaker extensions** (plan §23, §113): besides V2's three consecutive failures, the breaker
   opens on a failure-rate spike in the window, a settlement stall counted from `/track` (an execution
-  older than 3 × its plan's time and unfinished), quote divergence (the price guard's gap at `/prepare`),
+  older than 3 × its plan's time and unfinished — since a V6 follow-up of 2026-10-14 only for an operation the read
+  names, executed by the relayer as exactly that transaction, and timed by the API's own records: the hand-over and
+  the plan's seconds recorded at finalize; a caller's own timing had let anyone open the breaker), quote divergence
+  (the price guard's gap at `/prepare`),
   and a new incident less than 24 h old; an expired breaker closes half-open (one probe).
 - **Concentration** (plan §49–§50, §134): for very large orders no provider SHOULD carry more than
   `PROVIDER_SHARE_CAP_BPS` (500, lab-calibrated) of the whole order **when two or more providers quote the

@@ -88,6 +88,10 @@ const UINT = /^\d{1,78}$/;
 const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const short = (x: unknown, max: number): boolean => typeof x === "string" && x.length > 0 && x.length <= max;
+/** a transaction id (an EVM hash, a UTXO txid): 64 hex digits, with or without 0x — nothing else reaches a provider's URL */
+const TX_HASH = /^(0x)?[0-9a-fA-F]{64}$/;
+/** a provider's reference (NEAR Intents: the deposit address): plain characters, bounded */
+const PROVIDER_REF = /^[A-Za-z0-9._:-]{1,128}$/;
 function asset(a: any): AssetRef {
   const decimals = Number(a?.decimals);
   if (!a || !short(a.chain, 32) || !short(a.asset, 64) || !short(a.symbol, 16) || !Number.isInteger(decimals) || decimals < 0 || decimals > 36)
@@ -424,7 +428,9 @@ export class SwapApi {
     } catch {
       throw new BadRequest("the signature is not the order signer's over the prepared digest");
     }
-    this.d.store.finalize(id, { providerRef: blob.prepared.provider });
+    const q = blob.prepared.quote;
+    const seconds = Math.round(Number(q.plan?.expectedSeconds ?? q.etaSeconds));
+    this.d.store.finalize(id, { providerRef: blob.prepared.provider, ...(Number.isSafeInteger(seconds) && seconds > 0 ? { expectedSeconds: seconds } : {}) });
     this.d.store.event({ event: "operation.finalized", operationId: id, provider: row.provider, state: row.state, network: row.network });
     return { status: 200, body: wire({ execution, order: blob.order }) };
   }
@@ -451,17 +457,35 @@ export class SwapApi {
     const tx = query.get("tx") ?? undefined,
       ref = query.get("ref") ?? undefined;
     if (!tx && !ref) throw new BadRequest("tx (the execution transaction) or ref (the provider's reference) is required");
+    if (tx !== undefined && !TX_HASH.test(tx)) throw new BadRequest("tx must be a transaction hash");
+    if (ref !== undefined && !PROVIDER_REF.test(ref)) throw new BadRequest("ref must be a provider's reference");
     const t = await adapter.track({ sourceTxHash: tx, providerRef: ref }).catch((e: unknown) => {
       throw asProviderFailure(adapter.id, e);
     });
-    // V3 §10: `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the API count a settlement stall
-    const since = Number(query.get("since")),
-      expected = Number(query.get("expected"));
+    // V3 §10: a settlement stall counts against the provider only for an execution the API itself knows — named by its
+    // operation (an opaque id only its wallet holds), executed by the relayer as exactly this transaction, and timed by
+    // the API's own records (the hand-over and the plan's seconds). A V6 follow-up of 2026-10-14: the caller's `since`
+    // and `expected` had been taken on trust, and two requests about made-up transactions opened the provider's breaker,
+    // which steers every user's quotes away from it.
     const open = !["completed", "refunded", "failed"].includes(t.state);
-    const stalled =
-      open && Number.isFinite(since) && since > 0 && Number.isFinite(expected) && expected > 0 && this.d.now() / 1000 - since > STALL_FACTOR * expected;
-    if (stalled) this.engine.tracker.recordSettlementStall(provider as ProviderId, `${provider}:${tx ?? ref}`);
+    const stalled = open && tx ? await this.stalledOperation(provider, query.get("operation"), tx) : null;
+    if (stalled) this.engine.tracker.recordSettlementStall(provider as ProviderId, `${provider}:${stalled}`, this.d.now());
     return { status: 200, body: wire({ track: t, status: guestStatus(t.state), ...(stalled ? { stalled: true } : {}) }) };
+  }
+
+  /** The operation whose settlement this read shows stalled, from the API's own records; null otherwise. */
+  private async stalledOperation(provider: string, operationId: string | null, tx: string): Promise<string | null> {
+    const row = operationId ? this.operation(operationId) : null;
+    if (!row || row.provider !== provider) return null;
+    const ex = this.d.store.execution(row.id);
+    if (!ex?.expectedSeconds || this.d.now() - ex.finalizedAt <= STALL_FACTOR * ex.expectedSeconds * 1000) return null;
+    // the relayer's execution of this order: as a reconcile recorded it, else read now
+    let executed = ex.executionTx;
+    if (!executed) {
+      const job = await this.d.reads.job(row.orderId);
+      executed = job && job !== "none" ? (job.executionTx ?? null) : null;
+    }
+    return executed && executed.toLowerCase() === tx.toLowerCase() ? row.id : null;
   }
 
   /** GET /v1/risk[/:provider]: the record, the security breakdown, the breaker's state, the routes — stateless, nothing per user. */
@@ -555,6 +579,7 @@ export class SwapApi {
   async guestTrack(provider: string, txid: string): Promise<Answer> {
     const adapter = this.adapterOf(provider);
     if (!adapter || !txid) return { status: 404, body: { error: "unknown provider or missing txid", code: "unknown_provider" } };
+    if (!TX_HASH.test(txid)) throw new BadRequest("txid must be a transaction id");
     const t = await adapter.track({ sourceTxHash: txid }).catch((e: unknown) => {
       throw asProviderFailure(adapter.id, e);
     });

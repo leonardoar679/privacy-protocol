@@ -90,8 +90,9 @@ export interface Resumed { operationId: string; order: ServiceOrder; status: str
 /** What the API rebuilds an order from: the request, the policy, the provider and the on-chain params. */
 const resumeBody = (req: ResumeRequest) => ({ ...req.request, policy: req.policy, provider: req.provider, params: req.params, ...(req.tier ? { tier: req.tier } : {}), ...(req.preference ? { preference: req.preference } : {}) });
 
-const trackQuery = (ref: { tx?: string; ref?: string; since?: number; expected?: number }) =>
-  new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}), ...(ref.since ? { since: String(ref.since) } : {}), ...(ref.expected ? { expected: String(ref.expected) } : {}) });
+/** `operation`: the order's operation, named when the wallet suspects a stalled settlement — the API times it itself */
+const trackQuery = (ref: { tx?: string; ref?: string; operation?: string }) =>
+  new URLSearchParams({ ...(ref.tx ? { tx: ref.tx } : {}), ...(ref.ref ? { ref: ref.ref } : {}), ...(ref.operation ? { operation: ref.operation } : {}) });
 
 export const swapService = {
   health: () => api.status<ServiceHealth>(),
@@ -120,7 +121,7 @@ export const swapService = {
   reconcile: (operationId: string): Promise<ReconcileView> => api.reconcile(operationId),
   /** the destination side of an executed order, by the execution transaction (NEAR Intents: the deposit address as ref);
    *  `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the API count a settlement stall (V3 §10) */
-  track: (provider: string, ref: { tx?: string; ref?: string; since?: number; expected?: number }) => api.track<TrackResult & { stalled?: boolean }>(provider, trackQuery(ref)),
+  track: (provider: string, ref: { tx?: string; ref?: string; operation?: string }) => api.track<TrackResult & { stalled?: boolean }>(provider, trackQuery(ref)),
   /** V3 (High-Value Protection spec §10): a provider's risk view — its record, the security breakdown, the breaker's state */
   risk: (provider: string) => api.risk<RiskView>(provider),
 };

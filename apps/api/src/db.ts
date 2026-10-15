@@ -97,6 +97,11 @@ CREATE TABLE system_events (
 ) STRICT;
 CREATE INDEX system_events_at ON system_events(at);
 `,
+  // 2 — a V6 follow-up of 2026-10-14: the plan's seconds, recorded at finalize, so that a settlement stall is timed by the
+  // API's own records (the hand-over and the plan), never by a caller
+  `
+ALTER TABLE executions ADD COLUMN expected_seconds INTEGER;
+`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

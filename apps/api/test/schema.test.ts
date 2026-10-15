@@ -5,19 +5,40 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { afterAll, describe, expect, it } from "vitest";
 import { MIGRATIONS, SCHEMA_VERSION, openDb } from "../src/db";
 import { apiOperationColumns } from "@privacy-wallet/protocol-types";
 
+// node:sqlite is a prefix-only builtin Vite's resolver does not know (as in src/db.ts): required at run time
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 const dir = mkdtempSync(join(tmpdir(), "api-schema-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("the schema", () => {
   it("is pinned: a change to the DDL is a new migration, never an edit", () => {
-    expect(SCHEMA_VERSION).toBe(1);
-    // LF everywhere (.gitattributes); a CRLF checkout must not move the pin
-    const text = MIGRATIONS.join("\n-- next migration --\n").replace(/\r\n/g, "\n");
-    expect(createHash("sha256").update(text).digest("hex")).toBe("d677ebd75547187b85eb9c2a06f908fe19117e7ba87c929962fc6ab053f4d215");
+    expect(SCHEMA_VERSION).toBe(2);
+    // one pin per migration: a new one adds a pin, an edit to an old one fails (LF everywhere, .gitattributes: a CRLF
+    // checkout must not move a pin)
+    expect(MIGRATIONS.map((m) => createHash("sha256").update(m.replace(/\r\n/g, "\n")).digest("hex"))).toEqual([
+      "d677ebd75547187b85eb9c2a06f908fe19117e7ba87c929962fc6ab053f4d215",
+      // 2 (2026-10-14): executions.expected_seconds, the plan's seconds that time a settlement stall
+      "497f73f9ea06d5518a0f108eda41d5fb2b8e92f9782ad01507c85253ed8077cf",
+    ]);
+  });
+  it("a database at version 1 migrates to 2: its executions kept, the plan's seconds empty until a finalize records them", () => {
+    const path = join(dir, "v1.sqlite");
+    const old = new DatabaseSync(path, { enableForeignKeyConstraints: false }); // an execution row alone, as a fixture
+    old.exec(MIGRATIONS[0]);
+    old.exec("PRAGMA user_version = 1");
+    old.exec("INSERT INTO executions (operation_id, execution_tx, provider_ref, finalized_at) VALUES ('op_x', NULL, NULL, 1)");
+    old.close();
+    const db = openDb(path);
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(db.prepare("SELECT * FROM executions").all()).toEqual([
+      { operation_id: "op_x", execution_tx: null, provider_ref: null, finalized_at: 1, expected_seconds: null },
+    ]);
+    db.close();
   });
   it("holds the nine tables, every one STRICT, and no column for what is never stored", () => {
     const db = openDb(":memory:");

@@ -159,19 +159,30 @@ export class Store {
   setBlob(id: string, blob: string): void {
     this.db.prepare("UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ?").run(blob, this.now(), id);
   }
-  /** Finalize: the execution is recorded (its provider and the provider's reference) and the blob — the destination and the refund material — is gone. */
-  finalize(id: string, e: { providerRef?: string }): void {
+  /**
+   * Finalize: the execution is recorded (its provider, the provider's reference, and the plan's seconds that time a
+   * settlement stall) and the blob — the destination and the refund material — is gone.
+   */
+  finalize(id: string, e: { providerRef?: string; expectedSeconds?: number }): void {
     const t = this.now();
     this.db.prepare("UPDATE operations SET order_blob = NULL, updated_at = ? WHERE id = ?").run(t, id);
     this.db
       .prepare(
-        "INSERT INTO executions (operation_id, execution_tx, provider_ref, finalized_at) VALUES (?, NULL, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET provider_ref = excluded.provider_ref, finalized_at = excluded.finalized_at",
+        "INSERT INTO executions (operation_id, execution_tx, provider_ref, finalized_at, expected_seconds) VALUES (?, NULL, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET provider_ref = excluded.provider_ref, finalized_at = excluded.finalized_at, expected_seconds = excluded.expected_seconds",
       )
-      .run(id, e.providerRef ?? null, t);
+      .run(id, e.providerRef ?? null, t, e.expectedSeconds ?? null);
   }
-  execution(id: string): { executionTx: string | null; providerRef: string | null } | null {
-    const r = this.db.prepare("SELECT execution_tx, provider_ref FROM executions WHERE operation_id = ?").get(id) as Row | undefined;
-    return r ? { executionTx: (r.execution_tx as string | null) ?? null, providerRef: (r.provider_ref as string | null) ?? null } : null;
+  execution(id: string): { executionTx: string | null; providerRef: string | null; finalizedAt: number; expectedSeconds: number | null } | null {
+    const r = this.db.prepare("SELECT execution_tx, provider_ref, finalized_at, expected_seconds FROM executions WHERE operation_id = ?").get(id) as
+      Row | undefined;
+    return r
+      ? {
+          executionTx: (r.execution_tx as string | null) ?? null,
+          providerRef: (r.provider_ref as string | null) ?? null,
+          finalizedAt: Number(r.finalized_at),
+          expectedSeconds: r.expected_seconds === null || r.expected_seconds === undefined ? null : Number(r.expected_seconds),
+        }
+      : null;
   }
   /** The state and settlement after a reconcile; a terminal state is final (I-O1) and stamps `terminal_at`. */
   updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }): void {

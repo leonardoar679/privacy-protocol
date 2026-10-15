@@ -7,6 +7,7 @@
 // §11.2): a same-chain swap into the protected balance is complete when its delivered note is in the pool (the shield
 // receipt's leaves), whatever the provider's own tracking says.
 import type { Address } from "viem";
+import { STALL_FACTOR } from "@privacy-wallet/protocol/wallet/campaign";
 import { clientsFor, type Deployment } from "./chain";
 import { erc20Abi } from "./privacyProtocol";
 import { relayerSwapStatus, type SwapJob } from "./relayer";
@@ -165,7 +166,12 @@ export interface TrackDeps {
   session?: WalletSession;
   /** tests: replace the readers */
   readers?: { job?: (s: StoredSwap) => Promise<SwapJob | null>; balance?: (s: StoredSwap) => Promise<bigint | null>; track?: (s: StoredSwap, tx: string) => Promise<TrackResult["track"] | null> };
-  /** High-Value Protection spec §10: the hand-over time (unix s) and the plan's seconds, so the service counts a settlement stall on this read */
+  /**
+   * High-Value Protection spec §10: the hand-over time (unix s) and the plan's seconds, by which the wallet suspects a
+   * stalled settlement. The read then names the order's operation, and the service decides from its own records (the
+   * hand-over, the plan, the relayer's execution); a V6 follow-up of 2026-10-14 — the service had taken a caller's
+   * timing on trust, and anyone could open a provider's breaker for every user.
+   */
   stall?: { since: number; expected: number };
 }
 
@@ -181,7 +187,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const executionTx = stored.executionTx ?? job?.executionTx;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const balance = await (r.balance ? r.balance(stored) : stored.fundedTx && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
-  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall ? { since: deps.stall.since, expected: deps.stall.expected } : {}) }).then((x) => x.track, () => null)) : null;
+  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
   const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
   // journal: executionTx once, the read, a transition when the state changed
   if (s.isUnlocked()) {

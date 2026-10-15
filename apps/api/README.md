@@ -28,7 +28,7 @@ schedule (`src/db.ts` `RETENTION`):
 | `POST /v1/quotes`                                                                       | the quote set for a pair and an amount (no destination: the engine quotes a placeholder) with the §46 quote of the chosen route — the fees indicative, the wallet computes its own                                                                                                         |
 | `POST /v1/operations`                                                                   | the commit: an `op_` id (base32 of 16 random bytes; an opaque capability, never listed, never the order id)                                                                                                                                                                                |
 | `GET /v1/operations/:id`, `POST /v1/operations/:id/{reconcile,prepare,finalize,resume}` | the record; where the money is (the relayer's job, the chain, the provider; once per 5 s per id); the hard quote and the call to sign (`409 minimum_moved` below the approved minimum, `price_guard` against the competition); the signed execution handed over; a re-sign after a restart |
-| `GET /v1/track/:provider`, `GET /v1/risk[/:provider]`                                   | the provider's settlement read; the risk records                                                                                                                                                                                                                                           |
+| `GET /v1/track/:provider`, `GET /v1/risk[/:provider]`                                   | the provider's settlement read (a transaction hash or a plain reference, nothing else; a settlement stall counts only for an operation the read names that the relayer executed as that transaction, timed by the API's own records); the risk records                                     |
 | `/v1/guest/*`                                                                           | the walletless swap: quote, the deposit instruction (the browser checks it again), tracking                                                                                                                                                                                                |
 | `/v1/gateway/*`                                                                         | the zkAPI quote gateway (503 with the reason while no upstream exists)                                                                                                                                                                                                                     |
 
@@ -52,7 +52,7 @@ schedule (`src/db.ts` `RETENTION`):
 ```
 cd apps/api && cp .env.example .env      # PORT, DB_PATH, ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (+ the engine's: packages/swap-engine/.env.example)
 npm start                                # http://127.0.0.1:8787/v1
-npm test                                 # 33 tests: schema, routes, reconcile, retention, security, logs, a full flow, the reads, provider failures, validation
+npm test                                 # 38 tests: schema (two migrations), routes, reconcile, retention, security, logs, a full flow, the reads, provider failures, validation, stalls
 ```
 
 The local stack starts it on 8787 with `run/api.sqlite` (`scripts/local-stack/start-services.mjs service`).
