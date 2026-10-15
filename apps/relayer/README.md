@@ -110,7 +110,8 @@ stops the relayer at start, naming the file, and is left as it is: restore it, o
 jobs. Before (a V6 follow-up of 2026-10-15) it loaded as no jobs and the next save overwrote it, every funded escrow's
 execution and refund, shield and fee-note opening in it forgotten without a word (`test/journal.test.ts`). A
 restarted relayer resumes open swap jobs and
-keeps the in-flight nullifiers of unmined submissions (tested). Not verified here: a live chain run
+keeps the in-flight nullifiers of unmined submissions (tested). The journals are never pruned, and why that waits
+for a decision is `docs/audit-package.md` gap 46. Not verified here: a live chain run
 (this machine cannot run a node — `docs/testnet.md`).
 
 **The submissions are looked at again on the relayer's own tick** (`Relayer.monitor`, every `SWAP_POLL_MS`; a V6

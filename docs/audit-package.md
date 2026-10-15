@@ -266,6 +266,17 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       (`packages/sdk/src/relayer.ts`). A timeout is a lost answer, resolved by the lookup by nullifier (gap 42), and the
       failover moves on from a relayer that does not answer its terms. The API's reads of the relayer and of the RPC
       endpoints end after 10 s.
+46. **V6 — the relayer's journals are never pruned** (noted 2026-10-15). `submissions.json`, `swap-jobs.json` and
+    `shield-jobs.json` keep every job the relayer ever had, and every change rewrites the whole file (flushed to the
+    disk before its rename since the same day), so a busy relayer's writes grow with its history. Pruning settled jobs
+    is a decision across components, not a cleanup:
+    - a fee note whose payload the relayer cannot read (`REQUIRE_READABLE_FEE_PAYLOAD=0`) has its opening only there;
+    - the wallet's reconciler asks the relayer by nullifier about a submission whose page closed mid-way
+      (`packages/sdk/src/operations/stale.ts`), and a withdrawal without a change note stays open when neither the relayer
+      nor the chain names its transaction (its nullifiers spent, the job gone);
+    - the wallet registers a shield job again when the relayer does not know it, which for a delivery shielded long ago
+      would read as expired.
+    Until a retention rule settles those, the files grow; `GET /jobs` and `GET /swap` (operator only) show how far.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
