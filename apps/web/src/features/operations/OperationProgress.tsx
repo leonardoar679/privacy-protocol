@@ -44,7 +44,7 @@ export function OperationProgress({ record, actions, testId = "operation-progres
   // V6: a failure's reason, a declined prompt or a delay has its verdict card
   const v = record.reason || record.delayed || (record.declined && isDraft(record.state)) ? verdict(record, t) : null;
   return (
-    <div className="ds-stack" data-testid={testId} data-state={record.state}>
+    <div className="ds-stack" data-testid={testId} data-state={record.state} data-code={record.reason?.code}>
       <TransactionTimeline steps={timelineOf(record, t)} />
       {headline ? <ProgressIndicator value={null} label={headline} testId={`${testId}-bar`} /> : null}
       {record.state === "COMPLETED" ? <StatusBadge tone="ok" testId={`${testId}-completed`}>{stateWords("COMPLETED", t)}</StatusBadge> : null}

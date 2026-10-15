@@ -198,6 +198,24 @@ async function chooseAsset(page, openId, optionId, symbol) {
 async function firstOf(page, candidates, timeout) {
   return Promise.any(Object.entries(candidates).map(([key, loc]) => loc.first().waitFor({ state: "visible", timeout }).then(() => key)));
 }
+/**
+ * An order stopped for a reason the run does not answer: neither a reconcile under way nor a refused hard quote it can
+ * try again (a V6 follow-up of 2026-10-15; the run waited out its timeouts and named nothing, or ended on an
+ * AggregateError). The progress view carries the record's state and its reason's code.
+ */
+const stoppedOrder = (page) =>
+  page.locator(
+    '[data-testid="operation-progress"][data-state="RECOVERY_REQUIRED"]:not([data-code="reconcile"]):not([data-code="execution_unavailable"]), [data-testid="operation-progress"][data-state="CANCELLED"], [data-testid="operation-progress"][data-state="FAILED"]',
+  );
+/** Where an order's progress stands, in a line: its state, its code and the words the user reads. */
+async function orderWords(page) {
+  const at = page.locator('[data-testid="operation-progress"]').first();
+  const state = (await at.count()) ? await at.getAttribute("data-state").catch(() => null) : null;
+  const code = (await at.count()) ? await at.getAttribute("data-code").catch(() => null) : null;
+  const err = page.locator('[data-testid="operation-progress-error"]').first();
+  const why = (await err.count()) ? (await text(err)).slice(0, 300) : "";
+  return `${state ?? `no progress view at ${page.url().slice(-60)}`}${code ? ` (${code})` : ""}: ${why || "no reason shown"}`;
+}
 /** V6 Stage 15: a persistent profile, so the run can close the browser and start it again on the same storage (doc §74) */
 const PROFILE = join(OUT, "profile");
 async function launchContext() {
@@ -772,9 +790,16 @@ try {
   const executing = page.locator('[data-testid="swap-progress"][data-state="EXECUTING"], [data-testid="swap-progress"][data-state="SETTLING"], [data-testid="swap-done"]');
   const movedCard = byId(page, "swap-minimum-moved");
   const tryAgain = byId(page, "swap-try-again");
+  let stoppedAt = null;
   for (let round = 1; round <= 10 && !executed; round++) {
-    const outcome = await firstOf(page, { executing, moved: movedCard, retry: tryAgain }, PROOF_TIMEOUT);
+    const outcome = await firstOf(page, { executing, moved: movedCard, retry: tryAgain, stopped: stoppedOrder(page) }, PROOF_TIMEOUT).catch(() => "timeout");
     if (outcome === "executing") { executed = true; break; }
+    if (outcome === "stopped" || outcome === "timeout") {
+      stoppedAt = await orderWords(page);
+      check(outcome === "stopped" ? "the order goes on to its execution (it stopped)" : `the order reaches its execution within ${PROOF_TIMEOUT / 1000} s`, false, stoppedAt);
+      await snap(page, "order-stopped");
+      break;
+    }
     if (outcome === "moved") {
       const moved = (await text(movedCard)).slice(0, 200);
       if (consents === 0) { check("a lower hard quote waits for the user's choice before anything is signed (QUOTE_EXPIRED, minimum_moved)", /now guarantees at least [0-9.,]+ BTC; you approved [0-9.,]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
@@ -809,9 +834,11 @@ try {
     const funded = (await jobsOfThisRun()).length;
     check("funded and handed over once (one job for this order)", funded >= 1);
     await snap(page, "executing");
+  } else if (stoppedAt && !(await byId(page, "swap-return-funds").count())) {
+    log(`the order stopped with nothing to return from its screen: ${stoppedAt}`);
   } else {
     // the market kept the chosen route below the best alternative: the funded order goes back to the protected balance
-    log("the price guard refused every attempt: returning the funds to the protected balance");
+    log(stoppedAt ? `the order stopped (${stoppedAt}): returning the funds to the protected balance` : "the price guard refused every attempt: returning the funds to the protected balance");
     await clickId(page, "swap-return-funds");
     let job = null;
     for (let i = 0; i < 60 && !job; i++) { job = (await jobsOfThisRun()).find((j) => j.state === "refund-only" || j.state === "refunding" || j.state === "refunded") ?? null; if (!job) await page.waitForTimeout(2000); }
@@ -898,8 +925,10 @@ try {
       if (handed) break;
       if (await byId(page, "swap-minimum-moved").count()) { log("the price moved before signing: accepted, as a user would"); await clickId(page, "swap-accept-minimum"); continue; }
       if (await byId(page, "swap-try-again").count()) { log(`the hard quote was refused (attempt ${round}): trying again`); await clickId(page, "swap-try-again"); continue; }
+      if (await stoppedOrder(page).count()) { check("the order goes on to its hand-over (it stopped)", false, await orderWords(page)); await snap(page, "swap-protected-stopped"); break; }
       handed = await until(page, async () => (await jobsOfThisRun()).find((j) => Number(j.params?.assetType) === 1 && j.executionTx) ?? null, PROOF_TIMEOUT / 6);
     }
+    if (!handed) log(`no hand-over: ${await orderWords(page)}`);
     const shieldJob = shieldJobsOfThisRun().find((j) => j.receiver.toLowerCase() === receiver.toLowerCase());
     check("the relayer watches the receiver from the hand-over (POST /shield before the execution)", !!shieldJob && !!handed && Number(shieldJob.createdAt) <= Number(handed.updatedAt), shieldJob ? `${shieldJob.id.slice(0, 18)}… ${shieldJob.state}, tip ${shieldJob.params.shieldTip} wei, minAmount ${shieldJob.params.minAmount}` : "no shield job");
     if (handed && shieldJob) {

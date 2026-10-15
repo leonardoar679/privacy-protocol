@@ -249,6 +249,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
       reason: { code: "unsafe_contract_call", fundsClass: "still-protected" },
     });
     expect((await screen.findByTestId("operation-progress-error")).textContent).toContain("We stopped this transaction");
+    expect(screen.getByTestId("operation-progress").getAttribute("data-code"), "the code the local stack's run reads").toBe("unsafe_contract_call");
     await act(async () => {
       fireEvent.click(screen.getByTestId("swap-return-funds"));
     });
@@ -268,6 +269,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(stored(orderId).paused?.code).toBe("execution_unavailable");
     expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
     expect((await screen.findByTestId("operation-progress-error")).textContent).toContain("The route cannot execute right now");
+    expect(screen.getByTestId("operation-progress").getAttribute("data-code")).toBe("execution_unavailable");
     world.rpcBend = {};
     fireEvent.click(screen.getByTestId("swap-try-again"));
     expect(await tick(orderId)).toBe("handed-over");
@@ -428,6 +430,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
       reason: { code: "execution_window_closed", fundsClass: "still-protected" },
     });
     expect((await screen.findByTestId("operation-progress-error")).textContent).toContain("The swap ran out of time");
+    expect(screen.getByTestId("operation-progress").getAttribute("data-code")).toBe("execution_window_closed");
     expect(screen.queryByTestId("swap-try-again"), "trying again cannot work").toBeNull();
     await act(async () => {
       fireEvent.click(screen.getByTestId("swap-return-funds"));

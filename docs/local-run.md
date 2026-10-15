@@ -16,7 +16,10 @@ quote asks for consent), last run 2026-10-08 (`results/report-2026-10-08.json`);
 V6, at each stage that changed the flows (`results/report-2026-10-13-v6-stage1.json` … `results/report-2026-10-14-v6-stage16.json`),
 and the final run on the V6 code: `results/report-2026-10-14-v6.json`. Live providers come and go — a price trending one
 way asks for the new minimum again, a provider without a quote pauses the steps, "No route available right now" — and the
-run does what a person would (accepts, resumes, types the amount again) and says so in its log. The one difference from a testnet: there the light client
+run does what a person would (accepts, resumes, types the amount again) and says so in its log. A swap that stops for any
+other reason (neither a reconcile under way nor a refused quote it can try again) fails its check at once, with the
+record's state, its reason's code and the words the user reads: the progress view carries `data-code`. Before (a V6
+follow-up of 2026-10-15), the run waited out its timeouts and named nothing. The one difference from a testnet: there the light client
 stays on; on the devnet the run switches it off under More → Advanced (no beacon chain to follow).
 `VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
 
