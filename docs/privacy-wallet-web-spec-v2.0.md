@@ -1106,7 +1106,10 @@ in shape, before any provider is asked. A malformed one is `400 invalid_request`
 The words of an error that leave the API or the relayer (a V6 follow-up of 2026-10-15) keep a URL's scheme and host and
 lose its credentials, path and query (`packages/server-kit/src/redact.ts`): RPC and provider URLs carry their keys
 there, and viem writes the whole URL, with the request's body, into its errors. Their own error is a bare
-`500 { code: "internal" }`; a body that is not JSON is the caller's `400`.
+`500 { code: "internal" }`; a body that is not JSON is the caller's `400`. The engine's words that reach a wallet — a
+quote set's competition reasons, errors, health notes, scores' filters, the value's reason and each quote's hops, in
+`/v1/quotes`, a commit, a restore and `/v1/status` — keep only their URLs' hosts too, and the engine names an RPC or a
+THORNode endpoint by its host in its own words; the risk records keep their public audit and incident links.
 **Logs** (doc §67, `packages/server-kit`): one JSON line per event with keys ⊆ {`at`, `level`, `event`,
 `operationId`, `provider`, `state`, `errorClass`, `network`} — the typed logger accepts nothing else; no address,
 transaction hash, amount, Bitcoin or Solana string ever (the §19 log gate).

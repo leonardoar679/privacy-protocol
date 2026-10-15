@@ -71,6 +71,26 @@ describe("RpcValuer (spec §13)", () => {
     expect(new RpcValuer(31337, ["http://127.0.0.1:1"]).feeds).toEqual([]);
     expect(() => new RpcValuer(1, [])).toThrow(/RPC/);
   });
+  it("an RPC is named by its host in every reason, never by its path, where a key lives (2026-10-15)", async () => {
+    // an endpoint that answers an error: the reason the quote set carries to the wallet
+    const s = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { message: "rate limited" } }));
+      });
+    });
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+    servers.push(s);
+    const keyed = `http://127.0.0.1:${(s.address() as { port: number }).port}/v2/SECRET-KEY-123`;
+    const failing = (await new RpcValuer(1, [keyed], FEEDS, 0).prices(NOW))?.feeds.ETH as { reason: string };
+    expect(failing.reason).toMatch(/^127\.0\.0\.1:\d+: rate limited$/);
+    // two that disagree: each named by its host
+    const a = await rpc(2_500_00000000n), b = await rpc(2_700_00000000n);
+    const disagree = (await new RpcValuer(1, [`${a.url}/v2/SECRET-KEY-123`, `${b.url}/v2/SECRET-KEY-123`], FEEDS, 0).prices(NOW))?.feeds.ETH as { reason: string };
+    expect(disagree.reason).toContain("endpoints disagree");
+    for (const r of [failing.reason, disagree.reason]) expect(r).not.toContain("SECRET-KEY-123");
+  });
   it("isTier accepts the seven tiers only (V5: the two consumer bands)", () => {
     for (const t of ["standard", "large", "large-protected", "enhanced", "high-value", "high-value-secondary", "institutional"]) expect(isTier(t)).toBe(true);
     expect(isTier("whale")).toBe(false);

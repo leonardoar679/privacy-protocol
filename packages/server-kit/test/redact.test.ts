@@ -1,7 +1,7 @@
 // The words of an error that leave a service keep a URL's host and lose its key (a V6 follow-up of 2026-10-15: a viem
 // error, which the API and the relayer answered with, carries the whole RPC URL — the key in its path — and the request).
 import { describe, expect, it } from "vitest";
-import { redactUrls } from "../src/redact";
+import { redactUrls, redactUrlsDeep } from "../src/redact";
 
 describe("redactUrls", () => {
   it("a viem error keeps the RPC's host, never its key", () => {
@@ -17,6 +17,20 @@ describe("redactUrls", () => {
     );
     expect(redactUrls("wss://node.example/ws/KEY and http://127.0.0.1:8545")).toBe("wss://node.example/… and http://127.0.0.1:8545");
     expect(redactUrls("(https://api.example/v1/quote?apiKey=K)")).toBe("(https://api.example/…)");
+  });
+  it("the deep variant redacts every string of a value and keeps everything else", () => {
+    const value = {
+      reason: "https://rpc.example/v2/KEY: rate limited",
+      list: ["fine", "http://h.example/k?x=1"],
+      nested: { n: 3, big: 10n, ok: true, nothing: null },
+    };
+    expect(redactUrlsDeep(value)).toEqual({
+      reason: "https://rpc.example/…: rate limited",
+      list: ["fine", "http://h.example/…"],
+      nested: { n: 3, big: 10n, ok: true, nothing: null },
+    });
+    expect(value.reason, "the input is not changed").toContain("KEY");
+    expect(redactUrlsDeep(undefined)).toBeUndefined();
   });
   it("text without a URL is unchanged", () => {
     for (const t of ["fee 12 is below the minimum 30", "THORNode quorum not reached: 1/2 gateways answered for ETH", ""]) expect(redactUrls(t)).toBe(t);

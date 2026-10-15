@@ -64,6 +64,38 @@ describe("a provider's failure", () => {
     for (const r of [q, p, t]) expect(JSON.stringify(r.body)).not.toContain("SECRET-KEY-123");
   });
 
+  it("a health check's words in the status and a quote set keep only their URLs' hosts (2026-10-15)", async () => {
+    h.adapter.health = async () => {
+      throw new Error("fetch failed for https://thornode.example/v2/SECRET-KEY-123");
+    };
+    const status = await h.get("/v1/status");
+    expect(JSON.stringify(status.body)).toContain("https://thornode.example/…");
+    // the unreachable provider's competition entry carries the same note
+    const quoted = await h.post("/v1/quotes", swapRequest());
+    expect(JSON.stringify(quoted.body.competition)).toContain("https://thornode.example/…");
+    for (const r of [status, quoted]) expect(JSON.stringify(r.body)).not.toContain("SECRET-KEY-123");
+  });
+
+  it("a provider's refusal and a quote's hops keep only their URLs' hosts, in a quote set and a commit; the risk records keep their links", async () => {
+    const KEY = "SECRET-KEY-123";
+    const quote = h.adapter.quote.bind(h.adapter);
+    h.adapter.quote = async () => {
+      throw new Error(`HTTP 401 from https://thornode.example/v2/${KEY}`);
+    };
+    const refused = await h.post("/v1/quotes", swapRequest());
+    expect(JSON.stringify(refused.body.errors)).toContain("https://thornode.example/…");
+    // a quote whose hops name the keyed endpoint it came from
+    h.adapter.quote = async (req) => ({ ...(await quote(req)), hops: [`ETH -> BTC (https://thornode.example/v2/${KEY})`] });
+    const quoted = await h.post("/v1/quotes", swapRequest());
+    expect(quoted.body.quotes[0].hops).toEqual(["ETH -> BTC (https://thornode.example/…)"]);
+    const committed = await h.post("/v1/operations", orderBody());
+    expect(committed.status).toBe(200);
+    expect(committed.body.order.quote.hops).toEqual(["ETH -> BTC (https://thornode.example/…)"]);
+    for (const r of [refused, quoted, committed]) expect(JSON.stringify(r.body)).not.toContain(KEY);
+    // the risk records' sources are public links and stay whole
+    expect(JSON.stringify((await h.get("/v1/risk/thorchain")).body)).toContain("https://github.com/thorchain/Resources/tree/master/Audits");
+  });
+
   it("at track and on the guest routes: 502 provider_unavailable", async () => {
     h.adapter.track = async () => {
       throw new Error("HTTP 404 from https://gateway.liquify.com/chain/thorchain_api");

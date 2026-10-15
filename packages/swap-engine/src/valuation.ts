@@ -13,13 +13,22 @@ export interface Valuer { prices(now?: number): Promise<Prices | null> }
 /** No RPC configured: no price, the fail-safe tier for everything. */
 export const NO_VALUER: Valuer = { prices: async () => null };
 
+/** An RPC endpoint named by its host only: its path carries a key (a V6 follow-up of 2026-10-15). */
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "an RPC endpoint";
+  }
+};
+
 async function ethCall(fetchImpl: typeof fetch, url: string, to: string, data: string, timeoutMs = 15000): Promise<string> {
   const r = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }), signal: AbortSignal.timeout(timeoutMs) });
   const text = await r.text();
   let j: any;
-  try { j = JSON.parse(text); } catch { throw new Error(`${url} answered ${r.status} ${text.slice(0, 40).replace(/\s+/g, " ")}`); }
-  if (j.error) throw new Error(`${url}: ${j.error.message}`);
-  if (typeof j.result !== "string" || j.result === "0x") throw new Error(`${url}: no code / no result at ${to}`);
+  try { j = JSON.parse(text); } catch { throw new Error(`${hostOf(url)} answered ${r.status} ${text.slice(0, 40).replace(/\s+/g, " ")}`); }
+  if (j.error) throw new Error(`${hostOf(url)}: ${j.error.message}`);
+  if (typeof j.result !== "string" || j.result === "0x") throw new Error(`${hostOf(url)}: no code / no result at ${to}`);
   return j.result;
 }
 
@@ -30,7 +39,7 @@ async function readFeed(fetchImpl: typeof fetch, url: string, spec: FeedSpec): P
   if (description !== spec.description) throw new Error(`${spec.symbol}: ${address} is "${description}", not "${spec.description}"`);
   const round = decodeLatestRoundData(await ethCall(fetchImpl, url, address, SELECTOR.latestRoundData));
   if (round.answer <= 0n) throw new Error(`${spec.symbol}: the feed answers ${round.answer}`);
-  return { symbol: spec.symbol, usd1e8: round.answer, roundId: round.roundId, updatedAt: round.updatedAt, source: url };
+  return { symbol: spec.symbol, usd1e8: round.answer, roundId: round.roundId, updatedAt: round.updatedAt, source: hostOf(url) };
 }
 
 /** Reads every feed of the chain from every RPC; every endpoint must answer and agree (spec §13). */

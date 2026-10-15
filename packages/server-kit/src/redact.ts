@@ -4,6 +4,15 @@
 
 const URL_IN_TEXT = /\b([a-z][a-z0-9+.-]*):\/\/([^\s/?#"'<>]+)([^\s"'<>]*)/gi;
 
+/** `redactUrls` over every string of a JSON-like value: arrays and plain objects are copied, anything else kept. */
+export function redactUrlsDeep<T>(x: T): T {
+  if (typeof x === "string") return redactUrls(x) as T;
+  if (Array.isArray(x)) return x.map((v) => redactUrlsDeep(v)) as T;
+  if (x !== null && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype)
+    return Object.fromEntries(Object.entries(x as Record<string, unknown>).map(([k, v]) => [k, redactUrlsDeep(v)])) as T;
+  return x;
+}
+
 /** Every URL in `text` as its scheme and host (and port), with "/…" where it had more. */
 export function redactUrls(text: string): string {
   return text.replace(URL_IN_TEXT, (_m, scheme: string, authority: string, rest: string) => {

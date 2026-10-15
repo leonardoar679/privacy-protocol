@@ -44,7 +44,9 @@ schedule (`src/db.ts` `RETENTION`):
 - **Errors.** A caller's mistake answers `4xx` with a catalog code: every field of a body is checked before any
   provider is asked (`test/validation.test.ts`). The API's own error answers `500 { code: "internal" }` and nothing of
   itself; a provider's or the gas price's words keep only their URLs' hosts (`redactUrls`, `packages/server-kit`),
-  since RPC and provider URLs carry keys. A provider that failed, or answered what the engine
+  since RPC and provider URLs carry keys — as do the engine's words in a quote set, a commit and the status (the
+  competition's reasons, the errors, the health notes, the value's reason, a quote's hops), while the risk records keep
+  their public audit and incident links. A provider that failed, or answered what the engine
   will not build on (at prepare, at track, on the guest routes), answers `502 provider_unavailable` and is logged as
   `provider.failed` with the provider, never its message (`test/provider-failure.test.ts`). Anything else is the API's
   own error: `500`, logged as `http.error` with `internal`.

@@ -31,6 +31,7 @@ import { gatewayHealth, gatewayQuote, type GatewayConfig } from "@privacy-wallet
 import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
+import { redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
 import { decodeBlob, encodeBlob, wire } from "../blob";
 import { newId, OPERATION_ID } from "../ids";
 import { quoteOf, type RelayerTerms } from "../quote";
@@ -155,6 +156,22 @@ interface Blob {
   prepared?: PreparedExecution;
 }
 
+/**
+ * The engine's words as they leave the API (a V6 follow-up of 2026-10-15): the providers' and the valuer's — the
+ * competition's reasons, the errors, the health notes, the filters, the value's reason, a quote's hops and its raw
+ * answer — keep only their URLs' hosts. An operator's THORNode or RPC URL may carry a key, and those words had named it
+ * in every quote set. The risk records keep their sources: public audit and incident links.
+ */
+const QUOTE_SET_WORDS = ["errors", "competition", "health", "scores", "value"] as const;
+const scrubQuote = <Q extends { hops?: unknown; raw?: unknown }>(q: Q): Q => ({ ...q, hops: redactUrlsDeep(q.hops), raw: redactUrlsDeep(q.raw) });
+function scrubSet<S extends { quotes?: { hops?: unknown; raw?: unknown }[] }>(set: S): S {
+  const out: Record<string, unknown> = { ...set };
+  for (const k of QUOTE_SET_WORDS) if (out[k] !== undefined) out[k] = redactUrlsDeep(out[k]);
+  if (Array.isArray(set.quotes)) out.quotes = set.quotes.map(scrubQuote);
+  return out as S;
+}
+const scrubOrder = (o: Order): Order => ({ ...o, quote: scrubQuote(o.quote), ...(o.value ? { value: redactUrlsDeep(o.value) } : {}) });
+
 export interface SwapApiDeps {
   engine: PrivateSwapEngine;
   store: Store;
@@ -211,7 +228,7 @@ export class SwapApi {
         !set.health[p as ProviderId]?.halted &&
         !this.engine.tracker.state(p as ProviderId, this.d.now()).open,
     });
-    return { status: 200, body: { ...(wire(set) as object), id, ...(quote ? { quote } : {}) } };
+    return { status: 200, body: { ...(wire(scrubSet(set)) as object), id, ...(quote ? { quote } : {}) } };
   }
 
   /** POST /v1/operations: commit (the V5 /order: the wallet chose a route and supplies the one-time signer and the refund note), or rebuild an order the wallet journaled (`params` present). */
@@ -225,10 +242,19 @@ export class SwapApi {
     if (!quote)
       return {
         status: 400,
-        body: { error: `no quote from ${provider ?? "any provider"}`, code: "no_quote", errors: set.errors, competition: set.competition },
+        body: {
+          error: `no quote from ${provider ?? "any provider"}`,
+          code: "no_quote",
+          errors: redactUrlsDeep(set.errors),
+          competition: redactUrlsDeep(set.competition),
+        },
       };
     const filtered = set.scores.find((s) => s.provider === provider)?.filtered;
-    if (filtered) return { status: 400, body: { error: `route filtered: ${filtered}`, code: "route_filtered", competition: set.competition } };
+    if (filtered)
+      return {
+        status: 400,
+        body: { error: redactUrlsDeep(`route filtered: ${filtered}`), code: "route_filtered", competition: redactUrlsDeep(set.competition) },
+      };
     if (
       typeof b.orderSigner !== "string" ||
       !/^\d+$/.test(String(b.refundOwnerCommitment)) ||
@@ -255,13 +281,13 @@ export class SwapApi {
       status: 200,
       body: wire({
         operationId,
-        order,
-        scores: set.scores,
+        order: scrubOrder(order),
+        scores: redactUrlsDeep(set.scores),
         status: userStatus(order.state),
         tier: order.tier,
-        value: order.value,
+        value: redactUrlsDeep(order.value),
         policy: set.policy,
-        competition: set.competition,
+        competition: redactUrlsDeep(set.competition),
         ...(set.protection ? { protection: set.protection } : {}),
         ...(set.risk ? { risk: set.risk } : {}),
       }),
@@ -302,7 +328,17 @@ export class SwapApi {
     const known = this.d.store.operationByOrder(order.orderId);
     if (known && !this.d.store.execution(known.id)) this.d.store.setBlob(known.id, encodeBlob({ order } satisfies Blob)); // finalized: never again
     const operationId = known?.id ?? this.record(order, null);
-    return { status: 200, body: wire({ operationId, order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: order.policy }) };
+    return {
+      status: 200,
+      body: wire({
+        operationId,
+        order: scrubOrder(order),
+        status: userStatus(order.state),
+        tier: order.tier,
+        value: redactUrlsDeep(order.value),
+        policy: order.policy,
+      }),
+    };
   }
   private async rebuilt(b: Record<string, unknown>, req: QuoteRequest): Promise<Order | Answer> {
     const provider = b.provider as ProviderId;
@@ -312,7 +348,12 @@ export class SwapApi {
     if (!quote)
       return {
         status: 400,
-        body: { error: `no quote from ${provider} right now; retry later`, code: "no_quote", errors: set.errors, competition: set.competition },
+        body: {
+          error: `no quote from ${provider} right now; retry later`,
+          code: "no_quote",
+          errors: redactUrlsDeep(set.errors),
+          competition: redactUrlsDeep(set.competition),
+        },
       };
     return this.engine.restoreOrder(req, set.policy, quote, params, assessmentOf(set), preferenceOf(b));
   }
@@ -531,7 +572,7 @@ export class SwapApi {
       status: 200,
       body: wire({
         deployment: { chainId: this.engine.cfg.chainId, factory: this.engine.cfg.factory, nativeVault: this.engine.cfg.refundVaults.native },
-        providers,
+        providers: redactUrlsDeep(providers),
         incidents: { total: inc.length, byProvider },
         riskDb: { providers: db.providers.size, assets: db.assets.size, routes: db.routes.size, problems: db.problems },
       }),
@@ -551,7 +592,7 @@ export class SwapApi {
   async guestQuote(body: unknown): Promise<Answer> {
     const b = body as Record<string, unknown>;
     const set = await this.engine.quoteAll(request(b), b?.policy === undefined ? "best-price" : policyOf(b), { tier: tierHint(b), mode: modeOf(b) });
-    return { status: 200, body: wire(set) };
+    return { status: 200, body: wire(scrubSet(set)) };
   }
   /** Only providers whose deposit address and memo the browser verifies against an independent gateway quorum (THORChain). */
   async guestIngress(body: unknown): Promise<Answer> {

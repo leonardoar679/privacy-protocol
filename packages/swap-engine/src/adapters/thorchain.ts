@@ -52,6 +52,15 @@ export const THORCHAIN_ROUTER_ETHEREUM = (process.env.THORCHAIN_ROUTER ?? "0xd37
 /** Distinct gateways that must agree on the inbound vault/router before an ingress is produced (plan §74). */
 export const THORNODE_QUORUM = Number(process.env.THORNODE_QUORUM ?? "2");
 
+/** A THORNode endpoint named by its host only: an operator's own (THORNODE_URL) may carry a key in its path (2026-10-15). */
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "a THORNode endpoint";
+  }
+};
+
 /** A gateway answered but refused the request (HTTP 4xx with THORNode's reason): the request is the problem, not the gateway. */
 class ThornodeRefusal extends Error {}
 /** THORNode's reason without the simulation wrapper ("failed to simulate swap: failed to simulate handler: X: invalid request" → "X"). */
@@ -67,7 +76,7 @@ async function fetchFrom<T>(base: string, path: string, timeoutMs: number): Prom
         let message = "";
         try { message = String(((await r.json()) as any)?.message ?? ""); } catch { /* not JSON */ }
         if (r.status >= 400 && r.status < 500 && message) throw new ThornodeRefusal(refusalReason(message));
-        throw new Error(`HTTP ${r.status} from ${base}`);
+        throw new Error(`HTTP ${r.status} from ${hostOf(base)}`);
       }
       return { data: (await r.json()) as T, url: base, ms: Date.now() - t0 };
     } catch (e) {
@@ -217,7 +226,7 @@ export class ThorchainAdapter implements ProviderAdapter {
       fees: [fee("liquidity", q.fees.liquidity), fee("network", q.fees.outbound), fee("affiliate", q.fees.affiliate)],
       etaSeconds: q.total_swap_seconds ?? 0, expiresAt: q.expiry, nativeAssets: true, minOutEncoded: true, minOutVerified: true,
       plan, impactBps: q.fees.slippage_bps, limits: q.recommended_min_amount_in ? { min: from1e8(BigInt(q.recommended_min_amount_in), req.from.decimals) } : undefined, sizeSignals,
-      hops: [`${from} -> ${to} (${url})${parts > 0 ? `, streamed in ${parts} sub-swaps` : ""}`], raw: { ...q, min1e8: min1e8.toString(), source: url, plan }, obtainedAt: Date.now(),
+      hops: [`${from} -> ${to} (${hostOf(url)})${parts > 0 ? `, streamed in ${parts} sub-swaps` : ""}`], raw: { ...q, min1e8: min1e8.toString(), source: hostOf(url), plan }, obtainedAt: Date.now(),
     };
   }
 
