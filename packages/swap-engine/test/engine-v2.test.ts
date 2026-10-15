@@ -159,6 +159,46 @@ describe("the competition record, the time budget and the breaker (whale spec §
     expect(e.tracker.failures("chainflip").consecutive).toBe(0);
     expect(e.tracker.failures("mayan").consecutive).toBe(1);
   });
+  it("the budget covers a provider's health check: one that hangs is a timeout, the others are quoted on time, and its late answer is cached", async () => {
+    // THORChain's check walks its gateways in turn: unbounded, it held up every competition (a commit stalled two minutes)
+    let answer!: (h: Health) => void;
+    const pending = new Promise<Health>((r) => (answer = r));
+    const thor = new Stub("thorchain", "quote"), cf = new Stub("chainflip", "quote");
+    thor.health = () => pending;
+    const e = engine([thor, cf], { quoteTimeoutMs: 60 });
+    const set = await e.quoteAll(req, "balanced");
+    const by = Object.fromEntries(set.competition.map((c) => [c.provider, c]));
+    expect(by.thorchain).toMatchObject({ outcome: "timeout", reason: expect.stringContaining("thorchain: no answer within") });
+    expect(set.health.thorchain).toMatchObject({ reachable: false, halted: true });
+    expect(set.errors.thorchain).toMatch(/no answer within/);
+    expect(by.chainflip.outcome).toBe("quoted");
+    expect(set.chosen?.provider).toBe("chainflip");
+    expect(e.tracker.failures("thorchain").consecutive).toBe(1); // a timeout, like a quote's
+    // the status view does not wait either, and a status read is not a competition: no failure counted
+    const all = await e.healthAll();
+    expect(all.thorchain).toMatchObject({ reachable: false, note: expect.stringContaining("no answer within") });
+    expect(all.chainflip.reachable).toBe(true);
+    expect(e.tracker.failures("thorchain").consecutive).toBe(1);
+    // the late answer is remembered: the next competition quotes THORChain without asking it again
+    answer(ok("thorchain"));
+    await new Promise((r) => setTimeout(r, 0));
+    const again = await e.quoteAll(req, "balanced");
+    expect(again.competition.find((c) => c.provider === "thorchain")!.outcome).toBe("quoted");
+    expect(e.tracker.failures("thorchain").consecutive).toBe(0);
+    expect((await e.healthAll()).thorchain.reachable).toBe(true);
+  });
+  it("one budget per provider: a slow health check leaves its quote only the rest", async () => {
+    const thor = new Stub("thorchain", "hang"); // its quote takes 200 ms
+    thor.health = async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      return ok("thorchain");
+    };
+    const e = engine([thor, new Stub("chainflip", "quote")], { quoteTimeoutMs: 250 });
+    const set = await e.quoteAll(req, "balanced");
+    // 150 ms of health and 200 ms of quote are past the 250 ms budget: alone, either would have fit
+    expect(set.competition.find((c) => c.provider === "thorchain")).toMatchObject({ outcome: "timeout", reason: expect.stringContaining("no answer within") });
+    expect(set.chosen?.provider).toBe("chainflip");
+  });
   it("three outages open the breaker: the provider is skipped for a while and the competition says so", async () => {
     const thor = new Stub("thorchain", "quote"), lifi = new Stub("lifi", "outage");
     const e = engine([thor, lifi]);

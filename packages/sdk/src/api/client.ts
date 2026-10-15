@@ -29,23 +29,64 @@ export class ApiMinimumMoved extends ApiError {
   }
 }
 
-/** `signal` (V6 Stage 16): a request the caller no longer needs is cancelled — a newer quote replaces it. */
-export async function apiCall<T>(path: string, body?: unknown, purpose: "swap-service" | "guest" = "swap-service", signal?: AbortSignal): Promise<T> {
-  const r = await secureFetch(
-    apiUrl() + path,
-    {
-      ...(body !== undefined ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
-      ...(signal ? { signal } : {}),
-    },
-    purpose,
-  );
-  const j = (await r.json().catch(() => ({}))) as { error?: string; code?: string; approvedMin?: string; newMin?: string };
-  if (!r.ok) {
-    if (r.status === 409 && j?.code === "minimum_moved" && j.approvedMin !== undefined && j.newMin !== undefined)
-      throw new ApiMinimumMoved(BigInt(j.approvedMin), BigInt(j.newMin));
-    throw new ApiError(r.status, j?.code, j?.error ?? `API error ${r.status}`);
+/**
+ * How long the wallet waits for an answer. It is past the API's own worst case (a competition answers within its
+ * per-provider budget), so only a stuck service or a lost connection reaches it. Without it, a commit the API never
+ * answered left "Committing…" spinning.
+ */
+export const API_TIMEOUT_MS = 90_000;
+
+/**
+ * The API did not answer in time. The API moves no funds; what that means is for the caller's step to say. A commit
+ * that timed out was never journaled, so it is never funded; Confirm again commits a new order.
+ */
+export class ApiTimeout extends ApiError {
+  constructor(readonly ms: number) {
+    super(0, "service_timeout", `The swap service did not answer within ${Math.round(ms / 1000)} s.`);
   }
-  return j as T;
+}
+
+/**
+ * `signal` (V6 Stage 16): a request the caller no longer needs is cancelled — a newer quote replaces it. `timeoutMs`
+ * covers the answer and its body; it aborts as a TimeoutError, which counts toward offline like any other timeout.
+ */
+export async function apiCall<T>(
+  path: string,
+  body?: unknown,
+  purpose: "swap-service" | "guest" = "swap-service",
+  signal?: AbortSignal,
+  timeoutMs: number = API_TIMEOUT_MS,
+): Promise<T> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new DOMException(`no answer within ${timeoutMs} ms`, "TimeoutError")), timeoutMs);
+  const cancel = () => ctl.abort(signal?.reason);
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener("abort", cancel, { once: true });
+  const timedOut = () => ctl.signal.aborted && !signal?.aborted;
+  try {
+    const r = await secureFetch(
+      apiUrl() + path,
+      {
+        ...(body !== undefined ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+        signal: ctl.signal,
+      },
+      purpose,
+    );
+    const j = (await r.json().catch(() => ({}))) as { error?: string; code?: string; approvedMin?: string; newMin?: string };
+    if (timedOut()) throw new ApiTimeout(timeoutMs); // the body was cut off: never an empty answer read as a success
+    if (!r.ok) {
+      if (r.status === 409 && j?.code === "minimum_moved" && j.approvedMin !== undefined && j.newMin !== undefined)
+        throw new ApiMinimumMoved(BigInt(j.approvedMin), BigInt(j.newMin));
+      throw new ApiError(r.status, j?.code, j?.error ?? `API error ${r.status}`);
+    }
+    return j as T;
+  } catch (e) {
+    if (timedOut() && !(e instanceof ApiTimeout)) throw new ApiTimeout(timeoutMs);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 /** GET /v1/operations/:id */

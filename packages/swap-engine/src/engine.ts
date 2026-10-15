@@ -36,7 +36,7 @@ export interface EngineConfig {
   tierThresholds?: TierThresholds;
   /** whale spec §16: the failure history, breaker and health cache (one per service) */
   healthTracker?: ProviderHealthTracker;
-  /** the time budget per adapter in a competition (whale spec §3) */
+  /** the time budget per adapter in a competition (whale spec §3): its health check and its quote together */
   quoteTimeoutMs?: number;
 }
 
@@ -101,9 +101,10 @@ export class MinimumMovedError extends Error {
   }
 }
 class QuoteTimeout extends Error {}
-const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
+/** `p` within `ms`; the message names the whole `budgetMs` when `ms` is what is left of it. */
+const withTimeout = <T>(p: Promise<T>, ms: number, what: string, budgetMs = ms): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new QuoteTimeout(`${what}: no answer within ${Math.round(ms / 1000)} s`)), ms);
+    const t = setTimeout(() => reject(new QuoteTimeout(`${what}: no answer within ${Math.round(budgetMs / 1000)} s`)), ms);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
 /** A provider that answered "no" for this request (a 4xx with a reason, a refusal of the size or the route) is not an outage: the breaker ignores it. */
@@ -174,6 +175,29 @@ export class PrivateSwapEngine {
   }
 
   /**
+   * `healthOf` within `ms`. A check that does not answer in time reads unreachable (`timedOut`), and its late answer is
+   * still cached. THORChain's check walks its gateways in turn, at 20 s each: unbounded, one slow provider held up every
+   * competition, every commit and every status read (the local stack's quick pass of 2026-10-14: a commit stalled two
+   * minutes).
+   */
+  private async healthWithin(a: ProviderAdapter, now: number, ms: number): Promise<{ health: Health; timedOut: boolean }> {
+    const t0 = Date.now();
+    try {
+      return { health: await withTimeout(this.healthOf(a, now), ms, a.id), timedOut: false };
+    } catch (e) {
+      const note = String((e as Error)?.message ?? e);
+      return { health: { provider: a.id, reachable: false, apiLatencyMs: Date.now() - t0, halted: true, haltedChains: [], checkedAt: now, note }, timedOut: e instanceof QuoteTimeout };
+    }
+  }
+
+  /** Every provider's health for a status view (GET /v1/status): from the cache, each check within the competition's budget. */
+  async healthAll(now = Date.now()): Promise<Record<ProviderId, Health>> {
+    const budget = this.cfg.quoteTimeoutMs ?? QUOTE_TIMEOUT_MS;
+    const all = await Promise.all(this.cfg.adapters.map(async (a) => [a.id, (await this.healthWithin(a, now, budget)).health] as const));
+    return Object.fromEntries(all) as Record<ProviderId, Health>;
+  }
+
+  /**
    * Quote all capable providers in parallel; failures are recorded, never fatal (plan §57). V2 (whale spec
    * §2–§5): the policy may be derived from a preference and the tier; phase-1 quotes carry a placeholder
    * destination; every provider gets a time budget; the competition record says what each answered.
@@ -207,13 +231,19 @@ export class PrivateSwapEngine {
     const skipped: Partial<Record<ProviderId, string>> = {};
     const results = await Promise.all(ordered.map(async (a) => {
       const t0 = Date.now();
-      const health = await this.healthOf(a, now).catch((e): Health => ({ provider: a.id, reachable: false, apiLatencyMs: Date.now() - t0, halted: true, haltedChains: [], checkedAt: now, note: String((e as Error)?.message ?? e) }));
+      // the budget covers the provider's health check and its quote together: the competition never waits longer for one provider (§16)
+      const { health, timedOut } = await this.healthWithin(a, now, budget);
       const open = this.tracker.breakerOpen(a.id, now);
       if (open) { skipped[a.id] = open; competition.push({ provider: a.id, outcome: "skipped", reason: open, ms: 0 }); return { id: a.id, health, quote: undefined, error: open }; }
       if (!a.implemented) { competition.push({ provider: a.id, outcome: "refused", reason: "not implemented", ms: 0 }); return { id: a.id, health, quote: undefined, error: "not implemented" }; }
+      if (timedOut) {
+        this.tracker.recordFailure(a.id, Date.now()); // a timeout, like a quote's: outage-like
+        competition.push({ provider: a.id, outcome: "timeout", reason: health.note, ms: Date.now() - t0 });
+        return { id: a.id, health, quote: undefined, error: health.note };
+      }
       if (!health.reachable) { competition.push({ provider: a.id, outcome: "halted", reason: health.note ?? "unreachable", ms: Date.now() - t0 }); return { id: a.id, health, quote: undefined, error: health.note ?? "provider unreachable" }; }
       try {
-        const quote = await withTimeout(a.quote(indicative), budget, a.id);
+        const quote = await withTimeout(a.quote(indicative), Math.max(1, budget - (Date.now() - t0)), a.id, budget);
         this.tracker.recordSuccess(a.id);
         competition.push({ provider: a.id, outcome: "quoted", ms: Date.now() - t0, plan: quote.plan });
         return { id: a.id, health, quote, error: undefined };

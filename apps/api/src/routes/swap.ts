@@ -464,7 +464,7 @@ export class SwapApi {
 
   /** GET /v1/status: the deployment every order is built for, the providers, the incidents feeding the scores, the risk database. */
   async status(): Promise<Answer> {
-    const providers = Object.fromEntries(await Promise.all(this.engine.cfg.adapters.map(async (a) => [a.id, await a.health()])));
+    const providers = await this.engine.healthAll(); // cached, each within the competition's budget: the wallet reads this before every hand-over
     const db = riskDb(),
       inc = incidents();
     const byProvider: Record<string, number> = {};

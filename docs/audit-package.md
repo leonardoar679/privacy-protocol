@@ -240,6 +240,16 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     - What remains: a step whose own route now guarantees less than approved, is refused by the price guard, or is
       unsound still returns through its refund and waits for the escrow's window. The funds are never at risk (the
       escrow re-shields into the pool), but the swap waits.
+45. **V6 — a service that stops answering** (narrowed 2026-10-14). A provider's health check had no time budget.
+    THORChain's walks up to three gateways in turn, so one slow provider held up every competition, and with it every
+    quote, every commit and the status read before every hand-over (in the local stack's quick pass, a commit waited
+    over two minutes). Now one budget per provider (25 s) covers its health check and its quote. The status read answers
+    from the health cache within that budget, and the wallet ends every API call after 90 s (`ApiTimeout`).
+    - What remains: the prepare's hard quote and ingress are bounded only by each adapter's own request limits
+      (THORChain: up to three gateways in turn). The order runner retries a prepare that timed out.
+    - The wallet's relayer client (`packages/sdk/src/relayer.ts`) has no timeout of its own: a relayer that keeps the
+      connection open without answering holds the step. A lost answer is already resolved by the lookup by nullifier
+      (gap 42).
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

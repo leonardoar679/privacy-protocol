@@ -512,6 +512,13 @@ consecutive outage-like failures for five minutes, a 30-second health cache), th
 `INCIDENTS_FILE` (`health.ts`, `engine.ts`). A provider that answers "no" for the size (a 4xx with a
 reason) is a refusal, not a failure: the breaker ignores it.
 
+*V6 follow-up (2026-10-14):* the budget (`quoteTimeoutMs`, 25 s) covers a provider's health check and its quote
+together. THORChain's check walks up to three gateways in turn, at 20 s each. Unbounded, it held up every competition,
+and so every quote and every commit (in the local stack's quick pass that day, a commit waited over two minutes). A
+check that misses the budget is a `timeout` entry and a failure, as a quote's is; its late answer is still cached.
+`healthAll()` gives the status view (`GET /v1/status`, which the wallet reads before every hand-over) the same cache and
+bound. `test/engine-v2.test.ts`.
+
 ## 17. Privacy scoring (plan V2 §67–§69, §137.17)
 
 The eight factors, weights and the cross-chain term of V1.1 §10 are unchanged. Two corrections:
