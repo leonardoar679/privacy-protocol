@@ -14,6 +14,7 @@
 import type { Deployment } from "../chain";
 import { assetByVault } from "../assets";
 import { scanNotes } from "../privateTx";
+import { reconcileStaleOperations, staleReads } from "../operations/stale";
 import { activityId, recordActivity } from "./activity";
 import { noteStore } from "./notes";
 import type { ScheduledAction } from "./journal";
@@ -72,6 +73,8 @@ export async function runDiscovery(
     const r = await scanNotes({ masterSeed: o.masterSeed, deployment: o.deployment, onStatus: (line) => schedulerStatus.progress(line) });
     lastRunAt = now();
     if (!s.isUnlocked()) return; // locked during the scan: the next unlock scans again
+    // the operations whose own flow is gone (a reload, a closed tab): the chain moves them now (../operations/stale.ts)
+    await reconcileStaleOperations(staleReads(o.deployment), now(), s).catch(() => 0);
     for (const n of r.received) {
       const a = assetByVault(o.deployment, n.vaultId);
       recordActivity(

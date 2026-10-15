@@ -15,6 +15,12 @@ import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 export const operationsOf = (j: JournalData): OperationRecord[] => upgradeOperations(j.operations ?? []);
 
 const drafts = new Map<string, OperationRecord>();
+/**
+ * The records a flow of this page created or moved (a V6 follow-up of 2026-10-14). Any other open record's flow is gone
+ * (a reload, a closed tab), so only the chain can still move it (./stale.ts).
+ */
+const live = new Set<string>();
+export const isLiveOperation = (id: string): boolean => live.has(id);
 const listeners = new Set<() => void>();
 let version = 0;
 let attached: WalletSession | null = null;
@@ -47,6 +53,7 @@ export function newOperation(i: NewOperation, now = Date.now()): OperationRecord
     amounts: i.amounts, fees: i.fees ?? [], destination: i.destination, refs: { txHashes: [], ...(i.refs ?? {}) }, tier: i.tier, history: [{ state, at: now }],
   };
   drafts.set(rec.id, rec);
+  live.add(rec.id);
   bump();
   return rec;
 }
@@ -86,6 +93,7 @@ export function putOperation(record: OperationRecord, s: WalletSession = default
 export function applyEvent(id: string, ev: OperationEvent, s: WalletSession = defaultSession, now = Date.now()): TransitionResult | null {
   const rec = getOperation(id, s);
   if (!rec) return null;
+  live.add(id);
   const t = transition(rec, ev, now);
   if (t.ok && t.changed) putOperation(t.record, s);
   return t;
@@ -106,7 +114,7 @@ export const openOperations = (s: WalletSession = defaultSession): OperationReco
 export const finishedOperations = (s: WalletSession = defaultSession): OperationRecord[] => allOperations(s).filter((r) => isTerminal(r.state));
 
 /** Tests: forget the drafts and the hook's cache. */
-export function resetOperationsMemory(): void { drafts.clear(); bump(); }
+export function resetOperationsMemory(): void { drafts.clear(); live.clear(); bump(); }
 // V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so
 // nothing has to load the module just to wipe it (the first route stays light).
 defaultSession.onLock(resetOperationsMemory);

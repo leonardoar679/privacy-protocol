@@ -864,8 +864,14 @@ doc §82 run one by one in `packages/sdk/test/settlement.test.ts`.
 The operation id persists locally (the journal) and survives a reload, a tab close, a browser restart, a mobile
 Safari reload, a temporary network loss and a wallet disconnect (§19 e2e). The displayed state is the reconciled
 one: local record → the API's record (`POST /v1/operations/:id/reconcile`, swaps only) → the chain (the wallet's own
-quorum) → the provider; the wallet's own chain reads win when they disagree. While offline, money-moving steps
-pause and resume only after the state is verified (§7.11). `notificationFor(prev, next, prefs)` produces the five
+quorum) → the provider; the wallet's own chain reads win when they disagree. *A V6 follow-up of 2026-10-14:* a
+Protect, Send or withdrawal record whose own flow is gone (a reload or a closed tab during it) had nothing to reconcile
+it and stayed open for good. After each note scan the chain now moves it (`packages/sdk/src/operations/stale.ts`):
+- its receipt completes it or fails it;
+- a transaction the node has not known for 10 minutes fails it, nothing moved;
+- a flow that stopped before "submitting" fails it, nothing moved (`interrupted`);
+- a submission still without its answer is left as it is.
+While offline, money-moving steps pause and resume only after the state is verified (§7.11). `notificationFor(prev, next, prefs)` produces the five
 kinds (Quote ready, Transaction confirmed, Cross-chain executing, Completed, Recovery required) without amounts
 unless the user opted in (the V3 preview setting); delivery (web push) is later.
 

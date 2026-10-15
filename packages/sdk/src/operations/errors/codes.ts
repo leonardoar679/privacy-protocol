@@ -84,6 +84,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   older_notes_unavailable: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)
   funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
+  // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped
+  interrupted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   unsafe_contract_call: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
   deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },

@@ -42,7 +42,7 @@ const PRETTIER_FILES = [".github/workflows/ci.yml", ".prettierrc.json", "tsconfi
   // Stage 3
   "packages/protocol-types", "packages/config", "packages/contracts", "eslint.house.mjs", "eslint.config.mjs", "apps/web/src/config.ts", "packages/sdk/src/config.ts", "apps/web/src/hooks/index.ts", "apps/web/test/config.test.ts", "apps/web/test/import-purity.test.ts",
   // Stage 4
-  "packages/sdk/src/index.ts", "packages/sdk/src/operations/recovery.ts", "packages/sdk/test", "packages/wallet-engine/src/index.ts", "packages/wallet-engine/test", "packages/privacy-engine/src/index.ts", "packages/privacy-engine/src/transport/chain.ts", "packages/privacy-engine/test", "packages/risk-engine", "scripts/check-boundaries.mjs",
+  "packages/sdk/src/index.ts", "packages/sdk/src/operations/recovery.ts", "packages/sdk/src/operations/stale.ts", "packages/sdk/test", "packages/wallet-engine/src/index.ts", "packages/wallet-engine/test", "packages/privacy-engine/src/index.ts", "packages/privacy-engine/src/transport/chain.ts", "packages/privacy-engine/test", "packages/risk-engine", "scripts/check-boundaries.mjs",
   // Stage 5
   "packages/ui/src/tokens/index.ts", "packages/ui/src/animations", "packages/ui/src/patterns", "packages/ui/src/format.ts", "packages/ui/src/useMediaQuery.ts", "packages/ui/src/components/Button.tsx", "packages/ui/src/components/Layout.tsx", "packages/ui/src/Preview.tsx", "packages/ui/src/index.ts", "packages/ui/src/base.css", "packages/ui/src/fonts.css", "packages/ui/test", "packages/ui/vitest.config.ts", "apps/web/src/app/Shell.tsx", "apps/web/src/features/more/entries.ts", "apps/web/src/fixtures", "apps/web/src/build-flags.d.ts", "apps/web/scripts/check-dist.mjs", "apps/web/fixtures.html", "tests/visual/run.mjs",
   // Stage 6
