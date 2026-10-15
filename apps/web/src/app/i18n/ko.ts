@@ -444,6 +444,9 @@ export const ko: Record<MessageKey, string> = {
     "보호 처리 실행기가 없습니다. 아무것도 실행되지 않았습니다. 다른 릴레이어를 선택하거나 자금을 보호 잔액으로 반환하세요.",
   "op.error.unknown_swap_factory.title": "릴레이어가 다른 배포의 스왑을 실행합니다",
   "op.error.unknown_swap_factory.reason": "아무것도 실행되지 않았습니다. 계속하거나 자금을 보호 잔액으로 반환하려면 다른 릴레이어를 선택하세요.",
+  "op.error.bad_refund_vault.title": "릴레이어가 이 스왑의 반환 경로를 거부했습니다",
+  "op.error.bad_refund_vault.reason":
+    "이 스왑이 자금을 반환할 볼트가 이 풀의 볼트가 아닙니다. 아무것도 실행되지 않았습니다. 지갑의 네트워크 설정을 확인하세요.",
   "op.error.swap_unavailable.title": "이 릴레이어는 스왑을 실행할 수 없습니다",
   "op.error.swap_unavailable.reason":
     "스왑 실행기가 없습니다. 아무것도 실행되지 않았습니다. 계속하거나 자금을 보호 잔액으로 반환하려면 다른 릴레이어를 선택하세요.",

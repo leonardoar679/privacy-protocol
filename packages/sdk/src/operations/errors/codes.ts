@@ -65,6 +65,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   // a V6 follow-up of 2026-10-15: the swap executor serves one deployment's factory, and none without SWAP_FACTORY
   unknown_swap_factory: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   swap_unavailable: { source: "relayer", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
+  bad_refund_vault: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   minimum_moved: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   price_guard: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   no_quote: { source: "service", fundsClass: "not-moved", actions: ["wait", "new-quote"] },

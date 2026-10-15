@@ -425,6 +425,8 @@ export const en = {
   "op.error.unknown_swap_factory.reason": "Nothing was executed. Choose another relayer to continue, or to return the funds to your protected balance.",
   "op.error.swap_unavailable.title": "This relayer cannot execute swaps",
   "op.error.swap_unavailable.reason": "It runs no swap executor. Nothing was executed: choose another relayer to continue, or to return the funds to your protected balance.",
+  "op.error.bad_refund_vault.title": "The relayer refused this swap's return path",
+  "op.error.bad_refund_vault.reason": "The vault this swap would return its funds to is not this pool's. Nothing was executed: check the wallet's network settings.",
   "op.error.destination_not_protectable.title": "This swap cannot land in your protected balance",
   "op.error.destination_not_protectable.reason": "Only an asset with a vault in the pool, on the pool's own network, can be received there. Your funds were not moved.",
   "op.error.provider_unavailable.title": "The provider is not answering",

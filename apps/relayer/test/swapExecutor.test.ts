@@ -305,3 +305,48 @@ describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
     expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws.at(-1)!).data! }).functionName).toBe("deployAndRefund");
   });
 });
+
+describe("the refund vault is the pool's own (a V6 follow-up of 2026-10-15)", () => {
+  const CORE = "0x00000000000000000000000000000000000000c0" as Hex;
+  const VAULTS = "0x00000000000000000000000000000000000000f5" as Hex;
+  const ETH_VAULT = "0x00000000000000000000000000000000000000e7" as Hex;
+  const USDC = "0x00000000000000000000000000000000000000a5" as Hex;
+  const USDC_VAULT = "0x00000000000000000000000000000000000000a6" as Hex;
+  const reads: string[] = [];
+  const chain = {
+    readContract: async ({ address, functionName, args }: { address: Hex; functionName: string; args?: [Hex] }) => {
+      reads.push(functionName);
+      if (address === CORE && functionName === "VAULT_FACTORY") return VAULTS;
+      if (address === VAULTS && functionName === "vaultOf") return ({ [ZERO]: ETH_VAULT, [USDC]: USDC_VAULT } as Record<string, Hex>)[args![0].toLowerCase()] ?? ZERO;
+      throw new Error(`unexpected read ${functionName} at ${address}`);
+    },
+  };
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const at = (over: Partial<SwapJobRequest["params"]>) => ({ params: { ...request.params, ...over } });
+  const verdict = (x: SwapExecutor, r: { params: SwapJobRequest["params"] }) =>
+    x.admissible(r).then(
+      () => "admitted",
+      (e: SwapJobError) => e.code,
+    );
+
+  it("admits an order refunding into its pool's vault for its asset, refuses any other vault and an asset the pool has none for", async () => {
+    const x = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, core: CORE, account: privateKeyToAccount(RELAYER_KEY), publicClient: chain as never, walletClient: {} as never });
+    expect(await verdict(x, at({ assetType: 0, asset: ZERO as Hex, refundVault: ETH_VAULT }))).toBe("admitted");
+    expect(await verdict(x, at({ assetType: 1, asset: USDC, refundVault: USDC_VAULT }))).toBe("admitted");
+    // before, the escrow's refund deposited into whatever vault the order named, at the relayer's gas
+    expect(await verdict(x, at({ assetType: 0, asset: ZERO as Hex, refundVault: "0x00000000000000000000000000000000000000ba" }))).toBe("bad_refund_vault");
+    expect(await verdict(x, at({ assetType: 1, asset: USDC, refundVault: ETH_VAULT }))).toBe("bad_refund_vault");
+    expect(await verdict(x, at({ assetType: 1, asset: "0x00000000000000000000000000000000000000b7", refundVault: USDC_VAULT }))).toBe("bad_refund_vault");
+    expect(reads.filter((r) => r === "VAULT_FACTORY"), "the pool's vault factory is read once").toHaveLength(1);
+  });
+
+  it("the server reads it before it admits an execution or a refund", () => {
+    const server = readFileSync(join(root, "apps/relayer/src/server.ts"), "utf8");
+    for (const add of ["executor.add(body)", "executor.addRefund(body)"]) {
+      const at = server.indexOf(add);
+      expect(at, add).toBeGreaterThan(0);
+      expect(server.slice(server.lastIndexOf("await executor.admissible(body)", at), at), add).toMatch(/^await executor\.admissible\(body\);[^\n]*\n\s*const job = $/);
+    }
+    expect(server).toMatch(/core: cfg\.core/);
+  });
+});

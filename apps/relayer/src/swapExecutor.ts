@@ -122,13 +122,31 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
 
   private now(): number { return this.cfg.now ? this.cfg.now() : Math.floor(Date.now() / 1000); }
   private persist(): void { this.cfg.journal?.save([...this.jobs.values()]); }
+
+  private poolVaultFactory: Address | null = null;
+  /**
+   * What admission reads from the chain, before `add` or `addRefund` (a V6 follow-up of 2026-10-15): the order's refund
+   * vault is its pool's own vault for the order's asset, `CORE.VAULT_FACTORY().vaultOf(asset)` (ETH: address(0)). A
+   * refund deposits into REFUND_VAULT at the executor's gas, and the vault was whatever the order named: a contract of
+   * anyone's could spend that gas on anything, and the foreign-token check trusted the vault's own word for its pool.
+   * Throws SwapJobError when the vault is not the pool's, the RPC's error when it cannot be read (the caller tries again).
+   */
+  async admissible(req: { params?: SwapParamsJson }): Promise<void> {
+    const p = req?.params;
+    if (!this.cfg.core || !p || !isHex(p.asset, 20) || !isHex(p.refundVault, 20)) return; // the shape is add's to refuse
+    this.poolVaultFactory ??= (await this.cfg.publicClient.readContract({ address: this.cfg.core, abi: vaultLinkAbi, functionName: "VAULT_FACTORY" })) as Address;
+    const asset = Number(p.assetType) === 0 ? ZERO_ADDRESS : p.asset;
+    const vault = (await this.cfg.publicClient.readContract({ address: this.poolVaultFactory, abi: vaultLinkAbi, functionName: "vaultOf", args: [asset as Address] })) as Address;
+    if (vault.toLowerCase() === ZERO_ADDRESS) throw new SwapJobError("bad_refund_vault", `this pool has no vault for ${asset}: the order could not be refunded into it`);
+    if (vault.toLowerCase() !== p.refundVault.toLowerCase()) throw new SwapJobError("bad_refund_vault", `the refund vault ${p.refundVault} is not this pool's vault for the order's asset (${vault})`);
+  }
 
   /** Everything checkable before watching the chain; throws SwapJobError. */
   /** What every job needs, executed or not: a known asset type, sane deadlines, the refund payload the order committed to. */

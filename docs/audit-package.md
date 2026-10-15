@@ -284,11 +284,15 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       committed the order, but the relayer never sees whether the API did. A token of no value, or a tip below the
       gas, costs the relayer the execution's gas, and the provider call the order signed can make that gas large;
     - the first refund of an order that never executed pays the committed tip, which is sized for the execution, and
-      is sent with no cost check;
-    - the refund vault is the one the order names (checked against the pool's own vault from the next commit on).
+      is sent with no cost check. The pinned units (`packages/contracts/src/gas.ts`) put an execution at about 2.05M
+      gas and a refund at 3.45M. The escrow allows a zero tip, so an order made never to execute costs the relayer up to
+      a whole refund, while its maker spends a transfer and gets the funds back as a note. A strict cost check would
+      also hold back honest refunds, whose execution-sized tip covers little more than half of a refund;
+    - (closed the same day) the refund vault was the one the order names, so a refund deposited into any contract at
+      the relayer's gas; now it must be the pool's own vault for the order's asset, read before admission.
     Closing the first two is a decision about who pays for what: the executor valuing ERC-20 tips through the API's
-    Chainlink feeds (and waiting below cost, as it does for ETH), an operator's list of tokens with minimum tips, or
-    orders the API vouches for. Meanwhile an operator bounds the exposure with the rate limit, `MAX_SWAP_JOBS` and the
+    Chainlink feeds (and waiting below cost, as it does for ETH), an operator's list of tokens with minimum tips, a tip
+    priced for the refund too (a change of the fee model), or orders the API vouches for. Meanwhile an operator bounds the exposure with the rate limit, `MAX_SWAP_JOBS` and the
     gas account's balance.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.

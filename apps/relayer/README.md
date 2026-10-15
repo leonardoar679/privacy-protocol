@@ -41,7 +41,9 @@ The same service runs the on-chain half of a private swap for the committed tip.
 `POST /swap/execute { factory, params, execution, refundNoteData }` after signing the provider call
 and funding the escrow; the executor checks locally that the factory is the deployment's (`SWAP_FACTORY`; without it the
 relayer runs no swap executor and the swap routes answer `503 swap_unavailable`; another factory is
-`unknown_swap_factory`), that the refund payload hashes to the committed
+`unknown_swap_factory`), that the refund vault is its pool's own for the order's asset
+(`CORE.VAULT_FACTORY().vaultOf(asset)`, ETH `address(0)`; read before admission, `bad_refund_vault`), that the refund
+payload hashes to the committed
 value, that the execution is signed by the order's one-time key for the predicted escrow (same CREATE2
 formula as `SwapOrderFactory.predict`), that the deadlines are consistent and the value is spendable —
 then watches the escrow's balance:
