@@ -17,7 +17,21 @@ export const API_OPERATION_FIELDS = {
   record: ["id", "created_at", "updated_at", "checked_at", "terminal_at"],
 } as const;
 
-export type ApiFieldGroup = keyof typeof API_OPERATION_FIELDS;
+/**
+ * The API's record of a swap's execution once it is handed over: the columns of its `executions` and `relayer_jobs`
+ * tables beside the operation's id (pinned against the schema like the operation's). A V6 follow-up of 2026-10-14: the
+ * Privacy Center had listed the `operations` columns only, not the execution's transaction or the relayer's report.
+ */
+export const API_EXECUTION_FIELDS = {
+  /** the execution: its transaction, the provider's reference for it, when it was handed over and its planned time */
+  execution: ["execution_tx", "provider_ref", "finalized_at", "expected_seconds"],
+  /** what the relayer last reported of it: the job's state, its transaction, its network cost and when it was read */
+  job: ["state", "execution_tx", "actual_wei", "read_at"],
+} as const;
+
+export type ApiFieldGroup = keyof typeof API_OPERATION_FIELDS | keyof typeof API_EXECUTION_FIELDS;
+/** Every group the Privacy Center words, in order: the operation's, then its execution's. */
+export const API_FIELD_GROUPS = [...Object.keys(API_OPERATION_FIELDS), ...Object.keys(API_EXECUTION_FIELDS)] as ApiFieldGroup[];
 
 /** Every column of the API's `operations` table, in no particular order. */
 export const apiOperationColumns = (): string[] => Object.values(API_OPERATION_FIELDS).flat();

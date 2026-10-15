@@ -17,4 +17,12 @@ export {
   type SettlementState,
 } from "./operations";
 export type { Store } from "./store";
-export { API_OPERATION_FIELDS, NEVER_STORED, apiOperationColumns, type ApiFieldGroup, type NeverStored } from "./services";
+export {
+  API_EXECUTION_FIELDS,
+  API_FIELD_GROUPS,
+  API_OPERATION_FIELDS,
+  NEVER_STORED,
+  apiOperationColumns,
+  type ApiFieldGroup,
+  type NeverStored,
+} from "./services";

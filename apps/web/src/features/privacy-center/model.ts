@@ -2,9 +2,10 @@
 // Network privacy, Transaction privacy, Data stored locally, Data sent to services, Advanced settings — every row computed
 // from a fact the wallet keeps (the posture, the settings, the address book, the encrypted journal's counts), never
 // asserted. "Data sent to services" is generated from the transport's purpose registry (PURPOSES) and the API's field
-// list (protocol-types API_OPERATION_FIELDS, pinned to the API's schema), so a new purpose or column cannot go unworded.
+// lists (protocol-types API_OPERATION_FIELDS and API_EXECUTION_FIELDS, pinned to the API's schema), so a new purpose or
+// column cannot go unworded.
 // Pure: ./PrivacyCenter.tsx gathers the facts, ./View.tsx renders.
-import { API_OPERATION_FIELDS, NEVER_STORED, type ApiFieldGroup, type NeverStored } from "@privacy-wallet/protocol-types";
+import { API_FIELD_GROUPS, NEVER_STORED, type ApiFieldGroup, type NeverStored } from "@privacy-wallet/protocol-types";
 import { PURPOSES, type Purpose } from "@privacy-wallet/privacy-engine/transport/http";
 import type { MessageKey } from "../../app/i18n/en";
 import type { CenterLevel, CenterRow, CenterSection, PostureView, PrivacyCenterModel, Tone } from "./View";
@@ -110,7 +111,7 @@ export function privacyCenterModel(f: CenterFacts): PrivacyCenterModel {
           id: "apiKeeps",
           label: "privacyCenter.sent.apiKeeps",
           value: "privacyCenter.value.swapsOnly",
-          items: (Object.keys(API_OPERATION_FIELDS) as ApiFieldGroup[]).map(API_GROUP_KEY),
+          items: API_FIELD_GROUPS.map(API_GROUP_KEY),
           tone: "neutral",
         },
         { id: "never", label: "privacyCenter.sent.never", items: NEVER_STORED.map(NEVER_KEY), tone: "ok" },

@@ -1344,6 +1344,8 @@ export const ko: Record<MessageKey, string> = {
   "privacyCenter.apiGroup.progress": "제공자, 상태, 정산",
   "privacyCenter.apiGroup.untilSigned": "목적지와 환불 정보 — 주문에 서명할 때까지만",
   "privacyCenter.apiGroup.record": "기록이 만들어진 시각과 마지막 확인 시각",
+  "privacyCenter.apiGroup.execution": "인계 후: 실행 트랜잭션, 그에 대한 제공자의 참조, 인계 시각과 예정 소요 시간",
+  "privacyCenter.apiGroup.job": "릴레이어가 마지막으로 알린 실행 정보: 상태, 트랜잭션, 네트워크 비용",
   "privacyCenter.sent.never": "스왑 API가 절대 보관하지 않는 것",
   "privacyCenter.never.notes": "내 노트",
   "privacyCenter.never.keys": "내 키",

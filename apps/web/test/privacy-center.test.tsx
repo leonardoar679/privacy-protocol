@@ -5,7 +5,7 @@
 // public."; the "Why?" lines from a swap's assessment, a failed one with its plain reason.
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { API_OPERATION_FIELDS, NEVER_STORED, type ApiFieldGroup } from "@privacy-wallet/protocol-types";
+import { API_FIELD_GROUPS, NEVER_STORED } from "@privacy-wallet/protocol-types";
 import { PURPOSES } from "@privacy-wallet/privacy-engine/transport/http";
 import { en } from "../src/app/i18n/en";
 import { listedPurposes, privacyCenterModel, whyLines } from "../src/features/privacy-center/model";
@@ -35,7 +35,7 @@ describe("Data sent to services: generated, never written by hand", () => {
     }
   });
   it("every group of the API's record and every item the API never keeps has its words", () => {
-    for (const g of Object.keys(API_OPERATION_FIELDS) as ApiFieldGroup[]) expect(en, g).toHaveProperty(`privacyCenter.apiGroup.${g}`);
+    for (const g of API_FIELD_GROUPS) expect(en, g).toHaveProperty(`privacyCenter.apiGroup.${g}`);
     for (const n of NEVER_STORED) expect(en, n).toHaveProperty(`privacyCenter.never.${n}`);
   });
   it("lists the purposes this build uses: Private AI only where the build has it, never the transport's default", () => {
@@ -45,7 +45,11 @@ describe("Data sent to services: generated, never written by hand", () => {
     for (const ai of [false, true]) expect(listedPurposes(ai)).not.toContain("other");
     const sent = privacyCenterModel(facts).sections.find((s) => s.id === "sent")!;
     expect(sent.rows.map((r) => r.id)).toEqual([...listedPurposes(false).map((p) => `sent:${p}`), "apiKeeps", "never"]);
-    expect(sent.rows.find((r) => r.id === "apiKeeps")!.items).toHaveLength(Object.keys(API_OPERATION_FIELDS).length);
+    // the operation's columns, then its execution's and the relayer's report (2026-10-14: those two had gone unlisted)
+    expect(sent.rows.find((r) => r.id === "apiKeeps")!.items).toEqual(API_FIELD_GROUPS.map((g) => `privacyCenter.apiGroup.${g}`));
+    expect(sent.rows.find((r) => r.id === "apiKeeps")!.items).toEqual(
+      expect.arrayContaining(["privacyCenter.apiGroup.execution", "privacyCenter.apiGroup.job"]),
+    );
     expect(sent.rows.find((r) => r.id === "never")!.items).toHaveLength(NEVER_STORED.length);
   });
 });

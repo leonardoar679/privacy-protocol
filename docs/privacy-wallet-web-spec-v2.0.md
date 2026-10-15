@@ -556,9 +556,11 @@ in order, every row from a fact — the level from the posture (`levelOf`: Excel
 low), Private transport enabled only with two read endpoints and the light client, Fresh destination off once a
 destination was typed in recently. "Data sent to services" lists `listedPurposes` (the transport's `PURPOSES` of
 `packages/privacy-engine/src/transport/http.ts` without `other`; `zkapi` and `inference` only where the build has
-Private AI), each with what that service receives, then "What the swap API keeps" (the groups of `API_OPERATION_FIELDS`)
-and "What the swap API never keeps" (`NEVER_STORED`), both in `packages/protocol-types/src/services.ts` and pinned to
-the API's `operations` columns by `apps/api/test/schema.test.ts`; a purpose, a group or an item without its words
+Private AI), each with what that service receives, then "What the swap API keeps" (the groups of `API_OPERATION_FIELDS`
+and, since a V6 follow-up of 2026-10-14, of `API_EXECUTION_FIELDS`: the execution once handed over and the relayer's
+last report of it, which had gone unlisted) and "What the swap API never keeps" (`NEVER_STORED`), all in
+`packages/protocol-types/src/services.ts` and pinned to the API's `operations`, `executions` and `relayer_jobs` columns
+by `apps/api/test/schema.test.ts`; a purpose, a group or an item without its words
 fails `apps/web/test/privacy-center.test.tsx`. The relayer's row says it keeps each job and its transaction. The
 protection section is the indicator and "Some blockchain metadata remains public."; Advanced settings keeps the six
 categories with their "Why" and the link to the remaining settings. The Swap screen's indicator opens the "Why?" sheet

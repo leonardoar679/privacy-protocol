@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { afterAll, describe, expect, it } from "vitest";
 import { MIGRATIONS, SCHEMA_VERSION, openDb } from "../src/db";
-import { apiOperationColumns } from "@privacy-wallet/protocol-types";
+import { API_EXECUTION_FIELDS, apiOperationColumns } from "@privacy-wallet/protocol-types";
 
 // node:sqlite is a prefix-only builtin Vite's resolver does not know (as in src/db.ts): required at run time
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -65,6 +65,15 @@ describe("the schema", () => {
         .map((c) => c.slice("operations.".length))
         .sort(),
     ).toEqual(apiOperationColumns().sort());
+    // the execution's record and the relayer's report, as the Privacy Center words them (a V6 follow-up of 2026-10-14)
+    const besideTheOperation = (t: string) =>
+      columns
+        .filter((c) => c.startsWith(`${t}.`))
+        .map((c) => c.slice(t.length + 1))
+        .filter((c) => c !== "operation_id")
+        .sort();
+    expect(besideTheOperation("executions")).toEqual([...API_EXECUTION_FIELDS.execution].sort());
+    expect(besideTheOperation("relayer_jobs")).toEqual([...API_EXECUTION_FIELDS.job].sort());
     expect(columns.filter((c) => c.startsWith("quotes."))).toEqual([
       "quotes.id",
       "quotes.created_at",

@@ -1277,6 +1277,8 @@ export const en = {
   "privacyCenter.apiGroup.progress": "the provider, the state and the settlement",
   "privacyCenter.apiGroup.untilSigned": "the destination and the refund material — only until the order is signed",
   "privacyCenter.apiGroup.record": "when the record was made and last checked",
+  "privacyCenter.apiGroup.execution": "once handed over: the execution's transaction, the provider's reference for it, when it was handed over and its planned time",
+  "privacyCenter.apiGroup.job": "what the relayer last reported of the execution: its state, its transaction and its network cost",
   "privacyCenter.sent.never": "What the swap API never keeps",
   "privacyCenter.never.notes": "your notes",
   "privacyCenter.never.keys": "your keys",
