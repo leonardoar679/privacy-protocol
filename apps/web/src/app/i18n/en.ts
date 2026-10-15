@@ -419,6 +419,8 @@ export const en = {
   "op.error.shield_unavailable.reason": "It runs no shield executor. Nothing was executed: choose another relayer, or return the funds to your protected balance.",
   "op.error.destination_not_protectable.title": "This swap cannot land in your protected balance",
   "op.error.destination_not_protectable.reason": "Only an asset with a vault in the pool, on the pool's own network, can be received there. Your funds were not moved.",
+  "op.error.provider_unavailable.title": "The provider is not answering",
+  "op.error.provider_unavailable.reason": "The provider failed or did not answer. The wallet tries again on its own and checks where things stand before anything is signed or sent.",
   "op.error.capacity.title": "The relayer is at capacity",
   "op.error.capacity.reason": "It has too many open swap jobs right now. Nothing was sent; try again shortly.",
   "op.error.admin_closed.title": "The relayer is paused by its operator",

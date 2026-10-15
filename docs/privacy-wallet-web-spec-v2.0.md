@@ -1089,9 +1089,12 @@ its open swaps when it opens (`packages/sdk/src/operations/swapRecords.ts`: one 
 settlement only fills a record that has none). Every call ends (a V6 follow-up of 2026-10-14): after `API_TIMEOUT_MS`
 (90 s, past the API's own worst case) it fails with `ApiTimeout`. A commit that timed out was never journaled, so it is
 never funded, and Confirm commits a new order; the order runner retries a prepare on its next tick. `GET /v1/status`
-answers from the engine's health cache, each check within the competition's budget (whale spec §16). Deviations: the engine's `.`/`./server` entry split is not made (the API
-imports the engine's modules by path through its `./*` export); an unknown route answers 404 with `invalid_request`; the
-§46 quote is indicative — the wallet computes the escrow's W with its own relayer terms. Tests: `apps/api/test`
+answers from the engine's health cache, each check within the competition's budget (whale spec §16). A provider that
+failed, or answered what the engine will not build on, answers `502 provider_unavailable` and is logged as
+`provider.failed` with the provider (the same day; before, its outages were logged as the API's own errors).
+Deviations: the engine's `.`/`./server` entry split is not made (the API imports the engine's modules by path through
+its `./*` export); an unknown route answers 404 with `invalid_request`; the §46 quote is indicative — the wallet computes
+the escrow's W with its own relayer terms. Tests: `apps/api/test`
 (schema, retention, routes, reconcile, security, logs, the database after a flow).
 
 ## 16. The relayer (doc §42–§43) — *Stages 7, 12*

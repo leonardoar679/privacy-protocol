@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import { PrivateSwapEngine, escrowCall } from "../src/engine";
+import { MinimumMovedError, PrivateSwapEngine, ProviderFailure, escrowCall } from "../src/engine";
 import { executionDigest, orderSignerAddress, signExecution } from "../src/endpoints";
 import { decodeParams, hexBuf, selectorHex } from "../src/abi";
 import type { Ingress, OrderParams, ProviderAdapter, Quote, QuoteRequest } from "../src/types";
@@ -69,5 +69,22 @@ describe("escrowCall", () => {
     expect(ethPrepared.provider).toBe(DEPOSIT);
     expect(ethPrepared.value).toBe(ethOrder.params.amount - ethOrder.params.executorTip);
     expect(ethPrepared.calldata).toBe("0x");
+  });
+});
+
+describe("a provider's failure at prepare (a V6 follow-up of 2026-10-14)", () => {
+  it("what the provider threw, and an answer this engine will not build on, are that provider's ProviderFailure; a moved minimum is not", async () => {
+    const order = engine.buildOrder(ethReq, "best-privacy", quote("near-intents"), keys);
+    const failing = (over: Partial<ProviderAdapter>): ProviderAdapter => ({ ...stub(ingress("plain-address", DEPOSIT)), ...over });
+    const refused = engine.prepareExecution(order, failing({ quote: async () => { throw new Error("HTTP 503 from the provider"); } }));
+    await expect(refused).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(refused).rejects.toMatchObject({ provider: "near-intents", message: "HTTP 503 from the provider" });
+    await expect(engine.prepareExecution(order, failing({ prepareIngress: async () => { throw new Error("no deposit address"); } }))).rejects.toMatchObject({ provider: "near-intents" });
+    // an ingress already expired, a target that is not an address, a value the escrow cannot pay
+    await expect(engine.prepareExecution(order, stub({ ...ingress("plain-address", DEPOSIT), expiresAt: now() - 1 }))).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(engine.prepareExecution(order, stub(ingress("contract-call", "not-an-address")))).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(engine.prepareExecution(order, stub(ingress("contract-call", ROUTER, order.params.amount * 2n, "0x12")))).rejects.toMatchObject({ provider: "near-intents", message: expect.stringContaining("exceeds the escrow's spendable balance") });
+    // a moved minimum is the user's question, not the provider's failure
+    await expect(engine.prepareExecution(order, stub(ingress("plain-address", DEPOSIT)), undefined, 10n ** 30n)).rejects.toBeInstanceOf(MinimumMovedError);
   });
 });

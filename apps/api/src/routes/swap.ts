@@ -6,7 +6,7 @@
 // lives in the database until finalize nulls it. The wallet's tier is a hint that can only raise the tier, the policy may
 // be derived from a preference, prepare keeps the approved minimum and runs the price guard, /track reads a provider's
 // status for an executed order.
-import { MinimumMovedError, type PreparedExecution, type PrivateSwapEngine, type QuoteHint } from "@privacy-wallet/swap-engine/engine";
+import { MinimumMovedError, asProviderFailure, type PreparedExecution, type PrivateSwapEngine, type QuoteHint } from "@privacy-wallet/swap-engine/engine";
 import { riskDb } from "@privacy-wallet/swap-engine/risk/riskDb";
 import { securityBreakdown } from "@privacy-wallet/swap-engine/risk/security";
 import { incidents } from "@privacy-wallet/swap-engine/health";
@@ -419,7 +419,9 @@ export class SwapApi {
     const tx = query.get("tx") ?? undefined,
       ref = query.get("ref") ?? undefined;
     if (!tx && !ref) throw new BadRequest("tx (the execution transaction) or ref (the provider's reference) is required");
-    const t = await adapter.track({ sourceTxHash: tx, providerRef: ref });
+    const t = await adapter.track({ sourceTxHash: tx, providerRef: ref }).catch((e: unknown) => {
+      throw asProviderFailure(adapter.id, e);
+    });
     // V3 §10: `since` (unix s, the hand-over) and `expected` (the plan's seconds) let the API count a settlement stall
     const since = Number(query.get("since")),
       expected = Number(query.get("expected"));
@@ -502,8 +504,11 @@ export class SwapApi {
     if (!adapter) return { status: 503, body: { error: "THORChain adapter unavailable", code: "capacity" } };
     if (!["bitcoin", "litecoin", "doge"].includes(req.from.chain))
       throw new BadRequest("guest deposits are for native-chain sources (BTC, LTC, DOGE); use the wallet for EVM sources");
-    const quote = await adapter.quote(req);
-    const ingress = await adapter.prepareIngress(req, quote);
+    const failed = (e: unknown): never => {
+      throw asProviderFailure(adapter.id, e);
+    };
+    const quote = await adapter.quote(req).catch(failed);
+    const ingress = await adapter.prepareIngress(req, quote).catch(failed);
     if (ingress.kind !== "plain-address") throw new BadRequest("no plain deposit address for this route");
     return {
       status: 200,
@@ -518,7 +523,9 @@ export class SwapApi {
   async guestTrack(provider: string, txid: string): Promise<Answer> {
     const adapter = this.adapterOf(provider);
     if (!adapter || !txid) return { status: 404, body: { error: "unknown provider or missing txid", code: "unknown_provider" } };
-    const t = await adapter.track({ sourceTxHash: txid });
+    const t = await adapter.track({ sourceTxHash: txid }).catch((e: unknown) => {
+      throw asProviderFailure(adapter.id, e);
+    });
     return { status: 200, body: wire({ track: t, status: guestStatus(t.state) }) };
   }
 

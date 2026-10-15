@@ -441,6 +441,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.destination_not_protectable.title": "이 스왑은 보호 잔액으로 받을 수 없습니다",
   "op.error.destination_not_protectable.reason":
     "풀과 같은 네트워크에 있고 풀에 금고가 있는 자산만 보호 잔액으로 받을 수 있습니다. 자금은 이동하지 않았습니다.",
+  "op.error.provider_unavailable.title": "제공자가 응답하지 않습니다",
+  "op.error.provider_unavailable.reason":
+    "제공자가 실패했거나 응답하지 않았습니다. 지갑이 스스로 다시 시도하며, 서명하거나 보내기 전에 상태를 먼저 확인합니다.",
   "op.error.capacity.title": "릴레이어의 처리 용량이 가득 찼습니다",
   "op.error.capacity.reason": "지금은 진행 중인 스왑 작업이 너무 많습니다. 아무것도 전송되지 않았습니다. 잠시 후 다시 시도하세요.",
   "op.error.admin_closed.title": "운영자가 릴레이어를 일시 중지했습니다",

@@ -100,6 +100,18 @@ export class MinimumMovedError extends Error {
     super(`the route now guarantees at least ${newMin}, below the ${approvedMin} approved at commit`);
   }
 }
+/**
+ * A provider failed, or answered something this engine will not build on (whale spec §16). The API answers it as a
+ * gateway's error (502 `provider_unavailable`) and logs the provider, never as an internal error; the wallet tries again.
+ */
+export class ProviderFailure extends Error {
+  constructor(readonly provider: ProviderId, message: string) {
+    super(message);
+  }
+}
+/** What a provider's call threw, as that provider's failure. */
+export const asProviderFailure = (provider: ProviderId, e: unknown): ProviderFailure =>
+  e instanceof ProviderFailure ? e : new ProviderFailure(provider, String((e as Error)?.message ?? e));
 class QuoteTimeout extends Error {}
 /** `p` within `ms`; the message names the whole `budgetMs` when `ms` is what is left of it. */
 const withTimeout = <T>(p: Promise<T>, ms: number, what: string, budgetMs = ms): Promise<T> =>
@@ -352,15 +364,25 @@ export class PrivateSwapEngine {
   async prepareExecution(order: Order, adapter: ProviderAdapter, guard?: { alternatives: Quote[]; maxGapBps: number }, approvedMin?: bigint): Promise<PreparedExecution> {
     const plan = order.plan ?? order.quote.plan;
     const req: QuoteRequest = { ...this.net(order.request, order.params.executorTip), source: order.endpoint, tier: order.tier, plan: plan ? (plan.mode === "single" ? "single" : "stream") : undefined, destinationKind: order.destination?.kind }; // net of the tip, escrow as sender
-    const quote = await adapter.quote(req); // re-quote with the escrow as sender (spec §5)
-    if (quote.minOutVerified === false && order.policy !== "fastest") throw new Error(`${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
+    // the provider's failures, and its answers this engine will not build on, are its own (ProviderFailure); a moved minimum and the price guard are not
+    const failed = (e: unknown): never => {
+      throw asProviderFailure(adapter.id, e);
+    };
+    const quote = await adapter.quote(req).catch(failed); // re-quote with the escrow as sender (spec §5)
+    if (quote.minOutVerified === false && order.policy !== "fastest") throw new ProviderFailure(adapter.id, `${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
     if (approvedMin !== undefined && quote.toAmountMin < approvedMin) throw new MinimumMovedError(approvedMin, quote.toAmountMin);
     if (guard) priceGuard(quote, guard.alternatives, guard.maxGapBps);
-    const ingress = await adapter.prepareIngress(req, quote);
-    if (ingress.expiresAt * 1000 <= Date.now()) throw new Error(`${adapter.id}: the ingress has already expired`);
-    if (ingress.kind === "contract-call" && !/^0x[0-9a-fA-F]{40}$/.test(ingress.to)) throw new Error(`${adapter.id}: ingress target is not an address`);
+    const ingress = await adapter.prepareIngress(req, quote).catch(failed);
+    if (ingress.expiresAt * 1000 <= Date.now()) throw new ProviderFailure(adapter.id, `${adapter.id}: the ingress has already expired`);
+    if (ingress.kind === "contract-call" && !/^0x[0-9a-fA-F]{40}$/.test(ingress.to)) throw new ProviderFailure(adapter.id, `${adapter.id}: ingress target is not an address`);
     const deadline = Math.min(quote.expiresAt, order.params.executeDeadline);
-    const { provider, value, calldata } = escrowCall(order.params, ingress);
+    let call: ReturnType<typeof escrowCall>;
+    try {
+      call = escrowCall(order.params, ingress); // an ingress the order cannot pay is the provider's answer
+    } catch (e) {
+      throw asProviderFailure(adapter.id, e);
+    }
+    const { provider, value, calldata } = call;
     const digest = executionDigest(this.cfg.chainId, order.endpoint, order.orderId, provider, value, calldata, deadline);
     order.quote = quote;
     order.ingress = ingress;

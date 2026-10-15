@@ -68,6 +68,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   service_rejected: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   invalid_request: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   destination_not_protectable: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
+  provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   wallet_disconnected: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   chain_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
