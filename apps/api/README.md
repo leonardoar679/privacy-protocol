@@ -38,6 +38,8 @@ schedule (`src/db.ts` `RETENTION`):
   `nosniff`, no referrer, `default-src 'none'; frame-ancestors 'none'`, and HSTS with `TLS=1`. CORS goes to
   `ALLOWED_ORIGINS` only; there is no `x-powered-by`. Bodies are capped at 64 KB, a POST that is not JSON answers `415`,
   and a token bucket per socket answers `429` — a forged X-Forwarded-For cannot multiply it (`test/security.test.ts`).
+  Behind a proxy, `TRUST_PROXY_HOPS` (the number of proxies) keys the bucket by the address the outermost of them saw:
+  without it, every caller shares the proxy's bucket (`docs/deployment.md`).
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).

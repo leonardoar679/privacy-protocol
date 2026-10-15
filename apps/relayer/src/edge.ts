@@ -1,8 +1,8 @@
 // The relayer's HTTP edge (doc §68; spec v2.0 §15, §17; V6 Stage 15): every answer carries the server kit's security
 // headers — no-store, nosniff, no referrer, a content security policy that loads nothing, HSTS when the relayer
 // terminates TLS itself —, the CORS headers for an allowed origin only (ALLOWED_ORIGINS, as the API), and the rate
-// limiter by the socket's address (no proxy is trusted; the address is never logged). A preflight, a rate limit and a
-// POST that is not JSON end here.
+// limiter by the socket's address, or behind the proxies the operator names (TRUST_PROXY_HOPS) by the address the
+// outermost of them saw (the address is never logged). A preflight, a rate limit and a POST that is not JSON end here.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { callerKey, corsHeaders, securityHeaders } from "@privacy-wallet/server-kit/http";
 import type { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
@@ -12,6 +12,8 @@ export interface EdgeOptions {
   limiter: RateLimiter;
   /** the relayer terminates TLS itself (TLS=1, as the API): HSTS too */
   tls: boolean;
+  /** TRUST_PROXY_HOPS (as the API): the proxies in front of it whose X-Forwarded-For entries name the caller; default none */
+  trustProxyHops?: number;
 }
 
 type Req = Pick<IncomingMessage, "method" | "headers"> & { socket: { remoteAddress?: string } };
@@ -26,7 +28,7 @@ export function edge(req: Req, res: Res, o: EdgeOptions): boolean {
     return true;
   }
   res.setHeader("content-type", "application/json");
-  const caller = callerKey(req.socket);
+  const caller = callerKey(req.socket, { header: req.headers["x-forwarded-for"], hops: o.trustProxyHops ?? 0 });
   if (!o.limiter.allow(caller)) {
     res.setHeader("retry-after", String(o.limiter.retryAfterSeconds(caller)));
     res.statusCode = 429;

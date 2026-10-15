@@ -1,6 +1,7 @@
 // The HTTP edge (spec v2.0 §15; doc §68): the security headers on every answer (a 404 and an error included), HSTS only when
 // the API terminates TLS, CORS only for an allowed origin, no x-powered-by, 413 above 64 KB, 415 for another content type,
-// 429 with Retry-After after the burst — keyed by the socket, so a forged X-Forwarded-For buys nothing.
+// 429 with Retry-After after the burst — keyed by the socket, so a forged X-Forwarded-For buys nothing; behind the
+// proxies the operator trusts (TRUST_PROXY_HOPS), by the address the outermost of them saw.
 import { afterEach, describe, expect, it } from "vitest";
 import { harness, swapRequest, type Harness } from "./helpers";
 
@@ -61,5 +62,13 @@ describe("the HTTP edge", () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(limited.body.code).toBe("rate_limited");
+  });
+  it("behind a trusted proxy (TRUST_PROXY_HOPS=1) each caller has its own bucket, and a forged entry buys nothing (2026-10-15)", async () => {
+    h = await harness({ ratePerMinute: 1, trustProxyHops: 1 });
+    const via = (xff: string) => h!.get("/v1/assets", { "x-forwarded-for": xff });
+    expect((await via("203.0.113.5")).status).toBe(200);
+    expect((await via("203.0.113.5")).status).toBe(429);
+    expect((await via("198.51.100.9")).status, "another caller behind the same proxy").toBe(200);
+    expect((await via("192.0.2.1, 203.0.113.5")).status, "a forged entry on the left").toBe(429);
   });
 });

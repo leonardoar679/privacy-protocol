@@ -1100,6 +1100,9 @@ per id per 5 s, the answer kept in memory only for those 5 s (a V6 follow-up of 
 process's life, past the retention above). Security: a CORS allowlist, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, HSTS behind
 TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory token buckets, `trust proxy` off.
+*V6 follow-up (2026-10-15):* behind a TLS proxy every caller had the proxy's address and shared one bucket, so
+`TRUST_PROXY_HOPS` names the proxies in front of the API or the relayer. The bucket is then keyed by the
+`X-Forwarded-For` entry the outermost of them wrote; unset, no header is read.
 Every field of a request body is checked at the edge (a V6 follow-up of 2026-10-14): integer slippage 0–10000 bps,
 decimals 0–36, an amount of at most 78 digits, a destination of at most 256 characters, and a journaled order's params
 in shape, before any provider is asked. A malformed one is `400 invalid_request`, never a 500 or a provider's error.

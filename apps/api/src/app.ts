@@ -23,6 +23,8 @@ export interface AppOptions {
   tls: boolean;
   /** requests per minute per caller (burst 20) */
   ratePerMinute: number;
+  /** TRUST_PROXY_HOPS: the proxies in front of the API whose X-Forwarded-For entries name the caller (default 0: none) */
+  trustProxyHops?: number;
   log: Logger;
 }
 
@@ -37,7 +39,7 @@ export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.set({ ...securityHeaders({ tls: o.tls }), ...corsHeaders(req.headers.origin, o.origins) });
     if (req.method === "OPTIONS") return void res.status(204).end();
-    const caller = callerKey(req.socket);
+    const caller = callerKey(req.socket, { header: req.headers["x-forwarded-for"], hops: o.trustProxyHops ?? 0 });
     if (!limiter.allow(caller)) {
       deps.store.event({ event: "rate.limited", errorClass: "rate_limited" });
       return void res

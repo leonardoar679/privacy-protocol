@@ -126,11 +126,16 @@ Both services send the same headers on every answer, from `packages/server-kit/s
 - `Strict-Transport-Security` when the service terminates TLS itself (`TLS=1`).
 
 Their configuration: `apps/api/.env.example` (and the engine's, `packages/swap-engine/.env.example`) and
-`apps/relayer/.env.example`. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit by the socket's address
-(`RATE_PER_MINUTE`). No proxy header is trusted, and the address is never logged. A POST that is not JSON answers 415.
+`apps/relayer/.env.example`. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit per caller
+(`RATE_PER_MINUTE`), and the address is never logged. By default the caller is the socket's address and no proxy header
+is read. `TRUST_PROXY_HOPS` names how many proxies in front of the service append to `X-Forwarded-For`; the caller is
+then the entry the outermost of them wrote, so what a client writes there itself buys nothing. A request with fewer
+entries keeps its socket's address. A POST that is not JSON answers 415.
 The relayer's edge is `apps/relayer/src/edge.ts` (`apps/relayer/test/edge.test.ts`), the API's `apps/api/src/app.ts`.
 
-Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS.
+Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS, and set `TRUST_PROXY_HOPS` to the number of proxies
+(1 for one). Without it every caller shares the proxy's address and so one bucket, which a single client can use up
+for everyone (a V6 follow-up of 2026-10-15). Set it only when the service cannot be reached past those proxies.
 
 The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
 wallet whose answer was lost (the network dropped mid-submission) finds its submission again instead of sending it

@@ -1,12 +1,16 @@
 // The relayer's HTTP edge (doc §68; spec v2.0 §15, §17; V6 Stage 15): every answer carries the security headers (HSTS
 // only when the relayer terminates TLS); CORS for an allowed origin only; a preflight answers 204; the rate limit by the
-// socket's address answers 429 with retry-after; a POST that is not JSON answers 415; X-Forwarded-For is never read.
+// socket's address answers 429 with retry-after; a POST that is not JSON answers 415; X-Forwarded-For is read only
+// behind the proxies the operator trusts (TRUST_PROXY_HOPS), and then only the entry the outermost of them wrote.
 import { describe, expect, it } from "vitest";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { edge } from "../src/edge";
 
 const origins = new Set(["http://localhost:5173"]);
-function call(req: { method: string; headers?: Record<string, string>; ip?: string }, o: { tls?: boolean; limiter?: RateLimiter } = {}) {
+function call(
+  req: { method: string; headers?: Record<string, string>; ip?: string },
+  o: { tls?: boolean; limiter?: RateLimiter; trustProxyHops?: number } = {},
+) {
   const headers: Record<string, string> = {};
   const res = {
     statusCode: 200,
@@ -18,6 +22,7 @@ function call(req: { method: string; headers?: Record<string, string>; ip?: stri
     origins,
     limiter: o.limiter ?? new RateLimiter({ perMinute: 60, burst: 20 }),
     tls: o.tls ?? false,
+    trustProxyHops: o.trustProxyHops,
   });
   return { handled, headers, status: res.statusCode, body: res.body };
 }
@@ -52,5 +57,13 @@ describe("the relayer's edge (doc §68)", () => {
     const form = call({ method: "POST", headers: { "content-type": "text/plain" } });
     expect([form.handled, form.status]).toEqual([true, 415]);
     expect(call({ method: "POST", headers: { "content-type": "application/json; charset=utf-8" } }).handled).toBe(false);
+  });
+  it("behind a trusted proxy (TRUST_PROXY_HOPS=1) each caller has its own bucket, and a forged entry buys nothing (2026-10-15)", () => {
+    const limiter = new RateLimiter({ perMinute: 1, burst: 1 });
+    const via = (xff: string) => call({ method: "GET", ip: "10.0.0.2", headers: { "x-forwarded-for": xff } }, { limiter, trustProxyHops: 1 });
+    expect(via("203.0.113.5").handled).toBe(false);
+    expect(via("203.0.113.5").status).toBe(429);
+    expect(via("198.51.100.9").handled, "another caller behind the same proxy").toBe(false);
+    expect(via("192.0.2.1, 203.0.113.5").status, "a forged entry on the left").toBe(429);
   });
 });

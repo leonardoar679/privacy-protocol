@@ -8,7 +8,8 @@
 // FEE_VAULTS (JSON: ERC-20 vault -> {symbol, decimals, minFee}; plan §36), REQUIRE_READABLE_FEE_PAYLOAD (1),
 // RELAYER_JOURNAL_DIR (journal/: durable submissions + swap jobs + shield jobs), SHIELD_FACTORY (the ShieldReceiverFactory
 // this relayer shields for; unset: no shield jobs), LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS,
-// RATE_PER_MINUTE (60 per caller, burst 20), MAX_SWAP_JOBS (1000 open, swap and shield jobs each), PORT (8790), HOST (127.0.0.1).
+// RATE_PER_MINUTE (60 per caller, burst 20), TRUST_PROXY_HOPS (the proxies in front of it; default none), MAX_SWAP_JOBS
+// (1000 open, swap and shield jobs each), PORT (8790), HOST (127.0.0.1).
 import { createServer } from "node:http";
 import type { Hex } from "viem";
 import { Relayer, type RelayerConfig } from "./relayer";
@@ -16,7 +17,7 @@ import { SwapExecutor, loadEscrowCreationCode } from "./swapExecutor";
 import { ShieldExecutor } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
-import { originsFrom } from "@privacy-wallet/server-kit/http";
+import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
 import { edge } from "./edge";
 import { errorAnswer, readJson } from "./answers";
 import { adminAuthorized } from "./admin";
@@ -57,6 +58,7 @@ if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield
 setInterval(() => relayer.monitor().catch((e) => console.error("submission monitor failed:", (e as Error).message)), pollMs).unref();
 const ORIGINS = originsFrom(process.env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]);
 const TLS = process.env.TLS === "1"; // the relayer terminates TLS itself: HSTS (the API's setting of the same name)
+const PROXY_HOPS = proxyHopsFrom(process.env.TRUST_PROXY_HOPS); // the proxies in front of it (the API's setting of the same name)
 const limiter = new RateLimiter({ perMinute: Number(env("RATE_PER_MINUTE", "60")), burst: Math.min(20, Number(env("RATE_PER_MINUTE", "60"))) });
 const MAX_SWAP_JOBS = Number(env("MAX_SWAP_JOBS", "1000"));
 const openSwapJobs = () => executor.list().filter((j) => !["refunded", "completed", "refund-failed"].includes(j.state)).length;
@@ -64,7 +66,7 @@ const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint"
 
 const server = createServer(async (req, res) => {
   // V6 Stage 15 (doc §68): the security headers on every answer, CORS for the allowed origins, the rate limit, JSON only
-  if (edge(req, res, { origins: ORIGINS, limiter, tls: TLS })) return;
+  if (edge(req, res, { origins: ORIGINS, limiter, tls: TLS, trustProxyHops: PROXY_HOPS })) return;
   const send = (status: number, body: unknown) => { res.statusCode = status; res.end(json(body)); };
   try {
     const url = new URL(req.url ?? "/", "http://relayer");

@@ -94,7 +94,9 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function harness(o: { ratePerMinute?: number; origins?: string[]; tls?: boolean; terms?: RelayerTerms | null } = {}): Promise<Harness> {
+export async function harness(
+  o: { ratePerMinute?: number; origins?: string[]; tls?: boolean; trustProxyHops?: number; terms?: RelayerTerms | null } = {},
+): Promise<Harness> {
   const lines: string[] = [];
   const log = createLogger((l) => lines.push(l));
   const clock = { now: Date.now() };
@@ -124,6 +126,7 @@ export async function harness(o: { ratePerMinute?: number; origins?: string[]; t
     origins: new Set(o.origins ?? ["http://localhost:5173"]),
     tls: o.tls ?? false,
     ratePerMinute: o.ratePerMinute ?? 10_000,
+    trustProxyHops: o.trustProxyHops,
     log,
   });
   const server: Server = await new Promise((resolve) => {

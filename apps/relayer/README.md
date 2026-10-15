@@ -89,7 +89,8 @@ wallet's runner reads it every track tick). Journal: `shield-jobs.json`; one pas
 ## Edge and logs (V6 Stage 15, spec v2.0 §17)
 `src/edge.ts` puts the relayer behind the server kit's headers, as the API: `no-store`, `nosniff`, no referrer,
 `default-src 'none'; frame-ancestors 'none'`, HSTS with `TLS=1`; CORS for `ALLOWED_ORIGINS` only; the rate limit by the
-socket's address (no proxy header trusted); a POST that is not JSON answers `415`. Every console line is checked by
+socket's address, no proxy header read, or behind the proxies `TRUST_PROXY_HOPS` names by the address the outermost of
+them saw (`docs/deployment.md`); a POST that is not JSON answers `415`. Every console line is checked by
 `test/logs.test.ts`: none names a request, a body, an address, a proof, a payload or a secret.
 
 ## Run
