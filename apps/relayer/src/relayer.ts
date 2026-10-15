@@ -14,7 +14,7 @@
 // the fee output really is a note to it in an accepted vault with at least that vault's current
 // minimum, that the nullifiers are not already in flight here, and that the call simulates without
 // reverting (which covers the proof, the root and the nullifier set).
-import { TransactionNotFoundError, createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { createPublicClient, createWalletClient, http, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { noteBody, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
@@ -24,6 +24,7 @@ import { encodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { bpsLabel, feeMeetsTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { coreAbi, encodeTransact, piFromStrings, type PublicInputs } from "./abi";
 import type { Journal } from "./journal";
+import { DROP_AFTER_MS, Sender, unknownToTheNode } from "./sender";
 
 /** An ERC-20 vault the relayer accepts fee notes in, with a fixed minimum in the token's base units. */
 export interface FeeVaultTerms { symbol: string; decimals: number; minFee: bigint }
@@ -55,7 +56,7 @@ export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; 
 export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" | "dropped"; gasUsed?: string; actualNetworkWei?: string; droppedAt?: number }
 
 /** How long a submitted transaction may be unknown to the node before its job counts as dropped (`monitor`). */
-export const DROP_AFTER_MS = 10 * 60_000;
+export { DROP_AFTER_MS };
 
 export class RelayerError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -74,6 +75,8 @@ const hexToBytes = (h: Hex): Uint8Array => Uint8Array.from(h.slice(2).match(/../
 
 export class Relayer {
   readonly account;
+  /** The account's one sender: the swap and the shield executors send through it too (a V6 follow-up of 2026-10-15). */
+  readonly sender: Sender;
   readonly identity: RelayerIdentity;
   private jobs = new Map<Hex, Job>();
   private inflight = new Set<string>();
@@ -81,6 +84,7 @@ export class Relayer {
 
   constructor(readonly cfg: RelayerConfig, readonly clients: { publicClient: PublicClient; walletClient: WalletClient }) {
     this.account = privateKeyToAccount(cfg.privateKey);
+    this.sender = new Sender(this.account, clients);
     this.identity = relayerIdentity(cfg.masterSeed);
     for (const j of cfg.journal?.load() ?? []) {
       this.jobs.set(j.txHash, j);
@@ -173,13 +177,14 @@ export class Relayer {
       throw new RelayerError("simulation_failed", `transact would revert: ${String((e as Error).message).split("\n")[0].slice(0, 200)}`);
     }
     nullifiers.forEach((n) => this.inflight.add(n));
-    let txHash: Hex;
-    try {
-      txHash = await this.clients.walletClient.sendTransaction({ account: this.account, chain: this.clients.walletClient.chain, to: this.cfg.core, data, gas: (gas * 12n) / 10n });
-    } catch (e) {
+    // one send of this account at a time; a broadcast whose answer was lost, the node holding it, is submitted (`monitor`
+    // drops it if it never lands), and only one that never left or that the node refused is send_failed
+    const sent = await this.sender.send({ to: this.cfg.core, data, gas: (gas * 12n) / 10n });
+    if (!sent.ok) {
       nullifiers.forEach((n) => this.inflight.delete(n));
-      throw new RelayerError("send_failed", String((e as Error).message).split("\n")[0].slice(0, 200));
+      throw new RelayerError("send_failed", sent.error);
     }
+    const txHash = sent.hash;
     this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret: req.fee.noteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
     this.persist();
     return { txHash, feeWei: feeWei.toString(), feeVault, gas: gas.toString(), feePayloadReadable };
@@ -220,7 +225,7 @@ export class Relayer {
       for (const job of [...this.jobs.values()]) {
         if (job.status !== "submitted") continue;
         if ((await this.status(job.txHash))?.status !== "submitted") continue;
-        if (now - job.submittedAt < DROP_AFTER_MS || !(await this.unknownToTheNode(job.txHash))) continue;
+        if (now - job.submittedAt < DROP_AFTER_MS || !(await unknownToTheNode(this.clients.publicClient, job.txHash))) continue;
         const spent = await Promise.all(job.nullifiers.map((n) => this.nullifierSpent(BigInt(n))));
         if (spent.some((s) => s !== false)) continue; // spent by another transaction, or unread: watched again
         job.status = "dropped";
@@ -230,15 +235,6 @@ export class Relayer {
       }
     } finally {
       this.monitoring = false;
-    }
-  }
-  /** The node answers that it does not know the transaction (never a failed read). */
-  private async unknownToTheNode(hash: Hex): Promise<boolean> {
-    try {
-      await this.clients.publicClient.getTransaction({ hash });
-      return false;
-    } catch (e) {
-      return e instanceof TransactionNotFoundError;
     }
   }
   /** PrivacyCore's answer, or null when it cannot be read. */

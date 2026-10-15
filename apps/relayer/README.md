@@ -111,6 +111,24 @@ the chain refuses a spent nullifier; the second attempt reverts at the relayer's
 but a `GET /status` that nobody sent. Every nullifier stayed in flight (436 in the local stack's relayer, reloaded at
 every restart), and a dropped transaction's notes could never be submitted here again (`test/monitor.test.ts`).
 
+**One transaction of the account at a time** (`src/sender.ts`; a V6 follow-up of 2026-10-15). The submissions, the swap
+executor and the shield executor send from one account through one `Sender`, and a send reads its nonce only once the one
+before it was broadcast or refused. Before, each read the node's pending nonce on its own, and the two executors' ticks
+run on the same interval. Two sends at once read one nonce, and the node refused the second, or, priced 10 % higher,
+let it replace the first. The swap executor took that refusal for a failed execution (`execute-failed`) or a failed
+refund (`refund-failed`, final). A transaction is signed before it is broadcast, so an error from the broadcast is
+checked against the node. A transaction the node holds was sent (the answer was lost, and viem's retry was refused as
+"already known"). One it does not know was refused, and the reason gives the node's own words. When the node cannot be
+read, the transaction is watched until it is mined or dropped. A submission is `send_failed` only when it never left or
+was refused.
+An executor's call fails only on its own answer, a revert at estimation. An RPC failure or a send that never left keeps
+the job as it is, with a note, and the next tick tries again. A swap, refund or shield transaction the node no longer
+knows 10 minutes after it was sent (`DROP_AFTER_MS`) was dropped. Its job goes back to the state it was sent from (`sent`
+on the job; an unpaid one gives its place in the budget back), and the next tick sends again with a nonce read anew.
+Before, the job waited for that receipt for good. If the dropped transaction lands after all, the second call reverts at
+the relayer's cost: an escrow executes once and refunds what it holds, and a receiver shields what it holds
+(`test/sender.test.ts`, `test/swapExecutor.test.ts`, `test/shieldExecutor.test.ts`, `test/relayer.test.ts`).
+
 ## Abuse limits
 Per-caller token bucket (`RATE_PER_MINUTE`, default 60, burst ≤ 20; `429` + `retry-after`), a cap on
 open swap jobs (`MAX_SWAP_JOBS`, default 1000; `503`), 1 MB bodies, JSON only on POST (`415`). Nothing

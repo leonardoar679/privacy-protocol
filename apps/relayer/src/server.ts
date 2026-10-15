@@ -43,11 +43,12 @@ const cfg: RelayerConfig = {
 };
 const relayer = Relayer.fromConfig(cfg);
 // swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window
-const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: process.env.LATE_REFUND_WATCH_SECONDS ? Number(process.env.LATE_REFUND_WATCH_SECONDS) : undefined, maxUnpaidRefunds: process.env.MAX_UNPAID_REFUNDS ? Number(process.env.MAX_UNPAID_REFUNDS) : undefined });
+// every transaction of the relayer's account goes through its one sender (src/sender.ts): one at a time
+const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: process.env.LATE_REFUND_WATCH_SECONDS ? Number(process.env.LATE_REFUND_WATCH_SECONDS) : undefined, maxUnpaidRefunds: process.env.MAX_UNPAID_REFUNDS ? Number(process.env.MAX_UNPAID_REFUNDS) : undefined });
 // shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
 const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
 const shields = shieldFactory
-  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: process.env.LATE_DELIVERY_WATCH_SECONDS ? Number(process.env.LATE_DELIVERY_WATCH_SECONDS) : undefined, maxUnpaidShields: process.env.MAX_UNPAID_SHIELDS ? Number(process.env.MAX_UNPAID_SHIELDS) : undefined })
+  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: process.env.LATE_DELIVERY_WATCH_SECONDS ? Number(process.env.LATE_DELIVERY_WATCH_SECONDS) : undefined, maxUnpaidShields: process.env.MAX_UNPAID_SHIELDS ? Number(process.env.MAX_UNPAID_SHIELDS) : undefined })
   : null;
 const pollMs = Number(process.env.SWAP_POLL_MS ?? "15000");
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();

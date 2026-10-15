@@ -4,13 +4,16 @@
 // deployAndExecute exactly once when the escrow is funded before the signed deadline, deployAndRefund
 // with the committed payload once refundAfter is reached with a balance, marks expiry, spends no
 // gas when the call would revert, waits while executing would cost more than the tip (V6: the tip is the execution's
-// gas), and records each receipt's actual cost. No real chain, no funds.
+// gas), and records each receipt's actual cost. A V6 follow-up of 2026-10-15: an execution the node refused, or an RPC
+// that could not estimate a refund, leaves the job to the next tick (it was execute-failed, or refund-failed for good),
+// and a transaction the node dropped sends the job back to the state it was sent from. No real chain, no funds.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
+import { DROP_AFTER_MS } from "../src/sender";
 import { privateKeyToAccount } from "viem/accounts";
 import { SwapExecutor, SwapJobError, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
@@ -28,6 +31,10 @@ let escrowBalance = 0n;
 let revertSimulation = false;
 let receiptStatus: "0x1" | "0x0" | null = null;
 let gasPrice = "0x3b9aca00"; // 1 gwei
+let refuseSend = false;
+let estimateDown = false;
+const taken = new Set<Hex>(); // what the node took
+const dropped = new Set<Hex>(); // what it no longer knows
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
 function handle(req: { id: number; method: string; params: any[] }) {
   const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
@@ -39,8 +46,11 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(escrowBalance));
-    case "eth_estimateGas": return revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: BadSignature()" } } : res("0x7a120");
-    case "eth_sendRawTransaction": raws.push(req.params[0]); return res(keccak256(req.params[0]));
+    case "eth_estimateGas": return estimateDown ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: BadSignature()" } } : res("0x7a120");
+    case "eth_sendRawTransaction":
+      if (refuseSend) return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "nonce too low" } };
+      raws.push(req.params[0]); taken.add(keccak256(req.params[0])); return res(keccak256(req.params[0]));
+    case "eth_getTransactionByHash": return res(taken.has(req.params[0]) && !dropped.has(req.params[0]) ? { hash: req.params[0], nonce: "0x1", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), input: "0x", value: "0x0", gas: "0x5208", blockHash: null, blockNumber: null, transactionIndex: null, type: "0x2", chainId: "0x1", maxFeePerGas: "0x77359400", maxPriorityFeePerGas: "0x3b9aca00", v: "0x0", yParity: "0x0", r: "0x1", s: "0x1" } : null);
     case "eth_getTransactionReceipt": return res(receiptStatus === null ? null : { transactionHash: req.params[0], status: receiptStatus, blockNumber: "0x11", blockHash: "0x" + "11".repeat(32), transactionIndex: "0x0", from: "0x" + "00".repeat(20), to: "0x" + "00".repeat(20), cumulativeGasUsed: "0x1", gasUsed: "0x7a120", effectiveGasPrice: "0x3b9aca00", logs: [], logsBloom: "0x" + "00".repeat(256), type: "0x2" });
     default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };
   }
@@ -203,5 +213,78 @@ describe("execution", () => {
     } finally {
       gasPrice = "0x3b9aca00";
     }
+  });
+});
+
+describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
+  /** The vector's order under another id, re-signed for its own escrow; `deadline` at most the order's executeDeadline (1801). */
+  const order = (n: number, deadline = Number(request.execution.deadline)): SwapJobRequest => {
+    const o: SwapJobRequest = { ...request, params: { ...request.params, orderId: toHex(n, { size: 32 }) } };
+    const escrow = predictEscrow(o.factory, creationCode, { ...o.params, assetType: 0, amount: BigInt(o.params.amount), refundOwnerCommitment: BigInt(o.params.refundOwnerCommitment), refundNoteSecret: BigInt(o.params.refundNoteSecret), executorTip: BigInt(o.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, o.params.orderId, o.execution.provider, BigInt(o.execution.value), o.execution.providerCalldata, deadline);
+    o.execution = { ...o.execution, deadline, signature: signExecution(ORDER_KEY, digest) };
+    return o;
+  };
+
+  it("an execution the node refused stays waiting with a note, and the next tick executes it; it was execute-failed", async () => {
+    clock = 1000; escrowBalance = BigInt(request.params.amount);
+    const job = executor.add(order(0x10));
+    const before = raws.length;
+    refuseSend = true;
+    try {
+      await executor.tick();
+    } finally {
+      refuseSend = false;
+    }
+    expect(job.state).toBe("waiting-funding");
+    expect(job.error).toMatch(/^not sent: .*nonce too low.*; retried next tick$/);
+    expect(raws.length).toBe(before);
+    await executor.tick();
+    expect(job.state).toBe("executing");
+    expect(raws.length).toBe(before + 1);
+  });
+  it("an execution the node dropped goes back to waiting DROP_AFTER_MS after it was sent, and the next tick sends it again", async () => {
+    clock = 1000; escrowBalance = BigInt(request.params.amount);
+    const job = executor.add(order(0x11, 1801));
+    await executor.tick();
+    expect(job.state).toBe("executing");
+    const first = job.txHash!;
+    expect(job.executionTx).toBe(first);
+    expect(job.sent).toEqual({ from: "waiting-funding", at: 1000 });
+    dropped.add(first);
+    clock = 1000 + DROP_AFTER_MS / 1000 - 1;
+    await executor.tick();
+    expect(job.state, "not yet: the node may still take it").toBe("executing");
+    clock = 1000 + DROP_AFTER_MS / 1000;
+    await executor.tick();
+    expect(job.state).toBe("waiting-funding");
+    expect(job.error).toBe(`${first} was dropped before it was mined; sent again`);
+    expect(job.executionTx).toBeUndefined();
+    expect(job.sent).toBeUndefined();
+    dropped.delete(first);
+    const before = raws.length;
+    await executor.tick();
+    expect(job.state).toBe("executing");
+    expect(raws.length).toBe(before + 1);
+  });
+  it("a refund the RPC could not estimate is noted and tried again next tick; it was refund-failed, for good", async () => {
+    clock = 1000; escrowBalance = 0n;
+    const job = executor.add(order(0x12));
+    clock = 1202;
+    await executor.tick();
+    expect(job.state).toBe("expired");
+    escrowBalance = BigInt(request.params.amount); // funded late
+    clock = 7201;
+    estimateDown = true;
+    try {
+      await executor.tick();
+    } finally {
+      estimateDown = false;
+    }
+    expect(job.state).toBe("expired");
+    expect(job.error).toMatch(/^could not estimate: .*; retried next tick$/);
+    await executor.tick();
+    expect(job.state).toBe("refunding");
+    expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws.at(-1)!).data! }).functionName).toBe("deployAndRefund");
   });
 });

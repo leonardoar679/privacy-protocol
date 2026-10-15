@@ -1150,6 +1150,15 @@ shield-failed`, a journal `shield-jobs.json`, the tip checked against the estima
 It never receives a protected wallet's key, recovery phrase, raw note secret or full witness. Every job records its
 receipt's actual cost (§3). Its logs follow §15's logger.
 
+*V6 follow-up (2026-10-15):* the relayer's account sends one transaction at a time (`apps/relayer/src/sender.ts`): the
+submissions and both executors send through one sender, and a send reads its nonce once the previous one was broadcast
+or refused. A send is signed before it is broadcast, and an error from the broadcast is checked against the node: a
+transaction the node holds was sent, and one it does not know was refused. An executor's call fails only on a revert at
+estimation; an RPC failure or a refused send is retried at the next tick. A swap, refund or shield transaction the node
+no longer knows 10 minutes after it was sent sends its job back to the state it was sent from, to be sent again. Before,
+two sends at once read one nonce. The node refused the second, which the swap executor recorded as `execute-failed` or
+`refund-failed` (final), and a dropped transaction kept its job waiting for good.
+
 ## 17. Security, supply chain, CI (doc §17, §64, §66, §68–§69, §83) — *Stages 2, 15*
 
 No analytics, session replay, advertising pixels, wallet profiling or fingerprinting; the build contains only

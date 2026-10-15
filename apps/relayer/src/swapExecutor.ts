@@ -31,6 +31,7 @@ import { BYTECODE } from "@privacy-wallet/contracts";
 import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
+import { DROP_AFTER_MS, Sender, unknownToTheNode, type SentTx } from "./sender";
 import { executionDigest, predictEscrow, recoverExecutionSigner } from "@privacy-wallet/swap-engine/endpoints";
 import type { OrderParams } from "@privacy-wallet/swap-engine/types";
 
@@ -69,7 +70,8 @@ export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "exec
 /** `execution` is absent for a refund-only job. */
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
 /** `executionTx`: the deployAndExecute transaction, set once and never overwritten (whale spec §19: `txHash` is reused by refund transactions; the wallet tracks the destination side from this hash). */
-export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number; /** V6 (spec v2.0 §3): the last mined transaction's gas and gasUsed × effectiveGasPrice */ gasUsed?: string; actualNetworkWei?: string }
+/** `sent`: the transaction in flight — the state it was sent from, when (unix seconds) and whether no tip pays for it; one the node drops sends the job back there (a V6 follow-up of 2026-10-15). */
+export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number; /** V6 (spec v2.0 §3): the last mined transaction's gas and gasUsed × effectiveGasPrice */ gasUsed?: string; actualNetworkWei?: string; sent?: SentTx<SwapJobState> }
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
@@ -118,7 +120,10 @@ export class SwapExecutor {
   private wrapped = new Map<string, Address | null>();
   /** refund vault -> its pool's vault factory */
   private vaultFactories = new Map<string, Address>();
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+  /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
+  private readonly sender: Sender;
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+    this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
 
@@ -307,15 +312,7 @@ export class SwapExecutor {
     let floor = BigInt(job.refundFloors?.[f.token.toLowerCase()] ?? "0");
     if (native) { const g = await this.gasFloor(gas); if (g > floor) floor = g; }
     if (f.amount < floor) return false;
-    try {
-      job.txHash = await this.cfg.walletClient.sendTransaction({ account: this.cfg.account, chain: this.cfg.walletClient.chain, to: job.escrow, data, gas: (gas * 12n) / 10n });
-      job.state = "refunding"; job.error = undefined;
-      job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
-    } catch (e) {
-      job.error = String((e as Error).message).split("\n")[0].slice(0, 200); // retried next tick
-    }
-    job.updatedAt = Date.now();
-    this.persist();
+    await this.dispatch(job, job.escrow, data, gas, "refunding", true); // not sent: retried next tick
     return true;
   }
 
@@ -339,8 +336,7 @@ export class SwapExecutor {
     let floor = (BigInt(p.amount) * OWN_FLOOR_BPS) / 10000n;
     if (Number(p.assetType) === 0) { const g = await this.gasFloor(gas); if (g > floor) floor = g; }
     if (refundable < floor) return false;
-    await this.send(job, data, "refunding", "refund-failed", gas);
-    if (job.state === "refunding") job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
+    await this.send(job, data, "refunding", "refund-failed", { estimated: gas, unpaid: true });
     return true;
   }
 
@@ -378,23 +374,52 @@ export class SwapExecutor {
   get(id: string): SwapJob | undefined { return this.jobs.get(id.toLowerCase()); }
   list(): SwapJob[] { return [...this.jobs.values()]; }
 
-  private async send(job: SwapJob, data: Hex, next: SwapJobState, failed: SwapJobState, estimated?: bigint): Promise<void> {
+  /**
+   * A factory call that moves the job to `next`. Only the call's own answer, a revert at estimation, moves it to `failed`;
+   * an RPC failure or a send that never left keeps the job as it is, with a note, and the next tick tries again (a V6
+   * follow-up of 2026-10-15). Before, a refund that could not be estimated or sent was refund-failed, which is final, and an
+   * execution refused on a nonce another send of this account had read was execute-failed.
+   */
+  private async send(job: SwapJob, data: Hex, next: SwapJobState, failed: SwapJobState, o: { estimated?: bigint; unpaid?: boolean } = {}): Promise<void> {
     let gas: bigint;
     try {
-      gas = estimated ?? (await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data }));
+      gas = o.estimated ?? (await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data }));
     } catch (e) {
-      job.state = failed; job.error = `would revert: ${String((e as Error).message).split("\n")[0].slice(0, 200)}`; job.updatedAt = Date.now();
+      if (!reverted(e)) { this.note(job, `could not estimate: ${firstLine(e, 200)}; retried next tick`); return; }
+      job.state = failed; job.error = `would revert: ${firstLine(e, 200)}`; job.updatedAt = Date.now();
       this.persist();
       return;
     }
-    try {
-      job.txHash = await this.cfg.walletClient.sendTransaction({ account: this.cfg.account, chain: this.cfg.walletClient.chain, to: job.factory, data, gas: (gas * 12n) / 10n });
-      job.state = next; job.error = undefined;
-      if (next === "executing") job.executionTx = job.txHash;
-    } catch (e) {
-      job.state = failed; job.error = String((e as Error).message).split("\n")[0].slice(0, 200);
-    }
+    await this.dispatch(job, job.factory, data, gas, next, o.unpaid);
+  }
+
+  /** The transaction moving the job to `next`, through the account's one sender; false when it never left (noted, tried again next tick). */
+  private async dispatch(job: SwapJob, to: Address, data: Hex, gas: bigint, next: SwapJobState, unpaid = false): Promise<boolean> {
+    const sent = await this.sender.send({ to, data, gas: (gas * 12n) / 10n });
+    if (!sent.ok) { this.note(job, `not sent: ${sent.error}; retried next tick`); return false; }
+    job.sent = { from: job.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
+    job.txHash = sent.hash; job.state = next; job.error = sent.note;
+    if (next === "executing") job.executionTx = sent.hash;
+    if (unpaid) job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
     job.updatedAt = Date.now();
+    this.persist();
+    return true;
+  }
+
+  /**
+   * A transaction the node no longer knows DROP_AFTER_MS after it was sent was dropped (evicted, replaced, lost with a
+   * node's mempool) and never gets a receipt: the job goes back to the state it was sent from, and the next tick sends
+   * again with a nonce read anew, so the dropped one can no longer land as well (a V6 follow-up of 2026-10-15; the job
+   * waited for that receipt for good, an order's funds in its escrow).
+   */
+  private async resendIfDropped(job: SwapJob, now: number): Promise<void> {
+    const at = job.sent?.at ?? Math.floor(job.updatedAt / 1000);
+    if (!job.txHash || now - at < DROP_AFTER_MS / 1000 || !(await unknownToTheNode(this.cfg.publicClient, job.txHash))) return;
+    const back: SwapJobState = job.sent?.from ?? (job.state === "executing" ? "waiting-funding" : job.executed ? "executed" : "expired");
+    if (job.executionTx === job.txHash) job.executionTx = undefined;
+    if (job.sent?.unpaid) job.unpaidRefunds = Math.max(0, (job.unpaidRefunds ?? 1) - 1);
+    job.error = `${job.txHash} was dropped before it was mined; sent again`;
+    job.state = back; job.txHash = undefined; job.sent = undefined; job.updatedAt = Date.now();
     this.persist();
   }
 
@@ -422,8 +447,9 @@ export class SwapExecutor {
       if (TERMINAL.includes(job.state) && !(job.state === "refunded" && now < watchEnd)) continue;
       if (job.state === "executing" || job.state === "refunding") {
         const receipt = job.txHash ? await this.cfg.publicClient.getTransactionReceipt({ hash: job.txHash }).catch(() => null) : null;
-        if (!receipt) continue;
+        if (!receipt) { await this.resendIfDropped(job, now); continue; }
         const ok = receipt.status === "success";
+        job.sent = undefined;
         job.gasUsed = receipt.gasUsed.toString();
         job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
         if (job.state === "executing" && ok) job.executed = true;
@@ -455,7 +481,7 @@ export class SwapExecutor {
         if (balance >= BigInt(p.amount)) {
           const data = encodeDeployAndExecute(p, job.execution);
           const priced = Number(p.assetType) === 0 ? await this.belowCost(job, data) : { wait: false };
-          if (!priced.wait) await this.send(job, data, "executing", "execute-failed", priced.gas);
+          if (!priced.wait) await this.send(job, data, "executing", "execute-failed", { estimated: priced.gas });
         }
       }
     }

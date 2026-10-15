@@ -3,7 +3,8 @@
 // parameters a receiver accepts, the payload that hashes to the committed one and a canonical vault; it sends
 // deployAndShield once a delivery of at least the minimum arrived, records the leaf, the deposit and the tip from the
 // receiver's event, waits while an ETH shield would cost more than its tip (until the swap is over), bounds the shields
-// no tip pays for, expires a receipt nothing reached, and never runs two passes at once. No real chain, no funds.
+// no tip pays for, expires a receipt nothing reached, and never runs two passes at once; a shield the node dropped sends
+// the job back and is shielded again (a V6 follow-up of 2026-10-15). No real chain, no funds.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import {
@@ -24,6 +25,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { ABI, predictReceiver, receiverParamsJson, type ReceiverParams } from "@privacy-wallet/contracts";
 import { ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
+import { DROP_AFTER_MS } from "../src/sender";
 import vector from "../../../contracts/test/periphery/vectors/shield.json";
 
 const CHAIN_ID = 1;
@@ -56,6 +58,7 @@ let tipPaid = false;
 let revertEstimate = false;
 let gasPrice = 1_000_000_000n; // 1 gwei: a 500k-gas shield costs 0.0005 ETH, below the 0.002 tip
 let receipt: { status: "0x1" | "0x0"; amount: bigint; tip: bigint; leafIndex: number } | null = null;
+const dropped = new Set<Hex>(); // transactions the node no longer knows
 const GAS = 500_000n;
 const shieldedTopics = (vault: Address) => encodeEventTopics({ abi: ABI.shieldReceiver, eventName: "Shielded", args: { vault } } as never);
 function call(to: string, data: string): string {
@@ -118,6 +121,31 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_sendRawTransaction":
       raws.push(req.params[0]);
       return res(keccak256(req.params[0]));
+    case "eth_getTransactionByHash":
+      return res(
+        raws.some((r) => keccak256(r) === req.params[0]) && !dropped.has(req.params[0])
+          ? {
+              hash: req.params[0],
+              nonce: "0x1",
+              from: "0x" + "00".repeat(20),
+              to: "0x" + "00".repeat(20),
+              input: "0x",
+              value: "0x0",
+              gas: "0x5208",
+              blockHash: null,
+              blockNumber: null,
+              transactionIndex: null,
+              type: "0x2",
+              chainId: "0x1",
+              maxFeePerGas: "0x77359400",
+              maxPriorityFeePerGas: "0x3b9aca00",
+              v: "0x0",
+              yParity: "0x0",
+              r: "0x1",
+              s: "0x1",
+            }
+          : null,
+      );
     case "eth_getTransactionReceipt": {
       if (!receipt) return res(null);
       const logs =
@@ -206,6 +234,7 @@ beforeEach(() => {
   revertEstimate = false;
   gasPrice = 1_000_000_000n;
   receipt = null;
+  dropped.clear();
   clock = 1_000;
 });
 
@@ -357,5 +386,31 @@ describe("the watch", () => {
     expect(raws).toHaveLength(0);
     expect(y.get(params.receiptId)!.state).toBe("shield-failed");
     expect(y.get(params.receiptId)!.error).toMatch(/would revert/);
+  });
+
+  it("a shield the node dropped goes back DROP_AFTER_MS after it was sent and is shielded again; an unpaid one gives its place in the budget back (2026-10-15)", async () => {
+    const x = executor();
+    await x.add(request());
+    receiverEth = TIP * 50n; // half the minimum: shielded without the tip once the swap is over
+    clock = 2_000;
+    await x.tick();
+    const job = x.get(params.receiptId)!;
+    expect(job.state).toBe("shielding");
+    expect(job.unpaidShields).toBe(1);
+    expect(job.sent).toEqual({ from: "waiting-delivery", at: 2_000, unpaid: true });
+    dropped.add(job.txHash!);
+    clock = 2_000 + DROP_AFTER_MS / 1000 - 1;
+    await x.tick();
+    expect(job.state, "not yet: the node may still take it").toBe("shielding");
+    clock = 2_000 + DROP_AFTER_MS / 1000;
+    await x.tick();
+    expect(job.state).toBe("waiting-delivery");
+    expect(job.unpaidShields).toBe(0);
+    expect(job.error).toMatch(/^0x[0-9a-f]{64} was dropped before it was mined; shielded again$/);
+    dropped.clear();
+    await x.tick();
+    expect(job.state).toBe("shielding");
+    expect(raws).toHaveLength(2);
+    expect(job.unpaidShields).toBe(1);
   });
 });

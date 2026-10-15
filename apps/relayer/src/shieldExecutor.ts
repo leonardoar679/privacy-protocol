@@ -19,6 +19,7 @@ import { ABI, BYTECODE, predictReceiver, receiverParamsOf, receiverParamsProblem
 import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
+import { DROP_AFTER_MS, Sender, unknownToTheNode, type SentTx } from "./sender";
 
 /** How long a receipt is watched after `deliverBy` for a late delivery (a provider that pays out late). */
 export const LATE_DELIVERY_WATCH_SECONDS = 24 * 3600;
@@ -72,6 +73,8 @@ export interface ShieldJob {
   /** the last mined transaction's gas and gasUsed × effectiveGasPrice */
   gasUsed?: string;
   actualNetworkWei?: string;
+  /** the shield in flight: one the node drops sends the job back to `from` (a V6 follow-up of 2026-10-15) */
+  sent?: SentTx<ShieldJobState>;
   createdAt: number;
   updatedAt: number;
 }
@@ -101,6 +104,8 @@ export interface ShieldExecutorConfig {
   account: PrivateKeyAccount;
   publicClient: PublicClient;
   walletClient: WalletClient;
+  /** the account's one sender, shared with the submissions and the swap executor (server.ts); a test's own otherwise */
+  sender?: Sender;
   /** the receiver's creation code (forge's export); a test may pass another build's */
   creationCode?: Hex;
   now?: () => number;
@@ -112,7 +117,9 @@ export interface ShieldExecutorConfig {
 export class ShieldExecutor {
   private jobs = new Map<string, ShieldJob>();
   private pool: { vaultFactory: Address; wrapped: Address | null } | null = null;
+  private readonly sender: Sender;
   constructor(readonly cfg: ShieldExecutorConfig) {
+    this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
 
@@ -233,21 +240,35 @@ export class ShieldExecutor {
     this.persist();
   }
 
+  /** The shield, through the account's one sender (src/sender.ts); one that never left is noted and tried again next tick. */
   private async send(job: ShieldJob, data: Hex, gas: bigint, unpaid: boolean): Promise<void> {
-    try {
-      job.txHash = await this.cfg.walletClient.sendTransaction({
-        account: this.cfg.account,
-        chain: this.cfg.walletClient.chain,
-        to: job.factory,
-        data,
-        gas: (gas * 12n) / 10n,
-      });
-      job.state = "shielding";
-      job.error = undefined;
-      if (unpaid) job.unpaidShields = (job.unpaidShields ?? 0) + 1;
-    } catch (e) {
-      job.error = firstLine(e, 200); // retried next tick
+    const sent = await this.sender.send({ to: job.factory, data, gas: (gas * 12n) / 10n });
+    if (!sent.ok) {
+      this.note(job, `not sent: ${sent.error}; retried next tick`);
+      return;
     }
+    job.sent = { from: job.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
+    job.txHash = sent.hash;
+    job.state = "shielding";
+    job.error = sent.note;
+    if (unpaid) job.unpaidShields = (job.unpaidShields ?? 0) + 1;
+    job.updatedAt = Date.now();
+    this.persist();
+  }
+
+  /**
+   * A shield the node no longer knows DROP_AFTER_MS after it was sent was dropped and never gets a receipt: the job goes
+   * back to the state it was sent from (a shield no tip paid for gives its place in the budget back), and the next tick
+   * shields again (a V6 follow-up of 2026-10-15; the job waited for that receipt for good, the delivery at the receiver).
+   */
+  private async resendIfDropped(job: ShieldJob, now: number): Promise<void> {
+    const at = job.sent?.at ?? Math.floor(job.updatedAt / 1000);
+    if (!job.txHash || now - at < DROP_AFTER_MS / 1000 || !(await unknownToTheNode(this.cfg.publicClient, job.txHash))) return;
+    if (job.sent?.unpaid) job.unpaidShields = Math.max(0, (job.unpaidShields ?? 1) - 1);
+    job.error = `${job.txHash} was dropped before it was mined; shielded again`;
+    job.state = job.sent?.from ?? (job.shields?.length ? "shielded" : "waiting-delivery");
+    job.txHash = undefined;
+    job.sent = undefined;
     job.updatedAt = Date.now();
     this.persist();
   }
@@ -274,6 +295,7 @@ export class ShieldExecutor {
       job.error = undefined;
     }
     job.txHash = undefined;
+    job.sent = undefined;
     job.updatedAt = Date.now();
     this.persist();
   }
@@ -306,6 +328,7 @@ export class ShieldExecutor {
       if (job.state === "shielding") {
         const receipt = job.txHash ? await this.cfg.publicClient.getTransactionReceipt({ hash: job.txHash }).catch(() => null) : null;
         if (receipt) this.settle(job, receipt);
+        else await this.resendIfDropped(job, now);
         continue;
       }
       const watchEnd = this.watchEnd(job);

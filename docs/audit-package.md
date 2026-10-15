@@ -224,7 +224,9 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     same day, a funding is journaled before it is sent and never sent twice on its own: a reload during a funding had
     sent a second one (both landed when the notes differed, the excess held in the escrow until its refund). A dead
     funding (its notes unspent, no relayer job, older than 10 minutes) stops a swap, and only the user's Resume funds a
-    protected execution's step again.
+    protected execution's step again. The relayer's executors count a swap, refund or shield transaction as dropped by the
+    same rule and send it again (2026-10-15); if the dropped one lands after all, the second call reverts at the relayer's
+    cost (an escrow executes once and refunds what it holds; a receiver shields what it holds).
 43. **V6 — a trending price can ask the user again** (narrowed 2026-10-14). The local stack's run had accepted six moved
     minimums in a row: after "Accept new minimum" the runner prepared a fresh hard quote, which in a market moving one way
     was lower again. Now the runner keeps the call behind the pause and, once its minimum is accepted, checks it again
