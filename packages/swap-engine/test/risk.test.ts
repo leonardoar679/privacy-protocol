@@ -276,8 +276,9 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     const r = recommendProtection({ set: setOf([q("thorchain", usdc.amount)]), req: usdc, amount: usdc.amount, tier: "high-value", mode: "balanced", usdPerUnit: 1, db, now: NOW })!;
     expect(r.flags).toEqual(["R7"]);
     expect(recommendProtection({ set: { ...two, chosen: undefined }, req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db })).toBeNull();
-    expect(protectionFor(two, reqEthBtc(amount), amount, "standard", "balanced", ETH_USD, undefined, db)).toEqual({});
-    const attached = protectionFor(two, reqEthBtc(amount), amount, "high-value", "balanced", null, undefined, db);
+    expect(protectionFor(two, reqEthBtc(amount), amount, "standard", "balanced", ETH_USD, undefined, db, NOW)).toEqual({});
+    // at the test's own clock: read at the real one, an incident's age moved the score (69 → 70 when the date turned 2026-10-15)
+    const attached = protectionFor(two, reqEthBtc(amount), amount, "high-value", "balanced", null, undefined, db, NOW);
     expect(attached.protection?.trancheUsd).toBeNull(); // unvalued: no USD figures, the plan still stands
     expect(attached.risk?.thorchain).toMatchObject({ model: { class: "R5" }, security: { total: 69 }, reliability: 100 });
     expect(attached.risk?.thorchain?.incidents).toHaveLength(1);

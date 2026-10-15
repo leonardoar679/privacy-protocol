@@ -170,10 +170,11 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
 }
 
 /** For the quote set: the recommendation and the risk view, from the enhanced tier up (V2 §13). */
-export function protectionFor(set: QuoteSet, req: QuoteRequest, amount: bigint, tier: Tier | undefined, mode: ProtectionMode, usdPerUnit: number | null, tracker?: ProviderHealthTracker, db: RiskDb = riskDb()): { protection?: Protection; risk?: Partial<Record<ProviderId, ProviderRisk>> } {
+/** `now`: the clock the risk records are read at (a test pins it: an incident's age moves the security score). */
+export function protectionFor(set: QuoteSet, req: QuoteRequest, amount: bigint, tier: Tier | undefined, mode: ProtectionMode, usdPerUnit: number | null, tracker?: ProviderHealthTracker, db: RiskDb = riskDb(), now = Date.now()): { protection?: Protection; risk?: Partial<Record<ProviderId, ProviderRisk>> } {
   if (!tier || !atLeast(tier, "large-protected")) return {}; // V5 (spec §11): from the $50K band
-  const risk = providerRisks(set, req, mode, db, Date.now(), tracker);
-  const protection = recommendProtection({ set, req, amount, tier, mode, usdPerUnit, db, tracker });
+  const risk = providerRisks(set, req, mode, db, now, tracker);
+  const protection = recommendProtection({ set, req, amount, tier, mode, usdPerUnit, db, tracker, now });
   return { ...(protection ? { protection } : {}), risk };
 }
 
