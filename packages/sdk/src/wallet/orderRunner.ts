@@ -329,7 +329,19 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       if (bal !== null && bal >= amount) {
         patchSwap(a.orderId, { state: "funded", paused: undefined }, s);
       } else if (stored.paused?.code === "reconcile") {
-        // a funding with an unknown outcome: the escrow is read again before anything is sent again
+        // A funding with an unknown outcome: the escrow is read again before anything is sent again. Once the order can no
+        // longer execute (past its deadline, the escrow read and still short), it stops. Its notes were never spent, and a
+        // funding mined after all comes back through the escrow's refund. Before (to 2026-10-14), a funding that was sent
+        // and dropped kept the order reconciling for good, its record "Reconciling".
+        if (bal !== null && now / 1000 > Number((stored.params as { executeDeadline?: number }).executeDeadline)) {
+          const detail = "Its funding was sent but not confirmed before the order's window closed; nothing is sent again.";
+          patchSwap(a.orderId, { paused: { code: "funding_unconfirmed", detail, at: now } }, s);
+          abandonSwap(a.orderId, s);
+          cancelAction(a.id, s);
+          const st = journaled(a.orderId, s)!;
+          syncSwapRecord(st, null, null, now);
+          return { step: "stopped", stored: st };
+        }
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
         return { step: "paused", stored };
       } else {

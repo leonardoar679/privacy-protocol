@@ -104,6 +104,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   reconcile: { state: "RECOVERY_REQUIRED", phase: "funding", code: "reconcile" },
   // "Delay for more privacy" (spec v2.0 §14.1): the older notes no longer covered the order — stopped, never funded
   older_notes_unavailable: { state: "CANCELLED", phase: "funding", code: "older_notes_unavailable" },
+  // a funding sent and never confirmed before the order's window closed: stopped, never sent again
+  funding_unconfirmed: { state: "CANCELLED", phase: "funding", code: "funding_unconfirmed" },
 };
 
 /** A journaled order with (or without) the tracker's last derivation. */

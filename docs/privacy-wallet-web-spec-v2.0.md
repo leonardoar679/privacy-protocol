@@ -428,7 +428,9 @@ same tick (the signature never waits in memory across ticks), or the tracking. P
 "Return funds"; an accepted minimum signs the very call it was read from — kept in memory, checked again — while at
 least two minutes of it remain, else a fresh quote: audit gap 43), `execution_unavailable` (a simulation that fails, the price guard's refusal: try again or return),
 `unsafe_contract_call` (the call did not pass the wallet's checks: return), `reconcile` (a send whose outcome is unknown:
-the escrow or the executor is read before anything is sent again). A failure before anything was sent goes to the
+the escrow or the executor is read before anything is sent again; *a V6 follow-up of 2026-10-14:* a funding still
+unconfirmed when the order's window closes, the escrow read and short, stops the order as `funding_unconfirmed`,
+CANCELLED and still protected, never sent again — a dropped funding had kept it reconciling for good). A failure before anything was sent goes to the
 scheduler's backoff — except `older_notes_unavailable` (§14.1): the order is stopped unfunded (CANCELLED with that
 reason, "Review again"), since its escrow's window cannot wait 1–24 h and younger notes would break what the Review
 showed. The swap's operation record follows through `packages/sdk/src/operations/swapRecords.ts` (moved

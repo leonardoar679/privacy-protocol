@@ -86,9 +86,13 @@ const stored = () => session.journal().swaps.find((x) => x.orderId === ORDER)!;
 const record = () => getOperation(swapRecordId(ORDER));
 
 /** The world the runner observes and moves: the escrow, the executor, the tracker and the hard quote's minimum. */
-function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-before" | "fails-after" | "older-gone"; handOver?: "ok" | "lost" } = {}) {
+function world(
+  o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-before" | "fails-after" | "older-gone" | "dropped"; handOver?: "ok" | "lost" } = {},
+) {
   const w = {
     escrow: 0n,
+    /** the escrow's balance cannot be read */
+    escrowUnread: false,
     job: null as SwapJob | null,
     funds: 0,
     signs: 0,
@@ -113,12 +117,13 @@ function world(o: { minOut?: bigint; simOk?: boolean; fund?: "ok" | "fails-befor
       if (w.fund === "fails-before") throw new TypeError("fetch failed");
       if (w.fund === "older-gone") throw new OlderNotesUnavailable(st.runner?.maxTiming ?? 0);
       onStatus("Withdrawing privately: handing it to the relayer…");
+      if (w.fund === "dropped") throw new Error("Timed out while waiting for the transaction to be confirmed"); // sent, never mined
       w.escrow = AMOUNT;
       if (w.fund === "fails-after") throw new TypeError("fetch failed");
       patchSwap(st.orderId, { fundedTx: "0xf00d", state: "funded" });
       return { txHash: "0xf00d" };
     },
-    escrowBalance: async () => w.escrow,
+    escrowBalance: async () => (w.escrowUnread ? null : w.escrow),
     sign: async (st, reuse) => {
       w.signs++;
       w.reused.push(reuse ?? null);
@@ -324,6 +329,30 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(before.w.escrow).toBe(0n);
   });
 
+  it("a funding sent and never confirmed stops once the order can no longer execute: past its deadline, the escrow read and empty", async () => {
+    // a dropped funding transaction (2026-10-14): the reconcile pause had read the escrow for good, the record "Reconciling"
+    const deadline = Math.floor(T0 / 1000) + 1800;
+    order({ params: { amount: AMOUNT.toString(), executeDeadline: deadline, refundAfter: deadline + 7200 } } as Partial<StoredSwap>);
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world({ fund: "dropped" });
+    expect(await drive(io, 1)).toEqual(["paused"]);
+    expect(stored().paused?.code).toBe("reconcile");
+    // before the deadline the escrow is still watched, and nothing is sent again
+    expect((await runOrderTick(pending()!, deps(io, deadline * 1000 - 1_000)))?.step).toBe("paused");
+    // past it, an unread escrow decides nothing
+    w.escrowUnread = true;
+    expect((await runOrderTick(pending()!, deps(io, deadline * 1000 + 1_000)))?.step).toBe("paused");
+    expect(stored().paused?.code).toBe("reconcile");
+    // read and empty: the order stops, never funded again; the record says the funds are still protected
+    w.escrowUnread = false;
+    expect((await runOrderTick(pending()!, deps(io, deadline * 1000 + 2_000)))?.step).toBe("stopped");
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "funding_unconfirmed" } });
+    expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "funding_unconfirmed", fundsClass: "still-protected" } });
+    expect(pending(), "no more ticks").toBeUndefined();
+    expect(w.funds).toBe(1);
+  });
   it("a hand-over whose answer was lost, or that another tab made, is found by orderId: never handed over twice", async () => {
     order({ fundedTx: "0xf00d", state: "funded" });
     session.update((j) => {

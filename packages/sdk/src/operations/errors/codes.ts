@@ -82,6 +82,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   execution_unavailable: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   // spec v2.0 §14.1: an order to be funded from older notes that no longer cover it is stopped before anything is sent
   older_notes_unavailable: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)
+  funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
   unsafe_contract_call: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
   deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
