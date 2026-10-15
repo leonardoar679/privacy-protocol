@@ -41,7 +41,8 @@ schedule (`src/db.ts` `RETENTION`):
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).
-- **Errors.** A caller's mistake answers `4xx` with a catalog code. A provider that failed, or answered what the engine
+- **Errors.** A caller's mistake answers `4xx` with a catalog code: every field of a body is checked before any
+  provider is asked (`test/validation.test.ts`). A provider that failed, or answered what the engine
   will not build on (at prepare, at track, on the guest routes), answers `502 provider_unavailable` and is logged as
   `provider.failed` with the provider, never its message (`test/provider-failure.test.ts`). Anything else is the API's
   own error: `500`, logged as `http.error` with `internal`.
@@ -51,7 +52,7 @@ schedule (`src/db.ts` `RETENTION`):
 ```
 cd apps/api && cp .env.example .env      # PORT, DB_PATH, ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (+ the engine's: packages/swap-engine/.env.example)
 npm start                                # http://127.0.0.1:8787/v1
-npm test                                 # 31 tests: schema, routes, reconcile, retention, security, logs, a full flow, the reads, provider failures
+npm test                                 # 33 tests: schema, routes, reconcile, retention, security, logs, a full flow, the reads, provider failures, validation
 ```
 
 The local stack starts it on 8787 with `run/api.sqlite` (`scripts/local-stack/start-services.mjs service`).

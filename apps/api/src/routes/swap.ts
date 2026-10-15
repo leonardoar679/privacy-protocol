@@ -80,26 +80,50 @@ const windowOf = (b: any): number | undefined =>
     ? Number(b.executeWindowSeconds)
     : undefined;
 const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: preferenceOf(b), mode: modeOf(b), executeWindowSeconds: windowOf(b) });
+// A V6 follow-up of 2026-10-14: every number and string a request carries is checked here, at the edge. A malformed one
+// had reached the engine and the providers as NaN or a crash (a 500 logged as the API's own error), and a provider's
+// error over it could have counted against the provider's health for every user.
+/** a uint256 in decimal: at most 78 digits */
+const UINT = /^\d{1,78}$/;
+const HEX32 = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const short = (x: unknown, max: number): boolean => typeof x === "string" && x.length > 0 && x.length <= max;
 function asset(a: any): AssetRef {
-  if (!a || typeof a.chain !== "string" || typeof a.asset !== "string" || typeof a.symbol !== "string" || !Number.isInteger(Number(a.decimals)))
-    throw new BadRequest("an asset is { chain, asset, decimals, symbol }");
-  return { chain: a.chain, asset: a.asset, decimals: Number(a.decimals), symbol: a.symbol };
+  const decimals = Number(a?.decimals);
+  if (!a || !short(a.chain, 32) || !short(a.asset, 64) || !short(a.symbol, 16) || !Number.isInteger(decimals) || decimals < 0 || decimals > 36)
+    throw new BadRequest("an asset is { chain, asset, decimals (0–36), symbol }");
+  return { chain: a.chain, asset: a.asset, decimals, symbol: a.symbol };
 }
 function request(b: any): QuoteRequest {
-  if (!/^\d+$/.test(String(b?.amount ?? ""))) throw new BadRequest("amount must be base units");
+  if (!UINT.test(String(b?.amount ?? ""))) throw new BadRequest("amount must be base units");
+  const slippageBps = b.slippageBps === undefined ? 50 : Number(b.slippageBps);
+  if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps > 10_000) throw new BadRequest("slippageBps must be an integer from 0 to 10000");
+  if (b.destination !== undefined && typeof b.destination !== "string") throw new BadRequest("destination must be a string");
+  if (typeof b.destination === "string" && b.destination.length > 256) throw new BadRequest("destination is too long");
   return {
     from: asset(b.from),
     to: asset(b.to),
     amount: BigInt(b.amount),
     destination: String(b.destination ?? ""),
-    slippageBps: Number(b.slippageBps ?? 50),
+    slippageBps,
     ...(b.destinationKind === "entered" ? { destinationKind: "entered" as const } : {}),
     ...(b.preferNative === true ? { preferNative: true } : {}),
     ...(b.destinationType === "protected" ? { destinationType: "protected" as const } : {}),
   };
 }
 function paramsOf(p: any): OrderParams {
-  if (!p || typeof p.orderId !== "string") throw new BadRequest("params must be the order's on-chain parameters");
+  const integer = (x: unknown) => (typeof x === "number" ? Number.isSafeInteger(x) && x >= 0 : typeof x === "string" && /^\d{1,15}$/.test(x));
+  if (
+    !p ||
+    !(typeof p.orderId === "string" && HEX32.test(p.orderId)) ||
+    !(p.assetType === 0 || p.assetType === 1 || p.assetType === "0" || p.assetType === "1") ||
+    ![p.asset, p.orderSigner, p.refundVault].every((a) => typeof a === "string" && ADDRESS.test(a)) ||
+    ![p.amount, p.refundOwnerCommitment, p.refundNoteSecret, p.executorTip].every((n) => UINT.test(String(n ?? ""))) ||
+    !integer(p.executeDeadline) ||
+    !integer(p.refundAfter) ||
+    !(typeof p.refundNoteDataHash === "string" && HEX32.test(p.refundNoteDataHash))
+  )
+    throw new BadRequest("params must be the order's on-chain parameters");
   return {
     orderId: p.orderId,
     assetType: Number(p.assetType) as 0 | 1,
@@ -278,6 +302,7 @@ export class SwapApi {
   }
   private async rebuilt(b: Record<string, unknown>, req: QuoteRequest): Promise<Order | Answer> {
     const provider = b.provider as ProviderId;
+    const params = paramsOf(b.params); // checked before any provider is asked
     const set = await this.engine.quoteAll(req, policyOf(b), hintsOf(b));
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote)
@@ -285,7 +310,7 @@ export class SwapApi {
         status: 400,
         body: { error: `no quote from ${provider} right now; retry later`, code: "no_quote", errors: set.errors, competition: set.competition },
       };
-    return this.engine.restoreOrder(req, set.policy, quote, paramsOf(b.params), assessmentOf(set), preferenceOf(b));
+    return this.engine.restoreOrder(req, set.policy, quote, params, assessmentOf(set), preferenceOf(b));
   }
 
   /** GET /v1/operations/:id: the record's state — never the order, the escrow, an amount or a destination. */

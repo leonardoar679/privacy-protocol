@@ -1082,6 +1082,9 @@ per id per 5 s, the answer kept in memory only for those 5 s (a V6 follow-up of 
 process's life, past the retention above). Security: a CORS allowlist, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, HSTS behind
 TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory token buckets, `trust proxy` off.
+Every field of a request body is checked at the edge (a V6 follow-up of 2026-10-14): integer slippage 0–10000 bps,
+decimals 0–36, an amount of at most 78 digits, a destination of at most 256 characters, and a journaled order's params
+in shape, before any provider is asked. A malformed one is `400 invalid_request`, never a 500 or a provider's error.
 **Logs** (doc §67, `packages/server-kit`): one JSON line per event with keys ⊆ {`at`, `level`, `event`,
 `operationId`, `provider`, `state`, `errorClass`, `network`} — the typed logger accepts nothing else; no address,
 transaction hash, amount, Bitcoin or Solana string ever (the §19 log gate).
