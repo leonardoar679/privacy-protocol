@@ -4,7 +4,7 @@
 // cannot carry, or a lower minimum is caught before anything is shown. Offline: THORNode answers stubbed.
 import { describe, it, expect } from "vitest";
 import { checkGuestInstruction, type GuestInstruction } from "@privacy-wallet/sdk/guestGuard";
-import { MinimumMoved, ProviderCallMismatch, thorAsset, thorAssetShort, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
+import { MinimumMoved, ProviderCallMismatch, ProviderCallUnverified, thorAsset, thorAssetShort, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "@privacy-wallet/sdk/providerCall";
 import { buildMemo, thorAsset as engineThorAsset, thorAssetShort as engineThorAssetShort, UTXO_MEMO_BYTES } from "@privacy-wallet/swap-engine/adapters/thorchain";
 import type { AssetRef } from "@privacy-wallet/sdk/swapService";
 
@@ -49,14 +49,15 @@ describe("the browser checks a guest's deposit instruction before showing it", (
     await expect(checkGuestInstruction(instruction({ memo: short }), expectation({ to: USDC, approvedMin: 832_991_081n }))).resolves.toMatchObject({ minOut: 832_991_081n });
     await refused(checkGuestInstruction(instruction({ memo: full }), expectation({ to: USDC, approvedMin: 0n })), /80/);
   });
-  it("refuses another address, another destination, another asset, a refund field, streaming or affiliates, a halted chain", async () => {
+  it("refuses another address, another destination, another asset, a refund field, streaming or affiliates; a halted chain is not shown now", async () => {
     await refused(checkGuestInstruction(instruction({ to: "bc1qattackerattackerattackerattackerattack" }), expectation()), /vault/);
     await refused(checkGuestInstruction(instruction({ memo: buildMemo("ETH.ETH", "0x000000000000000000000000000000000000bad1", LIMIT) }), expectation()), /receiver/);
     await refused(checkGuestInstruction(instruction({ memo: buildMemo("ETH.USDT", DEST, LIMIT) }), expectation()), /memo asset/);
     await refused(checkGuestInstruction(instruction({ memo: buildMemo("ETH.ETH", DEST, LIMIT, "bc1qrefund") }), expectation()), /memo/);
     await refused(checkGuestInstruction(instruction({ memo: `${buildMemo("ETH.ETH", DEST, LIMIT)}/3/0` }), expectation()), /memo/);
     await refused(checkGuestInstruction(instruction({ memo: `${buildMemo("ETH.ETH", DEST, LIMIT)}:aff:50` }), expectation()), /memo/);
-    await refused(checkGuestInstruction(instruction(), expectation({ inbound: inbound({ halted: true }) })), /inbound/);
+    // a halt is THORChain's outage: the instruction is not shown now, and it is not called a mismatch (2026-10-14)
+    await expect(checkGuestInstruction(instruction(), expectation({ inbound: inbound({ halted: true }) }))).rejects.toBeInstanceOf(ProviderCallUnverified);
   });
   it("refuses another amount, an expired instruction, another provider, a source the guest flow does not serve", async () => {
     await refused(checkGuestInstruction(instruction({ amount: "999" }), expectation()), /amount/);

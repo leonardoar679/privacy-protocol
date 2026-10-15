@@ -431,7 +431,8 @@ least two minutes of it remain, else a fresh quote: audit gap 43), `execution_un
 whose vault is not the one the gateways suggest passes when every gateway that answers lists it among THORChain's active
 vaults — THORChain moves its suggestion between them several times an hour —, an accepted call whose vault has retired
 since is prepared afresh, and gateways that do not answer are an outage, `ProviderCallUnverified`: nothing signed, the
-scheduler's backoff), `reconcile` (a send whose outcome is unknown:
+scheduler's backoff; so is a halted inbound, as the API's prepare already read it — before, a halt stopped an accepted
+call as unsafe), `reconcile` (a send whose outcome is unknown:
 the escrow or the executor is read before anything is sent again; *V6 follow-ups of 2026-10-14:* the funding's own
 submission is journaled before it is sent (`StoredSwap.fundingAttempt`: its nullifiers, the relayer, the transaction),
 so a reload or a lost answer still knows it, and its fate decides (`packages/sdk/src/swapFunding.ts` `fundingFate`):

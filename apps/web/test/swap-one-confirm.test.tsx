@@ -343,6 +343,32 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
   }, 60_000);
 
+  it("THORChain halts its inbound before an accepted call is signed: nothing signed, not stopped as unsafe; signed once it resumes", async () => {
+    // 2026-10-14: the API's prepare reads a halt as an outage, but the wallet's check of a call accepted before had stopped
+    // the funded swap as an unsafe call
+    await wallet();
+    const { orderId } = await confirmed();
+    await tick(orderId);
+    world.bend = { limit: LIMIT - 60_000n };
+    expect(await tick(orderId)).toBe("paused");
+    world.gateways.halted = true;
+    fireEvent.click(await screen.findByTestId("swap-accept-minimum"));
+    const a = session.journal().schedule.find((x) => x.id === `order-tick:${orderId}`)!;
+    let thrown: unknown;
+    await act(async () => {
+      thrown = await runOrderTick(a, { masterSeed: session.state().seed!, deployment }).then(
+        () => null,
+        (e) => e,
+      );
+    });
+    expect(thrown, "an outage, for the scheduler's backoff").toBeInstanceOf(ProviderCallUnverified);
+    expect(stored(orderId).paused).toBeUndefined();
+    expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
+    world.gateways.halted = false;
+    expect(await tick(orderId)).toBe("handed-over");
+    expect(calls.filter((c) => c.endsWith("/finalize"))).toHaveLength(1);
+  }, 60_000);
+
   it("the call whose lower minimum was accepted names a vault THORChain has retired since: a fresh call is prepared, checked and signed", async () => {
     await wallet();
     const { orderId } = await confirmed();

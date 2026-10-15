@@ -52,8 +52,8 @@ export const world: {
   ttlSeconds: number;
   /** V6 Stage 13: the service's protection plan for the $50K band (the engine's recommendation), when set */
   protection?: unknown;
-  /** the THORNode gateways (2026-10-14): the vault they suggest, the active vaults they list, how many (the first) do not answer */
-  gateways: { inbound: string; active: string[]; down: number };
+  /** the THORNode gateways (2026-10-14): the vault they suggest, the active vaults they list, how many (the first) do not answer, a halt */
+  gateways: { inbound: string; active: string[]; down: number; halted?: boolean };
   /** the vault the service's THORChain deposit names */
   callVault: string;
 } = {
@@ -230,7 +230,7 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
     )
       throw new TypeError("fetch failed");
     if (u.pathname.endsWith("/inbound_addresses"))
-      return json([{ chain: "ETH", address: world.gateways.inbound, router: PINNED.thorchainRouter, halted: false }]);
+      return json([{ chain: "ETH", address: world.gateways.inbound, router: PINNED.thorchainRouter, halted: !!world.gateways.halted }]);
     return json(world.gateways.active.map((address) => ({ status: "ActiveVault", addresses: [{ chain: "ETH", address }] })));
   }
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)

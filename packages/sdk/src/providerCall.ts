@@ -131,10 +131,11 @@ export class ProviderCallMismatch extends Error {
 }
 
 /**
- * The call cannot be checked right now: too few THORNode gateways answered. Nothing goes ahead, and the runner tries again
- * later. It is an outage, not a call that does something else (ProviderCallMismatch). Before (a V6 follow-up of
- * 2026-10-14), a gateway outage at signing stopped a funded swap as an unsafe call, and a protected execution's step as an
- * unexpected destination.
+ * The call cannot go ahead right now: too few THORNode gateways answered, or THORChain has halted the chain's inbound.
+ * Nothing goes ahead, and the runner tries again later (an order whose window closes meanwhile stops for "Return funds").
+ * It is an outage, not a call that does something else (ProviderCallMismatch). Before (V6 follow-ups of 2026-10-14), a
+ * gateway outage — and a halt, when the call was one the user had accepted before — stopped a funded swap as an unsafe
+ * call, and a protected execution's step as an unexpected destination.
  */
 export class ProviderCallUnverified extends Error {
   constructor(public readonly provider: string, detail: string) {
@@ -370,7 +371,8 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   const { args } = decode(P, THOR_ABI, call.calldata);
   const [vault, asset, amount, memo, expiry] = args as [Address, Address, bigint, string, bigint];
   const v = await inbound("ETH");
-  must(!v.halted, P, "inbound", "THORChain has halted Ethereum inbound");
+  // a halt is THORChain's outage, as the API reads it when it prepares a call: tried again, never an unsafe call
+  if (v.halted) throw new ProviderCallUnverified(P, "THORChain has halted Ethereum inbound");
   must(!!v.router && same(v.router, call.provider), P, "router", `the gateways report router ${v.router}, the call targets ${call.provider}`);
   // the vault THORChain suggests now, or another of its active vaults (it moves the suggestion between them several times
   // an hour; a call prepared a moment before names the previous one): every gateway that answers must list it

@@ -6,7 +6,7 @@
 // user), and the memo must swap into the asset the guest chose, pay the destination the guest typed,
 // fit the chain's 80-byte OP_RETURN, and enforce a minimum no lower than the quote the guest saw. The
 // memo carries no refund address: THORChain refunds the sender, which here is the guest's own wallet.
-import { from1e8, MinimumMoved, ProviderCallMismatch, THOR_CHAIN, thorAsset, thorAssetShort, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "./providerCall";
+import { from1e8, MinimumMoved, ProviderCallMismatch, ProviderCallUnverified, THOR_CHAIN, thorAsset, thorAssetShort, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "./providerCall";
 import type { AssetRef } from "./swapService";
 
 /** A guest signs nothing here: the instruction is simply not shown. */
@@ -37,7 +37,8 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   if (BigInt(ins.ingress.amount) !== e.amount) fail("amount", `the instruction is for ${ins.ingress.amount}, not ${e.amount}`);
   if (ins.ingress.expiresAt <= now) fail("expiry", "the instruction has already expired");
   const v = await (e.inbound ?? ((c: string) => thornodeInbound(c)))(chain);
-  if (v.halted) fail("inbound", `THORChain has halted ${chain} inbound`);
+  // a halt is THORChain's outage, not an instruction that does something else: not shown now, and no mismatch either
+  if (v.halted) throw new ProviderCallUnverified("thorchain", `THORChain has halted ${chain} inbound`);
   // the refusal never repeats the address the service named: a guest must have nothing to copy
   let gateways = v.agreeing.length;
   if (!v.address || ins.ingress.to.toLowerCase() !== v.address.toLowerCase()) {

@@ -115,11 +115,15 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
     await expect(checkProviderCall(call({ asset: USDC.asset, amount: 1_000_000_000n, value: 0n }), e, { inbound: inbound() })).resolves.toMatchObject({ minOut: LIMIT });
     await refused(checkProviderCall(call({ asset: ZERO, amount: 1_000_000_000n, value: 0n }), e, { inbound: inbound() }), /asset/);
   });
-  it("refuses: another vault, router or halted inbound; another receiver, refund, asset, limit form; another amount or value", async () => {
+  it("a halted inbound is THORChain's outage: nothing signed, tried again later — never a call that does something else (2026-10-14)", async () => {
+    const p = checkProviderCall(call(), expectation(), { inbound: inbound({ halted: true }) });
+    await expect(p).rejects.toBeInstanceOf(ProviderCallUnverified);
+    await expect(p).rejects.toThrow(/halted Ethereum inbound/);
+  });
+  it("refuses: another vault or router; another receiver, refund, asset, limit form; another amount or value", async () => {
     const e = expectation();
     await refused(checkProviderCall(call({ vault: ATTACKER }), e, { inbound: inbound(), active: listed([VAULT, OTHER_VAULT]) }), /vault/);
     await refused(checkProviderCall(call(), e, { inbound: inbound({ router: ATTACKER }) }), /router/);
-    await refused(checkProviderCall(call(), e, { inbound: inbound({ halted: true }) }), /inbound/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), "bc1qattacker", LIMIT, ESCROW) }), e, { inbound: inbound() }), /receiver/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ATTACKER) }), e, { inbound: inbound() }), /refund/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT) }), e, { inbound: inbound() }), /memo/); // no refund address: THORChain would refund the relayer
