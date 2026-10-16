@@ -291,7 +291,7 @@ same call (`providerCall.ts::mayanSwift`).
 | | |
 |---|---|
 | Quote | `GET /quote?fromChain&toChain&fromToken&toToken&fromAmount&fromAddress (escrow, else 0x…dEaD)&toAddress&slippage&allowBridges=across,mayan` (+ `x-lifi-api-key` when configured; anonymous use is rate-limited: HTTP 429 for two hours after heavy probing — the breaker of §16 covers it). |
-| Verified locally | the diamond is pinned; facets are recognised by selector only (AcrossFacetV4 `0xa1f1ce43` / swap `0x1794958f`; MayanFacet `0xb4875292` / swap `0x80c65808`), anything else refused under every policy; chain id, value, the quote's from / to, `BridgeData` receiver / chain / no destination call / spent asset; AcrossFacetV4: refund address = escrow, the output floor `minAmount × outputAmountMultiplier / 1e18` (PP-S01); MayanFacet: sweep recipient = escrow, `mayanAmountIn` (PP-S03); a source swap only into a token the escrow re-shields (PP-S08). |
+| Verified locally | the diamond is pinned; facets are recognised by selector only (AcrossFacetV4 `0xa1f1ce43` / swap `0x1794958f`; MayanFacet `0xb4875292` / swap `0x80c65808`), anything else refused under every policy; chain id, value, the quote's from / to, `BridgeData` receiver / chain / no destination call / spent asset; AcrossFacetV4: refund address = escrow, the output floor `minAmount × outputAmountMultiplier / 1e18` (PP-S01), the multiplier at most one in the units of the bridged token, which must be the asset delivered (audit 2026-10-16); MayanFacet: sweep recipient = escrow, `mayanAmountIn` (PP-S03); a source swap only into a token the escrow re-shields (PP-S08). |
 | Minimum | `toAmountMin` within slippage + 50 bps of `toAmount`; `minOutVerified` only for AcrossFacetV4; MUST be ≥ `approvedMin` at phase 3. |
 | Refund target | escrow for Across routes; the Mayan facet's unfilled order pays the destination (the quote carries no `refundTarget`; the wallet shows the warning). |
 | Size | none stated; `estimate` values → `impactBps` when present. **Measured (Stage 1):** ETH → SOL answered 422 "none of the available routes could generate a tx" at $1M and 404 "no available quotes" at $5M; ETH → USDC (Base) at $1M routed through a USDC swap on Ethereum first, which the PP-S08 rule refuses unless the pool has a USDC vault (the lab ran without one). |
@@ -474,10 +474,10 @@ confirmed later against a fresh quote or returned to the pool (the local-stack b
 | Chainflip | `cfParameters.minPriceX128` | service + wallet (decoded) | DCA: per chunk (§12) |
 | Mayan SWIFT / Fast-MCTP | the order's `minAmountOut` (built locally) | service + wallet (decoded) | Fast-MCTP unfilled → USDC at the destination |
 | NEAR Intents | the service-signed quote | provider only → `minOutVerified: false` | filtered unless `fastest` |
-| LI.FI AcrossFacetV4 | `minAmount × multiplier / 1e18` | service + wallet | the facet recomputes it on chain |
+| LI.FI AcrossFacetV4 | `minAmount × multiplier / 1e18` | service + wallet | the facet recomputes it on chain; the multiplier is at most one in the bridged token's units, so `minAmount`, the source swap's floor, backs it (audit 2026-10-16) |
 | LI.FI MayanFacet | inside Mayan's order | provider only → `minOutVerified: false` | filtered unless `fastest` |
 | Across depositV3 | `outputAmount` (exact fill) | service + wallet | unfilled → refund in the input token |
-| Across swap leg | `depositData.outputAmount` | service + wallet | proportional adjustment only raises it |
+| Across swap leg | `depositData.outputAmount` | service + wallet | proportional adjustment only raises it; covered by the swap's own floor `minExpectedInputTokenAmount`, counted in the asset delivered (audit 2026-10-16) |
 
 - The wallet signs only a call whose guaranteed minimum it read itself and found ≥ `approvedMin`;
   a call it cannot read is not signed; a minimum it cannot read is accepted only under `fastest`

@@ -9,8 +9,10 @@
 // decoded here and compared: the pinned periphery and SpokePool, the spent token and amount, the escrow
 // as depositor (an unfilled deposit is refunded to it, in the swapped token), the destination asset and
 // chain, no submission fee, nonce zero. The guaranteed output is `depositData.outputAmount`: proportional
-// adjustment only raises it. The exchange and its calldata stay opaque; what they can do is bounded by
-// those checks (a swap that yields less than the minimum reverts the whole call; the escrow keeps the order).
+// adjustment only raises it. The exchange and its calldata stay opaque; what they can do is bounded by the
+// swap's own floor, `minExpectedInputTokenAmount`, which must be in the asset delivered and cover the output
+// in its units (audit 2026-10-16): a swap that yields less reverts the whole call (the escrow keeps the
+// order), and a deposit nobody fills is refunded to the escrow at no less than the floor.
 // The API pays the fill to Across's MulticallHandler with a message (verified source, the same address
 // on Optimism, Base and Arbitrum): the handler runs the calls and, by its own comment, anything a message
 // leaves in it "can be stolen". So the message is read too: only `drainLeftoverTokens(outputToken, fresh
@@ -18,7 +20,7 @@
 // a fallback recipient that is the fresh address or none (a failing call then reverts the fill, and the
 // unfilled deposit is refunded to the escrow); something must drain the output token to the fresh address.
 import { hexBuf } from "../abi";
-import { escrowCanReshield, foreignRefundTokens } from "../escrowAssets";
+import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import { SINGLE_PLAN, categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
 
 /** SpokePoolPeriphery on Ethereum (Across, `contracts/periphery/SpokePoolPeriphery.sol`, Sourcify exact match). */
@@ -87,8 +89,8 @@ const b32 = (a: string) => Buffer.concat([Buffer.alloc(12), hexBuf(a)]);
 
 /**
  * Check a swapAndBridge call against the request: what the order key would sign. Returns the guaranteed
- * output (depositData.outputAmount) and the token an unfilled deposit is refunded in, when that is not
- * the order's asset (the executor re-shields it through the escrow's refundToken).
+ * output (depositData.outputAmount, covered by the swap's own floor) and the token an unfilled deposit is
+ * refunded in, when that is not the order's asset (the executor re-shields it through the escrow's refundToken).
  */
 export function verifyAcrossSwapCall(
   req: QuoteRequest,
@@ -159,6 +161,14 @@ export function verifyAcrossSwapCall(
   const bridged = c.depositData.inputToken;
   if (bridged === ZERO || !escrowCanReshield(req.from, bridged)) throw new Error(`Across swap: swaps ${req.from.symbol} into ${bridged} before bridging; an unfilled deposit would come back to the escrow in that token, which it cannot re-shield (the pool has no vault for it)`);
   verified.push("refunds re-shieldable");
+  // the swap's own floor backs the deposit (audit 2026-10-16): the exchange and its calldata stay opaque, and the periphery deposits
+  // whatever the swap returned against outputAmount. So the swapped-into token must be the asset delivered (sameAsset), and
+  // minExpectedInputTokenAmount must cover outputAmount in its units: a swap below it reverts the call, and a deposit nobody fills
+  // refunds the escrow at least the output's worth. Otherwise the exchange could keep the order and return one unit
+  const asset = reshieldableAsset(req.from, bridged);
+  if (!asset || !sameAsset(asset.symbol, req.to.symbol)) throw new Error(`Across swap: bridges ${bridged}${asset ? ` (${asset.symbol})` : " (a token this adapter does not know)"} for ${req.to.symbol}; the swap's floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth`);
+  if (!covers(c.minExpectedInputTokenAmount, asset.decimals, c.depositData.outputAmount, req.to.decimals)) throw new Error(`Across swap: the swap's own floor ${c.minExpectedInputTokenAmount} does not cover the deposit's output ${c.depositData.outputAmount} (the exchange could keep the order; an unfilled deposit refunds only the floor)`);
+  verified.push("swap floor covers the output");
   return { minOut: c.depositData.outputAmount, refundTokens: foreignRefundTokens(req.from, [bridged]), verified, call: c };
 }
 

@@ -57,7 +57,20 @@ const ownAsset = (e: CallExpectation, token: Address) => (e.from.asset === "nati
 /** ...through refundToken(), for an ERC-20 order ETH and WETH, as ETH into the native vault (the escrow unwraps the WETH)... */
 const asEth = (e: CallExpectation, token: Address) => e.from.asset !== "native" && (same(token, ZERO) || same(token, WETH.ethereum));
 /** ...and any token the pool has a vault for (one this wallet can see the note in). */
-const reshieldable = (e: CallExpectation, token: Address) => ownAsset(e, token) || asEth(e, token) || (!same(token, ZERO) && (e.pooled ?? []).some((t) => same(t, token)));
+const reshieldable = (e: CallExpectation, token: Address) => ownAsset(e, token) || asEth(e, token) || (!same(token, ZERO) && (e.pooled ?? []).some((t) => same(t.token, token)));
+/** What a token that re-shields is: ETH (ETH and WETH), the order's own asset, a pooled token as the deployment names it. */
+const reshieldableAsset = (e: CallExpectation, token: Address): { symbol: string; decimals: number } | undefined =>
+  !reshieldable(e, token) ? undefined
+  : same(token, ZERO) || same(token, WETH.ethereum) ? { symbol: "ETH", decimals: 18 }
+  : e.from.asset !== "native" && same(token, e.from.asset) ? { symbol: e.from.symbol, decimals: e.from.decimals }
+  : e.pooled?.find((t) => same(t.token, token));
+/**
+ * Whether a floor in one asset counts for an output in another: ETH and WETH are one asset, and so are the dollar stablecoins
+ * USDC and USDT (LI.FI routes USDC on Base through a USDT deposit, 2026-10). Anything else only counts for itself.
+ */
+const sameAsset = (a: string, b: string) => { const n = (s: string) => (/^w?eth$/i.test(s) ? "ETH" : /^usd[ct]$/i.test(s) ? "USD" : s.toUpperCase()); return n(a) === n(b); };
+/** Whether `floor` (with `floorDecimals`) covers `out` (with `outDecimals`) of the same asset. */
+const covers = (floor: bigint, floorDecimals: number, out: bigint, outDecimals: number) => out * 10n ** BigInt(floorDecimals) <= floor * 10n ** BigInt(outDecimals);
 /** The floor the executor is told for a listed token: `least` / `divisor` (PP-S12: dust below it is not worth an unpaid re-shield). */
 const floorOf = (tokens: Address[] | undefined, least: bigint, divisor: bigint): Record<string, string> | undefined =>
   tokens ? { [tokens[0].toLowerCase()]: (least / divisor).toString() } : undefined;
@@ -103,8 +116,8 @@ export interface CallExpectation {
   policy: Policy;
   /** the deployment's chain: the pinned provider contracts exist on Ethereum mainnet (1) only */
   chainId?: bigint;
-  /** tokens the pool has a vault for (this wallet's configured ERC-20 assets): a token a provider pays back in re-shields there through the escrow's refundToken, and this wallet sees the note */
-  pooled?: string[];
+  /** tokens the pool has a vault for (this wallet's configured ERC-20 assets, as its deployment names them): a token a provider pays back in re-shields there through the escrow's refundToken, and this wallet sees the note */
+  pooled?: { token: string; symbol: string; decimals: number }[];
   /** unix seconds (tests) */
   now?: number;
 }
@@ -461,9 +474,9 @@ export function decodeCfParameters(b: Uint8Array): CfParameters {
 /**
  * Across's swap leg: SpokePoolPeriphery.swapAndBridge swaps on Ethereum and deposits the result into the SpokePool
  * it is told (any address: so it must be the pinned one). The guaranteed output is the deposit's outputAmount
- * (proportional adjustment only raises it); an unfilled deposit refunds the depositor in the swapped token. The
- * fill pays the fresh address directly, or the pinned MulticallHandler whose message must hand the output token
- * to it (anything a message leaves in the handler can be taken by anyone).
+ * (proportional adjustment only raises it), backed by the swap's own floor; an unfilled deposit refunds the
+ * depositor in the swapped token. The fill pays the fresh address directly, or the pinned MulticallHandler whose
+ * message must hand the output token to it (anything a message leaves in the handler can be taken by anyone).
  */
 function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
   const P: ProviderName = "across";
@@ -483,6 +496,13 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
   must(s.minExpectedInputTokenAmount > 0n && d.outputAmount > 0n, P, "minimum", "a zero minimum");
   must(d.fillDeadline > now, P, "deadline", "the fill deadline has passed");
   must(reshieldable(e, d.inputToken), P, "refund", `swaps into ${d.inputToken} before bridging: an unfilled deposit would come back to the escrow in a token it cannot re-shield`);
+  // the swap's own floor backs the deposit (audit 2026-10-16): the exchange and its calldata stay opaque, and the periphery deposits
+  // whatever the swap returned against outputAmount. So the swapped-into token must be the asset delivered (sameAsset), and
+  // minExpectedInputTokenAmount must cover outputAmount in its units: a swap below it reverts the call, and a deposit nobody fills
+  // refunds the escrow at least the output's worth. Otherwise the exchange could keep the order and return one unit
+  const bridged = reshieldableAsset(e, d.inputToken);
+  must(!!bridged && sameAsset(bridged.symbol, e.to.symbol), P, "asset", `bridges ${d.inputToken} for ${e.to.symbol}: the swap's floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth`);
+  must(covers(s.minExpectedInputTokenAmount, bridged.decimals, d.outputAmount, e.to.decimals), P, "minimum", `the swap's own floor ${s.minExpectedInputTokenAmount} does not cover the deposit's output ${d.outputAmount}: the exchange could keep the order`);
   if (d.message === "0x") {
     must(same(d.recipient, bytes32Of(e.to.chain, e.destination)), P, "receiver", "the deposit pays another address than your fresh one");
   } else {
@@ -518,7 +538,7 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
   const refundFloors = floorOf(refundTokens, s.minExpectedInputTokenAmount, 100n); // an unfilled deposit returns at least this
   return {
     provider: P, receiver: e.destination, minOut: d.outputAmount, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors } : {}),
-    facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : nativeOut ? "pays the pinned Across handler, which unwraps the WETH and sends the ETH to your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount", refundFact(e, refundTokens)],
+    facts: ["Across periphery and SpokePool pinned; swapAndBridge decoded", d.message === "0x" ? "pays your fresh address" : nativeOut ? "pays the pinned Across handler, which unwraps the WETH and sends the ETH to your fresh address" : "pays the pinned Across handler, which hands the output token to your fresh address", "minimum = the deposit's output amount, covered by the swap's own floor", refundFact(e, refundTokens)],
   };
 }
 
@@ -664,7 +684,16 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
     // the swap variant overwrites outputAmount on chain: (swap result, >= minAmount) × multiplier / 1e18
     const minOut = bd.hasSourceSwaps ? (bd.minAmount * a.outputAmountMultiplier) / ACROSS_MULTIPLIER_BASE : a.outputAmount;
     if (bd.hasSourceSwaps) must(a.outputAmount === minOut, P, "minimum", "outputAmount disagrees with minAmount × outputAmountMultiplier");
-    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundFact(e, refundTokens), bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across)" : "exact fill amount"] };
+    // the facet never asks Across for more than it bridges (audit 2026-10-16): the bridged token must be the asset delivered
+    // (sameAsset), and in its units the multiplier is at most one (the swap variant: whatever the swap returns, at
+    // least minAmount, the facet asks for no more of it) and outputAmount at most minAmount (the bridge alone). The minimum is then
+    // backed by minAmount, the source swap's floor on chain, and a deposit nobody fills refunds the escrow at least it. Otherwise a
+    // minAmount of one unit under an inflated multiplier would read as any minimum while the source swap kept the order
+    const bridged = reshieldableAsset(e, bd.sendingAssetId);
+    must(!!bridged && sameAsset(bridged.symbol, e.to.symbol), P, "asset", `bridges ${bd.sendingAssetId} for ${e.to.symbol}: the floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth`);
+    if (bd.hasSourceSwaps) must(a.outputAmountMultiplier * 10n ** BigInt(bridged.decimals) <= ACROSS_MULTIPLIER_BASE * 10n ** BigInt(e.to.decimals), P, "minimum", `the output multiplier ${a.outputAmountMultiplier} asks Across for more than the swap bridges: the minimum would not be backed by minAmount, the swap's floor`);
+    else must(covers(bd.minAmount, bridged.decimals, a.outputAmount, e.to.decimals), P, "minimum", `asks Across for ${a.outputAmount}, more than the ${bd.minAmount} it bridges`);
+    return { provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Across facet decoded", "pays your fresh address", refundFact(e, refundTokens), bd.hasSourceSwaps ? "minimum = bridged amount × LI.FI's output multiplier (what the facet hands Across), backed by the swap's floor" : "exact fill amount, within what is bridged"] };
   }
   // MayanFacet: the facet checks the receiver against Mayan's order on chain; it sweeps excess value
   // and, in the swap variant, everything above mayanAmountIn to refundRecipient

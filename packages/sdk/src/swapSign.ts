@@ -9,7 +9,7 @@ import type { Deployment } from "./chain";
 import { checkShieldReceipt } from "./shieldReceiver";
 import type { StoredShield } from "./wallet/journal";
 import { checkPrepared, predictEscrow } from "./swapGuard";
-import { checkMinimum, checkProviderCall, MinimumMoved, type ActiveVaultLookup, type CheckedCall, type InboundLookup } from "./providerCall";
+import { checkMinimum, checkProviderCall, MinimumMoved, type ActiveVaultLookup, type CallExpectation, type CheckedCall, type InboundLookup } from "./providerCall";
 import type { AssetRef, Policy, Prepared, ServiceOrder, ServiceOrderParams } from "./swapService";
 
 /** What the wallet journaled when it committed the order (wallet/journal.ts StoredSwap). */
@@ -31,8 +31,8 @@ export async function checkBeforeSigning(a: {
   prepared: Prepared; order: ServiceOrder; journaled: JournaledOrder; factory: Address; chainId: bigint;
   /** the user consented to this lower minimum after a MinimumMoved */
   acceptMin?: bigint; inbound?: InboundLookup; active?: ActiveVaultLookup; now?: number;
-  /** tokens the pool has a vault for (the wallet's configured ERC-20 assets) */
-  pooled?: string[];
+  /** tokens the pool has a vault for (the wallet's configured ERC-20 assets, with their symbols and decimals) */
+  pooled?: CallExpectation["pooled"];
   /** V6 Stage 12: the deployment whose shield receiver factory a protected destination must recompute from, and the seed its note derives from */
   deployment?: Deployment;
   masterSeed?: Uint8Array;

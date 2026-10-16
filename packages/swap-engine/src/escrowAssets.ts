@@ -29,6 +29,34 @@ export function escrowCanReshield(from: AssetRef, token: string, pooled = pooled
   return ownAsset(from, t) || asEth(from, t) || (t !== ZERO && pooled.has(t));
 }
 
+/** The pool's Ethereum tokens this engine knows by address (the registry's, packages/config): what a pooled token is. */
+const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
+  "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
+};
+
+/**
+ * What `token` is when it comes back to the escrow of an order spending `from` and re-shields: ETH (ETH and WETH), the order's own
+ * asset as the request names it, a pooled token as KNOWN_TOKENS names it. Undefined when it does not re-shield, or is a pooled token
+ * this engine does not know: the floor checks of a swap before a bridge need its asset and decimals.
+ */
+export function reshieldableAsset(from: AssetRef, token: string, pooled = pooledTokens()): { symbol: string; decimals: number } | undefined {
+  const t = token.toLowerCase();
+  if (!escrowCanReshield(from, t, pooled)) return undefined;
+  if (t === ZERO || t === (WETH[from.chain] ?? ZERO).toLowerCase()) return { symbol: "ETH", decimals: 18 };
+  if (from.asset !== "native" && t === from.asset.toLowerCase()) return { symbol: from.symbol, decimals: from.decimals };
+  return KNOWN_TOKENS[t];
+}
+
+/**
+ * Whether a floor in one asset counts for an output in another: ETH and WETH are one asset, and so are the dollar stablecoins
+ * USDC and USDT (LI.FI routes USDC on Base through a USDT deposit, 2026-10). Anything else only counts for itself.
+ */
+export const sameAsset = (a: string, b: string) => { const n = (s: string) => (/^w?eth$/i.test(s) ? "ETH" : /^usd[ct]$/i.test(s) ? "USD" : s.toUpperCase()); return n(a) === n(b); };
+
+/** Whether `floor` (with `floorDecimals`) covers `out` (with `outDecimals`) of the same asset. */
+export const covers = (floor: bigint, floorDecimals: number, out: bigint, outDecimals: number) => out * 10n ** BigInt(floorDecimals) <= floor * 10n ** BigInt(outDecimals);
+
 /**
  * The paid-back assets that need refundToken (not the order's asset; for an ETH order not ETH or WETH):
  * what the executor is told to watch. address(0) is the escrow's own ETH, listed for an ERC-20 order.

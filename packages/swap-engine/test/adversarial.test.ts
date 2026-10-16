@@ -163,6 +163,13 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
     // outputAmount word would deliver ~0 and let a relayer keep the rest — the word alone proves nothing
     if (decodeLifiCall((q.raw as any).transactionRequest.data).bridgeData.hasSourceSwaps) {
       await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 5 * 32, 1n))).rejects.toThrow(/outputAmountMultiplier/);
+      // one unit of minAmount under a multiplier raised so that minAmount × multiplier / 1e18 stays the quoted floor: the minimum would
+      // rest on nothing the source swap guarantees (its own floor on chain is minAmount) → refused (audit 2026-10-16)
+      const word = (d: string, at: number) => BigInt("0x" + d.slice(2 + 2 * at, 2 + 2 * at + 64));
+      await expect(mutData((d) => {
+        const floor = (word(d, 4 + bdOff(d) + 6 * 32) * word(d, 4 + facetOff(d) + 5 * 32)) / 10n ** 18n;
+        return setWord(setWord(d, 4 + bdOff(d) + 6 * 32, 1n), 4 + facetOff(d) + 5 * 32, floor * 10n ** 18n);
+      })).rejects.toThrow(/asks Across for more than the swap bridges/);
     }
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 3 * 32, padAddress(ATTACKER)))).rejects.toThrow(/receivingAssetId/);
     await expect(mutData((d) => setWord(d, 4 + facetOff(d) + 1 * 32, padAddress(ATTACKER)))).rejects.toThrow(/refundAddress/);
@@ -374,7 +381,7 @@ describe("§74 Across Swap API malicious — the periphery call and the handler 
 
   it("untampered: the swap leg verifies (the pinned handler drains to the fresh address)", async () => {
     const ing: any = await bent((b) => b);
-    expect(ing.verified).toEqual(expect.arrayContaining(["spokePool pinned", "depositor=escrow", "receiver (pinned handler drains to it)"]));
+    expect(ing.verified).toEqual(expect.arrayContaining(["spokePool pinned", "depositor=escrow", "receiver (pinned handler drains to it)", "swap floor covers the output"]));
   }, 60_000);
   it("SpokePool swapped (the periphery would approve it for the swapped tokens) → refused", async () => {
     await expect(bent(data((d) => setWord(d, layout(d).t + 10 * 32, padAddress(ATTACKER))))).rejects.toThrow(/pinned SpokePool/);
@@ -393,6 +400,9 @@ describe("§74 Across Swap API malicious — the periphery call and the handler 
   }, 60_000);
   it("outputAmount lowered → refused at quote time (a changed quote)", async () => {
     await expect(bent(data((d) => setWord(d, layout(d).dd + 2 * 32, w(d, layout(d).dd + 2 * 32) / 2n)), false)).rejects.toThrow(/bps below/);
+  }, 60_000);
+  it("the swap's own floor lowered to one unit (an exchange of the API's choosing could keep the order and return one unit) → refused at quote time (audit 2026-10-16)", async () => {
+    await expect(bent(data((d) => setWord(d, layout(d).t + 7 * 32, 1n)), false)).rejects.toThrow(/does not cover the deposit's output/);
   }, 60_000);
   it("a destination-swap route (bridgeableToAny) or another target than the periphery → not offered", async () => {
     await expect(bent((b) => ({ ...b, crossSwapType: "bridgeableToAny" }), false)).rejects.toThrow(/bridgeableToAny/);

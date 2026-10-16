@@ -198,7 +198,7 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   let prepared = i.reuse ?? (await fresh());
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
   const check = (p: Prepared) =>
-    checkBeforeSigning({ prepared: p, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => v.token), deployment, masterSeed: i.masterSeed });
+    checkBeforeSigning({ prepared: p, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed });
   let gate: SignCheck;
   try {
     gate = await check(prepared);

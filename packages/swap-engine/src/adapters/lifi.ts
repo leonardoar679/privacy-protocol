@@ -10,7 +10,10 @@
 // bridge-specific data is decoded too (receiver, refund address = our escrow, assets, and the output
 // the facet will hand Across — in the swap variant that is re-derived ON CHAIN as swap result ×
 // outputAmountMultiplier / 1e18, so the guaranteed minimum is minAmount × multiplier, not the
-// outputAmount word), so the minimum output is verified in the signed calldata. For MayanFacet the
+// outputAmount word), so the minimum output is verified in the signed calldata; the facet must never ask
+// Across for more than it bridges (the bridged token is the asset delivered, and in its units the
+// multiplier is at most one: minAmount, the source swap's floor on chain, then backs the minimum —
+// audit 2026-10-16). For MayanFacet the
 // receiver is checked (the facet itself matches it against the Mayan order on chain) and so is where
 // the facet sweeps money: excess value and any source-swap surplus above `mayanAmountIn` go to
 // `refundRecipient`, which must be the escrow, and `mayanAmountIn` must be the bridged amount; the
@@ -20,7 +23,7 @@
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
-import { escrowCanReshield, foreignRefundTokens } from "../escrowAssets";
+import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { SINGLE_PLAN, categoryOf, isEvm } from "../types";
 
@@ -187,6 +190,19 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
   // sweeps the swap surplus in it. A source swap into a token the escrow cannot re-shield would strand it (PP-S08)
   if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI: the route swaps ${req.from.symbol} into ${bd.sendingAssetId} before bridging; an unfilled deposit or the swap surplus would come back to the escrow in that token, which the escrow cannot re-shield (the pool has no vault for it)`);
   verified.push("refunds re-shieldable");
+  if (acrossV4) {
+    // the facet never asks Across for more than it bridges (audit 2026-10-16): the bridged token must be the asset delivered
+    // (sameAsset), and in its units the multiplier is at most one (the swap variant: whatever the swap returns, at
+    // least minAmount, the facet asks for no more of it) and outputAmount at most minAmount (the bridge alone). The minimum is then
+    // backed by minAmount, the source swap's floor on chain, and a deposit nobody fills refunds the escrow at least it. Otherwise a
+    // minAmount of one unit under an inflated multiplier would read as any minimum while the source swap kept the order
+    const facetWord = (i: number) => u(d.facetData.subarray(i * 32, i * 32 + 32));
+    const asset = reshieldableAsset(req.from, bd.sendingAssetId);
+    if (!asset || !sameAsset(asset.symbol, req.to.symbol)) throw new Error(`LI.FI/Across calldata: bridges ${bd.sendingAssetId}${asset ? ` (${asset.symbol})` : " (a token this adapter does not know)"} for ${req.to.symbol}; the floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth`);
+    if (bd.hasSourceSwaps && facetWord(5) * 10n ** BigInt(asset.decimals) > ACROSS_MULTIPLIER_BASE * 10n ** BigInt(req.to.decimals)) throw new Error(`LI.FI/Across calldata: outputAmountMultiplier ${facetWord(5)} asks Across for more than the swap bridges (the minimum would not be backed by minAmount, the swap's floor)`);
+    if (!bd.hasSourceSwaps && !covers(bd.minAmount, asset.decimals, facetWord(4), req.to.decimals)) throw new Error(`LI.FI/Across calldata: outputAmount ${facetWord(4)} is more than the ${bd.minAmount} bridged`);
+    verified.push("bridged amount backs the output");
+  }
   return { to: diamond, calldata: tr.data as `0x${string}`, value, verified, refundTokens: bd.hasSourceSwaps ? foreignRefundTokens(req.from, [bd.sendingAssetId]) : [] };
 }
 

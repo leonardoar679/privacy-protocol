@@ -145,11 +145,14 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   `BridgeData` receiver / destination chain / no-destination-call / spent asset, reads facets by
   selector only (AcrossFacetV4, MayanFacet; any other facet is refused under every policy), for
   AcrossFacetV4 the refund address, the assets and the output the facet hands Across — in the swap
-  variant `minAmount × outputAmountMultiplier / 1e18`, because the facet recomputes it on chain — and
+  variant `minAmount × outputAmountMultiplier / 1e18`, because the facet recomputes it on chain, with
+  the multiplier at most one in the units of the bridged token, which must be the asset delivered, so
+  that `minAmount`, the source swap's floor, backs it — and
   for MayanFacet the sweep recipient (the escrow) and `mayanAmountIn`; the Across swap leg pins the
   SpokePoolPeriphery and the SpokePool it deposits into (the periphery accepts any and approves it for
   the swapped tokens), takes the guaranteed output from the deposit's `outputAmount` (proportional
-  adjustment only raises it), requires the escrow as depositor, and reads the destination message: only
+  adjustment only raises it), which the swap's own floor `minExpectedInputTokenAmount` must cover in the
+  asset delivered (the exchange it calls stays opaque), requires the escrow as depositor, and reads the destination message: only
   `drainLeftoverTokens(output token, fresh address)` on the pinned MulticallHandler and `emitData` on the
   pinned AcrossEventEmitter, with something draining the output token to the fresh address (for native
   ETH: `makeCallWithBalance(WETH, withdraw(0), 0, [{WETH, 4}])`, the handler unwrapping its own WETH, then

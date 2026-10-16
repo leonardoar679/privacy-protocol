@@ -44,7 +44,7 @@ async function prepareAndCheck(route: string, req: QuoteRequest): Promise<{ chec
     try { p = await engine.prepareExecution(order, adapter); } catch (e) { skipped[q.provider] = `engine: ${(e as Error).message}`; continue; }
     const call = { provider: p.provider as `0x${string}`, value: p.value, calldata: p.calldata };
     // the wallet's configured ERC-20 assets mirror the pool's vaults (ERC20_VAULTS above)
-    const expectation = { escrow: order.endpoint as `0x${string}`, from: req.from, to: req.to, destination: req.destination, net: order.params.amount - order.params.executorTip, policy: "fastest" as const, pooled: [USDC_ETH.asset] };
+    const expectation = { escrow: order.endpoint as `0x${string}`, from: req.from, to: req.to, destination: req.destination, net: order.params.amount - order.params.executorTip, policy: "fastest" as const, pooled: [{ token: USDC_ETH.asset, symbol: USDC_ETH.symbol, decimals: USDC_ETH.decimals }] };
     // the wallet's check, with its own live THORNode quorum (no stub)
     const c = await checkProviderCall(call, expectation);
     checked.push({ route, provider: q.provider, quote: p.quote, checked: c, call, expectation });
@@ -107,7 +107,7 @@ describe("the wallet's provider-call check agrees with the engine on live provid
       const req: QuoteRequest = { from, to: SOL, amount: net, destination: DEST_SOL, source: escrow, slippageBps: 100 };
       const q = await a.quote(req);
       const ing = await a.prepareIngress(req, q);
-      const c = await checkProviderCall({ provider: ing.to as `0x${string}`, value: ing.value, calldata: ing.calldata }, { escrow, from, to: SOL, destination: DEST_SOL, net, policy: "fastest", pooled: [USDC_ETH.asset] });
+      const c = await checkProviderCall({ provider: ing.to as `0x${string}`, value: ing.value, calldata: ing.calldata }, { escrow, from, to: SOL, destination: DEST_SOL, net, policy: "fastest", pooled: [{ token: USDC_ETH.asset, symbol: USDC_ETH.symbol, decimals: USDC_ETH.decimals }] });
       expect(c, `${from.symbol} -> SOL`).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: q.toAmountMin, refundTo: "escrow" });
       expect(q.refundTarget).toBe("escrow");
     }

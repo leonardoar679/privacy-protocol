@@ -26,6 +26,8 @@ const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: 
 const SOL: AssetRef = { chain: "solana", asset: "native", decimals: 9, symbol: "SOL" };
 const ETH_BASE: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
 const USDC_BASE: AssetRef = { chain: "base", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" };
+/** the pool's USDC vault, as the deployment names it (VITE_ERC20_VAULTS) */
+const POOL_USDC = [{ token: USDC.asset, symbol: USDC.symbol, decimals: USDC.decimals }];
 const DEST_BTC = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const DEST_EVM = getAddress("0x1111111111111111111111111111111111111111");
 const DEST_SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
@@ -388,7 +390,7 @@ describe("Mayan SWIFT: Swift V2 and the ETH wrapper pinned, the order pays the f
     const ROUTER = "0x0000000000000000000000000000000000000e77";
     const MIN_MIDDLE = 2_500_000_000n;
     const lock = (o: Parameters<typeof swiftEth>[0] = {}) => swiftEth({ wrapper: ROUTER, wrapData: "0x1234", middle: USDC.asset, minMiddle: MIN_MIDDLE, tokenIn: USDC.asset, amountIn: MIN_MIDDLE, ...o });
-    const pooled = { ...e, pooled: [USDC.asset] };
+    const pooled = { ...e, pooled: POOL_USDC };
     const c = await checkProviderCall(lock(), pooled);
     expect(c).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN * 10n, refundTo: "escrow", refundTokens: [USDC.asset] });
     expect(c.refundFloors?.[USDC.asset.toLowerCase()]).toBe((MIN_MIDDLE / 100n).toString());
@@ -447,6 +449,7 @@ const LIFI = {
   swapMayan: "function swapAndStartBridgeTokensViaMayan((bytes32,string,string,address,address,address,uint256,uint256,bool,bool),(address,address,address,address,uint256,bytes,bool)[],(bytes32,address,bytes,address,bytes,address,uint256,address,uint256))",
 };
 const LIFI_ABI = parseAbi([...STRUCTS,
+  "function startBridgeTokensViaAcrossV4(BridgeData _bridgeData, AcrossV4Data _acrossData) payable",
   "function swapAndStartBridgeTokensViaAcrossV4(BridgeData _bridgeData, SwapData[] _swapData, AcrossV4Data _acrossData) payable",
   "function swapAndStartBridgeTokensViaMayan(BridgeData _bridgeData, SwapData[] _swapData, MayanData _mayanData) payable",
 ]);
@@ -481,6 +484,54 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     expect(c.minOut).toBe(0n);
     expect(() => checkMinimum(c, FLOOR)).toThrow(MinimumMoved);
   });
+  it("the facet never asks Across for more than it bridges: one unit of minAmount under an inflated multiplier, or a multiplier above one, is refused by both (audit 2026-10-16)", async () => {
+    // the swap variant hands Across (swap result, at least minAmount) × multiplier / 1e18: one unit of minAmount under a multiplier of
+    // FLOOR × 1e18 reads as the honest minimum, while the source swap (calldata the diamond runs as given) could keep the order
+    const inflated = acrossCall(bridgeData({ minAmount: 1n }), undefined, acrossData({ outputAmountMultiplier: FLOOR * 10n ** 18n, outputAmount: FLOOR }));
+    await refused(checkProviderCall(inflated, e), /minimum/);
+    expect(() => serviceVerify(inflated.calldata, FLOOR)).toThrow(/asks Across for more than the swap bridges/);
+    const above = acrossCall(undefined, undefined, acrossData({ outputAmountMultiplier: 10n ** 18n + 1n, outputAmount: (MIN_AMOUNT * (10n ** 18n + 1n)) / 10n ** 18n }));
+    await refused(checkProviderCall(above, e), /minimum/);
+    expect(() => serviceVerify(above.calldata, MIN_AMOUNT)).toThrow(/outputAmountMultiplier/);
+    // a multiplier of exactly one passes: the swap's floor is then the minimum
+    const one = acrossCall(undefined, undefined, acrossData({ outputAmountMultiplier: 10n ** 18n, outputAmount: MIN_AMOUNT }));
+    await expect(checkProviderCall(one, e)).resolves.toMatchObject({ minOut: MIN_AMOUNT });
+    expect(serviceVerify(one.calldata, MIN_AMOUNT).verified).toContain("bridged amount backs the output");
+  });
+  it("the bridged token must be the asset delivered: USDC bridged for an ETH output, under a multiplier within USDC's decimals, is refused by both (audit 2026-10-16)", async () => {
+    // an ETH order's escrow re-shields the pool's USDC, but a USDC floor is no floor for ETH: in nominal units a million-unit
+    // minAmount (one USDC) under FLOOR × 1e12 reads as the honest ETH minimum, and an unfilled deposit would refund one USDC
+    const crossAsset = acrossCall(bridgeData({ sendingAssetId: USDC.asset, minAmount: 1_000_000n }), feeSwap({ receivingAssetId: USDC.asset }), acrossData({ sendingAssetId: bytes32Of("ethereum", USDC.asset), outputAmountMultiplier: FLOOR * 10n ** 12n, outputAmount: FLOOR }));
+    await refused(checkProviderCall(crossAsset, { ...e, pooled: POOL_USDC }), /asset/);
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
+    try { expect(() => serviceVerify(crossAsset.calldata, FLOOR)).toThrow(/counted in the asset delivered/); }
+    finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
+  });
+  it("one dollar stablecoin counts for another: LI.FI's own route to USDC on Base through a USDT deposit (2026-10) passes both, with the pool's USDT vault", async () => {
+    const USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7" as Address;
+    const viaUsdt = acrossCall(bridgeData({ sendingAssetId: USDT, minAmount: 2_455_342_549n }), feeSwap({ receivingAssetId: USDT }), acrossData({ sendingAssetId: bytes32Of("ethereum", USDT), receivingAssetId: bytes32Of("base", USDC_BASE.asset), outputAmountMultiplier: 998_784_978_087_389_468n, outputAmount: 2_452_359_254n }));
+    const eu = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [{ token: USDT, symbol: "USDT", decimals: 6 }] });
+    await expect(checkProviderCall(viaUsdt, eu)).resolves.toMatchObject({ minOut: 2_452_359_254n, refundTokens: [getAddress(USDT)] });
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDT}:0x0000000000000000000000000000000000000a11`;
+    try {
+      const v = verifyLifiTransaction(
+        { from: ETH as any, to: USDC_BASE as any, amount: NET, destination: DEST_EVM, source: ESCROW, slippageBps: 50 },
+        { tool: "across", transactionRequest: { to: LIFI_DIAMOND.ethereum, data: viaUsdt.calldata, value: "0x" + NET.toString(16), chainId: 1 }, action: { fromAddress: ESCROW, toAddress: DEST_EVM, fromChainId: 1, toChainId: 8453 }, estimate: { toAmountMin: "2452359254" } },
+      );
+      expect(v.verified).toContain("bridged amount backs the output");
+    } finally {
+      if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved;
+    }
+  });
+  it("the bridge alone: an outputAmount above what is bridged is refused by both; within it the exact fill passes (audit 2026-10-16)", async () => {
+    const plain = (out: bigint) => ({ provider: PINNED.lifiDiamond, value: NET, calldata: encodeFunctionData({ abi: LIFI_ABI, functionName: "startBridgeTokensViaAcrossV4", args: [bridgeData({ hasSourceSwaps: false, minAmount: NET }) as any, acrossData({ outputAmount: out }) as any] }) });
+    await expect(checkProviderCall(plain(NET - 1000n), e)).resolves.toMatchObject({ minOut: NET - 1000n });
+    expect(serviceVerify(plain(NET - 1000n).calldata, NET - 1000n).verified).toContain("bridged amount backs the output");
+    await refused(checkProviderCall(plain(NET + 1n), e), /minimum/);
+    expect(() => serviceVerify(plain(NET + 1n).calldata, NET)).toThrow(/more than the \d+ bridged/);
+  });
   it("refuses: another receiver (either field), refund address, delivered asset, chain; a destination call; another spend or value", async () => {
     await refused(checkProviderCall(acrossCall(undefined, undefined, acrossData({ receiverAddress: bytes32Of("base", ATTACKER) })), e), /receiver/);
     await refused(checkProviderCall(acrossCall(bridgeData({ receiver: ATTACKER })), e), /receiver/);
@@ -507,7 +558,7 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     expect(serviceVerify(intoWeth.calldata, FLOOR).verified).toContain("refunds re-shieldable");
     // into a token the pool has a vault for, it passes too: the escrow's refundToken re-shields it there, and both
     // sides name it as the token the executor must watch
-    const eu = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [USDC.asset] });
+    const eu = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: POOL_USDC });
     await expect(checkProviderCall(intoUsdc, eu)).resolves.toMatchObject({ refundTo: "escrow", refundTokens: [getAddress(USDC.asset)], refundFloors: { [USDC.asset.toLowerCase()]: (MIN_AMOUNT / 100n).toString() } });
     const saved = process.env.ERC20_VAULTS;
     process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
@@ -566,7 +617,7 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
     swapToken: ENGINE_WETH.ethereum as Address, exchange: PINNED.lifiDiamond, transferType: 0, swapTokenAmount: NET, minExpectedInputTokenAmount: 2_593_233_999n, routerCalldata: "0xabcd" as Hex, enableProportionalAdjustment: true, spokePool: PINNED.acrossSpokePool, nonce: 0n, ...o,
   });
   const call = (o?: Record<string, unknown>, dd?: Record<string, unknown>, value = NET) => ({ provider: PINNED.acrossPeriphery, value, calldata: encodeFunctionData({ abi: PERIPHERY_ABI, functionName: "swapAndBridge", args: [data(o, dd) as any] }) });
-  const e = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: [USDC.asset] });
+  const e = expectation({ to: USDC_BASE, destination: DEST_EVM, pooled: POOL_USDC });
   // the swap service's own decoder (acrossSwap.ts) on the same calldata: both must agree
   const req = { from: ETH, to: USDC_BASE, amount: NET, destination: DEST_EVM, source: ESCROW, slippageBps: 50 } as any;
   const pins = () => acrossSwapPins(req, { spokePool: SPOKE_POOL, weth: ENGINE_WETH, chainId: { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10 } });
@@ -634,6 +685,32 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
     // a fallback recipient that is the fresh address hands over what the calls leave: no drain call needed
     await expect(checkProviderCall(call(undefined, { message: message([emit()], DEST_EVM) }), e)).resolves.toMatchObject({ receiver: DEST_EVM });
   });
+  it("the swap's own floor backs the deposit: a floor of one unit, or one unit short of the output, is refused by both; a floor that covers it passes whatever the exchange (audit 2026-10-16)", async () => {
+    // the exchange and its calldata stay opaque: the periphery reverts below the floor, and a deposit nobody fills refunds the escrow
+    // at least the floor. Before, a floor of one unit let an exchange of the caller's choosing keep the order and return one unit
+    for (const floor of [1n, OUT - 1n]) {
+      const x = call({ minExpectedInputTokenAmount: floor, exchange: ATTACKER, transferType: 1 });
+      await refused(checkProviderCall(x, e), /minimum/);
+      expect(() => serviceVerify(x.calldata), `the service too: a floor of ${floor}`).toThrow(/floor/);
+    }
+    const exact = call({ minExpectedInputTokenAmount: OUT, exchange: ATTACKER, transferType: 1 });
+    await expect(checkProviderCall(exact, e)).resolves.toMatchObject({ minOut: OUT });
+    expect(serviceVerify(exact.calldata).verified).toContain("swap floor covers the output");
+  });
+  it("the swapped-into token must be the asset delivered: WETH bridged for USDC, or the pool's USDC for ETH, is refused by both (audit 2026-10-16)", async () => {
+    // an ETH order's escrow re-shields WETH and the pool's USDC, but a floor counts only for the asset delivered: counted in the other
+    // asset's units, it would be a sliver of the order (three USDC "cover" two ETH in nominal units)
+    const wethForUsdc = call(undefined, { inputToken: ENGINE_WETH.ethereum });
+    await refused(checkProviderCall(wethForUsdc, e), /asset/);
+    expect(() => serviceVerify(wethForUsdc.calldata)).toThrow(/counted in the asset delivered/);
+    const usdcForEth = call({ minExpectedInputTokenAmount: 3_000_000n }, { outputToken: bytes32Of("base", ENGINE_WETH.base), outputAmount: 2n * 10n ** 18n, recipient: bytes32Of("base", DEST_EVM), message: "0x" });
+    await refused(checkProviderCall(usdcForEth, { ...e, to: ETH_BASE }), /asset/);
+    const reqEth = { ...req, to: ETH_BASE };
+    const saved = process.env.ERC20_VAULTS;
+    process.env.ERC20_VAULTS = `${USDC.asset}:0x0000000000000000000000000000000000000a11`;
+    try { expect(() => verifyAcrossSwapCall(reqEth, { to: PINNED.acrossPeriphery, data: usdcForEth.calldata, value: NET }, acrossSwapPins(reqEth, { spokePool: SPOKE_POOL, weth: ENGINE_WETH, chainId: { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10 } }))).toThrow(/counted in the asset delivered/); }
+    finally { if (saved === undefined) delete process.env.ERC20_VAULTS; else process.env.ERC20_VAULTS = saved; }
+  });
   it("refuses a swap into a token the pool has no vault for (PP-S08), and a call delivering another asset than asked", async () => {
     await refused(checkProviderCall(call(), { ...e, pooled: [] }), /refund/);
     expect(() => verifyAcrossSwapCall(req, { to: PINNED.acrossPeriphery, data: call().calldata, value: NET }, pins())).toThrow(/cannot re-shield/);
@@ -649,7 +726,7 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
     callData: encodeFunctionData({ abi: balanceAbi, functionName: "makeCallWithBalance", args: [o.target ?? WETH_B, o.inner ?? encodeFunctionData({ abi: balanceAbi, functionName: "withdraw", args: [0n] }), o.value ?? 0n, [{ token: o.token ?? WETH_B, offset: o.offset ?? 4n }]] }),
   });
   const NET_USDC = 2_000_000_000n;
-  const nativeCall = (calls: Call[]) => ({ provider: PINNED.acrossPeriphery, value: 0n, calldata: encodeFunctionData({ abi: PERIPHERY_ABI, functionName: "swapAndBridge", args: [data({ swapToken: USDC.asset, swapTokenAmount: NET_USDC }, { inputToken: ENGINE_WETH.ethereum, outputToken: bytes32Of("base", WETH_B), message: message(calls) }) as any] }) });
+  const nativeCall = (calls: Call[], o: Record<string, unknown> = {}) => ({ provider: PINNED.acrossPeriphery, value: 0n, calldata: encodeFunctionData({ abi: PERIPHERY_ABI, functionName: "swapAndBridge", args: [data({ swapToken: USDC.asset, swapTokenAmount: NET_USDC, ...o }, { inputToken: ENGINE_WETH.ethereum, outputToken: bytes32Of("base", WETH_B), message: message(calls) }) as any] }) });
   const en = expectation({ from: USDC, to: ETH_BASE, destination: DEST_EVM, net: NET_USDC, pooled: [] }); // no WETH vault: the escrow re-shields WETH as ETH
   const reqN = { from: USDC, to: ETH_BASE, amount: NET_USDC, destination: DEST_EVM, source: ESCROW, slippageBps: 50 } as any;
   const serviceNative = (calldata: Hex) => {
@@ -664,6 +741,11 @@ describe("Across swap leg: periphery and SpokePool pinned; the pinned handler ha
     expect(checked).toMatchObject({ provider: "across", receiver: DEST_EVM, minOut: OUT, refundTokens: [getAddress(ENGINE_WETH.ethereum)] });
     expect(checked.facts.join(" | ")).toMatch(/re-shields as ETH/);
     expect(serviceNative(honest.calldata).refundTokens).toEqual([ENGINE_WETH.ethereum.toLowerCase()]);
+  });
+  it("a native destination: a WETH floor below the output is refused by both (audit 2026-10-16)", async () => {
+    const x = nativeCall([unwrap(), drain(ZERO), drain(WETH_B), emit(), emit()], { minExpectedInputTokenAmount: 1n });
+    await refused(checkProviderCall(x, en), /minimum/);
+    expect(() => serviceNative(x.calldata)).toThrow(/floor/);
   });
   it("a native destination: refuses ETH drained before the unwrap, an unwrap of anything but the handler's own WETH, and no ETH drain at all", async () => {
     const bad: Call[][] = [
