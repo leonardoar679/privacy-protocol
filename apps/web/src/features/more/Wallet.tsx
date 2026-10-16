@@ -22,6 +22,8 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
   const [status, setStatus] = useState("");
   async function readAllowances() {
     if (!conn.account) { setStatus(t("wallet.connectFirst")); return; }
+    // a V6 follow-up of 2026-10-16: on another network the allowances read would be that chain's, not this deployment's
+    if (conn.status === "wrong-network") { setStatus(t("wallet.switchFirst")); return; }
     setStatus(t("wallet.reading"));
     try { setAllowances(await allowancesFor(deployment, conn.account as `0x${string}`)); setStatus(""); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
   }

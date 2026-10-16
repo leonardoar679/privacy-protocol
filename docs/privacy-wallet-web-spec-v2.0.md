@@ -621,7 +621,8 @@ network is read just before each send and named in the transaction (`packages/sd
 `sendViaInjectedWallet`; a V6 follow-up of 2026-10-16). Another network is refused before anything is sent
 (`chain_mismatch`), also when it was switched between a protect's approval and its deposit. The Protect page takes a
 wallet on another network as not connected: it reads no balance and no estimate from that chain and offers the switch
-("Switch network", `wallet_switchEthereumChain`) where it would offer the connection.
+("Switch network", `wallet_switchEthereumChain`) where it would offer the connection, and More → Wallet reads no
+allowances from that chain ("Switch your wallet to this network first.").
 
 The protected wallet's at-rest formats are unchanged (scrypt + XChaCha20-Poly1305, byte-pinned in TS, Rust and
 Python) inside the encrypted IndexedDB container of V5 (`privacy-wallet` / `secure`); WebCrypto provides the

@@ -1173,6 +1173,7 @@ export const en = {
   "wallet.allowances.revoke": "Revoke",
   "wallet.allowances.none": "No ERC-20 vault on this deployment.",
   "wallet.connectFirst": "Connect the public wallet first.",
+  "wallet.switchFirst": "Switch your wallet to this network first.",
   "wallet.reading": "Reading through the connected wallet's own provider…",
   "wallet.revoked": "Revoked (tx {hash}); read again once it is mined.",
   // More → Advanced (spec §6; High-Value Protection spec §14)

@@ -1239,6 +1239,7 @@ export const ko: Record<MessageKey, string> = {
   "wallet.allowances.revoke": "철회",
   "wallet.allowances.none": "이 배포에는 ERC-20 금고가 없습니다.",
   "wallet.connectFirst": "먼저 공개 지갑을 연결하세요.",
+  "wallet.switchFirst": "먼저 지갑을 이 네트워크로 전환하세요.",
   "wallet.reading": "연결된 지갑의 자체 제공자를 통해 읽는 중…",
   "wallet.revoked": "철회됨 (tx {hash}). 처리되면 다시 읽으세요.",
   // More → Advanced

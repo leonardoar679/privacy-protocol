@@ -88,6 +88,34 @@ describe("More → Wallet (spec §7)", () => {
     expect(screen.getByTestId("trade-preference").textContent).toContain("funded within");
     expect(screen.getByTestId("read-allowances")).toBeInTheDocument();
   });
+  it("a wallet on another network reads no allowances from that chain: the switch first (a V6 follow-up of 2026-10-16)", async () => {
+    await session.create("a strong password");
+    const calls: string[] = [];
+    const win = window as unknown as Record<string, unknown>;
+    win.ethereum = {
+      request: async ({ method }: { method: string }) => {
+        calls.push(method);
+        if (method === "eth_requestAccounts" || method === "eth_accounts") return ["0x7A0000000000000000000000000000000000091F2"];
+        if (method === "eth_chainId") return "0x5";
+        throw new Error(`unexpected ${method}`);
+      },
+      on() {},
+      removeListener() {},
+    };
+    try {
+      connection.configure({ expectedChainId: 1 });
+      await act(async () => {
+        await connection.connect();
+      });
+      expect(connection.get().status).toBe("wrong-network");
+      render(<Wallet deployment={null} />);
+      fireEvent.click(screen.getByTestId("read-allowances"));
+      expect(await screen.findByText("Switch your wallet to this network first.")).toBeInTheDocument();
+      expect(calls, "nothing read from that chain").not.toContain("eth_call");
+    } finally {
+      delete win.ethereum;
+    }
+  });
 });
 
 describe("the Privacy Center (spec §3.13, §15)", () => {
