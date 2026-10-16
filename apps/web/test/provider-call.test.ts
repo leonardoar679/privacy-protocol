@@ -358,6 +358,27 @@ describe("Mayan: forwarder and Fast-MCTP pinned, the order pays the fresh addres
   it("a malformed destination is a mismatch, not a crash", async () => {
     await refused(checkProviderCall(ethCall(), { ...e, destination: "not-base58-0OIl" }), /call/);
   });
+  it("bounded as a SWIFT order is: no gas drop, redeem + refund fees within 1 % of the USDC or 2 USDC, Circle's fee within 1 %, a deadline within 6 h (audit 2026-10-16)", async () => {
+    // Mayan's verified FastMCTP pays refundFee to whoever calls refund, and for a USDC output that refund is how the order delivers;
+    // the ETH call carries the swap's floor of 2,500 USDC: its fee cap is 25 USDC
+    await refused(checkProviderCall(ethCall({ data: order({ ...payload(), gasDrop: 1n }) }), e), /fees/);
+    await refused(checkProviderCall(ethCall({ data: order({ ...payload(), redeemFee: 20_000_000n, refundFee: 5_000_001n }) }), e), /fees/);
+    await expect(checkProviderCall(ethCall({ data: order({ ...payload(), redeemFee: 20_000_000n, refundFee: 5_000_000n }) }), e)).resolves.toMatchObject({ provider: "mayan" });
+    await refused(checkProviderCall(ethCall({ data: encodeCreateOrder(USDC.asset, NET, 25_000_001n, 5, 1000, payload()) }), e), /fees/);
+    await refused(checkProviderCall(ethCall({ data: order(payload({ deadline: BigInt(NOW + 6 * 3600 + 1) })) }), e), /deadline/);
+    await expect(checkProviderCall(ethCall({ data: order(payload({ deadline: BigInt(NOW + 6 * 3600) })) }), e)).resolves.toMatchObject({ provider: "mayan" });
+    // a 100 USDC order to Solana as Mayan quoted it (0.49 USDC each, 2026-10-16) passes under the 2 USDC floor; more does not
+    const eu = expectation({ from: USDC, to: SOL, destination: DEST_SOL, net: 100_000_000n });
+    const small = (redeemFee: bigint, refundFee: bigint) => ({
+      provider: PINNED.mayanForwarder, value: 0n,
+      calldata: encodeCall("forwardERC20(address,uint256,(uint256,uint256,uint8,bytes32,bytes32),address,bytes)", [
+        { t: "address", v: USDC.asset }, { t: "uint", v: 100_000_000n }, { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "uint", v: 0 }, { t: "bytes32", v: Buffer.alloc(32) }, { t: "bytes32", v: Buffer.alloc(32) },
+        { t: "address", v: MAYAN_FAST_MCTP }, { t: "bytes", v: encodeCreateOrder(USDC.asset, 100_000_000n, 11_001n, 5, 1, { ...payload(), redeemFee, refundFee }) },
+      ]) as Hex,
+    });
+    await expect(checkProviderCall(small(485_407n, 485_407n), eu)).resolves.toMatchObject({ provider: "mayan" });
+    await refused(checkProviderCall(small(1_000_000n, 1_000_001n), eu), /fees/);
+  });
 });
 
 // ---- Mayan SWIFT (forwarder + Swift V2: an auction order, refunded on Ethereum to its trader) ---------------

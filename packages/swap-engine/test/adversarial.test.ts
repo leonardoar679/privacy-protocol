@@ -306,6 +306,15 @@ describe("§74 Mayan API malicious — payload built locally, contracts pinned, 
   it("amountIn changed → refused", async () => {
     await expect(tamperQuote((q) => ({ ...q, effectiveAmountIn64: "1" }))).rejects.toThrow(/differs from the requested amount/);
   }, 60_000);
+  // bounded as SWIFT is (audit 2026-10-16): Mayan's FastMCTP pays refundFee to whoever calls refund, and holds the USDC until the deadline
+  const now = () => Math.floor(Date.now() / 1000);
+  const bounded: [string, (q: any) => any, RegExp][] = [
+    ["the refund fee raised to the order", (q) => ({ ...q, refundRelayerFee64: String(2_000_000_000n) }), /fees/],
+    ["the deadline a year ahead", (q) => ({ ...q, deadline64: String(now() + 365 * 86400) }), /deadline/],
+    ["a gas drop", (q) => ({ ...q, gasDrop: 0.1 }), /gas drop/],
+    ["another token out", (q) => ({ ...q, toToken: { ...q.toToken, contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } }), /delivers/],
+  ];
+  for (const [name, mut, why] of bounded) it(`${name} → refused`, async () => { await expect(tamperQuote(mut)).rejects.toThrow(why); }, 60_000);
 });
 
 // ---------------------------------------------------------------------------------------------------

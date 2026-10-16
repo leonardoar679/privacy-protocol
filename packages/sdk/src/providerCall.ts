@@ -88,6 +88,14 @@ const WORMHOLE_CHAIN: Record<string, number> = { solana: 1, ethereum: 2, bsc: 4,
 /** A SWIFT order's cancel + refund fees, charged only on a refund, at most this share of the order (bps); its deadline at most this far ahead. */
 const SWIFT_MAX_REFUND_FEES_BPS = 100n;
 const SWIFT_MAX_DEADLINE_SECONDS = 6 * 3600;
+/**
+ * A Fast-MCTP order's redeem and refund fees (audit 2026-10-16): at most 1 % of the USDC it carries, or 2 USDC when that is more
+ * (they pay the destination's gas, about 0.49 USDC each to Solana and under a cent to Base on 2026-10-16). Its refund pays
+ * refundFee to whoever calls it, and for a USDC output it is how the order delivers; Circle's fee at most 1 %; the deadline
+ * within the SWIFT bound.
+ */
+const FAST_MCTP_MAX_FEES_BPS = 100n;
+const FAST_MCTP_MIN_FEE_CAP = 2_000_000n;
 export const THOR_CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };
 const CF_CHAIN: Record<string, [string, number]> = { ethereum: ["Ethereum", 1], bitcoin: ["Bitcoin", 3], arbitrum: ["Arbitrum", 4], solana: ["Solana", 5], tron: ["Tron", 7] };
 const CF_ASSET: Record<string, number> = {
@@ -631,7 +639,7 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
   if (swap) must(same(swap.middleToken, USDC_ETHEREUM) && swap.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
   must(same(mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
   const order = decode(P, FAST_MCTP_ABI, protocolData);
-  const [tokenIn, amountIn, , destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
+  const [tokenIn, amountIn, circleMaxFee, destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; redeemFee: bigint; refundFee: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
   must(same(tokenIn, USDC_ETHEREUM), P, "order", "the order is not funded in USDC");
   // MayanForwarder (verified source, Sourcify): swapAndForwardEth overwrites the order's amountIn with the
   // USDC its whitelisted router produced (replaceMiddleAmount); forwardERC20 passes the order through as
@@ -644,6 +652,15 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
   must(same(payload.tokenOut, wantTokenOut), P, "asset", `delivers ${payload.tokenOut}, not ${e.to.symbol}`);
   must(BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "carries a referrer fee");
   must(payload.deadline > BigInt(now), P, "deadline", "the order deadline has passed");
+  // bounded as a SWIFT order's are (audit 2026-10-16): Mayan's verified FastMCTP pays refundFee to whoever calls refund (for a USDC
+  // output that is how the order delivers), takes redeemFee at the destination, and holds an unfilled order's USDC until its deadline
+  must(payload.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", `the order deadline is more than ${SWIFT_MAX_DEADLINE_SECONDS / 3600} h away (an unfilled order's USDC would wait for it)`);
+  must(payload.gasDrop === 0n, P, "fees", "a gas drop was not asked for (a solver pays it out of the order)");
+  // the USDC the order carries: its own amount, or for ETH the swap's floor (the forwarder overwrites amountIn with what the router produced)
+  const usdc = swap ? swap.minMiddle : amountIn;
+  const feeCap = (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n > FAST_MCTP_MIN_FEE_CAP ? (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n : FAST_MCTP_MIN_FEE_CAP;
+  must(payload.redeemFee + payload.refundFee <= feeCap, P, "fees", `redeem + refund fees ${payload.redeemFee + payload.refundFee} are above ${feeCap} USDC base units (1 % of the order, or 2 USDC)`);
+  must(circleMaxFee * 10_000n <= usdc * FAST_MCTP_MAX_FEES_BPS, P, "fees", `Circle's maximum fee ${circleMaxFee} is above 1 % of the order`);
   // amountOutMin carries min(8, decimals) decimals
   const minOut = e.to.decimals > 8 ? payload.amountOutMin * 10n ** BigInt(e.to.decimals - 8) : payload.amountOutMin;
   return { provider: P, receiver: e.destination, minOut, refundTo: "destination", facts: ["forwarder and Fast-MCTP pinned", "the order pays your fresh address", "an unfilled order refunds USDC to your fresh address, not to the pool"] };

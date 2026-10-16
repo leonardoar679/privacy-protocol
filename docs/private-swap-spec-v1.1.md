@@ -158,6 +158,8 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   ETH: `makeCallWithBalance(WETH, withdraw(0), 0, [{WETH, 4}])`, the handler unwrapping its own WETH, then
   a drain of native ETH to the fresh address after it); the THORChain adapter takes the inbound vault and
   router only from a quorum of independent gateways; Mayan's Fast-MCTP and Swift V2 contracts are pinned,
+  a Fast-MCTP order carries no gas drop, a deadline 10 min .. 6 h ahead, redeem + refund fees within 1 %
+  of its USDC or 2 USDC and Circle's fee within 1 % (its refund pays refundFee to whoever calls it),
   and a SWIFT order is built locally with the escrow as trader, ETH wrapped 1:1 by the pinned EthWrapper,
   no gas drop, no referrer, cancel + refund fees within 1% and a deadline 15 min .. 6 h ahead). The executor therefore cannot lower the limit:
   a different calldata has a different signature.

@@ -9,8 +9,9 @@
 // USDC source: `forwardERC20(USDC, amount, zeroPermit, fastMctp, createOrderCalldata)`.
 //
 // The order payload (destination, tokenOut, amountOutMin, deadline, fees) is BUILT HERE from the quote,
-// exactly as the official SDK builds it, so a compromised API cannot change where or how much is paid
-// out; the only API-supplied bytes are the router calldata, bounded by `minMiddleAmount`.
+// exactly as the official SDK builds it, so a compromised API cannot change where it is paid out; the
+// fees, the gas drop and the deadline it quotes are bounded as SWIFT's are (checkFastMctpQuote, audit
+// 2026-10-16); the only API-supplied bytes are the router calldata, bounded by `minMiddleAmount`.
 //
 // Refunds: an unfulfilled order is refunded in USDC on the DESTINATION chain to `destAddr` (the user's
 // fresh address), not to the escrow — flagged as `refundTarget: "destination"` so the wallet and the
@@ -56,6 +57,15 @@ export const SWIFT_FILL_MARGIN_SECONDS = 600;
 /** The order deadline must lie this far ahead at quote time, and no further than the max: after it an unfilled order is cancelled and refunded inside the executor's watch. */
 export const SWIFT_MIN_DEADLINE_SECONDS = 900;
 export const SWIFT_MAX_DEADLINE_SECONDS = 6 * 3600;
+/**
+ * A Fast-MCTP order's redeem and refund fees (audit 2026-10-16): at most 1 % of the USDC it carries, or 2 USDC when that is more
+ * (they pay the destination's gas: about 0.49 USDC each to Solana, under a cent to Base on 2026-10-16). Mayan's verified FastMCTP
+ * pays refundFee to whoever calls refund, and for a USDC output that refund is how the order delivers. Circle's fee at most 1 %.
+ */
+export const FAST_MCTP_MAX_FEES_BPS = 100;
+export const FAST_MCTP_MIN_FEE_CAP = 2_000_000n;
+/** A Fast-MCTP order's deadline at quote time: Mayan quotes about 30 minutes; at most the SWIFT bound (an unfilled order's USDC waits for it). */
+export const FAST_MCTP_MIN_DEADLINE_SECONDS = 600;
 const SWIFT_PAYLOAD_TYPE_DEFAULT = 1;
 export type MayanOrderType = "FAST_MCTP" | "SWIFT";
 /** The order types quoted by default (MAYAN_ORDER_TYPES="FAST_MCTP,SWIFT"). */
@@ -125,6 +135,29 @@ export function encodeCreateOrder(tokenIn: string, amountIn: bigint, circleMaxFe
     { t: "uint", v: FAST_MCTP_PAYLOAD_TYPE_ORDER }, { t: "bytes32", v: p.destAddr }, { t: "bytes32", v: p.tokenOut }, { t: "uint", v: p.amountOutMin }, { t: "uint", v: p.gasDrop },
     { t: "uint", v: p.redeemFee }, { t: "uint", v: p.refundFee }, { t: "uint", v: p.deadline }, { t: "bytes32", v: p.referrerAddr }, { t: "uint", v: p.referrerBps },
   ]);
+}
+
+/**
+ * What a Fast-MCTP quote must say before it is ranked (audit 2026-10-16), as SWIFT's: an order from Ethereum to the asked chain and
+ * asset, in its decimals; no gas drop (none is asked for); a deadline within FAST_MCTP_MIN_DEADLINE_SECONDS .. SWIFT_MAX_DEADLINE_SECONDS;
+ * redeem + refund fees within FAST_MCTP_MAX_FEES_BPS of the USDC the order carries (or FAST_MCTP_MIN_FEE_CAP), Circle's fee within 1 %.
+ */
+export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): void {
+  if (q.fromChain !== "ethereum") throw new Error("Mayan Fast-MCTP: only orders from Ethereum, the escrow's chain");
+  if (q.toChain !== req.to.chain) throw new Error(`Mayan Fast-MCTP: delivers on ${q.toChain}, not ${req.to.chain}`);
+  if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase()) || Number(q.toToken.decimals) !== req.to.decimals) throw new Error(`Mayan Fast-MCTP: delivers ${q.toToken.contract} (${q.toToken.decimals} decimals), not ${req.to.symbol}`);
+  if (Number(q.gasDrop ?? 0) !== 0) throw new Error("Mayan Fast-MCTP: a gas drop was not asked for");
+  const deadline = Number(q.deadline64);
+  if (!(deadline >= now + FAST_MCTP_MIN_DEADLINE_SECONDS && deadline <= now + SWIFT_MAX_DEADLINE_SECONDS)) throw new Error(`Mayan Fast-MCTP: order deadline ${q.deadline64} is not within ${FAST_MCTP_MIN_DEADLINE_SECONDS} s .. ${SWIFT_MAX_DEADLINE_SECONDS} s from now`);
+  if (!q.refundRelayerFee64 || !q.circleMaxFee64) throw new Error("Mayan Fast-MCTP: refund fee / circle fee missing from the quote");
+  // the USDC the order carries: the order's own amount, or for ETH the swap's floor (the forwarder hands the order what the router produced)
+  if (req.from.asset === "native" && q.minMiddleAmount === undefined) throw new Error("Mayan: minMiddleAmount missing");
+  const usdc = req.from.asset === "native" ? fractionalToUnits(q.minMiddleAmount!, CCTP_TOKEN_DECIMALS) : req.amount;
+  const share = (usdc * BigInt(FAST_MCTP_MAX_FEES_BPS)) / 10000n;
+  const cap = share > FAST_MCTP_MIN_FEE_CAP ? share : FAST_MCTP_MIN_FEE_CAP;
+  const fees = fractionalToUnits(q.redeemRelayerFee, CCTP_TOKEN_DECIMALS) + BigInt(q.refundRelayerFee64);
+  if (fees > cap) throw new Error(`Mayan Fast-MCTP: redeem + refund fees (${fees}) above ${cap} USDC base units (${FAST_MCTP_MAX_FEES_BPS} bps of the order, or 2 USDC)`);
+  if (BigInt(q.circleMaxFee64) * 10000n > usdc * BigInt(FAST_MCTP_MAX_FEES_BPS)) throw new Error(`Mayan Fast-MCTP: Circle's maximum fee ${q.circleMaxFee64} above ${FAST_MCTP_MAX_FEES_BPS} bps of the order`);
 }
 
 /** Build the Fast-MCTP order payload from a quote the way the SDK does (`getEvmFastMctpCreateOrderParams`). */
@@ -289,6 +322,7 @@ export class MayanAdapter implements ProviderAdapter {
   private fastQuote(req: QuoteRequest, q: MayanQuote): Quote {
     const to = mayanToken(req.to), from = mayanToken(req.from);
     if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
+    checkFastMctpQuote(q, req, Math.floor(Date.now() / 1000));
     const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
     const toAmountMin = minOutBaseUnits(q);
     // a lowered minimum is a changed quote (plan §71/§74): it must sit within slippage + 2 % of the expected output
