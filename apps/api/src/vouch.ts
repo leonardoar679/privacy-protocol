@@ -3,7 +3,7 @@
 // the wallet shows the vouch it got at the commit, so an order rebuilt from anyone's params gets none. A relayer configured
 // with this key's address (API_VOUCHER) executes and refunds only what it signed. The key signs nothing else and is never
 // logged; unset, the API vouches for nothing, and a relayer that requires vouches executes none of its orders.
-import { executionVouchDigest, orderSignerAddress, orderVouchDigest, signExecution, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
+import { executionVouchDigest, orderSignerAddress, orderVouchDigest, shieldVouchDigest, signExecution, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
 
 type Hex = `0x${string}`;
 export interface Voucher {
@@ -15,6 +15,8 @@ export interface Voucher {
   execution(chainId: bigint, escrow: string, x: { provider: string; value: bigint; providerCalldata: string; deadline: number }): Hex;
   /** whether `vouch` is this API's for the order's escrow */
   vouched(chainId: bigint, escrow: string, vouch: unknown): boolean;
+  /** a protected order's shield receipt: over its receiver, which commits to the factory and every parameter */
+  shield(chainId: bigint, receiver: string): Hex;
 }
 
 export function makeVoucher(key: Hex): Voucher {
@@ -25,6 +27,7 @@ export function makeVoucher(key: Hex): Voucher {
     order: (chainId, escrow) => signExecution(priv, orderVouchDigest(chainId, escrow)),
     execution: (chainId, escrow, x) => signExecution(priv, executionVouchDigest(chainId, escrow, x.provider, x.value, x.providerCalldata, x.deadline)),
     vouched: (chainId, escrow, vouch) => vouchedBy(address, orderVouchDigest(chainId, escrow), vouch),
+    shield: (chainId, receiver) => signExecution(priv, shieldVouchDigest(chainId, receiver)),
   };
 }
 

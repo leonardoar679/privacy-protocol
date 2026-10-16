@@ -64,7 +64,7 @@ const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: lo
 // shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
 const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
 const shields = shieldFactory
-  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: int("LATE_DELIVERY_WATCH_SECONDS", LATE_DELIVERY_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidShields: int("MAX_UNPAID_SHIELDS", MAX_UNPAID_SHIELDS, 0, 100) })
+  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, chainId: cfg.chainId, ...(apiVoucher ? { voucher: apiVoucher } : {}), journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: int("LATE_DELIVERY_WATCH_SECONDS", LATE_DELIVERY_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidShields: int("MAX_UNPAID_SHIELDS", MAX_UNPAID_SHIELDS, 0, 100) })
   : null;
 const pollMs = int("SWAP_POLL_MS", 15_000, 500, 600_000);
 setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
@@ -114,7 +114,7 @@ const server = createServer(async (req, res) => {
       return job ? send(200, job) : send(404, { error: "unknown shield job", code: "unknown_shield" });
     }
     if (req.method === "POST" && url.pathname === "/shield") {
-      if (!shields) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
+      if (!shields || !apiVoucher) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
       if (shields.open() >= MAX_SWAP_JOBS) return send(503, { error: "too many open shield jobs", code: "capacity" });
       const job = await shields.add((await readJson(req, 100_000)) as never);
       shields.tick().catch(() => {}); // shield at once if the delivery is already there

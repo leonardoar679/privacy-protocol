@@ -49,7 +49,8 @@ export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "exec
 /** `executionTx`: the deployAndExecute transaction (whale spec §19), set once; `txHash` is reused by the executor's refund transactions. */
 export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; updatedAt: number }
 /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap's receipt for the shield executor; `deliverBy` the order's refundAfter. */
-export interface ShieldRegisterRequest { factory: Address; params: ReceiverParamsJson; noteData: Hex; deliverBy: number }
+/** `vouch`: the swap service's for the receipt (a V6 follow-up of 2026-10-16, audit gap 47) */
+export interface ShieldRegisterRequest { factory: Address; params: ReceiverParamsJson; noteData: Hex; deliverBy: number; vouch?: Hex }
 export type ShieldJobState = "waiting-delivery" | "shielding" | "shielded" | "shield-failed" | "expired";
 /** Each mined shield: the deposit's leaf, the amount deposited and the tip paid (the receipt asset's base units). */
 export interface ShieldJob { id: string; receiver: Address; state: ShieldJobState; paid?: boolean; shields?: { txHash: Hex; leafIndex?: number; amount?: string; tip?: string; at: number }[]; error?: string; balance?: string; updatedAt: number }

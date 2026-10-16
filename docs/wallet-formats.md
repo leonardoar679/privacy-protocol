@@ -75,8 +75,8 @@ amount }] }` (integers as decimal strings; `request.destination` is the receiver
 i = 0…5, truncated to 169 bytes — the refund payload's construction under its own domain, so a rescan without the
 journal finds the delivery and tells it from a refund — optional, never written by `emptyJournal()`. A V6 follow-up
 of 2026-10-16 (audit gap 47): a swap order carries `orderVouch` (65 bytes of hex), the swap service's vouch for the
-order from its commit, shown at the finalize and handed to the relayer with a refund — optional, never written by
-`emptyJournal()`. V6 Stage 14 (spec
+order from its commit, shown at the finalize and handed to the relayer with a refund, and `shield.vouch`, its vouch for
+the order's shield receipt, handed to the shield executor — optional, never written by `emptyJournal()`. V6 Stage 14 (spec
 v2.0 §11.3): `classic` may also carry `relayer` (the id of the classic relayer the user chose). V6 Stage 15 (spec v2.0
 §8, §14.3): `settings.autoLockMinutes` is one of 1, 5, 15 or 60 (absent reads as 15; any other value is dropped when the
 settings are read), and `proofStats { keyMs, proveMs, keyCached, at }` keeps this device's last proof — the key's fetch

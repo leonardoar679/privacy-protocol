@@ -104,6 +104,9 @@ export interface StoredShield {
   job?: { state: string; leafIndex?: number; txHash?: string; amount?: string; tip?: string; error?: string; at: number };
   /** the delivered note(s) found in the pool, each proven by its commitment (a late second delivery is shielded again) */
   leaves?: { leafIndex: number; vault: string; amount: string }[];
+  /** the swap service's vouch for this receipt from the commit (a V6 follow-up of 2026-10-16, audit gap 47), handed to the
+   *  shield executor, which shields only a vouched receipt; 65 bytes of hex, optional */
+  vouch?: string;
 }
 
 /**

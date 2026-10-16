@@ -68,6 +68,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   bad_refund_vault: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   // a V6 follow-up of 2026-10-16 (audit gap 47): the relayer executes and refunds only what the API vouched for
   unvouched_order: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
+  bad_shield_receipt: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   minimum_moved: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   price_guard: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   no_quote: { source: "service", fundsClass: "not-moved", actions: ["wait", "new-quote"] },

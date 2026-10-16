@@ -425,6 +425,8 @@ export const en = {
   "op.error.unknown_swap_factory.reason": "Nothing was executed. Choose another relayer to continue, or to return the funds to your protected balance.",
   "op.error.swap_unavailable.title": "This relayer cannot execute swaps",
   "op.error.swap_unavailable.reason": "It runs no swap executor. Nothing was executed: choose another relayer to continue, or to return the funds to your protected balance.",
+  "op.error.bad_shield_receipt.title": "The swap service did not accept this swap's receipt",
+  "op.error.bad_shield_receipt.reason": "The receipt that adds the swap to your protected balance does not match the swap. Nothing moved: get a new quote.",
   "op.error.unvouched_order.title": "The swap service did not vouch for this swap",
   "op.error.unvouched_order.reason": "The relayer runs only swaps the swap service committed and prepared. Nothing was executed: check that the wallet, the swap service and the relayer belong to the same network.",
   "op.error.bad_refund_vault.title": "The relayer refused this swap's return path",

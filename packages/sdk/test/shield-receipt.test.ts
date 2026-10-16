@@ -128,6 +128,9 @@ describe("the receipt a same-chain swap names (spec v2.0 §11.2)", () => {
   it("the executor's job is the receipt, until the order's refundAfter", () => {
     const s = swap();
     expect(shieldJobRequest(s)).toEqual({ factory: FACTORY, params: s.shield!.params, noteData: s.shield!.noteData, deliverBy: 2_000_003_600 });
+    // the swap service's vouch for the receipt, from the commit (2026-10-16, audit gap 47), goes with it
+    const vouch = "0x" + "a5".repeat(65);
+    expect(shieldJobRequest({ ...s, shield: { ...s.shield!, vouch } }).vouch).toBe(vouch);
   });
 });
 

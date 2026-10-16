@@ -84,7 +84,7 @@ export type ServiceMinimumMoved = ApiMinimumMoved;
 
 /** A commit's answer: the operation's id with the order. */
 /** `vouch.order`: the API's vouch for this order (a V6 follow-up of 2026-10-16, audit gap 47), journaled with it: the relayer refunds only a vouched order, and the API vouches for its call only on seeing it */
-export interface Committed { operationId: string; order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView>; vouch?: { order: string } }
+export interface Committed { operationId: string; order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView>; vouch?: { order: string; shield?: string } }
 /** A resume's answer: the order rebuilt from the journaled params into its operation. */
 export interface Resumed { operationId: string; order: ServiceOrder; status: string; tier?: Tier }
 
@@ -100,7 +100,8 @@ export const swapService = {
   /** `signal`: the Swap screen cancels a quote the user has typed past (V6 Stage 16) */
   quote: (req: SwapRequest, signal?: AbortSignal) => api.quotes<QuoteSet>(req, signal),
   /** commit: POST /v1/operations — the answer names the operation (`op_` id) the wallet journals with the order */
-  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string }) => api.createOperation<Committed>(req),
+  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string; shield?: unknown }) =>
+    api.createOperation<Committed>(req),
   /** rebuild an order from the journaled params: into its known operation, else (unknown, or none yet) found by its order or created */
   async resume(req: ResumeRequest, operationId?: string): Promise<Resumed> {
     const body = resumeBody(req);

@@ -49,6 +49,7 @@ start("service", "apps/api", ["tsx", "src/server.ts"], {
   THORCHAIN_ROUTER: stack.pins.thorchainRouter,
   ...(stack.usdc ? { ERC20_VAULTS: `${stack.usdc.token}:${stack.usdc.vault}` } : {}),
   API_VOUCH_KEY: LOCAL_VOUCH_KEY, // devnet only: the API vouches for the orders it commits and the calls it prepares
+  ...(stack.shieldFactory ? { SHIELD_FACTORY: stack.shieldFactory } : {}), // and for the shield receipts of its protected orders
 });
 
 start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {

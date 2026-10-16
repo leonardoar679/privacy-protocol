@@ -1107,8 +1107,11 @@ TLS, no `x-powered-by`, 64 KB bodies, 415 for another content type, in-memory to
 answers `vouch.order`, a signature over its escrow (which commits to the factory and every parameter), and its
 finalize answers `vouch.execution`, a signature over the provider call it prepared, only when the request shows the
 order's vouch (else `400 unvouched_order`, nothing finalized). An order rebuilt from params (a restore, a resume) gets
-no vouch of its own; `GET /v1/status` names the signer (`deployment.voucher`). The digests are
-`packages/swap-engine/src/endpoints.ts` `orderVouchDigest` and `executionVouchDigest`.
+no vouch of its own; `GET /v1/status` names the signer (`deployment.voucher`). A swap into the protected balance sends
+its shield receipt's parameters with the commit, and the answer's `vouch.shield` signs the receipt once it is the
+order's: its receiver, predicted from `SHIELD_FACTORY`, is the destination, it names the delivered asset, and its tip is
+at least half of the one the API prices (`400 bad_shield_receipt` otherwise). The digests are
+`packages/swap-engine/src/endpoints.ts` `orderVouchDigest`, `executionVouchDigest` and `shieldVouchDigest`.
 Every field of a request body is checked at the edge (a V6 follow-up of 2026-10-14): integer slippage 0–10000 bps,
 decimals 0–36, an amount of at most 78 digits, a destination of at most 256 characters, and a journaled order's params
 in shape, before any provider is asked. A malformed one is `400 invalid_request`, never a 500 or a provider's error.
@@ -1156,7 +1159,7 @@ the escrow's W with its own relayer terms. Tests: `apps/api/test`
 by a fee note (§3's rule), the swap executor (one pass at a time; for the deployment's `SWAP_FACTORY` only, since a V6
 follow-up of 2026-10-15 — it had called whatever factory a request named, at its own gas; and since 2026-10-16 only what
 the swap service vouched for, `API_VOUCHER`: an execution with its vouch for that call, a refund with its vouch for the
-order, §15), the refund-only jobs, and (*V6*) the shield
+order, a shield receipt with its vouch for the receipt, §15), the refund-only jobs, and (*V6*) the shield
 executor (`POST /shield`, `GET /shield/:receiptId`, states `waiting-delivery → shielding → shielded |
 shield-failed`, a journal `shield-jobs.json`, the tip checked against the estimated gas, unpaid re-shields bounded).
 It never receives a protected wallet's key, recovery phrase, raw note secret or full witness. Every job records its

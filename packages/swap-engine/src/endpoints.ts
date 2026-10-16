@@ -81,6 +81,8 @@ export function recoverExecutionSigner(digest: `0x${string}`, signature: `0x${st
  */
 export const ORDER_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/order"));
 export const EXECUTION_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/execution"));
+/** a same-chain swap's shield receipt (its receiver's address commits to the factory and every parameter) */
+export const SHIELD_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/shield"));
 
 /** keccak256(abi.encode(ORDER_VOUCH_TAG, chainId, escrow)) */
 export function orderVouchDigest(chainId: bigint, escrow: string): `0x${string}` {
@@ -93,6 +95,11 @@ export function executionVouchDigest(chainId: bigint, escrow: string, provider: 
     Buffer.from(EXECUTION_VOUCH_TAG), word(chainId), addrWord(escrow), addrWord(provider), word(value),
     Buffer.from(keccak_256(bytes(calldata))), word(deadline),
   ])));
+}
+
+/** keccak256(abi.encode(SHIELD_VOUCH_TAG, chainId, receiver)) */
+export function shieldVouchDigest(chainId: bigint, receiver: string): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([Buffer.from(SHIELD_VOUCH_TAG), word(chainId), addrWord(receiver)])));
 }
 
 /** Whether `signature` over `digest` is the voucher's; a missing or malformed one is not. */

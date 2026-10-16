@@ -85,7 +85,8 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     shield = buildShieldReceipt({ masterSeed: i.masterSeed, deployment: i.deployment, counter: noteStore.allocateCounter(), asset: req.to.asset, shieldTip: i.shield.shieldTip, fallbackRecipient: i.shield.fallbackRecipient });
     req = { ...req, destination: shield.receiver, destinationType: "protected" };
   }
-  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash });
+  // a receipt goes with its commit: the service vouches for it once it is this order's (audit gap 47)
+  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}) });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3)
   const maxTip = i.deployment ? await tipCeiling(i.deployment, i.fromAsset) : null;
@@ -105,7 +106,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     ...(response.vouch?.order ? { orderVouch: response.vouch.order } : {}), // the API's vouch for this order (audit gap 47)
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     ...(i.campaign ? { campaign: i.campaign } : {}),
-    ...(shield ? { shield } : {}),
+    ...(shield ? { shield: { ...shield, ...(response.vouch?.shield ? { vouch: response.vouch.shield } : {}) } } : {}),
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });

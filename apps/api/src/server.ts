@@ -3,11 +3,20 @@
 //   npx tsx src/server.ts     # http://127.0.0.1:8787
 // Env: PORT (8787), HOST (127.0.0.1), DB_PATH (api.sqlite), ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (also the engine's tip
 // and valuation reads), TLS (1 when the API terminates TLS itself: HSTS), RATE_PER_MINUTE (120), TRUST_PROXY_HOPS (the proxies in front of it; default none), API_VOUCH_KEY (the key that
-// vouches for the orders it commits and the calls it prepares, for the relayers; unset: none), and the engine's own
+// vouches for the orders it commits and the calls it prepares, for the relayers; unset: none), SHIELD_FACTORY (the receipts
+// it vouches for), and the engine's own
 // (CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT, ERC20_VAULTS, REFUND_WINDOW_SECONDS).
 import { ASSETS, CHAINS } from "@privacy-wallet/config";
 import { createLogger, intSetting, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
 import { voucherFrom } from "./vouch";
+
+/** SHIELD_FACTORY: the ShieldReceiverFactory whose receipts the API vouches for; unset, none (a malformed one stops the start). */
+function shieldFactoryFrom(raw: string | undefined): string | null {
+  const f = raw?.trim();
+  if (!f) return null;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(f)) throw new Error(`SHIELD_FACTORY must be the ShieldReceiverFactory's address, not ${JSON.stringify(raw)}`);
+  return f;
+}
 import { defaultEngine } from "@privacy-wallet/swap-engine/config";
 import { gatewayConfigFromEnv } from "@privacy-wallet/swap-engine/gateway";
 import { createApp } from "./app";
@@ -33,7 +42,16 @@ const reads = makeReads({
 });
 
 const app = createApp(
-  { engine, store, gateway: gatewayConfigFromEnv(), reads, relayerTerms: () => reads.relayerTerms(), now: Date.now, voucher: voucherFrom(env.API_VOUCH_KEY) },
+  {
+    engine,
+    store,
+    gateway: gatewayConfigFromEnv(),
+    reads,
+    relayerTerms: () => reads.relayerTerms(),
+    now: Date.now,
+    voucher: voucherFrom(env.API_VOUCH_KEY),
+    shieldFactory: shieldFactoryFrom(env.SHIELD_FACTORY),
+  },
   {
     origins: originsFrom(env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]),
     tls: env.TLS === "1",

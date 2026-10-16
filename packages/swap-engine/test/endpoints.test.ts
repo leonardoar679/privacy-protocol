@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { encodeOrderParams, executionDigest, executionVouchDigest, initCodeHash, orderSignerAddress, orderVouchDigest, predictEscrow, signExecution, vouchedBy, word } from "../src/endpoints";
+import { encodeOrderParams, executionDigest, executionVouchDigest, initCodeHash, orderSignerAddress, orderVouchDigest, predictEscrow, shieldVouchDigest, signExecution, vouchedBy, word } from "../src/endpoints";
 import type { OrderParams } from "../src/types";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
@@ -96,7 +96,8 @@ describe("the API's vouches (a V6 follow-up of 2026-10-16)", () => {
     const order = orderVouchDigest(1n, escrow);
     const call = executionVouchDigest(1n, escrow, provider, 5n, calldata, 1801);
     const execution = executionDigest(1n, escrow, "0x" + "00".repeat(32), provider, 5n, calldata, 1801);
-    expect(new Set([order, call, execution]).size).toBe(3);
+    const receipt = shieldVouchDigest(1n, escrow);
+    expect(new Set([order, call, execution, receipt]).size, "a receipt's digest is apart from an order's at the same address").toBe(4);
     expect(orderVouchDigest(2n, escrow), "the chain is in it").not.toBe(order);
     expect(executionVouchDigest(1n, escrow, provider, 5n, "0x1235", 1801), "the calldata is in it").not.toBe(call);
     // the API and every relayer must agree byte for byte, whatever version each runs (abi.encode, recomputed with viem)

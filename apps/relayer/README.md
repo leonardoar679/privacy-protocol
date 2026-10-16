@@ -84,7 +84,9 @@ late refunds and foreign tokens.
 ## Shield executor (V6 Stage 12, spec v2.0 §11.2)
 A same-chain swap into the protected balance pays a one-time `ShieldReceiver`, a CREATE2 address of the
 `ShieldReceiverFactory` (`SHIELD_FACTORY`). The wallet registers the receipt in the hand-over tick, before the
-execution: `POST /shield { receiptId, params, … }` (the vault read from the factory, `vaultOf`). The executor watches the
+execution: `POST /shield { receiptId, params, …, vouch }` (the vault read from the factory, `vaultOf`; the swap service's
+vouch for the receipt from the order's commit, without which it is `unvouched_order`, a V6 follow-up of 2026-10-16;
+without `API_VOUCHER` the relayer shields nothing). The executor watches the
 receiver: once the delivery is there, it calls `deployAndShield` (or `shield()` on a deployed receiver), which pays its tip
 once — only for a delivery of at least `minAmount` — and deposits the rest as the committed note:
 `waiting-delivery → shielding → shielded`, or `shield-failed`. A delivery below its minimum, or one after somebody else

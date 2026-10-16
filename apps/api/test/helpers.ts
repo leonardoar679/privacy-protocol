@@ -24,6 +24,11 @@ export const ORDER_KEY = new Uint8Array(32).fill(7);
 export const ORDER_SIGNER = orderSignerAddress(ORDER_KEY);
 export const REFUND_SECRET = "987654321987654321";
 export const TIP = 25n * 10n ** 14n;
+/** a same-chain swap into the protected balance (spec v2.0 §11.2): the token, its vault, the receiver factory, the shield tip */
+export const USDC = { chain: "ethereum", asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6, symbol: "USDC" } as const;
+export const USDC_VAULT = "0x00000000000000000000000000000000000000e8";
+export const SHIELD_FACTORY = "0x00000000000000000000000000000000000000f2";
+export const SHIELD_TIP = 30_000n;
 
 export class StubAdapter implements ProviderAdapter {
   readonly implemented = true;
@@ -36,6 +41,7 @@ export class StubAdapter implements ProviderAdapter {
       nativeAssets: true,
       atomic: false,
       chains: ["ethereum", "bitcoin"],
+      sameChain: true, // a swap into the protected balance stays on its chain (the vouch tests)
       destinationLinkPublic: true,
       linkEvidence: "stub: the memo names the destination",
     };
@@ -104,6 +110,9 @@ export async function harness(
     terms?: RelayerTerms | null;
     gatewayUpstream?: string;
     vouchKey?: `0x${string}`;
+    /** a same-chain swap into the protected balance: the token's vault, a shield tip, the receiver factory (or `shieldFactory`) */
+    protectedDestinations?: boolean;
+    shieldFactory?: string | null;
   } = {},
 ): Promise<Harness> {
   const lines: string[] = [];
@@ -116,8 +125,8 @@ export async function harness(
     factory: "0x00000000000000000000000000000000000000f1",
     escrowCreationCode: BYTECODE.swapOrderEscrow,
     chainId: 1n,
-    refundVaults: { native: "0x00000000000000000000000000000000000000e7" },
-    tips: { tipFor: async () => TIP },
+    refundVaults: { native: "0x00000000000000000000000000000000000000e7", ...(o.protectedDestinations ? { [USDC.asset]: USDC_VAULT } : {}) },
+    tips: { tipFor: async () => TIP, ...(o.protectedDestinations ? { shieldTipFor: async () => SHIELD_TIP } : {}) },
     refundWindowSeconds: 7200,
     valuer: NO_VALUER,
   });
@@ -130,6 +139,7 @@ export async function harness(
     now: () => clock.now,
     relayerTerms: async () => o.terms ?? null,
     voucher: o.vouchKey ? makeVoucher(o.vouchKey) : null,
+    shieldFactory: o.shieldFactory !== undefined ? o.shieldFactory : o.protectedDestinations ? SHIELD_FACTORY : null,
     reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
   };
   const app = createApp(deps, {

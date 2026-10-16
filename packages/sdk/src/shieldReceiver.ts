@@ -102,5 +102,6 @@ export function shieldJobRequest(stored: StoredSwap): ShieldRegisterRequest {
     params: sh.params as ShieldRegisterRequest["params"],
     noteData: sh.noteData as Hex,
     deliverBy: Number((stored.params as { refundAfter: number }).refundAfter),
+    ...(sh.vouch ? { vouch: sh.vouch as Hex } : {}), // the swap service's, from the commit: the executor shields only a vouched receipt
   };
 }

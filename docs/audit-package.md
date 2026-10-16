@@ -301,8 +301,10 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       has risen by about 40 % since the commit; a party that commits orders only to have them refunded pays that tip
       each time;
     - the API's key is the relayer's trust: whoever holds it can make the relayer run any order (`docs/threat-model.md`);
-    - the shield executor (`POST /shield`) still admits receipts from anyone, with the same exposure for a token of no
-      value; vouching for receipts is the next step.
+    - (closed the same day) the shield executor (`POST /shield`) admitted receipts from anyone, with the same exposure
+      for a token of no value. Now the API vouches for a protected order's receipt at its commit: the receiver predicted
+      from `SHIELD_FACTORY` is the order's destination, it names the asset the swap delivers, and its tip is at least
+      half of the one the API prices (`400 bad_shield_receipt` otherwise). The executor shields only a vouched receipt.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

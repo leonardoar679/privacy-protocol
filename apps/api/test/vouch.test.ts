@@ -2,9 +2,10 @@
 // each order it commits, and at the finalize the provider call it prepared — only for an order whose commit vouch the
 // wallet shows, so an order rebuilt from anyone's params gets none. Without API_VOUCH_KEY it vouches for nothing.
 import { afterEach, describe, expect, it } from "vitest";
-import { executionVouchDigest, orderVouchDigest, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
+import { executionVouchDigest, orderVouchDigest, shieldVouchDigest, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
+import { predictReceiver, receiverParamsJson, type ReceiverParams } from "@privacy-wallet/contracts";
 import { makeVoucher, voucherFrom } from "../src/vouch";
-import { harness, orderBody, sign, type Harness } from "./helpers";
+import { harness, orderBody, sign, SHIELD_FACTORY, SHIELD_TIP, USDC, type Harness } from "./helpers";
 
 const KEY = ("0x" + "5a".repeat(32)) as `0x${string}`;
 const VOUCHER = makeVoucher(KEY).address;
@@ -70,5 +71,55 @@ describe("the API's vouches", () => {
       expect(message, bad).toMatch(/^API_VOUCH_KEY (must be 32 bytes of hex|is not a usable secp256k1 key)/);
       expect(message, "the key is never echoed").not.toContain(bad.slice(2, 20));
     }
+  });
+});
+
+describe("the receipt of a swap into the protected balance (a V6 follow-up of 2026-10-16)", () => {
+  const receipt = (over: Partial<ReceiverParams> = {}): ReceiverParams => ({
+    receiptId: ("0x" + "5e".repeat(32)) as `0x${string}`,
+    asset: USDC.asset,
+    minAmount: SHIELD_TIP * 100n,
+    shieldTip: SHIELD_TIP,
+    ownerCommitment: 4660n,
+    noteSecret: 22136n,
+    noteDataHash: ("0x" + "cd".repeat(32)) as `0x${string}`,
+    fallbackRecipient: "0x00000000000000000000000000000000000000fa",
+    ...over,
+  });
+  const body = (p: ReceiverParams, destination: string = predictReceiver(SHIELD_FACTORY, p)) =>
+    orderBody({ to: USDC, destination, destinationType: "protected", shield: receiverParamsJson(p) });
+
+  it("vouches for the receipt the order pays: the destination's receiver, the asset it delivers, a tip it priced", async () => {
+    h = await harness({ vouchKey: KEY, protectedDestinations: true });
+    const p = receipt();
+    const c = await h.post("/v1/operations", body(p));
+    expect(c.status).toBe(200);
+    expect(vouchedBy(VOUCHER, shieldVouchDigest(1n, predictReceiver(SHIELD_FACTORY, p)), c.body.vouch.shield)).toBe(true);
+    // a tip a little below the one it prices now (fees moved since the quote) is still the order's
+    expect(
+      (
+        await h.post(
+          "/v1/operations",
+          body(receipt({ receiptId: ("0x" + "5f".repeat(32)) as `0x${string}`, shieldTip: SHIELD_TIP / 2n, minAmount: (SHIELD_TIP / 2n) * 100n })),
+        )
+      ).status,
+    ).toBe(200);
+  });
+
+  it("refuses a receiver that is not the destination, another asset, a tip below half of its own, no receipt, and without the factory", async () => {
+    h = await harness({ vouchKey: KEY, protectedDestinations: true });
+    const refused = async (b: Record<string, unknown>) => {
+      const r = await h!.post("/v1/operations", b);
+      return [r.status, r.body.code];
+    };
+    const p = receipt();
+    expect(await refused(body(p, "0x00000000000000000000000000000000000000bb")), "another destination").toEqual([400, "bad_shield_receipt"]);
+    expect(await refused(body(receipt({ asset: "0x00000000000000000000000000000000000000b7" }))), "another asset").toEqual([400, "bad_shield_receipt"]);
+    const low = receipt({ shieldTip: SHIELD_TIP / 2n - 1n, minAmount: (SHIELD_TIP / 2n - 1n) * 100n });
+    expect(await refused(body(low)), "a tip below half of its own").toEqual([400, "bad_shield_receipt"]);
+    expect(await refused({ ...body(p), shield: undefined }), "no receipt").toEqual([400, "bad_shield_receipt"]);
+    await h.close();
+    h = await harness({ vouchKey: KEY, protectedDestinations: true, shieldFactory: null });
+    expect(await refused(body(p)), "no receipt factory to predict from").toEqual([400, "bad_shield_receipt"]);
   });
 });

@@ -33,6 +33,7 @@ import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import { redactUrls, redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
 import type { Voucher } from "../vouch";
+import { predictReceiver, receiverParamsOf, receiverParamsProblem, type ReceiverParams, type ReceiverParamsJson } from "@privacy-wallet/contracts";
 import { decodeBlob, encodeBlob, wire } from "../blob";
 import { newId, OPERATION_ID } from "../ids";
 import { quoteOf, type RelayerTerms } from "../quote";
@@ -182,6 +183,8 @@ export interface SwapApiDeps {
   now(): number;
   /** API_VOUCH_KEY's signer: the API vouches for the orders it commits and the calls it prepares for them (audit gap 47); null, none */
   voucher?: Voucher | null;
+  /** SHIELD_FACTORY: the deployment's ShieldReceiverFactory, whose receipts the API vouches for (a same-chain swap into the protected balance) */
+  shieldFactory?: string | null;
 }
 
 const unknownOperation: Answer = { status: 404, body: { error: "unknown order", code: "unknown_order" } };
@@ -279,6 +282,10 @@ export class SwapApi {
       preferenceOf(b),
       { executeWindowSeconds: windowOf(b) },
     );
+    // a swap into the protected balance pays a shield receipt, which the API vouches for once it is this order's (a V6
+    // follow-up of 2026-10-16, audit gap 47): the relayer shields only a receipt the API vouched for
+    const shieldVouch = req.destinationType === "protected" && this.d.voucher ? this.receiptVouch(b.shield, req, set.shieldTip) : undefined;
+    if (shieldVouch !== undefined && typeof shieldVouch !== "string") return shieldVouch;
     const operationId = this.record(order, typeof b.quoteId === "string" ? b.quoteId : null);
     return {
       status: 200,
@@ -294,9 +301,38 @@ export class SwapApi {
         ...(set.protection ? { protection: set.protection } : {}),
         ...(set.risk ? { risk: set.risk } : {}),
         // the order's vouch (audit gap 47): the wallet journals it, shows it at the finalize and hands it with a refund
-        ...(this.d.voucher ? { vouch: { order: this.d.voucher.order(this.engine.cfg.chainId, order.endpoint) } } : {}),
+        ...(this.d.voucher
+          ? { vouch: { order: this.d.voucher.order(this.engine.cfg.chainId, order.endpoint), ...(shieldVouch ? { shield: shieldVouch } : {}) } }
+          : {}),
       }),
     };
+  }
+
+  /**
+   * A protected order's shield receipt, vouched for when it is this order's (a V6 follow-up of 2026-10-16, audit gap 47): its
+   * receiver is the order's destination, predicted from the deployment's factory; it names the asset the swap delivers; its
+   * tip is at least half of the one this service priced now (the wallet built it from its quote, and fees move). The
+   * relayer shields only a vouched receipt: a receipt of anyone's own, for a token of no value, had cost it its gas.
+   */
+  private receiptVouch(raw: unknown, req: QuoteRequest, priced: bigint | undefined): `0x${string}` | Answer {
+    const refuse = (why: string): Answer => ({ status: 400, body: { error: `the shield receipt is not this order's: ${why}`, code: "bad_shield_receipt" } });
+    const factory = this.d.shieldFactory;
+    if (!factory) return refuse("this service names no shield receiver factory (SHIELD_FACTORY)");
+    let params: ReceiverParams;
+    let receiver: string;
+    try {
+      params = receiverParamsOf(raw as ReceiverParamsJson);
+      receiver = predictReceiver(factory as `0x${string}`, params);
+    } catch {
+      return refuse("its parameters are malformed");
+    }
+    const problem = receiverParamsProblem(params);
+    if (problem) return refuse(problem);
+    if (receiver.toLowerCase() !== req.destination.toLowerCase()) return refuse("its receiver is not the order's destination");
+    const delivered = req.to.asset === "native" ? "0x0000000000000000000000000000000000000000" : req.to.asset;
+    if (params.asset.toLowerCase() !== delivered.toLowerCase()) return refuse("it names another asset than the swap delivers");
+    if (priced !== undefined && params.shieldTip * 2n < priced) return refuse(`its tip ${params.shieldTip} is below half of this service's ${priced}`);
+    return this.d.voucher!.shield(this.engine.cfg.chainId, receiver);
   }
 
   private record(order: Order, quoteId: string | null): string {

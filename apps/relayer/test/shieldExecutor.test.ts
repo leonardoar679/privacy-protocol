@@ -7,6 +7,9 @@
 // the job back and is shielded again (a V6 follow-up of 2026-10-15). No real chain, no funds.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createPublicClient,
   createWalletClient,
@@ -23,9 +26,11 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ABI, predictReceiver, receiverParamsJson, type ReceiverParams } from "@privacy-wallet/contracts";
+import { ABI, predictReceiver, receiverParamsJson, receiverParamsOf, type ReceiverParams } from "@privacy-wallet/contracts";
 import { ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
 import { DROP_AFTER_MS } from "../src/sender";
+import { shieldVouchDigest, signExecution } from "@privacy-wallet/swap-engine/endpoints";
+import { VOUCHER, VOUCH_KEY } from "./vouch";
 import vector from "../../../contracts/test/periphery/vectors/shield.json";
 
 const CHAIN_ID = 1;
@@ -191,15 +196,20 @@ function handle(req: { id: number; method: string; params: any[] }) {
 let server: Server;
 let clock = 1_000;
 let clients: { publicClient: any; walletClient: any; account: ReturnType<typeof privateKeyToAccount> };
-const executor = (o: { maxUnpaidShields?: number } = {}) =>
-  new ShieldExecutor({ factory: FACTORY, ...clients, now: () => clock, lateDeliveryWatchSeconds: 600, ...o });
-const request = (over: Partial<ShieldJobRequest> = {}): ShieldJobRequest => ({
-  factory: FACTORY,
-  params: receiverParamsJson(params),
-  noteData: NOTE_DATA,
-  deliverBy: 2_000,
-  ...over,
-});
+const executor = (o: { maxUnpaidShields?: number; voucher?: Address } = {}) =>
+  new ShieldExecutor({ factory: FACTORY, ...clients, now: () => clock, lateDeliveryWatchSeconds: 600, chainId: CHAIN_ID, voucher: VOUCHER, ...o });
+/** the swap service's vouch for a receipt (a V6 follow-up of 2026-10-16): over its receiver */
+const vouchFor = (r: ShieldJobRequest, key = VOUCH_KEY): Hex | undefined => {
+  try {
+    return signExecution(key, shieldVouchDigest(BigInt(CHAIN_ID), predictReceiver(r.factory, receiverParamsOf(r.params))));
+  } catch {
+    return undefined; // parameters the receiver cannot take: the executor refuses them before the vouch
+  }
+};
+const request = (over: Partial<ShieldJobRequest> = {}): ShieldJobRequest => {
+  const r: ShieldJobRequest = { factory: FACTORY, params: receiverParamsJson(params), noteData: NOTE_DATA, deliverBy: 2_000, ...over };
+  return "vouch" in over ? r : { ...r, vouch: vouchFor(r) };
+};
 const sentShield = (raw: Hex) => decodeFunctionData({ abi: ABI.shieldReceiverFactory, data: parseTransaction(raw).data! });
 
 beforeAll(async () => {
@@ -412,5 +422,28 @@ describe("the watch", () => {
     expect(job.state).toBe("shielding");
     expect(raws).toHaveLength(2);
     expect(job.unpaidShields).toBe(1);
+  });
+});
+
+describe("only a receipt the swap service vouched for (a V6 follow-up of 2026-10-16, audit gap 47)", () => {
+  const code = (x: ShieldExecutor, r: ShieldJobRequest) =>
+    x.add(r).then(
+      () => "accepted",
+      (e: ShieldJobError) => e.code,
+    );
+  it("shields a vouched receipt, never one without its vouch, with another key's or vouched for another receipt", async () => {
+    const x = executor();
+    expect(await code(x, request({ vouch: undefined })), "a receipt of anyone's own").toBe("unvouched_order");
+    expect(await code(x, request({ vouch: vouchFor(request(), new Uint8Array(32).fill(0x5b)) })), "another key's").toBe("unvouched_order");
+    const other = request({ params: { ...receiverParamsJson(params), receiptId: ("0x" + "6f".repeat(32)) as Hex } });
+    expect(await code(x, request({ vouch: other.vouch })), "the vouch of another receipt").toBe("unvouched_order");
+    expect(x.list(), "nothing watched").toHaveLength(0);
+    expect(await code(x, request())).toBe("accepted");
+  });
+  it("an executor without the swap service's address shields nothing; the server answers 503 without it", async () => {
+    expect(await code(executor({ voucher: undefined }), request())).toBe("shield_unavailable");
+    const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "server.ts"), "utf8");
+    expect(server).toMatch(/if \(!shields \|\| !apiVoucher\) return send\(503/);
+    expect(server).toMatch(/chainId: cfg\.chainId, \.\.\.\(apiVoucher \? \{ voucher: apiVoucher \} : \{\}\)/);
   });
 });
