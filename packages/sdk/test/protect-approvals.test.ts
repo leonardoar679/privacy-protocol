@@ -39,6 +39,10 @@ const w = vi.hoisted(() => ({
   sent: [] as { fn: "approve" | "deposit"; amount?: bigint; reverted: boolean }[],
   receipts: new Map<string, "success" | "reverted">(),
   commitment: 0n,
+  /** the connected wallet's network, and the one it switches to after `switchAfter` sends (the deployment's is chain 1) */
+  chain: "0x1",
+  switchTo: null as null | { after: number; chain: string },
+  chainIds: [] as string[],
   provider: null as null | { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> },
 }));
 vi.mock("@privacy-wallet/wallet-engine/injected", async (importOriginal) => ({
@@ -83,9 +87,12 @@ vi.mock("../src/chain", async (importOriginal) => ({
 const usdtWallet = {
   request: async ({ method, params }: { method: string; params?: unknown[] }) => {
     if (method === "eth_accounts" || method === "eth_requestAccounts") return [OWNER];
+    if (method === "eth_chainId") return w.chain;
     if (method === "eth_call") return encodeFunctionResult({ abi: erc20Abi, functionName: "allowance", result: w.allowance });
     if (method === "eth_sendTransaction") {
-      const tx = params![0] as { to: string; data: Hex };
+      const tx = params![0] as { to: string; data: Hex; chainId?: string };
+      w.chainIds.push(String(tx.chainId));
+      if (w.switchTo && w.sent.length + 1 === w.switchTo.after) w.chain = w.switchTo.chain; // the user switches network after this send
       const hash = `0x${(w.sent.length + 1).toString(16).padStart(64, "0")}`;
       if (tx.to.toLowerCase() === USDT.toLowerCase()) {
         const amount = (decodeFunctionData({ abi: erc20Abi, data: tx.data }).args as readonly [Address, bigint])[1];
@@ -114,6 +121,9 @@ beforeAll(async () => {
 beforeEach(() => {
   w.sent.length = 0;
   w.receipts.clear();
+  w.chain = "0x1";
+  w.switchTo = null;
+  w.chainIds.length = 0;
 });
 
 const AMOUNT = 5_000_000n; // 5 USDT
@@ -165,5 +175,30 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
     expect(approved, "one approval of the amount").toBe(1);
     expect(w.sent.some((s) => s.reverted)).toBe(false);
     expect(w.allowance).toBe(0n);
+  });
+
+  it("a protect sends on the deployment's chain only: a wallet on another network is refused before anything is sent, and so is one switched there between the approval and the deposit", async () => {
+    w.chain = "0x89"; // Polygon
+    const away = await protect(0n).catch((e: unknown) => e);
+    expect(away).toMatchObject({
+      code: "chain_mismatch",
+      name: "WalletOnOtherChain",
+      message: expect.stringMatching(/on chain 137, not this deployment's chain 1; nothing was sent/),
+    });
+    expect(w.sent, "nothing sent").toEqual([]);
+    w.chain = "0x1";
+    w.switchTo = { after: 1, chain: "0x89" };
+    const switched = await protect(0n).catch((e: unknown) => e);
+    expect(switched).toMatchObject({ code: "chain_mismatch" });
+    expect(
+      w.sent.map((x) => x.fn),
+      "the approval went out on chain 1; the deposit never left",
+    ).toEqual(["approve"]);
+    w.sent.length = 0;
+    w.chainIds.length = 0;
+    w.switchTo = null;
+    w.chain = "0x1";
+    await protect(AMOUNT); // what that approval left: used as it is
+    expect(w.chainIds, "every transaction names its chain").toEqual(["0x1"]);
   });
 });

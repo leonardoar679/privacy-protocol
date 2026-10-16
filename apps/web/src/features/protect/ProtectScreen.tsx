@@ -161,9 +161,9 @@ export function ProtectScreen(p: ProtectScreenProps) {
     setLeftover(a === null ? "unknown" : a);
   }, [asset, router]);
   async function revokeLeftover() {
-    if (!asset?.token) return;
+    if (!asset?.token || !p.deployment) return;
     try {
-      const tx = await revokeAllowance(asset.token, router ?? asset.vault);
+      const tx = await revokeAllowance(asset.token, router ?? asset.vault, p.deployment.chainId);
       setRevoked(tx);
       setLeftover(0n);
     } catch (e) {

@@ -23,9 +23,9 @@ export async function readAllowance(token: Address, owner: Address, spender: Add
   } catch { return null; }
 }
 
-/** approve(spender, 0) from the connected wallet: the leftover of a failed deposit, or any allowance the user wants gone. */
-export async function revokeAllowance(token: Address, spender: Address): Promise<Hex> {
-  return sendViaInjectedWallet(buildApprove(token, spender, 0n));
+/** approve(spender, 0) from the connected wallet, on the deployment's chain: the leftover of a failed deposit, or any allowance the user wants gone. */
+export async function revokeAllowance(token: Address, spender: Address, chainId: number): Promise<Hex> {
+  return sendViaInjectedWallet(buildApprove(token, spender, 0n), chainId);
 }
 
 /** `via`: whom the allowance lets pull the token — the asset's vault (a direct deposit) or ProtectRouter (V6, spec v2.0 §11.1). */

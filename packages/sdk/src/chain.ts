@@ -144,11 +144,35 @@ export async function syncPoolQuorum(d: Deployment): Promise<{ tree: TreeState; 
 }
 
 /** Submit through the injected wallet (public submission — a relayer / private channel is the L3 upgrade). */
-export async function sendViaInjectedWallet(tx: TxRequest): Promise<Hex> {
+/** Thrown before anything is sent: the connected wallet is on another network than the deployment's (the catalog's `chain_mismatch`). */
+export class WalletOnOtherChain extends Error {
+  readonly code = "chain_mismatch";
+  constructor(
+    readonly expected: number,
+    readonly actual: number | null,
+  ) {
+    super(`the connected wallet is on chain ${actual ?? "unknown"}, not this deployment's chain ${expected}; nothing was sent`);
+    this.name = "WalletOnOtherChain";
+  }
+}
+
+/**
+ * A transaction through the connected wallet, on the deployment's chain only (a V6 follow-up of 2026-10-16): the wallet's
+ * network is read just before every send, and the transaction names its chain, which a wallet that checks it holds to
+ * even if the network is switched in between. Before, a wallet left on another network (or switched there between a
+ * protect's approval and its deposit) sent the deposit's value to the same address on that chain.
+ */
+export async function sendViaInjectedWallet(tx: TxRequest, chainId: number): Promise<Hex> {
   const eth = activeProvider();
   if (!eth) throw new Error("no injected wallet to submit with");
   const [from] = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-  return (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: "0x" + tx.value.toString(16) } : {}) }] })) as Hex;
+  const raw = await eth.request({ method: "eth_chainId" });
+  const actual = typeof raw === "string" && /^0x[0-9a-fA-F]+$/.test(raw) ? parseInt(raw, 16) : typeof raw === "number" ? raw : null;
+  if (actual !== chainId) throw new WalletOnOtherChain(chainId, actual);
+  return (await eth.request({
+    method: "eth_sendTransaction",
+    params: [{ from, to: tx.to, data: tx.data, chainId: `0x${chainId.toString(16)}`, ...(tx.value ? { value: "0x" + tx.value.toString(16) } : {}) }],
+  })) as Hex;
 }
 
 /** Wait for a transaction and return the leaves it inserted (leaf index + commitment). */

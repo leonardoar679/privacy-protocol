@@ -615,7 +615,11 @@ relayer and of the RPC endpoints end after 10 s (`apps/api/src/reads.ts`).
 `packages/wallet-engine` exposes `connect`, `disconnect`, `switchNetwork`, `getAddress`, `signMessage`,
 `requestSignature`, `detectWallet` over EIP-6963 discovery, the injected provider and a lazily loaded WalletConnect
 connector (only with a project id). The doc's wagmi is not used (the owner's lean-stack decision of V5); the UI
-contains no low-level wallet code.
+contains no low-level wallet code. Every transaction the connected wallet sends (a protect's approvals and deposit, a
+revoked allowance, a private transaction it submits itself) goes out on the deployment's chain only: the wallet's
+network is read just before each send and named in the transaction (`packages/sdk/src/chain.ts`
+`sendViaInjectedWallet`; a V6 follow-up of 2026-10-16). Another network is refused before anything is sent
+(`chain_mismatch`), also when it was switched between a protect's approval and its deposit.
 
 The protected wallet's at-rest formats are unchanged (scrypt + XChaCha20-Poly1305, byte-pinned in TS, Rust and
 Python) inside the encrypted IndexedDB container of V5 (`privacy-wallet` / `secure`); WebCrypto provides the

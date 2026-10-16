@@ -26,7 +26,8 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
     try { setAllowances(await allowancesFor(deployment, conn.account as `0x${string}`)); setStatus(""); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
   }
   async function revoke(line: AllowanceLine) {
-    try { const tx = await revokeAllowance(line.asset.token as `0x${string}`, line.spender); setStatus(t("wallet.revoked", { hash: `${tx.slice(0, 10)}…` })); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
+    if (!deployment) return;
+    try { const tx = await revokeAllowance(line.asset.token as `0x${string}`, line.spender, deployment.chainId); setStatus(t("wallet.revoked", { hash: `${tx.slice(0, 10)}…` })); } catch (e) { setStatus(e instanceof Error ? e.message : String(e)); }
   }
   const tone = conn.status === "connected" ? "ok" : conn.status === "wrong-network" ? "warn" : conn.status === "connecting" ? "pending" : "neutral";
   return (

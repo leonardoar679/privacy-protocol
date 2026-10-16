@@ -39,9 +39,12 @@ function provider(allowance: bigint) {
   let current = allowance;
   const eth = {
     calls,
+    /** the wallet's network (the deployment's is chain 1) */
+    chain: "0x1",
     request: async ({ method, params }: { method: string; params?: any[] }) => {
       calls.push({ method, params: params ?? [] });
       if (method === "eth_accounts" || method === "eth_requestAccounts") return [OWNER];
+      if (method === "eth_chainId") return eth.chain;
       if (method === "eth_call") {
         const d = decodeFunctionData({ abi: erc20Abi, data: params![0].data });
         if (d.functionName !== "allowance") throw new Error("unexpected call");
@@ -70,7 +73,13 @@ describe("allowances through the injected wallet", () => {
     expect(String((d.args as any)[1]).toLowerCase()).toBe(USDC_VAULT.toLowerCase());
     expect(await readAllowance(USDC, OWNER, USDC_VAULT, null)).toBeNull();
     (window as any).ethereum = eth;
-    const tx = await revokeAllowance(USDC, USDC_VAULT);
+    const tx = await revokeAllowance(USDC, USDC_VAULT, deployment.chainId);
+    // a wallet on another network revokes nothing (a V6 follow-up of 2026-10-16): refused before anything is sent
+    eth.chain = "0x89";
+    const sentBefore = eth.calls.filter((c) => c.method === "eth_sendTransaction").length;
+    await expect(revokeAllowance(USDC, USDC_VAULT, deployment.chainId), "a wallet on another network revokes nothing").rejects.toMatchObject({ code: "chain_mismatch" });
+    expect(eth.calls.filter((c) => c.method === "eth_sendTransaction").length).toBe(sentBefore);
+    eth.chain = "0x1";
     expect(tx).toBe("0x" + "ab".repeat(32));
     const sent = eth.calls.find((c) => c.method === "eth_sendTransaction")!;
     expect(sent.params[0].to).toBe(USDC);

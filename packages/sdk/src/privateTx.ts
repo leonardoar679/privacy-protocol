@@ -192,7 +192,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     const clearing = approvals.length === 2 && k === 0;
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
-    const hash = await sendViaInjectedWallet(tx);
+    const hash = await sendViaInjectedWallet(tx, p.deployment.chainId);
     const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash });
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
     approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
@@ -205,7 +205,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
   o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
-  const txHash = await sendViaInjectedWallet(p.deposit);
+  const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
@@ -345,7 +345,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
     o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()], ...(o.change ? { noteCounter: o.change.counter } : {}) });
     o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
-    txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData));
+    txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData), o.deployment.chainId);
     submittedBy = "wallet";
     o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   }
