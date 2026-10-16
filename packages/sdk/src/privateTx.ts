@@ -38,6 +38,7 @@ import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
 import { guardDeployment } from "./deploymentGuard";
+import { guardRecipient } from "./recipients";
 import { readAllowance } from "./allowances";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
 
@@ -436,6 +437,9 @@ export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<
 
 async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number } & Progress): Promise<Submitted> {
   await guardDeployment(o.deployment);
+  // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
+  // this deployment or of one of its tokens) — refused before anything is proved or sent
+  guardRecipient(o.deployment, o.recipient);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });

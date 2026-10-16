@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana } from "../src/wallet/destinations";
+import { EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana, refusedRecipient } from "../src/wallet/destinations";
 
 const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("./vectors/chainkeys.json", import.meta.url)), "utf8"));
 const EVM = vectors.bip44_evm.account0.address as string; // 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
@@ -77,5 +77,38 @@ describe("V6 (spec v2.0 §7.4): an EVM address that names its chain", () => {
     expect(evmChainHint(BTC)).toBeNull();
     expect(evmChainHint("base:0x1234")).toBeNull();
     expect(Object.values(EVM_SHORT_NAMES)).toContain(1);
+  });
+});
+
+describe("what a payment must not go to, and the code of every refusal (a V6 follow-up of 2026-10-16)", () => {
+  const VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";
+  const USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+  const known = [
+    { address: VAULT, kind: "protocol" as const },
+    { address: USDT, kind: "token" as const, symbol: "USDT" },
+  ];
+  it("the zero and the burn address always; the deployment's contracts and a token's own contract when known; in any case", () => {
+    expect(refusedRecipient("0x0000000000000000000000000000000000000000")).toMatchObject({ code: "zero_address" });
+    expect(refusedRecipient("0x000000000000000000000000000000000000dEaD")).toMatchObject({ code: "burn_address" });
+    expect(refusedRecipient(VAULT.toLowerCase(), known)).toMatchObject({ code: "protocol_contract" });
+    expect(refusedRecipient(USDT.toUpperCase().replace("0X", "0x"), known)).toEqual({ code: "token_contract", reason: expect.stringContaining("USDT"), symbol: "USDT" });
+    expect(refusedRecipient(VAULT), "not known: a well-formed address").toBeNull();
+    expect(parseDestination("evm", USDT, known)).toMatchObject({ ok: false, code: "token_contract", symbol: "USDT" });
+    expect(parseDestination("evm", "0x0000000000000000000000000000000000000000"), "refused even with nothing known").toMatchObject({ ok: false, code: "zero_address" });
+    expect(parseDestination("evm", "0x9858EfFD232B4033E47d90003D41EC34EcaEda94", known).ok).toBe(true);
+  });
+  it("every refusal of the parsers names its code, for the user's language", () => {
+    const code = (r: ReturnType<typeof parseEvm>) => (r.ok ? null : r.code);
+    expect(code(parseEvm("0x1234"))).toBe("evm_format");
+    expect(code(parseEvm("0x9858efFD232B4033E47d90003D41EC34EcaEda94"))).toBe("evm_checksum");
+    expect(code(parseBitcoin("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"))).toBe("btc_testnet");
+    expect(code(parseBitcoin("bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyx"))).toBe("btc_invalid");
+    expect(code(parseBitcoin("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN3"))).toBe("btc_invalid");
+    expect(code(parseSolana("0OIl"))).toBe("sol_invalid");
+    expect(code(parseSolana("11111111111111111111111111111111"))).toBe("sol_system");
+    expect(code(parseDestination("bitcoin", ""))).toBe("empty");
+    expect(parseDestination("bitcoin", "0x9858EfFD232B4033E47d90003D41EC34EcaEda94")).toMatchObject({ ok: false, code: "other_chain", looksLike: "evm" });
+    const src = readFileSync(fileURLToPath(new URL("../src/wallet/destinations.ts", import.meta.url)), "utf8");
+    expect((src.match(/ok: false, chain, reason/g) ?? []).length, "each refusal written with its code").toBe((src.match(/, code: "/g) ?? []).length);
   });
 });

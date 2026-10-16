@@ -14,61 +14,88 @@ export const CHAIN_NAMES: Record<ChainKind, string> = { evm: "Ethereum", bitcoin
 export type BitcoinFormat = "p2wpkh" | "p2wsh" | "p2tr" | "p2pkh" | "p2sh";
 export type Format = "evm" | BitcoinFormat | "ed25519";
 
+/**
+ * What a refused destination tells the user, in their language (a V6 follow-up of 2026-10-16: the screens map each code to
+ * its words; before, the English `reason` was dropped into every language's sentence). `reason` keeps the detail.
+ */
+export type DestinationCode =
+  | "empty"
+  | "evm_format"
+  | "evm_checksum"
+  | "btc_testnet"
+  | "btc_invalid"
+  | "sol_invalid"
+  | "sol_system"
+  | "other_chain"
+  | "zero_address"
+  | "burn_address"
+  | "protocol_contract"
+  | "token_contract"
+  | "privacy_invalid"
+  | "unknown_format";
+
 export type ParsedDestination =
   | { ok: true; chain: ChainKind; /** the address as typed, trimmed */ address: string; /** the canonical form (EIP-55, lowercase bech32) */ normalized: string; format: Format }
-  | { ok: false; chain: ChainKind; reason: string; /** the chain whose format the text does match */ looksLike?: ChainKind };
+  | {
+      ok: false;
+      chain: ChainKind;
+      reason: string;
+      code: DestinationCode;
+      /** the chain whose format the text does match */ looksLike?: ChainKind;
+      /** the token's symbol of a token_contract */ symbol?: string;
+    };
 
 const b58check = base58check(sha256);
 
 export function parseEvm(text: string): ParsedDestination {
   const chain: ChainKind = "evm";
-  if (!/^0x[0-9a-fA-F]{40}$/.test(text)) return { ok: false, chain, reason: "an Ethereum address is 0x followed by 40 hex characters" };
+  if (!/^0x[0-9a-fA-F]{40}$/.test(text)) return { ok: false, chain, reason: "an Ethereum address is 0x followed by 40 hex characters", code: "evm_format" };
   const hex = text.slice(2);
   const checksummed = eip55(hexToBytes(hex.toLowerCase()));
-  if (hex !== hex.toLowerCase() && hex !== hex.toUpperCase() && text !== checksummed) return { ok: false, chain, reason: "the checksum does not match: a character was mistyped" };
+  if (hex !== hex.toLowerCase() && hex !== hex.toUpperCase() && text !== checksummed) return { ok: false, chain, reason: "the checksum does not match: a character was mistyped", code: "evm_checksum" };
   return { ok: true, chain, address: text, normalized: checksummed, format: "evm" };
 }
 
 export function parseBitcoin(text: string): ParsedDestination {
   const chain: ChainKind = "bitcoin";
   const lower = text.toLowerCase();
-  if (lower.startsWith("tb1") || /^[mn2]/.test(text)) return { ok: false, chain, reason: "a Bitcoin testnet address; the destination is Bitcoin mainnet" };
+  if (lower.startsWith("tb1") || /^[mn2]/.test(text)) return { ok: false, chain, reason: "a Bitcoin testnet address; the destination is Bitcoin mainnet", code: "btc_testnet" };
   if (lower.startsWith("bc1")) {
-    if (text !== lower && text !== text.toUpperCase()) return { ok: false, chain, reason: "a bech32 address is all lowercase or all uppercase" };
+    if (text !== lower && text !== text.toUpperCase()) return { ok: false, chain, reason: "a bech32 address is all lowercase or all uppercase", code: "btc_invalid" };
     let words: number[];
     let encoding: "bech32" | "bech32m";
     try { words = [...bech32.decode(lower as `${string}1${string}`, 90).words]; encoding = "bech32"; }
-    catch { try { words = [...bech32m.decode(lower as `${string}1${string}`, 90).words]; encoding = "bech32m"; } catch { return { ok: false, chain, reason: "not a valid bech32 address (checksum)" }; } }
+    catch { try { words = [...bech32m.decode(lower as `${string}1${string}`, 90).words]; encoding = "bech32m"; } catch { return { ok: false, chain, reason: "not a valid bech32 address (checksum)", code: "btc_invalid" }; } }
     const version = words[0];
     const program = bech32.fromWords(words.slice(1));
     if (version === 0) {
-      if (encoding !== "bech32") return { ok: false, chain, reason: "a witness v0 address uses bech32, not bech32m" };
+      if (encoding !== "bech32") return { ok: false, chain, reason: "a witness v0 address uses bech32, not bech32m", code: "btc_invalid" };
       if (program.length === 20) return { ok: true, chain, address: text, normalized: lower, format: "p2wpkh" };
       if (program.length === 32) return { ok: true, chain, address: text, normalized: lower, format: "p2wsh" };
-      return { ok: false, chain, reason: `a witness v0 program is 20 or 32 bytes, not ${program.length}` };
+      return { ok: false, chain, reason: `a witness v0 program is 20 or 32 bytes, not ${program.length}`, code: "btc_invalid" };
     }
     if (version === 1) {
-      if (encoding !== "bech32m") return { ok: false, chain, reason: "a taproot address uses bech32m, not bech32" };
+      if (encoding !== "bech32m") return { ok: false, chain, reason: "a taproot address uses bech32m, not bech32", code: "btc_invalid" };
       if (program.length === 32) return { ok: true, chain, address: text, normalized: lower, format: "p2tr" };
-      return { ok: false, chain, reason: `a taproot program is 32 bytes, not ${program.length}` };
+      return { ok: false, chain, reason: `a taproot program is 32 bytes, not ${program.length}`, code: "btc_invalid" };
     }
-    return { ok: false, chain, reason: `witness version ${version} is not one this wallet pays to` };
+    return { ok: false, chain, reason: `witness version ${version} is not one this wallet pays to`, code: "btc_invalid" };
   }
   let payload: Uint8Array;
-  try { payload = b58check.decode(text); } catch { return { ok: false, chain, reason: "not a valid Bitcoin address (base58check)" }; }
-  if (payload.length !== 21) return { ok: false, chain, reason: "not a valid Bitcoin address (length)" };
+  try { payload = b58check.decode(text); } catch { return { ok: false, chain, reason: "not a valid Bitcoin address (base58check)", code: "btc_invalid" }; }
+  if (payload.length !== 21) return { ok: false, chain, reason: "not a valid Bitcoin address (length)", code: "btc_invalid" };
   if (payload[0] === 0x00) return { ok: true, chain, address: text, normalized: text, format: "p2pkh" };
   if (payload[0] === 0x05) return { ok: true, chain, address: text, normalized: text, format: "p2sh" };
-  if (payload[0] === 0x6f || payload[0] === 0xc4) return { ok: false, chain, reason: "a Bitcoin testnet address; the destination is Bitcoin mainnet" };
-  return { ok: false, chain, reason: `version byte ${payload[0]} is not a Bitcoin address this wallet pays to` };
+  if (payload[0] === 0x6f || payload[0] === 0xc4) return { ok: false, chain, reason: "a Bitcoin testnet address; the destination is Bitcoin mainnet", code: "btc_testnet" };
+  return { ok: false, chain, reason: `version byte ${payload[0]} is not a Bitcoin address this wallet pays to`, code: "btc_invalid" };
 }
 
 export function parseSolana(text: string): ParsedDestination {
   const chain: ChainKind = "solana";
   let bytes: Uint8Array;
-  try { bytes = base58.decode(text); } catch { return { ok: false, chain, reason: "not a valid Solana address (base58)" }; }
-  if (bytes.length !== 32) return { ok: false, chain, reason: `a Solana address is 32 bytes, not ${bytes.length}` };
-  if (bytes.every((b) => b === 0)) return { ok: false, chain, reason: "the system program, not a wallet" };
+  try { bytes = base58.decode(text); } catch { return { ok: false, chain, reason: "not a valid Solana address (base58)", code: "sol_invalid" }; }
+  if (bytes.length !== 32) return { ok: false, chain, reason: `a Solana address is 32 bytes, not ${bytes.length}`, code: "sol_invalid" };
+  if (bytes.every((b) => b === 0)) return { ok: false, chain, reason: "the system program, not a wallet", code: "sol_system" };
   return { ok: true, chain, address: text, normalized: text, format: "ed25519" };
 }
 
@@ -80,14 +107,45 @@ export function looksLikeChain(text: string): ChainKind | null {
   return null;
 }
 
-/** Parse a typed destination for `chain`; a text that is another chain's address is refused with that chain's name (plan §59). */
-export function parseDestination(chain: ChainKind, text: string): ParsedDestination {
+/** The burn addresses: what is sent to them is lost (the zero address, and the conventional 0x…dEaD). */
+export const BURN_ADDRESSES: readonly string[] = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
+/** An address of the wallet's own deployment (the pool, a vault, the router, a factory) or a token's own contract. */
+export interface KnownAddress {
+  address: string;
+  kind: "protocol" | "token";
+  symbol?: string;
+}
+
+/**
+ * Why an EVM address must not receive a payment, or null (a V6 follow-up of 2026-10-16). The zero address and the burn
+ * address lose what they receive; a contract of this wallet's own deployment and a token's own contract keep it, with no way
+ * back. Such an address is well formed and passes every other check, so it is asked before a send or a swap goes to it.
+ */
+export function refusedRecipient(address: string, known: readonly KnownAddress[] = []): { code: DestinationCode; reason: string; symbol?: string } | null {
+  const a = address.toLowerCase();
+  if (a === BURN_ADDRESSES[0]) return { code: "zero_address", reason: "the zero address: what is sent to it is lost" };
+  if (BURN_ADDRESSES.includes(a)) return { code: "burn_address", reason: "a burn address: what is sent to it is lost" };
+  const k = known.find((x) => x.address.toLowerCase() === a);
+  if (k?.kind === "token")
+    return { code: "token_contract", reason: `the ${k.symbol ?? "token"} token's own contract: what is sent to it cannot come back`, ...(k.symbol ? { symbol: k.symbol } : {}) };
+  if (k) return { code: "protocol_contract", reason: "a contract of this wallet's own protocol: what is sent to it cannot come back" };
+  return null;
+}
+
+/**
+ * Parse a typed destination for `chain`; a text that is another chain's address is refused with that chain's name (plan §59).
+ * An EVM address is also refused when it would lose what it receives (`refusedRecipient`, with the deployment's `known` ones).
+ */
+export function parseDestination(chain: ChainKind, text: string, known: readonly KnownAddress[] = []): ParsedDestination {
   const t = text.trim();
-  if (!t) return { ok: false, chain, reason: "enter an address" };
+  if (!t) return { ok: false, chain, reason: "enter an address", code: "empty" };
   const r = PARSERS[chain](t);
-  if (r.ok) return r;
+  if (r.ok) {
+    const refused = chain === "evm" ? refusedRecipient(r.normalized, known) : null;
+    return refused ? { ok: false, chain, ...refused } : r;
+  }
   const other = looksLikeChain(t);
-  if (other && other !== chain) return { ok: false, chain, reason: `this looks like a ${CHAIN_NAMES[other]} address; the destination is ${CHAIN_NAMES[chain]}`, looksLike: other };
+  if (other && other !== chain) return { ok: false, chain, reason: `this looks like a ${CHAIN_NAMES[other]} address; the destination is ${CHAIN_NAMES[chain]}`, code: "other_chain", looksLike: other };
   return r;
 }
 

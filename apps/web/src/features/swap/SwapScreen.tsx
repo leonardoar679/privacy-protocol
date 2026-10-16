@@ -14,6 +14,8 @@
 // execution checks and the hold, then the order runs as protected steps (the band's sequential quarters under the
 // in-flight limit, wallet/campaigns.ts) whose progress, /swap/steps/:campaignId, shows amounts only. Above $100K the V3/V4
 // screens stay (/swap/protected) when the service stages the order.
+import { destinationWords } from "../destinationWords";
+import { knownRecipients } from "../recipients";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { availablePrice, atLeast, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -121,7 +123,8 @@ export function SwapScreen(p: SwapScreenProps) {
   const fresh = peekFreshAddress(p.masterSeed, chain).address;
   const edited = typed.trim() !== "";
   const destination = edited ? typed.trim() : fresh;
-  const parsed = edited ? parseDestination(chain, typed) : null;
+  const known = useMemo(() => knownRecipients(p.deployment), [p.deployment]);
+  const parsed = edited ? parseDestination(chain, typed, known) : null;
   const destinationOk = !edited || parsed?.ok === true;
   const otherChain = edited ? looksLikeChain(typed.trim()) : null;
   const priced = feedsConfigured(p.deployment);
@@ -330,7 +333,7 @@ export function SwapScreen(p: SwapScreenProps) {
                   { value: destination, fresh: !edited, ok: destinationOk, reason: parsed && !parsed.ok ? parsed.reason : undefined, otherChain },
                   chain,
                 ),
-                error: parsed && !parsed.ok ? t("swap.destinationError", { reason: parsed.reason }) : null,
+                error: parsed && !parsed.ok ? destinationWords(t, parsed) : null,
               }
             : null,
         quote:

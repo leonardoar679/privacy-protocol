@@ -287,6 +287,27 @@ describe("Send (spec v2.0 §7.4)", () => {
     });
   });
 
+  it("an address that would lose what it receives is refused, and every refusal is said in the user's language (a V6 follow-up of 2026-10-16)", async () => {
+    await unlocked(10n ** 18n);
+    mount();
+    typeTo("0x0000000000000000000000000000000000000000");
+    expect(screen.getByTestId("send-address-error").textContent).toBe("This is the zero address: what is sent to it is lost.");
+    typeTo(ETH_VAULT);
+    expect(screen.getByTestId("send-address-error").textContent).toBe("This is one of this wallet's own contracts: what is sent to it cannot come back.");
+    const { setLocale } = await import("../src/app/i18n/messages");
+    const { loadCatalog } = await import("../src/app/i18n/catalogs");
+    await loadCatalog("ko");
+    try {
+      act(() => setLocale("ko"));
+      typeTo("0x1234");
+      const said = screen.getByTestId("send-address-error").textContent ?? "";
+      expect(said).toBe("이더리움 주소는 0x 뒤에 40자가 이어집니다.");
+      expect(said, "no English reason inside the Korean sentence").not.toMatch(/followed by|hex characters/);
+    } finally {
+      act(() => setLocale("en"));
+    }
+  });
+
   it("an address that is not one is refused with its reason; the connected wallet's own address is flagged; more than the protected balance is refused", async () => {
     await unlocked(10n ** 18n);
     mount();

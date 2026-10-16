@@ -347,13 +347,17 @@ output (§3).
 Code (Stage 10): `apps/web/src/features/send/SendScreen.tsx` (`/send`, `/send/review`, `/send/progress/:opId`) over
 `apps/web/src/features/send/model.ts`: `destinationOf` (a `pp1…` address; an EVM address on the pool's chain; Bitcoin;
 another chain named by ERC-3770 `base:0x…` or EIP-681 `ethereum:0x…@8453` — `evmChainHint` in
-`packages/protocol/src/wallet/destinations.ts` — or by its format; else the reason it is no address), `crossTargetOf`
+`packages/protocol/src/wallet/destinations.ts` — or by its format; else the reason it is no address, said in the
+user's language from its code; a V6 follow-up of 2026-10-16), `crossTargetOf`
 (the same asset on that chain, else the chain's native asset; a chain this wallet cannot reach is refused in words, never
 a fallback to another chain), `sendSplit` (§3) and `sendModel`. A Bitcoin or a confirmed other-chain destination
 continues in Swap with the asset, the amount, the target and the destination handed over as the navigation's state
 (taken once, then cleared from the history entry). The fresh address of this wallet is the address book's first entry,
 reserved at the first confirmation (kept for a retry, cleared by "Send again"); the connected wallet's own address is
-flagged. In exact output the lines add what leaves the balance; submitted through the connected wallet (Advanced), the
+flagged. An address that would lose what it receives is refused, in Send and in a swap's EVM destination (a V6 follow-up
+of 2026-10-16, `refusedRecipient`): the zero and the burn address, a contract of this deployment (the pool, a vault, the
+router, a factory) and a token's own contract (the deployment's and the registry's on its chain); a private withdrawal
+refuses them again before anything is proved or sent (`packages/sdk/src/recipients.ts`, `recipient_refused`). In exact output the lines add what leaves the balance; submitted through the connected wallet (Advanced), the
 relayer line says the wallet pays the network. The bands: from `large` the privacy lint and a typed-in public
 destination re-confirmed group by group on the Review, from `large-protected` the hold, from `high-value` the address
 book's status and way forward under the address (the lock), from `enhanced` the V2–V4 Review. The local stack: 2,500

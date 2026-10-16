@@ -95,6 +95,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   older_notes_unavailable: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // a V6 follow-up of 2026-10-16: the relayer that would execute the order does not run it, so it is stopped before funding
   relayer_not_ready: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings", "new-quote"] },
+  // a V6 follow-up of 2026-10-16: a withdrawal to the zero or a burn address, or to a contract of the deployment or a token
+  recipient_refused: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   // a V6 follow-up of 2026-10-16: the order was confirmed under a key the swap service no longer takes; stopped before funding
   service_key_changed: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)

@@ -19,6 +19,8 @@ import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wall
 import { atLeast, availablePrice, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { destinationWords } from "../destinationWords";
+import { knownRecipients } from "../recipients";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { HousekeepingNeeded, privateTransfer, privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
@@ -90,7 +92,8 @@ export function SendScreen(p: SendScreenProps) {
   const [busy, setBusy] = useState(false);
 
   const units = asset ? parseAmount(asset, amount) : 0n;
-  const dest = destinationOf(to, p.deployment?.chainId ?? 1);
+  const known = useMemo(() => knownRecipients(p.deployment), [p.deployment]);
+  const dest = destinationOf(to, p.deployment?.chainId ?? 1, known);
   const relayed = dest.kind === "private" || dest.kind === "public";
   const terms = useFeeTerms(asset && units > 0n && relayed ? asset.vault : null); // read once an amount is typed: no request before the user acts
   // submitted through the connected wallet (Advanced): no relayer and no fee note — what is typed arrives, the wallet pays the network
@@ -187,7 +190,7 @@ export function SendScreen(p: SendScreenProps) {
     amountError: asset && relayed && units > 0n && split && balance < total ? t("send.notEnough", { symbol: asset.symbol }) : null,
     addressError:
       dest.kind === "invalid"
-        ? t("send.recipientError", { reason: dest.reason })
+        ? destinationWords(t, dest)
         : unreachable
           ? t("screen.send.chainUnsupported", { chain: dest.kind === "other-chain" ? dest.chain : "Bitcoin" })
           : null,

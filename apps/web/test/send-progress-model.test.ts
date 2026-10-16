@@ -20,6 +20,23 @@ const USDC = { symbol: "USDC", decimals: 6 };
 const usdc = (whole: string) => BigInt(Math.round(Number(whole) * 1e6));
 
 describe("destinationOf (spec v2.0 §7.4)", () => {
+  it("a public exit that would lose what it receives is refused with its code: the zero and the burn address, the deployment's contracts, a token's own (a V6 follow-up of 2026-10-16)", () => {
+    const known = [
+      { address: "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469", kind: "protocol" as const },
+      { address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", kind: "token" as const, symbol: "USDT" },
+    ];
+    expect(destinationOf("0x0000000000000000000000000000000000000000", POOL)).toMatchObject({ kind: "invalid", code: "zero_address" });
+    expect(destinationOf("0x000000000000000000000000000000000000dead", POOL)).toMatchObject({ kind: "invalid", code: "burn_address" });
+    expect(destinationOf("0x36ffa23fd38ae93e2b01aa5fa1570845ada89469", POOL, known)).toMatchObject({ kind: "invalid", code: "protocol_contract" });
+    expect(destinationOf(`ethereum:0xdAC17F958D2ee523a2206206994597C13D831ec7@${POOL}`, POOL, known), "named for the pool's chain").toMatchObject({
+      kind: "invalid",
+      code: "token_contract",
+      symbol: "USDT",
+    });
+    expect(destinationOf("0x1234", POOL)).toMatchObject({ kind: "invalid", code: "evm_format" });
+    expect(destinationOf("pp1nope", POOL)).toMatchObject({ kind: "invalid", code: "privacy_invalid" });
+    expect(destinationOf("hello", POOL)).toMatchObject({ kind: "invalid", code: "unknown_format" });
+  });
   it("names each kind; an EVM address is checksummed; the pool's own chain named explicitly is still a public exit", () => {
     expect(destinationOf("   ", POOL)).toEqual({ kind: "empty" });
     expect(destinationOf(pp1, POOL)).toEqual({ kind: "private", address: pp1 });
@@ -42,7 +59,7 @@ describe("destinationOf (spec v2.0 §7.4)", () => {
       expect(d.kind, t).toBe("invalid");
       expect((d as { reason: string }).reason.length, t).toBeGreaterThan(0);
     }
-    expect(destinationOf("hello", POOL)).toEqual({ kind: "invalid", reason: "not an address this wallet sends to" });
+    expect(destinationOf("hello", POOL)).toEqual({ kind: "invalid", reason: "not an address this wallet sends to", code: "unknown_format" });
   });
   it("the checks: four for a privacy or EVM address, two for Bitcoin; another chain fails the network; an unsupported asset fails its line", () => {
     expect(checksOf({ kind: "empty" }, true).map((c) => c.state)).toEqual(["idle", "idle", "idle", "idle"]);

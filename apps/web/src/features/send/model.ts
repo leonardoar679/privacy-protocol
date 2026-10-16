@@ -5,7 +5,15 @@
 // balance and "Recipient receives" is the largest number). Pure: the screen gathers the facts.
 import { CHAINS } from "@privacy-wallet/config";
 import { decodePrivacyAddress } from "@privacy-wallet/protocol/address";
-import { evmChainHint, looksLikeChain, parseBitcoin, parseEvm } from "@privacy-wallet/protocol/wallet/destinations";
+import {
+  evmChainHint,
+  looksLikeChain,
+  parseBitcoin,
+  parseEvm,
+  refusedRecipient,
+  type DestinationCode,
+  type KnownAddress,
+} from "@privacy-wallet/protocol/wallet/destinations";
 import { exactInput, exactOutput, type FeeSplit, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { CheckState } from "@privacy-wallet/ui";
 import { amountOf } from "../amounts";
@@ -19,14 +27,19 @@ export type Destination =
   | { kind: "bitcoin"; address: string }
   /** an EVM address that names another chain (ERC-3770, EIP-681), or another chain's format (Solana) */
   | { kind: "other-chain"; chain: string; chainKey: string | null; address: string }
-  | { kind: "invalid"; reason: string };
+  /** `code`: what the screen says, in the user's language (a V6 follow-up of 2026-10-16); `reason` keeps the detail */
+  | { kind: "invalid"; reason: string; code: DestinationCode; symbol?: string };
 
 const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** The registry's chain for an EIP-155 id. */
 const chainOfId = (id: number | null) => (id === null ? undefined : Object.values(CHAINS).find((c) => c.chainId === id));
 
-/** The destination a typed text makes, for a pool on `poolChainId`. */
-export function destinationOf(text: string, poolChainId: number): Destination {
+/**
+ * The destination a typed text makes, for a pool on `poolChainId`. A public exit to an address that would lose what it
+ * receives (the zero or a burn address, a contract of the deployment or a token, `known`) is refused (a V6 follow-up of
+ * 2026-10-16).
+ */
+export function destinationOf(text: string, poolChainId: number, known: readonly KnownAddress[] = []): Destination {
   const t = text.trim();
   if (!t) return { kind: "empty" };
   if (t.toLowerCase().startsWith("pp1")) {
@@ -34,14 +47,14 @@ export function destinationOf(text: string, poolChainId: number): Destination {
       decodePrivacyAddress(t);
       return { kind: "private", address: t };
     } catch (e) {
-      return { kind: "invalid", reason: reasonOf(e) };
+      return { kind: "invalid", reason: reasonOf(e), code: "privacy_invalid" };
     }
   }
   const hint = evmChainHint(t);
   if (hint) {
     const evm = parseEvm(hint.address);
-    if (!evm.ok) return { kind: "invalid", reason: evm.reason };
-    if (hint.chainId === poolChainId) return { kind: "public", address: evm.normalized };
+    if (!evm.ok) return { kind: "invalid", reason: evm.reason, code: evm.code };
+    if (hint.chainId === poolChainId) return publicExit(evm.normalized, known);
     const chain = chainOfId(hint.chainId);
     return {
       kind: "other-chain",
@@ -51,13 +64,19 @@ export function destinationOf(text: string, poolChainId: number): Destination {
     };
   }
   const evm = parseEvm(t);
-  if (evm.ok) return { kind: "public", address: evm.normalized };
+  if (evm.ok) return publicExit(evm.normalized, known);
   const btc = parseBitcoin(t);
   if (btc.ok) return { kind: "bitcoin", address: btc.normalized };
   if (looksLikeChain(t) === "solana") return { kind: "other-chain", chain: CHAINS.solana.name, chainKey: "solana", address: t };
-  if (/^0x/i.test(t)) return { kind: "invalid", reason: evm.reason };
-  if (/^(bc1|tb1|[123mn])/i.test(t)) return { kind: "invalid", reason: btc.reason };
-  return { kind: "invalid", reason: "not an address this wallet sends to" };
+  if (/^0x/i.test(t)) return { kind: "invalid", reason: evm.reason, code: evm.code };
+  if (/^(bc1|tb1|[123mn])/i.test(t)) return { kind: "invalid", reason: btc.reason, code: btc.code };
+  return { kind: "invalid", reason: "not an address this wallet sends to", code: "unknown_format" };
+}
+
+/** A public exit, unless its address would lose what it receives. */
+function publicExit(address: string, known: readonly KnownAddress[]): Destination {
+  const refused = refusedRecipient(address, known);
+  return refused ? { kind: "invalid", ...refused } : { kind: "public", address };
 }
 
 /**
