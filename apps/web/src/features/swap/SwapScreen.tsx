@@ -934,10 +934,10 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   const intoProtected = !!stored?.shield;
   // an order the runner stopped before anything was swapped says why, with "Review again" (2026-10-14: an expired order's
   // and an unconfirmed funding's reasons had been hidden behind the plain cancelled card; a V6 follow-up of 2026-10-16: a
-  // relayer that does not run the swap service's orders)
+  // relayer that does not run the swap service's orders, or a key the swap service no longer takes)
   if (
     record.state === "CANCELLED" &&
-    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready"].includes(record.reason?.code ?? "")
+    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready", "service_key_changed"].includes(record.reason?.code ?? "")
   ) {
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">

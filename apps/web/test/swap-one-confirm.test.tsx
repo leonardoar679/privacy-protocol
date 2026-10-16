@@ -13,7 +13,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { toFunctionSelector, type Hex } from "viem";
+import { toFunctionSelector, type Address, type Hex } from "viem";
+import { privateKeyToAccount, sign } from "viem/accounts";
+import { orderVouchDigest } from "@privacy-wallet/sdk/swapGuard";
+import { patchSwap } from "@privacy-wallet/sdk/swapFunding";
 import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
@@ -64,7 +67,7 @@ vi.mock("@privacy-wallet/sdk/swapFunding", async (importOriginal) => {
       funding.count++;
       funding.runner = o.stored.runner;
       // the funding's first check, as the real one makes it (a V6 follow-up of 2026-10-16): the relayer that will execute it runs it
-      if (o.relayerUrl) await orig.checkRelayerReady(o.relayerUrl, orig.swapFactoryOf(o.deployment));
+      await orig.checkFundingReady(o as never);
       if (funding.olderGone) {
         // the withdrawal's own check: the older notes no longer cover the order, and nothing is sent
         const { OlderNotesUnavailable } = await import("@privacy-wallet/sdk/privateTx");
@@ -562,6 +565,22 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "CANCELLED", reason: { code: "relayer_not_ready", fundsClass: "not-moved" } });
     const card = await screen.findByTestId("operation-progress-error");
     expect(card.textContent).toContain("The relayer is not set up for this swap");
+    expect(card.textContent).toContain("Your funds were not moved.");
+  }, 60_000);
+
+  it("a key the swap service no longer takes: a swap confirmed under it stops before funding and the card says so (a V6 follow-up of 2026-10-16)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    // what the service's former key gave this order at its commit, and a service that now signs with another key and honors no former one
+    const vouch = await sign({ hash: orderVouchDigest(1n, stored(orderId).endpoint as Address), privateKey: ("0x" + "5a".repeat(32)) as Hex, to: "hex" });
+    patchSwap(orderId, { orderVouch: vouch }, session);
+    world.serviceDeployment = { voucher: privateKeyToAccount(("0x" + "5c".repeat(32)) as Hex).address };
+    expect(await tick(orderId)).toBe("stopped");
+    expect(stored(orderId).fundedTx, "nothing was sent").toBeUndefined();
+    expect(stored(orderId)).toMatchObject({ state: "abandoned", paused: { code: "service_key_changed" } });
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "CANCELLED", reason: { code: "service_key_changed", fundsClass: "not-moved" } });
+    const card = await screen.findByTestId("operation-progress-error");
+    expect(card.textContent).toContain("The swap service changed its key since you confirmed this swap");
     expect(card.textContent).toContain("Your funds were not moved.");
   }, 60_000);
 

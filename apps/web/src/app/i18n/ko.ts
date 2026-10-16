@@ -545,6 +545,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.relayer_not_ready.title": "릴레이어가 이 스왑에 맞게 설정되어 있지 않습니다",
   "op.error.relayer_not_ready.reason":
     "이 스왑을 처리할 릴레이어가 스왑 서비스의 주문을 실행하지 않아 자금을 투입하기 전에 중단했습니다. 보호 잔액에서 빠져나간 것은 없습니다. 설정에서 릴레이어를 확인하거나 나중에 다시 시도하세요.",
+  "op.error.service_key_changed.title": "스왑을 확인한 뒤 스왑 서비스의 키가 바뀌었습니다",
+  "op.error.service_key_changed.reason":
+    "이 스왑은 스왑 서비스가 더 이상 받지 않는 키로 확인되어 자금을 투입하기 전에 중단했습니다. 보호 잔액에서 빠져나간 것은 없습니다. 스왑을 다시 검토해 새로 확인하세요.",
   "op.error.older_notes_unavailable.title": "이전 자금으로 이 스왑을 충당할 수 없습니다",
   "op.error.older_notes_unavailable.reason":
     "이 스왑은 이전에 보호한 자금으로 지불될 예정이었습니다. 해당 자금이 사용되었거나 수수료를 포함한 금액에 미치지 못해 자금을 투입하기 전에 중단했습니다. 스왑을 다시 검토하세요.",

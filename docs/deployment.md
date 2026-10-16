@@ -165,7 +165,8 @@ refused (`unvouched_order`). The escrow's refund stays open to anyone after `ref
 its address neither on the relayers nor in `API_VOUCHER_PREVIOUS`. Listed on a relayer, it runs whatever its holder
 vouches for. In `API_VOUCHER_PREVIOUS`, its holder gets the new key's vouch for the call of any order it vouched for, a
 rebuilt one included. The orders committed under it then refund through the jobs the relayers already hold, or
-through anyone's `deployAndRefund`.
+through anyone's `deployAndRefund`; a wallet stops one it has not funded yet (`service_key_changed`), so no more funds
+reach an order whose vouches nobody takes any longer.
 
 The relayer's job lists (`GET /swap`, `GET /jobs`) are operator data: they answer only with `RELAYER_ADMIN_TOKEN` as a
 bearer token, and are closed when it is unset. The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a

@@ -73,6 +73,12 @@ export interface OrderExpectation {
   now?: number; // unix seconds (tests)
 }
 
+/** The swap service's vouch for an order (a V6 follow-up of 2026-10-16): the tag it signs under. */
+export const ORDER_VOUCH_TAG = keccak256(stringToBytes("privacy-wallet/v6/api-vouch/order"));
+/** keccak256(abi.encode(ORDER_VOUCH_TAG, chainId, escrow)): the engine's orderVouchDigest, byte for byte (both pinned by tests) */
+export const orderVouchDigest = (chainId: bigint, escrow: Address): Hex =>
+  keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }], [ORDER_VOUCH_TAG, chainId, escrow]));
+
 /** Throws OrderMismatch unless the order is exactly the one this wallet asked for, at the escrow its params determine. */
 export function checkOrder(order: ServiceOrder, e: OrderExpectation): void {
   const p = order.params;

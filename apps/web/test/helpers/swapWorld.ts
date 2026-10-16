@@ -58,6 +58,8 @@ export const world: {
   callVault: string;
   /** a V6 follow-up of 2026-10-16: what else the relayer's /info names (its swapFactory, its vouchers), when set */
   relayerInfo?: Record<string, unknown>;
+  /** the same follow-up: what else the service's status names of its deployment (its voucher, its previousVouchers), when set */
+  serviceDeployment?: Record<string, unknown>;
 } = {
   bend: {},
   rpcBend: {},
@@ -220,7 +222,7 @@ async function service(path: string, body: any): Promise<Response> {
       });
     }
     case "/health":
-      return json({ deployment: { chainId: "1", factory: FACTORY, nativeVault: ETH_VAULT }, providers: {} });
+      return json({ deployment: { chainId: "1", factory: FACTORY, nativeVault: ETH_VAULT, ...(world.serviceDeployment ?? {}) }, providers: {} });
   }
   return json({ error: "no such route" }, 404);
 }
@@ -285,6 +287,7 @@ export function resetWorld(): void {
   world.callVault = VAULT;
   world.protection = undefined;
   world.relayerInfo = undefined;
+  world.serviceDeployment = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

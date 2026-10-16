@@ -17,7 +17,7 @@ import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
-import { RelayerNotReady } from "../src/swapFunding";
+import { RelayerNotReady, ServiceKeyChanged } from "../src/swapFunding";
 import { FUNDING_MARGIN_MS, patchSwap, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
@@ -92,7 +92,7 @@ function world(
   o: {
     minOut?: bigint;
     simOk?: boolean;
-    fund?: "ok" | "fails-before" | "fails-after" | "older-gone" | "relayer-not-ready" | "dropped";
+    fund?: "ok" | "fails-before" | "fails-after" | "older-gone" | "relayer-not-ready" | "service-key-changed" | "dropped";
     handOver?: "ok" | "lost";
   } = {},
 ) {
@@ -124,6 +124,7 @@ function world(
       if (w.fund === "fails-before") throw new TypeError("fetch failed");
       if (w.fund === "older-gone") throw new OlderNotesUnavailable(st.runner?.maxTiming ?? 0);
       if (w.fund === "relayer-not-ready") throw new RelayerNotReady("the relayer does not run the swap service's orders");
+      if (w.fund === "service-key-changed") throw new ServiceKeyChanged("the swap service no longer takes the key this swap was confirmed under");
       onStatus("Withdrawing privately: handing it to the relayer…");
       if (w.fund === "dropped") throw new Error("Timed out while waiting for the transaction to be confirmed"); // sent, never mined
       w.escrow = AMOUNT;
@@ -668,18 +669,21 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(record()).toMatchObject({ state: "CANCELLED", phase: "funding", reason: { code: "older_notes_unavailable", fundsClass: "not-moved" } });
   });
 
-  it("a relayer that does not run the swap service's orders: stopped before anything is sent, never funded (a V6 follow-up of 2026-10-16)", async () => {
+  it.each([
+    ["relayer-not-ready", "relayer_not_ready", "a relayer that does not run the swap service's orders"],
+    ["service-key-changed", "service_key_changed", "a key the swap service no longer takes"],
+  ] as const)("%s: stopped before anything is sent, never funded (a V6 follow-up of 2026-10-16)", async (mode, code, why) => {
     order({ runner: { confirmedAt: T0 } });
     session.update((j) => {
       j.schedule = [action()];
     });
-    const { w, io } = world({ fund: "relayer-not-ready" });
+    const { w, io } = world({ fund: mode });
     const r = await runOrderTick(action(), deps(io));
-    expect(r?.step).toBe("stopped");
+    expect(r?.step, why).toBe("stopped");
     expect([w.funds, w.escrow, w.signs, w.handOvers], "asked once; nothing sent, signed or handed over").toEqual([1, 0n, 0, 0]);
-    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "relayer_not_ready" } });
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code } });
     expect(stored().fundedTx).toBeUndefined();
     expect(pending(), "nothing retries it").toBeUndefined();
-    expect(record()).toMatchObject({ state: "CANCELLED", phase: "funding", reason: { code: "relayer_not_ready", fundsClass: "not-moved" } });
+    expect(record()).toMatchObject({ state: "CANCELLED", phase: "funding", reason: { code, fundsClass: "not-moved" } });
   });
 });

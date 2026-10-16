@@ -3,7 +3,7 @@
 // tab, since the runner lives at the App level. Every check the Swap screen made stays here: the escrow
 // is recomputed from the wallet's own factory and the journaled params before a single note is spent,
 // and an order that is no longer open (abandoned, already funded) is never funded.
-import { TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex } from "viem";
+import { recoverAddress, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex } from "viem";
 import { clientFor, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { coreAbi } from "./privacyProtocol";
@@ -12,7 +12,7 @@ import { swapService, type ServiceHealth } from "./swapService";
 import { settings } from "./wallet/settings";
 import type { OnEvent } from "./operations/engineEvents";
 import { assetsOf, type Asset } from "./assets";
-import { OrderMismatch, predictEscrow } from "./swapGuard";
+import { OrderMismatch, orderVouchDigest, predictEscrow } from "./swapGuard";
 import { noteStore } from "./wallet/notes";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
 import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journal";
@@ -36,7 +36,6 @@ export function swapFactoryOf(deployment: Deployment | null): Address {
   return deployment.swapFactory;
 }
 
-/** Patch a journaled order and mirror its state onto its Activity line. */
 /** Thrown before anything is sent: the relayer that would execute this swap does not run it (`relayerRunsFor`). */
 export class RelayerNotReady extends Error {
   readonly code = "relayer_not_ready";
@@ -47,21 +46,72 @@ export class RelayerNotReady extends Error {
 }
 
 /**
+ * Thrown before anything is sent (a V6 follow-up of 2026-10-16): the swap service no longer takes the vouch this order got at
+ * its commit — its key changed, and the former one is not among those it still honors — so it would vouch for no call.
+ */
+export class ServiceKeyChanged extends Error {
+  readonly code = "service_key_changed";
+  constructor(reason: string) {
+    super(`Not funded: ${reason}. Nothing was sent.`);
+    this.name = "ServiceKeyChanged";
+  }
+}
+
+/** n/2 of secp256k1: the swap service signs low-s, as the relayer requires (packages/swap-engine/src/endpoints.ts) */
+const HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
+
+/** Who signed the order's vouch from its commit; null when it is not one the swap service would have signed (r‖s‖v, v 27 or 28, low-s). */
+async function vouchSigner(o: { chainId: bigint; escrow: Address; vouch?: string }): Promise<Address | null> {
+  const v = o.vouch;
+  if (!v || !/^0x[0-9a-fA-F]{130}$/.test(v)) return null;
+  const recovery = parseInt(v.slice(130, 132), 16);
+  if ((recovery !== 27 && recovery !== 28) || BigInt("0x" + v.slice(66, 130)) > HALF_N) return null;
+  try {
+    return await recoverAddress({ hash: orderVouchDigest(o.chainId, o.escrow), signature: v as Hex });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Before a swap is funded (a V6 follow-up of 2026-10-16): the relayer that will execute it runs for this wallet's factory and
- * for the swap service's key, as far as its /info names them — the service's status is read only when the relayer names its
- * list. Throws RelayerNotReady otherwise; a read that fails is an ordinary error, nothing sent, retried by the runner.
+ * for the swap service's key, as far as its /info names them. Given the order (its escrow and the vouch from its commit), also
+ * the order's own vouch: the service still honors its signer (its key, or a former one it names), and a relayer that names
+ * its list holds it too, for a refund before the hand-over. The service's status is read only when one of them needs it.
+ * Throws RelayerNotReady or ServiceKeyChanged. A vouch that cannot be read is not checked (the finalize decides), and a read
+ * that fails is an ordinary error, nothing sent, retried by the runner.
  */
 export async function checkRelayerReady(
   url: string,
   factory: Address,
-  deps: { info?: (url: string) => Promise<Pick<RelayerInfo, "swapFactory" | "vouchers">>; health?: () => Promise<ServiceHealth> } = {},
+  deps: {
+    order?: { chainId: bigint; escrow: Address; vouch?: string };
+    info?: (url: string) => Promise<Pick<RelayerInfo, "swapFactory" | "vouchers">>;
+    health?: () => Promise<ServiceHealth>;
+  } = {},
 ): Promise<void> {
   const info = await (deps.info ?? relayerInfo)(url);
-  const voucher = Array.isArray(info.vouchers) ? ((await (deps.health ?? swapService.health)()).deployment.voucher ?? null) : undefined;
-  const why = relayerRunsFor(info, { factory, voucher });
+  const signer = deps.order ? await vouchSigner(deps.order) : null;
+  const listed = Array.isArray(info.vouchers);
+  const health = listed || signer ? await (deps.health ?? swapService.health)() : null;
+  const why = relayerRunsFor(info, { factory, voucher: listed ? (health!.deployment.voucher ?? null) : undefined });
   if (why) throw new RelayerNotReady(why);
+  if (!signer) return;
+  const isSigner = (a: string | null | undefined) => !!a && a.toLowerCase() === signer.toLowerCase();
+  if (![health!.deployment.voucher, ...(health!.deployment.previousVouchers ?? [])].some(isSigner))
+    throw new ServiceKeyChanged("the swap service no longer takes the key this swap was confirmed under");
+  if (listed && !info.vouchers!.some(isSigner)) throw new RelayerNotReady("the relayer no longer runs swaps confirmed under the swap service's former key");
 }
 
+/** What fundEscrow checks first: the relayer that will execute the order runs it, and the order's own vouch still counts. */
+export async function checkFundingReady(o: { deployment: Deployment | null; stored: Pick<StoredSwap, "endpoint" | "orderVouch">; relayerUrl?: string | null }): Promise<void> {
+  if (!o.relayerUrl || !o.deployment) return;
+  await checkRelayerReady(o.relayerUrl, swapFactoryOf(o.deployment), {
+    order: { chainId: BigInt(o.deployment.chainId), escrow: o.stored.endpoint as Address, ...(o.stored.orderVouch ? { vouch: o.stored.orderVouch } : {}) },
+  });
+}
+
+/** Patch a journaled order and mirror its state onto its Activity line. */
 export function patchSwap(orderId: string, patch: Partial<StoredSwap>, s: WalletSession = defaultSession): void {
   s.update((j) => { const x = j.swaps.find((y) => y.orderId.toLowerCase() === orderId.toLowerCase()); if (x) Object.assign(x, patch); });
   if (patch.state) updateActivity(activityId("swap", orderId), { status: patch.state }, s);
@@ -170,9 +220,9 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
-  // the relayer that will execute it runs it (a V6 follow-up of 2026-10-16): a funded escrow it refused would hold the funds
-  // until the refund time with nobody to execute or refund it
-  if (o.relayerUrl) await checkRelayerReady(o.relayerUrl, swapFactoryOf(o.deployment));
+  // the relayer that will execute it runs it, and the order's own vouch still counts (a V6 follow-up of 2026-10-16): a funded
+  // escrow they refused would hold the funds until the refund time with nobody to execute or refund it
+  await checkFundingReady(o);
   // the funding's own submission is journaled before it is sent, then its transaction (a merge before it is nested: from
   // "merging" to the spend's own "syncing", as engineListener reads it); no runner sends another before its fate is known
   let nested = false;

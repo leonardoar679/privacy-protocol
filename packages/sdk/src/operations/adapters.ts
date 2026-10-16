@@ -106,6 +106,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   older_notes_unavailable: { state: "CANCELLED", phase: "funding", code: "older_notes_unavailable" },
   // the relayer that would execute it does not run it (a V6 follow-up of 2026-10-16): stopped before anything was sent
   relayer_not_ready: { state: "CANCELLED", phase: "funding", code: "relayer_not_ready" },
+  // the swap service no longer takes the key the order was confirmed under (a V6 follow-up of 2026-10-16): stopped unfunded
+  service_key_changed: { state: "CANCELLED", phase: "funding", code: "service_key_changed" },
   // a funding sent and never confirmed before the order's window closed: stopped, never sent again
   funding_unconfirmed: { state: "CANCELLED", phase: "funding", code: "funding_unconfirmed" },
   // the order's execution window closed: before its funding, stopped with nothing sent; after it and before the hand-over,

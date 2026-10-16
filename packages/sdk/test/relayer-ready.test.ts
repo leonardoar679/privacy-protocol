@@ -3,7 +3,9 @@
 // or a list without the service's key, would refuse the funded escrow's execution and its refund alike, and the funds would
 // wait for the refund time with nobody to move them; such a swap stops before anything is sent.
 import { describe, expect, it } from "vitest";
+import { privateKeyToAccount, sign } from "viem/accounts";
 import { relayerRunsFor } from "../src/relayer";
+import { orderVouchDigest } from "../src/swapGuard";
 import { checkRelayerReady, RelayerNotReady } from "../src/swapFunding";
 import type { ServiceHealth } from "../src/swapService";
 
@@ -58,5 +60,36 @@ describe("whether a relayer runs this wallet's swap", () => {
     ).rejects.toMatchObject({ code: "relayer_not_ready" });
     const down = checkRelayerReady("http://relayer.test", FACTORY, { info: async () => Promise.reject(new TypeError("fetch failed")) });
     await expect(down, "an unreachable relayer is an ordinary error, retried").rejects.toThrow(TypeError);
+  });
+
+  it("the order's own vouch: its digest is the engine's, and the service must still take its signer, and a relayer that names its list hold it", async () => {
+    // packages/swap-engine/test/endpoints.test.ts pins the same digest for the same inputs: the API and the wallet agree
+    const escrow = "0x00000000000000000000000000000000000e5c00";
+    expect(orderVouchDigest(1n, escrow)).toBe("0xc6668c4a6ed881c69b81de98a5a143f669818322cd508fec047da1d316fd840e");
+    const OLD = ("0x" + "5a".repeat(32)) as `0x${string}`,
+      NEW = ("0x" + "5c".repeat(32)) as `0x${string}`;
+    const old = privateKeyToAccount(OLD).address.toLowerCase(),
+      next = privateKeyToAccount(NEW).address.toLowerCase();
+    const vouch = await sign({ hash: orderVouchDigest(1n, escrow), privateKey: OLD, to: "hex" });
+    const ready = (vouchers: string[] | undefined, deployment: { voucher?: string | null; previousVouchers?: string[] }, v: string = vouch) =>
+      checkRelayerReady("http://relayer.test", FACTORY, {
+        order: { chainId: 1n, escrow, vouch: v },
+        info: async () => (vouchers ? { swapFactory: FACTORY, vouchers } : {}) as never,
+        health: async () => ({ ...health(undefined), deployment: { ...health(undefined).deployment, ...deployment } }) as ServiceHealth,
+      });
+    await expect(ready([old], { voucher: old }), "confirmed under the key in use").resolves.toBeUndefined();
+    await expect(ready([next, old], { voucher: next, previousVouchers: [old] }), "a rotation in its overlap").resolves.toBeUndefined();
+    await expect(ready([next], { voucher: next }), "the service dropped the former key").rejects.toMatchObject({ code: "service_key_changed" });
+    await expect(ready([next], { voucher: next, previousVouchers: [old] }), "the relayer dropped it: no refund before the hand-over").rejects.toMatchObject({
+      code: "relayer_not_ready",
+      message: expect.stringMatching(/former key/),
+    });
+    await expect(ready(undefined, { voucher: next }), "a relayer that names no list: the service's side is still checked").rejects.toMatchObject({
+      code: "service_key_changed",
+    });
+    await expect(
+      ready([next], { voucher: next }, "0x" + "a1".repeat(65)),
+      "a vouch it cannot read: not checked, the finalize decides",
+    ).resolves.toBeUndefined();
   });
 });
