@@ -61,6 +61,8 @@ export const executionDigest = (chainId: bigint, escrow: Address, orderId: Hex, 
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const ZERO = "0x0000000000000000000000000000000000000000";
+/** A time in whole seconds as the escrow stores it (uint64), and as JSON numbers carry it: anything else is refused, never coerced. */
+const isSeconds = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 
 export interface OrderExpectation {
   factory: Address;
@@ -94,6 +96,10 @@ export function checkOrder(order: ServiceOrder, e: OrderExpectation): void {
   if (!same(p.refundVault, e.asset.vault)) throw new OrderMismatch("refundVault", `${p.refundVault} is not the canonical ${e.asset.symbol} vault`);
   if (BigInt(p.executorTip) > BigInt(p.amount) / TIP_DIVISOR) throw new OrderMismatch("executorTip", "above 1 % of the amount");
   if (e.maxTip !== undefined && e.maxTip !== null && BigInt(p.executorTip) > e.maxTip) throw new OrderMismatch("executorTip", `${p.executorTip} is more than three times this wallet's own estimate of the execution's gas`);
+  // the deadlines compare as numbers (audit 2026-10-16): the service answers JSON, and two strings compare as text, so a refundAfter
+  // "after" the deadline only as text passed, and the wallet funded an escrow whose constructor reverts (BadDeadlines) — an address
+  // nothing can ever deploy, its funds stranded for good
+  if (!isSeconds(p.executeDeadline) || !isSeconds(p.refundAfter)) throw new OrderMismatch("deadlines", "not whole numbers of seconds");
   if (p.executeDeadline <= now) throw new OrderMismatch("executeDeadline", "already passed");
   if (p.refundAfter < p.executeDeadline || p.refundAfter - now > MAX_REFUND_HORIZON_SECONDS) throw new OrderMismatch("refundAfter", "the refund would be locked too long or before the deadline");
   const predicted = predictEscrow(e.factory, p);
@@ -104,6 +110,7 @@ export function checkOrder(order: ServiceOrder, e: OrderExpectation): void {
 export function checkPrepared(prepared: Prepared, order: ServiceOrder, chainId: bigint, now = Math.floor(Date.now() / 1000)): void {
   const p = order.params;
   if (!isAddress(prepared.provider) || same(prepared.provider, ZERO) || same(prepared.provider, order.endpoint)) throw new OrderMismatch("provider", `${prepared.provider} is not a provider address`);
+  if (!isSeconds(prepared.deadline) || !isSeconds(p.executeDeadline)) throw new OrderMismatch("deadline", "not a whole number of seconds");
   if (prepared.deadline > p.executeDeadline || prepared.deadline <= now) throw new OrderMismatch("deadline", "outside the order's execution window");
   const value = BigInt(prepared.value);
   const spendable = Number(p.assetType) === 0 ? BigInt(p.amount) - BigInt(p.executorTip) : 0n;

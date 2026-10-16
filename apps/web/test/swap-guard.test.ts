@@ -76,6 +76,12 @@ describe("checkOrder: what a dishonest swap service cannot slip past the wallet"
     ["an expired order", (o) => { o.params.executeDeadline = now() - 1; o.endpoint = predictEscrow(FACTORY, o.params); }, /executeDeadline/],
     ["a refund locked for a month", (o) => { o.params.refundAfter = now() + 30 * 86400; o.endpoint = predictEscrow(FACTORY, o.params); }, /refundAfter/],
     ["an escrow under another factory", (o) => { o.endpoint = predictEscrow("0x000000000000000000000000000000000000bad4", o.params); }, /endpoint/],
+    // audit 2026-10-16: as text, "200000000" sorts after "1790000000", so a refundAfter years before the deadline passed, and the
+    // escrow these params predict could never be deployed (its constructor reverts BadDeadlines): the funding would be stranded
+    ["deadlines as text, the refund before the deadline", (o) => { o.params.refundAfter = String(o.params.executeDeadline - 10 ** 9); o.params.executeDeadline = String(o.params.executeDeadline); o.endpoint = predictEscrow(FACTORY, o.params); }, /deadlines/],
+    ["a deadline as text, its refund a number", (o) => { o.params.executeDeadline = String(o.params.executeDeadline); o.endpoint = predictEscrow(FACTORY, o.params); }, /deadlines/],
+    ["a fractional deadline", (o) => { o.params.executeDeadline = o.params.executeDeadline + 0.5; }, /deadlines/],
+    ["a refund before the deadline", (o) => { o.params.refundAfter = o.params.executeDeadline - 1; o.endpoint = predictEscrow(FACTORY, o.params); }, /refundAfter/],
   ];
   for (const [what, tamper, field] of cases) {
     it(`refuses ${what}`, () => {
@@ -113,6 +119,9 @@ describe("checkPrepared: the order key signs only what it is shown", () => {
     expect(() => checkPrepared({ ...prep, deadline: svc.params.executeDeadline + 1 }, svc, 1n)).toThrow(/deadline/);
     expect(() => checkPrepared({ ...prep, value: svc.params.amount }, svc, 1n)).toThrow(/value/);
     expect(() => checkPrepared({ ...prep, provider: svc.endpoint }, svc, 1n)).toThrow(/provider/);
+    // a deadline as text: compared as text, a later one could sort before the order's (audit 2026-10-16)
+    expect(() => checkPrepared({ ...prep, deadline: String(prep.deadline) as any }, svc, 1n)).toThrow(/deadline/);
+    expect(() => checkPrepared(prep, { ...svc, params: { ...svc.params, executeDeadline: String(svc.params.executeDeadline) as any } }, 1n)).toThrow(/deadline/);
     const erc20 = await prepared(USDC_ASSET);
     expect(() => checkPrepared({ ...erc20.prep, value: "1" }, erc20.svc, 1n)).toThrow(/value/);
   });
