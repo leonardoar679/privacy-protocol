@@ -54,9 +54,17 @@ vi.mock("@privacy-wallet/sdk/swapFunding", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/swapFunding")>();
   return {
     ...orig,
-    fundEscrow: async (o: { stored: { orderId: string; runner?: { maxTiming?: number } }; onStatus?: (l: string) => void; session?: never }) => {
+    fundEscrow: async (o: {
+      deployment: never;
+      stored: { orderId: string; runner?: { maxTiming?: number } };
+      onStatus?: (l: string) => void;
+      session?: never;
+      relayerUrl?: string | null;
+    }) => {
       funding.count++;
       funding.runner = o.stored.runner;
+      // the funding's first check, as the real one makes it (a V6 follow-up of 2026-10-16): the relayer that will execute it runs it
+      if (o.relayerUrl) await orig.checkRelayerReady(o.relayerUrl, orig.swapFactoryOf(o.deployment));
       if (funding.olderGone) {
         // the withdrawal's own check: the older notes no longer cover the order, and nothing is sent
         const { OlderNotesUnavailable } = await import("@privacy-wallet/sdk/privateTx");
@@ -537,6 +545,24 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(card.textContent).toContain("Your funds were not moved.");
     fireEvent.click(screen.getByTestId("swap-review-again"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/swap"));
+  }, 60_000);
+
+  it("a relayer that does not run the swap service's orders: the swap stops before funding and the card says so (a V6 follow-up of 2026-10-16)", async () => {
+    await wallet();
+    world.relayerInfo = { swapFactory: FACTORY, vouchers: ["0x" + "ab".repeat(20)] }; // a relayer still on another key
+    const { orderId } = await confirmed();
+    expect(await tick(orderId)).toBe("stopped");
+    expect(funding.count, "asked once").toBe(1);
+    expect(stored(orderId).fundedTx, "nothing was sent").toBeUndefined();
+    expect(stored(orderId)).toMatchObject({ state: "abandoned", paused: { code: "relayer_not_ready" } });
+    expect(
+      session.journal().schedule.filter((a) => !a.done && a.orderId === orderId),
+      "nothing retries it",
+    ).toEqual([]);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "CANCELLED", reason: { code: "relayer_not_ready", fundsClass: "not-moved" } });
+    const card = await screen.findByTestId("operation-progress-error");
+    expect(card.textContent).toContain("The relayer is not set up for this swap");
+    expect(card.textContent).toContain("Your funds were not moved.");
   }, 60_000);
 
   it("the leakage gate: no request of quote → confirm → fund → sign → hand-over carries a secret or a forbidden field; every host is allow-listed", async () => {

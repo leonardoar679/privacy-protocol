@@ -119,7 +119,7 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
     return order;
   };
   return {
-    fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus }),
+    fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus, relayerUrl }),
     fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment)) : "unknown"),
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;
@@ -381,10 +381,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
             schedulerStatus.progress(line);
           });
         } catch (e) {
-          if (!sent && (e as { code?: unknown })?.code === "older_notes_unavailable") {
+          const code = (e as { code?: unknown })?.code;
+          if (!sent && (code === "older_notes_unavailable" || code === "relayer_not_ready")) {
             // "Delay for more privacy": the older notes the Review showed no longer cover the order and nothing was sent —
-            // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes
-            patchSwap(a.orderId, { paused: { code: "older_notes_unavailable", detail: (e as Error).message, at: now } }, s);
+            // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes. Or the relayer
+            // that would execute it does not run it (a V6 follow-up of 2026-10-16): stopped before anything moved
+            patchSwap(a.orderId, { paused: { code, detail: (e as Error).message, at: now } }, s);
             abandonSwap(a.orderId, s);
             cancelAction(a.id, s);
             const st = journaled(a.orderId, s)!;

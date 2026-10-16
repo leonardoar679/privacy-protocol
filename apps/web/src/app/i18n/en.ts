@@ -498,6 +498,8 @@ export const en = {
   "op.error.deployment_mismatch.reason": "The contracts on this network are not the ones this app was built for, or not the ones this wallet saw before. Nothing was sent. Update the app; under More → Advanced you can choose to accept the deployment it names.",
   "op.error.execution_unavailable.title": "The route cannot execute right now",
   "op.error.execution_unavailable.reason": "Its check before the hand-over failed, so nothing was handed over. Your funds wait in your one-time escrow: try again with a fresh quote, or return them to your protected balance.",
+  "op.error.relayer_not_ready.title": "The relayer is not set up for this swap",
+  "op.error.relayer_not_ready.reason": "The relayer that would carry out this swap does not run the swap service's orders, so we stopped it before funding. Nothing left your protected balance. Check the relayer in Settings, or try again later.",
   "op.error.older_notes_unavailable.title": "Your older funds no longer cover this swap",
   "op.error.older_notes_unavailable.reason": "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
   "op.error.interrupted.title": "Stopped before anything was sent",

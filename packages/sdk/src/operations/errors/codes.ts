@@ -93,6 +93,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   execution_unavailable: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   // spec v2.0 §14.1: an order to be funded from older notes that no longer cover it is stopped before anything is sent
   older_notes_unavailable: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
+  // a V6 follow-up of 2026-10-16: the relayer that would execute the order does not run it, so it is stopped before funding
+  relayer_not_ready: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings", "new-quote"] },
   // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)
   funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped

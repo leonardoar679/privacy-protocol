@@ -26,6 +26,26 @@ export interface RelayerInfo {
   feeMinimumWei?: string;
   /** V6 Stage 12: the ShieldReceiverFactory this relayer shields for (absent: no shield executor) */
   shieldFactory?: Address;
+  /** a V6 follow-up of 2026-10-16: the SwapOrderFactory it executes for (absent: no swap executor, or an older relayer) */
+  swapFactory?: Address;
+  /** a V6 follow-up of 2026-10-16: the swap service's addresses whose vouches it runs, lowercased (empty: no swaps; absent: an older relayer) */
+  vouchers?: string[];
+}
+
+/**
+ * Why a relayer will not run this wallet's swap, from what its /info names (a V6 follow-up of 2026-10-16): another swap
+ * factory, or a list of the swap service's addresses without the one the service vouches as. Null when it will, or when it
+ * names neither (an older relayer: not checked). A funded escrow such a relayer refuses would hold the funds until its
+ * refund time with nobody to execute or refund it.
+ */
+export function relayerRunsFor(info: Pick<RelayerInfo, "swapFactory" | "vouchers">, o: { factory: Address; voucher: string | null | undefined }): string | null {
+  if (info.swapFactory && info.swapFactory.toLowerCase() !== o.factory.toLowerCase())
+    return `the relayer executes swaps for ${info.swapFactory}, not for this wallet's ${o.factory}`;
+  if (Array.isArray(info.vouchers)) {
+    if (!o.voucher) return "the swap service vouches for nothing, and the relayer runs only vouched swaps";
+    if (!info.vouchers.some((v) => v.toLowerCase() === o.voucher!.toLowerCase())) return "the relayer does not run the swap service's orders: its key is not among the relayer's";
+  }
+  return null;
 }
 export interface RelayerSubmitRequest { proof: Hex; publicInputs: string[]; noteData: [Hex, Hex, Hex]; fee: { outputIndex: 0 | 1 | 2; amount: string; noteSecret: string; vault?: Address } }
 export interface RelayerSubmitResult { txHash: Hex; feeWei: string; feeVault?: Address; gas: string; feePayloadReadable: boolean }

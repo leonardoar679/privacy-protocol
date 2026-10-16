@@ -58,7 +58,8 @@ first operation there (`0x` + 64 hex, `packages/sdk/src/deploymentGuard.ts`); ne
 Stage 11 (spec v2.0 §7.6, §14.1): a swap order run by the order runner carries `runner { confirmedAt, delayUntil?,
 maxTiming? }` (`maxTiming`, a V6 follow-up: funded at once from older notes only, each with its own timing at most it —
 0, 0.3 or 0.7) and, while it waits, `paused { code, detail?, minOut?, approved?, at }` (on an order stopped unfunded
-because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`; on one whose funding
+because its older notes no longer covered it, `older_notes_unavailable` with the state `abandoned`; on one whose relayer
+does not run it, `relayer_not_ready` with the state `abandoned`, a V6 follow-up of 2026-10-16; on one whose funding
 was sent and never confirmed, `funding_unconfirmed`, a V6 follow-up; since 2026-10-14, on one whose execution window
 closed before its funding, `order_expired` with the state `abandoned`, and on a funded one whose window closed before
 its hand-over, `execution_window_closed`); a V6 follow-up of 2026-10-14: a swap order's

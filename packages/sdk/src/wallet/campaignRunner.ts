@@ -136,7 +136,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
       orders.set(r.stored.orderId.toLowerCase(), r.order);
       return { stored: r.stored, order: r.order, protection: r.response.protection ?? null };
     },
-    fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus }),
+    fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus, relayerUrl }),
     fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment)) : "unknown"),
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;

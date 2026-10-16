@@ -56,6 +56,8 @@ export const world: {
   gateways: { inbound: string; active: string[]; down: number; halted?: boolean };
   /** the vault the service's THORChain deposit names */
   callVault: string;
+  /** a V6 follow-up of 2026-10-16: what else the relayer's /info names (its swapFactory, its vouchers), when set */
+  relayerInfo?: Record<string, unknown>;
 } = {
   bend: {},
   rpcBend: {},
@@ -259,6 +261,7 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
         feeMarginBps: 0,
         requireReadableFeePayload: false,
         inflight: 0,
+        ...(world.relayerInfo ?? {}),
       });
     if (u.pathname === "/swap/refund") {
       relayerBodies.push(body);
@@ -281,6 +284,7 @@ export function resetWorld(): void {
   world.gateways = { inbound: VAULT, active: [VAULT, VAULT_2], down: 0 };
   world.callVault = VAULT;
   world.protection = undefined;
+  world.relayerInfo = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

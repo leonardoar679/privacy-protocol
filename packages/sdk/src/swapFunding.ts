@@ -7,7 +7,9 @@ import { TransactionNotFoundError, TransactionReceiptNotFoundError, type Address
 import { clientFor, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { coreAbi } from "./privacyProtocol";
-import { relayerJobFor } from "./relayer";
+import { relayerInfo, relayerJobFor, relayerRunsFor, type RelayerInfo } from "./relayer";
+import { swapService, type ServiceHealth } from "./swapService";
+import { settings } from "./wallet/settings";
 import type { OnEvent } from "./operations/engineEvents";
 import { assetsOf, type Asset } from "./assets";
 import { OrderMismatch, predictEscrow } from "./swapGuard";
@@ -35,6 +37,31 @@ export function swapFactoryOf(deployment: Deployment | null): Address {
 }
 
 /** Patch a journaled order and mirror its state onto its Activity line. */
+/** Thrown before anything is sent: the relayer that would execute this swap does not run it (`relayerRunsFor`). */
+export class RelayerNotReady extends Error {
+  readonly code = "relayer_not_ready";
+  constructor(reason: string) {
+    super(`Not funded: ${reason}. Nothing was sent.`);
+    this.name = "RelayerNotReady";
+  }
+}
+
+/**
+ * Before a swap is funded (a V6 follow-up of 2026-10-16): the relayer that will execute it runs for this wallet's factory and
+ * for the swap service's key, as far as its /info names them — the service's status is read only when the relayer names its
+ * list. Throws RelayerNotReady otherwise; a read that fails is an ordinary error, nothing sent, retried by the runner.
+ */
+export async function checkRelayerReady(
+  url: string,
+  factory: Address,
+  deps: { info?: (url: string) => Promise<Pick<RelayerInfo, "swapFactory" | "vouchers">>; health?: () => Promise<ServiceHealth> } = {},
+): Promise<void> {
+  const info = await (deps.info ?? relayerInfo)(url);
+  const voucher = Array.isArray(info.vouchers) ? ((await (deps.health ?? swapService.health)()).deployment.voucher ?? null) : undefined;
+  const why = relayerRunsFor(info, { factory, voucher });
+  if (why) throw new RelayerNotReady(why);
+}
+
 export function patchSwap(orderId: string, patch: Partial<StoredSwap>, s: WalletSession = defaultSession): void {
   s.update((j) => { const x = j.swaps.find((y) => y.orderId.toLowerCase() === orderId.toLowerCase()); if (x) Object.assign(x, patch); });
   if (patch.state) updateActivity(activityId("swap", orderId), { status: patch.state }, s);
@@ -130,7 +157,7 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
   return now - a.at < FUNDING_SETTLE_MS ? "pending" : "dead";
 }
 
-export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deployment | null; stored: StoredSwap; onStatus?: (line: string) => void; session?: WalletSession }): Promise<Submitted> {
+export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deployment | null; stored: StoredSwap; onStatus?: (line: string) => void; session?: WalletSession; /** the relayer that will execute the order: checked first (checkRelayerReady) */ relayerUrl?: string | null }): Promise<Submitted> {
   const s = o.session ?? defaultSession;
   const { stored } = o;
   if (!o.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
@@ -143,6 +170,9 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
+  // the relayer that will execute it runs it (a V6 follow-up of 2026-10-16): a funded escrow it refused would hold the funds
+  // until the refund time with nobody to execute or refund it
+  if (o.relayerUrl) await checkRelayerReady(o.relayerUrl, swapFactoryOf(o.deployment));
   // the funding's own submission is journaled before it is sent, then its transaction (a merge before it is nested: from
   // "merging" to the spend's own "syncing", as engineListener reads it); no runner sends another before its fate is known
   let nested = false;
@@ -192,7 +222,8 @@ export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Ui
   const asset = assetOfStored(o.deployment, stored);
   schedulerStatus.start(a.id, `Funding the scheduled swap (${asset.symbol}) from your private balance…`);
   try {
-    await fundEscrow({ masterSeed: o.masterSeed, deployment: o.deployment, stored, session: s, onStatus: (line) => schedulerStatus.progress(line) });
+    const sub = settings.get().submission;
+    await fundEscrow({ masterSeed: o.masterSeed, deployment: o.deployment, stored, session: s, onStatus: (line) => schedulerStatus.progress(line), relayerUrl: sub.kind === "relayer" ? sub.url : null });
   } finally {
     schedulerStatus.finish();
   }

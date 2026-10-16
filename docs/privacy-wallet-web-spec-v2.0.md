@@ -446,7 +446,9 @@ Only an order reconciling without a journaled funding (a journal from before the
 with the escrow read and short. Before, a reload during a funding sent a second one, and a dropped one kept the order reconciling for good). A failure before anything was sent goes to the
 scheduler's backoff — except `older_notes_unavailable` (§14.1): the order is stopped unfunded (CANCELLED with that
 reason, "Review again"), since its escrow's window cannot wait 1–24 h and younger notes would break what the Review
-showed. *A V6 follow-up of 2026-10-14 — the execution window:* an order with less than five minutes of its window left
+showed. So is `relayer_not_ready` (a V6 follow-up of 2026-10-16): the relayer that would execute the order names another
+swap factory or a list without the swap service's key, and a funded escrow it refused would hold the funds until the
+refund time. *A V6 follow-up of 2026-10-14 — the execution window:* an order with less than five minutes of its window left
 (`FUNDING_MARGIN_MS`; a funding delayed for privacy runs at the next unlock, which can come later) is never funded: it
 stops unfunded as `order_expired` (CANCELLED, not-moved, "Review again"); a funded order whose window has closed with
 nothing handed over is never signed — the escrow only refunds — and stops as `execution_window_closed`
@@ -1111,7 +1113,9 @@ no vouch of its own; `GET /v1/status` names the signer (`deployment.voucher`). W
 honors the commit vouches of the former addresses `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`), and a
 relayer's `API_VOUCHER` lists the new and the former address. A relayer's `/info` names the addresses it runs for
 (`vouchers`) and its factories, and the status says whether the relayer the API reads lists the current address
-(`deployment.relayerAcceptsVoucher`; null when unknown). A swap into the protected balance sends
+(`deployment.relayerAcceptsVoucher`; null when unknown). The wallet funds a swap only when its relayer runs it as far
+as that `/info` names (`packages/sdk/src/swapFunding.ts` `checkRelayerReady`; otherwise `relayer_not_ready`, stopped
+before anything is sent). A swap into the protected balance sends
 its shield receipt's parameters with the commit, and the answer's `vouch.shield` signs the receipt once it is the
 order's: its receiver, predicted from `SHIELD_FACTORY`, is the destination, it names the delivered asset, its tip is
 at least half of the one the API prices, and its minimum (the delivery that pays the tip) is at most the order's minimum
