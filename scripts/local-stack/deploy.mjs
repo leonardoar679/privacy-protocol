@@ -88,7 +88,7 @@ const feedAbi = [
 ];
 
 const chainId = await pub.getChainId();
-if (chainId !== 1) throw new Error(`the devnet answers chain id ${chainId}; the pins need 1 (hardhat.config.js)`);
+if (chainId !== 1) throw new Error(`the devnet answers chain id ${chainId}; the pins need 1 (hardhat.config.cjs)`);
 if (!existsSync(join(ROOT, "contracts/out/PrivacyCore.sol/PrivacyCore.json"))) throw new Error("no forge artifacts: run `forge build` in contracts/ first");
 console.log(`chain id ${chainId}, deployer ${account.address}, balance ${await pub.getBalance({ address: account.address }) / 10n ** 18n} ETH`);
 
