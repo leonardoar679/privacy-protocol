@@ -23,11 +23,15 @@ describe("whether a relayer runs this wallet's swap", () => {
     expect(relayerRunsFor({ swapFactory: "0x00000000000000000000000000000000000000f6" }, { factory: FACTORY, voucher: KEY })).toMatch(
       /executes swaps for 0x0+f6, not for this wallet's/,
     );
-    expect(relayerRunsFor({ vouchers: ["0x" + "ab".repeat(20)] }, { factory: FACTORY, voucher: KEY }), "still on another key").toMatch(
-      /its key is not among the relayer's/,
+    const other = "0x" + "ab".repeat(20);
+    expect(relayerRunsFor({ swapFactory: FACTORY, vouchers: [other] }, { factory: FACTORY, voucher: KEY }), "still on another key").toMatch(
+      /its key is not among/,
     );
-    expect(relayerRunsFor({ vouchers: [] }, { factory: FACTORY, voucher: KEY }), "a relayer that runs no swaps").toMatch(/not among/);
-    expect(relayerRunsFor({ vouchers: [KEY] }, { factory: FACTORY, voucher: null }), "a service that vouches for nothing").toMatch(/vouches for nothing/);
+    expect(relayerRunsFor({ swapFactory: FACTORY, vouchers: [] }, { factory: FACTORY, voucher: KEY }), "no API_VOUCHER: no swaps").toMatch(/not among/);
+    expect(relayerRunsFor({ vouchers: [KEY] }, { factory: FACTORY, voucher: KEY }), "no SWAP_FACTORY: no swaps").toMatch(/names no swap factory/);
+    expect(relayerRunsFor({ swapFactory: FACTORY, vouchers: [KEY] }, { factory: FACTORY, voucher: null }), "the service vouches for nothing").toMatch(
+      /vouches for nothing/,
+    );
   });
 
   it("checkRelayerReady throws RelayerNotReady before anything is sent, and reads the service only when the relayer names its list", async () => {
@@ -43,11 +47,13 @@ describe("whether a relayer runs this wallet's swap", () => {
     expect(healthReads).toBe(1);
     await expect(checkRelayerReady("http://relayer.test", FACTORY, deps({ swapFactory: FACTORY }))).resolves.toBeUndefined();
     expect(healthReads, "no list: the service is not asked").toBe(1);
-    const refused = await checkRelayerReady("http://relayer.test", FACTORY, deps({ vouchers: ["0x" + "ab".repeat(20)] })).catch((e: unknown) => e);
+    const refused = await checkRelayerReady("http://relayer.test", FACTORY, deps({ swapFactory: FACTORY, vouchers: ["0x" + "ab".repeat(20)] })).catch(
+      (e: unknown) => e,
+    );
     expect(refused).toBeInstanceOf(RelayerNotReady);
     expect(refused).toMatchObject({ code: "relayer_not_ready", message: expect.stringMatching(/^Not funded: .*Nothing was sent\.$/) });
     await expect(
-      checkRelayerReady("http://relayer.test", FACTORY, deps({ vouchers: [KEY] }, health(undefined))),
+      checkRelayerReady("http://relayer.test", FACTORY, deps({ swapFactory: FACTORY, vouchers: [KEY] }, health(undefined))),
       "a service from before the vouches: no voucher named",
     ).rejects.toMatchObject({ code: "relayer_not_ready" });
     const down = checkRelayerReady("http://relayer.test", FACTORY, { info: async () => Promise.reject(new TypeError("fetch failed")) });

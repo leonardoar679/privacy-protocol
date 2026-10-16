@@ -146,7 +146,8 @@ key, `npm run voucher-address -w @privacy-wallet/api` prints that address from t
 (never the key). Give the API the
 deployment's `SHIELD_FACTORY` too, so it can vouch for the shield receipts of swaps into the protected balance; without
 it such a commit is refused. A wallet reads its relayer's `GET /info` before it funds a swap, and stops the swap unfunded
-(`relayer_not_ready`) when that relayer names another swap factory or a list without the swap service's address.
+(`relayer_not_ready`) when that relayer names another swap factory, its list but no swap factory (it has no
+`SWAP_FACTORY`, so it runs no swaps), or a list without the swap service's address.
 
 To rotate the key (a V6 follow-up of 2026-10-16), give the relayers `API_VOUCHER=<new>,<old>` first, the new address
 printed by `npm run voucher-address` from the new key. Each relayer's `GET /info` lists the addresses it runs for

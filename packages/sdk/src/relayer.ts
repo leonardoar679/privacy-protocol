@@ -42,6 +42,8 @@ export function relayerRunsFor(info: Pick<RelayerInfo, "swapFactory" | "vouchers
   if (info.swapFactory && info.swapFactory.toLowerCase() !== o.factory.toLowerCase())
     return `the relayer executes swaps for ${info.swapFactory}, not for this wallet's ${o.factory}`;
   if (Array.isArray(info.vouchers)) {
+    // a relayer that names its list but no factory has no SWAP_FACTORY: it runs no swaps at all (swap_unavailable)
+    if (!info.swapFactory) return "the relayer runs no swaps: it names no swap factory";
     if (!o.voucher) return "the swap service vouches for nothing, and the relayer runs only vouched swaps";
     if (!info.vouchers.some((v) => v.toLowerCase() === o.voucher!.toLowerCase())) return "the relayer does not run the swap service's orders: its key is not among the relayer's";
   }
