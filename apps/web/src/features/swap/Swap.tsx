@@ -12,6 +12,8 @@
 // and the runner. The user never selects a provider, a relayer, a route, an RPC or a gas strategy; Compare routes is
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
+import { destinationWords } from "../destinationWords";
+import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
 import { availablePrice, formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
@@ -117,8 +119,10 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const units = parseAmount(fromAsset, amount);
   const bucket = bucketBelowFor(fromAsset, units);
   const chain = chainKindOf(to.ref.chain);
-  const parsedDestination = destinationEdited ? parseDestination(chain, destination) : null;
-  const destinationError = parsedDestination && !parsedDestination.ok ? parsedDestination.reason : "";
+  // a V6 follow-up of 2026-10-16: an address that would lose what it receives is refused, and a refusal is said in the user's language
+  const known = useMemo(() => knownRecipients(deployment), [deployment]);
+  const parsedDestination = destinationEdited ? parseDestination(chain, destination, known) : null;
+  const destinationError = parsedDestination && !parsedDestination.ok ? destinationWords(t, parsedDestination) : "";
   const otherChain = destinationEdited && destination.trim() ? looksLikeChain(destination.trim()) : null;
   useEffect(() => {
     if (!deployment || units <= topBucket(fromAsset.decimals)) { setHolders(null); return; }
@@ -509,7 +513,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
                   {parsedDestination?.ok ? <DestinationStatus chain={chain} address={destination} tier={tier} masterSeed={masterSeed} deployment={deployment} asset={to.ref.symbol} /> : null}
                 </>
               ) : null} />
-            {destinationError ? <p className="ds-field-error" data-testid="destination-error">{t("swap.destinationError", { reason: destinationError })}</p> : null}
+            {destinationError ? <p className="ds-field-error" data-testid="destination-error">{destinationError}</p> : null}
             <p className="ds-note">{window[1] === 0 ? t("swap.fundedNoDelay") : t("swap.fundedWithin", { lo: hours(window[0]), hi: hours(window[1]) })}</p>
             {busy ? <p className="ds-note" data-testid="swap-busy">{busy}</p> : null}
             {error ? <p className="ds-note-warn" data-testid="swap-error">{error}</p> : null}

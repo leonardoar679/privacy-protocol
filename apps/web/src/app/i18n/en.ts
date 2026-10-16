@@ -991,7 +991,6 @@ export const en = {
   "swap.receiveAtOwn": "Receive at (your own address)",
   "swap.receiveAtFresh": "Receive at (a fresh address of this wallet, reserved when you confirm)",
   "swap.destinationPlaceholder": "fresh address",
-  "swap.destinationError": "Destination: {reason}.",
   "swap.fundedNoDelay": "Funded at a random time within no delay (your preference is Fastest); change the trade preference under Settings.",
   "swap.fundedWithin": "Funded at a random time within {lo}–{hi}; change the trade preference under Settings.",
   "swap.youPay": "You pay",

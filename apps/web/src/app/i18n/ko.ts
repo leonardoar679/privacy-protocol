@@ -1049,7 +1049,6 @@ export const ko: Record<MessageKey, string> = {
   "swap.receiveAtOwn": "받을 곳 (본인 주소)",
   "swap.receiveAtFresh": "받을 곳 (확인할 때 예약되는 이 지갑의 새 주소)",
   "swap.destinationPlaceholder": "새 주소",
-  "swap.destinationError": "목적지: {reason}.",
   "swap.fundedNoDelay": "지연 없이 자금이 투입됩니다 (선호 설정: 가장 빠르게). 거래 선호 설정은 설정에서 바꿀 수 있습니다.",
   "swap.fundedWithin": "{lo}–{hi} 사이의 임의 시각에 자금이 투입됩니다. 거래 선호 설정은 설정에서 바꿀 수 있습니다.",
   "swap.youPay": "지불 금액",

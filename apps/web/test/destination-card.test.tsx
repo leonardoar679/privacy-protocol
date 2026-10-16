@@ -52,13 +52,13 @@ describe("destinations on the screens", () => {
     const input = container.querySelector('input[placeholder="fresh address"]') as HTMLInputElement;
     expect(input.value).toBe(peekFreshAddress(session.state().seed!, "bitcoin").address);
     await act(async () => { setValue(input, EVM); });
-    expect(container.querySelector('[data-testid="destination-error"]')!.textContent).toContain("this looks like a Ethereum address; the destination is Bitcoin");
+    expect(container.querySelector('[data-testid="destination-error"]')!.textContent).toBe("This looks like a Ethereum address; the destination is Bitcoin.");
     expect(button(container, "Get a quote")!.disabled).toBe(true);
     await act(async () => { setValue(input, BTC); });
     expect(container.querySelector('[data-testid="destination-error"]')).toBeNull();
     expect(button(container, "Get a quote")!.disabled).toBe(false);
     await act(async () => { setValue(input, "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyv"); });
-    expect(container.querySelector('[data-testid="destination-error"]')!.textContent).toContain("checksum");
+    expect(container.querySelector('[data-testid="destination-error"]')!.textContent, "said from its code (a V6 follow-up of 2026-10-16)").toBe("This is not a valid Bitcoin address.");
     expect(fetches).toBe(0);
   });
 
