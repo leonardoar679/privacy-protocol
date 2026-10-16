@@ -619,7 +619,9 @@ contains no low-level wallet code. Every transaction the connected wallet sends 
 revoked allowance, a private transaction it submits itself) goes out on the deployment's chain only: the wallet's
 network is read just before each send and named in the transaction (`packages/sdk/src/chain.ts`
 `sendViaInjectedWallet`; a V6 follow-up of 2026-10-16). Another network is refused before anything is sent
-(`chain_mismatch`), also when it was switched between a protect's approval and its deposit.
+(`chain_mismatch`), also when it was switched between a protect's approval and its deposit. The Protect page takes a
+wallet on another network as not connected: it reads no balance and no estimate from that chain and offers the switch
+("Switch network", `wallet_switchEthereumChain`) where it would offer the connection.
 
 The protected wallet's at-rest formats are unchanged (scrypt + XChaCha20-Poly1305, byte-pinned in TS, Rust and
 Python) inside the encrypted IndexedDB container of V5 (`privacy-wallet` / `secure`); WebCrypto provides the

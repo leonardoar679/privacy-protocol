@@ -5,6 +5,7 @@
 // session), /protect/progress/:opId (the §58 lines), what was added; a declined prompt ("Your funds were not moved.")
 // and the way back to the Review; a reverted receipt (FAILED, not moved); the ERC-20 two prompts in one operation; the
 // common sizes under Advanced only; without a wallet the connection is offered and nothing is read.
+import { join } from "node:path";
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -332,6 +333,23 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(screen.getByTestId("protect-receive").textContent).toContain("0.99 ETH");
     expect(screen.getByTestId("protect-network-fee").textContent).toMatch(/—$/);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("a wallet on another network is not taken as connected: nothing is read from that chain, and the switch is offered (a V6 follow-up of 2026-10-16)", async () => {
+    await unlocked();
+    const onSwitch = vi.fn();
+    mount({ account: null, wrongNetwork: true, onSwitch });
+    expect(screen.queryByTestId("protect-connect"), "not the connection: the wallet is connected, on another network").toBeNull();
+    expect(screen.getByTestId("protect-wrong-network").textContent).toBe("Your wallet is on another network.");
+    fireEvent.click(screen.getByTestId("protect-switch"));
+    expect(onSwitch).toHaveBeenCalled();
+    type(screen.getByTestId("amount-input"), "1");
+    expect(screen.getByTestId("protect-network-fee").textContent, "no estimate from that chain").toMatch(/—$/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const { readFileSync } = await import("node:fs");
+    const route = readFileSync(join(__dirname, "..", "src", "features", "protect", "ProtectRoute.tsx"), "utf8");
+    expect(route, "the route maps the connection's wrong network").toContain("account={wrong ? null : conn.account}");
+    expect(route).toContain("wrongNetwork={wrong}");
+    expect(route).toContain("onSwitch={() => void connection.switchNetwork()}");
   });
   it("an unknown route under /protect returns to the page; the Review without an amount returns to the page", async () => {
     await unlocked();

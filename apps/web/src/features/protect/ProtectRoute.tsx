@@ -12,5 +12,21 @@ export function ProtectRoute() {
   const seed = useUnlockedSeed();
   const deployment = useDeployment();
   const conn = useConnection();
-  return <ProtectScreen masterSeed={seed} deployment={deployment} account={conn.account} connecting={conn.status === "connecting"} onConnect={() => void connection.connect()} onBack={() => navigate("/")} onDone={() => navigate("/")} onBackup={() => navigate("/more/security")} />;
+  // a wallet on another network is never taken as connected (a V6 follow-up of 2026-10-16): nothing is read from that chain,
+  // and the page offers the switch; every send is checked against the deployment's chain anyway (sdk/chain.ts)
+  const wrong = conn.status === "wrong-network";
+  return (
+    <ProtectScreen
+      masterSeed={seed}
+      deployment={deployment}
+      account={wrong ? null : conn.account}
+      connecting={conn.status === "connecting"}
+      wrongNetwork={wrong}
+      onSwitch={() => void connection.switchNetwork()}
+      onConnect={() => void connection.connect()}
+      onBack={() => navigate("/")}
+      onDone={() => navigate("/")}
+      onBackup={() => navigate("/more/security")}
+    />
+  );
 }

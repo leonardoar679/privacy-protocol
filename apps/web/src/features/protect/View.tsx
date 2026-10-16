@@ -17,6 +17,8 @@ export interface ProtectModel {
   error: "insufficient" | "too-small" | null;
   /** no external wallet yet: the source offers the connection */
   connect?: { connecting: boolean } | null;
+  /** the external wallet is on another network than the deployment's (a V6 follow-up of 2026-10-16): the source offers the switch */
+  switchNetwork?: boolean;
   /** Advanced (spec v2.0 §7.3): the common sizes */
   chips?: { label: string; value: string }[];
 }
@@ -27,6 +29,7 @@ export interface ProtectActions {
   onReview: () => void;
   onBack?: () => void;
   onConnect?: () => void;
+  onSwitch?: () => void;
   onChip?: (value: string) => void;
 }
 
@@ -84,6 +87,12 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
               {m.connect && a.onConnect ? (
                 <Button variant="secondary" loading={m.connect.connecting} onClick={a.onConnect} data-testid="protect-connect">
                   {t("protect.connect")}
+                </Button>
+              ) : null}
+              {m.switchNetwork ? <span data-testid="protect-wrong-network">{t("protect.wrongNetwork")}</span> : null}
+              {m.switchNetwork && a.onSwitch ? (
+                <Button variant="secondary" onClick={a.onSwitch} data-testid="protect-switch">
+                  {t("wallet.switch")}
                 </Button>
               ) : null}
             </span>

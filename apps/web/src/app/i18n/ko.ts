@@ -303,6 +303,7 @@ export const ko: Record<MessageKey, string> = {
   "more.aiWhy": "비공개 크레딧 계정으로 추론 비용 지불",
   "more.classicWhy": "보호 잔액과 분리된 고정 풀",
   "protect.connect": "지갑 연결",
+  "protect.wrongNetwork": "지갑이 다른 네트워크에 있습니다.",
   "journal.unreadableTitle": "이 시드로는 암호화된 기록을 읽을 수 없습니다.",
   "journal.unreadableBody":
     "덮어쓴 것은 없습니다. 이 세션은 빈 기록으로 실행되며, 결정하기 전까지 아무것도 저장하지 않습니다. 백업 파일을 복원하거나(잠근 뒤 복원), 읽을 수 없는 기록을 따로 두고 새로 시작하세요.",

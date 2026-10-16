@@ -296,6 +296,7 @@ export const en = {
   "more.aiWhy": "Pay for inference from a private credit account",
   "more.classicWhy": "A fixed pool, separate from your protected balance",
   "protect.connect": "Connect wallet",
+  "protect.wrongNetwork": "Your wallet is on another network.",
   "journal.unreadableTitle": "Your encrypted journal could not be read with this seed.",
   "journal.unreadableBody": "Nothing was overwritten. This session runs on an empty journal and saves nothing until you decide: restore a backup file (lock, then Restore), or set the unreadable journal aside and start fresh.",
   "journal.lockRestore": "Lock and restore a backup",

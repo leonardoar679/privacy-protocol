@@ -41,6 +41,9 @@ export interface ProtectScreenProps {
   account: string | null;
   connecting?: boolean;
   onConnect?: () => void;
+  /** the external wallet is on another network than the deployment's (a V6 follow-up of 2026-10-16): not taken as connected */
+  wrongNetwork?: boolean;
+  onSwitch?: () => void;
   onBack?: () => void;
   onDone?: () => void;
   /** More → Security, for the recovery-information card */
@@ -129,7 +132,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
           networkWei: estimate?.wei ?? null,
           ethUsd1e8: eth?.usd1e8 ?? null,
         }),
-        connect: p.account ? null : { connecting: !!p.connecting },
+        connect: p.account || p.wrongNetwork ? null : { connecting: !!p.connecting },
+        ...(p.wrongNetwork && !p.account ? { switchNetwork: true } : {}),
         ...(advanced
           ? {
               chips: chipBuckets(asset.decimals).map((b) => ({
@@ -291,6 +295,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
           onReview: () => navigate("/protect/review"),
           onBack: p.onBack,
           ...(p.onConnect ? { onConnect: p.onConnect } : {}),
+          ...(p.onSwitch ? { onSwitch: p.onSwitch } : {}),
           onChip: setAmount,
         }}
       />
