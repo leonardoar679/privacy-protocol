@@ -402,6 +402,9 @@ are still tracked and may settle during the pause. Every pause journals its reas
 - The wallet never approves `MAX_UINT256`: the shield approves the exact amount (V1.1, `shieldERC20`),
   and after a failed deposit the remaining allowance is shown and can be revoked (approve 0) from Settings
   → Advanced; the wallet reads allowances through the injected wallet's own provider (no address ↔ RPC link).
+  Since 2026-10-16 a protect reads what is open first: an allowance of exactly its amount is used as it is,
+  another is cleared to zero before the approval, as USDT refuses to change one non-zero allowance to another
+  (`approvalsFor`, `packages/sdk/test/protect-approvals.test.ts`).
 - The escrow approves the provider for its whole post-tip balance at execute and the vault for the exact
   amount at refund (bytecode, unchanged). A provider that pulls less keeps an allowance over that one
   escrow only: D1 bounds it to the tranche. This is documented as a known limit (audit package).

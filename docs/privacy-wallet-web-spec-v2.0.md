@@ -323,7 +323,7 @@ the navigation; a reload of the progress route reads the journaled operation); t
 are `apps/web/src/features/protect/model.ts` (`protectStepOf`, `PROTECT_OPERATION_STATE`, `protectModel`). The
 relayer/network line is the connected wallet's own `eth_estimateGas` × its gas price, in dollars; the common sizes are
 Advanced only; the recovery-information card sits on the first Review of a session; a failed ERC-20 protect reads the
-approval it left behind and offers to revoke it. The local stack: 5,000 USDC → 4,950 in the vault, 50 to the router's
+approval it left behind and offers to revoke it, and a retry uses an approval of exactly its amount as it is. The local stack: 5,000 USDC → 4,950 in the vault, 50 to the router's
 fee recipient. V5's `Protect.tsx` is deleted.
 
 ### 7.4 Send (doc §24–§25)
@@ -730,7 +730,10 @@ remainder by 10,000), `contracts/test/periphery/ProtectRouter.t.sol` (the ETH an
 100 / 101 / 2^200 / the largest uint256, fee-on-transfer, false-return and no-return tokens, a blacklisted or reverting
 fee recipient, no vault, re-entry, the fuzzed `fee + net == gross`, the vector), the NoPrivilege scan, the gas bench,
 `contracts/script/DeployProtectRouter.s.sol`; the wallet's `prepareShield` goes through the router when the deployment
-names one (`VITE_PROTECT_ROUTER`), approving it for exactly the gross; the allowance list knows it as a spender; the
+names one (`VITE_PROTECT_ROUTER`), approving it for exactly the gross from what the connected account has open (a V6
+follow-up of 2026-10-16, `packages/sdk/src/privateTx.ts` `approvalsFor`: an approval of exactly the gross is used as it
+is, another amount is cleared to zero first, since USDT refuses to change one non-zero allowance to another); the
+allowance list knows it as a spender; the
 local stack deploys it with a 6-decimal USDC at the mainnet address and its vault.
 
 ### 11.2 `ShieldReceiver` + `ShieldReceiverFactory` (`contracts/src/periphery/shield/`)

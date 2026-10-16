@@ -38,6 +38,8 @@ import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
 import { guardDeployment } from "./deploymentGuard";
+import { readAllowance } from "./allowances";
+import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
 
 /** The Activity line's asset fields for a vault (symbol + decimals; a vault the deployment does not name is shown by its address). */
 /** V6 (spec v2.0 §3): the relayer's network charge F (its minimum with the wallet's margin) in the fee's asset, for the record's costs. */
@@ -144,6 +146,29 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
   return { leafIndex: mine.leafIndex, costWei };
 }
 
+/**
+ * The approvals a protect sends before its deposit (a V6 follow-up of 2026-10-16), from the allowance the connected account
+ * has open toward the spender (null when it cannot be read): none when it is exactly the amount (what a deposit that failed
+ * or was refused left: a retry), approve(0) first when another amount is open — USDT and tokens like it refuse to change one
+ * non-zero allowance to another — then approve(amount). Nothing is ever left approved beyond the amount the deposit pulls.
+ */
+export function approvalsFor(open: bigint | null, token: Address, spender: Address, amount: bigint): TxRequest[] {
+  if (open === amount) return [];
+  return [...(open !== null && open > 0n ? [buildApprove(token, spender, 0n)] : []), buildApprove(token, spender, amount)];
+}
+
+/** The connected account's allowance toward `spender`, read through its own provider; null when there is none to read. */
+async function openAllowance(token: Address, spender: Address): Promise<bigint | null> {
+  const eth = activeProvider();
+  if (!eth) return null;
+  try {
+    const [owner] = (await eth.request({ method: "eth_accounts" })) as string[];
+    return owner ? await readAllowance(token, owner as Address, spender, eth) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function submitShield(p: PreparedShield, o: Progress & { /** V6: the network cost shown before signing */ estimatedWei?: bigint } = {}): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   // V6 Stage 15 (spec v2.0 §8): the wallet's prompts and the submission are a critical section for the auto-lock
   const release = session.hold("signature");
@@ -157,20 +182,29 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
   let approveTx: Hex | undefined;
   let approvalWei = 0n;
-  if (p.approve) {
-    o.onStatus?.(`1/2 Approving ${p.deployment.protectRouter ? "the protect router" : "the vault"} for exactly this amount (connected wallet)…`);
-    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: 1, n: 2, noteCounter: p.counter });
-    approveTx = await sendViaInjectedWallet(p.approve);
-    const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash: approveTx });
-    if (approval.status !== "success") throw new Error(`the approval ${approveTx} reverted`);
-    approvalWei = approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
-    o.onEvent?.({ type: "approved", txHash: approveTx });
-    o.onStatus?.("2/2 Depositing into the vault (a shield is public by design)…");
-    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 2, n: 2, noteCounter: p.counter });
-  } else {
-    o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
-    o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1, noteCounter: p.counter });
+  // an ERC-20 is approved for exactly this amount, from what the connected account has open (a V6 follow-up of 2026-10-16):
+  // a deposit that failed or was refused leaves its approval, and USDT refuses to change one non-zero allowance to another
+  const spender = p.deployment.protectRouter ?? p.vault;
+  const whom = p.deployment.protectRouter ? "the protect router" : "the vault";
+  const approvals = p.approve && p.token ? approvalsFor(await openAllowance(p.token, spender), p.token, spender, p.amount) : [];
+  const n = approvals.length + 1;
+  for (const [k, tx] of approvals.entries()) {
+    const clearing = approvals.length === 2 && k === 0;
+    o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
+    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
+    const hash = await sendViaInjectedWallet(tx);
+    const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash });
+    if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
+    approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
+    if (!clearing) {
+      approveTx = hash;
+      o.onEvent?.({ type: "approved", txHash: hash });
+    }
   }
+  if (approvals.length) o.onStatus?.(`${n}/${n} Depositing into the vault (a shield is public by design)…`);
+  else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
+  else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
+  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
   const txHash = await sendViaInjectedWallet(p.deposit);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
@@ -193,9 +227,9 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
  * approve, then the vault's deposit (it pulls the tokens and inserts the note). Two transactions through the
  * connected wallet; the second waits for the first to be mined.
  */
-export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deployment; token: Address; vault: Address; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ approveTx: Hex; txHash: Hex; leafIndex: number }> {
+export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deployment; token: Address; vault: Address; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount, token: o.token, vault: o.vault }), o);
-  return { approveTx: r.approveTx!, txHash: r.txHash, leafIndex: r.leafIndex };
+  return { ...(r.approveTx ? { approveTx: r.approveTx } : {}), txHash: r.txHash, leafIndex: r.leafIndex }; // none when an open approval was used
 }
 
 /** Who gets the fee note (the relayer's privacy address), in which vault, and how much. */
