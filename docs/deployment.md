@@ -141,11 +141,14 @@ for everyone (a V6 follow-up of 2026-10-15). Set it only when the service cannot
 The relayer runs only the swaps the swap service vouched for (a V6 follow-up of 2026-10-16, `docs/audit-package.md`
 gap 47). Generate a secp256k1 key for the API and keep it with its secrets as `API_VOUCH_KEY` (32 bytes of hex; it
 signs nothing else and is never logged). Give each relayer its address as `API_VOUCHER`, which `GET /v1/status` names
-(`deployment.voucher`), together with `SWAP_FACTORY`: without both, a relayer runs no swaps. Give the API the
+(`deployment.voucher`), together with `SWAP_FACTORY`: without both, a relayer runs no swaps. Before the API runs with a
+key, `npm run voucher-address -w @privacy-wallet/api` prints that address from the `API_VOUCH_KEY` in its environment
+(never the key). Give the API the
 deployment's `SHIELD_FACTORY` too, so it can vouch for the shield receipts of swaps into the protected balance; without
 it such a commit is refused.
 
-To rotate the key (a V6 follow-up of 2026-10-16), give the relayers `API_VOUCHER=<new>,<old>` first. Then restart the
+To rotate the key (a V6 follow-up of 2026-10-16), give the relayers `API_VOUCHER=<new>,<old>` first, the new address
+printed by `npm run voucher-address` from the new key. Then restart the
 API with the new `API_VOUCH_KEY` and `API_VOUCHER_PREVIOUS=<old>`. From then on the API signs every vouch with the new
 key, and its finalize still honors the old key's commit vouches. The relayers accept both, and `GET /v1/status` names
 the honored former addresses (`deployment.previousVouchers`). The API needs the old address only until the last order

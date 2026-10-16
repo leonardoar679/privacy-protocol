@@ -48,3 +48,17 @@ export function voucherFrom(raw: string | undefined, previous: readonly Hex[] = 
     throw new Error("API_VOUCH_KEY is not a usable secp256k1 key");
   }
 }
+
+/**
+ * What `npm run voucher-address` prints (src/cli/voucherAddress.ts; a V6 follow-up of 2026-10-16): the address API_VOUCH_KEY
+ * vouches as, read the way the API reads it, for the relayers' API_VOUCHER before the API runs with the key — a first
+ * deployment, or a rotation, whose relayers list the new address first (docs/deployment.md). Never the key.
+ */
+export function voucherAddress(env: Record<string, string | undefined>): { ok: true; address: Hex } | { ok: false; error: string } {
+  try {
+    const v = voucherFrom(env.API_VOUCH_KEY);
+    return v ? { ok: true, address: v.address } : { ok: false, error: "API_VOUCH_KEY is unset" };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}

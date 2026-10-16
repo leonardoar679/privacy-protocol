@@ -6,6 +6,7 @@
   "description": "The API (doc §44–§46, §63–§64, §67–§68; spec v2.0 §15): Express 5 over the swap engine and node:sqlite (WAL). Quotes, and records for swaps and cross-chain swaps only — never a note, a key, a phrase, a witness, a balance, the user's address, an IP, a user agent or the funding transaction; the order's destination and refund material only until finalize. Opaque op_/qt_ ids, no listing, retention purged every 10 minutes, privacy-safe logs.",
   "scripts": {
     "start": "tsx src/server.ts",
+    "voucher-address": "tsx src/cli/voucherAddress.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
   },

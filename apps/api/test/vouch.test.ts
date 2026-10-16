@@ -2,9 +2,12 @@
 // each order it commits, and at the finalize the provider call it prepared — only for an order whose commit vouch the
 // wallet shows, so an order rebuilt from anyone's params gets none. Without API_VOUCH_KEY it vouches for nothing.
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { executionVouchDigest, orderVouchDigest, shieldVouchDigest, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
 import { predictReceiver, receiverParamsJson, type ReceiverParams } from "@privacy-wallet/contracts";
-import { makeVoucher, voucherFrom } from "../src/vouch";
+import { makeVoucher, voucherAddress, voucherFrom } from "../src/vouch";
 import { harness, orderBody, sign, SHIELD_FACTORY, SHIELD_TIP, USDC, type Harness } from "./helpers";
 
 const KEY = ("0x" + "5a".repeat(32)) as `0x${string}`;
@@ -140,6 +143,19 @@ describe("the receipt of a swap into the protected balance (a V6 follow-up of 20
 });
 
 describe("a rotation of the API's key (a V6 follow-up of 2026-10-16)", () => {
+  it("npm run voucher-address names a key's address before the API runs with it, as the API reads the key, and never the key", () => {
+    expect(voucherAddress({ API_VOUCH_KEY: KEY })).toEqual({ ok: true, address: VOUCHER });
+    expect(voucherAddress({ API_VOUCH_KEY: ` ${KEY}\n` }), "read as the API reads it").toEqual({ ok: true, address: VOUCHER });
+    expect(voucherAddress({})).toEqual({ ok: false, error: "API_VOUCH_KEY is unset" });
+    for (const bad of ["0x" + "zz".repeat(32), "0x" + "00".repeat(32), "5a".repeat(32)]) {
+      const r = voucherAddress({ API_VOUCH_KEY: bad });
+      expect(r.ok, bad).toBe(false);
+      expect(JSON.stringify(r), "the key is never echoed").not.toContain(bad.slice(2, 20));
+    }
+    const api = join(dirname(fileURLToPath(import.meta.url)), "..");
+    expect(JSON.parse(readFileSync(join(api, "package.json"), "utf8")).scripts["voucher-address"]).toBe("tsx src/cli/voucherAddress.ts");
+    expect(readFileSync(join(api, "src", "cli", "voucherAddress.ts"), "utf8")).toContain("voucherAddress(process.env)");
+  });
   const OLD = ("0x" + "5c".repeat(32)) as `0x${string}`;
   it("an order committed under the former key gets its call's vouch from the new one while the former address is listed", async () => {
     h = await harness({ vouchKey: KEY, previousVouchers: [makeVoucher(OLD).address] });
