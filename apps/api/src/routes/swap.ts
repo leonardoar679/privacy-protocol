@@ -32,6 +32,7 @@ import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wall
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import { redactUrls, redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
+import type { Voucher } from "../vouch";
 import { decodeBlob, encodeBlob, wire } from "../blob";
 import { newId, OPERATION_ID } from "../ids";
 import { quoteOf, type RelayerTerms } from "../quote";
@@ -179,6 +180,8 @@ export interface SwapApiDeps {
   reads: ReconcileReads;
   relayerTerms(): Promise<RelayerTerms | null>;
   now(): number;
+  /** API_VOUCH_KEY's signer: the API vouches for the orders it commits and the calls it prepares for them (audit gap 47); null, none */
+  voucher?: Voucher | null;
 }
 
 const unknownOperation: Answer = { status: 404, body: { error: "unknown order", code: "unknown_order" } };
@@ -290,6 +293,8 @@ export class SwapApi {
         competition: redactUrlsDeep(set.competition),
         ...(set.protection ? { protection: set.protection } : {}),
         ...(set.risk ? { risk: set.risk } : {}),
+        // the order's vouch (audit gap 47): the wallet journals it, shows it at the finalize and hands it with a refund
+        ...(this.d.voucher ? { vouch: { order: this.d.voucher.order(this.engine.cfg.chainId, order.endpoint) } } : {}),
       }),
     };
   }
@@ -463,6 +468,13 @@ export class SwapApi {
     if (!blob.prepared) return { status: 404, body: { error: "order not prepared", code: "order_not_prepared" } };
     const signature = (body as { signature?: unknown })?.signature;
     if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) throw new BadRequest("signature must be hex");
+    // the call is vouched for only on an order this API committed (audit gap 47): the wallet shows the vouch it got at the
+    // commit. An order rebuilt from params (a restore, a resume) gets none of its own, so anyone's params get no call's vouch;
+    // checked before anything is finalized
+    const voucher = this.d.voucher;
+    const chainId = this.engine.cfg.chainId;
+    if (voucher && !voucher.vouched(chainId, blob.order.endpoint, (body as { vouch?: unknown })?.vouch))
+      return { status: 400, body: { error: "this order carries no vouch of this API from its commit", code: "unvouched_order" } };
     let execution;
     try {
       execution = this.engine.attachSignature(blob.order, blob.prepared, signature as `0x${string}`);
@@ -473,7 +485,10 @@ export class SwapApi {
     const seconds = Math.round(Number(q.plan?.expectedSeconds ?? q.etaSeconds));
     this.d.store.finalize(id, { providerRef: blob.prepared.provider, ...(Number.isSafeInteger(seconds) && seconds > 0 ? { expectedSeconds: seconds } : {}) });
     this.d.store.event({ event: "operation.finalized", operationId: id, provider: row.provider, state: row.state, network: row.network });
-    return { status: 200, body: wire({ execution, order: blob.order }) };
+    return {
+      status: 200,
+      body: wire({ execution, order: blob.order, ...(voucher ? { vouch: { execution: voucher.execution(chainId, blob.order.endpoint, execution) } } : {}) }),
+    };
   }
 
   /** POST /v1/operations/:id/reconcile: the API's reads (relayer job, escrow, provider) → { state, settlement, refs, checkedAt, sources }. */
@@ -571,7 +586,13 @@ export class SwapApi {
     return {
       status: 200,
       body: wire({
-        deployment: { chainId: this.engine.cfg.chainId, factory: this.engine.cfg.factory, nativeVault: this.engine.cfg.refundVaults.native },
+        // the voucher a relayer is configured with (API_VOUCHER): null when this API vouches for nothing
+        deployment: {
+          chainId: this.engine.cfg.chainId,
+          factory: this.engine.cfg.factory,
+          nativeVault: this.engine.cfg.refundVaults.native,
+          voucher: this.d.voucher?.address ?? null,
+        },
         providers: redactUrlsDeep(providers),
         incidents: { total: inc.length, byProvider },
         riskDb: { providers: db.providers.size, assets: db.assets.size, routes: db.routes.size, problems: db.problems },

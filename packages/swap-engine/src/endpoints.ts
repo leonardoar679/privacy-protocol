@@ -70,5 +70,40 @@ export function recoverExecutionSigner(digest: `0x${string}`, signature: `0x${st
   return hex(keccak_256(pub).subarray(12));
 }
 
+/**
+ * The API vouches for what a relayer may execute (a V6 follow-up of 2026-10-16; audit gap 47). The relayer admitted orders
+ * from anyone who could sign one (an order key is its committer's own), so a tip of no value, a zero tip or a provider call
+ * made to burn gas cost it its gas. The API signs the escrow of an order it committed, whose address commits to the factory
+ * and every parameter (the tip it valued, the pool's refund vault, the asset and the amount), and the provider call it
+ * prepared for that order. A relayer executes and refunds only what the voucher it trusts signed. The tags keep the two
+ * digests apart from each other and from an execution's (EXECUTE_TAG); the API's key signs nothing else. They are signed
+ * and recovered as an execution is (`signExecution`, `recoverExecutionSigner`).
+ */
+export const ORDER_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/order"));
+export const EXECUTION_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/execution"));
+
+/** keccak256(abi.encode(ORDER_VOUCH_TAG, chainId, escrow)) */
+export function orderVouchDigest(chainId: bigint, escrow: string): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([Buffer.from(ORDER_VOUCH_TAG), word(chainId), addrWord(escrow)])));
+}
+
+/** keccak256(abi.encode(EXECUTION_VOUCH_TAG, chainId, escrow, provider, value, keccak256(calldata), deadline)) */
+export function executionVouchDigest(chainId: bigint, escrow: string, provider: string, value: bigint, calldata: string, deadline: number): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([
+    Buffer.from(EXECUTION_VOUCH_TAG), word(chainId), addrWord(escrow), addrWord(provider), word(value),
+    Buffer.from(keccak_256(bytes(calldata))), word(deadline),
+  ])));
+}
+
+/** Whether `signature` over `digest` is the voucher's; a missing or malformed one is not. */
+export function vouchedBy(voucher: string, digest: `0x${string}`, signature: unknown): boolean {
+  if (typeof signature !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(signature)) return false;
+  try {
+    return recoverExecutionSigner(digest, signature as `0x${string}`).toLowerCase() === voucher.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export const keccakHex = (data: string | Uint8Array): `0x${string}` =>
   hex(keccak_256(typeof data === "string" ? bytes(data) : data));

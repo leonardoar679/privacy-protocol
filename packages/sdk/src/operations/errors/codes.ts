@@ -66,6 +66,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   unknown_swap_factory: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   swap_unavailable: { source: "relayer", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   bad_refund_vault: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
+  // a V6 follow-up of 2026-10-16 (audit gap 47): the relayer executes and refunds only what the API vouched for
+  unvouched_order: { source: "executor", fundsClass: "still-protected", actions: ["check-settings", "start-refund"] },
   minimum_moved: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   price_guard: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   no_quote: { source: "service", fundsClass: "not-moved", actions: ["wait", "new-quote"] },

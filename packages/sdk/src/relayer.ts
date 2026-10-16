@@ -40,6 +40,8 @@ export interface SwapExecuteRequest {
   refundTokens?: Address[];
   /** per listed token (lowercase), the least balance worth a re-shield after execution, in base units (PP-S12) */
   refundFloors?: Record<string, string>;
+  /** the API's vouches (a V6 follow-up of 2026-10-16, audit gap 47): `execution` for the call it prepared, `order` for a refund */
+  vouch?: { execution?: Hex; order?: Hex };
 }
 /** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
 export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;

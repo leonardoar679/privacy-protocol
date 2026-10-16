@@ -15,6 +15,7 @@ import { openDb } from "../src/db";
 import type { RelayerTerms } from "../src/quote";
 import type { RelayerJobView } from "../src/reconcile";
 import { Store } from "../src/store";
+import { makeVoucher } from "../src/vouch";
 
 export const ETH = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" } as const;
 export const BTC = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" } as const;
@@ -95,7 +96,15 @@ export interface Harness {
 }
 
 export async function harness(
-  o: { ratePerMinute?: number; origins?: string[]; tls?: boolean; trustProxyHops?: number; terms?: RelayerTerms | null; gatewayUpstream?: string } = {},
+  o: {
+    ratePerMinute?: number;
+    origins?: string[];
+    tls?: boolean;
+    trustProxyHops?: number;
+    terms?: RelayerTerms | null;
+    gatewayUpstream?: string;
+    vouchKey?: `0x${string}`;
+  } = {},
 ): Promise<Harness> {
   const lines: string[] = [];
   const log = createLogger((l) => lines.push(l));
@@ -120,6 +129,7 @@ export async function harness(
     gateway: { upstream: o.gatewayUpstream ?? null },
     now: () => clock.now,
     relayerTerms: async () => o.terms ?? null,
+    voucher: o.vouchKey ? makeVoucher(o.vouchKey) : null,
     reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
   };
   const app = createApp(deps, {

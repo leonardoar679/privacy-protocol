@@ -22,6 +22,11 @@ const only = process.argv.slice(2);
 const wanted = (name) => only.length === 0 || only.includes(name);
 
 const procs = [];
+// a V6 follow-up of 2026-10-16 (audit gap 47): the API's vouch key on the devnet, and its address for the relayer — never a
+// production key (deployment.md: generate one and keep it with the API's secrets)
+const LOCAL_VOUCH_KEY = "0x6c6f63616c2d737461636b2061706920766f756368206b657920286465766e65";
+const LOCAL_VOUCHER = "0xd311b8bb3670cf035826c73a2c8286ad8bacc94e";
+
 function start(name, cwd, args, env) {
   if (!wanted(name)) return;
   const log = openSync(join(RUN, `${name}.log`), "w");
@@ -43,6 +48,7 @@ start("service", "apps/api", ["tsx", "src/server.ts"], {
   RPC_URLS: stack.rpc, // V6: also the fee history the executor tip is priced from (packages/swap-engine/src/tips.ts)
   THORCHAIN_ROUTER: stack.pins.thorchainRouter,
   ...(stack.usdc ? { ERC20_VAULTS: `${stack.usdc.token}:${stack.usdc.vault}` } : {}),
+  API_VOUCH_KEY: LOCAL_VOUCH_KEY, // devnet only: the API vouches for the orders it commits and the calls it prepares
 });
 
 start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
@@ -61,6 +67,7 @@ start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
   ...(stack.usdc ? { FEE_VAULTS: JSON.stringify({ [stack.usdc.vault]: { symbol: "USDC", decimals: 6, minFee: "3727273" } }) } : {}),
   RELAYER_JOURNAL_DIR: join(RUN, "relayer-journal"),
   SWAP_FACTORY: stack.swapFactory, // the deployment's SwapOrderFactory: the executor admits orders for it only
+  API_VOUCHER: LOCAL_VOUCHER, // the API's signing address: the executor runs only what the API vouched for
   ...(stack.shieldFactory ? { SHIELD_FACTORY: stack.shieldFactory } : {}), // V6 Stage 12 (spec v2.0 §11.2): the shield executor
   SWAP_POLL_MS: "5000",
   LATE_REFUND_WATCH_SECONDS: "86400",

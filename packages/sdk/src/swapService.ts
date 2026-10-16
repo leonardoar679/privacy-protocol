@@ -83,7 +83,8 @@ export const ServiceMinimumMoved = ApiMinimumMoved;
 export type ServiceMinimumMoved = ApiMinimumMoved;
 
 /** A commit's answer: the operation's id with the order. */
-export interface Committed { operationId: string; order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView> }
+/** `vouch.order`: the API's vouch for this order (a V6 follow-up of 2026-10-16, audit gap 47), journaled with it: the relayer refunds only a vouched order, and the API vouches for its call only on seeing it */
+export interface Committed { operationId: string; order: ServiceOrder; scores: RouteScore[]; status: string; tier?: Tier; value?: ServiceValuation; policy?: Policy; competition?: CompetitionEntry[]; protection?: Protection; risk?: Record<string, ProviderRiskView>; vouch?: { order: string } }
 /** A resume's answer: the order rebuilt from the journaled params into its operation. */
 export interface Resumed { operationId: string; order: ServiceOrder; status: string; tier?: Tier }
 
@@ -116,7 +117,9 @@ export const swapService = {
    *  ServiceMinimumMoved; `restore`: the journaled params, sent when the API holds no destination (a finalized order signed again) */
   prepare: (operationId: string, approvedMin?: bigint, restore?: ResumeRequest) =>
     api.prepare<Prepared>(operationId, { ...(approvedMin !== undefined ? { approvedMin: approvedMin.toString() } : {}), ...(restore ? { restore: resumeBody(restore) } : {}) }),
-  finalize: (operationId: string, signature: string) => api.finalize<{ execution: ServiceExecution; order: ServiceOrder }>(operationId, signature),
+  /** `orderVouch`: the order's vouch from its commit; the answer's `vouch.execution` is the API's for the call, which the relayer asks for */
+  finalize: (operationId: string, signature: string, orderVouch?: string) =>
+    api.finalize<{ execution: ServiceExecution; order: ServiceOrder; vouch?: { execution: string } }>(operationId, signature, orderVouch),
   /** the API's own reads of an operation (relayer job, escrow, provider): a second source; the wallet's own reads win */
   reconcile: (operationId: string): Promise<ReconcileView> => api.reconcile(operationId),
   /** the destination side of an executed order, by the execution transaction (NEAR Intents: the deposit address as ref);

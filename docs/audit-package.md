@@ -277,23 +277,32 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     - the wallet registers a shield job again when the relayer does not know it, which for a delivery shielded long ago
       would read as expired.
     Until a retention rule settles those, the files grow; `GET /jobs` and `GET /swap` (operator only) show how far.
-47. **V6 — the swap executor pays for orders it cannot value** (noted 2026-10-15). It admits orders from anyone who can
+47. **V6 — the swap executor pays for orders it cannot value** (noted 2026-10-15; closed for swap orders 2026-10-16, the
+    owner's choice: the executor runs only what the swap service vouched for). It admitted orders from anyone who can
     sign one (the order key is the committer's own). Since the same day it serves only the deployment's factory: it had
     called whatever factory an order named, at its own gas. Each order's terms on that factory are still its committer's:
     - an ERC-20 order's tip is in the order's token, and the executor does not value it. The API valued it when it
       committed the order, but the relayer never sees whether the API did. A token of no value, or a tip below the
       gas, costs the relayer the execution's gas, and the provider call the order signed can make that gas large;
-    - the first refund of an order that never executed pays the committed tip, which is sized for the execution, and
-      is sent with no cost check. The pinned units (`packages/contracts/src/gas.ts`) put an execution at about 2.05M
-      gas and a refund at 3.45M. The escrow allows a zero tip, so an order made never to execute costs the relayer up to
-      a whole refund, while its maker spends a transfer and gets the funds back as a note. A strict cost check would
-      also hold back honest refunds, whose execution-sized tip covers little more than half of a refund;
+    - the first refund of an order that never executed pays the committed tip and is sent with no cost check. A refund
+      costs about 3.45M gas (`packages/contracts/src/gas.ts`) and the escrow allows a zero tip, so an order made never
+      to execute cost the relayer up to a whole refund, while its maker spent a transfer and got the funds back as a
+      note. An honest tip prices the execution's 2.05M units at twice the base fee plus the priority fee, with 20 %
+      more: about 1.4 refunds' worth at the same base fee, short only when the base fee rose by about 40 % since;
     - (closed the same day) the refund vault was the one the order names, so a refund deposited into any contract at
       the relayer's gas; now it must be the pool's own vault for the order's asset, read before admission.
-    Closing the first two is a decision about who pays for what: the executor valuing ERC-20 tips through the API's
-    Chainlink feeds (and waiting below cost, as it does for ETH), an operator's list of tokens with minimum tips, a tip
-    priced for the refund too (a change of the fee model), or orders the API vouches for. Meanwhile an operator bounds the exposure with the rate limit, `MAX_SWAP_JOBS` and the
-    gas account's balance.
+    The owner chose orders the API vouches for (2026-10-16). With `API_VOUCH_KEY` the API signs the escrow of each order
+    it commits (the address commits to the factory and every parameter: the tip it valued, the pool's refund vault, the
+    asset, the amount) and, at the finalize, the provider call it prepared for that order, only when the wallet shows
+    the order's vouch (`apps/api/src/vouch.ts`). An order rebuilt from params gets no vouch of its own. With
+    `API_VOUCHER`, the relayer runs an execution only with the API's vouch for that very call and a refund only with
+    its vouch for the order (`apps/relayer/src/swapExecutor.ts`); without the address it runs no swaps. What remains:
+    - a committed order that never executes pays its refund with its tip, which falls short only when the base fee
+      has risen by about 40 % since the commit; a party that commits orders only to have them refunded pays that tip
+      each time;
+    - the API's key is the relayer's trust: whoever holds it can make the relayer run any order (`docs/threat-model.md`);
+    - the shield executor (`POST /shield`) still admits receipts from anyone, with the same exposure for a token of no
+      value; vouching for receipts is the next step.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

@@ -126,7 +126,8 @@ export const api = {
   getOperation: (id: string) => apiCall<OperationView>(opPath(id)),
   reconcile: (id: string) => apiCall<ReconcileView>(opPath(id, "reconcile"), {}),
   prepare: <T>(id: string, body: unknown) => apiCall<T>(opPath(id, "prepare"), body),
-  finalize: <T>(id: string, signature: string) => apiCall<T>(opPath(id, "finalize"), { signature }),
+  /** `vouch`: the order's vouch from its commit, which the API asks for before it vouches for the call (audit gap 47) */
+  finalize: <T>(id: string, signature: string, vouch?: string) => apiCall<T>(opPath(id, "finalize"), { signature, ...(vouch ? { vouch } : {}) }),
   resume: <T>(id: string, body: unknown) => apiCall<T>(opPath(id, "resume"), body),
   track: <T>(provider: string, query: URLSearchParams) => apiCall<T>(`/v1/track/${encodeURIComponent(provider)}?${query}`),
   risk: <T>(provider: string) => apiCall<T>(`/v1/risk/${encodeURIComponent(provider)}`),

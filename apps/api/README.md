@@ -40,6 +40,10 @@ schedule (`src/db.ts` `RETENTION`):
   and a token bucket per socket answers `429` — a forged X-Forwarded-For cannot multiply it (`test/security.test.ts`).
   Behind a proxy, `TRUST_PROXY_HOPS` (the number of proxies) keys the bucket by the address the outermost of them saw:
   without it, every caller shares the proxy's bucket (`docs/deployment.md`).
+- **Vouches** (a V6 follow-up of 2026-10-16; `src/vouch.ts`, `test/vouch.test.ts`). With `API_VOUCH_KEY` the commit
+  answers `vouch.order` (over the order's escrow) and the finalize `vouch.execution` (over the call the API prepared),
+  the latter only on the order's vouch from its commit (`400 unvouched_order` otherwise, nothing finalized); a restored
+  order gets none. Relayers run only what it vouched for (`API_VOUCHER` = `GET /v1/status` `deployment.voucher`).
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).

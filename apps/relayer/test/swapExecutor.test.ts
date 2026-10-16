@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
 import { DROP_AFTER_MS } from "../src/sender";
+import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
 import { SwapExecutor, SwapJobError, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
@@ -68,14 +69,14 @@ beforeAll(async () => {
   const chain = { id: CHAIN_ID, name: "test", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } } as const;
   const transport = http(rpcUrl, { batch: true });
   const account = privateKeyToAccount(RELAYER_KEY);
-  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
+  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
   // a job for the vector's order, re-signed by a key we hold (the vector's signer key is forge's)
   const refundNoteData = ("0x" + "cd".repeat(169)) as Hex;
   const params = { ...vector.params, orderSigner: orderSignerAddress(ORDER_KEY), refundNoteDataHash: keccak256(refundNoteData) };
   const escrow = predictEscrow(vector.factory, creationCode, { ...params, assetType: 0, amount: BigInt(params.amount), refundOwnerCommitment: BigInt(params.refundOwnerCommitment), refundNoteSecret: BigInt(params.refundNoteSecret), executorTip: BigInt(params.executorTip) });
   const providerCalldata = ("0x" + "ab".repeat(40)) as Hex;
   const digest = executionDigest(BigInt(CHAIN_ID), escrow, params.orderId, vector.execution.provider, BigInt(vector.execution.value), providerCalldata, Number(vector.execution.deadline));
-  request = { factory: vector.factory, params, execution: { provider: vector.execution.provider, value: vector.execution.value, providerCalldata, deadline: Number(vector.execution.deadline), signature: signExecution(ORDER_KEY, digest) }, refundNoteData };
+  request = vouched({ factory: vector.factory, params, execution: { provider: vector.execution.provider, value: vector.execution.value, providerCalldata, deadline: Number(vector.execution.deadline), signature: signExecution(ORDER_KEY, digest) }, refundNoteData }, CHAIN_ID, creationCode);
 });
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
@@ -106,7 +107,7 @@ describe("job admission", () => {
     expect(code(() => executor.add({ ...request, factory: theirs, params, execution: { ...request.execution, signature: signExecution(ORDER_KEY, digest) } }))).toBe("unknown_swap_factory");
     expect(code(() => executor.addRefund({ factory: theirs, params: request.params, refundNoteData: request.refundNoteData }))).toBe("unknown_swap_factory");
     const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
-    const mine = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, ...offline });
+    const mine = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, ...offline });
     expect(code(() => mine.add({ ...request, factory: vector.factory.toUpperCase().replace("0X", "0x") }))).toBe("admitted"); // its own, in any case
     const none = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, ...offline });
     expect(code(() => none.add(request))).toBe("swap_unavailable");
@@ -179,7 +180,7 @@ describe("execution", () => {
     const digest = executionDigest(BigInt(CHAIN_ID), escrow, late.params.orderId, late.execution.provider, BigInt(late.execution.value), late.execution.providerCalldata, late.execution.deadline);
     late.execution = { ...late.execution, signature: signExecution(ORDER_KEY, digest) };
     clock = 1000; escrowBalance = 0n;
-    const job = executor.add(late);
+    const job = executor.add(vouched(late, CHAIN_ID, creationCode));
     expect(job.state).toBe("waiting-funding");
     clock = 1202; // signed deadline 1201 passed, unfunded
     await executor.tick();
@@ -199,7 +200,7 @@ describe("execution", () => {
     const digest = executionDigest(BigInt(CHAIN_ID), escrow, bad.params.orderId, bad.execution.provider, BigInt(bad.execution.value), bad.execution.providerCalldata, bad.execution.deadline);
     bad.execution = { ...bad.execution, signature: signExecution(ORDER_KEY, digest) };
     clock = 1000; escrowBalance = BigInt(bad.params.amount); revertSimulation = true;
-    const job = executor.add(bad);
+    const job = executor.add(vouched(bad, CHAIN_ID, creationCode));
     try {
       await executor.tick();
       expect(job.state).toBe("execute-failed");
@@ -215,7 +216,7 @@ describe("execution", () => {
     const digest = executionDigest(BigInt(CHAIN_ID), escrow, dear.params.orderId, dear.execution.provider, BigInt(dear.execution.value), dear.execution.providerCalldata, dear.execution.deadline);
     dear.execution = { ...dear.execution, signature: signExecution(ORDER_KEY, digest) };
     clock = 1000; escrowBalance = BigInt(dear.params.amount);
-    const job = executor.add(dear);
+    const job = executor.add(vouched(dear, CHAIN_ID, creationCode));
     const before = raws.length;
     gasPrice = "0x12a05f200"; // 5 gwei: 500,000 gas × 5 gwei = 0.0025 ETH, above the 0.002 ETH tip
     try {
@@ -240,7 +241,7 @@ describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
     const escrow = predictEscrow(o.factory, creationCode, { ...o.params, assetType: 0, amount: BigInt(o.params.amount), refundOwnerCommitment: BigInt(o.params.refundOwnerCommitment), refundNoteSecret: BigInt(o.params.refundNoteSecret), executorTip: BigInt(o.params.executorTip) });
     const digest = executionDigest(BigInt(CHAIN_ID), escrow, o.params.orderId, o.execution.provider, BigInt(o.execution.value), o.execution.providerCalldata, deadline);
     o.execution = { ...o.execution, deadline, signature: signExecution(ORDER_KEY, digest) };
-    return o;
+    return vouched(o, CHAIN_ID, creationCode);
   };
 
   it("an execution the node refused stays waiting with a note, and the next tick executes it; it was execute-failed", async () => {
@@ -348,5 +349,52 @@ describe("the refund vault is the pool's own (a V6 follow-up of 2026-10-15)", ()
       expect(server.slice(server.lastIndexOf("await executor.admissible(body)", at), at), add).toMatch(/^await executor\.admissible\(body\);[^\n]*\n\s*const job = $/);
     }
     expect(server).toMatch(/core: cfg\.core/);
+  });
+});
+
+describe("only what the swap service vouched for (a V6 follow-up of 2026-10-16, audit gap 47)", () => {
+  const code = (f: () => unknown) => {
+    try {
+      f();
+      return "admitted";
+    } catch (e) {
+      return (e as SwapJobError).code;
+    }
+  };
+  const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+  const fresh = () => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, ...offline });
+  const another = new Uint8Array(32).fill(0x5b);
+
+  it("executes a call the API vouched for, never one without its vouch, with another key's, or vouched for another call", () => {
+    const x = fresh();
+    const bare: SwapJobRequest = { ...request, vouch: undefined };
+    expect(code(() => x.add(bare)), "no vouch: an order of anyone's own").toBe("unvouched_order");
+    expect(code(() => x.add(vouched(bare, CHAIN_ID, creationCode, another))), "another key's").toBe("unvouched_order");
+    // the order key re-signs another call (its own provider call) and keeps the vouch the API gave the first
+    const escrow = predictEscrow(vector.factory, creationCode, { ...request.params, assetType: 0, amount: BigInt(request.params.amount), refundOwnerCommitment: BigInt(request.params.refundOwnerCommitment), refundNoteSecret: BigInt(request.params.refundNoteSecret), executorTip: BigInt(request.params.executorTip) });
+    const theirs = ("0x" + "cd".repeat(40)) as Hex;
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, request.params.orderId, request.execution.provider, BigInt(request.execution.value), theirs, request.execution.deadline);
+    expect(code(() => x.add({ ...request, execution: { ...request.execution, providerCalldata: theirs, signature: signExecution(ORDER_KEY, digest) } })), "a vouch for another call").toBe("unvouched_order");
+    expect(code(() => x.add({ ...request, vouch: { order: vouched({ factory: request.factory, params: request.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode).vouch!.order } })), "an order's vouch is no call's").toBe("unvouched_order");
+    expect(x.list(), "nothing admitted").toHaveLength(0);
+    expect(code(() => x.add(request))).toBe("admitted");
+  });
+
+  it("refunds an order the API vouched for, never one without its vouch or with a call's in its place", () => {
+    const x = fresh();
+    const refund = { factory: request.factory, params: request.params, refundNoteData: request.refundNoteData };
+    expect(code(() => x.addRefund(refund)), "no vouch: a zero tip of anyone's own, at about 3.45M gas a refund").toBe("unvouched_order");
+    expect(code(() => x.addRefund(vouched(refund, CHAIN_ID, creationCode, another)))).toBe("unvouched_order");
+    expect(code(() => x.addRefund({ ...refund, vouch: { execution: request.vouch!.execution } })), "a call's vouch is no order's").toBe("unvouched_order");
+    expect(code(() => x.addRefund(vouched(refund, CHAIN_ID, creationCode)))).toBe("admitted");
+  });
+
+  it("an executor without the API's address admits nothing; the server answers 503 without it", () => {
+    const blind = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, ...offline });
+    expect(code(() => blind.add(request))).toBe("swap_unavailable");
+    const server = readFileSync(join(root, "apps/relayer/src/server.ts"), "utf8");
+    expect(server).toMatch(/const swapsRun = swapFactory !== null && apiVoucher !== null;/);
+    expect(server.match(/if \(!swapsRun\) return send\(503/g), "both swap routes").toHaveLength(2);
+    expect(server).toMatch(/voucher: apiVoucher/);
   });
 });

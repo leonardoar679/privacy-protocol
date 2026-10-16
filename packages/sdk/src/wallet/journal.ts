@@ -21,6 +21,9 @@ export interface StoredSwap {
   refundCounter: number;
   /** the 169-byte refund payload committed in the order (random, so it cannot be re-derived); hex */
   refundNoteData?: string;
+  /** the API's vouch for this order from its commit (a V6 follow-up of 2026-10-16, audit gap 47): 65 bytes of hex. The relayer
+   *  refunds only an order the API vouched for, and executes only a call the API vouched for, which it does on seeing this */
+  orderVouch?: string;
   provider: string;
   policy: string;
   request: unknown; // the service's SwapRequest (strings only)

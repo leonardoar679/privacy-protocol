@@ -102,6 +102,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const stored: StoredSwap = {
     orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps, ...(req.destinationType ? { destinationType: req.destinationType } : {}) },
     params: order.params, endpoint: order.endpoint, quote: order.quote, approvedMin: (i.shown ?? order.quote).toAmountMin, createdAt: now, dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
+    ...(response.vouch?.order ? { orderVouch: response.vouch.order } : {}), // the API's vouch for this order (audit gap 47)
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     ...(i.campaign ? { campaign: i.campaign } : {}),
     ...(shield ? { shield } : {}),
@@ -237,14 +238,22 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
     const job = await relayerShieldRegister(i.submission.url, shieldJobRequest(stored));
     patchSwap(order.orderId, { shield: { ...stored.shield, registeredAt: Date.now(), job: shieldJobView(job) } }, s);
   }
-  const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature));
+  // the order's vouch from its commit, for the API's vouch for this call (audit gap 47); a resumed operation is the same order
+  const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature, stored.orderVouch));
   if (i.submission.kind !== "relayer") return {};
   const health = await swapService.health();
   const factory = swapFactoryOf(i.deployment);
   if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
   const { refundTokens, refundFloors } = signed.call;
   if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
-  const job = await relayerSwapExecute(i.submission.url, { factory, params: signed.params, execution: fin.execution, refundNoteData, ...(refundTokens?.length ? { refundTokens, refundFloors } : {}) });
+  const job = await relayerSwapExecute(i.submission.url, {
+    factory,
+    params: signed.params,
+    execution: fin.execution,
+    refundNoteData,
+    ...(refundTokens?.length ? { refundTokens, refundFloors } : {}),
+    ...(fin.vouch?.execution ? { vouch: { execution: fin.vouch.execution as Hex } } : {}), // the relayer executes only a vouched call
+  });
   patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider }, s); // the provider's reference for tracking (NEAR Intents: the deposit address)
   const r = stored.request as { to?: { chain?: string }; destination?: string };
   if (r.to?.chain && r.destination && !stored.shield) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
@@ -275,7 +284,13 @@ export async function returnOrderToBalance(i: { deployment: Deployment | null; s
   if (i.submission.kind !== "relayer") throw new Error(`Switch to relayer submission (Settings), or call deployAndRefund on the factory yourself after ${new Date((stored.params as { refundAfter: number }).refundAfter * 1000).toLocaleString()}.`);
   const refundNoteData = stored.refundNoteData as Hex | undefined;
   if (!refundNoteData) throw new Error("this order has no refund payload in the journal");
-  const job = await relayerSwapRefund(i.submission.url, { factory: swapFactoryOf(i.deployment), params: stored.params as any, refundNoteData, ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}) });
+  const job = await relayerSwapRefund(i.submission.url, {
+    factory: swapFactoryOf(i.deployment),
+    params: stored.params as any,
+    refundNoteData,
+    ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}),
+    ...(stored.orderVouch ? { vouch: { order: stored.orderVouch as Hex } } : {}), // the relayer refunds only a vouched order
+  });
   patchSwap(stored.orderId, { jobId: job.id, state: job.state }, s);
   return job;
 }

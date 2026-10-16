@@ -138,6 +138,12 @@ Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS, and set `TRUS
 (1 for one). Without it every caller shares the proxy's address and so one bucket, which a single client can use up
 for everyone (a V6 follow-up of 2026-10-15). Set it only when the service cannot be reached past those proxies.
 
+The relayer runs only the swaps the swap service vouched for (a V6 follow-up of 2026-10-16, `docs/audit-package.md`
+gap 47). Generate a secp256k1 key for the API and keep it with its secrets as `API_VOUCH_KEY` (32 bytes of hex; it
+signs nothing else and is never logged). Give each relayer its address as `API_VOUCHER`, which `GET /v1/status` names
+(`deployment.voucher`), together with `SWAP_FACTORY`: without both, a relayer runs no swaps. A new key means new
+addresses on the relayers; an order committed under the old one is still refunded by a relayer that kept it.
+
 The relayer's job lists (`GET /swap`, `GET /jobs`) are operator data: they answer only with `RELAYER_ADMIN_TOKEN` as a
 bearer token, and are closed when it is unset. The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
 wallet whose answer was lost (the network dropped mid-submission) finds its submission again instead of sending it

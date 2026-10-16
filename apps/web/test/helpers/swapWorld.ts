@@ -112,6 +112,11 @@ const request = (b: any): QuoteRequest => ({
 const score = { provider: "thorchain", total: 80, components: { price: 80, security: 90, privacy: 70, latency: 60, liquidity: 80, reliability: 90 } };
 export const calls: string[] = [];
 export const relayerBodies: any[] = [];
+/** V6 follow-up (2026-10-16, audit gap 47): the mock API's vouches, what the wallet showed at each finalize, the executions it handed over */
+export const ORDER_VOUCH = ("0x" + "a1".repeat(65)) as Hex;
+export const CALL_VOUCH = ("0x" + "c2".repeat(65)) as Hex;
+export const finalizeVouches: unknown[] = [];
+export const executeBodies: any[] = [];
 export const jobs = new Map<string, string>();
 export const RELAYER_EOA = getAddress("0x00000000000000000000000000000000000000ee");
 // the deployment's RPC endpoint: the pre-trade simulation (whale spec §24) runs deployAndExecute here; `rpcBend` makes it revert
@@ -179,7 +184,7 @@ async function service(path: string, body: any): Promise<Response> {
         },
       );
       orders.set(order.orderId, { order });
-      return json({ order, scores: [score], status: "Pending" });
+      return json({ order, scores: [score], status: "Pending", vouch: { order: ORDER_VOUCH } });
     }
     case "/order/resume": {
       const p = body.params;
@@ -205,7 +210,12 @@ async function service(path: string, body: any): Promise<Response> {
     }
     case "/finalize": {
       const e = orders.get(body.orderId)!;
-      return json({ execution: engine.attachSignature(e.order, e.prepared!, body.signature), order: e.order });
+      finalizeVouches.push(body.vouch);
+      return json({
+        execution: engine.attachSignature(e.order, e.prepared!, body.signature),
+        order: e.order,
+        ...(body.vouch === ORDER_VOUCH ? { vouch: { execution: CALL_VOUCH } } : {}),
+      });
     }
     case "/health":
       return json({ deployment: { chainId: "1", factory: FACTORY, nativeVault: ETH_VAULT }, providers: {} });
@@ -254,7 +264,10 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
       relayerBodies.push(body);
       jobs.set(String(body.params.orderId).toLowerCase(), "refund-only");
     }
-    if (u.pathname === "/swap/execute") jobs.set(String(body.params.orderId).toLowerCase(), "executing");
+    if (u.pathname === "/swap/execute") {
+      executeBodies.push(body);
+      jobs.set(String(body.params.orderId).toLowerCase(), "executing");
+    }
     const id = String(body?.params?.orderId ?? u.pathname.slice("/swap/".length)).toLowerCase();
     if (!jobs.has(id)) return json({ error: "unknown job" }, 404); // V6 Stage 11: the order runner asks by orderId before it hands over
     return json({ id, escrow: FACTORY, state: jobs.get(id), updatedAt: Date.now() });
@@ -274,5 +287,7 @@ export function resetWorld(): void {
   calls.length = 0;
   orders.clear();
   relayerBodies.length = 0;
+  finalizeVouches.length = 0;
+  executeBodies.length = 0;
   jobs.clear();
 }

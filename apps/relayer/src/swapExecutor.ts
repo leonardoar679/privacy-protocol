@@ -32,7 +32,7 @@ import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type P
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
 import { DROP_AFTER_MS, Sender, unknownToTheNode, type SentTx } from "./sender";
-import { executionDigest, predictEscrow, recoverExecutionSigner } from "@privacy-wallet/swap-engine/endpoints";
+import { executionDigest, executionVouchDigest, orderVouchDigest, predictEscrow, recoverExecutionSigner, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
 import type { OrderParams } from "@privacy-wallet/swap-engine/types";
 
 const ORDER_PARAMS = "(bytes32 orderId, uint8 assetType, address asset, uint256 amount, address orderSigner, uint64 executeDeadline, uint64 refundAfter, address refundVault, uint256 refundOwnerCommitment, uint256 refundNoteSecret, bytes32 refundNoteDataHash, uint256 executorTip)";
@@ -63,9 +63,10 @@ export interface SwapExecutionJson { provider: Address; value: string; providerC
  * `refundTokens`: tokens other than the order's asset a provider may pay back (the token a route swapped into before bridging);
  * address(0) = ETH, for an ERC-20 order. `refundFloors`: per listed token, the least balance worth an unpaid re-shield (base units).
  */
-export interface SwapJobRequest { factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string> }
+/** `vouch`: the API's (a V6 follow-up of 2026-10-16, audit gap 47) — `execution` for the call it prepared, `order` for the order it committed. */
+export interface SwapJobRequest { factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; vouch?: { execution?: Hex; order?: Hex } }
 /** Return a funded order to the pool after its window, without executing it. */
-export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string> }
+export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; vouch?: { execution?: Hex; order?: Hex } }
 export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
 /** `execution` is absent for a refund-only job. */
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
@@ -122,7 +123,7 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER): the executor runs only what it vouched for; unset, nothing */ voucher?: Address; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -156,7 +157,7 @@ export class SwapExecutor {
     // the factory the executor calls is the deployment's (a V6 follow-up of 2026-10-15): it called whatever a request named,
     // so a contract of anyone's could take deployAndExecute and deployAndRefund at the relayer's gas, keeping the escrow's
     // tip — or paying none — while the escrow it "funded" was predicted from that same contract
-    if (!this.cfg.factory) throw new SwapJobError("swap_unavailable", "this relayer runs no swap executor (SWAP_FACTORY is unset)");
+    if (!this.cfg.factory || !this.cfg.voucher) throw new SwapJobError("swap_unavailable", "this relayer runs no swap executor (SWAP_FACTORY and API_VOUCHER are both needed)");
     if (req.factory.toLowerCase() !== this.cfg.factory.toLowerCase())
       throw new SwapJobError("unknown_swap_factory", `this relayer executes swaps for ${this.cfg.factory}, not ${req.factory}`);
     if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
@@ -189,6 +190,10 @@ export class SwapExecutor {
     this.checkOrder(req);
     const p = req.params;
     const escrow = predictEscrow(req.factory, this.cfg.escrowCreationCode, toEngineParams(p));
+    // the API vouched for this order at its commit (a V6 follow-up of 2026-10-16, audit gap 47): the first refund of an order
+    // that never executed costs about 3.45M gas against its execution-sized tip, which an order of anyone's could set to zero
+    if (!vouchedBy(this.cfg.voucher!, orderVouchDigest(BigInt(this.cfg.chainId), escrow), req.vouch?.order))
+      throw new SwapJobError("unvouched_order", "the swap service did not vouch for this order: the executor refunds only orders it committed");
     const id = p.orderId.toLowerCase();
     const existing = this.jobs.get(id);
     if (existing) {
@@ -218,6 +223,11 @@ export class SwapExecutor {
     let signer: string;
     try { signer = recoverExecutionSigner(digest, x.signature); } catch (e) { throw new SwapJobError("bad_signature", String((e as Error).message)); }
     if (signer.toLowerCase() !== p.orderSigner.toLowerCase()) throw new SwapJobError("bad_signature", `the execution is signed by ${signer}, not the order signer ${p.orderSigner}`);
+    // the API vouched for this very call on an order it committed (a V6 follow-up of 2026-10-16, audit gap 47): an order key
+    // is anyone's own, so anyone's order with a tip of no value, a zero tip or a call made to burn gas cost the relayer its gas
+    const vouched = executionVouchDigest(BigInt(this.cfg.chainId), escrow, x.provider, BigInt(x.value), x.providerCalldata, Number(x.deadline));
+    if (!vouchedBy(this.cfg.voucher!, vouched, req.vouch?.execution))
+      throw new SwapJobError("unvouched_order", "the swap service did not vouch for this call: the executor runs only calls it prepared for an order it committed");
     if (BigInt(x.value) > BigInt(p.amount) - BigInt(p.executorTip)) throw new SwapJobError("bad_execution", "value exceeds the escrow's spendable balance");
     const id = p.orderId.toLowerCase();
     const state: SwapJobState = this.now() > Number(x.deadline) ? "expired" : "waiting-funding";

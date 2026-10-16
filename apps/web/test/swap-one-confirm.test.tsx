@@ -35,6 +35,10 @@ import {
   jobs,
   LIMIT,
   relayerBodies,
+  ORDER_VOUCH,
+  CALL_VOUCH,
+  finalizeVouches,
+  executeBodies,
   requests,
   resetWorld,
   rpcSeen,
@@ -179,6 +183,10 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(sim, "deployAndExecute simulated before the hand-over").toBeTruthy();
     expect(calls.indexOf("127.0.0.1:1/")).toBeLessThan(calls.indexOf("127.0.0.1:8787/v1/operations/:id/finalize"));
     expect(stored(order.orderId)).toMatchObject({ jobId: order.orderId.toLowerCase(), state: "executing", simulation: { ok: true } });
+    // the API's vouches (2026-10-16, audit gap 47): the commit's journaled and shown at the finalize; the call's handed to the relayer
+    expect(stored(order.orderId).orderVouch).toBe(ORDER_VOUCH);
+    expect(finalizeVouches).toEqual([ORDER_VOUCH]);
+    expect(executeBodies.map((b) => b.vouch)).toEqual([{ execution: CALL_VOUCH }]);
     expect(await tick(order.orderId)).toBe("track");
     expect(funding.count, "funded once").toBe(1);
     expect(
@@ -255,6 +263,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     });
     await waitFor(() => expect(relayerBodies).toHaveLength(1));
     expect(relayerBodies[0].execution, "a refund-only job: no signature").toBeUndefined();
+    expect(relayerBodies[0].vouch, "with the API's vouch for the order, from its commit (2026-10-16)").toEqual({ order: ORDER_VOUCH });
     expect(relayerBodies[0].params).toEqual(stored(orderId).params);
     expect(stored(orderId)).toMatchObject({ state: "refund-only" });
     expect(jobs.get(orderId.toLowerCase())).toBe("refund-only");
@@ -437,6 +446,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     });
     await waitFor(() => expect(relayerBodies).toHaveLength(1));
     expect(relayerBodies[0].execution, "a refund-only job: no signature").toBeUndefined();
+    expect(relayerBodies[0].vouch, "with the API's vouch for the order, from its commit (2026-10-16)").toEqual({ order: ORDER_VOUCH });
     expect(stored(orderId)).toMatchObject({ state: "refund-only" });
   }, 60_000);
 

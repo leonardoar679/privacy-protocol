@@ -15,6 +15,7 @@ import { SwapExecutor, escrowAbi, factoryAbi, loadEscrowCreationCode, type SwapJ
 import { Relayer, type Job, type RelayerConfig, type SubmitRequest } from "../src/relayer";
 import { FileJournal, MemoryJournal } from "../src/journal";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
+import { VOUCHER, vouched } from "./vouch";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const vector = JSON.parse(readFileSync(join(root, "contracts/test/periphery/vectors/endpoint.json"), "utf8"));
@@ -84,9 +85,11 @@ function makeRequest(orderId: Hex, deadline: number, assetType: 0 | 1 = 0, value
   const providerCalldata = ("0x" + "ab".repeat(40)) as Hex;
   const v = value ?? (assetType === 1 ? "0" : vector.execution.value);
   const digest = executionDigest(BigInt(CHAIN_ID), escrow, orderId, vector.execution.provider, BigInt(v), providerCalldata, deadline);
-  return { factory: vector.factory, params, execution: { provider: vector.execution.provider, value: v, providerCalldata, deadline, signature: signExecution(ORDER_KEY, digest) }, refundNoteData };
+  return vouched({ factory: vector.factory, params, execution: { provider: vector.execution.provider, value: v, providerCalldata, deadline, signature: signExecution(ORDER_KEY, digest) }, refundNoteData }, CHAIN_ID, creationCode);
 }
-const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds });
+/** a refund-only request for the order of `req`, with the order's vouch */
+const refundOf = (req: SwapJobRequest) => vouched({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData }, CHAIN_ID, creationCode);
+const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds });
 
 beforeAll(async () => {
   server = createServer((req, res) => { let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handle) : handle(j))); }); });
@@ -324,7 +327,7 @@ describe("refund-only jobs (the wallet will not execute: it refused the call, or
     const ex = executorWith();
     const req = makeRequest(("0x" + "1a".repeat(32)) as Hex, 1500);
     clock = 1000; ethBalance = BigInt(req.params.amount); receiptStatus = null; raws.length = 0;
-    const job = ex.addRefund({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData });
+    const job = ex.addRefund(refundOf(req));
     expect(job.state).toBe("refund-only");
     expect(job.execution).toBeUndefined();
     await ex.tick();
@@ -343,7 +346,7 @@ describe("refund-only jobs (the wallet will not execute: it refused the call, or
     const req = makeRequest(orderId, 1500);
     const job = ex.add(req);
     expect(job.state).toBe("waiting-funding");
-    expect(ex.addRefund({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData })).toBe(job);
+    expect(ex.addRefund(refundOf(req))).toBe(job);
     expect(job.state).toBe("refund-only");
     expect(job.execution, "the signed execution is dropped").toBeUndefined();
     ex.add(makeRequest(orderId, 1600)); // the user changed their mind, with a fresh quote

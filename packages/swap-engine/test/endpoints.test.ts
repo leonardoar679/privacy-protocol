@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { encodeOrderParams, executionDigest, initCodeHash, orderSignerAddress, predictEscrow, signExecution, word } from "../src/endpoints";
+import { encodeOrderParams, executionDigest, executionVouchDigest, initCodeHash, orderSignerAddress, orderVouchDigest, predictEscrow, signExecution, vouchedBy, word } from "../src/endpoints";
 import type { OrderParams } from "../src/types";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
@@ -83,5 +83,36 @@ describe("execution signatures (wallet-side signing, service-side recovery)", ()
     const tampered = (sig.slice(0, 10) + (sig[10] === "0" ? "1" : "0") + sig.slice(11)) as `0x${string}`;
     expect(recoverExecutionSigner(digest, tampered).toLowerCase()).not.toBe(orderSignerAddress(key).toLowerCase());
     expect(() => recoverExecutionSigner(digest, (sig.slice(0, -2) + "1d") as `0x${string}`)).toThrow(/bad v/);
+  });
+});
+
+describe("the API's vouches (a V6 follow-up of 2026-10-16)", () => {
+  const key = new Uint8Array(32).fill(0x5a);
+  const voucher = orderSignerAddress(key);
+  const escrow = "0x00000000000000000000000000000000000e5c00";
+  const provider = "0x00000000000000000000000000000000000000a1";
+  const calldata = "0x1234";
+  it("each digest is its own: an order's, a call's and an execution's never coincide, and their bytes are pinned", () => {
+    const order = orderVouchDigest(1n, escrow);
+    const call = executionVouchDigest(1n, escrow, provider, 5n, calldata, 1801);
+    const execution = executionDigest(1n, escrow, "0x" + "00".repeat(32), provider, 5n, calldata, 1801);
+    expect(new Set([order, call, execution]).size).toBe(3);
+    expect(orderVouchDigest(2n, escrow), "the chain is in it").not.toBe(order);
+    expect(executionVouchDigest(1n, escrow, provider, 5n, "0x1235", 1801), "the calldata is in it").not.toBe(call);
+    // the API and every relayer must agree byte for byte, whatever version each runs (abi.encode, recomputed with viem)
+    expect([order, call]).toEqual([
+      "0xc6668c4a6ed881c69b81de98a5a143f669818322cd508fec047da1d316fd840e",
+      "0x9c316836b195e491f3dee9a05058179c60215b9d6bf4c5b878e6a93191af490d",
+    ]);
+  });
+  it("a vouch is the voucher's over its own digest only: another key's, another digest's, a malformed or missing one are not", () => {
+    const order = orderVouchDigest(1n, escrow);
+    const call = executionVouchDigest(1n, escrow, provider, 5n, calldata, 1801);
+    const vouch = signExecution(key, order);
+    expect(vouchedBy(voucher, order, vouch)).toBe(true);
+    expect(vouchedBy(voucher.toUpperCase().replace("0X", "0x"), order, vouch), "the address in any case").toBe(true);
+    expect(vouchedBy(voucher, call, vouch), "an order's vouch is no call's").toBe(false);
+    expect(vouchedBy(voucher, order, signExecution(new Uint8Array(32).fill(0x5b), order)), "another key").toBe(false);
+    for (const bad of [undefined, null, "", "0x12", vouch.slice(0, -2), 42]) expect(vouchedBy(voucher, order, bad)).toBe(false);
   });
 });
