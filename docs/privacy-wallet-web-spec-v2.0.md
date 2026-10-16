@@ -1111,8 +1111,9 @@ no vouch of its own; `GET /v1/status` names the signer (`deployment.voucher`). W
 honors the commit vouches of the former addresses `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`), and a
 relayer's `API_VOUCHER` lists the new and the former address. A swap into the protected balance sends
 its shield receipt's parameters with the commit, and the answer's `vouch.shield` signs the receipt once it is the
-order's: its receiver, predicted from `SHIELD_FACTORY`, is the destination, it names the delivered asset, and its tip is
-at least half of the one the API prices (`400 bad_shield_receipt` otherwise). The digests are
+order's: its receiver, predicted from `SHIELD_FACTORY`, is the destination, it names the delivered asset, its tip is
+at least half of the one the API prices, and its minimum (the delivery that pays the tip) is at most the order's minimum
+output (`400 bad_shield_receipt` otherwise). The digests are
 `packages/swap-engine/src/endpoints.ts` `orderVouchDigest`, `executionVouchDigest` and `shieldVouchDigest`.
 Every field of a request body is checked at the edge (a V6 follow-up of 2026-10-14): integer slippage 0–10000 bps,
 decimals 0–36, an amount of at most 78 digits, a destination of at most 256 characters, and a journaled order's params

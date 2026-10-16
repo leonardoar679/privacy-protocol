@@ -284,7 +284,7 @@ export class SwapApi {
     );
     // a swap into the protected balance pays a shield receipt, which the API vouches for once it is this order's (a V6
     // follow-up of 2026-10-16, audit gap 47): the relayer shields only a receipt the API vouched for
-    const shieldVouch = req.destinationType === "protected" && this.d.voucher ? this.receiptVouch(b.shield, req, set.shieldTip) : undefined;
+    const shieldVouch = req.destinationType === "protected" && this.d.voucher ? this.receiptVouch(b.shield, req, set.shieldTip, quote.toAmountMin) : undefined;
     if (shieldVouch !== undefined && typeof shieldVouch !== "string") return shieldVouch;
     const operationId = this.record(order, typeof b.quoteId === "string" ? b.quoteId : null);
     return {
@@ -311,10 +311,12 @@ export class SwapApi {
   /**
    * A protected order's shield receipt, vouched for when it is this order's (a V6 follow-up of 2026-10-16, audit gap 47): its
    * receiver is the order's destination, predicted from the deployment's factory; it names the asset the swap delivers; its
-   * tip is at least half of the one this service priced now (the wallet built it from its quote, and fees move). The
-   * relayer shields only a vouched receipt: a receipt of anyone's own, for a token of no value, had cost it its gas.
+   * tip is at least half of the one this service priced now (the wallet built it from its quote, and fees move); and a
+   * delivery that meets the order pays that tip: the receipt's minimum is at most the order's minimum output. The relayer
+   * shields only a vouched receipt: a receipt of anyone's own, for a token of no value, had cost it its gas, and an ETH one
+   * whose minimum a delivery meeting the order does not reach had it shield for nothing.
    */
-  private receiptVouch(raw: unknown, req: QuoteRequest, priced: bigint | undefined): `0x${string}` | Answer {
+  private receiptVouch(raw: unknown, req: QuoteRequest, priced: bigint | undefined, orderMin: bigint): `0x${string}` | Answer {
     const refuse = (why: string): Answer => ({ status: 400, body: { error: `the shield receipt is not this order's: ${why}`, code: "bad_shield_receipt" } });
     const factory = this.d.shieldFactory;
     if (!factory) return refuse("this service names no shield receiver factory (SHIELD_FACTORY)");
@@ -332,6 +334,11 @@ export class SwapApi {
     const delivered = req.to.asset === "native" ? "0x0000000000000000000000000000000000000000" : req.to.asset;
     if (params.asset.toLowerCase() !== delivered.toLowerCase()) return refuse("it names another asset than the swap delivers");
     if (priced !== undefined && params.shieldTip * 2n < priced) return refuse(`its tip ${params.shieldTip} is below half of this service's ${priced}`);
+    // the receiver pays its tip only on a delivery of at least its minimum (a hundred tips at the least, so dust cannot claim
+    // it): above the order's minimum output, a delivery that meets the order would leave it unpaid (a V6 follow-up of
+    // 2026-10-16). The relayer shields such an ETH delivery for nothing once the swap is over; a token's stays at the receiver
+    if (params.minAmount > orderMin)
+      return refuse(`its minimum ${params.minAmount} is above the order's minimum output ${orderMin}: a delivery that meets the order would not pay its tip`);
     return this.d.voucher!.shield(this.engine.cfg.chainId, receiver);
   }
 

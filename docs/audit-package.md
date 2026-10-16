@@ -308,6 +308,10 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       for a token of no value. Now the API vouches for a protected order's receipt at its commit: the receiver predicted
       from `SHIELD_FACTORY` is the order's destination, it names the asset the swap delivers, and its tip is at least
       half of the one the API prices (`400 bad_shield_receipt` otherwise). The executor shields only a vouched receipt.
+      Later the same day: the receipt's minimum, the delivery that pays its tip, must be at most the order's minimum
+      output. A receipt whose minimum a delivery that meets the order does not reach leaves its tip unpaid: the relayer
+      shielded such an ETH delivery for nothing once the swap was over (up to `MAX_UNPAID_SHIELDS` times a job), and a
+      token's stayed at the receiver.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

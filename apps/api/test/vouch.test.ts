@@ -122,6 +122,21 @@ describe("the receipt of a swap into the protected balance (a V6 follow-up of 20
     h = await harness({ vouchKey: KEY, protectedDestinations: true, shieldFactory: null });
     expect(await refused(body(p)), "no receipt factory to predict from").toEqual([400, "bad_shield_receipt"]);
   });
+
+  it("vouches only for a receipt whose tip a delivery that meets the order pays: its minimum at most the order's minimum output", async () => {
+    h = await harness({ vouchKey: KEY, protectedDestinations: true });
+    const first = await h.post("/v1/operations", body(receipt()));
+    expect(first.status).toBe(200);
+    const orderMin = BigInt(first.body.order.quote.toAmountMin);
+    const id = (b: string) => ("0x" + b.repeat(32)) as `0x${string}`;
+    const at = await h.post("/v1/operations", body(receipt({ receiptId: id("60"), minAmount: orderMin })));
+    expect(at.status, "a minimum at the order's own").toBe(200);
+    const above = await h.post("/v1/operations", body(receipt({ receiptId: id("61"), minAmount: orderMin + 1n })));
+    expect([above.status, above.body.code], "one unit above: a delivery that meets the order would not pay the tip").toEqual([400, "bad_shield_receipt"]);
+    const tip = orderMin; // a tip as large as the order's minimum needs a minimum of a hundred times it
+    const big = await h.post("/v1/operations", body(receipt({ receiptId: id("62"), shieldTip: tip, minAmount: tip * 100n })));
+    expect([big.status, big.body.code], "a tip no delivery that meets the order can pay").toEqual([400, "bad_shield_receipt"]);
+  });
 });
 
 describe("a rotation of the API's key (a V6 follow-up of 2026-10-16)", () => {
