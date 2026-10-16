@@ -93,7 +93,15 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
         const r = await f(`${c.relayerUrl}/info`, { signal: AbortSignal.timeout(ms) });
         if (r.ok) {
           const j = (await r.json()) as RelayerTerms;
-          value = { minFeeWei: String(j.minFeeWei), ...(j.feeVaults ? { feeVaults: j.feeVaults } : {}) };
+          const vouchers: unknown = j.vouchers;
+          value = {
+            minFeeWei: String(j.minFeeWei),
+            ...(j.feeVaults ? { feeVaults: j.feeVaults } : {}),
+            // the addresses it runs for (a V6 follow-up of 2026-10-16): taken only when every entry is an address
+            ...(Array.isArray(vouchers) && vouchers.every((v) => typeof v === "string" && /^0x[0-9a-fA-F]{40}$/.test(v))
+              ? { vouchers: vouchers.map((v: string) => v.toLowerCase()) }
+              : {}),
+          };
         }
       } catch {
         value = null;

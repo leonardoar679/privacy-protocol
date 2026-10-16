@@ -42,6 +42,21 @@ describe("the API's reads end", () => {
     expect(asked.filter((u) => u.endsWith("/info"))).toHaveLength(2);
   });
 
+  it("the relayer's terms carry the addresses it runs for when it names them, each one an address (a V6 follow-up of 2026-10-16)", async () => {
+    const terms = (info: unknown) =>
+      makeReads({
+        relayerUrl: "http://relayer.test",
+        rpcUrls: [],
+        engine,
+        fetch: (async () => new Response(JSON.stringify(info))) as typeof fetch,
+      }).relayerTerms();
+    const a = "0x" + "AB".repeat(20);
+    expect(await terms({ minFeeWei: "5", vouchers: [a] })).toEqual({ minFeeWei: "5", vouchers: [a.toLowerCase()] });
+    expect(await terms({ minFeeWei: "5" }), "a relayer that names none").toEqual({ minFeeWei: "5" });
+    expect(await terms({ minFeeWei: "5", vouchers: [a, "nope"] }), "not a list of addresses: none taken").toEqual({ minFeeWei: "5" });
+    expect(await terms({ minFeeWei: "5", vouchers: a }), "not a list").toEqual({ minFeeWei: "5" });
+  });
+
   it("a hung RPC endpoint: the next endpoint is asked after the limit", async () => {
     const reads = makeReads({
       relayerUrl: null,

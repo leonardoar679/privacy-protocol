@@ -57,6 +57,7 @@ const OUT = process.argv[2] ?? join(HERE, "run", "e2e");
 mkdirSync(OUT, { recursive: true });
 const WALLET = "http://localhost:5173/"; // a hostname, not the IP: WebAuthn (the separate device, V3) refuses an IP origin as its RP ID
 const RELAYER = "http://127.0.0.1:8790";
+const API = "http://127.0.0.1:8787";
 const PASSWORD = "a strong password for the local run";
 const PRICE = stack.prices.ETH;
 const CHANNEL = process.env.BROWSER_CHANNEL; // chrome | msedge | (unset: Playwright's Chromium)
@@ -579,6 +580,16 @@ let page = watch(context.pages()[0] ?? (await context.newPage()));
 let phrase = "";
 
 try {
+  // the relayer runs for the swap service's key (a V6 follow-up of 2026-10-16): its /info lists the API's address and the
+  // deployment's swap factory, and the API's status reads it so
+  const vstatus = await (await fetch(`${API}/v1/status`)).json().catch(() => null);
+  const vinfo = await (await fetch(`${RELAYER}/info`)).json().catch(() => null);
+  check(
+    "the relayer runs for the swap service's key: its /info lists the API's address and the swap factory, and the API's status says so",
+    !!vstatus?.deployment?.voucher && Array.isArray(vinfo?.vouchers) && vinfo.vouchers.includes(String(vstatus.deployment.voucher).toLowerCase()) && vstatus.deployment.relayerAcceptsVoucher === true && String(vinfo?.swapFactory).toLowerCase() === String(stack.swapFactory).toLowerCase(),
+    `${vstatus?.deployment?.voucher} in ${JSON.stringify(vinfo?.vouchers)}, swapFactory ${vinfo?.swapFactory}, relayerAcceptsVoucher ${vstatus?.deployment?.relayerAcceptsVoucher}`,
+  );
+
   // 0. first launch ----------------------------------------------------------------------------------------------------
   await page.goto(WALLET, { waitUntil: "load", timeout: 180_000 });
   await byId(page, "welcome").waitFor({ timeout: 120_000 });

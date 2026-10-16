@@ -622,6 +622,7 @@ export class SwapApi {
   /** GET /v1/status: the deployment every order is built for, the providers, the incidents feeding the scores, the risk database. */
   async status(): Promise<Answer> {
     const providers = await this.engine.healthAll(); // cached, each within the competition's budget: the wallet reads this before every hand-over
+    const listed = this.d.voucher ? (await this.d.relayerTerms())?.vouchers : undefined; // its /info, cached 30 s (a miss too)
     const db = riskDb(),
       inc = incidents();
     const byProvider: Record<string, number> = {};
@@ -637,6 +638,9 @@ export class SwapApi {
           voucher: this.d.voucher?.address ?? null,
           // while the key rotates: the former addresses whose commit vouches the finalize still honors (relayers list them too)
           previousVouchers: this.d.voucher?.previous ?? [],
+          // whether the relayer this API reads (RELAYER_URL) runs what it vouches for: its /info lists the current address (a V6
+          // follow-up of 2026-10-16). Null when unknown: no key, no answer, or a relayer that names no list
+          relayerAcceptsVoucher: this.d.voucher && listed ? listed.includes(this.d.voucher.address.toLowerCase()) : null,
         },
         providers: redactUrlsDeep(providers),
         incidents: { total: inc.length, byProvider },

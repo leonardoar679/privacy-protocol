@@ -47,7 +47,8 @@ schedule (`src/db.ts` `RETENTION`):
   is the order's (its receiver from `SHIELD_FACTORY` is the destination, the delivered asset, at least half the tip it
   prices, a minimum no higher than the order's minimum output; `400 bad_shield_receipt` otherwise). Relayers run only what it vouched for (`API_VOUCHER` = `GET /v1/status`
   `deployment.voucher`). While the key rotates, the finalize also honors the commit vouches of the former addresses
-  `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`; `docs/deployment.md`). `npm run voucher-address` prints
+  `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`; `docs/deployment.md`), and the status says whether the
+  relayer it reads lists its current address (`deployment.relayerAcceptsVoucher`, from that relayer's `/info`). `npm run voucher-address` prints
   a key's address from `API_VOUCH_KEY` before the API runs with it, never the key (`src/cli/voucherAddress.ts`).
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana

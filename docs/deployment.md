@@ -148,10 +148,12 @@ deployment's `SHIELD_FACTORY` too, so it can vouch for the shield receipts of sw
 it such a commit is refused.
 
 To rotate the key (a V6 follow-up of 2026-10-16), give the relayers `API_VOUCHER=<new>,<old>` first, the new address
-printed by `npm run voucher-address` from the new key. Then restart the
+printed by `npm run voucher-address` from the new key. Each relayer's `GET /info` lists the addresses it runs for
+(`vouchers`) and its `swapFactory`: check that every relayer lists both before going on. Then restart the
 API with the new `API_VOUCH_KEY` and `API_VOUCHER_PREVIOUS=<old>`. From then on the API signs every vouch with the new
 key, and its finalize still honors the old key's commit vouches. The relayers accept both, and `GET /v1/status` names
-the honored former addresses (`deployment.previousVouchers`). The API needs the old address only until the last order
+the honored former addresses (`deployment.previousVouchers`) and says whether the relayer the API reads lists the new
+one (`deployment.relayerAcceptsVoucher`). The API needs the old address only until the last order
 committed under it is past its `executeDeadline`: the wallet signs no call after it, and none could run. The relayers need
 it until every such order is executed or refunded: a refund-only job and a shield job carry the vouch from the order's
 commit, and a wallet may ask for a refund at any time until the escrow is refunded. Jobs a relayer has already admitted

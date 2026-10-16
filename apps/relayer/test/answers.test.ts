@@ -4,7 +4,7 @@
 // path, and the request's body — and a body that was not JSON answered as the relayer's own error.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { errorAnswer, readJson } from "../src/answers";
+import { errorAnswer, infoAnswer, readJson } from "../src/answers";
 import { RelayerError } from "../src/relayer";
 import { ShieldJobError } from "../src/shieldExecutor";
 import { SwapJobError } from "../src/swapExecutor";
@@ -49,5 +49,24 @@ describe("the relayer's answer to a failed request", () => {
     expect(handler).toContain("errorAnswer(e)");
     expect(handler, "no message taken from an error").not.toMatch(/\.message/);
     expect(handler, "every body read as JSON through readJson").not.toMatch(/JSON\.parse/);
+  });
+});
+
+describe("what /info says the relayer runs for (a V6 follow-up of 2026-10-16)", () => {
+  it("its swap and shield factories when set, and the swap service's addresses it accepts, lowercased; the server answers with it", () => {
+    const terms = { chainId: 1, minFeeWei: "1" };
+    const a = "0x" + "AB".repeat(20),
+      b = "0x" + "cd".repeat(20);
+    const swapFactory = "0x00000000000000000000000000000000000000f5",
+      shieldFactory = "0x00000000000000000000000000000000000000f2";
+    expect(infoAnswer(terms, { swapFactory, shieldFactory, vouchers: [a, b] })).toEqual({
+      ...terms,
+      swapFactory,
+      shieldFactory,
+      vouchers: [a.toLowerCase(), b],
+    });
+    expect(infoAnswer(terms, { swapFactory: null, shieldFactory: null, vouchers: [] }), "no swaps: an empty list").toEqual({ ...terms, vouchers: [] });
+    const server = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    expect(server).toContain("infoAnswer(await relayer.info(), { swapFactory, shieldFactory: shields ? shields.cfg.factory : null, vouchers: apiVouchers })");
   });
 });

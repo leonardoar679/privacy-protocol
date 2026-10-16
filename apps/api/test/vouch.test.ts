@@ -143,6 +143,20 @@ describe("the receipt of a swap into the protected balance (a V6 follow-up of 20
 });
 
 describe("a rotation of the API's key (a V6 follow-up of 2026-10-16)", () => {
+  it("the status says whether the relayer it reads runs for its key: that relayer's /info lists the current address", async () => {
+    const accepts = async (o: Parameters<typeof harness>[0]) => {
+      h = await harness(o);
+      const v = (await h.get("/v1/status")).body.deployment.relayerAcceptsVoucher;
+      await h.close();
+      h = null;
+      return v;
+    };
+    expect(await accepts({ vouchKey: KEY, terms: { minFeeWei: "1", vouchers: [VOUCHER.toLowerCase()] } })).toBe(true);
+    expect(await accepts({ vouchKey: KEY, terms: { minFeeWei: "1", vouchers: ["0x" + "ab".repeat(20)] } }), "a relayer still on another key").toBe(false);
+    expect(await accepts({ vouchKey: KEY, terms: { minFeeWei: "1" } }), "a relayer that names no list").toBeNull();
+    expect(await accepts({ vouchKey: KEY, terms: null }), "no answer from the relayer").toBeNull();
+    expect(await accepts({ terms: { minFeeWei: "1", vouchers: [VOUCHER.toLowerCase()] } }), "no key").toBeNull();
+  });
   it("npm run voucher-address names a key's address before the API runs with it, as the API reads the key, and never the key", () => {
     expect(voucherAddress({ API_VOUCH_KEY: KEY })).toEqual({ ok: true, address: VOUCHER });
     expect(voucherAddress({ API_VOUCH_KEY: ` ${KEY}\n` }), "read as the API reads it").toEqual({ ok: true, address: VOUCHER });

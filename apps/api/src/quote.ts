@@ -16,6 +16,8 @@ import type { AssetRef, QuoteRequest } from "@privacy-wallet/swap-engine/types";
 export interface RelayerTerms {
   minFeeWei: string;
   feeVaults?: { vault: string; symbol: string; decimals: number; minFee: string }[];
+  /** the swap service's addresses the relayer runs for (its /info `vouchers`, lowercased); absent from a relayer that names none */
+  vouchers?: string[];
 }
 
 /** F: the relayer's minimum for the source asset with the wallet's 10 % margin (packages/sdk/src/relayer.ts feeForRelayer); 0 when unknown. */

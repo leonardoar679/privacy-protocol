@@ -22,7 +22,7 @@ import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
 import { addressListSetting, bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
 import { edge } from "./edge";
-import { errorAnswer, readJson } from "./answers";
+import { errorAnswer, infoAnswer, readJson } from "./answers";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
@@ -86,7 +86,7 @@ const server = createServer(async (req, res) => {
   const send = (status: number, body: unknown) => { res.statusCode = status; res.end(json(body)); };
   try {
     const url = new URL(req.url ?? "/", "http://relayer");
-    if (req.method === "GET" && url.pathname === "/info") return send(200, { ...(await relayer.info()), ...(shields ? { shieldFactory: shields.cfg.factory } : {}) });
+    if (req.method === "GET" && url.pathname === "/info") return send(200, infoAnswer(await relayer.info(), { swapFactory, shieldFactory: shields ? shields.cfg.factory : null, vouchers: apiVouchers }));
     if (req.method === "GET" && url.pathname === "/jobs") {
       // every submission with its fee note's opening is operator data, as the swap jobs are (src/admin.ts)
       const auth = adminAuthorized(req.headers.authorization, process.env.RELAYER_ADMIN_TOKEN);

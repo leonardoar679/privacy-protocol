@@ -20,6 +20,24 @@ export function errorAnswer(e: unknown): ErrorAnswer {
   return { status: 500, body: { error: "internal error", code: "internal" } };
 }
 
+/**
+ * GET /info: the fee terms, and what this relayer runs for (a V6 follow-up of 2026-10-16) — the deployment's swap and shield
+ * factories when set, and the swap service's addresses whose vouches it accepts (API_VOUCHER, lowercased; empty: it runs no
+ * swaps). An operator rotating the API's key checks here that every relayer lists the new address before the API signs
+ * with it, and the API's status reads it (docs/deployment.md).
+ */
+export function infoAnswer<T extends object>(
+  terms: T,
+  o: { swapFactory: string | null; shieldFactory: string | null; vouchers: readonly string[] },
+): T & { swapFactory?: string; shieldFactory?: string; vouchers: string[] } {
+  return {
+    ...terms,
+    ...(o.swapFactory ? { swapFactory: o.swapFactory } : {}),
+    ...(o.shieldFactory ? { shieldFactory: o.shieldFactory } : {}),
+    vouchers: o.vouchers.map((v) => v.toLowerCase()),
+  };
+}
+
 /** A request's body as JSON, at most `limit` characters; anything else is the caller's mistake. */
 export async function readJson(req: AsyncIterable<string | Uint8Array>, limit: number): Promise<unknown> {
   let body = "";
