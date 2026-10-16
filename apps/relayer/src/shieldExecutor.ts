@@ -110,7 +110,7 @@ export interface ShieldExecutorConfig {
   /** the account's one sender, shared with the submissions and the swap executor (server.ts); a test's own otherwise */
   sender?: Sender;
   /** the swap service's signer (API_VOUCHER) and the chain its vouches name: the executor shields only a vouched receipt; unset, none */
-  voucher?: Address;
+  voucher?: Address | readonly Address[];
   chainId?: number;
   /** the receiver's creation code (forge's export); a test may pass another build's */
   creationCode?: Hex;
@@ -186,7 +186,7 @@ export class ShieldExecutor {
     const receiver = predictReceiver(req.factory, params, this.cfg.creationCode ?? BYTECODE.shieldReceiver);
     // the swap service vouched for this receipt at its order's commit (a V6 follow-up of 2026-10-16, audit gap 47): a receipt of
     // anyone's own, for a token of no value, had the relayer pay a shield's gas for a tip worth nothing
-    if (!this.cfg.voucher || this.cfg.chainId === undefined)
+    if (!this.cfg.voucher || this.cfg.voucher.length === 0 || this.cfg.chainId === undefined)
       throw new ShieldJobError("shield_unavailable", "this relayer shields no receipt (API_VOUCHER is unset)");
     if (!vouchedBy(this.cfg.voucher, shieldVouchDigest(BigInt(this.cfg.chainId), receiver), req.vouch))
       throw new ShieldJobError("unvouched_order", "the swap service did not vouch for this receipt: the executor shields only receipts of orders it committed");

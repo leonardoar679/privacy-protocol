@@ -398,3 +398,24 @@ describe("only what the swap service vouched for (a V6 follow-up of 2026-10-16, 
     expect(server).toMatch(/voucher: apiVoucher/);
   });
 });
+
+describe("a rotation of the swap service's key (a V6 follow-up of 2026-10-16)", () => {
+  it("a vouch by the former key counts while both are listed, and no longer once only the new one is", () => {
+    const former = new Uint8Array(32).fill(0x5d);
+    const formerAddress = orderSignerAddress(former);
+    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+    const executorFor = (voucher: Hex | Hex[]) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher, ...offline });
+    const refund = vouched({ factory: request.factory, params: request.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode, former);
+    const code = (x: SwapExecutor) => {
+      try {
+        x.addRefund(refund);
+        return "admitted";
+      } catch (e) {
+        return (e as SwapJobError).code;
+      }
+    };
+    expect(code(executorFor([VOUCHER as Hex, formerAddress]))).toBe("admitted");
+    expect(code(executorFor(VOUCHER as Hex))).toBe("unvouched_order");
+    expect(code(executorFor([])), "an empty list: no swaps").toBe("swap_unavailable");
+  });
+});

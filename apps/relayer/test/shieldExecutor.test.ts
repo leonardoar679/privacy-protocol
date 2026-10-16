@@ -29,7 +29,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { ABI, predictReceiver, receiverParamsJson, receiverParamsOf, type ReceiverParams } from "@privacy-wallet/contracts";
 import { ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
 import { DROP_AFTER_MS } from "../src/sender";
-import { shieldVouchDigest, signExecution } from "@privacy-wallet/swap-engine/endpoints";
+import { orderSignerAddress, shieldVouchDigest, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 import { VOUCHER, VOUCH_KEY } from "./vouch";
 import vector from "../../../contracts/test/periphery/vectors/shield.json";
 
@@ -196,7 +196,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
 let server: Server;
 let clock = 1_000;
 let clients: { publicClient: any; walletClient: any; account: ReturnType<typeof privateKeyToAccount> };
-const executor = (o: { maxUnpaidShields?: number; voucher?: Address } = {}) =>
+const executor = (o: { maxUnpaidShields?: number; voucher?: Address | Address[] } = {}) =>
   new ShieldExecutor({ factory: FACTORY, ...clients, now: () => clock, lateDeliveryWatchSeconds: 600, chainId: CHAIN_ID, voucher: VOUCHER, ...o });
 /** the swap service's vouch for a receipt (a V6 follow-up of 2026-10-16): over its receiver */
 const vouchFor = (r: ShieldJobRequest, key = VOUCH_KEY): Hex | undefined => {
@@ -445,5 +445,12 @@ describe("only a receipt the swap service vouched for (a V6 follow-up of 2026-10
     const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "server.ts"), "utf8");
     expect(server).toMatch(/if \(!shields \|\| !apiVoucher\) return send\(503/);
     expect(server).toMatch(/chainId: cfg\.chainId, \.\.\.\(apiVoucher \? \{ voucher: apiVoucher \} : \{\}\)/);
+  });
+  it("while the swap service rotates its key, a receipt the former key vouched for is shielded as long as its address is listed", async () => {
+    const former = new Uint8Array(32).fill(0x5d);
+    const formerVouch = vouchFor(request(), former);
+    expect(await code(executor({ voucher: [VOUCHER, orderSignerAddress(former)] }), request({ vouch: formerVouch }))).toBe("accepted");
+    expect(await code(executor(), request({ vouch: formerVouch })), "the former address dropped").toBe("unvouched_order");
+    expect(await code(executor({ voucher: [] }), request()), "an empty list: nothing").toBe("shield_unavailable");
   });
 });

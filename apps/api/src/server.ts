@@ -7,7 +7,7 @@
 // it vouches for), and the engine's own
 // (CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT, ERC20_VAULTS, REFUND_WINDOW_SECONDS).
 import { ASSETS, CHAINS } from "@privacy-wallet/config";
-import { createLogger, intSetting, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
+import { addressListSetting, createLogger, intSetting, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
 import { voucherFrom } from "./vouch";
 
 /** SHIELD_FACTORY: the ShieldReceiverFactory whose receipts the API vouches for; unset, none (a malformed one stops the start). */
@@ -49,7 +49,7 @@ const app = createApp(
     reads,
     relayerTerms: () => reads.relayerTerms(),
     now: Date.now,
-    voucher: voucherFrom(env.API_VOUCH_KEY),
+    voucher: voucherFrom(env.API_VOUCH_KEY, addressListSetting(env, "API_VOUCHER_PREVIOUS")),
     shieldFactory: shieldFactoryFrom(env.SHIELD_FACTORY),
   },
   {

@@ -20,7 +20,7 @@ import { LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS, ShieldExecutor } from 
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
-import { bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
+import { addressListSetting, bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
 import { edge } from "./edge";
 import { errorAnswer, readJson } from "./answers";
 import { adminAuthorized } from "./admin";
@@ -55,9 +55,9 @@ const swapFactoryEnv = process.env.SWAP_FACTORY?.trim();
 if (swapFactoryEnv && !/^0x[0-9a-fA-F]{40}$/.test(swapFactoryEnv)) throw new Error(`SWAP_FACTORY must be the SwapOrderFactory's address, not ${JSON.stringify(process.env.SWAP_FACTORY)}`);
 const swapFactory = swapFactoryEnv ? (swapFactoryEnv as Hex) : null;
 // the API's signer: the executor runs only what it vouched for (API_VOUCHER, the API_VOUCH_KEY's address; audit gap 47)
-const voucherEnv = process.env.API_VOUCHER?.trim();
-if (voucherEnv && !/^0x[0-9a-fA-F]{40}$/.test(voucherEnv)) throw new Error(`API_VOUCHER must be the swap service's signing address, not ${JSON.stringify(process.env.API_VOUCHER)}`);
-const apiVoucher = voucherEnv ? (voucherEnv as Hex) : null;
+// while the API rotates its key, the new address and the former one (whose vouches are still out), comma-separated
+const apiVouchers = addressListSetting(process.env, "API_VOUCHER");
+const apiVoucher = apiVouchers.length ? apiVouchers : null;
 const swapsRun = swapFactory !== null && apiVoucher !== null;
 // every transaction of the relayer's account goes through its one sender (src/sender.ts): one at a time
 const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, ...(swapFactory ? { factory: swapFactory } : {}), ...(apiVoucher ? { voucher: apiVoucher } : {}), core: cfg.core, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });

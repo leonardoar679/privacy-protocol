@@ -123,3 +123,34 @@ describe("the receipt of a swap into the protected balance (a V6 follow-up of 20
     expect(await refused(body(p)), "no receipt factory to predict from").toEqual([400, "bad_shield_receipt"]);
   });
 });
+
+describe("a rotation of the API's key (a V6 follow-up of 2026-10-16)", () => {
+  const OLD = ("0x" + "5c".repeat(32)) as `0x${string}`;
+  it("an order committed under the former key gets its call's vouch from the new one while the former address is listed", async () => {
+    h = await harness({ vouchKey: KEY, previousVouchers: [makeVoucher(OLD).address] });
+    expect((await h.get("/v1/status")).body.deployment.previousVouchers).toEqual([makeVoucher(OLD).address]);
+    const c = await h.post("/v1/operations", orderBody());
+    const id = c.body.operationId as string;
+    const p = await h.post(`/v1/operations/${id}/prepare`, {});
+    const committedBefore = makeVoucher(OLD).order(1n, c.body.order.endpoint); // what the former key gave this order
+    const f = await h.post(`/v1/operations/${id}/finalize`, { signature: sign(p.body.digest), vouch: committedBefore });
+    expect(f.status).toBe(200);
+    const x = f.body.execution;
+    expect(
+      vouchedBy(
+        VOUCHER,
+        executionVouchDigest(1n, c.body.order.endpoint, x.provider, BigInt(x.value), x.providerCalldata, Number(x.deadline)),
+        f.body.vouch.execution,
+      ),
+      "signed with the new key",
+    ).toBe(true);
+  });
+  it("once the former address is dropped, its vouches no longer count", async () => {
+    h = await harness({ vouchKey: KEY });
+    const c = await h.post("/v1/operations", orderBody());
+    const id = c.body.operationId as string;
+    const p = await h.post(`/v1/operations/${id}/prepare`, {});
+    const f = await h.post(`/v1/operations/${id}/finalize`, { signature: sign(p.body.digest), vouch: makeVoucher(OLD).order(1n, c.body.order.endpoint) });
+    expect([f.status, f.body.code]).toEqual([400, "unvouched_order"]);
+  });
+});

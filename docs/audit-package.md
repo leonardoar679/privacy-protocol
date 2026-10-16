@@ -300,7 +300,10 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     - a committed order that never executes pays its refund with its tip, which falls short only when the base fee
       has risen by about 40 % since the commit; a party that commits orders only to have them refunded pays that tip
       each time;
-    - the API's key is the relayer's trust: whoever holds it can make the relayer run any order (`docs/threat-model.md`);
+    - the API's key is the relayer's trust: whoever holds it can make the relayer run any order (`docs/threat-model.md`).
+      It can be rotated (a follow-up of the same day): the relayers' `API_VOUCHER` lists the new and the former
+      address, and the API's finalize honors the former key's commit vouches while `API_VOUCHER_PREVIOUS` names it. A
+      leaked key is dropped from both at once (`docs/deployment.md`);
     - (closed the same day) the shield executor (`POST /shield`) admitted receipts from anyone, with the same exposure
       for a token of no value. Now the API vouches for a protected order's receipt at its commit: the receiver predicted
       from `SHIELD_FACTORY` is the order's destination, it names the asset the swap delivers, and its tip is at least

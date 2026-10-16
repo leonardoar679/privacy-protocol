@@ -143,8 +143,22 @@ gap 47). Generate a secp256k1 key for the API and keep it with its secrets as `A
 signs nothing else and is never logged). Give each relayer its address as `API_VOUCHER`, which `GET /v1/status` names
 (`deployment.voucher`), together with `SWAP_FACTORY`: without both, a relayer runs no swaps. Give the API the
 deployment's `SHIELD_FACTORY` too, so it can vouch for the shield receipts of swaps into the protected balance; without
-it such a commit is refused. A new key means new
-addresses on the relayers; an order committed under the old one is still refunded by a relayer that kept it.
+it such a commit is refused.
+
+To rotate the key (a V6 follow-up of 2026-10-16), give the relayers `API_VOUCHER=<new>,<old>` first. Then restart the
+API with the new `API_VOUCH_KEY` and `API_VOUCHER_PREVIOUS=<old>`. From then on the API signs every vouch with the new
+key, and its finalize still honors the old key's commit vouches. The relayers accept both, and `GET /v1/status` names
+the honored former addresses (`deployment.previousVouchers`). The API needs the old address only until the last order
+committed under it is past its `executeDeadline`: the wallet signs no call after it, and none could run. The relayers need
+it until every such order is executed or refunded: a refund-only job and a shield job carry the vouch from the order's
+commit, and a wallet may ask for a refund at any time until the escrow is refunded. Jobs a relayer has already admitted
+run on either way. Once the old address is dropped, a wallet that comes back to an unrefunded order of the old key is
+refused (`unvouched_order`). The escrow's refund stays open to anyone after `refundAfter` (the factory's
+`deployAndRefund`, which pays the order's tip to the caller). A key that leaked is rotated without the overlap: list
+its address neither on the relayers nor in `API_VOUCHER_PREVIOUS`. Listed on a relayer, it runs whatever its holder
+vouches for. In `API_VOUCHER_PREVIOUS`, its holder gets the new key's vouch for the call of any order it vouched for, a
+rebuilt one included. The orders committed under it then refund through the jobs the relayers already hold, or
+through anyone's `deployAndRefund`.
 
 The relayer's job lists (`GET /swap`, `GET /jobs`) are operator data: they answer only with `RELAYER_ADMIN_TOKEN` as a
 bearer token, and are closed when it is unset. The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a

@@ -102,14 +102,19 @@ export function shieldVouchDigest(chainId: bigint, receiver: string): `0x${strin
   return hex(keccak_256(Buffer.concat([Buffer.from(SHIELD_VOUCH_TAG), word(chainId), addrWord(receiver)])));
 }
 
-/** Whether `signature` over `digest` is the voucher's; a missing or malformed one is not. */
-export function vouchedBy(voucher: string, digest: `0x${string}`, signature: unknown): boolean {
+/**
+ * Whether `signature` over `digest` is the voucher's: one address, or several while the swap service rotates its key (the
+ * new one and the ones whose vouches are still out). A missing or malformed signature is no one's.
+ */
+export function vouchedBy(voucher: string | readonly string[], digest: `0x${string}`, signature: unknown): boolean {
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(signature)) return false;
+  let signer: string;
   try {
-    return recoverExecutionSigner(digest, signature as `0x${string}`).toLowerCase() === voucher.toLowerCase();
+    signer = recoverExecutionSigner(digest, signature as `0x${string}`).toLowerCase();
   } catch {
     return false;
   }
+  return (typeof voucher === "string" ? [voucher] : voucher).some((v) => v.toLowerCase() === signer);
 }
 
 export const keccakHex = (data: string | Uint8Array): `0x${string}` =>

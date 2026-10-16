@@ -628,6 +628,8 @@ export class SwapApi {
           factory: this.engine.cfg.factory,
           nativeVault: this.engine.cfg.refundVaults.native,
           voucher: this.d.voucher?.address ?? null,
+          // while the key rotates: the former addresses whose commit vouches the finalize still honors (relayers list them too)
+          previousVouchers: this.d.voucher?.previous ?? [],
         },
         providers: redactUrlsDeep(providers),
         incidents: { total: inc.length, byProvider },

@@ -2,7 +2,7 @@
 // service at start, naming the setting; unset or empty, the default. A bare Number() read "1k" as NaN, which polled
 // every millisecond or capped nothing.
 import { describe, expect, it } from "vitest";
-import { bigintSetting, intSetting } from "../src/env";
+import { addressListSetting, bigintSetting, intSetting } from "../src/env";
 
 describe("numeric settings", () => {
   const range = { min: 500, max: 600_000 };
@@ -18,5 +18,13 @@ describe("numeric settings", () => {
       expect(() => intSetting({ SWAP_POLL_MS: bad }, "SWAP_POLL_MS", 15_000, range), bad).toThrow(/^SWAP_POLL_MS must be a whole number from 500 to 600000/);
     for (const bad of ["-1", "1.0", "1e18", "abc"])
       expect(() => bigintSetting({ MIN_FEE_WEI: bad }, "MIN_FEE_WEI", 0n), bad).toThrow(/^MIN_FEE_WEI must be a whole number/);
+  });
+  it("a list of addresses: none when unset, each one checked (a key's rotation names two)", () => {
+    const a = "0x" + "aa".repeat(20),
+      b = "0x" + "bb".repeat(20);
+    expect(addressListSetting({}, "API_VOUCHER")).toEqual([]);
+    expect(addressListSetting({ API_VOUCHER: ` ${a} , ${b} ` }, "API_VOUCHER")).toEqual([a, b]);
+    for (const bad of [`${a},`, `${a};${b}`, "0x1234", `${a},nope`])
+      expect(() => addressListSetting({ API_VOUCHER: bad }, "API_VOUCHER"), bad).toThrow(/^API_VOUCHER must list 0x addresses/);
   });
 });

@@ -115,5 +115,10 @@ describe("the API's vouches (a V6 follow-up of 2026-10-16)", () => {
     expect(vouchedBy(voucher, call, vouch), "an order's vouch is no call's").toBe(false);
     expect(vouchedBy(voucher, order, signExecution(new Uint8Array(32).fill(0x5b), order)), "another key").toBe(false);
     for (const bad of [undefined, null, "", "0x12", vouch.slice(0, -2), 42]) expect(vouchedBy(voucher, order, bad)).toBe(false);
+    // while the key rotates, any of the listed addresses (2026-10-16); none listed, no one's
+    const next = orderSignerAddress(new Uint8Array(32).fill(0x5c));
+    expect(vouchedBy([next, voucher], order, vouch), "the former key, still listed").toBe(true);
+    expect(vouchedBy([next], order, vouch), "the former key, dropped").toBe(false);
+    expect(vouchedBy([], order, vouch)).toBe(false);
   });
 });

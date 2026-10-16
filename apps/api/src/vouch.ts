@@ -9,6 +9,8 @@ type Hex = `0x${string}`;
 export interface Voucher {
   /** what a relayer is configured with (API_VOUCHER) */
   readonly address: Hex;
+  /** the former keys' addresses whose commit vouches the finalize still honors while the key rotates (API_VOUCHER_PREVIOUS) */
+  readonly previous: readonly Hex[];
   /** the order's vouch: over its escrow, which commits to the factory and every parameter */
   order(chainId: bigint, escrow: string): Hex;
   /** the call's vouch: over the escrow and the provider call the API prepared */
@@ -19,25 +21,29 @@ export interface Voucher {
   shield(chainId: bigint, receiver: string): Hex;
 }
 
-export function makeVoucher(key: Hex): Voucher {
+export function makeVoucher(key: Hex, previous: readonly Hex[] = []): Voucher {
   const priv = Uint8Array.from(Buffer.from(key.slice(2), "hex"));
   const address = orderSignerAddress(priv); // refuses a key outside the curve's range
   return {
     address,
+    previous,
     order: (chainId, escrow) => signExecution(priv, orderVouchDigest(chainId, escrow)),
     execution: (chainId, escrow, x) => signExecution(priv, executionVouchDigest(chainId, escrow, x.provider, x.value, x.providerCalldata, x.deadline)),
-    vouched: (chainId, escrow, vouch) => vouchedBy(address, orderVouchDigest(chainId, escrow), vouch),
+    vouched: (chainId, escrow, vouch) => vouchedBy([address, ...previous], orderVouchDigest(chainId, escrow), vouch),
     shield: (chainId, receiver) => signExecution(priv, shieldVouchDigest(chainId, receiver)),
   };
 }
 
-/** API_VOUCH_KEY: 32 bytes of hex; unset or empty, no voucher. A malformed key stops the start, and its value is never echoed. */
-export function voucherFrom(raw: string | undefined): Voucher | null {
+/**
+ * API_VOUCH_KEY: 32 bytes of hex; unset or empty, no voucher. A malformed key stops the start, and its value is never echoed.
+ * `previous` (API_VOUCHER_PREVIOUS): while the key rotates, the former keys' addresses whose commit vouches still count.
+ */
+export function voucherFrom(raw: string | undefined, previous: readonly Hex[] = []): Voucher | null {
   const key = raw?.trim();
   if (!key) return null;
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("API_VOUCH_KEY must be 32 bytes of hex (0x followed by 64 hex digits)");
   try {
-    return makeVoucher(key as Hex);
+    return makeVoucher(key as Hex, previous);
   } catch {
     throw new Error("API_VOUCH_KEY is not a usable secp256k1 key");
   }

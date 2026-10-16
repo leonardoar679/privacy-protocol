@@ -15,6 +15,16 @@ export function intSetting(env: Env, name: string, fallback: number, range: { mi
   return n;
 }
 
+/** A comma-separated list of 0x addresses; empty when unset or empty, and anything but addresses stops the start. */
+export function addressListSetting(env: Env, name: string): `0x${string}`[] {
+  const raw = env[name]?.trim();
+  if (!raw) return [];
+  const list = raw.split(",").map((s) => s.trim());
+  for (const a of list)
+    if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error(`${name} must list 0x addresses separated by commas, not ${JSON.stringify(env[name])}`);
+  return list as `0x${string}`[];
+}
+
 /** An amount in base units (wei, gas); `fallback` when unset or empty. */
 export function bigintSetting(env: Env, name: string, fallback: bigint): bigint {
   const raw = env[name]?.trim();

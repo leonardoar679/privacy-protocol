@@ -41,7 +41,8 @@ The same service runs the on-chain half of a private swap for the committed tip.
 `POST /swap/execute { factory, params, execution, refundNoteData }` after signing the provider call
 and funding the escrow; the executor checks locally that the factory is the deployment's (`SWAP_FACTORY`; without it the
 relayer runs no swap executor and the swap routes answer `503 swap_unavailable`; another factory is
-`unknown_swap_factory`), that the swap service vouched for it (`API_VOUCHER`, a V6 follow-up of 2026-10-16: an
+`unknown_swap_factory`), that the swap service vouched for it (`API_VOUCHER`, a V6 follow-up of 2026-10-16, a
+comma-separated list while it rotates its key: an
 execution carries the API's vouch for that very call, a refund its vouch for the order; `unvouched_order` otherwise,
 and without the address no swaps run), that the refund vault is its pool's own for the order's asset
 (`CORE.VAULT_FACTORY().vaultOf(asset)`, ETH `address(0)`; read before admission, `bad_refund_vault`), that the refund

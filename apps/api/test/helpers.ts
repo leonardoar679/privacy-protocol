@@ -110,6 +110,8 @@ export async function harness(
     terms?: RelayerTerms | null;
     gatewayUpstream?: string;
     vouchKey?: `0x${string}`;
+    /** API_VOUCHER_PREVIOUS: the former keys' addresses whose commit vouches still count */
+    previousVouchers?: `0x${string}`[];
     /** a same-chain swap into the protected balance: the token's vault, a shield tip, the receiver factory (or `shieldFactory`) */
     protectedDestinations?: boolean;
     shieldFactory?: string | null;
@@ -138,7 +140,7 @@ export async function harness(
     gateway: { upstream: o.gatewayUpstream ?? null },
     now: () => clock.now,
     relayerTerms: async () => o.terms ?? null,
-    voucher: o.vouchKey ? makeVoucher(o.vouchKey) : null,
+    voucher: o.vouchKey ? makeVoucher(o.vouchKey, o.previousVouchers) : null,
     shieldFactory: o.shieldFactory !== undefined ? o.shieldFactory : o.protectedDestinations ? SHIELD_FACTORY : null,
     reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
   };

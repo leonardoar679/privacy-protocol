@@ -46,7 +46,8 @@ schedule (`src/db.ts` `RETENTION`):
   order gets none. A protected order's commit also answers `vouch.shield` for its shield receipt, once the receipt
   is the order's (its receiver from `SHIELD_FACTORY` is the destination, the delivered asset, at least half the tip it
   prices; `400 bad_shield_receipt` otherwise). Relayers run only what it vouched for (`API_VOUCHER` = `GET /v1/status`
-  `deployment.voucher`).
+  `deployment.voucher`). While the key rotates, the finalize also honors the commit vouches of the former addresses
+  `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`; `docs/deployment.md`).
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).
