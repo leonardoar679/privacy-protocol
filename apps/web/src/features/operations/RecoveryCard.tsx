@@ -22,7 +22,10 @@ const BY_SETTLEMENT: Record<SettlementState, RecoveryLegs> = {
 /** The three legs from the settlement, else from the record's state (a swap order; a send has the source leg only). */
 export function legsOf(rec: OperationRecord): RecoveryLegs {
   const s = rec.state;
-  if (rec.settlement && !(rec.settlement === "COMPLETED" && (s === "REFUNDED" || s === "REFUNDING"))) return BY_SETTLEMENT[rec.settlement];
+  // a settlement outside the vocabulary (a record an older build journaled from the API; the audit's unverified m48) falls
+  // through to the state's legs — it had thrown
+  const by: RecoveryLegs | undefined = rec.settlement ? BY_SETTLEMENT[rec.settlement] : undefined;
+  if (by && !(rec.settlement === "COMPLETED" && (s === "REFUNDED" || s === "REFUNDING"))) return by;
   const sourceDone = wasSubmitted(rec) || s === "COMPLETED" || s === "REFUNDED" || (s === "RECOVERY_REQUIRED" && rec.refs.txHashes.length > 0);
   const swap: StepState = s === "COMPLETED" || s === "SETTLING" ? "done" : s === "RECOVERY_REQUIRED" ? "failed" : s === "EXECUTING" ? "active" : "waiting";
   const destination: StepState = s === "COMPLETED" ? "done" : s === "SETTLING" ? "active" : "waiting";

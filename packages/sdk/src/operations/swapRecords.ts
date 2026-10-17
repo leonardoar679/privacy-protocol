@@ -5,7 +5,7 @@
 import type { Tracked } from "../orderTracker";
 import type { SwapJob } from "../relayer";
 import type { StoredSwap } from "../wallet/journal";
-import { isTerminal, type OperationRecord, type OperationState } from "../wallet/operationRecord";
+import { isTerminal, SETTLEMENT_STATES, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { fromStoredSwap } from "./adapters";
 import { reasonOf, recoveryFor } from "./reducer";
 import { getOperation, putOperation } from "./store";
@@ -103,6 +103,8 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
 }
 
 const lastReconciled = new Map<string, number>();
+/** Where the money of an order never handed over can be: in its escrow (funded, or refundable). */
+const BEFORE_HAND_OVER: readonly string[] = ["SOURCE_CONFIRMED", "REFUND_AVAILABLE"];
 
 /**
  * V6 (spec v2.0 §12.5; doc §73): the API's reconcile of the open swaps when Activity opens — one call per operation per
@@ -117,8 +119,13 @@ export async function reconcileOpenSwaps(swaps: StoredSwap[], now = Date.now()):
     if (!r) continue;
     answered++;
     const rec = getOperation(swapRecordId(s.orderId));
-    if (rec && !rec.settlement && r.settlement && !isTerminal(rec.state))
-      putOperation({ ...rec, settlement: r.settlement, updatedAt: Math.max(now, rec.updatedAt) });
+    // a settlement of the wallet's own vocabulary only, and before a hand-over only one with the funds in the escrow
+    // (2026-10-17, the audit's unverified m48): a faulty API's COMPLETED stuck for a paused order and hid its refund, and an
+    // unknown value broke the recovery card
+    const handedOver = !!s.jobId || !!s.executionTx;
+    const settlement =
+      r.settlement && SETTLEMENT_STATES.includes(r.settlement) && (handedOver || BEFORE_HAND_OVER.includes(r.settlement)) ? r.settlement : null;
+    if (rec && !rec.settlement && settlement && !isTerminal(rec.state)) putOperation({ ...rec, settlement, updatedAt: Math.max(now, rec.updatedAt) });
   }
   return answered;
 }

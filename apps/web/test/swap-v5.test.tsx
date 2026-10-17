@@ -128,6 +128,12 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
     expect(screen.getByTestId("recovery-funds").textContent).toBe("Your funds were not moved.");
     expect(screen.queryByTestId("recovery-refund"), "nothing to refund before the signature").toBeNull();
     expect(screen.getByTestId("recovery-new-quote")).toBeInTheDocument();
+    cleanup();
+    // a settlement outside the vocabulary (journaled from a faulty API by an older build) draws the state's legs, never throws
+    // (the audit's unverified m48)
+    const odd = { ...swap, settlement: "SETTLED_V2" } as unknown as typeof swap;
+    render(<Recovery record={odd} onMonitor={onMonitor} onRefund={onRefund} />);
+    expect(screen.getByTestId("recovery-legs")).toBeInTheDocument();
   });
   it("the Review on a cross-chain route states the non-atomic sentence verbatim and the protection line; a tap below the band, the hold from it", () => {
     const base = {

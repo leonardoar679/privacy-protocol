@@ -7,7 +7,7 @@
 // never run here. The operation record follows every step. V6 Stage 12: a same-chain swap into the protected balance has
 // its shield job asked while it is tracked (registered again when the executor forgot it), and its delivered note looked
 // for once the executor reports a shield; the order completes on that note.
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
@@ -22,7 +22,8 @@ import { FeeMoved } from "../src/privateTx";
 import { FUNDING_MARGIN_MS, patchSwap, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
-import { swapRecordId } from "../src/operations/swapRecords";
+import { swapRecordId, reconcileOpenSwaps } from "../src/operations/swapRecords";
+import { swapService } from "../src/swapService";
 import type { Prepared } from "../src/swapService";
 import {
   acceptNewMinimum,
@@ -542,6 +543,35 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(await returnFunds(ORDER, deps(io, late + 2000))).toBe("refunding");
     expect(w.refunds).toBe(1);
     expect(stored()).toMatchObject({ jobId: "refund-1" });
+  });
+
+  it("the API's settlement fills a record only from the wallet's vocabulary, and before a hand-over only with the funds in the escrow (the audit's unverified m48)", async () => {
+    windowed({ fundedTx: "0xf00d", state: "funded", operationId: "op_m48" });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.escrow = AMOUNT;
+    const late = END * 1000 + 60_000;
+    expect((await runOrderTick(pending()!, deps(io, late)))?.step).toBe("paused");
+    expect(record()!.settlement, "nothing from the runner yet").toBeUndefined();
+    const answer = (settlement: string) =>
+      ({ state: "RECOVERY_REQUIRED", settlement, refs: {}, checkedAt: 0, sources: { relayer: "none", chain: "ok", provider: "none" } }) as never;
+    const spy = vi.spyOn(swapService, "reconcile").mockResolvedValue(answer("COMPLETED"));
+    try {
+      await reconcileOpenSwaps([stored()], late + 500);
+      expect(record()!.settlement, "a faulty API's COMPLETED for an order never handed over").toBeUndefined();
+      expect(actionsFor(record()!), "the refund stays offered").toContain("start-refund");
+      spy.mockResolvedValue(answer("SETTLED_V2"));
+      await reconcileOpenSwaps([stored()], late + 10_000);
+      expect(record()!.settlement, "a value outside the vocabulary").toBeUndefined();
+      spy.mockResolvedValue(answer("REFUND_AVAILABLE"));
+      await reconcileOpenSwaps([stored()], late + 20_000);
+      expect(record()!.settlement, "the escrow holds the funds: filled").toBe("REFUND_AVAILABLE");
+      expect(actionsFor(record()!)).toContain("start-refund");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a lower minimum accepted after the window closed is not signed: the order stops for Return funds", async () => {
