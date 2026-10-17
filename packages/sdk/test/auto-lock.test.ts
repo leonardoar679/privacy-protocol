@@ -10,6 +10,7 @@ import {
   DEFAULT_AUTO_LOCK_MINUTES,
   HIDDEN_LOCK_MS,
   HOLD_CAP_MS,
+  SAFE_POINT_GRACE_MS,
   autoLockMinutesOf,
   lockVerdict,
   type AutoLockClock,
@@ -41,6 +42,13 @@ describe("lockVerdict", () => {
       due: "idle",
       heldBy: null,
       atSafePoint: true,
+      nextCheck: 10 * MIN + HOLD_CAP_MS + SAFE_POINT_GRACE_MS,
+    });
+    // and not for good: SAFE_POINT_GRACE_MS past the cap it locks without one (the audit's unverified m43)
+    expect(lockVerdict({ ...base, now: 10 * MIN + HOLD_CAP_MS + SAFE_POINT_GRACE_MS, holds: [{ reason: "hand-over", since: 10 * MIN }] })).toMatchObject({
+      due: "idle",
+      heldBy: null,
+      atSafePoint: false,
     });
     expect(lockVerdict({ ...base, now: 45 * MIN, holds: [] })).toMatchObject({ due: "idle", heldBy: null, atSafePoint: false });
   });
@@ -167,6 +175,16 @@ describe("the controller", () => {
     expect(s.isUnlocked(), "no safe point yet").toBe(true);
     s.safePoint();
     expect([s.isUnlocked(), locks]).toEqual([false, ["idle"]]);
+  });
+
+  it("a hold past 30 minutes with no safe point ever (offline, a first launch): locked SAFE_POINT_GRACE_MS later on its own (the audit's unverified m43)", async () => {
+    const clock = manualClock();
+    const { s, locks } = await unlocked(clock);
+    s.hold("signature", clock.now());
+    clock.advance(31 * MIN);
+    expect(s.isUnlocked(), "waiting for a safe point").toBe(true);
+    clock.advance(SAFE_POINT_GRACE_MS);
+    expect([s.isUnlocked(), locks], "never unlocked for good").toEqual([false, ["idle"]]);
   });
 
   it("a lock runs the hooks and ends every hold; the idle clock restarts at the next unlock", async () => {

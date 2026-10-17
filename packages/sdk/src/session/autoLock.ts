@@ -8,7 +8,9 @@
 // Focus loss counts as idleness only: a wallet pop-up and the WalletConnect modal take focus. A critical section — the
 // signature prompt, proving, submission, commit → hand-over — holds the lock off (`session.hold(reason)`) for at most
 // 30 minutes; past that, the lock happens at the next safe point (a hold released, or the scheduler between two runner
-// ticks: `session.safePoint()`). The verdict is pure (`lockVerdict`); the controller keeps the clock and one timer; the
+// ticks: `session.safePoint()`), and at the latest SAFE_POINT_GRACE_MS later: a safe point may never come (2026-10-17, the
+// audit's unverified m43 — a first-launch session has no due action, and offline the scheduler runs nothing, so a stuck
+// prompt kept the wallet unlocked for good). The verdict is pure (`lockVerdict`); the controller keeps the clock and one timer; the
 // platform (apps/web/src/platform/autoLock.ts) feeds it the page's events.
 import type { Hold, WalletSession } from "../wallet/session";
 
@@ -17,6 +19,8 @@ export type AutoLockMinutes = (typeof AUTO_LOCK_MINUTES)[number];
 export const DEFAULT_AUTO_LOCK_MINUTES: AutoLockMinutes = 15;
 export const HIDDEN_LOCK_MS = 5 * 60_000;
 export const HOLD_CAP_MS = 30 * 60_000;
+/** Past the cap, how long the lock waits for a safe point before it happens anyway. */
+export const SAFE_POINT_GRACE_MS = 10 * 60_000;
 
 /** A stored value as one of the four choices; anything else is the default. */
 export const autoLockMinutesOf = (v: unknown): AutoLockMinutes =>
@@ -38,7 +42,7 @@ export interface LockVerdict {
   due: LockCause | null;
   /** a hold younger than the cap defers the due lock until it is released */
   heldBy: string | null;
-  /** every hold is past the cap: the lock happens at the next safe point */
+  /** every hold is past the cap: the lock happens at the next safe point (and at `nextCheck` without one) */
   atSafePoint: boolean;
   /** when the verdict can next change without an event (ms since the epoch); null when only an event can change it */
   nextCheck: number | null;
@@ -51,7 +55,9 @@ export function lockVerdict(f: AutoLockFacts): LockVerdict {
   if (!due) return { due: null, heldBy: null, atSafePoint: false, nextCheck: Math.min(idleAt, hiddenAt) };
   const live = f.holds.filter((h) => f.now - h.since < HOLD_CAP_MS);
   if (live.length) return { due, heldBy: live[0].reason, atSafePoint: false, nextCheck: Math.min(...live.map((h) => h.since + HOLD_CAP_MS)) };
-  return { due, heldBy: null, atSafePoint: f.holds.length > 0, nextCheck: null };
+  if (!f.holds.length) return { due, heldBy: null, atSafePoint: false, nextCheck: null };
+  const anyway = Math.max(...f.holds.map((h) => h.since)) + HOLD_CAP_MS + SAFE_POINT_GRACE_MS;
+  return f.now >= anyway ? { due, heldBy: null, atSafePoint: false, nextCheck: null } : { due, heldBy: null, atSafePoint: true, nextCheck: anyway };
 }
 
 export interface AutoLockClock {
