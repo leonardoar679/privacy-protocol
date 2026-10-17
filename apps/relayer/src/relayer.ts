@@ -22,6 +22,7 @@ import { NOTE_DATA_BYTES, noteDataHash, txDomain } from "@privacy-wallet/protoco
 import { decryptNoteData, viewKeyPair, type ViewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { encodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { bpsLabel, feeMeetsTerms } from "@privacy-wallet/protocol/wallet/fees";
+import { FIELD } from "@privacy-wallet/protocol/field";
 import { coreAbi, encodeTransact, piFromStrings, type PublicInputs } from "./abi";
 import type { Journal } from "./journal";
 import { DROP_AFTER_MS, Sender, unknownToTheNode } from "./sender";
@@ -57,6 +58,9 @@ export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string
 
 /** How long a submitted transaction may be unknown to the node before its job counts as dropped (`monitor`). */
 export { DROP_AFTER_MS };
+
+/** An output's amount as the circuit proves it: Num2Bits(248) (circuits/transaction.circom). */
+const OUTPUT_AMOUNT_BOUND = 1n << 248n;
 
 export class RelayerError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -142,6 +146,10 @@ export class Relayer {
     if (!fv) throw new RelayerError("fee_vault_not_accepted", `this relayer takes no fees in vault ${f.vault}; accepted: ${[this.cfg.feeVault, ...Object.keys(this.cfg.feeVaults ?? {})].join(", ")}`);
     let amount: bigint, secret: bigint;
     try { amount = BigInt(f.amount); secret = BigInt(f.noteSecret); } catch { throw new RelayerError("bad_fee", "fee.amount / fee.noteSecret must be integers"); }
+    // the opening as the circuit proves it (a V6 follow-up of 2026-10-16): an amount in its output range (below 2^248) and a
+    // secret in the field. Poseidon2 reduces every input mod p, so an amount of p opened a proven 0 note — free relaying at this
+    // relayer's gas, the 1 % and the minimum skipped
+    if (amount < 0n || amount >= OUTPUT_AMOUNT_BOUND || secret < 0n || secret >= FIELD) throw new RelayerError("bad_fee", "fee.amount must be below 2^248 and fee.noteSecret below the field");
     const body = noteBody({ vaultId: BigInt(fv.vault), amount, ownerCommitment: this.identity.ownerCommitment, noteSecret: secret });
     const bodies = [pi.outputBody0, pi.outputBody1, pi.outputBody2];
     if (body !== bodies[f.outputIndex]) throw new RelayerError("fee_note_mismatch", `output ${f.outputIndex} is not a note of ${amount} units to this relayer in vault ${fv.vault}`);

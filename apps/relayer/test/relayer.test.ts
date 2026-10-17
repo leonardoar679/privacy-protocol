@@ -126,6 +126,20 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
     const otherRelayer = new Relayer({ ...cfg, masterSeed: utf8ToBytes("not the fixture's relayer") }, relayer.clients);
     expect(() => otherRelayer.validateShape(req)).toThrow(/not a note of/);
   });
+  it("a fee opening outside what the circuit proves is refused: raised by the field's order it hashes to the same note (a V6 follow-up of 2026-10-16)", () => {
+    // Poseidon2 reduces every input mod p, so amount + p (or p for a proven 0 note) opened the same note: free relaying, the 1 % skipped
+    const { req } = fixtureRequest();
+    expect(() => relayer.validateShape(req)).not.toThrow();
+    const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    for (const fee of [
+      { ...req.fee, amount: (BigInt(req.fee.amount) + P).toString() },
+      { ...req.fee, noteSecret: (BigInt(req.fee.noteSecret) + P).toString() },
+      { ...req.fee, amount: (1n << 248n).toString() },
+      { ...req.fee, amount: "-1" },
+    ]) {
+      expect(() => relayer.validateShape({ ...req, fee }), JSON.stringify(fee)).toThrow(/below 2\^248/);
+    }
+  });
   it("spends no gas on a transaction that would revert (simulation gate)", async () => {
     const { req } = fixtureRequest();
     revertSimulation = true;

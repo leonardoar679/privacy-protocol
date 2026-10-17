@@ -48,6 +48,14 @@ describe("envelope", () => {
     }
     expect(decryptNoteData(aliceView, nd.subarray(0, 168))).toBeNull();
   });
+  it("opens field elements only, as the Rust core decodes them: a word of the field's order or more opens nothing (a V6 follow-up of 2026-10-16)", () => {
+    // a plaintext amount of p hashes, reduced mod p, as a note of 0: a relayer read such a fee note as paid in full
+    const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    for (const over of [{ amount: P }, { amount: P + 5n }, { noteSecret: P }, { vaultId: P }]) {
+      expect(decryptNoteData(aliceView, encryptNoteData(aliceView.publicKey, { ...plain, ...over })), JSON.stringify(over, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).toBeNull();
+    }
+    expect(decryptNoteData(aliceView, encryptNoteData(aliceView.publicKey, { ...plain, amount: P - 1n }))).toEqual({ ...plain, amount: P - 1n });
+  });
   it("dummies have the real envelope's shape and open for nobody", () => {
     const d = dummyNoteData();
     expect(d.length).toBe(NOTE_DATA_BYTES);

@@ -19,6 +19,7 @@ import { sha256 } from "@noble/hashes/sha256";
 import { concatBytes, randomBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { NOTE_DATA_BYTES, packPlaintext } from "./payload";
 import { noteBody, noteCommitment, type Note } from "./note";
+import { FIELD } from "./field";
 
 export const ENVELOPE_VERSION = 0x01;
 export const VIEW_X25519_TAG = utf8ToBytes("privacy-protocol/v1/view-x25519");
@@ -68,7 +69,11 @@ export function decryptNoteData(view: ViewKeyPair, noteData: Uint8Array): NotePl
   try {
     const key = sha256(concatBytes(ENVELOPE_KEY_TAG, x25519.getSharedSecret(view.secret, ephPub), ephPub, view.publicKey));
     const pt = xchacha20poly1305(key, nonce, noteData.subarray(0, NONCE_OFF)).decrypt(noteData.subarray(CT_OFF));
-    return { amount: fromBe(pt.subarray(0, 32)), noteSecret: fromBe(pt.subarray(32, 64)), vaultId: fromBe(pt.subarray(64, 96)) };
+    const words = [fromBe(pt.subarray(0, 32)), fromBe(pt.subarray(32, 64)), fromBe(pt.subarray(64, 96))];
+    // field elements only, as the Rust core decodes them (fr_from_be32_checked; a V6 follow-up of 2026-10-16): a word of p or
+    // more would open a note whose hash, reduced mod p, is another amount's
+    if (words.some((w) => w >= FIELD)) return null;
+    return { amount: words[0], noteSecret: words[1], vaultId: words[2] };
   } catch {
     return null; // authentication failed (not ours) or a low-order ephemeral key
   }
