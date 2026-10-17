@@ -133,7 +133,8 @@ The journal is readable only with the seed, never with the password alone. Losin
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. Nothing in either file is ever stored in the clear. V5 (Privacy Wallet Web
 spec §8): the only secure-store records are `pp.keystore` and `pp.journal` (`pp.journal.unreadable` when one is set
-aside), in the IndexedDB database `privacy-wallet`, store `secure` — moved once from localStorage, which then holds
+aside; "Forget this wallet" removes all three — the audit's unverified m44, 2026-10-17: the set-aside one had stayed), in
+the IndexedDB database `privacy-wallet`, store `secure` — moved once from localStorage, which then holds
 nothing of ours; the `prefs` store beside it holds the experience mode, theme, locale and backup timestamps and never a
 secret or a financial figure. The formats above are unchanged byte for byte.
 

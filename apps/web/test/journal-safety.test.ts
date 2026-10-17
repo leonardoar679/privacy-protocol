@@ -3,7 +3,7 @@
 // the user asks; the next journal write then persists. Every journal write notifies subscribers.
 import { describe, it, expect, beforeEach } from "vitest";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
-import { JOURNAL_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
+import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
 import { decryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -57,5 +57,8 @@ describe("unreadable journal", () => {
     expect(await s.unlock("pw")).toBe(true);
     expect(s.state().journalUnreadable).toBe(false);
     expect(storage.get(UNREADABLE_JOURNAL_KEY)).toBe("{not json");
+    // forgetting the wallet takes the set-aside journal too, not only the keystore and the journal (the audit's unverified m44)
+    s.forget();
+    expect([storage.get(KEYSTORE_KEY), storage.get(JOURNAL_KEY), storage.get(UNREADABLE_JOURNAL_KEY)]).toEqual([null, null, null]);
   });
 });

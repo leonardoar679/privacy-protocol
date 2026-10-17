@@ -245,11 +245,15 @@ export class WalletSession {
   safePoint(): void { for (const h of this.safeHooks) h(); }
   onSafePoint(fn: () => void): () => void { this.safeHooks.add(fn); return () => { this.safeHooks.delete(fn); }; }
 
-  /** Forget this wallet on this device (the phrase or a backup file is then the only way back). */
+  /**
+   * Forget this wallet on this device (the phrase or a backup file is then the only way back): its three records, a
+   * journal set aside as unreadable among them — it had stayed on the device (2026-10-17, the audit's unverified m44).
+   */
   forget(): void {
     this.lock();
     this.store.remove(KEYSTORE_KEY);
     this.store.remove(JOURNAL_KEY);
+    this.store.remove(UNREADABLE_JOURNAL_KEY);
     this.emit();
   }
 
