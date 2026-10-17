@@ -59,6 +59,8 @@ const fmtUnits = (units: string | bigint | undefined, decimals: number): string 
   return `${u / base}${frac ? `.${frac}` : ""}`;
 };
 const params = (s: StoredSwap) => s.params as { amount: string; executeDeadline: number; refundAfter: number };
+/** A tracker's base-unit amount, or 0 when it is not one. */
+const unitsOf = (x: string | undefined): bigint => { try { return x === undefined ? 0n : BigInt(x); } catch { return 0n; } };
 const req = (s: StoredSwap) => s.request as { from?: { symbol?: string; decimals?: number }; to?: { symbol?: string; decimals?: number } };
 
 /**
@@ -106,6 +108,11 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
     if (refundedToo) return out("PARTIAL", "Partial", [true, true, true, true], `${got} added to your protected balance; the rest came back to the escrow and was re-shielded.`, into);
     return out("COMPLETED", "Completed", [true, true, true, true], `${got} added to your protected balance.`, into);
   }
+  // a partial fill whose rest came back (a V6 follow-up of 2026-10-16, audit c32): the refund note is the remainder, not the order —
+  // read as Refunded, a campaign re-planned and swapped again what was already delivered
+  const executed = !!(f.job?.executionTx ?? s.executionTx) || f.job?.state === "executed" || f.job?.state === "completed";
+  if (refundedToo && executed && unitsOf(t?.deliveredAmount) > 0n)
+    return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   const job = f.job?.state;
   if (s.shield && (job === "completed" || job === "executed" || job === "executing")) {

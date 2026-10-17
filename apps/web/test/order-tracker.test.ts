@@ -81,6 +81,16 @@ describe("deriveState", () => {
 });
 const partial = (f: StoredSwap) => deriveState(f, facts({ job: job("executed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "1", refundedAmount: "1" } }));
 
+describe("a partial fill whose rest came back (a V6 follow-up of 2026-10-16)", () => {
+  it("reads Partial with both amounts, not Refunded; a never-executed order's refund note still reads Refunded", () => {
+    const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "300000000000000000" }] });
+    const back = deriveState(f, facts({ refundFound: true, job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
+    expect(back).toMatchObject({ state: "PARTIAL", label: "Partial", deliveredAmount: "0.02 BTC", deliveredUnits: "2000000", refundedAmount: "0.3 ETH" });
+    const never = deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "1000000000000000000" }] }), facts({ refundFound: true, job: job("refunded") }));
+    expect(never).toMatchObject({ state: "REFUNDED", label: "Refunded" });
+  });
+});
+
 describe("trackOrder", () => {
   const KDF = { N: 1 << 12, r: 8, p: 1 };
   let s: WalletSession;

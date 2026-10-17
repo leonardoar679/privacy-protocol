@@ -147,7 +147,7 @@ class World implements CampaignIo {
     const job = this.jobs.get(stored.orderId) ?? null;
     const state = this.tracked.get(stored.orderId) ?? (job?.state === "refund-only" ? "REFUND_PENDING" : job ? "PROVIDER_EXECUTING" : "SOURCE_FINAL");
     if (this.refundsBack.has(stored.orderId)) this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }]; });
-    const tracked: Tracked = { state, label: "Executing", steps: [true, true, false, false], detail: `state ${state}`, ...(this.delivered.has(stored.orderId) ? { deliveredAmount: this.delivered.get(stored.orderId) } : {}) };
+    const tracked: Tracked = { state, label: "Executing", steps: [true, true, false, false], detail: `state ${state}`, ...(this.delivered.has(stored.orderId) ? { deliveredAmount: "the tracker's words, never units", deliveredUnits: this.delivered.get(stored.orderId) } : {}) }; // as orderTracker reports them (a V6 follow-up of 2026-10-16: the runner had parsed the words, which read 0)
     return { tracked, job };
   }
   async refund(stored: StoredSwap) {
@@ -750,6 +750,17 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     clock += 3_000_000 + 1000;
     r = await tick(c);
     expect(r?.action).toMatchObject({ kind: "commit", index: 1 });
+    // a delivery the tracker reports with a refund (the rest came back) settles for what was delivered, never as a refund in full
+    // (a V6 follow-up of 2026-10-16): the delivered part was re-planned and swapped again
+    const e = await fresh();
+    await toInFlight(e);
+    const partialRefunded = current(e).tranches[0].orderId!;
+    world.tracked.set(partialRefunded, "REFUNDED");
+    world.delivered.set(partialRefunded, ((OUT * eth(30)) / AMOUNT).toString());
+    clock += 15_000;
+    await tick(e);
+    expect(current(e).tranches[0]).toMatchObject({ state: "settled", amount: eth(30).toString(), outcome: { refunded: eth(20).toString() } });
+    expect(exposure(current(e))).toMatchObject({ completed: eth(30), inFlight: 0n });
     // a refund of a whole tranche: the amount returns to the remainder and is planned again at the end
     const d = await fresh();
     await toInFlight(d);

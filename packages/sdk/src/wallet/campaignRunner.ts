@@ -181,13 +181,18 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   const s = tracked.state;
   const patch: Partial<Tranche> = { ...(job?.id && !t.jobId ? { jobId: job.id } : {}) };
   const rate = big(t.expected?.rateE18);
-  const deliveredOut = tracked.deliveredAmount !== undefined ? parseDelivered(tracked.deliveredAmount) : undefined;
-  if (s === "REFUNDED") return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: t.amount } }, note: "the escrow returned to the private balance" };
+  // the delivered units (a V6 follow-up of 2026-10-16, audit c11): `deliveredAmount` is the tracker's words ("0.03 BTC"), which
+  // read as 0 — every delivered step paused as an anomaly, and a partial fill re-planned what was already delivered
+  const deliveredOut = tracked.deliveredUnits !== undefined ? parseDelivered(tracked.deliveredUnits) : undefined;
+  // a delivery with the rest refunded is a partial fill settled for what was delivered (audit c32): never a refund in full, which
+  // re-planned the delivered part and swapped it again
+  const partialBack = s === "REFUNDED" && deliveredOut !== undefined && deliveredOut > 0n;
+  if (s === "REFUNDED" && !partialBack) return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: t.amount } }, note: "the escrow returned to the private balance" };
   if (s === "FAILED") return { state: "failed", patch, note: tracked.detail };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
-  if (s === "PARTIAL") {
-    const refundBack = job?.state === "completed" || (stored.refunds?.length ?? 0) > 0;
+  if (s === "PARTIAL" || partialBack) {
+    const refundBack = partialBack || job?.state === "completed" || (stored.refunds?.length ?? 0) > 0;
     const outcome = { ...t.outcome, ...(deliveredOut !== undefined ? { deliveredOut: deliveredOut.toString(), delivered: sourceEquivalent(deliveredOut, rate).toString() } : {}) };
     if (refundBack && outcome.delivered !== undefined) {
       // the rest came back: the tranche settles for what was delivered and the remainder returns to `remaining` (re-planned, §7)
