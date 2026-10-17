@@ -21,6 +21,7 @@ import {
   type Policy,
   type Preference,
   type ProviderId,
+  type Quote,
   type QuoteRequest,
   type Tier,
   type TrackStatus,
@@ -156,6 +157,8 @@ const assessmentOf = (set: { value?: unknown; tier?: Tier }) => ({
 interface Blob {
   order: Order;
   prepared?: PreparedExecution;
+  /** the provider is the one the engine chose at the commit, not one the caller named (a V6 follow-up of 2026-10-16) */
+  chosen?: boolean;
 }
 
 /**
@@ -286,7 +289,7 @@ export class SwapApi {
     // follow-up of 2026-10-16, audit gap 47): the relayer shields only a receipt the API vouched for
     const shieldVouch = req.destinationType === "protected" && this.d.voucher ? this.receiptVouch(b.shield, req, set.shieldTip, quote.toAmountMin) : undefined;
     if (shieldVouch !== undefined && typeof shieldVouch !== "string") return shieldVouch;
-    const operationId = this.record(order, typeof b.quoteId === "string" ? b.quoteId : null);
+    const operationId = this.record(order, typeof b.quoteId === "string" ? b.quoteId : null, provider === set.chosen?.provider);
     return {
       status: 200,
       body: wire({
@@ -342,7 +345,7 @@ export class SwapApi {
     return this.d.voucher!.shield(this.engine.cfg.chainId, receiver);
   }
 
-  private record(order: Order, quoteId: string | null): string {
+  private record(order: Order, quoteId: string | null, chosen = false): string {
     const id = newId("op");
     const req = order.request;
     this.d.store.createOperation(
@@ -362,7 +365,7 @@ export class SwapApi {
         executeDeadline: order.params.executeDeadline,
         refundAfter: order.params.refundAfter,
       },
-      encodeBlob({ order } satisfies Blob),
+      encodeBlob({ order, ...(chosen ? { chosen: true } : {}) } satisfies Blob),
     );
     this.d.store.event({ event: "operation.created", operationId: id, provider: order.quote.provider, state: "AWAITING_SIGNATURE", network: req.from.chain });
     return id;
@@ -465,13 +468,7 @@ export class SwapApi {
     const b = body as Record<string, unknown> | undefined;
     const approvedMin = b?.approvedMin !== undefined && /^\d+$/.test(String(b.approvedMin)) ? BigInt(b.approvedMin as string) : undefined;
     const tier = blob.order.tier;
-    const guard =
-      tier && atLeast(tier, "enhanced")
-        ? {
-            alternatives: (await this.engine.quoteAll(blob.order.request, blob.order.policy, { tier }).catch(() => ({ quotes: [] }))).quotes,
-            maxGapBps: maxGapBpsFor(tier),
-          }
-        : undefined;
+    const guard = tier && atLeast(tier, "enhanced") ? await this.guardFor(blob.order, tier) : undefined;
     try {
       const prepared = await this.engine.prepareExecution(blob.order, adapter, guard, approvedMin);
       this.d.store.setBlob(id, encodeBlob({ order: blob.order, prepared } satisfies Blob));
@@ -492,7 +489,8 @@ export class SwapApi {
       if (e instanceof MinimumMovedError)
         return { status: 409, body: wire({ error: e.message, code: "minimum_moved", approvedMin: e.approvedMin, newMin: e.newMin }) };
       if (e instanceof PriceGuardError) {
-        this.engine.tracker.recordQuoteDivergence(e.provider as ProviderId, e.gapBps); // V3 §10: repeated divergence opens the breaker
+        // V3 §10: repeated divergence opens the breaker, counted only where no caller's choice makes it (a V6 follow-up of 2026-10-16)
+        if (await this.divergenceCounts(blob)) this.engine.tracker.recordQuoteDivergence(e.provider as ProviderId, e.gapBps, id);
         return {
           status: 409,
           body: wire({ error: e.message, code: "price_guard", provider: e.provider, best: e.best, gapBps: e.gapBps, maxGapBps: e.maxGapBps }),
@@ -547,6 +545,31 @@ export class SwapApi {
     const result = await reconcileOperation(this.d.store, row, this.d.reads, now);
     this.reconciled.set(id, { at: this.d.now(), result });
     return { status: 200, body: result };
+  }
+
+  /**
+   * The price guard's alternatives (whale spec §14): the routes the engine would execute now (a V6 follow-up of 2026-10-16). Every
+   * live quote had counted, those the scoring refused too (NEAR Intents' withheld ingress, a stream over 4 h, a halted route, one
+   * above its limit), so a quote nobody would take refused a sound one, and counted against its provider.
+   */
+  private async guardFor(order: Order, tier: Tier): Promise<{ alternatives: Quote[]; maxGapBps: number }> {
+    const set = await this.engine.quoteAll(order.request, order.policy, { tier }).catch(() => null);
+    const executable = new Set((set?.scores ?? []).filter((s) => !s.filtered).map((s) => s.provider));
+    return { alternatives: (set?.quotes ?? []).filter((q) => executable.has(q.provider)), maxGapBps: maxGapBpsFor(tier) };
+  }
+
+  /**
+   * Whether the guard's refusal counts against the provider (V3 §10), where no caller's choice makes it (a V6 follow-up of
+   * 2026-10-16): the route the engine chose at the commit, an order the service values from the enhanced tier by its own read
+   * (a caller's hint raises the tier), its escrow funded. Anyone's unfunded orders, on a provider of their choosing, had kept
+   * any provider's breaker open for every user. The tracker counts each operation once.
+   */
+  private async divergenceCounts(blob: Blob): Promise<boolean> {
+    if (!blob.chosen) return false;
+    const own = await this.engine.assess(blob.order.request).catch(() => null);
+    if (!own || !atLeast(own.tier, "enhanced")) return false;
+    const balance = await this.d.reads.escrowBalance(blob.order.endpoint, blob.order.request.from.asset).catch(() => null);
+    return balance !== null && balance >= BigInt(blob.order.params.amount);
   }
 
   /** GET /v1/track/:provider: the destination side of an executed order, stateless, from the execution transaction (NEAR: the deposit address as ref). */

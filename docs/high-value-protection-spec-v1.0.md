@@ -325,7 +325,9 @@ are still tracked and may settle during the pause. Every pause journals its reas
   older than 3 × its plan's time and unfinished — since a V6 follow-up of 2026-10-14 only for an operation the read
   names, executed by the relayer as exactly that transaction, and timed by the API's own records: the hand-over and
   the plan's seconds recorded at finalize; a caller's own timing had let anyone open the breaker), quote divergence
-  (the price guard's gap at `/prepare`),
+  (the price guard's gap at `/prepare` — since a V6 follow-up of 2026-10-16 only for the route the engine chose at the
+  commit, once per operation, an order the service values from the enhanced tier by its own read, its escrow funded:
+  anyone's unfunded orders on a provider of their choosing had kept any provider's breaker open),
   and a new incident less than 24 h old; an expired breaker closes half-open (one probe).
 - **Concentration** (plan §49–§50, §134): for very large orders no provider SHOULD carry more than
   `PROVIDER_SHARE_CAP_BPS` (500, lab-calibrated) of the whole order **when two or more providers quote the

@@ -95,7 +95,7 @@ export interface TrackerOptions {
 }
 export const TRACKER_DEFAULTS: TrackerOptions = { windowMs: 3_600_000, breakerAfter: 3, breakerMs: 300_000, cacheMs: 30_000, spikeAfter: 6, stallsAfter: 2, divergencesAfter: 3, incidentMs: 86_400_000 };
 
-interface Record_ { consecutive: number; lastAt?: number; stamps: number[]; stalls: { at: number; key: string }[]; divergences: number[]; incidentAt?: number; openedAt?: number; openReason?: string; probe?: boolean }
+interface Record_ { consecutive: number; lastAt?: number; stamps: number[]; stalls: { at: number; key: string }[]; divergences: { at: number; key: string }[]; incidentAt?: number; openedAt?: number; openReason?: string; probe?: boolean }
 
 /**
  * The service's memory of each provider (whale spec §16; V3 §10): quote failures and timeouts in a rolling window,
@@ -116,7 +116,7 @@ export class ProviderHealthTracker {
   }
   private prune(r: Record_, now: number): void {
     const keep = (t: number) => now - t < this.opts.windowMs;
-    r.stamps = r.stamps.filter(keep); r.stalls = r.stalls.filter((s) => keep(s.at)); r.divergences = r.divergences.filter(keep);
+    r.stamps = r.stamps.filter(keep); r.stalls = r.stalls.filter((s) => keep(s.at)); r.divergences = r.divergences.filter((d) => keep(d.at));
   }
   private open(r: Record_, now: number, reason: string): void { r.openedAt = now; r.openReason = reason; r.probe = false; }
   recordSuccess(p: ProviderId): void {
@@ -141,11 +141,14 @@ export class ProviderHealthTracker {
     if (r.stalls.length >= this.opts.stallsAfter) this.open(r, now, `${r.stalls.length} settlement stalls in the last hour`);
     return true;
   }
-  /** The price guard refused this provider's hard quote (its gap to the best alternative). */
-  recordQuoteDivergence(p: ProviderId, gapBps: number, now = Date.now()): void {
+  /** The price guard refused this provider's hard quote (its gap to the best alternative); `key` names the operation, which counts once (a V6 follow-up of 2026-10-16). */
+  recordQuoteDivergence(p: ProviderId, gapBps: number, key: string, now = Date.now()): boolean {
     const r = this.rec(p);
-    r.divergences.push(now); this.prune(r, now);
+    this.prune(r, now);
+    if (r.divergences.some((d) => d.key === key)) return false;
+    r.divergences.push({ at: now, key });
     if (r.divergences.length >= this.opts.divergencesAfter) this.open(r, now, `${r.divergences.length} hard quotes far below the alternatives (last ${gapBps} bps)`);
+    return true;
   }
   /** A security incident on the feed; a fresh one opens the breaker. */
   recordIncident(p: ProviderId, dateMs: number, now = Date.now()): void {

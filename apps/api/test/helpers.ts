@@ -33,6 +33,10 @@ export const SHIELD_TIP = 30_000n;
 export class StubAdapter implements ProviderAdapter {
   readonly implemented = true;
   track_: TrackStatus = { state: "pending" };
+  /** its output in percent of the default (the divergence tests move it between the commit and the prepare) */
+  scale = 100n;
+  /** whether its minimum is readable here (false: filtered under a strict policy) */
+  verified = true;
   constructor(readonly id: ProviderId = "thorchain") {}
   capabilities(): Capabilities {
     return {
@@ -47,7 +51,7 @@ export class StubAdapter implements ProviderAdapter {
     };
   }
   async quote(req: QuoteRequest): Promise<Quote> {
-    const out = req.amount / 30n / 10n ** 10n;
+    const out = ((req.amount / 30n / 10n ** 10n) * this.scale) / 100n;
     return {
       provider: this.id,
       category: "A",
@@ -58,7 +62,7 @@ export class StubAdapter implements ProviderAdapter {
       expiresAt: Math.floor(Date.now() / 1000) + 600,
       nativeAssets: true,
       minOutEncoded: true,
-      minOutVerified: true,
+      minOutVerified: this.verified,
       hops: [],
       raw: {},
       obtainedAt: Date.now(),
@@ -115,6 +119,8 @@ export async function harness(
     /** a same-chain swap into the protected balance: the token's vault, a shield tip, the receiver factory (or `shieldFactory`) */
     protectedDestinations?: boolean;
     shieldFactory?: string | null;
+    /** more stub providers beside the default thorchain one */
+    extraAdapters?: StubAdapter[];
     /** the engine's EngineConfig.poolAssets (unset: not checked) */
     poolAssets?: Record<string, { symbol: string; decimals: number }>;
   } = {},
@@ -125,7 +131,7 @@ export async function harness(
   const store = new Store(openDb(":memory:"), log, () => clock.now);
   const adapter = new StubAdapter();
   const engine = new PrivateSwapEngine({
-    adapters: [adapter],
+    adapters: [adapter, ...(o.extraAdapters ?? [])],
     factory: "0x00000000000000000000000000000000000000f1",
     escrowCreationCode: BYTECODE.swapOrderEscrow,
     chainId: 1n,
@@ -135,7 +141,7 @@ export async function harness(
     valuer: NO_VALUER,
     ...(o.poolAssets ? { poolAssets: o.poolAssets } : {}),
   });
-  store.seedProviders(["thorchain"]);
+  store.seedProviders(["thorchain", ...(o.extraAdapters ?? []).map((a) => a.id)]);
   const script: Scripted = { job: "none", balance: 0n };
   const deps: SwapApiDeps = {
     engine,

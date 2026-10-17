@@ -450,7 +450,9 @@ of a tranche.
   exact new value, which it journals as the new `approvedMin`. The service MUST also run the
   **price guard**: the hard quote's minimum MUST NOT be more than `maxGapBps` (100; 50 at tier ≥
   `high-value`) below the best live alternative's minimum from a fresh competition
-  (`scoring.ts::priceGuard`); a worse re-quote is refused, whatever the earlier quote said.
+  (`scoring.ts::priceGuard`); a worse re-quote is refused, whatever the earlier quote said. The
+  alternatives are the routes the engine would execute: a route its scoring refuses is none (a V6
+  follow-up of 2026-10-16).
 - **Changed-quote bounds per adapter** (a lowered minimum is a changed quote): NEAR +100 bps,
   Mayan +200, LI.FI +50, Across swap leg +50 over the requested slippage; THORChain and Chainflip
   compute their minimum locally.

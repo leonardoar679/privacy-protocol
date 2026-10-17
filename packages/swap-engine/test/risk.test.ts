@@ -156,9 +156,10 @@ describe("the breaker's new triggers and the half-open probe (spec §10)", () =>
   });
   it("three quote divergences open it; an incident younger than a day opens it, an older one is only remembered", () => {
     const t = new ProviderHealthTracker();
-    t.recordQuoteDivergence("mayan", 80, t0); t.recordQuoteDivergence("mayan", 90, t0 + 1);
+    t.recordQuoteDivergence("mayan", 80, "op1", t0); t.recordQuoteDivergence("mayan", 90, "op2", t0 + 1);
+    expect(t.recordQuoteDivergence("mayan", 95, "op2", t0 + 1), "one operation counts once (a V6 follow-up of 2026-10-16)").toBe(false);
     expect(t.breakerOpen("mayan", t0 + 2)).toBeNull();
-    t.recordQuoteDivergence("mayan", 120, t0 + 2);
+    t.recordQuoteDivergence("mayan", 120, "op3", t0 + 2);
     expect(t.breakerOpen("mayan", t0 + 3)).toMatch(/3 hard quotes far below the alternatives \(last 120 bps\)/);
     const u = new ProviderHealthTracker();
     u.recordIncident("chainflip", t0 - 2 * 86_400_000, t0);
