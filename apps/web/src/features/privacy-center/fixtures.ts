@@ -139,7 +139,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         why: [
           "2 endpoints answer every read and must agree; none is trusted alone.",
           "An Ethereum light client proves the pool before every transaction.",
-          "Every endpoint sees the same requests for every user, and your IP address.",
+          "Every endpoint sees your IP address. The pool reads are the same for every user, but each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
       },
       {
@@ -301,7 +301,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         why: [
           "One endpoint serves every read and could lie or watch; configure two or more.",
           "An Ethereum light client proves the pool before every transaction.",
-          "Every endpoint sees the same requests for every user, and your IP address.",
+          "Every endpoint sees your IP address. The pool reads are the same for every user, but each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
       },
       {

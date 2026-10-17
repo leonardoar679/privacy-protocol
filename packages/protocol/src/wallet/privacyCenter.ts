@@ -72,7 +72,8 @@ export function privacyPosture(f: PostureFacts): Posture {
   cats.push({ id: "rpc", label: "RPC privacy", score: rpc, level: levelOf(rpc), why: [
     f.rpcEndpoints >= 2 ? `${f.rpcEndpoints} endpoints answer every read and must agree; none is trusted alone.` : "One endpoint serves every read and could lie or watch; configure two or more.",
     f.lightClient ? "An Ethereum light client proves the pool before every transaction." : "Reads rest on the endpoints' agreement alone (no light client for this chain).",
-    "Every endpoint sees the same requests for every user, and your IP address.",
+    // the swap side too (2026-10-17, the audit's unverified m69): the pre-trade simulation goes to every endpoint
+    "Every endpoint sees your IP address. The pool reads are the same for every user, but each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
   ] });
 
   // Timing privacy: the random delay between funding and acting.

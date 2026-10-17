@@ -26,6 +26,8 @@ describe("privacy posture", () => {
   it("fastest, one endpoint or a public submission are Reduced, and the overall follows the weakest", () => {
     expect(privacyPosture({ ...base, delayWindow: [0, 0] }).categories.find((c) => c.id === "timing")!.level).toBe("Reduced");
     expect(privacyPosture({ ...base, rpcEndpoints: 1 }).categories.find((c) => c.id === "rpc")!.level).toBe("Reduced");
+    // what the endpoints see includes every swap's simulation, never only reads that are the same for every user (the audit's unverified m69)
+    expect(privacyPosture(base).categories.find((c) => c.id === "rpc")!.why.join(" ")).toMatch(/simulates every swap you confirm: its escrow, amount and destination/);
     expect(privacyPosture({ ...base, privateSubmission: false }).overall).toBe("Reduced");
   });
 
