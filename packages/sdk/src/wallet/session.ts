@@ -54,7 +54,7 @@ export class WalletSession {
   // before the platform configures the engine: V6 Stage 3–4)
   constructor(private readonly storageSource: KeyValueStorage | (() => KeyValueStorage) = browserStorage, private readonly kdf: KdfParams | (() => KdfParams) = KDF_DEFAULT) {
     // mirror the in-memory stores into the journal while unlocked
-    noteStore.subscribe(() => this.update((j) => { const s = noteStore.serialize(); j.notes = s.notes; j.noteCounter = s.noteCounter; }));
+    noteStore.subscribe(() => this.update((j) => { const s = noteStore.serialize(); j.notes = s.notes; j.noteCounter = s.noteCounter; if (s.countersHeld) j.countersHeld = true; else delete j.countersHeld; }));
     settings.subscribe(() => this.update((j) => { j.settings = { ...settings.get() }; }));
   }
 
@@ -111,6 +111,8 @@ export class WalletSession {
     }
     this.unreadable = !!blob && journal === null; // kept as it is: nothing overwrites it
     this.open(seed, journal ?? emptyJournal());
+    // the journal in memory starts empty: which counters were used is unknown until one complete scan (PP-P03)
+    if (this.unreadable) noteStore.holdCounters();
     this.firstLaunch = false;
     return true;
   }
@@ -128,10 +130,14 @@ export class WalletSession {
     this.emit();
   }
 
-  /** Restore from the 24 words: the same seed under a new password; notes come back with a chain rescan. */
+  /**
+   * Restore from the 24 words: the same seed under a new password; notes come back with a chain rescan. No new note is
+   * made before one complete scan has seen the counters already used (PP-P03; the audit round of 2026-10-16).
+   */
   async restoreFromPhrase(phrase: string, password: string): Promise<void> {
     const seed = phraseToSeed(phrase);
     await this.create(password, seed);
+    noteStore.holdCounters();
     this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
   }
 
@@ -151,7 +157,10 @@ export class WalletSession {
     if (!seed) return false;
     this.store.set(KEYSTORE_KEY, JSON.stringify(b.keystore));
     if (b.journal) this.store.set(JOURNAL_KEY, JSON.stringify(b.journal)); else this.store.remove(JOURNAL_KEY);
-    return this.unlock(password);
+    const ok = await this.unlock(password);
+    // a backup may be older than the wallet's last notes: its counter is held until one complete scan (PP-P03)
+    if (ok) noteStore.holdCounters();
+    return ok;
   }
 
   /** The backup file: keystore + encrypted journal, both already encrypted; safe to store anywhere. */
@@ -232,7 +241,7 @@ export class WalletSession {
     this.seed = seed;
     this.key = journalKey(seed);
     this.data = journal;
-    noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter }); // triggers a journal write (same content)
+    noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld }); // triggers a journal write (same content)
     if (journal.settings) settings.set(journal.settings as Partial<Settings>);
     this.emit();
   }

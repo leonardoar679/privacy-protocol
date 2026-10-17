@@ -149,6 +149,12 @@ export interface JournalData {
    * Optional and never written by emptyJournal(): the pinned at-rest vectors and older journals stay valid.
    */
   prices?: unknown;
+  /**
+   * The note counters are held (wallet/notes.ts holdCounters; PP-P03, the audit round of 2026-10-16): this journal began
+   * without the whole of an earlier one — a restore from the phrase or a backup — and no complete scan has run since.
+   * Optional, never written by emptyJournal(): every earlier journal stays valid.
+   */
+  countersHeld?: true;
   /** V2 (whale spec §25, Stage 4): the Activity list. Optional, never written by emptyJournal(); readers default it to []. */
   activity?: ActivityRecord[];
   /** V2 (Stage 8): what private balance maintenance spent on relayer fees today (the daily cap of settings.housekeeping) */

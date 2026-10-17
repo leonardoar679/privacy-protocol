@@ -16,10 +16,11 @@ import { nullifier } from "@privacy-wallet/protocol/nullifier";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { useCoreModule } from "@privacy-wallet/sdk/core";
 import { matchCommittedDeposits, refundClaims } from "@privacy-wallet/sdk/refunds";
-import { scanNotes } from "@privacy-wallet/sdk/privateTx";
+import { COUNTER_RESERVE, scanNotes } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment, DepositedLog, NoteInsertedLog } from "@privacy-wallet/sdk/chain";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { session } from "@privacy-wallet/sdk/wallet/session";
 import { startMockCore } from "./helpers/mockRpc";
 
 const CORE = getAddress("0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9");
@@ -90,6 +91,24 @@ describe("a deposited note made out to its own owner commitment", () => {
     await scanNotes({ masterSeed: seed, deployment: deployment() });
     expect(noteStore.all().find((n) => n.leafIndex === 4)!.spent).toBe(true);
     expect(noteStore.all().find((n) => n.leafIndex === 0)!.spent).toBe(false);
+  });
+});
+
+describe("the counters held after a restore (PP-P03)", () => {
+  it("one complete scan releases them, a reserve past the counters it found; a scan for some claims only does not", async () => {
+    noteStore.holdCounters();
+    await scanNotes({ masterSeed: seed, deployment: deployment(), refunds: [] });
+    expect(noteStore.countersHeld(), "a scan for some claims only").toBe(true);
+    await scanNotes({ masterSeed: seed, deployment: deployment() });
+    expect(noteStore.countersHeld()).toBe(false);
+    expect(noteStore.nextCounter()).toBe(3 + COUNTER_RESERVE);
+  });
+  it("a lock during a scan: nothing goes into the emptied store, and the next wallet's counter is not raised", async () => {
+    const scan = scanNotes({ masterSeed: seed, deployment: deployment() });
+    session.lock(); // while the scan reads the pool: the lock empties the store
+    await expect(scan).rejects.toThrow(/locked during the scan/);
+    expect(noteStore.all()).toEqual([]);
+    expect(noteStore.nextCounter()).toBe(0);
   });
 });
 

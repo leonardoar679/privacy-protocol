@@ -84,6 +84,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   // a note to spend that neither the spend key nor a deposited note's own key opens (the audit round of 2026-10-16, c18):
   // refused before anything is proved
   no_owner_key: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // after a restore no note is made before one complete scan of the pool (wallet/notes.ts CountersHeld; PP-P03)
+  notes_loading: { source: "wallet", fundsClass: "not-moved", actions: ["wait"] },
   // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
   provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

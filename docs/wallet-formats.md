@@ -66,7 +66,10 @@ closed before its funding, `order_expired` with the state `abandoned`, and on a 
 its hand-over, `execution_window_closed`); a V6 follow-up of 2026-10-14: a swap order's
 funding, journaled before it is sent, is `fundingAttempt { nullifiers: [decimal, decimal], by: "relayer" | "wallet",
 relayerUrl?, txHash?, at }` (the transaction once known); its ticks are scheduled actions of the kind
-`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. A V6
+`order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. The
+audit round of 2026-10-16: `countersHeld: true` while a journal that began without the whole of an earlier one (a restore
+from the phrase or a backup) has had no complete scan — no note counter is handed out meanwhile (PP-P03); optional, never
+written by `emptyJournal()`. A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A V6
 follow-up (note discovery): a scheduled action of the kind `discovery` (id `discovery:pool`, one at a time, planned again
 while unlocked), and an Activity line of the kind `receive` (a private transfer received, id `receive:<leafIndex>`). V6
 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carries `shield { factory, receiver, params

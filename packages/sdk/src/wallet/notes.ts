@@ -22,6 +22,18 @@ export interface SerializedNote { vaultId: string; amount: string; ownerCommitme
 
 type Listener = () => void;
 
+/**
+ * Thrown when a note counter is asked for while the counters are held (NoteStore.holdCounters): after a start without the
+ * whole journal, until one complete scan has seen the counters this wallet already used. Nothing was made or sent.
+ */
+export class CountersHeld extends Error {
+  readonly code = "notes_loading";
+  constructor() {
+    super("the wallet is still looking for its notes after a restore: no new note until one complete scan of the pool");
+    this.name = "CountersHeld";
+  }
+}
+
 const sameNote = (a: Note, b: Note): boolean =>
   a.vaultId === b.vaultId && a.amount === b.amount && a.ownerCommitment === b.ownerCommitment && a.noteSecret === b.noteSecret;
 
@@ -56,6 +68,7 @@ export class NoteStore {
   private snapshot: OwnedNote[] = [];
   private listeners = new Set<Listener>();
   private counter = 0;
+  private held = false;
 
   /**
    * A note of this wallet at its leaf. The same note already there is completed instead of added again (a V6 follow-up of
@@ -85,8 +98,9 @@ export class NoteStore {
   nextCounter(): number {
     return this.counter;
   }
-  /** Next noteSecret counter for a note of ours (spec §5.5: never reused). */
+  /** Next noteSecret counter for a note of ours (spec §5.5: never reused); none while the counters are held. */
   allocateCounter(): number {
+    if (this.held) throw new CountersHeld();
     const c = this.counter++;
     this.emit();
     return c;
@@ -97,24 +111,52 @@ export class NoteStore {
     this.counter = used + 1;
     this.emit();
   }
+  /**
+   * After a start without the whole journal — a restore from the phrase or from a backup, a journal that does not open —
+   * the counters this wallet already used are unknown until one complete scan (PP-P03; the audit round of 2026-10-16): a
+   * counter handed out before could repeat a note's secret already on chain, and a deposit's own owner commitment with it,
+   * which links the two. Kept in the journal, so a reload before the scan keeps them held.
+   */
+  holdCounters(): void {
+    if (this.held) return;
+    this.held = true;
+    this.emit();
+  }
+  countersHeld(): boolean {
+    return this.held;
+  }
+  /**
+   * One complete scan has seen the counters it found (observeCounter): the next one is `reserve` past them, so a counter
+   * that left nothing the scan reads (an executed order's refund note, a commit never funded) is not handed out again, and
+   * counters are handed out again.
+   */
+  releaseCounters(reserve: number): void {
+    if (!this.held) return;
+    this.held = false;
+    this.counter += reserve;
+    this.emit();
+  }
   /** Everything the journal keeps. */
-  serialize(): { notes: SerializedNote[]; noteCounter: number } {
+  serialize(): { notes: SerializedNote[]; noteCounter: number; countersHeld?: true } {
     return {
       notes: this.notes.map((n) => ({ vaultId: n.note.vaultId.toString(), amount: n.note.amount.toString(), ownerCommitment: n.note.ownerCommitment.toString(), noteSecret: n.note.noteSecret.toString(), leafIndex: n.leafIndex, noteData: n.noteData, counter: n.counter, spent: n.spent, txHash: n.txHash, label: n.label, ...(n.addedAt !== undefined ? { addedAt: n.addedAt } : {}) })),
       noteCounter: this.counter,
+      ...(this.held ? { countersHeld: true as const } : {}),
     };
   }
   /** Replace the contents with a journal's (on unlock). The counter never goes backwards. */
-  load(data: { notes: SerializedNote[]; noteCounter: number }): void {
+  load(data: { notes: SerializedNote[]; noteCounter: number; countersHeld?: boolean }): void {
     // a journal written before notes were one per leaf may hold a leaf twice: it loads once
     this.notes = onePerLeaf(data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}) })));
     this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
+    this.held = !!data.countersHeld;
     this.emit();
   }
   /** Forget everything (on lock). */
   clear(): void {
     this.notes = [];
     this.counter = 0;
+    this.held = false;
     this.emit();
   }
   subscribe(l: Listener): () => void {

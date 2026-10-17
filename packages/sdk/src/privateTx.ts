@@ -653,7 +653,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
 /** Found notes into the store, each with its spent status: the RPC quorum's answer and, where a light client applies, the proven one. */
-async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[]): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
+async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], stop?: () => boolean): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
   const client = clientFor(d);
   // each note's nullifier is its own key's (the audit round of 2026-10-16, c18): with the spend key, a spent deposited note
   // would read unspent for good. A note neither key opens is left out, not the whole scan
@@ -666,6 +666,7 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[]): P
   const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
   const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
   const proven = await provenSpent(d, nullifiers);
+  if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
   for (const [i, f] of found.entries()) {
@@ -703,6 +704,12 @@ function allRefundClaims(masterSeed: Uint8Array, journal: RefundClaim[], upTo: n
 }
 /** How far past the highest counter found a refund is still looked for (refunds are rarer than notes). */
 const REFUND_COUNTER_MARGIN = 1024;
+/**
+ * How far past the highest counter one complete scan found the counters resume after a start without the whole journal
+ * (PP-P03; the audit round of 2026-10-16): past the counters that left nothing the scan reads — an executed order's
+ * refund note, a commit never funded — and well inside the 1024 a later restore searches past the last one found.
+ */
+export const COUNTER_RESERVE = 256;
 
 const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: r.kind === "shield" ? "swap" : "swap refund", counter: r.counter });
 
@@ -730,6 +737,19 @@ function journalRefunds(refunds: RecoveredRefund[]): void {
 }
 
 export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[] }> {
+  // a lock during the scan empties the store: nothing found afterwards goes into it, nor raises the next wallet's counter
+  let locked = false;
+  const off = session.onLock(() => {
+    locked = true;
+  });
+  try {
+    return await scanNotesUnlocked(o, () => locked);
+  } finally {
+    off();
+  }
+}
+
+async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress, locked: () => boolean): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[] }> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs } = await syncPoolQuorum(o.deployment);
@@ -753,9 +773,12 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   const upTo = Math.max(noteStore.nextCounter(), ...[...counters.values()].map((c) => c + 1), 0) + REFUND_COUNTER_MARGIN;
   const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? allRefundClaims(o.masterSeed, journaledRefundClaims(), upTo));
   for (const r of refunds) if (!found.some((f) => f.leafIndex === r.leafIndex)) found.push(refundFound(r));
-  const { addedNotes, ...r } = await recordFound(o.deployment, keys, found);
+  if (locked()) throw new Error("the wallet locked during the scan");
+  const { addedNotes, ...r } = await recordFound(o.deployment, keys, found, locked);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
+  // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
+  if (o.refunds === undefined) noteStore.releaseCounters(COUNTER_RESERVE);
   // a note this wallet's seed did not make (no counter), made out to the privacy address (only this wallet derives a
   // deposited note's own owner commitment), and that is no swap's refund or delivery: someone sent it here
   const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
