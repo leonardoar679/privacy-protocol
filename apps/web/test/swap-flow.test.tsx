@@ -37,12 +37,16 @@ async function mount(container: HTMLElement) {
   await act(async () => { root = createRoot(container); root.render(<Swap masterSeed={session.state().seed!} deployment={deployment} />); });
 }
 
+const NOTE_SECRET = 0x1d4c9a7be2f05836c71e9a2b4d6f8031a5c7e9b2d4f60817394a6c8e0b2d4f6n;
+
 /** Quote → commit → (funding happens elsewhere) → reopen the funded order from the journal. */
 async function committedAndFunded(container: HTMLElement) {
   await session.create("a strong password");
   session.acknowledgePhrase();
   // a balance to value and a price for it: the swap is then standard-tier (whale spec §13) and the flow one tap, as in V1.1
-  noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+  // a note secret as a real one looks (2026-10-17): the leakage gate reads its 64-digit form in every request, and the tiny
+  // `2n` was any ABI word holding a 2 — a request carrying one failed the gate now and then
+  noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: NOTE_SECRET }, leafIndex: 0, noteData: "0x", spent: false });
   await priceStore.refresh(deployment);
   expect(priceStore.state().status).toBe("ready");
   await mount(container);
