@@ -884,7 +884,11 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
         <Card padding="md" testId="swap-steps-paused">
           <h2 className="ds-card-title">{c.pause ? ALERT_TITLES[alertKindFor(c.pause.reason, c.pause.detail)] : t("screen.swap.stepsRouteChanged")}</h2>
           {c.pause?.detail ? <p className="ds-note">{c.pause.detail}</p> : null}
-          <p className="ds-note">{t("screen.swap.stepsSafe")}</p>
+          {/* a step funded and not handed over waits for its swap or its refund time, never in the protected balance (the audit
+              round of 2026-10-16, c51) */}
+          <p className="ds-note" data-testid="swap-steps-safe">
+            {t(c.tranches.some((x) => ["funded", "signed", "failed", "refunding"].includes(x.state)) ? "screen.swap.stepsSafeHeld" : "screen.swap.stepsSafe")}
+          </p>
           <div className="ds-actions">
             {c.state === "rerouting" ? (
               <Button onClick={() => navigate("/swap/protected", { state: { campaignId: c.id } })} data-testid="swap-steps-review-route">

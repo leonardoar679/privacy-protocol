@@ -240,6 +240,8 @@ export const ko: Record<MessageKey, string> = {
   "screen.swap.stepsRouteChanged": "경로가 바뀌었습니다",
   "screen.swap.stepsReviewRoute": "새 경로 검토",
   "screen.swap.stepsSafe": "자금은 안전합니다. 아직 넘겨지지 않은 금액은 보호 잔액에 그대로 있습니다.",
+  "screen.swap.stepsSafeHeld":
+    "자금은 안전합니다. 이미 자금이 들어간 단계는 해당 스왑을 위해 보관되었다가 환불 시간이 지나면 보호 잔액으로 돌아오며, 나머지는 보호 잔액에 그대로 있습니다.",
   "screen.swap.stepsDetail": "단계 보기",
   "screen.swap.intoProtected": "보호 잔액으로 들어옵니다.",
   "screen.swap.addingToProtected": "전달됨 — 보호 잔액에 추가하는 중…",

@@ -234,6 +234,7 @@ export const en = {
   "screen.swap.stepsRouteChanged": "The route changed",
   "screen.swap.stepsReviewRoute": "Review the new route",
   "screen.swap.stepsSafe": "Your funds are safe: what has not been handed over stays in your protected balance.",
+  "screen.swap.stepsSafeHeld": "Your funds are safe: a step already funded is held for its swap and returns to your protected balance after its refund time; the rest stays in your protected balance.",
   "screen.swap.stepsDetail": "View the steps",
   "screen.swap.intoProtected": "Arrives in your protected balance.",
   "screen.swap.addingToProtected": "Delivered — adding it to your protected balance…",

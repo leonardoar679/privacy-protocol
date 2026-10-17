@@ -8,13 +8,13 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { exposure, withTrancheState, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, withTrancheState, type Campaign, withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
 import { swapFunding } from "@privacy-wallet/protocol/wallet/fees";
 import type { Protection, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { priceStore } from "@privacy-wallet/sdk/prices";
-import { campaignById, campaignsOf } from "@privacy-wallet/sdk/wallet/campaigns";
+import { campaignById, campaignsOf, putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
@@ -129,6 +129,38 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
     expect(campaignById(c.id, session)?.state).toBe("winding-down");
     expect(campaignById(c.id, session)?.tranches.every((t) => t.state === "skipped")).toBe(true);
     expect(screen.getByTestId("swap-steps-note").textContent).toMatch(/Returning the rest/);
+  });
+
+  it("paused with a step funded: that step is said to be held for its swap, not in the protected balance (the audit round of 2026-10-16, c51)", async () => {
+    world.protection = bandPlan;
+    await wallet();
+    const router = mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
+    fireEvent.click(screen.getByTestId("swap-review"));
+    await screen.findByTestId("review-view");
+    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+    await act(async () => {
+      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 120));
+    });
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+    const [c] = campaignsOf(session.journal());
+    const now = Date.now();
+    const paused = (funded: boolean) => {
+      const x = funded ? withTrancheState(c, 0, "funded", now, { orderId: "0x" + "ab".repeat(32) }) : c;
+      return withCampaignState(x, "paused", now, "paused", { pause: { reason: "price-deviation", detail: "The market moved.", at: now } });
+    };
+    act(() => putCampaign(paused(false), session));
+    expect((await screen.findByTestId("swap-steps-safe")).textContent).toBe(
+      "Your funds are safe: what has not been handed over stays in your protected balance.",
+    );
+    act(() => putCampaign(paused(true), session));
+    await waitFor(() =>
+      expect(screen.getByTestId("swap-steps-safe").textContent).toMatch(
+        /a step already funded is held for its swap and returns to your protected balance after its refund time/,
+      ),
+    );
   });
 
   it("below the band ($20K–$50K) the swap stays one order — the strict quote from the Medium band (spec v2.0 §2)", () => {
