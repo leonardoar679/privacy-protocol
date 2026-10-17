@@ -3,6 +3,7 @@
 // applyConfig() before the first render (main.tsx); every engine module reads them through packages/sdk/src/config.ts. Tests
 // install their own with applyConfig(testConfig()) (test/setup.ts).
 import { z } from "zod";
+import { specForChain } from "@privacy-wallet/sdk/lightclient/spec";
 import { allowHosts, setStrict } from "@privacy-wallet/privacy-engine/transport/http";
 import { deploymentFromEnv, feedsFromEnv } from "@privacy-wallet/sdk/env";
 import { configure, defaultConfig, DEFAULTS, type CoreBackend, type SdkConfig } from "@privacy-wallet/sdk/config";
@@ -70,7 +71,8 @@ export function configFromEnv(raw: Env): SdkConfig {
     reviewHoldMinutes: e.VITE_REVIEW_HOLD_MINUTES ?? DEFAULTS.reviewHoldMinutes,
     ...(e.VITE_KDF_LOG2N ? { kdfLog2N: e.VITE_KDF_LOG2N } : {}),
     production: raw.PROD === true || raw.PROD === "true",
-    // the hosts the build names: the transport's allowlist (spec §7), exactly the variables the V5 transport read
+    // the hosts the build names: the transport's allowlist (spec §7), exactly the variables the V5 transport read — and the
+    // defaults it uses when it names none (the audit round of 2026-10-16, c59: a production build refused its own defaults)
     hosts: [
       e.VITE_RPC_URLS,
       e.VITE_RPC_URL,
@@ -80,7 +82,10 @@ export function configFromEnv(raw: Env): SdkConfig {
       e.VITE_BEACON_URLS,
       e.VITE_THORNODE_URLS,
       e.VITE_ARTIFACT_BASE,
-    ].flatMap(list),
+    ]
+      .flatMap(list)
+      .concat(e.VITE_THORNODE_URLS ? [] : [...DEFAULTS.thornodeGateways])
+      .concat(e.VITE_BEACON_URLS ? [] : (specForChain(Number(strings.VITE_CHAIN_ID ?? 31337))?.beaconApis ?? [])),
   });
 }
 

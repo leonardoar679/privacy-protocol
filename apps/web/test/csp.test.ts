@@ -3,14 +3,26 @@
 // worker same-origin, WalletConnect's relay only when a project id is set, the zkAPI profile's hosts when its assets
 // ship; the plugin prepends the meta tag; the headers a server must send; a built index.html (when present) carries it.
 import { describe, expect, it } from "vitest";
-import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, originOf, SECURITY_HEADERS, zkapiHosts } from "../scripts/csp.mjs";
+import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, DEFAULT_BEACON_APIS, DEFAULT_THORNODE_GATEWAYS, originOf, SECURITY_HEADERS, zkapiHosts } from "../scripts/csp.mjs";
+import { DEFAULTS } from "@privacy-wallet/sdk/config";
+import { MAINNET, SEPOLIA } from "@privacy-wallet/sdk/lightclient/spec";
+import { configFromEnv } from "../src/config";
 
 const ENV = { VITE_RPC_URLS: "https://rpc-a.example/v1/key, https://rpc-b.example", VITE_RELAYER_URL: "http://127.0.0.1:8790", VITE_RELAYER_URLS: "http://127.0.0.1:8790,https://relayer.example/", VITE_SWAP_SERVICE: "http://127.0.0.1:8787", VITE_BEACON_URLS: "https://lodestar-mainnet.chainsafe.io,https://ethereum-beacon-api.publicnode.com", VITE_ARTIFACT_BASE: "/artifacts" };
 
 describe("the content security policy (spec §20)", () => {
   it("names exactly the build's hosts (origins, deduplicated; a relative artifact base adds nothing)", () => {
-    expect(connectHosts(ENV)).toEqual(["https://rpc-a.example", "https://rpc-b.example", "http://127.0.0.1:8790", "https://relayer.example", "http://127.0.0.1:8787", "https://lodestar-mainnet.chainsafe.io", "https://ethereum-beacon-api.publicnode.com"]);
-    expect(connectHosts({})).toEqual([]);
+    // ENV names no THORNode gateway: the defaults it then uses are named too (audit c59)
+    expect(connectHosts(ENV)).toEqual(["https://rpc-a.example", "https://rpc-b.example", "http://127.0.0.1:8790", "https://relayer.example", "http://127.0.0.1:8787", "https://lodestar-mainnet.chainsafe.io", "https://ethereum-beacon-api.publicnode.com", "https://gateway.liquify.com", "https://rest.cosmos.directory", "https://thorchain-thornode-lb-1.thorwallet.org"]);
+    // a build that names no gateway and no beacon API uses the defaults, so its policy lets them through (audit c59)
+    expect(connectHosts({})).toEqual(DEFAULT_THORNODE_GATEWAYS.map(originOf));
+    expect(connectHosts({ VITE_CHAIN_ID: "1", VITE_THORNODE_URLS: "https://gw.example" })).toEqual(["https://gw.example", ...DEFAULT_BEACON_APIS[1].map(originOf)]);
+    expect(DEFAULT_THORNODE_GATEWAYS, "the wallet's own defaults").toEqual([...DEFAULTS.thornodeGateways]);
+    expect(DEFAULT_BEACON_APIS[1]).toEqual(MAINNET.beaconApis);
+    expect(DEFAULT_BEACON_APIS[11155111]).toEqual(SEPOLIA.beaconApis);
+    // and the transport's allowlist of a production build holds them too
+    const prod = configFromEnv({ PROD: true, VITE_CHAIN_ID: "11155111" } as never);
+    expect(prod.hosts).toEqual(expect.arrayContaining([...DEFAULTS.thornodeGateways, ...SEPOLIA.beaconApis]));
     expect(originOf("ws://127.0.0.1:1234/x")).toBe("ws://127.0.0.1:1234");
     expect(originOf("ftp://x.example")).toBeNull();
     expect(originOf("not a url")).toBeNull();
@@ -22,7 +34,7 @@ describe("the content security policy (spec §20)", () => {
     expect(directive("default-src")).toBe("default-src 'self'");
     expect(directive("script-src")).toBe("script-src 'self' 'wasm-unsafe-eval'");
     expect(directive("worker-src")).toBe("worker-src 'self' blob:");
-    expect(directive("connect-src")).toBe("connect-src 'self' https://rpc-a.example https://rpc-b.example http://127.0.0.1:8790 https://relayer.example http://127.0.0.1:8787 https://lodestar-mainnet.chainsafe.io https://ethereum-beacon-api.publicnode.com");
+    expect(directive("connect-src")).toBe("connect-src 'self' https://rpc-a.example https://rpc-b.example http://127.0.0.1:8790 https://relayer.example http://127.0.0.1:8787 https://lodestar-mainnet.chainsafe.io https://ethereum-beacon-api.publicnode.com https://gateway.liquify.com https://rest.cosmos.directory https://thorchain-thornode-lb-1.thorwallet.org");
     expect(directive("img-src")).toBe("img-src 'self' data: blob:");
     expect(directive("style-src")).toBe("style-src 'self'");
     expect(directive("object-src")).toBe("object-src 'none'");
@@ -30,7 +42,7 @@ describe("the content security policy (spec §20)", () => {
     expect(directive("form-action")).toBe("form-action 'none'");
     expect(csp, "inline styles only through style-src-attr (the V1.1–V4 components), never a script or a stylesheet").not.toMatch(/script-src[^;]*unsafe-inline|style-src [^;]*unsafe-inline|'unsafe-eval'|\*(?!\.)/);
     expect(csp, "only the hosts named, never a scheme-wide allowance").not.toMatch(/ (https?|wss?):(?!\/\/)/);
-    expect(buildCsp({})).toContain("connect-src 'self';");
+    expect(buildCsp({ VITE_THORNODE_URLS: "https://gw.example" }), "a build naming only its gateway: self and that gateway").toContain("connect-src 'self' https://gw.example;");
   });
   it("WalletConnect's relay joins connect-src only with a project id; the zkAPI profile's hosts join when its assets ship", () => {
     expect(buildCsp(ENV)).not.toContain("walletconnect");

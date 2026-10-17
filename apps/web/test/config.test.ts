@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe("configFromEnv", () => {
-  it("an empty environment is every default: the local stack's endpoints, no deployment, no allowlisted host", () => {
+  it("an empty environment is every default: the local stack's endpoints, no deployment, only the default gateways allowlisted", () => {
     const c = configFromEnv({});
     expect(c.deployment).toBeNull();
     expect(c.relayer).toEqual({ url: "http://127.0.0.1:8790", fallbacks: [] });
@@ -30,7 +30,8 @@ describe("configFromEnv", () => {
     expect(c.artifactBase).toBe("/artifacts");
     expect([c.holdMs, c.reviewHoldMinutes, c.production]).toEqual([1500, 30, false]);
     expect(c.thornode.gateways).toHaveLength(3);
-    expect(c.hosts).toEqual([]);
+    // the defaults it uses are allowlisted (the audit round of 2026-10-16, c59); a devnet has no beacon API
+    expect(c.hosts).toEqual(c.thornode.gateways);
     expect(c.priceFeeds).toBeNull();
   });
 
@@ -71,6 +72,7 @@ describe("configFromEnv", () => {
       "https://swap.example",
       "https://beacon.example",
       "https://cdn.example/a",
+      ...c.thornode.gateways, // no VITE_THORNODE_URLS: the default gateways it uses (c59); beacon APIs named, no default added
     ]);
   });
 

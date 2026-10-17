@@ -21,6 +21,25 @@ export const SECURITY_HEADERS = Object.freeze({
 });
 
 const LIST_VARS = ["VITE_RPC_URLS", "VITE_RPC_URL", "VITE_RELAYER_URL", "VITE_RELAYER_URLS", "VITE_SWAP_SERVICE", "VITE_BEACON_URLS", "VITE_THORNODE_URLS", "VITE_ARTIFACT_BASE"];
+/**
+ * The hosts the wallet uses when the build names none (the audit round of 2026-10-16, c59): the THORNode gateways of
+ * packages/sdk/src/config.ts DEFAULTS and the beacon APIs of packages/sdk/src/lightclient/spec.ts for mainnet and Sepolia
+ * (apps/web/test/csp.test.ts keeps them equal). A build that kept them blocked them in its own policy: verified spends and
+ * scans failed, no THORChain swap signed, and the refused requests turned the wallet offline.
+ */
+export const DEFAULT_THORNODE_GATEWAYS = ["https://gateway.liquify.com/chain/thorchain_api", "https://rest.cosmos.directory/thorchain", "https://thorchain-thornode-lb-1.thorwallet.org"];
+export const DEFAULT_BEACON_APIS = {
+  1: ["https://lodestar-mainnet.chainsafe.io", "https://ethereum-beacon-api.publicnode.com"],
+  11155111: ["https://lodestar-sepolia.chainsafe.io", "https://ethereum-sepolia-beacon-api.publicnode.com"],
+};
+
+/** The hosts a build uses without naming them: the default gateways and, on mainnet or Sepolia, the default beacon APIs. */
+export function defaultHosts(env = {}) {
+  const out = [];
+  if (!String(env.VITE_THORNODE_URLS ?? "").trim()) out.push(...DEFAULT_THORNODE_GATEWAYS);
+  if (!String(env.VITE_BEACON_URLS ?? "").trim()) out.push(...(DEFAULT_BEACON_APIS[Number(env.VITE_CHAIN_ID ?? 31337)] ?? []));
+  return out;
+}
 const WALLETCONNECT = ["https://relay.walletconnect.com", "wss://relay.walletconnect.com", "https://relay.walletconnect.org", "wss://relay.walletconnect.org", "https://*.walletconnect.com", "https://*.walletconnect.org", "https://*.reown.com", "wss://*.reown.com"];
 
 /** `https://host[:port]` of an absolute URL, or null for a relative path or garbage. */
@@ -38,6 +57,7 @@ export function connectHosts(env = {}, extra = []) {
   for (const name of LIST_VARS) {
     for (const part of String(env[name] ?? "").split(",")) { const o = originOf(part); if (o) out.add(o); }
   }
+  for (const h of defaultHosts(env)) { const o = originOf(h); if (o) out.add(o); }
   if (env.VITE_WC_PROJECT_ID) for (const h of WALLETCONNECT) out.add(h);
   for (const e of extra) { const o = originOf(e); if (o) out.add(o); }
   return [...out];
