@@ -39,6 +39,28 @@ export function swapFactoryOf(deployment: Deployment | null): Address {
   return deployment.swapFactory;
 }
 
+/**
+ * A funding already sent whose fate is not known to be dead (the audit round of 2026-10-16, c38): it is never sent again,
+ * whoever asks. The runners kept that rule, but fundEscrow trusted its caller, and the scheduled action and the V5 page's
+ * "Fund now" funded an order twice after a reload or while its funding was on its way.
+ */
+export class FundingAlreadySent extends Error {
+  readonly code = "funding_unconfirmed";
+  constructor(readonly fate: FundingFate) {
+    super(`Not funded again: this order's funding was already sent (${fate === "landed" ? "it landed" : fate === "dead" ? "it never landed; fund it again from the order" : "its outcome is not known yet"}). Nothing more was sent.`);
+    this.name = "FundingAlreadySent";
+  }
+}
+
+/** An order whose execution window has closed, or is about to: never funded, its escrow could only refund (c38). */
+export class OrderWindowClosed extends Error {
+  readonly code = "order_expired";
+  constructor() {
+    super("Not funded: this order's execution window has closed. Nothing was sent.");
+    this.name = "OrderWindowClosed";
+  }
+}
+
 /** Thrown before anything is sent: the relayer that would execute this swap does not run it (`relayerRunsFor`). */
 export class RelayerNotReady extends Error {
   readonly code = "relayer_not_ready";
@@ -252,7 +274,20 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
   return now - a.at < FUNDING_SETTLE_MS ? "pending" : "dead";
 }
 
-export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deployment | null; stored: StoredSwap; onStatus?: (line: string) => void; session?: WalletSession; /** the relayer that will execute the order: checked first (checkRelayerReady) */ relayerUrl?: string | null }): Promise<Submitted> {
+export async function fundEscrow(o: {
+  masterSeed: Uint8Array;
+  deployment: Deployment | null;
+  stored: StoredSwap;
+  onStatus?: (line: string) => void;
+  session?: WalletSession;
+  /** the relayer that will execute the order: required, and checked first (checkRelayerReady) */
+  relayerUrl?: string | null;
+  /** the user asked again after a funding that never landed (plan §86: never on its own) */
+  replaceDead?: boolean;
+  /** the reads of a journaled funding's fate (tests); the deployment's own otherwise */
+  reads?: FundingReads;
+  now?: number;
+}): Promise<Submitted> {
   const s = o.session ?? defaultSession;
   const { stored } = o;
   if (!o.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
@@ -269,6 +304,17 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   if (!stored.fundingAttempt && committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
   // the relayer that will execute it runs it, and the order's own vouch still counts (a V6 follow-up of 2026-10-16): a funded
   // escrow they refused would hold the funds until the refund time with nobody to execute or refund it
+  // a swap's escrow is executed by its relayer (the audit round of 2026-10-16, c37): funded through the connected wallet's
+  // submission, it was never executed, and the runner signed it again on every tick until its refund window
+  if (!o.relayerUrl) throw new RelayerNotReady("a swap is carried out by the relayer, and this wallet submits through the connected wallet (Settings → relayer submission)");
+  // its own rules, whatever the caller checked (c38): a funding already sent is never sent again before it is known dead —
+  // and a dead one only on the user's word (`replaceDead`) —, and none goes out past the order's window
+  if (stored.fundingAttempt) {
+    const fate = await fundingFate(stored.fundingAttempt, o.reads ?? fundingReads(o.deployment), o.now);
+    if (fate !== "dead" || !o.replaceDead) throw new FundingAlreadySent(fate);
+    patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
+  }
+  if ((o.now ?? Date.now()) + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();
   await checkFundingReady(o);
   // a same-chain swap's shield job is accepted before anything is funded (c12)
   await registerShieldBeforeFunding(o.relayerUrl ?? null, stored, s);

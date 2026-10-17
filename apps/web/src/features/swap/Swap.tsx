@@ -256,7 +256,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   async function fundNow() {
     if (!stored) return;
     const w = await run(t("swap.fundingNow"), async () => {
-      const r = await fundEscrow({ masterSeed, deployment, stored, onStatus: setBusy });
+      const r = await fundEscrow({ masterSeed, deployment, stored, onStatus: setBusy, relayerUrl: submission.kind === "relayer" ? submission.url : null, replaceDead: true });
       setStored((s) => (s ? { ...s, fundedTx: r.txHash, state: "funded" } : s));
       return r;
     });
