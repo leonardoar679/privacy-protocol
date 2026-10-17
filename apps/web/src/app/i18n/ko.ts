@@ -459,6 +459,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.destination_not_protectable.title": "이 스왑은 보호 잔액으로 받을 수 없습니다",
   "op.error.destination_not_protectable.reason":
     "풀과 같은 네트워크에 있고 풀에 금고가 있는 자산만 보호 잔액으로 받을 수 있습니다. 자금은 이동하지 않았습니다.",
+  "op.error.asset_mismatch.title": "스왑 서비스가 이 자산을 지갑과 다르게 알고 있습니다",
+  "op.error.asset_mismatch.reason":
+    "서비스가 이 토큰을 다른 소수 자릿수나 다른 기호로 알고 있거나 전혀 알지 못해 스왑 실행 비용을 계산할 수 없습니다. 아무것도 커밋되지 않았고 자금은 이동하지 않았습니다. 지갑의 네트워크 설정을 확인하세요.",
   "op.error.provider_unavailable.title": "제공자가 응답하지 않습니다",
   "op.error.provider_unavailable.reason":
     "제공자가 실패했거나 응답하지 않았습니다. 지갑이 스스로 다시 시도하며, 서명하거나 보내기 전에 상태를 먼저 확인합니다.",

@@ -10,6 +10,7 @@ import { NearIntentsAdapter } from "./adapters/nearIntents";
 import { AcrossAdapter } from "./adapters/across";
 import { NO_VALUER, RpcValuer } from "./valuation";
 import { RpcFeeSource, gasTips, type FeeSource } from "./tips";
+import { pooledAssets } from "./escrowAssets";
 
 const rpcUrls = () => (process.env.RPC_URLS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -25,12 +26,18 @@ function feesFromEnv(): FeeSource {
   return urls.length ? new RpcFeeSource(urls) : { fees: async () => { throw new Error("RPC_URLS is not set: the executor tip (the execution's gas) cannot be priced"); } };
 }
 
-/** ERC20_VAULTS="0xtoken:0xvault,0xtoken:0xvault" → the canonical vault a failed ERC-20 swap re-shields into (plan §36). */
+/**
+ * ERC20_VAULTS="0xtoken:0xvault[:SYMBOL:decimals],…" → the canonical vault a failed ERC-20 swap re-shields into (plan §36), and what
+ * the token is: an order in it is built only under that symbol and those decimals (a V6 follow-up of 2026-10-16), which value its
+ * tip; USDC and USDT on Ethereum need neither (escrowAssets.ts KNOWN_TOKENS). A malformed entry stops the start.
+ */
 function erc20RefundVaults(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const entry of (process.env.ERC20_VAULTS ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
-    const [token, vault] = entry.split(":").map((s) => s.trim());
-    if (!/^0x[0-9a-fA-F]{40}$/.test(token ?? "") || !/^0x[0-9a-fA-F]{40}$/.test(vault ?? "")) throw new Error(`ERC20_VAULTS entry "${entry}" must be 0xtoken:0xvault`);
+    const [token, vault, symbol, decimals, ...rest] = entry.split(":").map((s) => s.trim());
+    const named = symbol === undefined || (/^[A-Za-z0-9.]{1,16}$/.test(symbol) && /^\d{1,2}$/.test(decimals ?? "") && Number(decimals) <= 36);
+    if (!/^0x[0-9a-fA-F]{40}$/.test(token ?? "") || !/^0x[0-9a-fA-F]{40}$/.test(vault ?? "") || !named || rest.length)
+      throw new Error(`ERC20_VAULTS entry "${entry}" must be 0xtoken:0xvault or 0xtoken:0xvault:SYMBOL:decimals`);
     out[token.toLowerCase()] = vault;
     out[token] = vault;
   }
@@ -52,6 +59,8 @@ export function defaultEngine(over: Partial<EngineConfig> = {}): PrivateSwapEngi
     escrowCreationCode: BYTECODE.swapOrderEscrow, // @privacy-wallet/contracts: forge's export
     chainId: BigInt(process.env.CHAIN_ID ?? "1"),
     refundVaults: { native: process.env.NATIVE_VAULT ?? "0x0000000000000000000000000000000000000002", ...erc20RefundVaults() },
+    // what the pool's assets are (a V6 follow-up of 2026-10-16): an order is built only in one of them, as the pool names it
+    poolAssets: { native: { symbol: "ETH", decimals: 18 }, ...Object.fromEntries(pooledAssets()) },
     tips: gasTips(feesFromEnv(), valuerFromEnv(Number(process.env.CHAIN_ID ?? "1"))),
     refundWindowSeconds: seconds("REFUND_WINDOW_SECONDS", 2 * 3600, 30 * 86_400), // a NaN window gave every order a NaN refundAfter
     valuer: valuerFromEnv(Number(process.env.CHAIN_ID ?? "1")),

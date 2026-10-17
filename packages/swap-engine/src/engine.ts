@@ -3,7 +3,7 @@
 // signed execution once the ingress is known. The engine never holds keys for money: the order key is a
 // per-order wallet-derived key.
 import { randomBytes } from "crypto";
-import type { CompetitionEntry, Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
+import type { AssetRef, CompetitionEntry, Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
 import { CATEGORY_PREFERENCE, categoryOf } from "./types";
 import { chooseRoute, policyFor, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
@@ -25,6 +25,11 @@ export interface EngineConfig {
   escrowCreationCode: string; // from contracts/abi/periphery/SwapOrderEscrow.json
   chainId: bigint;
   refundVaults: Record<string, string>; // asset ("native" or token address) -> canonical vault
+  /**
+   * What the pool's assets are ("native" and each token, lowercase): an order is built only in one of them, under the pool's symbol
+   * and decimals (a V6 follow-up of 2026-10-16), and a protected delivery only into one. Absent: not checked (tests).
+   */
+  poolAssets?: Record<string, { symbol: string; decimals: number }>;
   /** V6 (Privacy Wallet Web spec v2.0 §3): the executor tip — the execution's gas in the order's asset (./tips.ts gasTips), never a percentage */
   tips: TipSource;
   refundWindowSeconds: number; // refundAfter = executeDeadline + this
@@ -92,6 +97,15 @@ export const DELAY_BUDGET: Record<Policy, [number, number]> = {
  *  chain's output, or an asset without a canonical vault in the pool. */
 export class ProtectedDestinationError extends Error {
   readonly code = "destination_not_protectable";
+}
+
+/**
+ * An order in an asset this pool does not have, or under another symbol or decimals than the pool's (a V6 follow-up of 2026-10-16,
+ * audit c00/c05): the executor tip is the execution's gas valued in the order's asset, and the relayer takes that tip as its pay, so
+ * a caller's own decimals (a token's said to be 0) or symbol had made the gas a dust tip on an order this service vouched for.
+ */
+export class AssetMismatchError extends Error {
+  readonly code = "asset_mismatch";
 }
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the wallet asks for consent. */
@@ -305,10 +319,24 @@ export class PrivateSwapEngine {
     });
   }
 
+  /** Throws AssetMismatchError unless `a` is one of this pool's assets, under the pool's symbol and decimals (EngineConfig.poolAssets). */
+  private poolAsset(a: AssetRef, what: string): void {
+    const known = this.cfg.poolAssets;
+    if (!known) return;
+    const p = known[a.asset === "native" ? "native" : a.asset.toLowerCase()];
+    if (!p) throw new AssetMismatchError(`${what}, ${a.symbol} (${a.asset}), is not an asset of this pool`);
+    if (p.decimals !== a.decimals || p.symbol.toUpperCase() !== a.symbol.toUpperCase())
+      throw new AssetMismatchError(`${what} is ${p.symbol} with ${p.decimals} decimals in this pool, not ${a.symbol} with ${a.decimals}`);
+  }
+
   /** Build the order object + on-chain params for a chosen quote (spec §2, §6); `assessment` (whale spec §1) is the value / tier recorded with it. */
   buildOrder(req: QuoteRequest, policy: Policy, quote: Quote, keys: { orderPrivateKey?: Uint8Array; orderSigner?: string; refundOwnerCommitment: bigint; refundNoteSecret: bigint; refundNoteDataHash: `0x${string}` }, assessment?: Assessment, preference?: Preference, opts: { executeWindowSeconds?: number } = {}): Order {
     const orderSigner = keys.orderSigner ?? (keys.orderPrivateKey ? orderSignerAddress(keys.orderPrivateKey) : undefined);
     if (!orderSigner) throw new Error("buildOrder needs the one-time order signer (address) or its key");
+    // the order's asset as this pool names it (a V6 follow-up of 2026-10-16): its tip was valued in it, and a shield tip in a
+    // protected delivery's asset
+    this.poolAsset(req.from, "the order's asset");
+    if (req.destinationType === "protected") this.poolAsset(req.to, "the protected delivery");
     const orderId = ("0x" + randomBytes(32).toString("hex")) as `0x${string}`;
     const amount = req.amount; // gross: what the private withdrawal funds
     const executorTip = quote.executorTip; // the tip the quote is net of (quoteAll)

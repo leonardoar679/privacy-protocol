@@ -31,6 +31,22 @@ const refused = async (path: string, body: unknown) => {
   return { status: r.status, code: r.body.code as string | undefined };
 };
 
+describe("an order in the pool's asset as the pool names it (a V6 follow-up of 2026-10-16)", () => {
+  it("a commit in ETH said to have 6 decimals is the caller's 400 asset_mismatch, and no order exists", async () => {
+    const p = await harness({ poolAssets: { native: { symbol: "ETH", decimals: 18 } } });
+    try {
+      const ok = await p.post("/v1/operations", orderBody());
+      expect(ok.status).toBe(200);
+      const bad = await p.post("/v1/operations", orderBody({ from: { chain: "ethereum", asset: "native", decimals: 6, symbol: "ETH" } }));
+      expect(bad.status).toBe(400);
+      expect(bad.body.code).toBe("asset_mismatch");
+      expect(bad.body.error).toMatch(/ETH with 18 decimals in this pool, not ETH with 6/);
+    } finally {
+      await p.close();
+    }
+  });
+});
+
 describe("the request bodies, checked at the edge", () => {
   it("a slippage, decimals, an amount or a destination out of shape: 400 before any provider is asked", async () => {
     const ETH = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };

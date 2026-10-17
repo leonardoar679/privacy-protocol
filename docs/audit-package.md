@@ -177,7 +177,8 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     an operation funded by the connected wallet (no relayer) pays no fee note at all — the privacy fee is then unpaid.
 32. **V6 — the executor tip is the execution's gas, not the refund's**: a refund-only job (deploy + re-shield) costs about
     1.8 × the tip at the same gas price (forge: 3.28M against 1.81M units), and an ERC-20 order's tip, valued by the service
-    when it was committed, is not re-valued by the executor; the executor waits while an ETH order's execution would cost
+    when it was committed (since 2026-10-16 at the pool's own symbol and decimals for the token, `ERC20_VAULTS`: a caller's own had
+    made the gas a dust tip on a vouched order), is not re-valued by the executor; the executor waits while an ETH order's execution would cost
     more than its tip. Small orders are refused when the gas exceeds the escrow's 1 % cap (`amount_too_small`).
 33. **V6 — the gas pins are a toolchain's measurement** (`contracts/test/periphery/vectors/gas.json`, forge's production
     configuration): another compiler, EVM version or provider call moves them; the wallet uses them only as a fallback beside

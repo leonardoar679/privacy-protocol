@@ -4,7 +4,7 @@
 // refused; the foreign asset of a route that is accepted is what the executor re-shields through
 // refundToken. Offline.
 import { describe, it, expect } from "vitest";
-import { covers, escrowCanReshield, foreignRefundTokens, pooledTokens, reshieldableAsset, sameAsset } from "../src/escrowAssets";
+import { covers, escrowCanReshield, foreignRefundTokens, pooledAssets, pooledTokens, reshieldableAsset, sameAsset } from "../src/escrowAssets";
 import type { AssetRef } from "../src/types";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
@@ -50,6 +50,17 @@ describe("what an escrow can re-shield (spec §7, PP-S08)", () => {
     expect(covers(10n ** 6n - 1n, 6, 10n ** 18n, 18)).toBe(false);
     expect(covers(10n ** 18n, 18, 10n ** 6n, 6)).toBe(true);
     expect(covers(10n ** 18n, 18, 10n ** 6n + 1n, 6)).toBe(false);
+  });
+  it("what each pooled token is: the symbol and decimals its entry names, else USDC and USDT as pinned, else nothing (a V6 follow-up of 2026-10-16)", () => {
+    const other = "0x00000000000000000000000000000000000000aa";
+    const vault = "0x0000000000000000000000000000000000000a11";
+    const a = pooledAssets(`${USDT}:${vault}, ${other}:${vault}:TEST:8, ${USDC.asset}:${vault}:USDC:6, 0x00000000000000000000000000000000000000bb:${vault}`);
+    expect(a.get(USDT.toLowerCase())).toEqual({ symbol: "USDT", decimals: 6 });
+    expect(a.get(other)).toEqual({ symbol: "TEST", decimals: 8 });
+    expect(a.get(USDC.asset.toLowerCase())).toEqual({ symbol: "USDC", decimals: 6 });
+    expect(a.has("0x00000000000000000000000000000000000000bb"), "named nowhere: no orders in it, no floor counted in it").toBe(false);
+    expect(pooledAssets(`${other}:${vault}:TEST:99`).has(other), "decimals above 36 name nothing").toBe(false);
+    expect(reshieldableAsset(ETH, other, pooledTokens(`${other}:${vault}:TEST:8`), pooledAssets(`${other}:${vault}:TEST:8`))).toEqual({ symbol: "TEST", decimals: 8 });
   });
   it("ERC20_VAULTS entries that are not token:vault addresses are ignored", () => {
     expect([...pooledTokens(` ${USDT}:0xv , nonsense, :0x12, 0x123:0x456`)]).toEqual([USDT.toLowerCase()]);

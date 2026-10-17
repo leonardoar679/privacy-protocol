@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { GAS_UNITS } from "@privacy-wallet/contracts";
 import type { Prices } from "@privacy-wallet/protocol/wallet/valuation";
-import { PrivateSwapEngine } from "../src/engine";
+import { AssetMismatchError, PrivateSwapEngine } from "../src/engine";
 import { NO_VALUER, type Valuer } from "../src/valuation";
 import {
   ERC20_ORDER_UNITS,
@@ -186,6 +186,83 @@ class Stub implements ProviderAdapter {
     return { provider: this.id, reachable: true, apiLatencyMs: 10, halted: false, haltedChains: [], checkedAt: Date.now() };
   }
 }
+
+describe("an order is built only in the pool's asset, as the pool names it (a V6 follow-up of 2026-10-16)", () => {
+  // its tip is the execution's gas valued in that asset, and the relayer takes it as its pay: USDC said to have no decimals
+  // made a few dollars of gas a few millionths of a cent, on an order the service vouched for
+  const USDC_VAULT = "0x00000000000000000000000000000000000ca5de";
+  const engine = (poolAssets?: Record<string, { symbol: string; decimals: number }>) =>
+    new PrivateSwapEngine({
+      adapters: [],
+      factory: "0x0000000000000000000000000000000000000001",
+      escrowCreationCode: "0x00",
+      chainId: 1n,
+      refundVaults: { native: "0x0000000000000000000000000000000000000002", [USDC.asset]: USDC_VAULT },
+      refundWindowSeconds: 7200,
+      valuer: NO_VALUER,
+      tips: { tipFor: async () => 1n },
+      ...(poolAssets ? { poolAssets } : {}),
+    });
+  const POOL = { native: { symbol: "ETH", decimals: 18 }, [USDC.asset.toLowerCase()]: { symbol: "USDC", decimals: 6 } };
+  const quote = {
+    provider: "thorchain",
+    category: "A",
+    toAmount: 2n,
+    toAmountMin: 1n,
+    fees: [],
+    etaSeconds: 600,
+    expiresAt: 2_000_000_000,
+    obtainedAt: 0,
+    nativeAssets: true,
+    minOutEncoded: true,
+    hops: [],
+    raw: {},
+    executorTip: 1n,
+  } as unknown as Quote;
+  const keys = {
+    orderSigner: "0x00000000000000000000000000000000000000a1",
+    refundOwnerCommitment: 1n,
+    refundNoteSecret: 2n,
+    refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}`,
+  };
+  const order = (e: PrivateSwapEngine, from: AssetRef, over: Partial<QuoteRequest> = {}) =>
+    e.buildOrder(
+      { from, to: BTC, amount: 10n ** 9n, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", slippageBps: 50, ...over },
+      "balanced",
+      quote,
+      keys,
+    );
+
+  it("the pool's ETH and USDC as the pool names them pass", () => {
+    expect(order(engine(POOL), ETH).params.assetType).toBe(0);
+    expect(order(engine(POOL), USDC).params.asset).toBe(USDC.asset);
+    expect(order(engine(POOL), { ...USDC, symbol: "usdc" }).params.asset, "a symbol in another case is the same symbol").toBe(USDC.asset);
+  });
+  it("refuses another decimals or symbol, a token the pool does not have, ETH in another unit", () => {
+    for (const from of [
+      { ...USDC, decimals: 0 },
+      { ...USDC, decimals: 18 },
+      { ...USDC, symbol: "WBTC" },
+      { ...ETH, decimals: 6 },
+      { ...USDC, asset: "0x00000000000000000000000000000000000000aa" },
+    ]) {
+      expect(() => order(engine(POOL), from), `${from.symbol} ${from.decimals} ${from.asset}`).toThrow(AssetMismatchError);
+    }
+    expect(() => order(engine(POOL), { ...USDC, decimals: 0 })).toThrow(/USDC with 6 decimals in this pool, not USDC with 0/);
+  });
+  it("a protected delivery too: its shield tip is valued in it", () => {
+    const into = { chain: "ethereum", asset: USDC.asset, decimals: 6, symbol: "USDC" } as AssetRef;
+    expect(() => order(engine(POOL), ETH, { to: into, destinationType: "protected" })).not.toThrow();
+    expect(() => order(engine(POOL), ETH, { to: { ...into, decimals: 0 }, destinationType: "protected" })).toThrow(AssetMismatchError);
+    expect(() => order(engine(POOL), ETH, { to: { ...BTC }, destinationType: "protected" }), "a protected delivery outside the pool").toThrow(
+      AssetMismatchError,
+    );
+    expect(() => order(engine(POOL), ETH, { to: { ...into, decimals: 0 } }), "a delivery elsewhere is the caller's own").not.toThrow();
+  });
+  it("an engine without the pool's assets checks nothing (the tests' own engines)", () => {
+    expect(() => order(engine(), { ...USDC, decimals: 0 })).not.toThrow();
+  });
+});
 
 describe("the engine and the tip", () => {
   it("quotes net of the tip, stamps it on every quote and the set, commits exactly it, and prepares against the committed one", async () => {

@@ -12,7 +12,7 @@ import type { AssetRef } from "./types";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-/** The tokens the pool has a configured canonical vault for (ERC20_VAULTS="0xtoken:0xvault,…"). */
+/** The tokens the pool has a configured canonical vault for (ERC20_VAULTS="0xtoken:0xvault[:SYMBOL:decimals],…"). */
 export function pooledTokens(setting = process.env.ERC20_VAULTS ?? ""): Set<string> {
   return new Set(setting.split(",").map((e) => e.split(":")[0]?.trim().toLowerCase()).filter((t): t is string => !!t && /^0x[0-9a-f]{40}$/.test(t)));
 }
@@ -30,22 +30,40 @@ export function escrowCanReshield(from: AssetRef, token: string, pooled = pooled
 }
 
 /** The pool's Ethereum tokens this engine knows by address (the registry's, packages/config): what a pooled token is. */
-const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
+export const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
   "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
   "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
 };
 
 /**
- * What `token` is when it comes back to the escrow of an order spending `from` and re-shields: ETH (ETH and WETH), the order's own
- * asset as the request names it, a pooled token as KNOWN_TOKENS names it. Undefined when it does not re-shield, or is a pooled token
- * this engine does not know: the floor checks of a swap before a bridge need its asset and decimals.
+ * What each pooled token is (a V6 follow-up of 2026-10-16): the SYMBOL and decimals its ERC20_VAULTS entry names
+ * ("0xtoken:0xvault:SYMBOL:decimals"), else what KNOWN_TOKENS pins. A token neither names is absent: no order in it is built
+ * (its tip could not be valued in it) and no floor is counted in it.
  */
-export function reshieldableAsset(from: AssetRef, token: string, pooled = pooledTokens()): { symbol: string; decimals: number } | undefined {
+export function pooledAssets(setting = process.env.ERC20_VAULTS ?? ""): Map<string, { symbol: string; decimals: number }> {
+  const out = new Map<string, { symbol: string; decimals: number }>();
+  for (const entry of setting.split(",")) {
+    const [token, , symbol, decimals] = entry.split(":").map((s) => s.trim());
+    const t = (token ?? "").toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(t)) continue;
+    if (symbol && /^[A-Za-z0-9.]{1,16}$/.test(symbol) && /^\d{1,2}$/.test(decimals ?? "") && Number(decimals) <= 36) out.set(t, { symbol, decimals: Number(decimals) });
+    else if (KNOWN_TOKENS[t]) out.set(t, KNOWN_TOKENS[t]);
+  }
+  return out;
+}
+
+/**
+ * What `token` is when it comes back to the escrow of an order spending `from` and re-shields: ETH (ETH and WETH), the order's own
+ * asset as the request names it (the engine builds an order only in an asset as the pool names it), a pooled token as pooledAssets
+ * names it. Undefined when it does not re-shield, or is a pooled token this engine does not know: the floor checks of a swap before a
+ * bridge need its asset and decimals.
+ */
+export function reshieldableAsset(from: AssetRef, token: string, pooled = pooledTokens(), assets = pooledAssets()): { symbol: string; decimals: number } | undefined {
   const t = token.toLowerCase();
   if (!escrowCanReshield(from, t, pooled)) return undefined;
   if (t === ZERO || t === (WETH[from.chain] ?? ZERO).toLowerCase()) return { symbol: "ETH", decimals: 18 };
   if (from.asset !== "native" && t === from.asset.toLowerCase()) return { symbol: from.symbol, decimals: from.decimals };
-  return KNOWN_TOKENS[t];
+  return assets.get(t) ?? KNOWN_TOKENS[t];
 }
 
 /**

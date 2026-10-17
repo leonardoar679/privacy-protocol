@@ -115,6 +115,8 @@ export async function harness(
     /** a same-chain swap into the protected balance: the token's vault, a shield tip, the receiver factory (or `shieldFactory`) */
     protectedDestinations?: boolean;
     shieldFactory?: string | null;
+    /** the engine's EngineConfig.poolAssets (unset: not checked) */
+    poolAssets?: Record<string, { symbol: string; decimals: number }>;
   } = {},
 ): Promise<Harness> {
   const lines: string[] = [];
@@ -131,6 +133,7 @@ export async function harness(
     tips: { tipFor: async () => TIP, ...(o.protectedDestinations ? { shieldTipFor: async () => SHIELD_TIP } : {}) },
     refundWindowSeconds: 7200,
     valuer: NO_VALUER,
+    ...(o.poolAssets ? { poolAssets: o.poolAssets } : {}),
   });
   store.seedProviders(["thorchain"]);
   const script: Scripted = { job: "none", balance: 0n };

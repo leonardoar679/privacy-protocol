@@ -47,7 +47,7 @@ start("service", "apps/api", ["tsx", "src/server.ts"], {
   NATIVE_VAULT: stack.ethVault,
   RPC_URLS: stack.rpc, // V6: also the fee history the executor tip is priced from (packages/swap-engine/src/tips.ts)
   THORCHAIN_ROUTER: stack.pins.thorchainRouter,
-  ...(stack.usdc ? { ERC20_VAULTS: `${stack.usdc.token}:${stack.usdc.vault}` } : {}),
+  ...(stack.usdc ? { ERC20_VAULTS: `${stack.usdc.token}:${stack.usdc.vault}:USDC:6` } : {}), // the test USDC as the wallet names it: orders in it are built only so
   API_VOUCH_KEY: LOCAL_VOUCH_KEY, // devnet only: the API vouches for the orders it commits and the calls it prepares
   ...(stack.shieldFactory ? { SHIELD_FACTORY: stack.shieldFactory } : {}), // and for the shield receipts of its protected orders
 });

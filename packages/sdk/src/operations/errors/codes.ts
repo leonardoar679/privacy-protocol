@@ -79,6 +79,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   service_rejected: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   invalid_request: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   destination_not_protectable: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the service has the order's asset under another symbol or decimals, or not at all (a V6 follow-up of 2026-10-16): no order exists
+  asset_mismatch: { source: "service", fundsClass: "not-moved", actions: ["check-settings"] },
   // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
   provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
