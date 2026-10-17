@@ -22,7 +22,7 @@ import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/prot
 import { nullifier } from "@privacy-wallet/protocol/nullifier";
 import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { openNotePayloads } from "./core";
-import { mainOwnerCommitment, NoOwnerKey, ownedOpening, ownerKeyOf } from "./keys/ownerKeys";
+import { assertOwnOwnerCommitment, depositOwnerCommitment, mainOwnerCommitment, NoOwnerKey, ownedOpening, ownerKeyOf } from "./keys/ownerKeys";
 import { noteStore, type OwnedNote } from "./wallet/notes";
 import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
@@ -72,11 +72,25 @@ export function privacyAddress(masterSeed: Uint8Array): string {
 const encryptTo = (viewPub: Uint8Array, note: Note): Hex => toHex(encryptNoteData(viewPub, { amount: note.amount, noteSecret: note.noteSecret, vaultId: note.vaultId }));
 const encryptForSelf = (keys: WalletKeys, note: Note): Hex => encryptTo(viewKeyPair(keys.viewKey).publicKey, note);
 
-/** A new note of this wallet: the next counter, the secret derived from the seed by it (a phrase restore finds the note),
- *  the payload encrypted to the wallet's own view key. Nothing is on chain yet. */
+/** A new private output of this wallet (a change note): the next counter, the secret derived from the seed by it (a phrase
+ *  restore finds the note), made out to the privacy address's owner commitment, which stays inside the output's body; the
+ *  payload encrypted to the wallet's own view key. Never deposited: a deposit's note is depositNote's. */
 export function ownNote(keys: WalletKeys, vaultId: bigint, amount: bigint): { note: Note; noteData: Hex; counter: number } {
   const counter = noteStore.allocateCounter();
   const note: Note = { vaultId, amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
+  return { note, noteData: encryptForSelf(keys, note), counter };
+}
+
+/**
+ * A new note of this wallet to deposit (the audit round of 2026-10-16, c18): ownNote's, made out to its own owner commitment
+ * (keys.ts deriveOwnerKey, from its secret) rather than the privacy address's. A deposit publishes the owner commitment it
+ * names, so every protect names a new one, linked to nothing else; the self-envelope finds it again after a restore.
+ */
+export function depositNote(keys: WalletKeys, vaultId: bigint, amount: bigint): { note: Note; noteData: Hex; counter: number } {
+  const counter = noteStore.allocateCounter();
+  const noteSecret = deriveNoteSecret(keys.noteKey, counter);
+  const note: Note = { vaultId, amount, ownerCommitment: depositOwnerCommitment(keys, noteSecret), noteSecret };
+  assertOwnOwnerCommitment(keys, note.ownerCommitment, "a deposit");
   return { note, noteData: encryptForSelf(keys, note), counter };
 }
 
@@ -123,7 +137,7 @@ export function prepareShield(o: { masterSeed: Uint8Array; deployment: Deploymen
   const token = o.token ?? null;
   const { fee, net } = protectNet(o.deployment, o.amount);
   if (net < 1n) throw new Error("This amount is too small to protect after fees.");
-  const { note, noteData, counter } = ownNote(keys, BigInt(vault), net);
+  const { note, noteData, counter } = depositNote(keys, BigInt(vault), net);
   return { deployment: o.deployment, vault, token, amount: o.amount, fee, note, noteData, counter, ...shieldTxs(o.deployment, vault, token, o.amount, note, noteData) };
 }
 

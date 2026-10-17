@@ -734,7 +734,8 @@ expectedNet)`: the vault always from `VAULT_FACTORY.vaultOf(asset)` (`NoVault` w
 one); `AmountMismatch` when `gross − fee ≠ expectedNet` (the note is built for the net); ERC-20 by a strict
 `transferFrom` with a balance-difference check, the fee by a strict transfer to `FEE_RECIPIENT`, an exact approval
 and `vault.deposit(net, …)`; `Protected(asset, vault, gross, fee, leafIndex)`. The fee recipient is public; the
-deposit was public already.
+deposit was public already. The wallet makes the note out to its own owner commitment (the audit round of 2026-10-16,
+c18: `deriveOwnerKey` from its secret), so a protect names nothing another protect or a swap names.
 
 Code (Stage 7): `contracts/src/periphery/protect/ProtectRouter.sol` (`feeOf` exact for every uint256: quotient and
 remainder by 10,000), `contracts/test/periphery/ProtectRouter.t.sol` (the ETH and token paths, the ceilings at 1 / 99 /
@@ -752,8 +753,9 @@ A one-time CREATE2 receiver per same-chain swap: the provider pays its predicted
 `send` fits its empty `receive()` before and after deployment); anyone may then call
 `factory.deployAndShield(params, noteData)` (or `…Token`): `keccak(noteData) == params.noteDataHash`, WETH unwrapped
 for an ETH receiver, `vaultOf(asset) ≠ 0`, the tip `shieldTip ≤ minAmount/100` paid once and only on a delivery ≥
-`minAmount` (dust cannot claim it), the rest deposited as the committed note (`ownerCommitment`, `noteSecret`
-derived from the seed by counter, so a phrase restore finds it). An unsupported token can only be swept to the
+`minAmount` (dust cannot claim it), the rest deposited as the committed note (`noteSecret` derived from the seed by
+counter, so a phrase restore finds it, and `ownerCommitment` the note's own, from that secret — the audit round of
+2026-10-16, c18; before, the privacy address's). An unsupported token can only be swept to the
 committed `fallbackRecipient`. Provider refunds still go to the order's escrow. No second 1 %: the receiver
 deposits directly.
 

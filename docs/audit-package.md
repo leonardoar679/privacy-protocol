@@ -314,6 +314,25 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       shielded such an ETH delivery for nothing once the swap was over (up to `MAX_UNPAID_SHIELDS` times a job), and a
       token's stayed at the receiver.
 
+48. **V6 — what one-time owner commitments leave linked** (the audit round of 2026-10-16, c18/c29/c37; closed for new
+    activity). Every protect, every order's refund note and every same-chain receipt had named the privacy address's
+    owner commitment — an indexed `Deposited` topic and a public escrow or receiver immutable —, so anyone could link a
+    private swap to the public account that protected the funds. Each now names its own (`packages/protocol/src/keys.ts`
+    `deriveOwnerKey`, from the note's secret; found again from its self-envelope, spent with its own key). What remains:
+    - what was made before stays linked: those deposits, escrows and receivers carry the privacy address's owner
+      commitment, which is in `pp1…`, so whoever holds the address can list them; an order an older build committed and
+      funded still refunds to it (one not yet funded is stopped, `order_outdated`);
+    - protects sent from one public account stay linked by that account (`tx.from`); a fresh account per protect is
+      the user's choice;
+    - one order's escrow, its refunds and its receiver share that order's owner commitment (inherent, and nothing beyond
+      the order);
+    - the RPC endpoint the wallet asks about spent status learns each found note's nullifier (open: audit c19/c38);
+    - a counter handed out again republishes a note's secret and owner commitment: after a restore none is handed out
+      before one complete scan, and they resume 256 past the last one found — a note 1,024 or more counters past every
+      one found is beyond that search;
+    - a native wallet built on `privacy-ffi` has the single-commitment scan only, and must add the opening batch
+      (`docs/mobile.md`).
+
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
 ## 5. Threat model and trust assumptions

@@ -10,6 +10,12 @@ the Rust implementations reproduce byte for byte (`apps/web/test/wallet-vectors.
 ## 1. Master seed and recovery phrase (plan §44)
 - The master seed is 32 bytes from the platform CSPRNG. Every key derives from it (`keys.ts` / `keys.rs`:
   `spendKey / viewKey / noteKey = keccak256(seed ‖ "/spend" | "/view" | "/note") mod p`).
+- A deposited note's own owner key (the audit round of 2026-10-16, c18): `ownerKey = keccak256(be32(spendKey) ‖
+  "/owner-key/" ‖ be32(noteSecret)) mod p`, and the note is made out to `H(OWNER_COMMITMENT, ownerKey)`. Every protect,
+  swap refund note and same-chain receipt is; transfers received and the wallet's private outputs (change, merged and
+  split notes) keep the privacy address's owner commitment. A stored note's `ownerCommitment` selects its key: the spend
+  key when it is the privacy address's, else the one derived from its secret (no new field; notes made before keep the
+  privacy address's). A native wallet must spend and find such notes the same way (`docs/mobile.md`).
 - The recovery phrase is the BIP-39 English mnemonic of those 32 bytes (24 words, 8-bit checksum).
   `mnemonicToEntropy(phrase)` MUST reproduce the seed exactly; the phrase is normalized NFKD, lower
   case, single spaces before use. The wordlist is `@scure/bip39/wordlists/english`; the Rust core

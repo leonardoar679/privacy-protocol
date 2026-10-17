@@ -26,7 +26,7 @@ import type { Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
 import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
-import type { FundingFate } from "@privacy-wallet/sdk/swapFunding";
+import { OrderOutdated, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { useScheduler } from "../src/hooks";
@@ -58,6 +58,8 @@ class World implements CampaignIo {
   delivered = new Map<string, string>();
   refundsBack = new Set<string>();
   fundThrowsAfterSend = false;
+  /** thrown once by the next funding before anything is sent */
+  fundThrows: Error | null = null;
   /** the funding is sent and journaled (as fundEscrow does) but has not landed; its answer is lost */
   fundPendingAfterSend = false;
   /** what the runner learns of a journaled funding */
@@ -102,6 +104,7 @@ class World implements CampaignIo {
   }
   async fund(stored: StoredSwap, onStatus: (l: string) => void) {
     this.calls.push(`fund:${stored.campaign!.index}`);
+    if (this.fundThrows) { const e = this.fundThrows; this.fundThrows = null; throw e; }
     if (this.fundPendingAfterSend) {
       onStatus("Proof ready in 1.0 s; handing it to the relayer (your address never touches the chain)…");
       this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: this.now() }; });
@@ -377,6 +380,20 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(world.calls.filter((x) => x.startsWith("refund:"))).toEqual(["refund:0"]);
     expect(current(d).tranches[0].state).toBe("refunding");
     expect(JSON.stringify(current(d).tranches[0].history)).toContain("its execution window closed before it was signed: the funded step returns through its refund and is planned again");
+  });
+
+  it("a step whose order an older build committed under the privacy address's owner commitment is never funded: abandoned and planned again (audit c18)", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // commit
+    const first = current(c).tranches[0].orderId!;
+    world.fundThrows = new OrderOutdated();
+    const r = await tick(c); expect(r?.action.kind).toBe("fund");
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "asked once; nothing was sent").toEqual(["fund:0"]);
+    expect(current(c).tranches[0].state).toBe("planned");
+    expect(current(c).tranches[0].orderId, "its order abandoned").toBeUndefined();
+    expect(session.journal().swaps.find((x) => x.orderId === first)!.state).toBe("abandoned");
+    expect(JSON.stringify(current(c).tranches[0].history)).toContain("set up by an older version of the wallet");
+    expect(current(c).state, "no pause: the step is committed again under its own owner commitments").toBe("running");
   });
 
   it("never funds or hands over twice: an unknown outcome pauses with reconcile and the next tick continues from the facts", async () => {

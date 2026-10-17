@@ -9,7 +9,9 @@
 import type { Address, Hex } from "viem";
 import { predictReceiver, receiverParamsJson, receiverParamsOf, receiverParamsProblem, shieldMinAmount, type ReceiverParams } from "@privacy-wallet/contracts";
 import type { Deployment } from "./chain";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { deriveShieldNote } from "./keys/swapKeys";
+import { mainOwnerCommitment } from "./keys/ownerKeys";
 import type { StoredShield, StoredSwap } from "./wallet/journal";
 import type { ShieldRegisterRequest } from "./relayer";
 
@@ -50,7 +52,7 @@ export function buildShieldReceipt(i: ReceiptInput): StoredShield {
   const factory = i.deployment.shieldFactory;
   if (!factory) throw new Error("this deployment names no shield receiver factory (VITE_SHIELD_FACTORY): a swap cannot deliver into the protected balance");
   if (!protectable(i.deployment, i.asset)) throw new Error(`the pool cannot hold ${i.asset}: it cannot be received into the protected balance`);
-  const note = deriveShieldNote(i.masterSeed, i.counter);
+  const note = deriveShieldNote(i.masterSeed, i.counter); // made out to its own owner commitment (swapKeys.ts committedNote)
   const params: ReceiverParams = {
     receiptId: i.receiptId ?? randomHex32(),
     asset: i.asset === "native" ? ZERO : (i.asset as Address),
@@ -68,9 +70,10 @@ export function buildShieldReceipt(i: ReceiptInput): StoredShield {
 
 /**
  * The receiver a journaled order pays, recomputed from this wallet's own factory and the journaled parameters: it must be
- * the order's destination, and the note it deposits must be this seed's for the journaled counter.
+ * the order's destination, and the note it deposits must be this seed's for the journaled counter — made out to its own
+ * owner commitment, or (an order an older build committed, whose refund is made out to it too) the privacy address's.
  */
-export function checkShieldReceipt(stored: Pick<StoredSwap, "shield" | "request">, deployment: Deployment, masterSeed?: Uint8Array): Address {
+export function checkShieldReceipt(stored: Pick<StoredSwap, "shield" | "request" | "params">, deployment: Deployment, masterSeed?: Uint8Array): Address {
   const sh = stored.shield;
   if (!sh) throw new ShieldReceiptMismatch("the order journals no receipt");
   if (!deployment.shieldFactory || !same(sh.factory, deployment.shieldFactory))
@@ -82,8 +85,13 @@ export function checkShieldReceipt(stored: Pick<StoredSwap, "shield" | "request"
   if (!same(receiver, destination)) throw new ShieldReceiptMismatch(`the order pays ${destination}, not the receiver ${receiver}`);
   if (masterSeed) {
     const note = deriveShieldNote(masterSeed, sh.counter);
+    // the audit round of 2026-10-16 (c18): a receipt journaled before deposits had their own owner commitments names the
+    // privacy address's, as its order's refund does; accepted for such an order only, never for one made out to its own
+    const main = mainOwnerCommitment(deriveKeys(masterSeed));
+    const refundOc = (stored.params as { refundOwnerCommitment?: unknown } | undefined)?.refundOwnerCommitment;
+    const olderOrder = params.ownerCommitment === main && typeof refundOc === "string" && /^[0-9]+$/.test(refundOc) && BigInt(refundOc) === main;
     if (
-      note.ownerCommitment !== params.ownerCommitment ||
+      (note.ownerCommitment !== params.ownerCommitment && !olderOrder) ||
       note.noteSecret !== params.noteSecret ||
       !same(note.noteDataHash, params.noteDataHash) ||
       !same(note.noteData, sh.noteData)

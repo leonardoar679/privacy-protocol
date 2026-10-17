@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { MerkleTree } from "@privacy-wallet/protocol/merkle";
 import { noteBody, noteCommitment, ownerCommitmentOf } from "@privacy-wallet/protocol/note";
-import { deriveKeys } from "@privacy-wallet/protocol/keys";
+import { deriveKeys, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { TX_LEVELS, buildTxInputs, type CircuitInputs, type TxSpec } from "@privacy-wallet/protocol/txInputs";
 import * as sdk from "../src/index";
 import { configure, defaultConfig, type ProofResult } from "../src/config";
@@ -80,11 +80,14 @@ describe("over a configured engine", () => {
     expect(await sdk.unlockWallet(PASSWORD, session)).toBe(true);
   });
 
-  it("makes notes from the seed: the wallet's owner commitment, the next counter each time, a payload of its own", () => {
+  it("makes notes from the seed: each made out to its own owner commitment (audit c18), the next counter each time, a payload of its own", () => {
     const seed = session.state().seed!;
     const a = sdk.createNote({ vault: VAULT, amount: 5n }, session);
     const b = sdk.createNote({ vault: deployment.ethVault, amount: 7n }, session);
-    expect(a.note).toMatchObject({ vaultId: VAULT, amount: 5n, ownerCommitment: ownerCommitmentOf(deriveKeys(seed).spendKey) });
+    const k = deriveKeys(seed);
+    expect(a.note).toMatchObject({ vaultId: VAULT, amount: 5n, ownerCommitment: ownerCommitmentOf(deriveOwnerKey(k.spendKey, a.note.noteSecret)) });
+    expect(a.note.ownerCommitment).not.toBe(ownerCommitmentOf(k.spendKey));
+    expect(b.note.ownerCommitment).not.toBe(a.note.ownerCommitment);
     expect(b.counter).toBe(a.counter + 1);
     expect(b.note.noteSecret).not.toBe(a.note.noteSecret);
     expect(a.noteData).not.toBe(b.noteData);

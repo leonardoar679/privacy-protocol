@@ -4,7 +4,7 @@
 // persisted to dapp-origin storage (TC-01).
 import { hexToBytes, keccak256, type Hex } from "viem";
 import { privateKeyToAddress, sign } from "viem/accounts";
-import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { ownerCommitmentOf } from "@privacy-wallet/protocol/note";
 
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
@@ -32,7 +32,7 @@ export async function signExecutionDigest(privateKey: Hex, digest: Hex): Promise
 }
 
 export interface RefundNote {
-  ownerCommitment: bigint; // the wallet's receiving commitment: refunds come back to US
+  ownerCommitment: bigint; // the note's own owner commitment (deriveOwnerKey from its secret; the audit round of 2026-10-16, c18): refunds come back to US, linked to nothing else
   noteSecret: bigint;
   noteData: Hex; // the 169-byte payload the refund supplies; its keccak is committed in the order
   noteDataHash: Hex;
@@ -74,7 +74,15 @@ export function deriveShieldNote(masterSeed: Uint8Array, counter: number): Refun
   return committedNote(masterSeed, counter, shieldPayload(masterSeed, counter));
 }
 
+/**
+ * The note an order commits a deposit to: its secret from the counter, made out to its own owner commitment (the audit round
+ * of 2026-10-16, c18). The escrow's refund parameters and a receiver's are public, so each order's refund and each receipt
+ * name a new one — before, every one named the privacy address's, which linked every swap to every protect.
+ */
 function committedNote(masterSeed: Uint8Array, counter: number, noteData: Hex): RefundNote {
   const keys = deriveKeys(masterSeed);
-  return { ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter), noteData, noteDataHash: keccak256(noteData) };
+  const noteSecret = deriveNoteSecret(keys.noteKey, counter);
+  const ownerCommitment = ownerCommitmentOf(deriveOwnerKey(keys.spendKey, noteSecret));
+  if (ownerCommitment === ownerCommitmentOf(keys.spendKey)) throw new Error("an order's deposit is never made out to the privacy address's owner commitment");
+  return { ownerCommitment, noteSecret, noteData, noteDataHash: keccak256(noteData) };
 }

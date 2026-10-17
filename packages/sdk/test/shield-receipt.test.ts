@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { getAddress, type Address, type Hex } from "viem";
 import { predictReceiver, receiverParamsOf } from "@privacy-wallet/contracts";
-import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { deriveRefundNote, deriveShieldNote, refundPayload, shieldPayload } from "../src/keys/swapKeys";
 import { buildShieldReceipt, checkShieldReceipt, protectable, ShieldReceiptMismatch, shieldJobRequest } from "../src/shieldReceiver";
@@ -82,7 +82,7 @@ describe("the receipt a same-chain swap names (spec v2.0 §11.2)", () => {
       asset: "0x0000000000000000000000000000000000000000",
       shieldTip: TIP,
       minAmount: TIP * 100n,
-      ownerCommitment: ownerCommitmentOf(keys.spendKey),
+      ownerCommitment: ownerCommitmentOf(deriveOwnerKey(keys.spendKey, deriveNoteSecret(keys.noteKey, 11))), // its own (audit c18)
       noteSecret: deriveNoteSecret(keys.noteKey, 11),
       noteDataHash: note.noteDataHash,
       fallbackRecipient: FALLBACK,
@@ -151,9 +151,40 @@ describe("before signing: the receiver recomputed from the journal and this wall
   });
 });
 
+describe("a receipt an older build journaled (the audit round of 2026-10-16, c18)", () => {
+  const main = ownerCommitmentOf(keys.spendKey);
+  // the same receipt made out to the privacy address's owner commitment, as a build before c18 made it, for an order whose
+  // refund names `refundOwnerCommitment`
+  const older = (refundOwnerCommitment: string): StoredSwap => {
+    const sh = receipt();
+    const params = { ...sh.params, ownerCommitment: main.toString() };
+    const receiver = predictReceiver(FACTORY, receiverParamsOf(params as never));
+    const s = swap();
+    return {
+      ...s,
+      request: { ...(s.request as object), destination: receiver },
+      params: { ...(s.params as object), refundOwnerCommitment },
+      shield: { ...sh, params, receiver },
+    };
+  };
+  it("still signs for its order, whose refund an older build made out to the privacy address's owner commitment too", () => {
+    const s = older(main.toString());
+    expect(checkShieldReceipt(s, deployment, seed)).toBe(getAddress(s.shield!.receiver));
+  });
+  it("never for an order made out to its own owner commitments", () => {
+    expect(() => checkShieldReceipt(older(deriveRefundNote(seed, 10).ownerCommitment.toString()), deployment, seed)).toThrow(/not this wallet's/);
+    expect(() => checkShieldReceipt(older("0x01"), deployment, seed)).toThrow(/not this wallet's/);
+  });
+});
+
 describe("the delivered note: found from the journal and from the phrase alone", () => {
   const amount = 2_278_000_000_000_000_000n;
-  const note: Note = { vaultId: BigInt(ETH_VAULT), amount, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, 11) };
+  const note: Note = {
+    vaultId: BigInt(ETH_VAULT),
+    amount,
+    ownerCommitment: ownerCommitmentOf(deriveOwnerKey(keys.spendKey, deriveNoteSecret(keys.noteKey, 11))),
+    noteSecret: deriveNoteSecret(keys.noteKey, 11),
+  };
   const tx = ("0x" + "33".repeat(32)) as Hex;
   const logs: NoteInsertedLog[] = [
     { leafIndex: 42, commitment: noteCommitment(noteBody(note), 42n), noteData: shieldPayload(seed, 11), transactionHash: tx, blockNumber: 5n },

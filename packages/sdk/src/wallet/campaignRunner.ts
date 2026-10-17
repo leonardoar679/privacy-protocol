@@ -426,6 +426,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + 1000;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
+          if (!sent && (e as { code?: unknown })?.code === "order_outdated") {
+            // an order an older build committed under the privacy address's owner commitment (the audit round of 2026-10-16,
+            // c18) is never funded: abandoned with nothing sent, and the step planned again under its own owner commitments
+            abandonSwap(stored.orderId, s);
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order was set up by an older version of the wallet under the privacy address's owner commitment: the order is abandoned unfunded and the step planned again");
+            nextAt = now + 1000;
+            break;
+          }
           if (!sent) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
           c = pauseWith(c, "reconcile", `The funding of step ${t.index + 1} ended without a known outcome (${m}); the escrow is read before anything is sent again.`, now, t.index);
         }

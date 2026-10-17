@@ -27,7 +27,11 @@ body            = H(NOTE_BODY, vaultId, amount, ownerCommitment, noteSecret)   /
 commitment      = H(NOTE_COMMITMENT, body, leafIndex)                 // contract assigns leafIndex → structural uniqueness
 nullifier       = H(NULLIFIER, commitment, spendKey)                  // 1:1 with a funded note (fixes TC-22)
 phantom_1       = H(PHANTOM_NULLIFIER, nullifier_0, 1, spendKey_0)    // unused input slot; unique, unrecomputable (PP-P02)
+ownerKey(note)  = keccak256(be32(spendKey) ‖ "/owner-key/" ‖ be32(noteSecret)) mod p   // a deposited note's own (audit c18)
 ```
+A note's `spendKey` in the nullifier and in C4 is its owner key: the spend key for a note made out to the privacy
+address, `ownerKey(note)` for a deposited note made out to `H(OWNER_COMMITMENT, ownerKey(note))` — a protect, a swap's
+refund note, a same-chain receipt (`packages/sdk/src/keys/ownerKeys.ts`). The circuit takes one per input.
 The 1:1 property holds because the spending circuit **derives** `ownerCommitment` from `spendKey`
 (C4); the pre-audit draft took it as a free witness (PP-C01, critical, fixed). Dummy outputs use a
 random owner commitment (no key, unspendable) and a random secret, so they are unique.
@@ -53,7 +57,9 @@ key        = sha256("privacy-protocol/v1/envelope-key" ‖ x25519(ephSecret, vie
 noteData   = 0x01 ‖ ephPub ‖ nonce ‖ XChaCha20-Poly1305(key, nonce, aad = 0x01 ‖ ephPub)(amount ‖ noteSecret ‖ vaultId)
 ```
 A discovered note is accepted only if the decrypted opening reproduces the leaf's commitment with the
-wallet's own `ownerCommitment` (`noteFromPayload`): authenticity does not rest on the AEAD. Dummy
+wallet's own `ownerCommitment` (`noteFromPayload`): authenticity does not rest on the AEAD. That is the privacy
+address's, or a deposited note's own, derived on the main thread from the opened secret: the core's
+`open_note_payloads` returns every opening with whether the privacy address's reproduces it (`ownedOpening`). Dummy
 outputs are 169 bytes of the same shape (version byte, random key/nonce/ciphertext). Fresh ephemeral
 key and nonce per payload; no sender identity is encoded (the recipient learns nothing about who paid).
 **Privacy address** (wallet convention, `packages/protocol/src/address.ts`): bech32m, hrp `pp`,

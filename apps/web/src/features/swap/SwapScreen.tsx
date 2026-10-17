@@ -940,7 +940,9 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   // relayer that does not run the swap service's orders, or a key the swap service no longer takes)
   if (
     record.state === "CANCELLED" &&
-    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready", "service_key_changed"].includes(record.reason?.code ?? "")
+    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready", "service_key_changed", "order_outdated"].includes(
+      record.reason?.code ?? "",
+    )
   ) {
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">

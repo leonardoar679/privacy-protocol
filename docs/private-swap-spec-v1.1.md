@@ -191,7 +191,7 @@ OrderParams {
   uint64  executeDeadline;    // latest time an execution may be authorized (>= every quote expiry used)
   uint64  refundAfter;        // >= executeDeadline (+ the provider's refund window)
   address refundVault;        // our canonical vault for the asset
-  uint256 refundOwnerCommitment;  uint256 refundNoteSecret;  bytes32 refundNoteDataHash;   // the fresh note
+  uint256 refundOwnerCommitment;  uint256 refundNoteSecret;  bytes32 refundNoteDataHash;   // the fresh note, made out to its own owner commitment (deriveOwnerKey; audit c18)
   uint256 executorTip;        // paid to whoever executes or refunds; MUST be ≤ 1% of amount
 }
 Execution {                    // what the relayer submits; authored only by orderSigner

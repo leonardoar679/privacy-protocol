@@ -14,6 +14,8 @@ import type { OnEvent } from "./operations/engineEvents";
 import { assetsOf, type Asset } from "./assets";
 import { OrderMismatch, orderVouchDigest, predictEscrow } from "./swapGuard";
 import { noteStore } from "./wallet/notes";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
+import { mainOwnerCommitment } from "./keys/ownerKeys";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
 import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
@@ -55,6 +57,25 @@ export class ServiceKeyChanged extends Error {
     super(`Not funded: ${reason}. Nothing was sent.`);
     this.name = "ServiceKeyChanged";
   }
+}
+
+/**
+ * Thrown before anything is sent (the audit round of 2026-10-16, c18): an older version of the wallet committed this order's
+ * refund note to the privacy address's owner commitment. Its escrow would publish that commitment, which links the swap to
+ * every protect made before; nothing of it is on chain yet, so it is never funded, and a new quote commits a new one.
+ */
+export class OrderOutdated extends Error {
+  readonly code = "order_outdated";
+  constructor() {
+    super("Not funded: an older version of the wallet set this swap up under your privacy address's owner commitment. Nothing was sent.");
+    this.name = "OrderOutdated";
+  }
+}
+
+/** An order whose refund note an older build made out to the privacy address's owner commitment (the audit round of 2026-10-16, c18). */
+export function committedToPrivacyAddress(stored: Pick<StoredSwap, "params">, masterSeed: Uint8Array): boolean {
+  const oc = (stored.params as { refundOwnerCommitment?: unknown } | undefined)?.refundOwnerCommitment;
+  return typeof oc === "string" && /^[0-9]+$/.test(oc) && BigInt(oc) === mainOwnerCommitment(deriveKeys(masterSeed));
 }
 
 /** n/2 of secp256k1: the swap service signs low-s, as the relayer requires (packages/swap-engine/src/endpoints.ts) */
@@ -220,6 +241,8 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
+  // never an order an older build committed under the privacy address's owner commitment (c18): stopped before anything is sent
+  if (!stored.fundingAttempt && committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
   // the relayer that will execute it runs it, and the order's own vouch still counts (a V6 follow-up of 2026-10-16): a funded
   // escrow they refused would hold the funds until the refund time with nobody to execute or refund it
   await checkFundingReady(o);
@@ -274,6 +297,11 @@ export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Ui
   try {
     const sub = settings.get().submission;
     await fundEscrow({ masterSeed: o.masterSeed, deployment: o.deployment, stored, session: s, onStatus: (line) => schedulerStatus.progress(line), relayerUrl: sub.kind === "relayer" ? sub.url : null });
+  } catch (e) {
+    // an order an older build committed under the privacy address's owner commitment (c18): given up, never funded
+    if ((e as { code?: unknown })?.code !== "order_outdated") throw e;
+    patchSwap(stored.orderId, { paused: { code: "order_outdated", detail: (e as Error).message, at: Date.now() } }, s);
+    abandonSwap(stored.orderId, s);
   } finally {
     schedulerStatus.finish();
   }

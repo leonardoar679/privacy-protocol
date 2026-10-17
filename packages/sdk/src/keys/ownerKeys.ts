@@ -23,6 +23,14 @@ export const mainOwnerCommitment = (keys: Pick<WalletKeys, "spendKey">): bigint 
 export const depositOwnerCommitment = (keys: Pick<WalletKeys, "spendKey">, noteSecret: bigint): bigint =>
   ownerCommitmentOf(deriveOwnerKey(keys.spendKey, noteSecret));
 
+/**
+ * A deposit is never made out to the privacy address's owner commitment (the audit round of 2026-10-16, c18): that
+ * commitment is in pp1, and a deposit, an escrow or a receiver publishes the one it names. Thrown before anything is built.
+ */
+export function assertOwnOwnerCommitment(keys: Pick<WalletKeys, "spendKey">, ownerCommitment: bigint, what: string): void {
+  if (ownerCommitment === mainOwnerCommitment(keys)) throw new Error(`${what} is never made out to the privacy address's owner commitment`);
+}
+
 /** The key that spends `note` — the spend key, or a deposited note's own key — or null when neither opens it. `main` spares recomputing the privacy address's commitment for every note. */
 export function ownerKeyOf(keys: Pick<WalletKeys, "spendKey">, note: Note, main: bigint = mainOwnerCommitment(keys)): bigint | null {
   if (note.ownerCommitment === main) return keys.spendKey;

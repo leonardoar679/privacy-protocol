@@ -465,6 +465,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.no_owner_key.title": "이 지갑의 키로는 쓸 수 없는 노트가 있습니다",
   "op.error.no_owner_key.reason":
     "이 작업에 고른 노트 하나가 이 지갑이 갖지 않은 소유자에게 발행되어 있어, 증명하거나 전송하기 전에 멈췄습니다. 자금은 이동하지 않았습니다.",
+  "op.error.order_outdated.title": "이 스왑은 새 견적이 필요합니다",
+  "op.error.order_outdated.reason":
+    "이전 버전의 지갑이 이전 활동과 연결될 수 있는 방식으로 설정해, 자금을 넣기 전에 멈췄습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.notes_loading.title": "아직 노트를 찾고 있습니다",
   "op.error.notes_loading.reason":
     "복원한 뒤 지갑은 새 노트를 만들기 전에 풀을 한 번 읽어, 이미 체인에 있는 노트와 겹치지 않게 합니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",

@@ -85,7 +85,8 @@ uniformly random `noteSecret` carried in the encrypted payload; dummies use a ra
 unspendable) and a random secret. Witness `attack-wrong-note-secret` is unsatisfiable at the
 membership constraint; `reference.test.ts` checks that two notes differing only in the secret hash
 differently. The deposit path takes `noteSecret` as calldata (a public shield is public anyway;
-wallets should use a deposit-only owner key).
+wallets should use a deposit-only owner key — the reference wallet does since 2026-10-16: every deposit is made out to
+its own, `packages/protocol/src/keys.ts` `deriveOwnerKey`, with no circuit change).
 
 ### PP-P02 — Medium — phantom nullifier recomputable by observers
 **Before (my PP-C02 fix):** `nullifier[1] = H(PHANTOM, nullifier[0], 1)` — derivable from on-chain

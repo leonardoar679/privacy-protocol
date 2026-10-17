@@ -382,11 +382,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           });
         } catch (e) {
           const code = (e as { code?: unknown })?.code;
-          if (!sent && (code === "older_notes_unavailable" || code === "relayer_not_ready" || code === "service_key_changed")) {
+          if (!sent && (code === "older_notes_unavailable" || code === "relayer_not_ready" || code === "service_key_changed" || code === "order_outdated")) {
             // "Delay for more privacy": the older notes the Review showed no longer cover the order and nothing was sent —
             // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes. Or the relayer
             // that would execute it does not run it, or the swap service no longer takes its vouch (a V6 follow-up of
-            // 2026-10-16): stopped before anything moved
+            // 2026-10-16), or an older build committed it under the privacy address's owner commitment (c18): stopped before
+            // anything moved
             patchSwap(a.orderId, { paused: { code, detail: (e as Error).message, at: now } }, s);
             abandonSwap(a.orderId, s);
             cancelAction(a.id, s);

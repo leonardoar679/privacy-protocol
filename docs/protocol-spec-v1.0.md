@@ -121,6 +121,19 @@ long as `ownerCommitment` is computed exactly as shown. **There is no on-chain k
 `ownerCommitment` is a public-ish receiving address; a wallet SHOULD use a fresh deposit-only owner key
 (child derivation) for public shields, because a deposit reveals its owner commitment (§6).
 
+The reference wallet does so for every note whose owner commitment becomes public (the audit round of 2026-10-16,
+c18): a protect's deposit, a swap order's refund note (the escrow's `refundOwnerCommitment`) and a same-chain receipt's
+note are each made out to their own,
+
+```
+ownerKey(note)  = uint256(keccak256(be32(spendKey) ‖ "/owner-key/" ‖ be32(noteSecret))) mod p
+ownerCommitment = H(DOM(OWNER_COMMITMENT), ownerKey(note))
+```
+
+pinned by `packages/protocol/test/vectors/owner-keys.json`. The input that spends such a note takes `ownerKey(note)` as
+its owner key; the circuit takes one per input (§5.3), so it is unchanged. The privacy address's `ownerCommitment`
+names only the notes received and the wallet's own private outputs, which no deposit publishes.
+
 ---
 
 ## 5. Notes: format, commitment, nullifier, phantom

@@ -17,7 +17,7 @@ import type { OrderState, Tracked } from "../src/orderTracker";
 import type { Signed } from "../src/swapExecute";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
-import { RelayerNotReady, ServiceKeyChanged } from "../src/swapFunding";
+import { OrderOutdated, RelayerNotReady, ServiceKeyChanged } from "../src/swapFunding";
 import { FUNDING_MARGIN_MS, patchSwap, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
@@ -92,7 +92,7 @@ function world(
   o: {
     minOut?: bigint;
     simOk?: boolean;
-    fund?: "ok" | "fails-before" | "fails-after" | "older-gone" | "relayer-not-ready" | "service-key-changed" | "dropped";
+    fund?: "ok" | "fails-before" | "fails-after" | "older-gone" | "relayer-not-ready" | "service-key-changed" | "order-outdated" | "dropped";
     handOver?: "ok" | "lost";
   } = {},
 ) {
@@ -125,6 +125,7 @@ function world(
       if (w.fund === "older-gone") throw new OlderNotesUnavailable(st.runner?.maxTiming ?? 0);
       if (w.fund === "relayer-not-ready") throw new RelayerNotReady("the relayer does not run the swap service's orders");
       if (w.fund === "service-key-changed") throw new ServiceKeyChanged("the swap service no longer takes the key this swap was confirmed under");
+      if (w.fund === "order-outdated") throw new OrderOutdated();
       onStatus("Withdrawing privately: handing it to the relayer…");
       if (w.fund === "dropped") throw new Error("Timed out while waiting for the transaction to be confirmed"); // sent, never mined
       w.escrow = AMOUNT;
@@ -672,6 +673,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
   it.each([
     ["relayer-not-ready", "relayer_not_ready", "a relayer that does not run the swap service's orders"],
     ["service-key-changed", "service_key_changed", "a key the swap service no longer takes"],
+    ["order-outdated", "order_outdated", "an older build committed it under the privacy address's owner commitment (audit c18)"],
   ] as const)("%s: stopped before anything is sent, never funded (a V6 follow-up of 2026-10-16)", async (mode, code, why) => {
     order({ runner: { confirmedAt: T0 } });
     session.update((j) => {

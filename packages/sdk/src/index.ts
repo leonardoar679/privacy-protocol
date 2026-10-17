@@ -10,7 +10,7 @@ import { txDomainOf, type Deployment } from "./chain";
 import { prove, type ProofResult, type ProveStatus } from "./config";
 import { diagnose, type Diagnosis } from "./operations/recovery";
 import { getOperation as operationById } from "./operations/store";
-import { ownNote, planWithdrawal, prepareShield, type FeeTerms, type PreparedShield, type TreeArg, type WithdrawalPlan } from "./privateTx";
+import { depositNote, planWithdrawal, prepareShield, type FeeTerms, type PreparedShield, type TreeArg, type WithdrawalPlan } from "./privateTx";
 import { swapService, type QuoteSet, type SwapRequest } from "./swapService";
 import { noteStore, type NoteStore } from "./wallet/notes";
 import type { OperationRecord } from "./wallet/operationRecord";
@@ -41,10 +41,11 @@ export const lockWallet = (s: WalletSession = session): void => s.lock();
 /** The protected balance in one vault, in its base units: the unspent notes this wallet holds there. */
 export const getProtectedBalance = (vault: Address | bigint, notes: NoteStore = noteStore): bigint => notes.balance(BigInt(vault));
 
-/** A new note of this wallet for `amount` in `vault`: the counter allocated, the secret derived from the seed, the payload
- *  encrypted to the wallet itself. Not yet on chain — a deposit or a transaction's output puts it there. */
+/** A new note of this wallet for `amount` in `vault`: the counter allocated, the secret derived from the seed, made out to
+ *  its own owner commitment (the audit round of 2026-10-16, c18: a deposit publishes it, so it is linked to nothing else),
+ *  the payload encrypted to the wallet itself. Not yet on chain — a deposit or a transaction's output puts it there. */
 export function createNote(o: { vault: Address | bigint; amount: bigint }, s: WalletSession = session): { note: Note; noteData: Hex; counter: number } {
-  return ownNote(deriveKeys(seedOf(s)), BigInt(o.vault), o.amount);
+  return depositNote(deriveKeys(seedOf(s)), BigInt(o.vault), o.amount);
 }
 
 /** Protect: the deposit of `amount` into the protected balance — the note, its payload, the transactions the public
