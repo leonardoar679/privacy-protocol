@@ -177,7 +177,7 @@ export function scheduleTick(campaignId: string, dueAt: number, s: WalletSession
 export function pauseCampaign(id: string, s: WalletSession = defaultSession, now = Date.now()): Campaign | null {
   const c = campaignById(id, s);
   if (!c || TERMINAL_STATES.includes(c.state) || c.state === "paused") return c;
-  const paused = withAlert(withCampaignState(c, "paused", now, "paused by you", { pause: { reason: "user", detail: "Paused by you. Steps already handed over continue and are tracked.", at: now } }), "paused", "Paused by you.", now);
+  const paused = withAlert(withCampaignState(c, "paused", now, "paused by you", { pause: { reason: "user", detail: "Paused by you. Steps already handed over continue and are tracked.", at: now }, decidedAt: now }), "paused", "Paused by you.", now);
   putCampaign(paused, s);
   scheduleTick(id, now, s);
   return paused;
@@ -187,7 +187,7 @@ export function pauseCampaign(id: string, s: WalletSession = defaultSession, now
 export function resumeCampaign(id: string, s: WalletSession = defaultSession, now = Date.now()): Campaign | null {
   const c = campaignById(id, s);
   if (!c || (c.state !== "paused" && c.state !== "rerouting")) return c;
-  const resumed = withAlert(withCampaignState(c, "reassessing", now, "resumed by you", { pause: undefined, pendingReroute: undefined }), "resumed", "Resumed: the facts are checked, then the remaining amount is quoted again.", now);
+  const resumed = withAlert(withCampaignState(c, "reassessing", now, "resumed by you", { pause: undefined, pendingReroute: undefined, decidedAt: now }), "resumed", "Resumed: the facts are checked, then the remaining amount is quoted again.", now);
   putCampaign(resumed, s);
   scheduleTick(id, now, s);
   return resumed;
@@ -198,8 +198,8 @@ export function acceptReroute(id: string, accept: boolean, s: WalletSession = de
   const c = campaignById(id, s);
   if (!c || c.state !== "rerouting" || !c.pendingReroute) return c;
   const next = accept
-    ? withAlert(withCampaignState(c, "running", now, `route changed to ${c.pendingReroute.provider}, confirmed by you`, { provider: c.pendingReroute.provider, pendingReroute: undefined, pause: undefined }), "route-changed", `The route changed to ${c.pendingReroute.provider}; you confirmed it.`, now)
-    : withCampaignState(c, "winding-down", now, "the new route was declined: the rest returns", { pendingReroute: undefined });
+    ? withAlert(withCampaignState(c, "running", now, `route changed to ${c.pendingReroute.provider}, confirmed by you`, { provider: c.pendingReroute.provider, pendingReroute: undefined, pause: undefined, decidedAt: now }), "route-changed", `The route changed to ${c.pendingReroute.provider}; you confirmed it.`, now)
+    : withCampaignState(c, "winding-down", now, "the new route was declined: the rest returns", { pendingReroute: undefined, decidedAt: now });
   putCampaign(next, s);
   scheduleTick(id, now, s);
   return next;
@@ -209,12 +209,39 @@ export function acceptReroute(id: string, accept: boolean, s: WalletSession = de
 export function cancelCampaign(id: string, s: WalletSession = defaultSession, now = Date.now()): Campaign | null {
   const c = campaignById(id, s);
   if (!c || TERMINAL_STATES.includes(c.state)) return c;
-  let next = withCampaignState(c, "winding-down", now, "cancelled by you: the rest returns to the private balance", { pendingReroute: undefined });
+  let next = withCampaignState(c, "winding-down", now, "cancelled by you: the rest returns to the private balance", { pendingReroute: undefined, decidedAt: now });
   for (const t of next.tranches) if (t.state === "planned" || t.state === "ready") next = withTrancheState(next, t.index, "skipped", now, {}, "cancelled before it started");
   next = withAlert(next, "cancelled", "Returning the rest to your private balance; steps already handed over finish first.", now);
   putCampaign(next, s);
   scheduleTick(id, now, s);
   return next;
+}
+
+/**
+ * A tick's campaign about to be journaled over the journal's own (the audit round of 2026-10-16, c36): an answer the user
+ * gave while the tick ran — pause, resume, a reroute's answer, return the rest — is kept. The tick wrote what it had read
+ * before the answer, so the answer was lost and the campaign kept executing. `base` is the campaign the tick started
+ * from, `latest` the journal's now. The tick's own facts stay (its steps, what it sent); the answer's campaign-level fields
+ * come from the journal, its history and alerts are added, and "return the rest" skips what is still planned. A campaign
+ * the tick finished stays finished.
+ */
+export function keepDecisions(base: Campaign, latest: Campaign, tick: Campaign): Campaign {
+  if (latest.decidedAt === undefined || Object.is(latest.decidedAt, base.decidedAt) || TERMINAL_STATES.includes(tick.state)) return tick;
+  const history = [...tick.history, ...latest.history.slice(base.history.length)].sort((a, b) => a.at - b.at);
+  const alerts = [...(tick.alerts ?? []), ...(latest.alerts ?? []).slice((base.alerts ?? []).length)].sort((a, b) => a.at - b.at);
+  let merged: Campaign = {
+    ...tick,
+    state: latest.state,
+    pause: latest.pause,
+    pendingReroute: latest.pendingReroute,
+    provider: latest.provider,
+    decidedAt: latest.decidedAt,
+    history,
+    ...(alerts.length ? { alerts } : {}),
+  };
+  if (merged.state === "winding-down")
+    for (const t of merged.tranches) if (t.state === "planned" || t.state === "ready") merged = withTrancheState(merged, t.index, "skipped", latest.decidedAt, {}, "cancelled before it started");
+  return merged;
 }
 
 /** Re-plan the unfunded remainder of a campaign (after a refund) with the campaign's own plan and the CSPRNG. */

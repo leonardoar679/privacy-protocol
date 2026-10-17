@@ -78,7 +78,9 @@ from the phrase or a backup) has had no complete scan — no note counter is han
 written by `emptyJournal()`. A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A swap order may carry
 `reviewedFee` (decimal, the relayer's fee for its funding the Review showed; c46): its funding never pays more. A
 campaign's bounds may carry `minimumOutputNet` (decimal, 1e18 fixed point, per unit a step pays its provider — its escrow
-less its own tip; c55): a step's price is checked on it when present, else on `minimumOutput`. A V6
+less its own tip; c55): a step's price is checked on it when present, else on `minimumOutput`. A campaign may carry
+`decidedAt` (unix ms of the user's last answer — pause, resume, a reroute's answer, return the rest; c36): a tick that ran
+while it was given keeps it. A V6
 follow-up (note discovery): a scheduled action of the kind `discovery` (id `discovery:pool`, one at a time, planned again
 while unlocked), and an Activity line of the kind `receive` (a private transfer received, id `receive:<leafIndex>`). V6
 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carries `shield { factory, receiver, params

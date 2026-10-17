@@ -136,6 +136,9 @@ export interface Campaign {
   lint?: unknown;
   value?: unknown;
   pause?: { reason: PauseReason; detail: string; at: number; trancheIndex?: number };
+  /** the user's last answer (pause, resume, a reroute's answer, return the rest), unix ms: a tick that ran while it was given
+   *  keeps it (the audit round of 2026-10-16, c36); optional */
+  decidedAt?: number;
   confirmations: { commit: number; secondFactor?: number; secondDevice?: number; destinationVerified?: number; emergencyOverride?: number };
   history: { state: CampaignState; at: number; note?: string }[];
 }

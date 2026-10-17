@@ -29,7 +29,7 @@ import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
-import { campaignById, childOrder, expectedOut, forgetCampaignTick, largestPlanned, notesShapedFor, putCampaign, replanRemainder, scheduleTick, sourceEquivalent, cryptoUniform, TERMINAL_STATES } from "./campaigns";
+import { campaignById, childOrder, expectedOut, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, cryptoUniform, TERMINAL_STATES } from "./campaigns";
 import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
@@ -215,6 +215,16 @@ const parseDelivered = (x: string): bigint => { try { return BigInt(x); } catch 
 
 interface TrackPass { campaign: Campaign; active?: { trackState: string; jobState?: string; ageSeconds?: number; expectedSeconds?: number }; justSettled: { index: number; deliveredOut?: string; minOut?: string }[]; reconcileNeeded: boolean; reconcileDetail?: string }
 
+/**
+ * What a step's journaled funding became, before its order is given up (the audit round of 2026-10-16, c35): "none" (nothing
+ * was sent), "dead" (it never lands: the order may go), "landed", or "pending" (on its way, or not readable: wait).
+ */
+async function givenUpOnlyIfDead(stored: StoredSwap, io: CampaignIo): Promise<"none" | "dead" | "landed" | "pending"> {
+  if (!stored.fundingAttempt) return "none";
+  const fate = await (io.fundingFate?.(stored) ?? Promise.resolve<FundingFate>("unknown")).catch((): FundingFate => "unknown");
+  return fate === "dead" ? "dead" : fate === "landed" ? "landed" : "pending";
+}
+
 /** Reconcile every open tranche and track the ones in flight (§9, §6). */
 async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession, now: number, margins: Record<string, number>, rng: () => number): Promise<TrackPass> {
   let c = c0;
@@ -290,6 +300,20 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
   if (!c0 || TERMINAL_STATES.includes(c0.state)) { cancelAction(a.id, s); return null; }
   const io = deps.io ?? defaultIo({ masterSeed: deps.masterSeed, deployment: deps.deployment, session: s, submission: cfg.submission });
   const send = deps.notify ?? notify;
+  // every write of this tick keeps an answer the user gave while it ran (c36): the tick's campaign is the one it read first
+  let base = c0;
+  let decided = false;
+  const putCampaign = (x: Campaign, session: WalletSession): Campaign => {
+    const latest = campaignById(x.id, session);
+    const merged = latest ? keepDecisions(base, latest, x) : x;
+    if (merged !== x) {
+      base = latest!;
+      decided = true;
+    }
+    journalCampaign(merged, session);
+    return merged;
+  };
+  const answeredMeanwhile = (): boolean => !Object.is(campaignById(c0.id, s)?.decidedAt, base.decidedAt);
   schedulerStatus.start(a.id, "Protected swap: checking every open step…");
   try {
     const pass = await reconcileAndTrack(c0, io, s, now, margins, rng);
@@ -333,7 +357,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       case "track": nextAt = now + TRACK_INTERVAL_MS; break;
       case "shape-notes": {
         if (c.state !== "preparing-notes") c = withCampaignState(c, "preparing-notes", now, "shaping the notes for the pieces");
-        putCampaign(c, s);
+        c = putCampaign(c, s);
         schedulerStatus.progress("Protected swap: shaping your private balance for the pieces…");
         await io.shape(c, needed, (l) => schedulerStatus.progress(l));
         nextAt = now + 1000;
@@ -346,7 +370,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (sinceS >= c.bounds.expiry) { c = pauseWith(c, "bounds", "The operation's expiry passed before this step; nothing more is committed.", now, t.index); break; }
         const dest = io.freshDestination(c);
         c = withTrancheState(c, t.index, "ready", now, { destination: dest.address, ...(dest.index !== undefined ? { destinationIndex: dest.index } : {}), provider: c.provider, attempt: t.attempt + 1 });
-        putCampaign(c, s); // journaled before the call (§9)
+        c = putCampaign(c, s); // journaled before the call (§9)
+        if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
         schedulerStatus.progress(`Protected swap: committing step ${t.index + 1}…`);
         let r: { stored: StoredSwap; order: ServiceOrder; protection?: unknown };
         try { r = await io.commit(c, c.tranches[t.index], dest.address); }
@@ -388,6 +413,11 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const stored = childOrder(t, s);
         if (!stored) { c = withTrancheState(c, t.index, "failed", now, {}, "its order is missing from the journal"); c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
         if (t.provider && c.provider && t.provider !== c.provider && !stored.fundedTx) {
+          // a funding already sent may still land (the audit round of 2026-10-16, c35): given up now, it would land in an
+          // escrow nothing refunds — it is waited for, and a landed one finishes on its own route (audit gap 44)
+          const sentFate = await givenUpOnlyIfDead(stored, io);
+          if (sentFate === "landed") { c = withTrancheState(c, t.index, "funded", now, {}, "funded (its funding landed before the route changed)"); nextAt = now + 1000; break; }
+          if (sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; } // on its way: read again at the next tick
           abandonSwap(stored.orderId, s);
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the route changed to ${c.provider} before this step was funded: its order is abandoned and the step planned again`);
           nextAt = now + 1000; break;
@@ -418,6 +448,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's execution window closed before it was funded: the order is abandoned and the step planned again");
           nextAt = now + 1000; break;
         }
+        if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
         schedulerStatus.progress(`Protected swap: funding step ${t.index + 1} from your private balance…`);
         let sent = false;
         try {
@@ -434,7 +465,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             nextAt = now + 1000;
             break;
           }
-          if (!sent) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
+          if (!sent) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
           c = pauseWith(c, "reconcile", `The funding of step ${t.index + 1} ended without a known outcome (${m}); the escrow is read before anything is sent again.`, now, t.index);
         }
         break;
@@ -453,6 +484,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const closed = now >= windowEndOf(stored);
         let leftRefund = closed ? "its execution window closed before it was signed" : leftBehind ? await leftRouteUnsound(t.provider!, c, io, now) : null;
         if (!leftRefund) {
+          if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
           schedulerStatus.progress(`Protected swap: checking and signing step ${t.index + 1}…`);
           try {
             // V3 §3, the price bound: a step's call must guarantee amount × minimumOutput — the confirmation's minimum per
@@ -474,18 +506,18 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           } catch (e) {
             const m = (e as Error)?.message ?? String(e);
             // the gateways did not answer: an outage, tried again at the next tick, never an unexpected destination
-            if (e instanceof ProviderCallUnverified) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
+            if (e instanceof ProviderCallUnverified) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
             if (/receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
             else if (/below the best alternative|price_guard/i.test(m)) {
               if (leftBehind) leftRefund = "its own route is refused against the better one";
               else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
             } else if (/escrow|digest|not the one this wallet committed|minimum/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
-            else { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
+            else { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
           }
         }
         if (leftRefund) {
           try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `${closed ? leftRefund : `the route changed to ${c.provider} and ${leftRefund}`}: the funded step returns through its refund and is planned again`); nextAt = now + 1000; }
-          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
+          catch (e) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
         }
         break;
       }
@@ -501,13 +533,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const unsound = closed ? "its execution window closed before it was handed over" : t.provider && c.provider && t.provider !== c.provider ? await leftRouteUnsound(t.provider, c, io, now) : null;
         if (unsound) {
           try { const job = await io.refund(stored); signedCache.delete(stored.orderId.toLowerCase()); c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, `${closed ? unsound : `the route changed to ${c.provider} and ${unsound}`}: the signed step is not handed over; it returns through its refund`); nextAt = now + 1000; }
-          catch (e) { putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
+          catch (e) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
           break;
         }
         const signed = signedCache.get(stored.orderId.toLowerCase());
         if (!signed) { c = withTrancheState(c, t.index, "funded", now, {}, "the signature is not in memory any more; signing again"); nextAt = now + 1000; break; }
         const release = canRelease(c, BigInt(t.amount), t.provider ?? c.provider); // I1, I2, I4 and (V4) I6
         if (!release.ok) { nextAt = now + TRACK_INTERVAL_MS; break; }
+        if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
         schedulerStatus.progress(`Protected swap: handing step ${t.index + 1} to the executor…`);
         try {
           const r = await io.handOver(stored, signed);
@@ -568,7 +601,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + 1000;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
-          putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw new Error(`returning step ${t.index + 1} failed: ${m}`); // the executor was not reached: backoff
+          c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw new Error(`returning step ${t.index + 1} failed: ${m}`); // the executor was not reached: backoff
         }
         break;
       }
@@ -581,6 +614,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (!stored) { c = withTrancheState(c, t.index, "skipped", now, {}, "its order is missing from the journal"); nextAt = now + 1000; break; }
         const bal = stored.fundedTx ? null : await io.escrowBalance(stored);
         if (stored.fundedTx || (bal !== null && bal >= BigInt(t.amount))) { c = withTrancheState(c, t.index, "funded", now, {}, "funded (reconciled from the escrow's balance)"); nextAt = now + 1000; break; }
+        // a funding on its way is waited for, never given up with it (c35): the escrow reads empty until it lands
+        const sentFate = bal === 0n ? await givenUpOnlyIfDead(stored, io) : "none";
+        if (sentFate === "landed" || sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; }
         if (bal === 0n) {
           abandonSwap(stored.orderId, s); // never funded: nothing left the private balance
           c = withTrancheState(c, t.index, "skipped", now, {}, "never funded: given up while the rest returned");
@@ -600,7 +636,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       send({ kind: c.pause ? alertKindFor(c.pause.reason, c.pause.detail) : "paused", title: "Protected swap paused", body: c.pause?.detail ?? "Paused.", campaignId: c.id });
       nextAt = now + PAUSED_TRACK_INTERVAL_MS;
     }
-    putCampaign(c, s);
+    c = putCampaign(c, s);
+    if (decided) nextAt = now; // the answer given meanwhile is acted on at once, never forgotten with this tick's plan
     if (nextAt !== null) scheduleTick(c.id, nextAt, s); else forgetCampaignTick(c.id, s);
     return { action, before: c0, after: c, nextAt };
   } finally {

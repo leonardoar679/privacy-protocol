@@ -65,6 +65,8 @@ class World implements CampaignIo {
   fundPendingAfterSend = false;
   /** what the runner learns of a journaled funding */
   fate: FundingFate = "unknown";
+  /** awaited by the next commit, so a test can answer while a tick runs */
+  gate: Promise<void> | null = null;
   handOverThrows = false;
   /** the next signature fails with this (then signs normally) */
   signThrows: Error | null = null;
@@ -94,6 +96,7 @@ class World implements CampaignIo {
   private stored(orderId: string): StoredSwap { return this.s.journal().swaps.find((x) => x.orderId === orderId)!; }
   async commit(c: Campaign, t: Tranche, destination: string) {
     this.calls.push(`commit:${t.index}:${c.provider}`);
+    if (this.gate) await this.gate;
     const orderId = ("0x" + (++this.n).toString(16).padStart(64, "0")) as `0x${string}`;
     const q = quote(this.sizeChosen ?? c.provider ?? "thorchain", BigInt(t.amount));
     const nowS = Math.floor(this.now() / 1000);
@@ -769,6 +772,58 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     r = await tick(c);
     expect(r?.action.kind).toBe("complete");
     expect(current(c).state).toBe("cancelled");
+  });
+
+  it("an answer given while a tick runs is kept, and no money step starts after it (the audit round of 2026-10-16, c36)", async () => {
+    const settleTicks = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); };
+    // "Return the rest" while step 1 is being committed
+    const c = await fresh();
+    let release!: () => void;
+    world.gate = new Promise<void>((r) => (release = r));
+    const running = tick(c);
+    await settleTicks();
+    expect(world.calls.filter((x) => x.startsWith("commit:"))).toHaveLength(1);
+    cancelCampaign(c.id, session, clock);
+    release();
+    const r = await running;
+    world.gate = null;
+    expect(current(c).state, "the tick's own write kept the answer").toBe("winding-down");
+    expect(current(c).tranches.filter((t) => t.state === "planned" || t.state === "ready"), "nothing planned is left").toEqual([]);
+    expect(r?.nextAt, "acted on at once").toBe(clock);
+    // a Pause while a tick reads the facts: the funding it was about to send is not sent
+    const d = await fresh();
+    await tick(d); clock += 2000; // step 1 committed
+    const facts = world.escrowBalance.bind(world);
+    world.escrowBalance = async (stored) => { pauseCampaign(d.id, session, clock); return facts(stored); };
+    const funds = world.calls.filter((x) => x.startsWith("fund:")).length;
+    await tick(d);
+    world.escrowBalance = facts;
+    expect(world.calls.filter((x) => x.startsWith("fund:")).length, "not funded after the pause").toBe(funds);
+    expect(current(d)).toMatchObject({ state: "paused", pause: { reason: "user" } });
+  });
+
+  it("a step whose funding is on its way is never given up: not when the rest returns, not when the route changes (the audit round of 2026-10-16, c35)", async () => {
+    const c = await fresh();
+    await tick(c); clock += 2000; // committed
+    world.fundPendingAfterSend = true; // the funding is sent, its answer lost
+    await tick(c).catch(() => null);
+    world.fundPendingAfterSend = false;
+    const orderId = current(c).tranches[0].orderId!;
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.fundingAttempt, "journaled before it was sent").toBeTruthy();
+    cancelCampaign(c.id, session, clock);
+    world.fate = "pending";
+    clock += 2000;
+    await tick(c);
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.state, "on its way: the order is kept").not.toBe("abandoned");
+    expect(current(c).tranches[0].state).not.toBe("skipped");
+    // it lands: the escrow holds it, and the step returns through its refund — never lost in an abandoned escrow
+    world.fate = "landed";
+    world.escrow.set(orderId, BigInt(current(c).tranches[0].amount));
+    clock += 2000;
+    await tick(c);
+    expect(["funded", "refunding"], "funded, then on its way back through its refund").toContain(current(c).tranches[0].state);
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.state).not.toBe("abandoned");
+    world.fate = "unknown";
   });
 
   it("a refunded tranche is re-planned; a partial fill pauses, then settles for what was delivered once the rest is back", async () => {
