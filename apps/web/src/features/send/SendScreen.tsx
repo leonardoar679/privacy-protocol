@@ -23,7 +23,7 @@ import { destinationWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
-import { HousekeepingNeeded, privateTransfer, privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
+import { HousekeepingNeeded, privateTransfer, privateWithdrawal, maxSpendable } from "@privacy-wallet/sdk/privateTx";
 import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
@@ -324,7 +324,18 @@ export function SendScreen(p: SendScreenProps) {
             }
           },
           ...(assets.length > 1 ? { onAsset: () => setPicking(true) } : {}),
-          ...(balance > 0n ? { onMax: () => setAmount(formatAmount(asset, balance)) } : {}),
+          ...(balance > 0n
+            ? {
+                // the merges a spend of every note needs are paid out of it (the audit's unverified m55)
+                onMax: () => {
+                  if (noteStore.unspent(BigInt(asset.vault)).length <= 2 || !p.deployment || !relayed) return setAmount(formatAmount(asset, balance));
+                  void maxSpendable(p.deployment, asset.vault).then(
+                    (m) => setAmount(formatAmount(asset, m)),
+                    () => setAmount(formatAmount(asset, balance)),
+                  );
+                },
+              }
+            : {}),
           onBack: p.onBack,
         }}
       />

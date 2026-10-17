@@ -3,6 +3,16 @@
 import { selectInputs } from "@privacy-wallet/protocol/wallet/amounts";
 
 /** At most `maxMerges` merges, each paying `feePerTx`; why not, when it cannot. */
+/**
+ * What a spend of every note can deliver at most (the audit's unverified m55, 2026-10-17): the 2-input circuit spends two
+ * notes, so n notes are first merged down to two — n − 2 merges, each paying the relayer's minimum out of the balance.
+ */
+export function maxAfterMerges(amounts: bigint[], feePerTx: bigint): bigint {
+  const sum = amounts.reduce((a, b) => a + b, 0n);
+  const merges = BigInt(Math.max(0, amounts.length - 2));
+  return sum > merges * feePerTx ? sum - merges * feePerTx : 0n;
+}
+
 export function mergeSchedule(
   notes: { id: string; amount: bigint }[],
   needed: bigint,

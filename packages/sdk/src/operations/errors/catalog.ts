@@ -22,7 +22,7 @@ const SERVICE_MESSAGES: [RegExp, string][] = [
   [/not prepared/i, "order_not_prepared"], [/price guard|price_guard/i, "price_guard"], [/minimum moved|guarantees at least/i, "minimum_moved"],
 ];
 const WALLET_MESSAGES: [RegExp, string][] = [
-  [/insufficient shielded balance/i, "insufficient_balance"], [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"], [/spread over \d+ notes/i, "housekeeping_needed"], [/commitment was not found in the receipt/i, "deposit_not_found"],
+  [/insufficient shielded balance/i, "insufficient_balance"], [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"], [/spread over \d+ notes|needs a private merge/i, "housekeeping_needed"], [/commitment was not found in the receipt/i, "deposit_not_found"],
   [/reverted/i, "receipt_reverted"], [/unreachable|failed to fetch|fetch failed|networkerror|ECONNREFUSED|load failed/i, "relayer_unreachable"], [/expired/i, "quote_expired"],
 ];
 

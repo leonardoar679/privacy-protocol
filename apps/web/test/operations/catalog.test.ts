@@ -87,6 +87,8 @@ describe("classify", () => {
     expect(classify(new Error("unknown order")).code).toBe("unknown_order");
     expect(classify(new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs")).code).toBe("insufficient_balance");
     expect(classify(new Error("Your ETH balance is spread over 12 notes; this spend needs more than 8 merges")).code).toBe("housekeeping_needed");
+    // nothing was sent: the notes need a merge first, never "We are checking where your funds are" (the audit's unverified m55)
+    expect(classify(new Error("this amount needs a private merge of smaller notes first (ensureSpendable)"))).toMatchObject({ code: "housekeeping_needed", fundsClass: "not-moved" });
     expect(classify(new Error("the deposit was mined but its commitment was not found in the receipt")).code).toBe("deposit_not_found");
     expect(classify(new TypeError("fetch failed"))).toMatchObject({ code: "relayer_unreachable", fundsClass: "unknown" });
     expect(classify(new Error("the quote expired")).code).toBe("quote_expired");

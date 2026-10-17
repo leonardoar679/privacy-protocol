@@ -15,7 +15,7 @@ import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } fr
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
 import { FIELD } from "@privacy-wallet/protocol/field";
 import { selectInputs } from "@privacy-wallet/protocol/wallet/amounts";
-import { mergeSchedule } from "./wallet/mergeSchedule";
+import { mergeSchedule, maxAfterMerges } from "./wallet/mergeSchedule";
 import type { SpendNote, TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/protocol/address";
@@ -516,7 +516,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   const needed = o.amount + (terms?.fee.amount ?? 0n);
   // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
   if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
-  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount });
+  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
@@ -590,17 +590,33 @@ async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deploym
   return { ...r, merged };
 }
 
+/**
+ * What Max can spend from a vault (the audit's unverified m55, 2026-10-17): the balance, less the relayer's minimum for each
+ * merge that brings the notes down to two (none through the connected wallet, whose merges pay no fee note). Max had been
+ * the whole balance: the merges were paid and the spend then failed as more than what they left.
+ */
+export async function maxSpendable(deployment: Deployment, vault: Address, submission: Submission = settings.get().submission): Promise<bigint> {
+  const notes = noteStore.unspent(BigInt(vault)).map((n) => n.note.amount);
+  if (notes.length <= 2) return notes.reduce((a, b) => a + b, 0n);
+  const terms = await feeTerms(deployment, submission, vault);
+  return maxAfterMerges(notes, terms?.fee.amount ?? 0n);
+}
+
 /** Merge until two notes cover `needed` (+ the fee of each merge and of the final spend). Returns the number of merges performed. */
-async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address } & Progress): Promise<number> {
+async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address; /** the fee of the spend these merges are for (its p + F); read for `needed` when absent */ finalFee?: bigint } & Progress): Promise<number> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   const vaultId = BigInt(vault);
-  const terms = await feeTerms(o.deployment, submission, vault);
+  const terms = await feeTerms(o.deployment, submission, vault); // a merge's own fee: the minimum (a self-transfer)
   const feePerTx = terms?.fee.amount ?? 0n;
+  // the spend these merges are for pays the percentage of what it delivers besides the minimum (the audit round of
+  // 2026-10-16, c33): planned for the minimum alone, an amount just under a note pair's sum was never merged for, and the
+  // spend then failed on two notes that could not pay its own fee
+  const finalFee = o.finalFee ?? (terms ? ((await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.needed }))?.fee.amount ?? feePerTx) : 0n);
   let done = 0;
   for (;;) {
     const notes = noteStore.unspent(vaultId).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount }));
-    const sched = mergeSchedule(notes, o.needed + feePerTx, feePerTx);
+    const sched = mergeSchedule(notes, o.needed + finalFee, feePerTx);
     if (!sched.ok && sched.reason === "too-many-merges") throw new HousekeepingNeeded(notes.length, 8, assetByVault(o.deployment, vault)?.symbol ?? "private");
     if (!sched.ok) throw new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs");
     if (!sched.pairs.length) return done;
@@ -672,7 +688,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
   boundFee(terms, o.maxFee);
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
-  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount });
+  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);

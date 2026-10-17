@@ -1113,6 +1113,10 @@ nullifier the first had just spent: a Send started while a confirmed swap funds 
   takes its turn. The second waits for the first to be recorded (its status line says so), then plans from the notes
   as they are, the first's change note included.
 - The merges a spend needs first run inside their caller's turn. A failed spend never blocks the next.
+- The merges are planned for the spend's own fee, its p + F (the audit round of 2026-10-16, c33): planned for the minimum
+  alone, an amount just under a note pair's sum was never merged for. Max is the balance less the minimum of each merge that
+  brings the notes down to two (`maxSpendable`; the audit's unverified m55, 2026-10-17): the merges had been paid and the
+  spend then refused. A spend whose notes still need a merge reads as `housekeeping_needed` (not moved).
 - One unlocked tab at a time (§8) keeps it to one tab.
 
 Code: `packages/sdk/src/privateTx.ts` (`inTurn`); `packages/sdk/test/spend-turns.test.ts`.

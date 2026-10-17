@@ -32,7 +32,7 @@ import { formatDateTime } from "../../app/i18n/intl";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
-import { feeTerms } from "@privacy-wallet/sdk/privateTx";
+import { feeTerms, maxSpendable } from "@privacy-wallet/sdk/privateTx";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { controlsFor, holdMs, issuerLine, routeKind } from "@privacy-wallet/sdk/tiers";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
@@ -574,7 +574,18 @@ export function SwapScreen(p: SwapScreenProps) {
               reset();
             },
             ...(delayOffered ? { onDelay: setDelay } : {}),
-            ...(balance > 0n ? { onMax: () => setAmount(formatAmount(fromAsset, balance)) } : {}),
+            ...(balance > 0n
+              ? {
+                  // the merges a spend of every note needs are paid out of it (the audit's unverified m55)
+                  onMax: () => {
+                    if (noteStore.unspent(BigInt(fromAsset.vault)).length <= 2 || !p.deployment) return setAmount(formatAmount(fromAsset, balance));
+                    void maxSpendable(p.deployment, fromAsset.vault).then(
+                      (m) => setAmount(formatAmount(fromAsset, m)),
+                      () => setAmount(formatAmount(fromAsset, balance)),
+                    );
+                  },
+                }
+              : {}),
             onBack: p.onBack,
           }}
         />
