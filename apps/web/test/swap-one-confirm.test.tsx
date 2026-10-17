@@ -178,6 +178,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     const [order] = session.journal().swaps;
     expect(order).toMatchObject({ approvedMin: LIMIT.toString(), state: "committed", runner: { confirmedAt: expect.any(Number) } });
     expect(order.runner?.delayUntil).toBeUndefined();
+    expect(order.reviewedFee, "the relayer's fee the Review showed is journaled: the funding never pays more (audit c46)").toMatch(/^[0-9]+$/);
     expect(
       session.journal().schedule.some((a) => a.id === `fund-escrow:${order.orderId}`),
       "no 1–24 h funding by default",

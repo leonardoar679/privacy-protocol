@@ -61,6 +61,8 @@ export interface CommitInput {
   /** V6 Stage 12 (spec v2.0 §11.2): into the protected balance — the quote's shield tip and a fresh address of this wallet
    *  for a token the pool cannot hold; the order's destination becomes the shield receiver built here */
   shield?: { shieldTip: bigint; fallbackRecipient: Address };
+  /** the relayer's fee for the funding the Review showed: the funding never pays more (the audit round of 2026-10-16, c46) */
+  reviewedFee?: bigint;
   now?: number;
 }
 export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { privateKey: Hex; address: Hex }; refund: RefundNote; response: Awaited<ReturnType<typeof swapService.order>> }
@@ -107,6 +109,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
     ...(i.campaign ? { campaign: i.campaign } : {}),
     ...(shield ? { shield: { ...shield, ...(response.vouch?.shield ? { vouch: response.vouch.shield } : {}) } } : {}),
+    ...(i.reviewedFee !== undefined ? { reviewedFee: i.reviewedFee.toString() } : {}),
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });

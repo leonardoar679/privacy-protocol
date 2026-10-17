@@ -110,6 +110,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   service_key_changed: { state: "CANCELLED", phase: "funding", code: "service_key_changed" },
   // an older build committed it under the privacy address's owner commitment (the audit round of 2026-10-16, c18): never funded
   order_outdated: { state: "CANCELLED", phase: "funding", code: "order_outdated" },
+  // the relayer's fee is more than the Review showed (the audit round of 2026-10-16, c46): never funded at that fee
+  fee_moved: { state: "CANCELLED", phase: "funding", code: "fee_moved" },
   // a funding sent and never confirmed before the order's window closed: stopped, never sent again
   funding_unconfirmed: { state: "CANCELLED", phase: "funding", code: "funding_unconfirmed" },
   // the order's execution window closed: before its funding, stopped with nothing sent; after it and before the hand-over,

@@ -255,6 +255,7 @@ export function SendScreen(p: SendScreenProps) {
           amount: split.delivered,
           recipient,
           vault: asset.vault,
+          ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (the audit round of 2026-10-16, c46)
           onStatus: setStatus,
           onEvent,
         });
@@ -266,6 +267,7 @@ export function SendScreen(p: SendScreenProps) {
           amount: split.delivered,
           recipient: recipient as Address,
           vault: asset.vault,
+          ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (c46)
           onStatus: setStatus,
           onEvent,
         });

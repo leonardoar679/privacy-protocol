@@ -32,6 +32,9 @@ export interface StoredSwap {
   quote?: unknown;
   /** the minimum output the user approved (destination base units); a provider call guaranteeing less is signed only with fresh consent */
   approvedMin?: string;
+  /** the relayer's fee for the funding the Review showed (base units of the source asset; the audit round of 2026-10-16, c46):
+   *  a funding that would pay more is stopped (`fee_moved`), never paid whatever the fee had become; optional */
+  reviewedFee?: string;
   createdAt: number;
   dueAt?: number; // scheduled funding time (plan §30), unix ms
   fundedTx?: string;
@@ -76,7 +79,8 @@ export interface StoredSwap {
    *  on an order it gave up before funding, `older_notes_unavailable` (the older notes no longer covered it), `relayer_not_ready` (the
    *  relayer that would execute it names another factory or not the swap service's key; a V6 follow-up of 2026-10-16), `service_key_changed`
    *  (the swap service no longer takes the key the order was confirmed under; the same follow-up), `order_outdated` (an older
-   *  build committed it under the privacy address's owner commitment; the audit round of 2026-10-16, c18) or `order_expired` (its
+   *  build committed it under the privacy address's owner commitment; the audit round of 2026-10-16, c18), `fee_moved` (the
+   *  relayer's fee rose above the one the Review showed; c46) or `order_expired` (its
    *  execution window closed, or was about to); on a funded one whose window closed before its hand-over, `execution_window_closed` */
   paused?: { code: string; detail?: string; minOut?: string; approved?: string; at: number };
   /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance — the shield receiver this wallet named as

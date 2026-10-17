@@ -27,7 +27,7 @@ import { noteStore, type OwnedNote } from "./wallet/notes";
 import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
-import { protectSplit } from "@privacy-wallet/protocol/wallet/fees";
+import { PRIVACY_FEE_BPS, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
 import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
@@ -311,6 +311,9 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
   for (const url of candidates) {
     const picked = await pickRelayer([url], { chainId: deployment.chainId, core: deployment.core });
     if (!picked) { errors.push(`${url}: unreachable or another chain / core`); continue; }
+    // a relayer asking more than the 1 % privacy fee is not used (the audit round of 2026-10-16, c46): its terms were paid whatever they said
+    const bps = picked.info.feePercentBps ?? 0;
+    if (!Number.isInteger(bps) || bps < 0 || bps > PRIVACY_FEE_BPS) { errors.push(`${url}: asks ${bps} bps, above the ${PRIVACY_FEE_BPS / 100} % privacy fee`); continue; }
     const amount = feeInVault(picked.info, vault, undefined, opts.delivered);
     if (amount === null) { errors.push(`${url}: takes no fees in vault ${vault}`); continue; }
     const addr = decodePrivacyAddress(picked.info.privacyAddress);
@@ -320,6 +323,24 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
 }
 
 export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number }
+
+/**
+ * Thrown before anything is proved or sent (the audit round of 2026-10-16, c46): the relayer's fee for this spend is now more
+ * than the one the Review showed. The fee is read again at submit; it had been paid whatever it had become.
+ */
+export class FeeMoved extends Error {
+  readonly code = "fee_moved";
+  constructor(readonly shown: bigint, readonly now: bigint) {
+    super(`the relayer's fee moved from ${shown} to ${now} since the Review: nothing was sent`);
+    this.name = "FeeMoved";
+  }
+}
+
+/** The fee this spend would pay, refused above the one the Review showed (`maxFee`, in the vault's base units). */
+function boundFee(terms: { fee: FeeTerms } | null, maxFee: bigint | undefined): void {
+  const fee = terms?.fee.amount ?? 0n;
+  if (maxFee !== undefined && fee > maxFee) throw new FeeMoved(maxFee, fee);
+}
 
 /** V6 Stage 15 (spec v2.0 §8): proving and the submission are a critical section for the auto-lock. */
 async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Promise<Submitted> {
@@ -465,7 +486,7 @@ export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]):
 /** Perform one split on chain (private self-transfer) and record both notes. */
 export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
 
-async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number } & Progress): Promise<Submitted> {
+async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint } & Progress): Promise<Submitted> {
   await guardDeployment(o.deployment);
   // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
   // this deployment or of one of its tokens) — refused before anything is proved or sent
@@ -474,6 +495,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
+  boundFee(terms, o.maxFee);
   const needed = o.amount + (terms?.fee.amount ?? 0n);
   // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
   if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
@@ -623,13 +645,14 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  * of a transaction. Outputs: the recipient's note (their owner commitment, payload encrypted to
  * their view key — they find it by rescanning), our change, the relayer's fee note or a dummy.
  */
-async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
+async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
+  boundFee(terms, o.maxFee);
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
   await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount });

@@ -470,6 +470,8 @@ export function SwapScreen(p: SwapScreenProps) {
           mode: protection.mode,
         },
         ...(shield ? { shield } : {}),
+        // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
+        ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
         policy,
         provider: chosen.provider,
         fromAsset,
@@ -940,7 +942,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   // relayer that does not run the swap service's orders, or a key the swap service no longer takes)
   if (
     record.state === "CANCELLED" &&
-    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready", "service_key_changed", "order_outdated"].includes(
+    ["older_notes_unavailable", "order_expired", "funding_unconfirmed", "relayer_not_ready", "service_key_changed", "order_outdated", "fee_moved"].includes(
       record.reason?.code ?? "",
     )
   ) {

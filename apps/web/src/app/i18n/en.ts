@@ -438,6 +438,8 @@ export const en = {
   "op.error.asset_mismatch.reason": "It has this token with other decimals or another symbol, or not at all, so it cannot price the swap's execution. Nothing was committed and your funds were not moved. Check the wallet's network settings.",
   "op.error.no_owner_key.title": "One of these notes cannot be spent with this wallet's keys",
   "op.error.no_owner_key.reason": "A note chosen for this is made out to an owner this wallet does not hold, so it was stopped before anything was proved or sent. Your funds were not moved.",
+  "op.error.fee_moved.title": "The relayer's fee went up",
+  "op.error.fee_moved.reason": "It is now more than the fee you reviewed, so nothing was sent and your funds were not moved. Review it again to see the new fee.",
   "op.error.order_outdated.title": "This swap needs a new quote",
   "op.error.order_outdated.reason": "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.notes_loading.title": "Still looking for your notes",

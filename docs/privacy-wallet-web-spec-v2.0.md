@@ -97,6 +97,13 @@ V5 exemption is removed), the relayer requires `f ≥ ⌈(W + f)·b/10000⌉ + m
 `p + F` (a stated gap, `docs/audit-package.md`). A direct vault deposit bypasses the router's fee (a stated gap:
 the official wallet always uses the router).
 
+**The fee shown is a bound** (the audit round of 2026-10-16, c46). The wallet reads the relayer's terms again at submit;
+a Send, a withdrawal and a swap's funding stop before anything is proved when the fee is above the one the Review
+showed (`FeeMoved`, `fee_moved`: not moved, review again) — a swap journals that fee (`StoredSwap.reviewedFee`) and its
+funding, now or after a delay for privacy, never pays more. A relayer whose terms ask more than the 1 % privacy fee
+(`feePercentBps` above 100) is not used. Not yet bounded: a protected execution's steps (each is committed and funded at
+the terms of its own moment).
+
 **The executor tip** (*V6*, `packages/swap-engine/src/tips.ts`): the execution's gas cost, not a percentage —
 `T = ⌈units × (2·baseFee + priorityFee) × 1.2⌉` from `eth_feeHistory` through the service's RPC endpoints (never a
 fixed gas price), converted for an ERC-20 order through the service's Chainlink valuer (`tip_unpriced` without a

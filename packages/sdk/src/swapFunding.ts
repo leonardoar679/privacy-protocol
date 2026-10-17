@@ -270,6 +270,8 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
     record: false,
     // "Delay for more privacy" (spec v2.0 §14.1): from the older notes the Review showed, or not at all
     ...(stored.runner?.maxTiming !== undefined ? { maxTiming: stored.runner.maxTiming } : {}),
+    // never a fee above the one the Review showed (c46): a higher one stops the order unfunded (fee_moved)
+    ...(stored.reviewedFee !== undefined && /^[0-9]+$/.test(stored.reviewedFee) ? { maxFee: BigInt(stored.reviewedFee) } : {}),
   }); // V6 (spec v2.0 §3): the fee note pays the percentage like any withdrawal
   patchSwap(stored.orderId, { fundedTx: w.txHash, state: "funded" }, s);
   return w;

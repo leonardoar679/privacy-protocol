@@ -108,6 +108,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   service_key_changed: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   // an older build committed the order under the privacy address's owner commitment (the audit round of 2026-10-16, c18)
   order_outdated: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the relayer's fee rose above the one the Review showed: stopped before anything was proved (the audit round of 2026-10-16, c46)
+  fee_moved: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)
   funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped
