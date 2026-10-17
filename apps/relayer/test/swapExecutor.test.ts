@@ -12,7 +12,7 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
+import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toFunctionSelector, toHex, type Hex } from "viem";
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
@@ -34,6 +34,7 @@ let receiptStatus: "0x1" | "0x0" | null = null;
 let gasPrice = "0x3b9aca00"; // 1 gwei
 let refuseSend = false;
 let estimateDown = false;
+let revertError: { code: number; message: string; data?: string } = { code: 3, message: "execution reverted: BadSignature()" };
 const taken = new Set<Hex>(); // what the node took
 const dropped = new Set<Hex>(); // what it no longer knows
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
@@ -47,7 +48,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(escrowBalance));
-    case "eth_estimateGas": return estimateDown ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: BadSignature()" } } : res("0x7a120");
+    case "eth_estimateGas": return estimateDown ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : revertSimulation ? { jsonrpc: "2.0", id: req.id, error: revertError } : res("0x7a120");
     case "eth_sendRawTransaction":
       if (refuseSend) return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "nonce too low" } };
       raws.push(req.params[0]); taken.add(keccak256(req.params[0])); return res(keccak256(req.params[0]));
@@ -419,6 +420,36 @@ describe("a never-executed order is refunded only when its escrow pays the tip (
     expect(job.state).toBe("refunding");
     const sent = parseTransaction(raws.find((r) => keccak256(r) === job.txHash)!);
     expect(decodeFunctionData({ abi: factoryAbi, data: sent.data! }).functionName).toBe("deployAndRefund");
+  });
+});
+
+describe("a refund a few seconds before the chain's clock reaches refundAfter (a V6 follow-up of 2026-10-16)", () => {
+  it("is tried again next tick, never taken as its fate: the job is not refund-failed, and the refund goes once the chain is there", async () => {
+    // the executor goes by its own clock and the latest block can be seconds behind: the estimate reverts TooEarlyToRefund, as a
+    // node answers a custom error (generic words, the selector in the data). That revert had made the job refund-failed for good
+    const early: SwapJobRequest = { ...request, params: { ...request.params, orderId: ("0x" + "0e".repeat(32)) as Hex } };
+    const escrow = predictEscrow(early.factory, creationCode, { ...early.params, assetType: 0, amount: BigInt(early.params.amount), refundOwnerCommitment: BigInt(early.params.refundOwnerCommitment), refundNoteSecret: BigInt(early.params.refundNoteSecret), executorTip: BigInt(early.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, early.params.orderId, early.execution.provider, BigInt(early.execution.value), early.execution.providerCalldata, early.execution.deadline);
+    early.execution = { ...early.execution, signature: signExecution(ORDER_KEY, digest) };
+    clock = 1000; escrowBalance = 0n; receiptStatus = null;
+    const job = executor.add(vouched(early, CHAIN_ID, creationCode));
+    escrowBalance = BigInt(early.params.amount);
+    clock = Number(early.params.refundAfter) + 2; // this machine is 2 s past refundAfter, the latest block not yet
+    const saved = revertError;
+    revertError = { code: 3, message: "execution reverted", data: toFunctionSelector("TooEarlyToRefund()") };
+    revertSimulation = true;
+    try {
+      await executor.tick();
+      expect(job.state, "never refund-failed for a few seconds' difference in clocks").not.toBe("refund-failed");
+      expect(job.txHash).toBeUndefined();
+      expect(job.error).toMatch(/has not reached refundAfter yet; retried next tick/);
+      revertSimulation = false;
+      await executor.tick();
+      expect(job.state).toBe("refunding");
+    } finally {
+      revertSimulation = false;
+      revertError = saved;
+    }
   });
 });
 

@@ -28,7 +28,7 @@
 // the floor the wallet stated for it); a token goes only into a vault its pool already has. What is
 // left stays re-shieldable by anyone: refund() and refundToken() are permissionless.
 import { BYTECODE } from "@privacy-wallet/contracts";
-import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { encodeFunctionData, keccak256, parseAbi, toFunctionSelector, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
 import { DROP_AFTER_MS, Sender, unknownToTheNode, type SentTx } from "./sender";
@@ -78,6 +78,22 @@ export class SwapJobError extends Error { constructor(public readonly code: stri
 
 /** Whether an estimateGas failure is the call reverting (an answer), not the RPC failing (retried next tick). */
 const reverted = (e: unknown) => /revert/i.test(String((e as Error)?.message ?? e));
+/** TooEarlyToRefund() (SwapOrderTypes.sol): by name, or by its selector in the revert data a node returns. */
+const TOO_EARLY = toFunctionSelector("TooEarlyToRefund()").slice(2);
+/**
+ * A refund estimated a little before the chain's clock reached refundAfter (a V6 follow-up of 2026-10-16): the executor goes
+ * by its own clock, and the latest block can still be seconds behind it. That revert is not the refund's fate — it was taken
+ * as final (refund-failed, or a listed token dropped), leaving the escrow to whoever called deployAndRefund — and is tried
+ * again next tick. (The executor keeps its own clock: an idle devnet mints no block until a transaction asks.)
+ */
+const tooEarly = (e: unknown): boolean => {
+  for (let x: unknown = e, depth = 0; x && depth < 8; x = (x as { cause?: unknown }).cause, depth++) {
+    const o = x as { message?: unknown; data?: unknown; details?: unknown; shortMessage?: unknown };
+    const words = [o.message, o.data, o.details, o.shortMessage].map((w) => String(w ?? "")).join(" ");
+    if (/TooEarlyToRefund/.test(words) || words.toLowerCase().includes(TOO_EARLY)) return true;
+  }
+  return false;
+};
 const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).split("\n")[0].slice(0, n);
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed"];
@@ -335,8 +351,9 @@ export class SwapExecutor {
     try {
       gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.escrow, data });
     } catch (e) {
-      // an RPC failure says nothing about the token: kept, and retried next tick
+      // an RPC failure says nothing about the token: kept, and retried next tick; so is a refund a few seconds early
       if (!reverted(e)) { this.note(job, `could not estimate refundToken(${f.token}): ${firstLine(e, 160)}; retried next tick`); return false; }
+      if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return false; }
       job.refundTokens = (job.refundTokens ?? []).filter((t) => t.toLowerCase() !== f.token.toLowerCase());
       job.error = `${f.token} cannot be re-shielded: ${firstLine(e, 160)}`;
       job.updatedAt = Date.now();
@@ -428,6 +445,7 @@ export class SwapExecutor {
       gas = o.estimated ?? (await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data }));
     } catch (e) {
       if (!reverted(e)) { this.note(job, `could not estimate: ${firstLine(e, 200)}; retried next tick`); return; }
+      if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return; }
       job.state = failed; job.error = `would revert: ${firstLine(e, 200)}`; job.updatedAt = Date.now();
       this.persist();
       return;
