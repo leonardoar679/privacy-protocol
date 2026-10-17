@@ -49,9 +49,47 @@ export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: numb
  */
 export interface NoteInsertedLog { leafIndex: number; commitment: bigint; noteData: Hex; transactionHash: Hex; blockNumber: bigint }
 
+/** The block range a fetch-all read falls back to when an endpoint refuses one request for the whole history. */
+export const LOG_WINDOW_BLOCKS = 10_000n;
+/** An endpoint's refusal of a range too large (a result or response cap, a block-range limit), in the words providers use. */
+const RANGE_REFUSED = /more than \d+ results|response size|block range|range (is )?too (large|wide|big)|exceed(s|ed)? (the )?max(imum)?|too many (results|logs)|query timeout|limited to an? \d/i; // never a rate limit: that is a retry
+const refusedForSize = (e: unknown): boolean => {
+  for (let x: unknown = e, i = 0; x && i < 6; x = (x as { cause?: unknown }).cause, i++) if (RANGE_REFUSED.test(String((x as Error)?.message ?? x))) return true;
+  return false;
+};
+
+/**
+ * Logs from `fromBlock` to now (the audit round of 2026-10-16, c32). One request for the whole history, as before; an
+ * endpoint that refuses it for its size — once the pool passes the providers' caps — is read in windows instead, each
+ * halved again on a refusal, up to the block the first read saw. Before, a large pool left no spend, funding or scan able
+ * to run.
+ */
+export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumber">, fromBlock: bigint, read: (from: bigint, to: bigint | "latest") => Promise<T[]>, window = LOG_WINDOW_BLOCKS): Promise<T[]> {
+  try {
+    return await read(fromBlock, "latest");
+  } catch (e) {
+    if (!refusedForSize(e)) throw e;
+  }
+  const last = await client.getBlockNumber();
+  const out: T[] = [];
+  let from = fromBlock;
+  let size = window;
+  while (from <= last) {
+    const to = from + size - 1n < last ? from + size - 1n : last;
+    try {
+      out.push(...(await read(from, to)));
+      from = to + 1n;
+    } catch (e) {
+      if (!refusedForSize(e) || size <= 1n) throw e;
+      size /= 2n;
+    }
+  }
+  return out;
+}
+
 /** Every NoteInserted event the core emitted (leaf index, commitment, the 169-byte payload). */
 export async function noteInsertedLogs(client: PublicClient, d: Deployment): Promise<NoteInsertedLog[]> {
-  const logs = await client.getLogs({ address: d.core, event: noteInserted, fromBlock: d.fromBlock, toBlock: "latest" });
+  const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: d.core, event: noteInserted, fromBlock, toBlock }));
   return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment!, noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
 }
 
@@ -113,7 +151,7 @@ export const poolVaults = (d: Deployment): Address[] => [d.ethVault, ...(d.erc20
 
 /** Every Deposited event of the pool's vaults: fetch-all like the note events, never filtered by owner. */
 export async function depositedLogs(client: PublicClient, d: Deployment): Promise<DepositedLog[]> {
-  const logs = await client.getLogs({ address: poolVaults(d), event: deposited, fromBlock: d.fromBlock, toBlock: "latest" });
+  const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: poolVaults(d), event: deposited, fromBlock, toBlock }));
   return logs.map((l) => ({ vault: getAddress(l.address), ownerCommitment: BigInt(l.args.ownerCommitment!), amount: l.args.amount!, leafIndex: Number(l.args.leafIndex), transactionHash: l.transactionHash }));
 }
 
