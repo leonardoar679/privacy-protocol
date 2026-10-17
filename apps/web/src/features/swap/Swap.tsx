@@ -12,6 +12,7 @@
 // and the runner. The user never selects a provider, a relayer, a route, an RPC or a gas strategy; Compare routes is
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
+import { stepsAmountAtFixedPoint } from "./model";
 import { destinationWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
@@ -341,8 +342,16 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     const now = Date.now();
     let gasPriceWei: string | null = null;
     if (submission.kind === "relayer") { try { gasPriceWei = (await relayerInfo(submission.url)).gasPriceWei; } catch { gasPriceWei = null; } }
+    // the steps and each step's fee note spend at most what was typed (the audit round of 2026-10-16, c50): every step's funding
+    // pays its own p + F, so the steps run what as many fundings as the plan can have deliver — as on the band's Swap screen —
+    // and the price bound is per unit of the funding the set was quoted for
+    const base = { quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps };
+    // the smallest pieces: the most steps an amount can make, read again for the steps' own amount (a lower one can make more)
+    const countFor = (amount: bigint) => { try { return buildCampaign({ ...base, amount, now, rng: () => 0 }).tranches.length; } catch { return 1; } };
+    const amount = funding ? stepsAmountAtFixedPoint(units, funding.terms, countFor).amount : units;
+    if (amount <= 0n) { setError(t("swap.tooSmallForFees")); return; }
     const c = await run(t("swap.startingProtected"), async () => startCampaign({
-      quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps,
+      ...base, amount, quotedAmount: escrowAmount,
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
       confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
       reviewHoldUntil: [controls.reviewHold ? now + reviewHoldMinutes() * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,

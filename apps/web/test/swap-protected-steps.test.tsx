@@ -20,7 +20,7 @@ import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
 import { campaignProgressModel } from "../src/features/progress/model";
-import { confirmBlockers, protectedStepsAmount, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
+import { confirmBlockers, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
 import { deployment, ETH_VAULT, fetchMock, resetWorld, world } from "./helpers/swapWorld";
 
 beforeAll(() => {
@@ -163,6 +163,15 @@ describe("the pure pieces", () => {
       expect(units - amount < units / 50n, "about 1 % plus four relayer fees, no more").toBe(true);
     }
     expect(protectedStepsAmount(80_000_000_003n, null, 4), "no fee note: a whole number of steps").toBe(80_000_000_000n);
+  });
+  it("the steps amount at its own count: a lower amount that makes more steps pays a fee note for each (the audit round of 2026-10-16, c50)", () => {
+    const terms = { minimum: 10n ** 15n, feePercentBps: 0 };
+    // 100 steps of 4 ETH for 400 ETH; anything less makes steps of 2 ETH (the band under the 4 ETH bucket)
+    const countFor = (amount: bigint) => (amount >= 400n * ETH ? 100 : Number((amount + 2n * ETH - 1n) / (2n * ETH)));
+    const { n, amount } = stepsAmountAtFixedPoint(400n * ETH, terms, countFor);
+    expect(n, "the count of the steps' own amount").toBe(countFor(amount));
+    expect(amount + BigInt(n) * terms.minimum <= 400n * ETH, "the steps and a fee note each stay inside what was typed").toBe(true);
+    expect(protectedStepsAmount(400n * ETH, terms, 100) + 200n * terms.minimum > 400n * ETH, "sized for the first count alone it would not").toBe(true);
   });
   it("the progress of a protected execution: amounts that add up, the step in hand, never a count", () => {
     const pieces = [20n, 20n, 20n, 20n].map((x) => x * ETH);

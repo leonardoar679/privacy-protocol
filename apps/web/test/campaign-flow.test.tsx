@@ -240,16 +240,23 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     const c = campaignsOf(session.journal())[0];
     expect(c.state).toBe("user-confirmed");
     expect(c).toMatchObject({ provider: "thorchain", tier: "high-value", mode: "balanced", policy: "privacy-execution", gasPriceAtConfirmationWei: "20000000000" });
-    expect(c.bounds).toMatchObject({ amountInLimit: eth(400).toString(), executeWindowSeconds: 7200, destination: { kind: "fresh-per-tranche" } });
-    expect(BigInt(c.bounds.maxExternalExposure)).toBe(eth(10)); // 2.5 % of 400 ETH
+    // the steps and each step's fee note spend at most the typed 400 ETH (the audit round of 2026-10-16, c50): the fee notes
+    // came on top before — more left the private balance than the Review said
+    const steps = c.tranches.reduce((s, t) => s + BigInt(t.amount), 0n);
+    expect(steps).toBe(BigInt(c.request.amount));
+    expect(BigInt(c.request.amount) < eth(400), "the fee notes come off the typed amount").toBe(true);
+    expect(steps + BigInt(c.tranches.length) * 10n ** 15n <= eth(400), "steps + their fee notes ≤ what was typed").toBe(true);
+    expect(c.bounds).toMatchObject({ amountInLimit: c.request.amount, executeWindowSeconds: 7200, destination: { kind: "fresh-per-tranche" } });
+    expect(BigInt(c.bounds.maxExternalExposure)).toBe((BigInt(c.request.amount) * 250n) / 10000n); // 2.5 % of the steps' amount
     expect(c.plan).toMatchObject({ riskClass: "R5", capBps: 250, concurrency: "sequential", gate: "destination-final" });
     // the band comes from the risk engine: THORChain's security score (69, the incident still decaying) narrows it to its lower edge (1 %), the cap stays 2.5 %
     expect(c.plan.bandBps).toEqual([100, 100]);
-    const [lo, hi] = [(eth(400) * BigInt(c.plan.bandBps[0])) / 10000n, (eth(400) * BigInt(c.plan.bandBps[1])) / 10000n];
-    for (const t of c.tranches.slice(0, -1)) { expect(BigInt(t.amount)).toBeLessThanOrEqual(hi); expect(BigInt(t.amount)).toBeGreaterThanOrEqual(lo); }
-    expect(BigInt(c.tranches.at(-1)!.amount)).toBeLessThanOrEqual(hi);
-    expect(c.tranches.length).toBe(100);
-    expect(c.tranches.reduce((s, t) => s + BigInt(t.amount), 0n)).toBe(eth(400));
+    // the steps are common sizes no larger than the band; the fee notes taken off the typed 400 ETH put the band just under a
+    // 4 ETH bucket, so the steps are the next bucket down — and the count of the steps' own amount pays its notes (c50)
+    const hi = (BigInt(c.request.amount) * BigInt(c.plan.bandBps[1])) / 10000n;
+    for (const t of c.tranches) expect(BigInt(t.amount)).toBeLessThanOrEqual(hi);
+    expect(new Set(c.tranches.slice(0, -1).map((t) => t.amount)).size, "one common size, the last step the rest").toBe(1);
+    expect(c.tranches.length).toBeGreaterThan(100);
     expect(BigInt(c.referenceRateE18)).toBeGreaterThan(0n);
     expect(c.lint).toBeTruthy();
     expect((c.riskSnapshot as any).privacyScore).toBe(72);

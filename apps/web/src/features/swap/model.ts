@@ -84,6 +84,23 @@ export function protectedStepsAmount(units: bigint, terms: FeeTerms | null, n: n
   return total > 0n ? total - (total % k) : 0n;
 }
 
+/**
+ * The steps' amount at the count of steps it makes itself (the audit round of 2026-10-16, c50): a lower amount can make more
+ * steps — a band just under a bucket's size halves the bucket — and each step pays its own fee note, so the count is read
+ * again for the amount until it no longer grows (at most a few rounds; `countFor` gives the most steps an amount can make).
+ */
+export function stepsAmountAtFixedPoint(units: bigint, terms: FeeTerms | null, countFor: (amount: bigint) => number): { n: number; amount: bigint } {
+  let n = Math.max(1, countFor(units));
+  let amount = protectedStepsAmount(units, terms, n);
+  for (let i = 0; i < 4 && amount > 0n; i++) {
+    const m = countFor(amount);
+    if (m <= n) break;
+    n = m;
+    amount = protectedStepsAmount(units, terms, n);
+  }
+  return { n, amount };
+}
+
 /** The chosen route's quote, or null. */
 export const chosenQuoteOf = (q: QuoteSet | null): ServiceQuote | null =>
   q?.chosen ? (q.quotes.find((x) => x.provider === q.chosen!.provider) ?? null) : null;
