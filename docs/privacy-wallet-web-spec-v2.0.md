@@ -101,7 +101,9 @@ the official wallet always uses the router).
 a Send, a withdrawal and a swap's funding stop before anything is proved when the fee is above the one the Review
 showed (`FeeMoved`, `fee_moved`: not moved, review again) — a swap journals that fee (`StoredSwap.reviewedFee`) and its
 funding, now or after a delay for privacy, never pays more. A relayer whose terms ask more than the 1 % privacy fee
-(`feePercentBps` above 100) is not used. Not yet bounded: a protected execution's steps (each is committed and funded at
+(`feePercentBps` above 100) is not used. No relayer of Settings serving the asset stops the spend before anything is
+proved (`NoRelayer`, `no_relayer`: not moved, check the settings — the audit's unverified m56, 2026-10-17; its message's
+"unreachable" had read as `relayer_unreachable`, "We are checking where your funds are"). Not yet bounded: a protected execution's steps (each is committed and funded at
 the terms of its own moment).
 
 **The executor tip** (*V6*, `packages/swap-engine/src/tips.ts`): the execution's gas cost, not a percentage —

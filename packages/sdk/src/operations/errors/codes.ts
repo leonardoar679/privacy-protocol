@@ -124,6 +124,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   wallet_insufficient_funds: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   relayer_unreachable: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },
+  // no relayer of Settings serves the asset (the audit's unverified m56, 2026-10-17): refused before anything was sent
+  no_relayer: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   quote_expired: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   order_expired: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   receipt_reverted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

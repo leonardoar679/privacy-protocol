@@ -16,7 +16,8 @@ import { txDomain } from "@privacy-wallet/protocol/payload";
 import { viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { assetsOf, bucketBelowFor, isBucketFor, parseAmount, parseErc20Vaults } from "@privacy-wallet/sdk/assets";
 import { buildApprove, erc20Abi } from "@privacy-wallet/sdk/privacyProtocol";
-import { feeTerms, planWithdrawal, placeholderNoteData } from "@privacy-wallet/sdk/privateTx";
+import { NoRelayer, feeTerms, planWithdrawal, placeholderNoteData } from "@privacy-wallet/sdk/privateTx";
+import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { RelayerInfo } from "@privacy-wallet/sdk/relayer";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -97,6 +98,10 @@ describe("per-vault fee terms and relayer failover", () => {
     const t = await feeTerms(deployment, { kind: "relayer", url: dead }, USDC_VAULT, [live]);
     expect(t!.url).toBe(live);
     await expect(feeTerms(deployment, { kind: "relayer", url: dead }, USDC_VAULT, [dead])).rejects.toThrow(/unreachable/);
+    // refused before anything was sent: "Your funds were not moved", never "We are checking" (the audit's unverified m56)
+    const e = await feeTerms(deployment, { kind: "relayer", url: dead }, USDC_VAULT, []).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(NoRelayer);
+    expect(classify(e)).toMatchObject({ code: "no_relayer", fundsClass: "not-moved" });
   });
 });
 

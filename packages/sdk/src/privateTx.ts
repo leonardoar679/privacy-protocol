@@ -319,7 +319,20 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
     const addr = decodePrivacyAddress(picked.info.privacyAddress);
     return { url: picked.url, info: picked.info, fee: { ownerCommitment: addr.ownerCommitment, viewPub: addr.viewPub, amount, vault: BigInt(vault) } };
   }
-  throw new Error(`no relayer available for this asset (${errors.join("; ")}); switch submission to the connected wallet (public) or add a relayer`);
+  throw new NoRelayer(errors);
+}
+
+/**
+ * No relayer of Settings serves this asset (2026-10-17, the audit's unverified m56): thrown before anything is proved or
+ * sent. Its message names each relayer's answer, "unreachable" among them, and that word had classified it as
+ * `relayer_unreachable` — funds of unknown whereabouts, "We are checking where your funds are" — for a spend that never left.
+ */
+export class NoRelayer extends Error {
+  readonly code = "no_relayer";
+  constructor(readonly answers: string[]) {
+    super(`no relayer available for this asset (${answers.join("; ")}); switch submission to the connected wallet (public) or add a relayer`);
+    this.name = "NoRelayer";
+  }
 }
 
 export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number }

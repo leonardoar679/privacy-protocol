@@ -16,6 +16,7 @@ import { GuestInstructionMismatch } from "@privacy-wallet/sdk/guestGuard";
 import { MinimumMoved, ProviderCallMismatch } from "@privacy-wallet/sdk/providerCall";
 import { RelayerRefusal } from "@privacy-wallet/sdk/relayer";
 import { OrderMismatch } from "@privacy-wallet/sdk/swapGuard";
+import { NoRelayer } from "@privacy-wallet/sdk/privateTx";
 import { ServiceMinimumMoved } from "@privacy-wallet/sdk/swapService";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -91,6 +92,8 @@ describe("classify", () => {
     expect(classify(new Error("this amount needs a private merge of smaller notes first (ensureSpendable)"))).toMatchObject({ code: "housekeeping_needed", fundsClass: "not-moved" });
     expect(classify(new Error("the deposit was mined but its commitment was not found in the receipt")).code).toBe("deposit_not_found");
     expect(classify(new TypeError("fetch failed"))).toMatchObject({ code: "relayer_unreachable", fundsClass: "unknown" });
+    // no relayer serves the asset: nothing was sent, whatever words its answers carry (the audit's unverified m56)
+    expect(classify(new NoRelayer(["http://relayer.example: unreachable or another chain / core"]))).toMatchObject({ code: "no_relayer", fundsClass: "not-moved", actions: ["check-settings"] });
     expect(classify(new Error("the quote expired")).code).toBe("quote_expired");
     expect(classify(new Error("something else entirely"))).toMatchObject({ code: "unknown", fundsClass: "unknown", detail: "something else entirely" });
     expect(classify("a string").code).toBe("unknown");
