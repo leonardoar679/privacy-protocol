@@ -13,7 +13,7 @@ import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { deriveShieldNote } from "./keys/swapKeys";
 import { mainOwnerCommitment } from "./keys/ownerKeys";
 import type { StoredShield, StoredSwap } from "./wallet/journal";
-import type { ShieldRegisterRequest } from "./relayer";
+import type { ShieldJob, ShieldRegisterRequest } from "./relayer";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const randomHex32 = (): Hex => ("0x" + Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
@@ -99,6 +99,20 @@ export function checkShieldReceipt(stored: Pick<StoredSwap, "shield" | "request"
       throw new ShieldReceiptMismatch("its note is not this wallet's");
   }
   return receiver;
+}
+
+/** What the journal keeps of the executor's shield job: its state, the last shield's leaf, deposit and tip. */
+export function shieldJobView(job: ShieldJob, now = Date.now()): NonNullable<StoredShield["job"]> {
+  const last = job.shields?.[job.shields.length - 1];
+  return {
+    state: job.state,
+    at: now,
+    ...(last?.leafIndex !== undefined ? { leafIndex: last.leafIndex } : {}),
+    ...(last?.txHash ? { txHash: last.txHash } : {}),
+    ...(last?.amount ? { amount: last.amount } : {}),
+    ...(last?.tip ? { tip: last.tip } : {}),
+    ...(job.error ? { error: job.error.slice(0, 200) } : {}),
+  };
 }
 
 /** The shield job an executor watches: the receipt, and until when the swap can still deliver (the order's refundAfter). */

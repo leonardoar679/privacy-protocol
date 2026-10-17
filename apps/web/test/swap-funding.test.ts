@@ -10,7 +10,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, isOpenSwap, patchSwap, runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, isOpenSwap, patchSwap, RelayerNotReady, runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
@@ -93,6 +93,56 @@ describe("swap funding", () => {
     await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s });
     expect(withdrawals.calls[1]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint });
     expect(withdrawals.calls[1]).not.toHaveProperty("maxTiming");
+  });
+
+  it("a swap into the protected balance is funded only once its relayer took the shield job (the audit round of 2026-10-16, c12)", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const params = {
+      orderId: ("0x" + "5d".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const shield = {
+      factory: "0x" + "5f".repeat(20), receiver: "0x" + "5e".repeat(20), counter: 3, noteData: "0x01" + "ab".repeat(168), vouch: "0x" + "77".repeat(65),
+      params: { receiptId: "0x" + "6e".repeat(32), asset: "0x" + "c0".repeat(20), minAmount: "410000000", shieldTip: "4100000", ownerCommitment: "5", noteSecret: "6", noteDataHash: "0x" + "00".repeat(32), fallbackRecipient: "0x" + "fb".repeat(20) },
+    };
+    const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params), shield };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [stored]; });
+    const asked: { path: string; body?: unknown }[] = [];
+    let shieldAnswer: [number, unknown] = [400, { error: "this relayer shields for 0x0…f2, not 0x5f…", code: "unknown_factory" }];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      asked.push({ path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+      const [status, body] = path === "/shield" ? shieldAnswer : [200, {}];
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      withdrawals.calls.length = 0;
+      const refused = await fundEscrow({ masterSeed: seed, deployment, stored, session: s, relayerUrl: "http://relayer.test" }).catch((e: unknown) => e);
+      expect(refused, "a relayer for another factory").toBeInstanceOf(RelayerNotReady);
+      expect(withdrawals.calls, "nothing was funded").toHaveLength(0);
+      expect(asked.find((a) => a.path === "/shield")?.body).toMatchObject({ factory: shield.factory, params: shield.params, noteData: shield.noteData, deliverBy: params.refundAfter, vouch: shield.vouch });
+      await expect(fundEscrow({ masterSeed: seed, deployment, stored, session: s, relayerUrl: null }), "no relayer: nobody shields it").rejects.toBeInstanceOf(RelayerNotReady);
+      shieldAnswer = [503, { error: "too many open shield jobs", code: "capacity" }];
+      const full = await fundEscrow({ masterSeed: seed, deployment, stored, session: s, relayerUrl: "http://relayer.test" }).catch((e: unknown) => e);
+      expect(full, "a full relayer: retried later, not stopped").not.toBeInstanceOf(RelayerNotReady);
+      expect(withdrawals.calls).toHaveLength(0);
+      shieldAnswer = [200, { id: shield.params.receiptId, state: "waiting-delivery" }];
+      let registeredWhenFunded: unknown = null;
+      withdrawals.events = [{ type: "fee-terms" }];
+      withdrawals.afterEach = () => (registeredWhenFunded = s.journal().swaps[0].shield?.registeredAt ?? null);
+      await fundEscrow({ masterSeed: seed, deployment, stored, session: s, relayerUrl: "http://relayer.test" });
+      expect(withdrawals.calls, "accepted: funded").toHaveLength(1);
+      expect(registeredWhenFunded, "the shield job taken before the funding").toEqual(expect.any(Number));
+      expect(s.journal().swaps[0].shield).toMatchObject({ job: { state: "waiting-delivery" } });
+    } finally {
+      globalThis.fetch = realFetch;
+      withdrawals.events = [];
+      withdrawals.afterEach = undefined;
+    }
   });
 
   it("the funding's own submission is journaled before it is sent, then its transaction; a merge before it never is", async () => {

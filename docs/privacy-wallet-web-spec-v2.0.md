@@ -781,8 +781,11 @@ Chainlink prices, `tip_unpriced` otherwise); the wallet refuses one above three 
 secret is the one of a fresh note counter and its payload the seed's `/shield-payload/` family, so a wallet restored from
 its phrase finds the delivery and tells it from a refund of the same counter. The wallet recomputes the receiver from
 its own factory and the journaled parameters before it signs (`ShieldReceiptMismatch` pauses the order as
-`unsafe_contract_call`), and registers the executor's shield job before it hands the execution over; the order is
-COMPLETED when the delivered note is in the pool, whatever the provider's own tracking says.
+`unsafe_contract_call`), and registers the executor's shield job before it funds the order (the audit round of
+2026-10-16, c12/c03: it was registered at the hand-over, after the funding, so a relayer that shields nothing, for another
+factory or not this receipt left the escrow funded until its refund window; such a refusal, or no relayer at all, now
+stops the order unfunded as `relayer_not_ready`, and a full relayer is tried again) and again at the hand-over (the same
+job); the order is COMPLETED when the delivered note is in the pool, whatever the provider's own tracking says.
 
 Code (Stage 12): `contracts/src/periphery/shield/{ShieldReceiverTypes,ShieldReceiver,ShieldReceiverFactory}.sol`,
 `contracts/test/periphery/ShieldReceiver.t.sol` (predict = deploy, the 2300-gas send before and after the deployment,

@@ -15,11 +15,11 @@ import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, ty
 import { ApiError } from "./api/client";
 import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
 import { shieldTipCeiling, tipCeiling } from "./executionCost";
-import { buildShieldReceipt, shieldJobRequest } from "./shieldReceiver";
+import { buildShieldReceipt, shieldJobRequest, shieldJobView } from "./shieldReceiver";
 import { checkBeforeSigning, type JournaledOrder, type SignCheck } from "./swapSign";
 import { ProviderCallMismatch, type CheckedCall, type MinimumMoved } from "./providerCall";
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote } from "./keys/swapKeys";
-import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type ShieldJob, type SwapJob } from "./relayer";
+import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
 import { DELAY_WINDOW } from "./policy";
 import { noteStore } from "./wallet/notes";
@@ -264,19 +264,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   return { job };
 }
 
-/** What the journal keeps of the executor's shield job: its state, the last shield's leaf, deposit and tip. */
-export function shieldJobView(job: ShieldJob, now = Date.now()): NonNullable<StoredShield["job"]> {
-  const last = job.shields?.[job.shields.length - 1];
-  return {
-    state: job.state,
-    at: now,
-    ...(last?.leafIndex !== undefined ? { leafIndex: last.leafIndex } : {}),
-    ...(last?.txHash ? { txHash: last.txHash } : {}),
-    ...(last?.amount ? { amount: last.amount } : {}),
-    ...(last?.tip ? { tip: last.tip } : {}),
-    ...(job.error ? { error: job.error.slice(0, 200) } : {}),
-  };
-}
+export { shieldJobView };
 
 /**
  * Return a funded order to the private balance without executing it: a refund-only job (the journaled params and

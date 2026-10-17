@@ -7,7 +7,8 @@ import { recoverAddress, TransactionNotFoundError, TransactionReceiptNotFoundErr
 import { clientFor, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { coreAbi } from "./privacyProtocol";
-import { relayerInfo, relayerJobFor, relayerRunsFor, type RelayerInfo } from "./relayer";
+import { RelayerRefusal, relayerInfo, relayerJobFor, relayerRunsFor, relayerShieldRegister, type RelayerInfo, type ShieldJob } from "./relayer";
+import { shieldJobRequest, shieldJobView } from "./shieldReceiver";
 import { swapService, type ServiceHealth } from "./swapService";
 import { settings } from "./wallet/settings";
 import type { OnEvent } from "./operations/engineEvents";
@@ -132,6 +133,29 @@ export async function checkFundingReady(o: { deployment: Deployment | null; stor
   });
 }
 
+/** The relayer's refusals of a shield job that no retry changes: it shields nothing, for another factory, or not this receipt. */
+const SHIELD_REFUSALS = ["shield_unavailable", "unknown_factory", "unvouched_order", "no_vault", "bad_params", "bad_payload", "payload_mismatch", "bad_deadline", "receipt_conflict", "bad_request"];
+
+/**
+ * A same-chain swap into the protected balance is funded only once its relayer took the shield job (the audit round of
+ * 2026-10-16, c12). The job was registered at the hand-over, after the funding: a relayer that shields nothing, shields for
+ * another factory or refuses the receipt left the escrow funded until its refund window. Its refusal, or no relayer at all,
+ * stops the order unfunded (RelayerNotReady); a full relayer (`capacity`) or a lost answer is an ordinary error, nothing
+ * sent, retried. Registering is idempotent by receipt: the hand-over's registration finds the same job.
+ */
+export async function registerShieldBeforeFunding(url: string | null, stored: StoredSwap, s: WalletSession, register = relayerShieldRegister): Promise<void> {
+  if (!stored.shield) return;
+  if (!url) throw new RelayerNotReady("a swap into the protected balance needs a relayer to shield its delivery (Settings → relayer submission)");
+  let job: ShieldJob;
+  try {
+    job = await register(url, shieldJobRequest(stored));
+  } catch (e) {
+    if (e instanceof RelayerRefusal && e.code && SHIELD_REFUSALS.includes(e.code)) throw new RelayerNotReady(`the relayer does not shield this swap's delivery (${e.message})`);
+    throw e;
+  }
+  patchSwap(stored.orderId, { shield: { ...stored.shield, registeredAt: Date.now(), job: shieldJobView(job) } }, s);
+}
+
 /** Patch a journaled order and mirror its state onto its Activity line. */
 export function patchSwap(orderId: string, patch: Partial<StoredSwap>, s: WalletSession = defaultSession): void {
   s.update((j) => { const x = j.swaps.find((y) => y.orderId.toLowerCase() === orderId.toLowerCase()); if (x) Object.assign(x, patch); });
@@ -246,6 +270,8 @@ export async function fundEscrow(o: { masterSeed: Uint8Array; deployment: Deploy
   // the relayer that will execute it runs it, and the order's own vouch still counts (a V6 follow-up of 2026-10-16): a funded
   // escrow they refused would hold the funds until the refund time with nobody to execute or refund it
   await checkFundingReady(o);
+  // a same-chain swap's shield job is accepted before anything is funded (c12)
+  await registerShieldBeforeFunding(o.relayerUrl ?? null, stored, s);
   // the funding's own submission is journaled before it is sent, then its transaction (a merge before it is nested: from
   // "merging" to the spend's own "syncing", as engineListener reads it); no runner sends another before its fate is known
   let nested = false;
