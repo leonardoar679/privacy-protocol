@@ -2,6 +2,7 @@
 // BIP-173 / BIP-350 and base58check vectors parse to their format, testnet and malformed addresses are
 // refused with a reason, a wrong-chain paste is refused with the chain's name, and the card groups in fours.
 import { describe, it, expect } from "vitest";
+import { bech32 } from "@scure/base";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana, refusedRecipient } from "../src/wallet/destinations";
@@ -33,6 +34,12 @@ describe("destinations", () => {
     expect(parseBitcoin("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")).toMatchObject({ ok: true, format: "p2pkh" });
     expect(parseBitcoin("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")).toMatchObject({ ok: true, format: "p2sh" });
     expect(parseBitcoin("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")).toMatchObject({ ok: false, reason: expect.stringMatching(/testnet/) });
+    // a valid checksum under another prefix that merely starts with "bc1" is no Bitcoin address (the audit's unverified m63)
+    const words = bech32.toWords(new Uint8Array(20).fill(7));
+    const otherPrefix = bech32.encode("bc1qxy", [0, ...words]);
+    expect(otherPrefix.startsWith("bc1qxy1")).toBe(true);
+    expect(parseBitcoin(otherPrefix)).toMatchObject({ ok: false, code: "btc_invalid", reason: expect.stringMatching(/prefix is not bc/) });
+    expect(parseBitcoin(bech32.encode("bc", [0, ...words])), "the same program under bc").toMatchObject({ ok: true, format: "p2wpkh" });
     expect(parseBitcoin("mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn")).toMatchObject({ ok: false, reason: expect.stringMatching(/testnet/) });
     expect(parseBitcoin("bc1Qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")).toMatchObject({ ok: false, reason: expect.stringMatching(/lowercase or all uppercase/) });
     expect(parseBitcoin("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5")).toMatchObject({ ok: false, reason: expect.stringMatching(/checksum/) });

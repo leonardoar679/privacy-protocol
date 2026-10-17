@@ -64,8 +64,12 @@ export function parseBitcoin(text: string): ParsedDestination {
     if (text !== lower && text !== text.toUpperCase()) return { ok: false, chain, reason: "a bech32 address is all lowercase or all uppercase", code: "btc_invalid" };
     let words: number[];
     let encoding: "bech32" | "bech32m";
-    try { words = [...bech32.decode(lower as `${string}1${string}`, 90).words]; encoding = "bech32"; }
-    catch { try { words = [...bech32m.decode(lower as `${string}1${string}`, 90).words]; encoding = "bech32m"; } catch { return { ok: false, chain, reason: "not a valid bech32 address (checksum)", code: "btc_invalid" }; } }
+    let prefix: string;
+    try { const d = bech32.decode(lower as `${string}1${string}`, 90); words = [...d.words]; prefix = d.prefix; encoding = "bech32"; }
+    catch { try { const d = bech32m.decode(lower as `${string}1${string}`, 90); words = [...d.words]; prefix = d.prefix; encoding = "bech32m"; } catch { return { ok: false, chain, reason: "not a valid bech32 address (checksum)", code: "btc_invalid" }; } }
+    // the prefix is the part before the LAST "1" (2026-10-17, the audit's unverified m63): "bc1qxy1…" checksums under the
+    // prefix "bc1qxy", which is no Bitcoin address, and was taken as one
+    if (prefix !== "bc") return { ok: false, chain, reason: "not a Bitcoin address (its bech32 prefix is not bc)", code: "btc_invalid" };
     const version = words[0];
     const program = bech32.fromWords(words.slice(1));
     if (version === 0) {
