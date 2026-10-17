@@ -332,6 +332,14 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
       one found is beyond that search;
     - a native wallet built on `privacy-ffi` has the single-commitment scan only, and must add the opening batch
       (`docs/mobile.md`).
+49. **V6 — a copied transaction takes its tip** (the audit round of 2026-10-16, c14/c45; open). The escrow factory's
+    `deployAndExecute` and the shield factory's `deployAndShield` pay their tip to `msg.sender`, so anyone who copies the
+    relayer's pending transaction with a higher fee takes the tip, and the relayer's own then reverts at its cost. The
+    funds still go where the order key and the receipt committed: the copy runs the same call. The relayer reads the
+    outcome from the escrow or the receiver (`executed()`; a mined shield that reverted reads the receiver again) rather
+    than calling it failed. What remains is the executor's economics: on a public mempool it can be made to pay without
+    being paid. A private transaction relay for the executors' sends answers it outside the contracts; a tip recipient
+    committed in the order or the receipt answers it inside them, with a new deployment of both factories.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

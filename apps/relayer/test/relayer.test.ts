@@ -11,7 +11,8 @@ import { createPublicClient, createWalletClient, http, keccak256, parseTransacti
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { privateKeyToAccount } from "viem/accounts";
 import { Relayer, RelayerError, relayerIdentity, type RelayerConfig, type SubmitRequest } from "../src/relayer";
-import { decodeTransact, encodeTransact, piFromStrings } from "../src/abi";
+import { decodeTransact, encodeTransact, piFromStrings, PUBLIC_SIGNALS } from "../src/abi";
+import { FIELD } from "@privacy-wallet/protocol/field";
 import { encryptNoteData } from "@privacy-wallet/protocol/envelope";
 import { noteBody } from "@privacy-wallet/protocol/note";
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
@@ -193,6 +194,17 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
     await relayer.status(sent[0].value.txHash); // mined: its notes leave in flight
     receiptStatus = null;
     expect((await relayer.info()).inflight).toBe(0);
+  });
+  it("a public input outside the field is refused before its notes are held: an encoding that threw held them until a restart (the audit round of 2026-10-16, c02)", async () => {
+    const { req } = fixtureRequest();
+    const i = PUBLIC_SIGNALS.indexOf("root");
+    const sent = raws.length;
+    for (const v of [(1n << 256n).toString(), "-1", FIELD.toString()]) {
+      const bad = { ...req, publicInputs: req.publicInputs.map((x, k) => (k === i ? v : x)) };
+      await expect(relayer.submit(bad), v).rejects.toMatchObject({ code: "bad_public_inputs" });
+    }
+    expect((await relayer.info()).inflight).toBe(0);
+    expect(raws.length, "nothing sent").toBe(sent);
   });
   it("a broadcast the node refused and does not know is send_failed in the node's words, and its notes are free again", async () => {
     const { req } = fixtureRequest();

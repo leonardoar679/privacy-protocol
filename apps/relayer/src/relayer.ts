@@ -135,6 +135,9 @@ export class Relayer {
     if (!isHex(req?.proof, 256)) throw new RelayerError("bad_proof", "proof must be abi.encode(a, b, c): 256 bytes");
     let pi: PublicInputs;
     try { pi = piFromStrings(req.publicInputs); } catch (e) { throw new RelayerError("bad_public_inputs", String((e as Error).message)); }
+    // each one a field element, as the verifier takes them (the audit round of 2026-10-16, c02): one outside made the call's
+    // encoding throw after the notes were held, and nothing released them until a restart
+    if (Object.values(pi).some((x) => x < 0n || x >= FIELD)) throw new RelayerError("bad_public_inputs", "every public input must be a field element");
     if (!Array.isArray(req.noteData) || req.noteData.length !== 3 || !req.noteData.every((n) => isHex(n, NOTE_DATA_BYTES))) throw new RelayerError("bad_payloads", `noteData must be three ${NOTE_DATA_BYTES}-byte payloads`);
     if (pi.txDomain !== txDomain(BigInt(this.cfg.chainId), BigInt(this.cfg.core))) throw new RelayerError("wrong_domain", "txDomain is not this chain / core");
     const hashes = [pi.noteData0Hash, pi.noteData1Hash, pi.noteData2Hash];
@@ -180,8 +183,8 @@ export class Relayer {
     // reserved in the same step as the check, before anything is awaited (a V6 follow-up of 2026-10-15): they were
     // reserved only after the simulation, so two requests spending one note, at once, both passed the check, both were
     // sent, and the second reverted on chain at the relayer's cost
+    const data = encodeTransact(req.proof, pi, req.noteData); // before the notes are held: nothing after it may throw unreleased
     nullifiers.forEach((n) => this.inflight.add(n));
-    const data = encodeTransact(req.proof, pi, req.noteData);
     let gas: bigint;
     try {
       gas = await this.clients.publicClient.estimateGas({ account: this.account.address, to: this.cfg.core, data });
@@ -226,9 +229,11 @@ export class Relayer {
    * nullifier ever submitted stayed "in flight" for good (436 in the local stack's relayer, every one of them), and a
    * restart loaded them again. A transaction dropped or replaced never got a receipt, so its notes could never be
    * submitted here again.
-   * A receipt settles the job (`status`). A transaction the node no longer knows DROP_AFTER_MS after it was sent, with
-   * its nullifiers unspent on chain, is dropped: they are released, and the wallet's next attempt is accepted. A
-   * dropped transaction mined after all spends nothing twice: the chain refuses a spent nullifier. One pass at a time.
+   * A receipt settles the job (`status`). A transaction the node no longer knows DROP_AFTER_MS after it was sent is
+   * dropped once its nullifiers are read: they are released, and the wallet's next attempt is accepted. A dropped
+   * transaction mined after all spends nothing twice: the chain refuses a spent nullifier. One of them spent by another
+   * transaction is no reason to keep it (the audit round of 2026-10-16, c04): the core spends both or none, so it can
+   * never land, and it held its other note in flight for good, across restarts. One pass at a time.
    */
   async monitor(now = Date.now()): Promise<void> {
     if (this.monitoring) return;
@@ -239,7 +244,7 @@ export class Relayer {
         if ((await this.status(job.txHash))?.status !== "submitted") continue;
         if (now - job.submittedAt < DROP_AFTER_MS || !(await unknownToTheNode(this.clients.publicClient, job.txHash))) continue;
         const spent = await Promise.all(job.nullifiers.map((n) => this.nullifierSpent(BigInt(n))));
-        if (spent.some((s) => s !== false)) continue; // spent by another transaction, or unread: watched again
+        if (spent.some((s) => s === null)) continue; // unread: watched again
         job.status = "dropped";
         job.droppedAt = now;
         job.nullifiers.forEach((n) => this.inflight.delete(n));

@@ -96,17 +96,26 @@ describe("the relayer's own look at its submissions", () => {
     expect(DROP_AFTER_MS).toBe(600_000);
   });
 
-  it("nothing is dropped before the limit, while the node knows it, when a nullifier is spent, or when the chain cannot be read", async () => {
+  it("nothing is dropped before the limit, while the node knows it, or when the chain cannot be read", async () => {
     const young = job(5, NOW - DROP_AFTER_MS + 1_000);
     const known = job(6, NOW - DROP_AFTER_MS - 1);
-    const spentElsewhere = job(7, NOW - DROP_AFTER_MS - 1);
-    const w = relayerOver([young, known, spentElsewhere], { pending: new Set([known.txHash]), spent: new Set(["71"]) });
+    const w = relayerOver([young, known], { pending: new Set([known.txHash]) });
     await w.relayer.monitor(NOW);
-    expect(w.journal.load().map((j) => j.status)).toEqual(["submitted", "submitted", "submitted"]);
-    expect(w.inflight().size).toBe(6);
+    expect(w.journal.load().map((j) => j.status)).toEqual(["submitted", "submitted"]);
+    expect(w.inflight().size).toBe(4);
     const down = relayerOver([job(8, NOW - DROP_AFTER_MS - 1)], { down: true });
     await down.relayer.monitor(NOW);
     expect(down.journal.load()[0].status, "an unread chain drops nothing").toBe("submitted");
+  });
+
+  it("a lost transaction one of whose notes another spent can never land: dropped, its other note released (the audit round of 2026-10-16, c04)", async () => {
+    const half = job(11, NOW - DROP_AFTER_MS - 1);
+    const both = job(12, NOW - DROP_AFTER_MS - 1);
+    const w = relayerOver([half, both], { spent: new Set(["110", "120", "121"]) });
+    await w.relayer.monitor(NOW);
+    expect(w.journal.load().map((j) => j.status)).toEqual(["dropped", "dropped"]);
+    expect(w.inflight().size, "note 111 can be spent again here").toBe(0);
+    expect(relayerOver(w.journal.load(), {}).inflight().size, "nor after a restart").toBe(0);
   });
 
   it("one pass at a time: a tick while another runs does nothing", async () => {
