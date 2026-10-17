@@ -3,7 +3,7 @@
 // it; a caller's own abort is not a failure; the transport's requests feed it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FAILURES_TO_OFFLINE, connectivity, isNetworkFailure, observed, whenOnline } from "../src/transport/connectivity";
-import { secureFetch } from "../src/transport/http";
+import { secureFetch, viemTransport } from "../src/transport/http";
 
 afterEach(() => {
   connectivity.reset();
@@ -34,6 +34,20 @@ describe("connectivity", () => {
     for (let i = 0; i < FAILURES_TO_OFFLINE; i++)
       await expect(observed(Promise.reject(Object.assign(new Error("a"), { name: "AbortError" })))).rejects.toThrow();
     expect(connectivity.get().online).toBe(true);
+  });
+  it("an RPC endpoint that never answers counts: viem's timeout aborts its fetch without a reason (the audit's unverified m67)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_u: unknown, init?: RequestInit) =>
+          new Promise((_, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("This operation was aborted"), { name: "AbortError" }))),
+          ),
+      ),
+    );
+    const rpc = viemTransport("http://127.0.0.1:8545")({ retryCount: 0, timeout: 20 });
+    for (let i = 0; i < FAILURES_TO_OFFLINE; i++) await expect(rpc.request({ method: "eth_blockNumber" })).rejects.toThrow();
+    expect(connectivity.get()).toMatchObject({ online: false, cause: "unreachable" });
   });
   it("whenOnline resolves at once online, and when the connection comes back", async () => {
     await whenOnline();

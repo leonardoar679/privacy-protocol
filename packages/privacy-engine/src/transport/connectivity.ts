@@ -81,14 +81,18 @@ export function isNetworkFailure(e: unknown): boolean {
   return e instanceof TypeError || name === "TimeoutError" || name === "NetworkError";
 }
 
-/** A request observed: its answer marks the network reachable, a network failure counts toward offline. */
-export async function observed<T>(request: Promise<T>): Promise<T> {
+/**
+ * A request observed: its answer marks the network reachable, a network failure counts toward offline. `abortIsTimeout`: the
+ * request's only abort is its transport's timeout — viem's RPC transport aborts its fetch without a reason, and a hung RPC
+ * endpoint had never counted (2026-10-17, the audit's unverified m67).
+ */
+export async function observed<T>(request: Promise<T>, o: { abortIsTimeout?: boolean } = {}): Promise<T> {
   try {
     const r = await request;
     connectivity.reachable();
     return r;
   } catch (e) {
-    if (isNetworkFailure(e)) connectivity.unreachable();
+    if (isNetworkFailure(e) || (o.abortIsTimeout && (e as { name?: unknown } | null)?.name === "AbortError")) connectivity.unreachable();
     throw e;
   }
 }

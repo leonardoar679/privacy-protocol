@@ -108,7 +108,7 @@ export function viemTransport(url: string): HttpTransport {
     batch: true,
     fetchOptions: { credentials: POLICY.credentials, redirect: POLICY.redirect, referrerPolicy: POLICY.referrerPolicy },
     onFetchRequest: (request) => { announce(request.url, request.method, "rpc"); },
-    fetchFn: (input, init) => observed(fetch(input, init)),
+    fetchFn: (input, init) => observed(fetch(input, init), { abortIsTimeout: true }), // the only abort here is viem's timeout
   });
 }
 
