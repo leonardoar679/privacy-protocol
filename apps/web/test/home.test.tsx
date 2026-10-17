@@ -5,6 +5,7 @@
 // card (an old failure never raises one), the three newest activity lines opening their detail; nothing read from the
 // network for an empty balance; the technical lines only in the Advanced experience.
 import "fake-indexeddb/auto";
+import { idOfRoute } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -158,7 +159,9 @@ describe("Home (spec v2.0 §7.1)", () => {
     expect(recent[0]).toHaveTextContent("1 ETH");
     expect(recent[0]).toHaveTextContent("Completed");
     fireEvent.click(recent[0]);
-    expect(pathname()).toBe(`/activity/${encodeURIComponent("shield:0x3")}`);
+    // by its handle, never the transaction hash (the audit round of 2026-10-16, c41)
+    expect(pathname()).toMatch(/^\/activity\/r[0-9a-f]{32}$/);
+    expect(idOfRoute(pathname().slice("/activity/".length))).toBe("shield:0x3");
     await act(async () => {
       await router.navigate(-1);
     });

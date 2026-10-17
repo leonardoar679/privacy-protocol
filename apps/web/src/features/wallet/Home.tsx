@@ -3,6 +3,7 @@
 // After a return to the app an open swap that predates this session says it is still executing; the Advanced
 // experience adds the maintenance and core lines.
 import { useEffect, useState } from "react";
+import { routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { useNavigate } from "react-router-dom";
 import { DESKTOP_QUERY, useMediaQuery } from "@privacy-wallet/ui";
 import { assetsOf } from "@privacy-wallet/sdk/assets";
@@ -131,10 +132,10 @@ export function Home() {
         onOperation: (id) =>
           navigate(
             /^swap:0x[0-9a-f]{64}$/i.test(id)
-              ? `/swap/progress/${id.toLowerCase()}`
+              ? `/swap/progress/${routeHandle(id.toLowerCase())}` // by its handle: never the order id in the URL (c41)
               : /^campaign:0x[0-9a-f]{64}$/i.test(id) && campaignById(id.slice("campaign:".length).toLowerCase())?.tier === "large-protected"
                 ? `/swap/steps/${id.slice("campaign:".length).toLowerCase()}` // V6 Stage 13: the band's protected execution, in amounts
-                : `/activity/${encodeURIComponent(id)}`,
+                : `/activity/${encodeURIComponent(routeHandle(id))}`,
           ),
       }}
     />

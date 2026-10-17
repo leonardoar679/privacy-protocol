@@ -15,6 +15,7 @@
 // in-flight limit, wallet/campaigns.ts) whose progress, /swap/steps/:campaignId, shows amounts only. Above $100K the V3/V4
 // screens stay (/swap/protected) when the service stages the order.
 import { destinationWords } from "../destinationWords";
+import { idOfRoute, routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { knownRecipients } from "../recipients";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -486,7 +487,8 @@ export function SwapScreen(p: SwapScreenProps) {
         delay: delayOn,
         ...(older ? { maxTiming: older.maxTiming } : {}),
       });
-      navigate(`/swap/progress/${swapRecordId(r.stored.orderId)}`, { replace: true }); // the confirmed Review is not shown again (c48)
+      // the confirmed Review is not shown again (c48); the URL names the record by its handle, never the order id (c41)
+      navigate(`/swap/progress/${routeHandle(swapRecordId(r.stored.orderId))}`, { replace: true });
     } catch (e) {
       setStatus(classify(e).detail || String(e));
     } finally {
@@ -914,7 +916,7 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
 function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null; onDone: () => void; onNew: () => void }) {
   const t = useT();
   const { opId } = useParams();
-  const record = useOperation(opId ?? null);
+  const record = useOperation(opId ? idOfRoute(opId) : null);
   useSession();
   const [furthest, setFurthest] = useState(0);
   const [busy, setBusy] = useState(false);

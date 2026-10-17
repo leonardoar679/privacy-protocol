@@ -135,7 +135,8 @@ async function confirmed(o: { delay?: boolean } = {}) {
   await act(async () => {
     fireEvent.click(await screen.findByTestId("review-confirm"));
   });
-  await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/progress\/swap:0x[0-9a-f]{64}$/));
+  // the progress names the record by its handle, never the order id (the audit round of 2026-10-16, c41)
+  await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/progress\/r[0-9a-f]{32}$/));
   const [order] = session.journal().swaps;
   return { router, orderId: order.orderId };
 }

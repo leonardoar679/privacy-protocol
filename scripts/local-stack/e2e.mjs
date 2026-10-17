@@ -792,8 +792,9 @@ try {
   await snap(page, "review-commit");
   check("the $850K confirmation is a hold (from $50K), never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "confirm-tap").count()) === 0);
   await confirmReview(page);
-  await page.waitForURL(/\/swap\/progress\/swap:0x[0-9a-f]{64}$/, { timeout: 120_000 });
+  await page.waitForURL(/\/swap\/progress\/r[0-9a-f]{32}$/, { timeout: 120_000 });
   const progressUrl = page.url();
+  check("the progress URL names the order by a handle, never by its order id (audit c41)", !/0x[0-9a-f]{40}/i.test(progressUrl), new URL(progressUrl).pathname);
   check("ONE confirmation: the order is committed and its progress shown (no Fund now, no second Confirm)", (await byId(page, "order-fund").count()) === 0 && (await byId(page, "order-confirm").count()) === 0, progressUrl.slice(-80));
   await snap(page, "committed");
   log("committed: the order runner funds it now");
@@ -920,7 +921,7 @@ try {
     await snap(page, "swap-protected-review");
     const vaultEthBefore = await balanceEth(stack.ethVault);
     await confirmReview(page);
-    await page.waitForURL(/\/swap\/progress\/swap:0x[0-9a-f]{64}$/, { timeout: 120_000 });
+    await page.waitForURL(/\/swap\/progress\/r[0-9a-f]{32}$/, { timeout: 120_000 });
     // the page renders from the journal a moment after the navigation: wait for the line rather than count at once
     const arrives = await firstOf(page, { into: byId(page, "swap-into-protected"), adding: byId(page, "swap-adding-to-protected") }, 15_000).catch(() => null);
     check("ONE confirmation: committed, and its progress says where it arrives", !!arrives, arrives ?? "no line");
