@@ -12,6 +12,7 @@ import {
   THORCHAIN_ROUTER_ETHEREUM,
   THORNODE_QUORUM,
   THORNODE_URLS,
+  gatewaysOnce,
 } from "../src/adapters/thorchain";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
 
@@ -22,6 +23,16 @@ const ATTACKER = "0x000000000000000000000000000000000000bad1";
 const ESCROW = "0x00000000000000000000000000000000000e5c00";
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
+
+describe("each gateway once (the audit's unverified m25)", () => {
+  it("a gateway named again — another case, a trailing slash — counts once toward the quorum", () => {
+    expect(gatewaysOnce(["https://gw.example/thor/", undefined, "https://GW.example/thor", "https://other.example", " "])).toEqual([
+      "https://gw.example/thor",
+      "https://other.example",
+    ]);
+    expect(new Set(THORNODE_URLS.map((u) => u.toLowerCase())).size).toBe(THORNODE_URLS.length);
+  });
+});
 
 /** what each gateway answers, in THORNODE_URLS order */
 interface Gateway {

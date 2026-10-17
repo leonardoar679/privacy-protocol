@@ -219,7 +219,17 @@ export const from1e8 = (v: bigint, decimals: number) => (v * 10n ** BigInt(decim
 // ---- THORNode gateways: the inbound vault, confirmed from this wallet -----------------------------
 
 /** The gateways and their quorum from the configuration (V6 Stage 3); the platform allowlists them (spec §7). */
-export const thornodeGateways = (): string[] => config().thornode.gateways.map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+// each gateway once, as first named (the audit's unverified m25): one named twice counted its operator twice toward the quorum
+export const thornodeGateways = (): string[] => {
+  const seen = new Set<string>();
+  return config()
+    .thornode.gateways.map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((u) => {
+      if (!u || seen.has(u.toLowerCase())) return false;
+      seen.add(u.toLowerCase());
+      return true;
+    });
+};
 export const thornodeQuorum = (): number => Math.max(2, config().thornode.quorum);
 
 /**

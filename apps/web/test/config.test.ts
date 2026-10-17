@@ -94,7 +94,7 @@ describe("applyConfig and the accessors", () => {
         swapService: "https://swap.example",
         holdMs: 77,
         reviewHoldMinutes: 9,
-        thornode: { gateways: ["https://g1.example/", "https://g2.example"], quorum: 1 },
+        thornode: { gateways: ["https://g1.example/", "https://g2.example", "https://G1.example"], quorum: 1 },
         thorchainRouter: ROUTER,
         walletConnectProjectId: "wc",
         artifactBase: "https://cdn.example/x",
@@ -104,7 +104,10 @@ describe("applyConfig and the accessors", () => {
     );
     expect([defaultRelayerUrl(), relayerFallbacks(), swapServiceUrl()]).toEqual(["https://r.example", ["https://s.example"], "https://swap.example"]);
     expect([holdMs(), reviewHoldMinutes()]).toEqual([77, 9]);
-    expect(thornodeGateways(), "trailing slashes trimmed").toEqual(["https://g1.example", "https://g2.example"]);
+    expect(thornodeGateways(), "trailing slashes trimmed, each gateway once (the audit's unverified m25)").toEqual([
+      "https://g1.example",
+      "https://g2.example",
+    ]);
     expect(thornodeQuorum(), "never below two").toBe(2);
     expect(PINNED.thorchainRouter, "the override, checksummed").toBe(getAddress(ROUTER));
     expect(walletConnectAvailable()).toBe(true);

@@ -12,13 +12,29 @@ import { keccak_256 } from "@noble/hashes/sha3";
 import type { AssetRef, Capabilities, ExecutionPlan, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { SINGLE_PLAN, categoryOf } from "../types";
 
-export const THORNODE_URLS = [
+export const THORNODE_URLS = gatewaysOnce([
   process.env.THORNODE_URL,
   "https://gateway.liquify.com/chain/thorchain_api",
   "https://rest.cosmos.directory/thorchain",
   // THORWallet's public load balancer: a third, independent operator (thornode.ninerealms.com stopped resolving in 2026-10)
   "https://thorchain-thornode-lb-1.thorwallet.org",
-].filter(Boolean) as string[];
+]);
+
+/**
+ * Each gateway once (2026-10-17, the audit's unverified m25): a THORNODE_URL naming one of the public gateways again had
+ * counted that operator twice toward THORNODE_QUORUM. Compared without a trailing slash and in lowercase.
+ */
+export function gatewaysOnce(urls: (string | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of urls) {
+    const base = (u ?? "").trim().replace(/\/+$/, "");
+    if (!base || seen.has(base.toLowerCase())) continue;
+    seen.add(base.toLowerCase());
+    out.push(base);
+  }
+  return out;
+}
 
 const CHAIN: Record<string, string> = { ethereum: "ETH", bitcoin: "BTC", solana: "SOL", base: "BASE", avalanche: "AVAX", bsc: "BSC", litecoin: "LTC", doge: "DOGE", tron: "TRON" };
 
