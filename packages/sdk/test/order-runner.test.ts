@@ -33,6 +33,7 @@ import {
   retryOrder,
   runOrderTick,
   type OrderIo,
+  SIGN_RETRY_MS,
 } from "../src/wallet/orderRunner";
 
 const store = memoryStorage();
@@ -459,10 +460,32 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
       return sign(st, reuse);
     };
     expect(await drive(io, 1)).toEqual(["funded"]);
-    await expect(runOrderTick(pending()!, deps(io, T0 + 2_000))).rejects.toBeInstanceOf(ProviderCallUnverified);
-    expect(stored().paused, "not paused: the scheduler's backoff tries again").toBeUndefined();
+    // tried again within the minute, never the scheduler's backoff, which outran the window (the audit's unverified m40)
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step).toBe("waiting");
+    expect(pending()!.dueAt, "in a minute").toBe(T0 + 2_000 + SIGN_RETRY_MS);
+    expect(stored().paused, "not paused: tried again").toBeUndefined();
     outage = false;
     expect((await runOrderTick(pending()!, deps(io, T0 + 20_000)))?.step).toBe("handed-over");
+    expect(w.handOvers).toBe(1);
+  });
+
+  it("a network failure at a funded order's signing is tried again within the minute, inside its window (the audit's unverified m40)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    const sign = io.sign;
+    let down = true;
+    io.sign = async (st, reuse) => {
+      if (down) throw new TypeError("fetch failed");
+      return sign(st, reuse);
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step, "not thrown to the 10-minute backoff").toBe("waiting");
+    expect(pending()!.dueAt).toBe(T0 + 2_000 + SIGN_RETRY_MS);
+    down = false;
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000 + SIGN_RETRY_MS)))?.step).toBe("handed-over");
     expect(w.handOvers).toBe(1);
   });
 

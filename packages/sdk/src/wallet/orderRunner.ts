@@ -273,6 +273,9 @@ export interface OrderTickResult {
 }
 
 /** One tick of an order: reconcile, then the one next step (fund, or sign and hand over, or track). */
+/** A funded order whose signing failed for a passing reason is tried again this soon, inside its window (unverified m40). */
+export const SIGN_RETRY_MS = 60_000;
+
 export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise<OrderTickResult | null> {
   const s = deps.session ?? defaultSession;
   const now = deps.now?.() ?? Date.now();
@@ -437,13 +440,19 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     try {
       r = await io.sign(stored, reuse);
     } catch (e) {
-      if (e instanceof ProviderCallUnverified) throw e; // the gateways did not answer: an outage, tried again (backoff), never an unsafe call
       const m = (e as Error)?.message ?? String(e);
-      if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
-        return pause("unsafe_contract_call", m);
-      // the service's price guard refused the hard quote (a route far below the best alternative): the user tries again or returns the funds
-      if ((e as { code?: unknown })?.code === "price_guard" || /below the best alternative|price.?guard/i.test(m)) return pause("execution_unavailable", m);
-      throw e; // a network failure before anything was signed: backoff
+      if (!(e instanceof ProviderCallUnverified)) {
+        if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
+          return pause("unsafe_contract_call", m);
+        // the service's price guard refused the hard quote (a route far below the best alternative): the user tries again or returns the funds
+        if ((e as { code?: unknown })?.code === "price_guard" || /below the best alternative|price.?guard/i.test(m)) return pause("execution_unavailable", m);
+      }
+      // the gateways did not answer (an outage, never an unsafe call), or the network failed before anything was signed: the
+      // funded order tries again within the minute, inside its window — never the scheduler's backoff of 10 minutes, then
+      // 20, which outran a 30-minute window and left the order only its refund (2026-10-17, the audit's unverified m40)
+      schedulerStatus.progress(`Swap: the execution could not be prepared yet (${m.split("\n")[0].slice(0, 120)}); trying again in a minute…`);
+      tickAt(a.orderId, now + SIGN_RETRY_MS, s, now);
+      return { step: "waiting", stored: journaled(a.orderId, s)! };
     }
     if ("moved" in r) {
       if (r.prepared) movedCalls.set(key, { prepared: r.prepared, minOut: r.moved.minOut });

@@ -50,7 +50,6 @@ import {
   VAULT_2,
   world,
 } from "./helpers/swapWorld";
-import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
 
 // the private withdrawal into the escrow has its own suites (privacy-leakage, the local stack): here it is counted
 const funding = vi.hoisted(() => ({ count: 0, runner: undefined as unknown, olderGone: false }));
@@ -360,7 +359,13 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
         (e) => e,
       );
     });
-    expect(thrown, "an outage, for the scheduler's backoff").toBeInstanceOf(ProviderCallUnverified);
+    // an outage: tried again within the minute, inside the order's window — never thrown to the scheduler's backoff of 10
+    // minutes, then 20, which outran the window (the audit's unverified m40)
+    expect(thrown, "an outage, tried again within the minute").toBeNull();
+    expect(
+      session.journal().schedule.some((x) => x.id === `order-tick:${orderId}`),
+      "its next tick is due",
+    ).toBe(true);
     expect(stored(orderId).paused).toBeUndefined();
     expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
     world.gateways.down = 0;
@@ -386,7 +391,13 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
         (e) => e,
       );
     });
-    expect(thrown, "an outage, for the scheduler's backoff").toBeInstanceOf(ProviderCallUnverified);
+    // an outage: tried again within the minute, inside the order's window — never thrown to the scheduler's backoff of 10
+    // minutes, then 20, which outran the window (the audit's unverified m40)
+    expect(thrown, "an outage, tried again within the minute").toBeNull();
+    expect(
+      session.journal().schedule.some((x) => x.id === `order-tick:${orderId}`),
+      "its next tick is due",
+    ).toBe(true);
     expect(stored(orderId).paused).toBeUndefined();
     expect(calls.some((c) => c.endsWith("/finalize"))).toBe(false);
     world.gateways.halted = false;
