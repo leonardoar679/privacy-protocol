@@ -81,6 +81,11 @@ export interface StartCampaignInput {
   fromAsset: Asset;
   to: AssetRef;
   amount: bigint;
+  /**
+   * The escrow amount the quote set was asked for, when it is not `amount` (a V6 follow-up of 2026-10-17, audit c49): a
+   * protected execution quotes the whole funding and runs a smaller steps amount, each step paying its own fee note
+   */
+  quotedAmount?: bigint;
   tier: Tier;
   mode: ProtectionMode;
   preference: Preference;
@@ -122,11 +127,18 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const exact = i.tier === "large-protected"; // V5 (spec §11): the consumer band's four sequential quarters
   const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng, exact });
   const cap = (i.amount * BigInt(capBps)) / 10000n;
-  const minimumOutput = (rateE18(BigInt(quote.toAmountMin), i.amount) * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
+  // the rate per unit of what the set was asked for (c49): over the smaller steps amount, the whole order's minimum
+  // overstated it, and every step paused at commit; and per unit paid to the provider when the set names the executor tip
+  // it is net of (c55): each step pays its own
+  const quoted = i.quotedAmount ?? i.amount;
+  const slip = (rate: bigint) => (rate * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
+  const minimumOutput = slip(rateE18(BigInt(quote.toAmountMin), quoted));
+  const setTip = i.quotes.executorTip !== undefined ? BigInt(i.quotes.executorTip) : null;
+  const minimumOutputNet = setTip !== null && setTip < quoted ? slip(rateE18(BigInt(quote.toAmountMin), quoted - setTip)) : null;
   const estimated = Math.max(p.estimatedSeconds, 3600);
   const bounds: ExecutionBounds = {
     orderId: randomId(), assetIn: i.from, chainIn: i.from.chain, amountInLimit: i.amount.toString(), assetOut: i.to, chainOut: i.to.chain, destination: i.destination,
-    minimumOutput: minimumOutput.toString(), expiry: Math.floor(now / 1000) + 2 * estimated + EXPIRY_MARGIN_SECONDS, maxFeeBps: DEFAULT_MAX_FEE_BPS, privacyMode: i.mode,
+    minimumOutput: minimumOutput.toString(), ...(minimumOutputNet !== null ? { minimumOutputNet: minimumOutputNet.toString() } : {}), expiry: Math.floor(now / 1000) + 2 * estimated + EXPIRY_MARGIN_SECONDS, maxFeeBps: DEFAULT_MAX_FEE_BPS, privacyMode: i.mode,
     maxExternalExposure: cap.toString(), executeWindowSeconds: p.executeWindowSeconds,
   };
   const plan: TranchePlan = {
@@ -135,7 +147,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
     shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}), ...(exact ? { exact: true } : {}), // V5 (spec §11): the band's exact quarters survive a re-plan
   };
   // the reference rate (§3): the Chainlink cross-rate when both feeds exist, else the quote's expected rate (then the deviation check compares like with like only approximately)
-  const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), i.amount);
+  const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), quoted);
   const c = createCampaign({
     id: bounds.orderId, now, mode: i.mode, tier: i.tier, request: { from: i.from, to: i.to, amount: i.amount.toString(), preference: i.preference }, bounds, plan, pieces: split.pieces, referenceRateE18,
     riskSnapshot: { protection: p, risk: i.quotes.risk ?? null, competition: i.quotes.competition ?? null, quote, usd: i.usd, privacyScore: i.quotes.scores.find((x) => x.provider === i.provider)?.components.privacy ?? null }, confirmations: i.confirmations,

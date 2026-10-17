@@ -403,6 +403,8 @@ export function SwapScreen(p: SwapScreenProps) {
         fromAsset,
         to: to.ref,
         amount: stepsPlan.amount,
+        // the set was quoted for the whole funding (one fee note), the steps run a smaller amount (audit c49)
+        quotedAmount: terms ? swapFunding(units, terms).delivered : units,
         tier,
         mode: protection.mode,
         preference,

@@ -18,6 +18,7 @@ import { emptyJournal, type ScheduledAction, type StoredSwap } from "@privacy-wa
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings, healSettings, healProtection, DEFAULT_PROTECTION, PROTECTION_DEFAULTS } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction, schedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
+import { trancheMinimum } from "@privacy-wallet/protocol/wallet/campaign";
 import { acceptReroute, buildCampaign, campaignById, cancelCampaign, pauseCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
@@ -659,6 +660,32 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
       expect(exposure(current(x)).remaining, why).toBe(eth(2500));
     }
     world.chosen = "thorchain";
+  });
+
+  it("the price bound is per unit of what the set was quoted for, and per unit paid to the provider when the set names its tip (the audit round of 2026-10-16, c49/c55)", async () => {
+    const tip = AMOUNT / 1000n; // the set is net of a 10 bps tip; each step pays 25 bps of its own (the world's commit)
+    const steps = (AMOUNT * 98n) / 100n; // a smaller steps amount: each step's fee note comes off the funding the set quoted
+    const input = { quotes: { ...quoteSet(), executorTip: tip.toString() }, provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: steps, quotedAmount: AMOUNT, tier: "institutional" as const, mode: "balanced" as const, preference: "balanced" as const, policy: "privacy-execution" as const, destination: { kind: "fresh-per-tranche" as const }, usd: 10_000_000, confirmations: { secondFactor: T0, secondDevice: T0 }, now: clock, rng: () => 0.5, session, gasPriceWei: "20000000000" };
+    const slip = (r: bigint) => (r * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
+    const built = buildCampaign(input);
+    expect(BigInt(built.bounds.minimumOutput), "over the amount the set was asked for (c49)").toBe(slip((OUT_MIN * 10n ** 18n) / AMOUNT));
+    expect(BigInt(built.bounds.minimumOutputNet!), "and per unit paid to the provider (c55)").toBe(slip((OUT_MIN * 10n ** 18n) / (AMOUNT - tip)));
+    expect(buildCampaign({ ...input, quotes: quoteSet(), quotedAmount: undefined, amount: AMOUNT }).bounds.minimumOutputNet, "a set without its tip: as before").toBeUndefined();
+    // a step signs at its own tip's net: the market unmoved, its 25 bps tip is not a price below the bound
+    const c = startCampaign(input);
+    await tick(c); clock += 2000; await tick(c); clock += 2000; // committed and funded
+    const t = current(c).tranches[0];
+    const stored = session.journal().swaps.find((x) => x.orderId === t.orderId)!;
+    const own = BigInt((stored.params as { executorTip: string }).executorTip);
+    const bound = trancheMinimum(current(c).bounds, BigInt(t.amount), own);
+    const perEscrowUnit = (BigInt(t.amount) * BigInt(current(c).bounds.minimumOutput)) / 10n ** 18n;
+    expect(bound < perEscrowUnit, "the step's own tip aside, its bound is lower than per unit of its escrow").toBe(true);
+    world.minOutAtSign = bound; // what its call guarantees: the market where it was
+    const r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
+    expect(current(c).tranches[0].state, "signed, not paused as a price deviation").toBe("signed");
+    expect(world.acceptMins.at(-1)).toBe(bound);
+    world.minOutAtSign = null;
   });
 
   it("V3 §3: a step is held to the campaign's price bound (amount × minimumOutput), not its own quote at commit — a 0.1 % dip is signed, one below the bound pauses", async () => {

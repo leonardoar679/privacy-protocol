@@ -9,7 +9,7 @@
 // failure before anything was sent is thrown to the scheduler's backoff (§9: no automatic retry on money movement).
 import type { Hex } from "viem";
 import {
-  canRelease, detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState, checkWithinBounds, rateE18,
+  canRelease, detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
   FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
@@ -372,7 +372,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         }
         const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ["funded", "signed", "failed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial", "refunding", "settled"].includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
         const tipBps = Number((BigInt(r.order.params.executorTip) * 10000n) / BigInt(t.amount));
-        const check = checkWithinBounds(c.bounds, { amount: BigInt(t.amount), toAmountMin: BigInt(q.toAmountMin), quoteExpiresAt: q.expiresAt, feeBps: tipBps, destination: dest.address, fundedBefore, now: sinceS });
+        const check = checkWithinBounds(c.bounds, { amount: BigInt(t.amount), toAmountMin: BigInt(q.toAmountMin), quoteExpiresAt: q.expiresAt, feeBps: tipBps, executorTip: BigInt(r.order.params.executorTip), destination: dest.address, fundedBefore, now: sinceS });
         if (!check.ok) {
           abandonSwap(r.stored.orderId, s); // never funded: nothing left the private balance
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined }, `outside the bounds: ${check.reason}`);
@@ -458,7 +458,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             // V3 §3, the price bound: a step's call must guarantee amount × minimumOutput — the confirmation's minimum per
             // unit less the 50 bps slippage the user approved — not its own quote at commit, which a 0.04 % dip undercut
             // and paused again at every Resume (the 2026-10-14 quick pass: five in a row)
-            const r = await io.sign(stored, (BigInt(t.amount) * BigInt(c.bounds.minimumOutput)) / RATE_SCALE);
+            // (per unit paid to the provider, the step's own tip aside, when the bounds have it: audit c55)
+            const r = await io.sign(stored, trancheMinimum(c.bounds, BigInt(t.amount), BigInt((stored.params as { executorTip: string }).executorTip)));
             if ("moved" in r) {
               // a lower minimum is a campaign-level decision, never a per-tranche tap (§3)
               if (leftBehind) leftRefund = "its own route now guarantees less than you approved";

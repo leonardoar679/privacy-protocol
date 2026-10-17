@@ -36,6 +36,13 @@ export interface ExecutionBounds {
   destination: DestinationPolicy;
   /** the minimum output per source unit, 1e18 fixed point (destination base units per source base unit × 1e18) */
   minimumOutput: string;
+  /**
+   * The same per unit the provider is paid — a tranche's escrow less its executor tip — when the confirmation knew the tip
+   * its quote set was net of (a V6 follow-up of 2026-10-17, audit c55). Each tranche pays its own tip, so per unit of the
+   * escrow a tranche looked worse than the market as the gas price rose, and paused at commit; the tips are held by
+   * `maxFeeBps`, the price by this. Optional: a campaign from before keeps `minimumOutput`.
+   */
+  minimumOutputNet?: string;
   /** unix seconds: no tranche is committed after it */
   expiry: number;
   /** the tip plus the relayer fee ceiling per tranche, bps of the tranche */
@@ -343,17 +350,34 @@ export interface BoundsCheckInput {
   quoteExpiresAt: number;
   /** the tranche's fee (tip + relayer fee) in bps of the tranche */
   feeBps: number;
+  /** the tranche's executor tip (source base units): with `minimumOutputNet`, the price is checked per unit paid to the provider */
+  executorTip?: bigint;
   destination: string;
   /** what every earlier tranche funded, base units */
   fundedBefore: bigint;
   now: number;
 }
 
+/**
+ * What a tranche's call must guarantee (§3): its amount paid to the provider (the escrow less its own tip) at
+ * `minimumOutputNet` when the bounds have it and the tip is known, else its amount at `minimumOutput`.
+ */
+export function trancheMinimum(b: ExecutionBounds, amount: bigint, executorTip?: bigint): bigint {
+  if (b.minimumOutputNet !== undefined && executorTip !== undefined) {
+    const paid = amount > executorTip ? amount - executorTip : 0n;
+    return (paid * big(b.minimumOutputNet)) / RATE_SCALE;
+  }
+  return (amount * big(b.minimumOutput)) / RATE_SCALE;
+}
+
 export function checkWithinBounds(b: ExecutionBounds, x: BoundsCheckInput): { ok: true } | { ok: false; reason: string } {
   if (x.fundedBefore + x.amount > big(b.amountInLimit)) return { ok: false, reason: "the tranche would exceed the order's amount limit" };
   if (x.now >= b.expiry) return { ok: false, reason: "the campaign has expired" };
   if (x.quoteExpiresAt > b.expiry) return { ok: false, reason: "the quote outlives the campaign expiry" };
-  if (rateE18(x.toAmountMin, x.amount) < big(b.minimumOutput)) return { ok: false, reason: "the hard quote guarantees less per unit than the minimum you approved" };
+  // per unit paid to the provider when the bounds and the tranche know the tip (audit c55), else per unit of the tranche
+  const net = b.minimumOutputNet !== undefined && x.executorTip !== undefined;
+  const per = net ? rateE18(x.toAmountMin, x.amount > x.executorTip! ? x.amount - x.executorTip! : 0n) : rateE18(x.toAmountMin, x.amount);
+  if (per < big(net ? b.minimumOutputNet! : b.minimumOutput)) return { ok: false, reason: "the hard quote guarantees less per unit than the minimum you approved" };
   if (x.feeBps > b.maxFeeBps) return { ok: false, reason: "the fee is above the maximum you approved" };
   if (b.destination.kind !== "fresh-per-tranche" && x.destination.toLowerCase() !== b.destination.address.toLowerCase()) return { ok: false, reason: "the destination differs from the one you approved" };
   return { ok: true };

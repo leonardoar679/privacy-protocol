@@ -7,6 +7,7 @@ import {
   canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
   rateE18, replan, settledBy, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, TRACK_INTERVAL_MS,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
+  trancheMinimum,
 } from "../src/wallet/campaign";
 import { bucketsFor } from "../src/wallet/amounts";
 
@@ -207,6 +208,22 @@ describe("the bounds (§3)", () => {
     const entered = bounds({ destination: { kind: "entered", address: "bc1qentered" } });
     expect(checkWithinBounds(entered, { ...ok, destination: "bc1qother" })).toMatchObject({ ok: false, reason: expect.stringContaining("destination") });
     expect(checkWithinBounds(entered, { ...ok, destination: "BC1QENTERED" })).toEqual({ ok: true });
+  });
+
+  it("per unit paid to the provider when the confirmation knew its tip: a step's own tip is no worse price (the audit round of 2026-10-16, c55)", () => {
+    // the order: 800 ETH quoted at a 24M sat minimum, net of a 0.5 ETH tip; a 50 ETH step pays its own 0.5 ETH tip
+    const net = rateE18(24_000_000n, 800n * ETH - ETH / 2n);
+    const b = bounds({ minimumOutputNet: net.toString() });
+    const min = trancheMinimum(b, 50n * ETH, ETH / 2n);
+    expect(min).toBe(((50n * ETH - ETH / 2n) * net) / 10n ** 18n);
+    const step = { ...ok, toAmountMin: min + 1n, executorTip: ETH / 2n };
+    expect(rateE18(step.toAmountMin, step.amount) < BigInt(b.minimumOutput), "per unit of the escrow it reads below the order's rate").toBe(true);
+    expect(checkWithinBounds(b, step)).toEqual({ ok: true });
+    expect(checkWithinBounds(b, { ...step, toAmountMin: min - 1n })).toMatchObject({ ok: false, reason: expect.stringContaining("minimum you approved") });
+    // a campaign from before (no minimumOutputNet), or a tranche whose tip is not known: per unit of the tranche, as before
+    expect(trancheMinimum(bounds(), 50n * ETH, ETH / 2n)).toBe((50n * ETH * BigInt(bounds().minimumOutput)) / 10n ** 18n);
+    expect(checkWithinBounds(bounds(), step)).toMatchObject({ ok: false });
+    expect(checkWithinBounds(b, { ...step, executorTip: undefined })).toMatchObject({ ok: false });
   });
 });
 
