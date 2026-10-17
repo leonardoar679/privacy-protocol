@@ -102,6 +102,12 @@ export function planHousekeeping(notes: NoteRef[], o: { decimals: number; feePer
   while (!stopped && pool.length > p.maxNotes) {
     const a = smallest(), b = smallest(a.id);
     if (a.amount + b.amount <= fee) break;
+    // never into a note above the largest common size (the audit round of 2026-10-16, c54): the next run split it again,
+    // and a balance above maxNotes × maxPiece was split and merged back for good, a relayer fee each step
+    if (a.amount + b.amount - fee > p.maxPiece) {
+      reasons.push(`more than ${p.maxNotes} notes, each at most the largest common size: kept as they are`);
+      break;
+    }
     if (!canAfford()) break;
     merge(a, b, "too many notes: the two smallest merged");
   }

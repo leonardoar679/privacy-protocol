@@ -59,6 +59,27 @@ describe("planHousekeeping", () => {
     expect(r.actions[0]).toMatchObject({ kind: "merge", inputs: [{ id: "n0" }, { id: "n1" }] });
   });
 
+  it("a balance above 64 of the largest pieces converges: never merged into a note the next run would split again (the audit round of 2026-10-16, c54)", () => {
+    const notes = Array.from({ length: 70 }, (_, i) => ({ id: `p${i}`, amount: 100n * E }));
+    const r = planHousekeeping(notes, { decimals: 18, feePerTx: FEE });
+    expect(r.actions, "nothing to do: each note is at the largest size, and a merge would make one above it").toEqual([]);
+    expect(r.shape.reasons.join(" ")).toMatch(/more than 64 notes, each at most the largest common size/);
+    // a whale above 64 × 100 ETH: the runs split it down and then stop
+    let pool: { id: string; amount: bigint }[] = [{ id: "w", amount: 7_000n * E }];
+    let runs = 0;
+    for (; runs < 200; runs++) {
+      pool = pool.map((n, i) => ({ id: `r${runs}n${i}`, amount: n.amount })); // a run's own ids start again at s0 / m0
+      const plan = planHousekeeping(pool, { decimals: 18, feePerTx: FEE, maxActions: 50 });
+      if (!plan.actions.length) break;
+      for (const a of plan.actions) {
+        if (a.kind === "split") pool = [...pool.filter((n) => n.id !== a.input.id), { id: a.outputIds[0], amount: a.outputs[0] }, { id: a.outputIds[1], amount: a.outputs[1] }];
+        else pool = [...pool.filter((n) => !a.inputs.some((i) => i.id === n.id)), { id: a.outputId, amount: a.inputs[0].amount + a.inputs[1].amount - a.fee }];
+      }
+    }
+    expect(runs, "it converges").toBeLessThan(200);
+    expect(pool.every((n) => n.amount <= 100n * E)).toBe(true);
+  });
+
   it("a budget or an action cap bounds a run and reports what was deferred; a well-shaped balance plans nothing", () => {
     const capped = planHousekeeping([{ id: "whale", amount: 1330n * E }], { decimals: 18, feePerTx: FEE, feeBudget: 5n * FEE });
     expect(capped.actions).toHaveLength(5);
