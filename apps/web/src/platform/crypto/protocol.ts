@@ -30,6 +30,18 @@ export type CryptoRequest =
       payloads: Uint8Array;
       coreBase: string;
     }
+  // every payload that opens with the view key, flagged by whether it reproduces with ownerCommitment (the audit round of
+  // 2026-10-16, c18: a deposited note's own owner commitment is derived on the main thread, never here)
+  | {
+      id: number;
+      op: "open";
+      viewKey: Uint8Array;
+      ownerCommitment: Uint8Array;
+      leafIndexes: Uint32Array;
+      commitments: Uint8Array;
+      payloads: Uint8Array;
+      coreBase: string;
+    }
   | { id: number; op: "prove"; plan: PlanMessage; artifacts: ArtifactRequest };
 
 /** The proof's phases: the key (fetched or read from the cache, and checked), then the inputs, the witness and the proof. */

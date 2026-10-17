@@ -2,4 +2,4 @@
 //! The commitment and the nullifier of a note are named by `commitments` and `nullifiers`.
 pub mod note;
 
-pub use note::{decode_note, encode_note, note_from_payload, scan_payloads, Discovered, Note, NoteError, NOTE_RECORD_BYTES};
+pub use note::{decode_note, encode_note, note_from_payload, open_payloads, scan_payloads, Discovered, Note, NoteError, Opened, NOTE_RECORD_BYTES};

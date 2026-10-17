@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { MerkleLayers, MerkleTree } from "@privacy-wallet/protocol/merkle";
-import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { expectedPublicSignals, type SnarkjsLike } from "@privacy-wallet/protocol/prover";
@@ -85,6 +85,56 @@ describe("the core in the worker", () => {
     expect(new DataView(out.buffer).getUint32(0)).toBe(0);
     expect(out.subarray(4, 36)).toEqual(be32(ours.amount));
     expect(out.subarray(36, 68)).toEqual(be32(ours.noteSecret));
+  });
+  it("openings in the core's format (audit c18): every payload that opens, flagged by whether it reproduces with the given owner commitment", async () => {
+    const view = viewKeyPair(keys.viewKey);
+    const secret = deriveNoteSecret(keys.noteKey, 4);
+    const deposited: Note = { ...ours, amount: 7n, ownerCommitment: ownerCommitmentOf(deriveOwnerKey(keys.spendKey, secret)), noteSecret: secret };
+    const items = [
+      {
+        leafIndex: 0,
+        commitment: noteCommitment(noteBody(ours), 0n),
+        noteData: encryptNoteData(view.publicKey, { amount: ours.amount, noteSecret: ours.noteSecret, vaultId: ours.vaultId }),
+      },
+      { leafIndex: 1, commitment: 0x1111n, noteData: dummyNoteData() },
+      {
+        leafIndex: 2,
+        commitment: noteCommitment(noteBody(deposited), 2n),
+        noteData: encryptNoteData(view.publicKey, { amount: deposited.amount, noteSecret: deposited.noteSecret, vaultId: deposited.vaultId }),
+      },
+    ];
+    const size = items[0].noteData.length;
+    const payloads = new Uint8Array(items.length * size);
+    items.forEach((it, i) => payloads.set(it.noteData, i * size));
+    const req = (id: number): CryptoRequest => ({
+      id,
+      op: "open",
+      viewKey: be32(keys.viewKey),
+      ownerCommitment: be32(oc),
+      leafIndexes: Uint32Array.from(items.map((i) => i.leafIndex)),
+      commitments: bigIntsToWords(items.map((i) => i.commitment)),
+      payloads: payloads.slice(),
+      coreBase: "/core",
+    });
+    const [r] = await run(engine, req(4));
+    expect(r).toMatchObject({ id: 4, type: "bytes", engine: "typescript" });
+    const out = (r as { out: Uint8Array }).out;
+    expect(out.length).toBe(202);
+    expect(new DataView(out.buffer).getUint32(0)).toBe(0);
+    expect(out[4]).toBe(1);
+    expect(out.subarray(5, 37)).toEqual(be32(ours.amount));
+    expect(new DataView(out.buffer).getUint32(101)).toBe(2);
+    expect(out[105]).toBe(0);
+    expect(out.subarray(138, 170)).toEqual(be32(deposited.noteSecret));
+    // a served core older than the opening batch: the reference answers, and says so
+    const older: CoreModule = { merkle_layers: () => new Uint8Array(32), scan_note_payloads: () => new Uint8Array(0) };
+    const [o] = await run(createCryptoEngine({ loadCore: async () => older, caches: async () => null, snarkjs: async () => ({}) as SnarkjsLike }), req(5));
+    expect(o).toMatchObject({ type: "bytes", engine: "typescript" });
+    expect((o as { out: Uint8Array }).out).toEqual(out);
+    // a served core with it answers, as wasm
+    const served: CoreModule = { ...older, open_note_payloads: () => out.slice() };
+    const [w] = await run(createCryptoEngine({ loadCore: async () => served, caches: async () => null, snarkjs: async () => ({}) as SnarkjsLike }), req(6));
+    expect(w).toMatchObject({ type: "bytes", engine: "wasm" });
   });
   it("a served core answers, as wasm", async () => {
     const core: CoreModule = { merkle_layers: () => new Uint8Array(32), scan_note_payloads: () => new Uint8Array(0) };

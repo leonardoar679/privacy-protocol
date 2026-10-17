@@ -2,7 +2,7 @@
 //! spec §5.3–5.4), the 121-byte wallet record, and note discovery from an envelope — mirroring
 //! packages/protocol/src/{note,nullifier}.ts and NoteLib.sol / NullifierLib.sol.
 use crate::domains;
-use crate::envelope::{decrypt_note_data, ViewKeyPair};
+use crate::envelope::{decrypt_note_data, NotePlaintext, ViewKeyPair};
 use crate::field::{fr_from_be_mod, fr_to_be32, Fr};
 use crate::poseidon2::{hash2, hash3, hash4, hash5};
 
@@ -100,5 +100,32 @@ where
     items
         .into_iter()
         .filter_map(|(leaf_index, leaf, note_data)| note_from_payload(view, owner_commitment, leaf_index as u64, &leaf, note_data).map(|note| Discovered { leaf_index, note }))
+        .collect()
+}
+
+/// A payload that opens with this view key (`open_payloads`), with the leaf it sits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Opened {
+    pub leaf_index: u32,
+    pub plain: NotePlaintext,
+    /// the opening reproduces its leaf with the owner commitment the scan was given: what `scan_payloads` finds
+    pub reproduces: bool,
+}
+
+/// Every `(leaf_index, commitment, note_data)` whose payload opens with this view key, each with whether it reproduces
+/// its leaf with `owner_commitment` (the audit round of 2026-10-16, c18). A deposited note is made out to its own owner
+/// commitment, which only the spend key derives from the opened secret (keys.rs `derive_owner_key`): the wallet checks
+/// those openings itself, and the scan never holds that key. The same single pass as `scan_payloads`.
+pub fn open_payloads<'a, I>(view: &ViewKeyPair, owner_commitment: &Fr, items: I) -> Vec<Opened>
+where
+    I: IntoIterator<Item = (u32, Fr, &'a [u8])>,
+{
+    items
+        .into_iter()
+        .filter_map(|(leaf_index, leaf, note_data)| {
+            let plain = decrypt_note_data(view, note_data)?;
+            let note = Note { vault_id: plain.vault_id, amount: plain.amount, owner_commitment: *owner_commitment, note_secret: plain.note_secret };
+            Some(Opened { leaf_index, plain, reproduces: note_commitment(&note_body(&note), leaf_index as u64) == leaf })
+        })
         .collect()
 }

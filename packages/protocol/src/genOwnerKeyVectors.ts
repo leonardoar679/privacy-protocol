@@ -1,5 +1,5 @@
 // The owner keys of deposited notes (a V6 follow-up of 2026-10-16, audit c18/c29/c37): vectors every implementation must
-// reproduce (keys.ts deriveOwnerKey, reference/python derive_owner_key).
+// reproduce (keys.ts deriveOwnerKey, reference/python derive_owner_key, privacy-core keys.rs derive_owner_key).
 // Usage: npx tsx src/genOwnerKeyVectors.ts → test/vectors/owner-keys.json. The derivation never changes — deposits, escrows
 // and receivers fix it for good —, so the generator refuses to write a file that differs from the one there (--force does).
 import { existsSync, readFileSync, writeFileSync } from "fs";

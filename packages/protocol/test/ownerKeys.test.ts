@@ -1,5 +1,5 @@
 // A deposited note's own owner key (a V6 follow-up of 2026-10-16, audit c18/c29/c37): keys.ts deriveOwnerKey against its
-// pinned vectors (test/vectors/owner-keys.json, which the Python reference reproduces too), an independent
+// pinned vectors (test/vectors/owner-keys.json, which the Python reference and the Rust core reproduce too), an independent
 // encoding of its preimage, and the properties the wallet relies on: one key per note secret, apart from the privacy
 // address's owner commitment, the note secrets and the spend key; field elements only. The derivation never changes —
 // deposits, escrows and receivers fix it for good —, so the vector file itself is pinned by its SHA-256.

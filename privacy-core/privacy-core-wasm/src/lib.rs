@@ -11,7 +11,7 @@ use privacy_core::field::{fr_from_be32_checked, fr_to_be32, Fr};
 use privacy_core::keys::{derive_keys as core_derive_keys, derive_note_secret as core_derive_note_secret};
 use privacy_core::keystore::{unlock_keystore as core_unlock, Keystore};
 use privacy_core::merkle::{layers, MerkleTree};
-use privacy_core::note::{note_body as core_note_body, note_commitment as core_note_commitment, nullifier as core_nullifier, owner_commitment_of, phantom_nullifier as core_phantom, scan_payloads, Note};
+use privacy_core::note::{note_body as core_note_body, note_commitment as core_note_commitment, nullifier as core_nullifier, open_payloads, owner_commitment_of, phantom_nullifier as core_phantom, scan_payloads, Note};
 use privacy_core::payload::NOTE_DATA_BYTES;
 use privacy_core::payload::{note_data_hash as core_note_data_hash, pack_plaintext, tx_domain as core_tx_domain};
 use privacy_core::poseidon2::hash;
@@ -167,6 +167,33 @@ pub fn scan_note_payloads(view_key: &[u8], owner_commitment: &[u8], leaf_indexes
         out.extend_from_slice(&fr_to_be32(&d.note.amount));
         out.extend_from_slice(&fr_to_be32(&d.note.note_secret));
         out.extend_from_slice(&fr_to_be32(&d.note.vault_id));
+    }
+    Ok(out)
+}
+
+/// Every payload (n × 169 bytes) that opens with this view key, in one pass (the audit round of 2026-10-16, c18): each
+/// opening is leafIndex(4, big-endian) ‖ reproduces(1) ‖ amount(32) ‖ noteSecret(32) ‖ vaultId(32), `reproduces` 1 when
+/// it reproduces its leaf (commitments n × 32 bytes) with `owner_commitment` (a hit of scan_note_payloads), else 0: a
+/// note made out to an owner commitment the caller derives from its secret, or a payload that lies.
+#[wasm_bindgen]
+pub fn open_note_payloads(view_key: &[u8], owner_commitment: &[u8], leaf_indexes: &[u32], commitments: &[u8], payloads: &[u8]) -> Result<Vec<u8>, JsError> {
+    let n = leaf_indexes.len();
+    if commitments.len() != n * 32 || payloads.len() != n * NOTE_DATA_BYTES {
+        return Err(JsError::new("leaf indexes, commitments (32 bytes each) and payloads (169 bytes each) must have the same count"));
+    }
+    let view = view_key_pair(&fr(view_key)?);
+    let oc = fr(owner_commitment)?;
+    let mut items = Vec::with_capacity(n);
+    for i in 0..n {
+        items.push((leaf_indexes[i], fr(&commitments[i * 32..(i + 1) * 32])?, &payloads[i * NOTE_DATA_BYTES..(i + 1) * NOTE_DATA_BYTES]));
+    }
+    let mut out = Vec::new();
+    for o in open_payloads(&view, &oc, items) {
+        out.extend_from_slice(&o.leaf_index.to_be_bytes());
+        out.push(o.reproduces as u8);
+        out.extend_from_slice(&fr_to_be32(&o.plain.amount));
+        out.extend_from_slice(&fr_to_be32(&o.plain.note_secret));
+        out.extend_from_slice(&fr_to_be32(&o.plain.vault_id));
     }
     Ok(out)
 }

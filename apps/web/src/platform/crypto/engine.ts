@@ -11,7 +11,7 @@
 import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { buildTxInputs, type TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { bytesToHex0x, proveInputs, type SnarkjsLike } from "@privacy-wallet/protocol/prover";
-import { noteFromPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { noteFromPayload, openPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { enforce, sha256Hex, verdictOf } from "../../prover/pins";
 import { ARTIFACT_CACHE, artifactCacheKey, type ArtifactRequest, type CoreEngine, type CryptoRequest, type CryptoResponse, type PlanMessage } from "./protocol";
@@ -19,6 +19,8 @@ import { ARTIFACT_CACHE, artifactCacheKey, type ArtifactRequest, type CoreEngine
 export interface CoreModule {
   merkle_layers(leaves: Uint8Array, levels: number): Uint8Array;
   scan_note_payloads(viewKey: Uint8Array, ownerCommitment: Uint8Array, leafIndexes: Uint32Array, commitments: Uint8Array, payloads: Uint8Array): Uint8Array;
+  /** the audit round of 2026-10-16 (c18); an older package has none, and the reference answers */
+  open_note_payloads?(viewKey: Uint8Array, ownerCommitment: Uint8Array, leafIndexes: Uint32Array, commitments: Uint8Array, payloads: Uint8Array): Uint8Array;
 }
 export type Post = (m: CryptoResponse, transfer?: Transferable[]) => void;
 export interface EngineDeps {
@@ -99,6 +101,28 @@ export function scanTs(r: Extract<CryptoRequest, { op: "scan" }>): Uint8Array {
   return out;
 }
 
+/** The reference's openings in the core's format: leafIndex(4) ‖ reproduces(1) ‖ amount(32) ‖ noteSecret(32) ‖ vaultId(32) per payload that opens. */
+export function openTs(r: Extract<CryptoRequest, { op: "open" }>): Uint8Array {
+  const view = viewKeyPair(toBig(r.viewKey));
+  const oc = toBig(r.ownerCommitment);
+  const size = r.leafIndexes.length ? r.payloads.length / r.leafIndexes.length : 0;
+  const recs: Uint8Array[] = [];
+  for (let i = 0; i < r.leafIndexes.length; i++) {
+    const o = openPayload(view, oc, r.leafIndexes[i], toBig(r.commitments.subarray(i * 32, i * 32 + 32)), r.payloads.subarray(i * size, (i + 1) * size));
+    if (!o) continue;
+    const rec = new Uint8Array(101);
+    new DataView(rec.buffer).setUint32(0, r.leafIndexes[i]);
+    rec[4] = o.reproduces ? 1 : 0;
+    rec.set(be32(o.plain.amount), 5);
+    rec.set(be32(o.plain.noteSecret), 37);
+    rec.set(be32(o.plain.vaultId), 69);
+    recs.push(rec);
+  }
+  const out = new Uint8Array(recs.length * 101);
+  recs.forEach((h, i) => out.set(h, i * 101));
+  return out;
+}
+
 export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest, post: Post): Promise<void> } {
   const now = deps.now ?? (() => performance.now());
   const fetchBytes = deps.fetchBytes ?? ((url: string) => secureFetch(url, {}, "artifacts"));
@@ -175,11 +199,16 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
       try {
         if (r.op === "prove") return await prove(r.id, r.plan, r.artifacts, post);
         const c = await deps.loadCore(r.coreBase);
-        const engine: CoreEngine = c ? "wasm" : "typescript";
-        const out =
-          r.op === "layers"
-            ? (c ? c.merkle_layers(r.leaves, r.levels) : layersTs(r.leaves, r.levels)).slice()
-            : (c ? c.scan_note_payloads(r.viewKey, r.ownerCommitment, r.leafIndexes, r.commitments, r.payloads) : scanTs(r)).slice();
+        let engine: CoreEngine = c ? "wasm" : "typescript";
+        let out: Uint8Array;
+        if (r.op === "layers") out = (c ? c.merkle_layers(r.leaves, r.levels) : layersTs(r.leaves, r.levels)).slice();
+        else if (r.op === "scan") out = (c ? c.scan_note_payloads(r.viewKey, r.ownerCommitment, r.leafIndexes, r.commitments, r.payloads) : scanTs(r)).slice();
+        else if (c && typeof c.open_note_payloads === "function")
+          out = c.open_note_payloads(r.viewKey, r.ownerCommitment, r.leafIndexes, r.commitments, r.payloads).slice();
+        else {
+          engine = "typescript"; // a core package older than the opening batch: the reference opens them
+          out = openTs(r);
+        }
         post({ id: r.id, type: "bytes", out, engine }, [out.buffer]);
       } catch (err) {
         post({ id: r.id, type: "error", error: String((err as Error)?.message ?? err) });

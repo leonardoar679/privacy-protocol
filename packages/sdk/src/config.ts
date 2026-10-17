@@ -43,6 +43,15 @@ export interface CoreBackend {
     commitments: Uint8Array,
     payloads: Uint8Array,
   ): Promise<{ out: Uint8Array; engine: CoreEngine }>;
+  /** every payload that opens with the view key (core.ts openNotePayloads; the audit round of 2026-10-16, c18); a platform
+   *  without it: the TypeScript reference on the calling thread */
+  openNotePayloads?(
+    viewKey: Uint8Array,
+    ownerCommitment: Uint8Array,
+    leafIndexes: Uint32Array,
+    commitments: Uint8Array,
+    payloads: Uint8Array,
+  ): Promise<{ out: Uint8Array; engine: CoreEngine }>;
 }
 
 export interface SdkConfig {

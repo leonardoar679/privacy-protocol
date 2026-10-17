@@ -150,5 +150,6 @@ deposited note is made out to, `keccak256(be32(spendKey) ‖ "/owner-key/" ‖ b
 preimage), and its owner commitment `H(OWNER_COMMITMENT, ownerKey)`, for the example seed's note secrets at counters 0,
 1, 7, 255, 1024, 2^32 − 1 and 2^32 and for the secrets 0, 1 and p − 1; counter 1's preimage; a sample spend (body,
 commitment, nullifier, phantom). Frozen: `packages/protocol/test/ownerKeys.test.ts` pins the file's SHA-256, the
-generator refuses to write a different one, and `reference/python/test_vectors.py` reproduces it. No deposit is made
+generator refuses to write a different one, and `reference/python/test_vectors.py` and
+`privacy-core/privacy-core/tests/wallet.rs` (`derive_owner_key`) reproduce it. No deposit is made
 out to such a key yet; the wallet switches its deposits in a later follow-up.

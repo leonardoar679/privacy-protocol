@@ -97,3 +97,19 @@ export function noteFromPayload(view: ViewKeyPair, ownerCommitment: bigint, leaf
   const note: Note = { vaultId: pt.vaultId, amount: pt.amount, ownerCommitment, noteSecret: pt.noteSecret };
   return noteCommitment(noteBody(note), BigInt(leafIndex)) === leaf ? note : null;
 }
+
+/** A payload's opening for this wallet (openPayload): what it holds, and whether it reproduces its leaf with the given owner commitment. */
+export interface OpenedPayload { plain: NotePlaintext; reproduces: boolean }
+
+/**
+ * The opening of a payload encrypted to this view key, whatever owner commitment its note was made out to (the audit round
+ * of 2026-10-16, c18): a deposited note names its own, which only the spend key derives from the opened secret
+ * (keys.ts deriveOwnerKey), so the wallet checks such an opening itself. `reproduces` says whether `ownerCommitment`
+ * opens the leaf, exactly when noteFromPayload finds the note. The Rust core's open_payloads, in TypeScript.
+ */
+export function openPayload(view: ViewKeyPair, ownerCommitment: bigint, leafIndex: number, leaf: bigint, noteData: Uint8Array): OpenedPayload | null {
+  const plain = decryptNoteData(view, noteData);
+  if (!plain) return null;
+  const note: Note = { vaultId: plain.vaultId, amount: plain.amount, ownerCommitment, noteSecret: plain.noteSecret };
+  return { plain, reproduces: noteCommitment(noteBody(note), BigInt(leafIndex)) === leaf };
+}

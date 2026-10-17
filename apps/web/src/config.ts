@@ -104,6 +104,8 @@ const lazyWorkerCore: CoreBackend = {
   merkleLayers: async (leaves, levels) => (await cryptoClient()).workerCore.merkleLayers(leaves, levels),
   scanNotePayloads: async (viewKey, ownerCommitment, leafIndexes, commitments, payloads) =>
     (await cryptoClient()).workerCore.scanNotePayloads(viewKey, ownerCommitment, leafIndexes, commitments, payloads),
+  openNotePayloads: async (viewKey, ownerCommitment, leafIndexes, commitments, payloads) =>
+    (await cryptoClient()).workerCore.openNotePayloads!(viewKey, ownerCommitment, leafIndexes, commitments, payloads),
 };
 
 /** Installs a configuration: the engine's, the transport's allowlist (with the THORNode gateways) and its strictness. */

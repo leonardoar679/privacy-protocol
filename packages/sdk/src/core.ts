@@ -7,7 +7,7 @@
 // sync already talks to the RPC endpoints. The core sees exactly what the TypeScript path sees: the
 // public leaves, the payloads, and the view key for discovery — the spending key never crosses.
 import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
-import { noteFromPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope";
+import { noteFromPayload, openPayload, viewKeyPair, type NotePlaintext } from "@privacy-wallet/protocol/envelope";
 import { ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { NOTE_DATA_BYTES } from "@privacy-wallet/protocol/payload";
 import type { WalletKeys } from "@privacy-wallet/protocol/keys";
@@ -18,6 +18,9 @@ export interface CoreModule {
   merkle_layers(leaves: Uint8Array, levels: number): Uint8Array;
   /** leafIndex(4) ‖ amount(32) ‖ noteSecret(32) ‖ vaultId(32) per payload that opens its leaf for this wallet */
   scan_note_payloads(viewKey: Uint8Array, ownerCommitment: Uint8Array, leafIndexes: Uint32Array, commitments: Uint8Array, payloads: Uint8Array): Uint8Array;
+  /** leafIndex(4) ‖ reproduces(1) ‖ amount(32) ‖ noteSecret(32) ‖ vaultId(32) per payload that opens with the view key (the
+   *  audit round of 2026-10-16, c18); an older package has none, and the TypeScript reference opens them */
+  open_note_payloads?(viewKey: Uint8Array, ownerCommitment: Uint8Array, leafIndexes: Uint32Array, commitments: Uint8Array, payloads: Uint8Array): Uint8Array;
 }
 export type CoreStatus = "untried" | "wasm" | "typescript";
 /** Same origin, fixed: the core is part of the app, never a third-party host. */
@@ -171,4 +174,55 @@ export async function discoverNotes(keys: WalletKeys, items: PayloadItem[], onPr
   }
   onProgress?.(items.length, items.length);
   return found;
+}
+
+/** A payload that opens with this wallet's view key, and whether it reproduces its leaf with the privacy address's owner commitment. */
+export interface OpenedNote { leafIndex: number; plain: NotePlaintext; reproduces: boolean }
+const OPENING_BYTES = 101;
+
+/**
+ * Every payload of `items` that opens with this wallet's view key, each flagged when it reproduces its leaf with the privacy
+ * address's owner commitment (the notes discoverNotes keeps). The audit round of 2026-10-16 (c18): a deposited note is made
+ * out to its own owner commitment, which only the spend key derives from the opened secret, so the caller checks the other
+ * openings on this thread. One core call as discoverNotes, in the crypto worker when the platform has one: the view key goes
+ * there, the spending key never does. A core package without the call, or a platform port without it: the reference.
+ */
+export async function openNotePayloads(keys: WalletKeys, items: PayloadItem[], onProgress?: (done: number, total: number) => void): Promise<OpenedNote[]> {
+  const oc = ownerCommitmentOf(keys.spendKey);
+  const wellFormed = items.filter((it) => it.noteData.length === NOTE_DATA_BYTES);
+  const port = corePort();
+  const core = port ? null : await coreModule();
+  if (port?.openNotePayloads || typeof core?.open_note_payloads === "function") {
+    const idx = new Uint32Array(wellFormed.length);
+    const cms = new Uint8Array(wellFormed.length * 32);
+    const pls = new Uint8Array(wellFormed.length * NOTE_DATA_BYTES);
+    wellFormed.forEach((it, i) => { idx[i] = it.leafIndex; cms.set(be32(it.commitment), i * 32); pls.set(it.noteData, i * NOTE_DATA_BYTES); });
+    let out: Uint8Array;
+    if (port?.openNotePayloads) {
+      const r = await port.openNotePayloads(be32(keys.viewKey), be32(oc), idx, cms, pls);
+      answeredBy(r.engine);
+      out = r.out;
+    } else out = core!.open_note_payloads!(be32(keys.viewKey), be32(oc), idx, cms, pls);
+    if (out.length % OPENING_BYTES !== 0) throw new Error("the core returned openings of an unexpected size");
+    const opened: OpenedNote[] = [];
+    const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    for (let off = 0; off < out.length; off += OPENING_BYTES) {
+      const flag = out[off + 4];
+      if (flag > 1) throw new Error("the core returned an opening with an unexpected flag");
+      const [amount, noteSecret, vaultId] = wordsToBigInts(out.subarray(off + 5, off + OPENING_BYTES));
+      opened.push({ leafIndex: dv.getUint32(off), plain: { amount, noteSecret, vaultId }, reproduces: flag === 1 });
+    }
+    onProgress?.(items.length, items.length);
+    return opened;
+  }
+  const view = viewKeyPair(keys.viewKey);
+  const opened: OpenedNote[] = [];
+  for (let i = 0; i < wellFormed.length; i++) {
+    const it = wellFormed[i];
+    const o = openPayload(view, oc, it.leafIndex, it.commitment, it.noteData);
+    if (o) opened.push({ leafIndex: it.leafIndex, ...o });
+    if ((i + 1) % 500 === 0) { onProgress?.(i + 1, wellFormed.length); await new Promise((r) => setTimeout(r, 0)); }
+  }
+  onProgress?.(items.length, items.length);
+  return opened;
 }

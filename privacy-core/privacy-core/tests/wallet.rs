@@ -3,7 +3,10 @@
 //! here, the phrase gives the same seed, the same addresses come out on every chain.
 use privacy_core::bip39::{entropy_to_mnemonic, mnemonic_to_entropy, mnemonic_to_seed, phrase_to_seed, seed_to_phrase, Bip39Error};
 use privacy_core::chainkeys::{base58_encode, bitcoin_account, dapp_account, dapp_account_index, ed25519_public, evm_account, parse_hardened_path, slip10_ed25519, solana_account, ChainKeyError};
+use privacy_core::field::{fr_from_dec, fr_to_be32, fr_to_dec};
+use privacy_core::keys::{derive_keys, derive_note_secret, derive_owner_key, OWNER_KEY_LABEL};
 use privacy_core::keystore::{create_keystore, decrypt_journal, encrypt_journal, journal_key, unlock_keystore, EncryptedJournal, KdfParams, Keystore, KeystoreError};
+use privacy_core::note::{note_body, note_commitment, nullifier, owner_commitment_of, phantom_nullifier, Note};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -45,6 +48,45 @@ fn keystore_opens_the_web_wallets_backup_and_reproduces_it() {
     assert_eq!(seed_to_phrase(&seed), k["phrase"].as_str().unwrap());
     assert_eq!(phrase_to_seed(k["phrase"].as_str().unwrap()).unwrap(), seed);
     assert_eq!(phrase_to_seed(&k["phrase"].as_str().unwrap().to_uppercase()).unwrap(), seed);
+}
+
+#[test]
+fn owner_keys_match_the_web_wallets_vectors() {
+    // the owner key a deposited note is made out to (the audit round of 2026-10-16, c18), byte for byte as the web wallet
+    // derives it: a second implementation of the frozen derivation, run by verify-all --rust
+    let v = json("packages/protocol/test/vectors/owner-keys.json");
+    let dec = |x: &Value| x.as_str().unwrap().to_string();
+    let keys = derive_keys(v["seed"].as_str().unwrap().as_bytes());
+    assert_eq!(OWNER_KEY_LABEL, v["label"].as_str().unwrap());
+    assert_eq!(fr_to_dec(&keys.spend_key), dec(&v["spendKey"]));
+    assert_eq!(fr_to_dec(&keys.note_key), dec(&v["noteKey"]));
+    assert_eq!(fr_to_dec(&owner_commitment_of(&keys.spend_key)), dec(&v["mainOwnerCommitment"]));
+    for k in v["byCounter"].as_array().unwrap() {
+        let secret = derive_note_secret(&keys.note_key, k["counter"].as_u64().unwrap());
+        assert_eq!(fr_to_dec(&secret), dec(&k["noteSecret"]), "counter {}", k["counter"]);
+        let key = derive_owner_key(&keys.spend_key, &secret);
+        assert_eq!(fr_to_dec(&key), dec(&k["ownerKey"]), "counter {}", k["counter"]);
+        assert_eq!(fr_to_dec(&owner_commitment_of(&key)), dec(&k["ownerCommitment"]), "counter {}", k["counter"]);
+    }
+    for k in v["edgeSecrets"].as_array().unwrap() {
+        let key = derive_owner_key(&keys.spend_key, &fr_from_dec(k["noteSecret"].as_str().unwrap()));
+        assert_eq!(fr_to_dec(&key), dec(&k["ownerKey"]), "secret {}", k["noteSecret"]);
+        assert_eq!(fr_to_dec(&owner_commitment_of(&key)), dec(&k["ownerCommitment"]), "secret {}", k["noteSecret"]);
+    }
+    let s = &v["sampleSpend"];
+    let secret = derive_note_secret(&keys.note_key, s["counter"].as_u64().unwrap());
+    let mut pre = Vec::new();
+    pre.extend_from_slice(&fr_to_be32(&keys.spend_key));
+    pre.extend_from_slice(b"/owner-key/");
+    pre.extend_from_slice(&fr_to_be32(&secret));
+    assert_eq!(format!("0x{}", hex::encode(&pre)), v["preimageCounter1"].as_str().unwrap());
+    let key = derive_owner_key(&keys.spend_key, &secret);
+    let note = Note { vault_id: fr_from_dec(s["vaultId"].as_str().unwrap()), amount: fr_from_dec(s["amount"].as_str().unwrap()), owner_commitment: owner_commitment_of(&key), note_secret: secret };
+    assert_eq!(fr_to_dec(&note_body(&note)), dec(&s["body"]));
+    let cm = note_commitment(&note_body(&note), s["leafIndex"].as_u64().unwrap());
+    assert_eq!(fr_to_dec(&cm), dec(&s["commitment"]));
+    assert_eq!(fr_to_dec(&nullifier(&cm, &key)), dec(&s["nullifier"]));
+    assert_eq!(fr_to_dec(&phantom_nullifier(&nullifier(&cm, &key), 1, &key)), dec(&s["phantom"]));
 }
 
 #[test]

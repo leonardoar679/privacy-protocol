@@ -13,11 +13,11 @@ import { utf8ToBytes } from "@noble/hashes/utils";
 import { MerkleLayers, MerkleTree, ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 import { hash2 } from "@privacy-wallet/protocol/poseidon";
 import { TX_LEVELS, buildTxInputs } from "@privacy-wallet/protocol/txInputs";
-import { deriveKeys, deriveNoteSecret } from "@privacy-wallet/protocol/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/protocol/envelope";
 import { txDomain } from "@privacy-wallet/protocol/payload";
-import { coreStatus, discoverNotes, treeLayers, useCoreModule, wordsToBigInts, bigIntsToWords, be32 } from "@privacy-wallet/sdk/core";
+import { coreStatus, discoverNotes, openNotePayloads, treeLayers, useCoreModule, wordsToBigInts, bigIntsToWords, be32 } from "@privacy-wallet/sdk/core";
 import { syncTreeQuorum } from "@privacy-wallet/sdk/chain";
 import { planWithdrawal, placeholderNoteData, scanNotes } from "@privacy-wallet/sdk/privateTx";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -97,6 +97,24 @@ async function syncPlanScan(label: string) {
   return { state, inputs, label };
 }
 
+// the audit round of 2026-10-16 (c18): every payload that opens for the view key — ours at leaf 1, a deposited note of ours at
+// leaf 3 (made out to its own owner commitment), one that lies at leaf 4 — and the others skipped
+const secret9 = deriveNoteSecret(keys.noteKey, 9);
+const deposited: Note = { vaultId: BigInt(VAULT), amount: 7n, ownerCommitment: ownerCommitmentOf(deriveOwnerKey(keys.spendKey, secret9)), noteSecret: secret9 };
+const openItems = () => [
+  { leafIndex: 0, commitment: 1n, noteData: dummyNoteData() },
+  { leafIndex: 1, commitment: noteCommitment(noteBody(ours), 1n), noteData: encryptNoteData(view.publicKey, plain(ours)) },
+  { leafIndex: 2, commitment: 2n, noteData: encryptNoteData(viewKeyPair(deriveKeys(utf8ToBytes("someone else")).viewKey).publicKey, plain(ours)) },
+  { leafIndex: 3, commitment: noteCommitment(noteBody(deposited), 3n), noteData: encryptNoteData(view.publicKey, plain(deposited)) },
+  { leafIndex: 4, commitment: 4n, noteData: encryptNoteData(view.publicKey, plain(ours2)) },
+  { leafIndex: 5, commitment: 5n, noteData: new Uint8Array(10) }, // malformed: skipped
+];
+const expectedOpenings = [
+  { leafIndex: 1, plain: plain(ours), reproduces: true },
+  { leafIndex: 3, plain: plain(deposited), reproduces: false },
+  { leafIndex: 4, plain: plain(ours2), reproduces: false },
+];
+
 describe("the TypeScript path (no package)", () => {
   beforeEach(() => useCoreModule(null));
   it("syncs, discovers and plans through the reference, reporting progress", async () => {
@@ -111,6 +129,11 @@ describe("the TypeScript path (no package)", () => {
     expect(found).toEqual([{ leafIndex: 1100, note: { ...ours, noteSecret: 5n } }]);
     expect(progress.slice(0, 2)).toEqual([[500, 1200], [1000, 1200]]);
     expect(progress.at(-1)).toEqual([1201, 1201]);
+  });
+  it("opens every payload for the view key, each flagged by whether the privacy address's owner commitment reproduces it (audit c18)", async () => {
+    const progress: [number, number][] = [];
+    expect(await openNotePayloads(keys, openItems(), (d, t) => progress.push([d, t]))).toEqual(expectedOpenings);
+    expect(progress.at(-1)).toEqual([6, 6]);
   });
   it("round-trips field elements through the core's byte format", () => {
     const xs = [0n, 1n, 2n ** 255n - 19n, 21888242871839275222246405745257275088548364400416034343698204186575808495616n];
@@ -149,6 +172,21 @@ describe.skipIf(!wasm)("the WASM path (privacy-core/pkg built: node privacy-core
     for (const i of [0, 1, 1023, 2047]) expect(viaCore.proof(i)).toEqual(viaTs.proof(i));
     console.log(`treeLayers × 2048 leaves (incl. byte conversion): core ${coreMs.toFixed(0)} ms, TypeScript ${tsMs.toFixed(0)} ms (×${(tsMs / coreMs).toFixed(1)})`);
     expect(coreMs).toBeLessThan(tsMs);
+  });
+
+  it("opens a payload set through the Rust core exactly like the reference (audit c18)", async () => {
+    expect(await openNotePayloads(keys, openItems())).toEqual(expectedOpenings);
+  });
+
+  it("a core package older than the opening batch: the reference opens them", async () => {
+    useCoreModule({ merkle_layers: wasm.merkle_layers, scan_note_payloads: wasm.scan_note_payloads });
+    expect(await openNotePayloads(keys, openItems())).toEqual(expectedOpenings);
+    useCoreModule({ merkle_layers: () => new Uint8Array(0), scan_note_payloads: () => new Uint8Array(0), open_note_payloads: () => new Uint8Array(100) });
+    await expect(openNotePayloads(keys, openItems())).rejects.toThrow(/unexpected size/);
+    const bad = new Uint8Array(101);
+    bad[4] = 2;
+    useCoreModule({ merkle_layers: () => new Uint8Array(0), scan_note_payloads: () => new Uint8Array(0), open_note_payloads: () => bad });
+    await expect(openNotePayloads(keys, openItems())).rejects.toThrow(/unexpected flag/);
   });
 
   it("refuses an empty, malformed or partial core module and falls back", async () => {

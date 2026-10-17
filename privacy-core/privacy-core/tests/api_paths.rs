@@ -33,6 +33,8 @@ fn notes_commitments_nullifiers_paths() {
     same(privacy_core::note::encode_note, privacy_core::notes::encode_note);
     same(privacy_core::note::decode_note, privacy_core::notes::note::decode_note);
     same(privacy_core::note::scan_payloads::<std::iter::Empty<(u32, Fr, &[u8])>>, privacy_core::notes::scan_payloads::<std::iter::Empty<(u32, Fr, &[u8])>>);
+    same(privacy_core::note::open_payloads::<std::iter::Empty<(u32, Fr, &[u8])>>, privacy_core::notes::open_payloads::<std::iter::Empty<(u32, Fr, &[u8])>>);
+    same_type(PhantomData::<privacy_core::note::Opened>, PhantomData::<privacy_core::notes::Opened>);
     same_type(PhantomData::<privacy_core::note::Note>, PhantomData::<privacy_core::notes::Note>);
     assert_eq!(privacy_core::note::NOTE_RECORD_BYTES, privacy_core::notes::NOTE_RECORD_BYTES);
 
@@ -64,6 +66,7 @@ fn merkle_encoding_proof_paths() {
 fn wallet_paths() {
     same(privacy_core::keys::derive_keys, privacy_core::wallet::keys::derive_keys);
     same(privacy_core::keys::derive_note_secret, privacy_core::wallet::keys::derive_note_secret);
+    same(privacy_core::keys::derive_owner_key, privacy_core::wallet::keys::derive_owner_key);
     same(privacy_core::keystore::create_keystore, privacy_core::wallet::keystore::create_keystore);
     same(privacy_core::keystore::unlock_keystore, privacy_core::wallet::keystore::unlock_keystore);
     same(privacy_core::bip39::seed_to_phrase, privacy_core::wallet::bip39::seed_to_phrase);

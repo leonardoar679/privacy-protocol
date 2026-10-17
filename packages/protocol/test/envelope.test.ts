@@ -7,9 +7,9 @@ import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
-import { decryptNoteData, dummyNoteData, encryptNoteData, ENVELOPE_VERSION, noteFromPayload, viewKeyPair } from "../src/envelope";
+import { decryptNoteData, dummyNoteData, encryptNoteData, ENVELOPE_VERSION, noteFromPayload, openPayload, viewKeyPair } from "../src/envelope";
 import { bech32mDecode, bech32mEncode, decodePrivacyAddress, encodePrivacyAddress } from "../src/address";
-import { deriveKeys, deriveNoteSecret } from "../src/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "../src/note";
 import { NOTE_DATA_BYTES, noteDataHash } from "../src/payload";
 
@@ -74,6 +74,24 @@ describe("envelope", () => {
     expect(noteFromPayload(bobView, oc, 5, leaf, nd)).toBeNull(); // cannot open it
     const lying = encryptNoteData(aliceView.publicKey, { ...plain, amount: plain.amount + 1n }); // decrypts, but does not open the leaf
     expect(noteFromPayload(aliceView, oc, 5, leaf, lying)).toBeNull();
+  });
+  it("openPayload opens every payload encrypted to us, flagged by whether the privacy address's owner commitment reproduces the leaf (audit c18)", () => {
+    const oc = ownerCommitmentOf(alice.spendKey);
+    const main: Note = { vaultId: VAULT, amount: plain.amount, ownerCommitment: oc, noteSecret: plain.noteSecret };
+    const nd = encryptNoteData(aliceView.publicKey, plain);
+    expect(openPayload(aliceView, oc, 5, noteCommitment(noteBody(main), 5n), nd)).toEqual({ plain, reproduces: true });
+    // a deposited note, made out to its own owner commitment: it opens, does not reproduce with the main one, and does with its own
+    const own = ownerCommitmentOf(deriveOwnerKey(alice.spendKey, plain.noteSecret));
+    const deposited: Note = { ...main, ownerCommitment: own };
+    const leaf = noteCommitment(noteBody(deposited), 6n);
+    const o = openPayload(aliceView, oc, 6, leaf, nd);
+    expect(o).toEqual({ plain, reproduces: false });
+    expect(noteFromPayload(aliceView, oc, 6, leaf, nd)).toBeNull();
+    expect(noteFromPayload(aliceView, own, 6, leaf, nd)).toEqual(deposited);
+    // not ours: another view key, a dummy, a payload of the wrong size
+    expect(openPayload(bobView, oc, 5, noteCommitment(noteBody(main), 5n), nd)).toBeNull();
+    expect(openPayload(aliceView, oc, 5, 1n, dummyNoteData())).toBeNull();
+    expect(openPayload(aliceView, oc, 5, 1n, nd.subarray(1))).toBeNull();
   });
   it("reproduces the pinned deterministic vectors", () => {
     const p = join(dirname(fileURLToPath(import.meta.url)), "vectors", "envelope.json");

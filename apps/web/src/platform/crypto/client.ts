@@ -94,6 +94,16 @@ export const workerCore: CoreBackend = {
     ]);
     return bytesOf(r);
   },
+  async openNotePayloads(viewKey, ownerCommitment, leafIndexes, commitments, payloads) {
+    const r = await call({ op: "open", viewKey, ownerCommitment, leafIndexes, commitments, payloads, coreBase: CORE_PATH }, [
+      viewKey.buffer,
+      ownerCommitment.buffer,
+      leafIndexes.buffer,
+      commitments.buffer,
+      payloads.buffer,
+    ]);
+    return bytesOf(r);
+  },
 };
 
 /** The plan as it crosses: the MerkleLayers instance as its arrays. */

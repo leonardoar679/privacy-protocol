@@ -11,10 +11,10 @@ import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { mnemonicToSeedSync, entropyToMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { hash } from "../src/poseidon2";
-import { deriveKeys, deriveNoteSecret } from "../src/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "../src/note";
 import { nullifier, phantomNullifier } from "../src/nullifier";
-import { decryptNoteData, dummyNoteData, encryptNoteData, noteFromPayload, viewKeyPair } from "../src/envelope";
+import { decryptNoteData, dummyNoteData, encryptNoteData, noteFromPayload, openPayload, viewKeyPair } from "../src/envelope";
 import { noteDataHash, txDomain } from "../src/payload";
 import { MerkleLayers, MerkleTree, ZERO_LEAF } from "../src/merkle";
 import { encodePrivacyAddress, decodePrivacyAddress } from "../src/address";
@@ -155,6 +155,38 @@ describe.skipIf(!wasm)("WASM core == TypeScript reference (build: node privacy-c
     expect(hits.map((h) => h.leafIndex)).toEqual([4, 8]);
     expect(wasm.scan_note_payloads(be32(keys.viewKey), be32(oc), new Uint32Array(0), new Uint8Array(0), new Uint8Array(0)).length).toBe(0);
     expect(() => wasm.scan_note_payloads(be32(keys.viewKey), be32(oc), idx, new Uint8Array(32), new Uint8Array(169))).toThrow(/same count/);
+  });
+
+  it("opens a payload set in one call exactly like openPayload, a deposited note included (audit c18)", () => {
+    const view = viewKeyPair(keys.viewKey);
+    const other = deriveKeys(utf8ToBytes("someone else"));
+    const oc = ownerCommitmentOf(keys.spendKey);
+    const mine: Note = { vaultId: 171n, amount: 5n * 10n ** 17n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 3) };
+    const secret = deriveNoteSecret(keys.noteKey, 4);
+    const deposited: Note = { vaultId: 171n, amount: 7n, ownerCommitment: ownerCommitmentOf(deriveOwnerKey(keys.spendKey, secret)), noteSecret: secret };
+    const plain = (n: Note) => ({ amount: n.amount, noteSecret: n.noteSecret, vaultId: n.vaultId });
+    // leaf 4 ours (the privacy address's); 5 someone else's; 6 opens for us but the leaf holds another commitment; 7 a dummy; 8 deposited
+    const items = [
+      { leafIndex: 4, commitment: noteCommitment(noteBody(mine), 4n), noteData: encryptNoteData(view.publicKey, plain(mine)) },
+      { leafIndex: 5, commitment: noteCommitment(noteBody({ ...mine, ownerCommitment: ownerCommitmentOf(other.spendKey) }), 5n), noteData: encryptNoteData(viewKeyPair(other.viewKey).publicKey, plain(mine)) },
+      { leafIndex: 6, commitment: 123456n, noteData: encryptNoteData(view.publicKey, plain(mine)) },
+      { leafIndex: 7, commitment: 7n, noteData: dummyNoteData() },
+      { leafIndex: 8, commitment: noteCommitment(noteBody(deposited), 8n), noteData: encryptNoteData(view.publicKey, plain(deposited)) },
+    ];
+    const idx = new Uint32Array(items.map((i) => i.leafIndex));
+    const out: Uint8Array = wasm.open_note_payloads(be32(keys.viewKey), be32(oc), idx, concat(...items.map((i) => be32(i.commitment))), concat(...items.map((i) => i.noteData)));
+    expect(out.length % 101).toBe(0);
+    const opened = [];
+    for (let off = 0; off < out.length; off += 101) {
+      const leafIndex = new DataView(out.buffer, out.byteOffset + off, 4).getUint32(0);
+      opened.push({ leafIndex, plain: { amount: fromBe(out.subarray(off + 5, off + 37)), noteSecret: fromBe(out.subarray(off + 37, off + 69)), vaultId: fromBe(out.subarray(off + 69, off + 101)) }, reproduces: out[off + 4] === 1 });
+    }
+    const expected = items.flatMap((i) => { const o = openPayload(view, oc, i.leafIndex, i.commitment, i.noteData); return o ? [{ leafIndex: i.leafIndex, ...o }] : []; });
+    expect(opened).toEqual(expected);
+    expect(opened.map((o) => [o.leafIndex, o.reproduces])).toEqual([[4, true], [6, false], [8, false]]);
+    expect(opened[2].plain).toEqual(plain(deposited));
+    expect(wasm.open_note_payloads(be32(keys.viewKey), be32(oc), new Uint32Array(0), new Uint8Array(0), new Uint8Array(0)).length).toBe(0);
+    expect(() => wasm.open_note_payloads(be32(keys.viewKey), be32(oc), idx, new Uint8Array(32), new Uint8Array(169))).toThrow(/same count/);
   });
 
   it("recovery phrase, BIP-39 seed and chain keys", () => {
