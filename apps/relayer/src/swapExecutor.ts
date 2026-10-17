@@ -351,13 +351,21 @@ export class SwapExecutor {
   }
 
   /**
-   * deployAndRefund for the order's asset. The first refund of an order that never executed pays the committed tip; after
-   * execution nothing does, so it needs the budget and must move at least 1% of the order (ETH: also twice its gas).
+   * deployAndRefund for the order's asset. The first refund of an order that never executed pays the committed tip — when the
+   * escrow holds it: below it the escrow pays none (_payTip), so such a refund waits until it does (a V6 follow-up of
+   * 2026-10-16: one wei at a vouched escrow had cost the relayer a 3.45M-gas refund for nothing; anyone can still call
+   * deployAndRefund). After execution nothing pays, so it needs the budget and must move at least 1% of the order (ETH: also
+   * twice its gas).
    */
   private async refundOwn(job: SwapJob, refundable: bigint): Promise<boolean> {
     const p = job.params;
     const data = encodeDeployAndRefund(p, job.refundNoteData);
-    if (!job.executed) { await this.send(job, data, "refunding", "refund-failed"); return true; }
+    if (!job.executed) {
+      const tip = BigInt(p.executorTip);
+      if (tip > 0n && refundable >= tip) { await this.send(job, data, "refunding", "refund-failed"); return true; }
+      this.note(job, `waiting: the escrow holds ${refundable}, less than the order's ${p.executorTip} tip, which a refund now would not be paid`);
+      return false;
+    }
     let gas: bigint;
     try {
       gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data });

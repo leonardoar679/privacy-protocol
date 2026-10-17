@@ -399,6 +399,29 @@ describe("only what the swap service vouched for (a V6 follow-up of 2026-10-16, 
   });
 });
 
+describe("a never-executed order is refunded only when its escrow pays the tip (a V6 follow-up of 2026-10-16)", () => {
+  it("an escrow holding less than its tip is left alone (the escrow would pay no tip); holding the tip, it is refunded", async () => {
+    // _payTip pays nothing below the tip: one wei at a vouched escrow had cost the relayer a 3.45M-gas deployAndRefund for nothing
+    const dust: SwapJobRequest = { ...request, params: { ...request.params, orderId: ("0x" + "0d".repeat(32)) as Hex } };
+    const escrow = predictEscrow(dust.factory, creationCode, { ...dust.params, assetType: 0, amount: BigInt(dust.params.amount), refundOwnerCommitment: BigInt(dust.params.refundOwnerCommitment), refundNoteSecret: BigInt(dust.params.refundNoteSecret), executorTip: BigInt(dust.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, dust.params.orderId, dust.execution.provider, BigInt(dust.execution.value), dust.execution.providerCalldata, dust.execution.deadline);
+    dust.execution = { ...dust.execution, signature: signExecution(ORDER_KEY, digest) };
+    clock = 1000; escrowBalance = 0n; receiptStatus = null;
+    const job = executor.add(vouched(dust, CHAIN_ID, creationCode));
+    clock = 8000; // past refundAfter (7201), never executed
+    escrowBalance = BigInt(dust.params.executorTip) - 1n;
+    await executor.tick();
+    expect(job.state, "no refund for less than the tip").not.toBe("refunding");
+    expect(job.txHash).toBeUndefined();
+    expect(job.error).toMatch(/less than the order's .* tip/);
+    escrowBalance = BigInt(dust.params.executorTip);
+    await executor.tick();
+    expect(job.state).toBe("refunding");
+    const sent = parseTransaction(raws.find((r) => keccak256(r) === job.txHash)!);
+    expect(decodeFunctionData({ abi: factoryAbi, data: sent.data! }).functionName).toBe("deployAndRefund");
+  });
+});
+
 describe("a rotation of the swap service's key (a V6 follow-up of 2026-10-16)", () => {
   it("a vouch by the former key counts while both are listed, and no longer once only the new one is", () => {
     const former = new Uint8Array(32).fill(0x5d);

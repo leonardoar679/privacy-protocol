@@ -179,7 +179,7 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     1.8 × the tip at the same gas price (forge: 3.28M against 1.81M units), and an ERC-20 order's tip, valued by the service
     when it was committed (since 2026-10-16 at the pool's own symbol and decimals for the token, `ERC20_VAULTS`: a caller's own had
     made the gas a dust tip on a vouched order), is not re-valued by the executor; the executor waits while an ETH order's execution would cost
-    more than its tip. Small orders are refused when the gas exceeds the escrow's 1 % cap (`amount_too_small`).
+    more than its tip, and refunds a never-executed order only from a balance that pays its tip (the escrow pays none below it). Small orders are refused when the gas exceeds the escrow's 1 % cap (`amount_too_small`).
 33. **V6 — the gas pins are a toolchain's measurement** (`contracts/test/periphery/vectors/gas.json`, forge's production
     configuration): another compiler, EVM version or provider call moves them; the wallet uses them only as a fallback beside
     `eth_estimateGas`, and the tip's ×1.2 margin and the executor's below-cost wait absorb a provider call above its allowance.
