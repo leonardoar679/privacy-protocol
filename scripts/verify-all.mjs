@@ -162,8 +162,11 @@ const logDir = join(tmpdir(), "privacy-protocol-verify");
 // 0xC0000409 and nothing on stderr. A Winsock layered service provider (a VPN client's) is the likely cause: the API service
 // died the same way after four days, and the browser run's harness once. A vitest worker that serves and fetches over HTTP
 // does it in about one run in twenty of apps/api (2026-10-14; reproduced with a plain node:http server and fetch, none of
-// this repository's code). Such a step runs once more and its line says so. A step with a failing test is never run again.
-const workerDied = (out) => /Worker exited unexpectedly/.test(out) && !/^\s*FAIL\s+\S+ >/m.test(out);
+// this repository's code). So can vitest's own process: it then prints no summary at all (2026-10-16, tests/high-value:
+// fifteen of its sixteen files reported, then nothing; alone, 62/62). Such a step runs once more and its line says so. A
+// step with a failing test is never run again.
+const workerDied = (out) =>
+  !/^\s*FAIL\s+\S+ >/m.test(out) && (/Worker exited unexpectedly/.test(out) || (/^\s*RUN\s+v\d/m.test(out) && !/^\s*Test Files\s/m.test(out)));
 const results = [];
 for (const [i, s] of steps.entries()) {
   const cwd = join(root, s.cwd);
@@ -179,7 +182,7 @@ for (const [i, s] of steps.entries()) {
     r = run();
     out = plain(r);
   }
-  const rerunNote = rerun ? "  [ran twice: the first run's test worker exited natively with no failing test]" : "";
+  const rerunNote = rerun ? "  [ran twice: the first run's tests ended natively with no failing test]" : "";
   const cargoRuns = [...out.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
   // vitest's count line is anchored: its stderr (appended last) opens the failure list with "Failed Tests N"
   const summary = cargoRuns.length > 1
