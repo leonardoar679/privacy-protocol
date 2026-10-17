@@ -771,9 +771,11 @@ committed `fallbackRecipient`. Provider refunds still go to the order's escrow. 
 deposits directly.
 
 The receiver's `minAmount` is a hundred tips (`shieldMinAmount`): the tip may be at most 1 % of it, so claiming the tip
-with a donation costs the donor ninety-nine times what it pays — and any delivery of a route that can be shielded at all
-pays it, a lower minimum the user accepted later included (the engine filters a route whose minimum output is below a
-hundred tips). The shield tip `S` is the receiver's deployment, tip transfer and deposit at today's gas (forge's
+with a donation costs the donor ninety-nine times what it pays (the engine filters a route whose minimum output is below
+a hundred tips). A delivery below it pays no tip: a lower minimum the user accepted later, a partly filled streamed swap.
+The relayer shields such a delivery at its own cost once the swap is over, if it moves at least its floor (ETH: twice
+the shield's gas; a token: twice the tip). A token's floor was the whole minimum (the audit round of 2026-10-16, c10), so
+such a token delivery stayed at the receiver. The shield tip `S` is the receiver's deployment, tip transfer and deposit at today's gas (forge's
 measured `shieldETH` / `shieldERC20` units × the fee history × 1.2), in the output asset (a token's at the agreed
 Chainlink prices, `tip_unpriced` otherwise); the wallet refuses one above three times its own estimate. The note's
 secret is the one of a fresh note counter and its payload the seed's `/shield-payload/` family, so a wallet restored from

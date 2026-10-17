@@ -98,8 +98,12 @@ without `API_VOUCHER` the relayer shields nothing). The executor watches the
 receiver: once the delivery is there, it calls `deployAndShield` (or `shield()` on a deployed receiver), which pays its tip
 once — only for a delivery of at least `minAmount` — and deposits the rest as the committed note:
 `waiting-delivery → shielding → shielded`, or `shield-failed`. A delivery below its minimum, or one after somebody else
-claimed the tip, is shielded at the relayer's cost, at most `MAX_UNPAID_SHIELDS` (3) times per receipt. A receipt is
-watched `LATE_DELIVERY_WATCH_SECONDS` (24 h) past its delivery deadline. `GET /shield/:receiptId` reports the job (the
+claimed the tip, is shielded at the relayer's cost, at most `MAX_UNPAID_SHIELDS` (3) times per receipt, once the swap
+is over and only when it moves at least its floor (ETH: twice the shield's gas; a token: twice the receipt's tip, the
+audit round of 2026-10-16, c10). A receipt is watched `LATE_DELIVERY_WATCH_SECONDS` (24 h) past its delivery deadline; a
+job whose delivery is still below its floor then ends (`expired`). A shield that would revert (a paused token, a race)
+is estimated again every 10 minutes and fails only when the watch ends; a mined one that reverted sends the job back to
+read the receiver again, at most twice (the audit round of 2026-10-16, c13). `GET /shield/:receiptId` reports the job (the
 wallet's runner reads it every track tick). Journal: `shield-jobs.json`; one pass at a time, as the swap executor.
 `test/shieldExecutor.test.ts` drives it against forge's vector.
 

@@ -7,14 +7,20 @@
 // own factory, parameters a receiver's constructor accepts, the payload's hash, a canonical vault for the asset), then
 // watches the receiver:
 //   waiting-delivery ──(balance ≥ minAmount: the tip-paying shield)──▶ shielding ──▶ shielded ──(a later delivery)──▶ shielding …
-//        │ nothing delivered by the end of the watch ▶ expired                               a shield that reverts ▶ shield-failed
+//        │ nothing delivered by the end of the watch ▶ expired                   a shield that still reverts at the end ▶ shield-failed
 //        └──(a smaller delivery once the swap is over, `deliverBy`: a shield no tip pays for)──▶ shielding
 // It never shields an ETH receipt below cost while the swap can still deliver (it waits, as the swap executor does; the tip
 // is the shield's gas at quote time with a margin). Shields no tip pays for — a delivery after the paid one, one smaller
 // than the minimum, one after somebody else claimed the tip — are bounded: at most `maxUnpaidShields` per receipt, each
-// moving at least its floor (ETH: twice its gas; a token: the receipt's minimum, a hundred tips). The rest stays at the
-// receiver, where anyone can shield it (shield() is permissionless). Foreign tokens (shieldToken, sweepUnsupported) are
-// not watched here: anyone may call them.
+// moving at least its floor (ETH: twice its gas; a token: twice the receipt's tip, the shield's gas at quote time in the
+// token). A token's floor was the receipt's whole minimum (the audit round of 2026-10-16, c10), so a smaller token delivery
+// — after a lower minimum the user accepted, or a partly filled streamed swap — never reached the pool. A delivery still
+// below its floor when the watch ends ends the job (`expired`, the balance noted); it stays at the receiver (shield() is
+// permissionless, but until a first shield publishes it only the wallet and this relayer know the payload). Foreign tokens
+// (shieldToken, sweepUnsupported) are not watched here: anyone may call them. A shield that would revert (a paused token,
+// a race) is estimated again every ESTIMATE_RETRY_SECONDS until the watch ends, and a mined one that reverted goes back to
+// the state it was sent from, at most MAX_REVERTED_SHIELDS times (the audit round of 2026-10-16, c13: one revert ended the
+// job for good, and the wallet, finding the job, never registered it again, so a delivery it had seen stayed at the receiver).
 import { ABI, BYTECODE, predictReceiver, receiverParamsOf, receiverParamsProblem, type ReceiverParamsJson } from "@privacy-wallet/contracts";
 import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
@@ -28,6 +34,10 @@ export const LATE_DELIVERY_WATCH_SECONDS = 24 * 3600;
 export const MAX_UNPAID_SHIELDS = 3;
 /** The furthest `deliverBy` a job may name (the swap's refundAfter is hours away, never weeks). */
 const MAX_DELIVER_BY_SECONDS = 30 * 86400;
+/** A shield that would revert is estimated again after this long (until the watch ends). */
+export const ESTIMATE_RETRY_SECONDS = 600;
+/** At most this many mined shields of a receipt that reverted send it back to its state; the next one fails the job. */
+export const MAX_REVERTED_SHIELDS = 2;
 const UNPAID_GAS_MULTIPLE = 2n;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const erc20Abi = parseAbi(["function balanceOf(address owner) view returns (uint256)"]);
@@ -37,6 +47,12 @@ const configAbi = parseAbi([
   "function vaultOf(address asset) view returns (address)",
 ]);
 const receiverAbi = parseAbi(["function tipPaid() view returns (bool)"]);
+/** A token shield no tip pays for moves at least twice the receipt's tip: the shield's gas at quote time, in the token (a
+ *  receipt without a tip: twice the largest it could have, 1 % of its minimum). */
+const tokenFloor = (p: ReceiverParamsJson): bigint => {
+  const tip = BigInt(p.shieldTip);
+  return UNPAID_GAS_MULTIPLE * (tip > 0n ? tip : BigInt(p.minAmount) / 100n);
+};
 
 /** `deliverBy`: unix seconds by which the swap has delivered or refunded (the order's refundAfter). */
 export interface ShieldJobRequest {
@@ -78,6 +94,10 @@ export interface ShieldJob {
   actualNetworkWei?: string;
   /** the shield in flight: one the node drops sends the job back to `from` (a V6 follow-up of 2026-10-15) */
   sent?: SentTx<ShieldJobState>;
+  /** when the last estimate reverted (unix s): estimated again ESTIMATE_RETRY_SECONDS later (audit c13) */
+  revertedAt?: number;
+  /** mined shields that reverted and sent the job back (audit c13) */
+  revertedShields?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -118,6 +138,7 @@ export interface ShieldExecutorConfig {
   journal?: Journal<ShieldJob>;
   lateDeliveryWatchSeconds?: number;
   maxUnpaidShields?: number;
+  maxRevertedShields?: number;
 }
 
 export class ShieldExecutor {
@@ -290,8 +311,17 @@ export class ShieldExecutor {
     job.gasUsed = receipt.gasUsed.toString();
     job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
     if (receipt.status !== "success") {
-      job.state = "shield-failed";
-      job.error = `the shield transaction ${receipt.transactionHash} reverted`;
+      const reverted = (job.revertedShields ?? 0) + 1;
+      job.revertedShields = reverted;
+      if (job.sent?.unpaid) job.unpaidShields = Math.max(0, (job.unpaidShields ?? 1) - 1); // it shielded nothing
+      if (reverted > (this.cfg.maxRevertedShields ?? MAX_REVERTED_SHIELDS)) {
+        job.state = "shield-failed";
+        job.error = `the shield transaction ${receipt.transactionHash} reverted (${reverted} times)`;
+      } else {
+        // somebody else may have shielded first, or the asset paused: the receiver is read again at the next tick
+        job.state = job.sent?.from ?? (job.shields?.length ? "shielded" : "waiting-delivery");
+        job.error = `the shield transaction ${receipt.transactionHash} reverted; the receiver is read again`;
+      }
     } else {
       const ev = parseEventLogs({ abi: ABI.shieldReceiver, logs: receipt.logs, eventName: "Shielded" }).find(
         (l) => l.address.toLowerCase() === job.receiver.toLowerCase(),
@@ -362,6 +392,7 @@ export class ShieldExecutor {
         continue;
       }
       const min = BigInt(job.params.minAmount);
+      const native = job.params.asset.toLowerCase() === ZERO_ADDRESS;
       const paidPath = !job.paid && balance >= min && !(await this.tipPaidOnChain(job));
       if (!paidPath) {
         // no tip pays for this shield: a smaller delivery waits until the swap is over, then a bounded, floored shield
@@ -373,21 +404,36 @@ export class ShieldExecutor {
           );
           continue;
         }
+        // a token delivery below its floor is not worth a shield's gas: never estimated, and past the watch the job ends
+        if (!native && balance < tokenFloor(job.params)) {
+          this.belowFloor(job, balance, now >= watchEnd);
+          continue;
+        }
       }
+      if (job.revertedAt !== undefined && now - job.revertedAt < ESTIMATE_RETRY_SECONDS && now < watchEnd) continue;
       const data = encodeDeployAndShield(job.params, job.noteData);
       let gas: bigint;
       try {
         gas = await this.cfg.publicClient.estimateGas({ account: this.cfg.account.address, to: job.factory, data });
       } catch (e) {
-        if (/revert/i.test(String((e as Error)?.message ?? e))) {
-          job.state = "shield-failed";
+        if (!/revert/i.test(String((e as Error)?.message ?? e))) {
+          this.note(job, `could not estimate the shield: ${firstLine(e, 160)}; retried next tick`);
+        } else if (now >= watchEnd) {
+          job.state = "shield-failed"; // still reverting when the watch is over
           job.error = `would revert: ${firstLine(e, 200)}`;
+          job.revertedAt = now;
           job.updatedAt = Date.now();
           this.persist();
-        } else this.note(job, `could not estimate the shield: ${firstLine(e, 160)}; retried next tick`);
+        } else {
+          job.revertedAt = now; // a paused token, a race: estimated again later, never sent while it would revert
+          this.note(job, `would revert: ${firstLine(e, 160)}; estimated again in ${ESTIMATE_RETRY_SECONDS / 60} min`);
+        }
         continue;
       }
-      const native = job.params.asset.toLowerCase() === ZERO_ADDRESS;
+      if (job.revertedAt !== undefined) {
+        job.revertedAt = undefined;
+        this.persist();
+      }
       let price: bigint | null = null;
       if (native) price = await this.cfg.publicClient.getGasPrice().catch(() => null);
       if (paidPath) {
@@ -399,9 +445,22 @@ export class ShieldExecutor {
         await this.send(job, data, gas, false);
         continue;
       }
-      const floor = native ? (price !== null ? UNPAID_GAS_MULTIPLE * gas * price : null) : min;
-      if (floor === null || balance < floor) continue;
+      const floor = native ? (price !== null ? UNPAID_GAS_MULTIPLE * gas * price : null) : tokenFloor(job.params);
+      if (floor === null) continue;
+      if (balance < floor) {
+        this.belowFloor(job, balance, now >= watchEnd);
+        continue;
+      }
       await this.send(job, data, gas, true);
     }
+  }
+
+  /** A delivery below the floor of a shield no tip pays for waits; once the watch is over a job that shielded nothing ends. */
+  private belowFloor(job: ShieldJob, balance: bigint, watchOver: boolean): void {
+    if (!watchOver || job.state !== "waiting-delivery") return;
+    job.state = "expired";
+    job.error = `the ${balance} that arrived is below the floor of a shield no tip pays for: it stays at the receiver`;
+    job.updatedAt = Date.now();
+    this.persist();
   }
 }

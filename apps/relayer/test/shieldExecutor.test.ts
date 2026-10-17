@@ -27,7 +27,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ABI, predictReceiver, receiverParamsJson, receiverParamsOf, type ReceiverParams } from "@privacy-wallet/contracts";
-import { ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
+import { ESTIMATE_RETRY_SECONDS, MAX_REVERTED_SHIELDS, ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
 import { DROP_AFTER_MS } from "../src/sender";
 import { orderSignerAddress, shieldVouchDigest, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 import { VOUCHER, VOUCH_KEY } from "./vouch";
@@ -51,12 +51,19 @@ const params: ReceiverParams = {
   fallbackRecipient: "0x00000000000000000000000000000000000000fa",
 };
 const RECEIVER = predictReceiver(FACTORY, params);
+// a USDC-like receipt: a tip of 4.10 units (6 decimals), a minimum of a hundred tips
+const TOKEN = "0x00000000000000000000000000000000000000c0" as Address;
+const TOKEN_TIP = 4_100_000n;
+const tokenParams: ReceiverParams = { ...params, receiptId: ("0x" + "6e".repeat(32)) as Hex, asset: TOKEN, minAmount: TOKEN_TIP * 100n, shieldTip: TOKEN_TIP };
+const TOKEN_RECEIVER = predictReceiver(FACTORY, tokenParams);
 
 // ---- mock JSON-RPC ----
 const sel = (sig: string) => toFunctionSelector(sig).slice(2);
 const word = (x: bigint | string) => (typeof x === "bigint" ? x.toString(16) : x.slice(2).toLowerCase()).padStart(64, "0");
 const raws: Hex[] = [];
 let receiverEth = 0n;
+let receiverToken = 0n; // what TOKEN_RECEIVER holds of TOKEN
+let estimates = 0;
 let vaultOfAsset: Address = ETH_VAULT;
 let deployed = false;
 let tipPaid = false;
@@ -72,6 +79,8 @@ function call(to: string, data: string): string {
   if (s === sel("WRAPPED_NATIVE()")) return "0x" + word(0n);
   if (s === sel("vaultOf(address)")) return "0x" + word(vaultOfAsset);
   if (s === sel("tipPaid()")) return "0x" + word(tipPaid ? 1n : 0n);
+  if (s === sel("balanceOf(address)") && to.toLowerCase() === TOKEN.toLowerCase())
+    return "0x" + word(("0x" + data.slice(-40)).toLowerCase() === TOKEN_RECEIVER.toLowerCase() ? receiverToken : 0n);
   throw new Error(`mock rpc: eth_call ${to} ${s}`);
 }
 function handle(req: { id: number; method: string; params: any[] }) {
@@ -122,6 +131,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
         return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: (e as Error).message } };
       }
     case "eth_estimateGas":
+      estimates++;
       return revertEstimate ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: NoVault()" } } : res(toHex(GAS));
     case "eth_sendRawTransaction":
       raws.push(req.params[0]);
@@ -238,6 +248,8 @@ afterAll(() => new Promise<void>((r) => server.close(() => r())));
 beforeEach(() => {
   raws.length = 0;
   receiverEth = 0n;
+  receiverToken = 0n;
+  estimates = 0;
   vaultOfAsset = ETH_VAULT;
   deployed = false;
   tipPaid = false;
@@ -342,6 +354,36 @@ describe("the watch", () => {
     expect(x.get(params.receiptId)!.unpaidShields).toBe(1);
   });
 
+  it("a smaller token delivery (a lower minimum accepted, a partial fill) is shielded once the swap is over, above twice its tip (the audit round of 2026-10-16, c10)", async () => {
+    const x = executor();
+    await x.add(request({ params: receiverParamsJson(tokenParams) }));
+    receiverToken = TOKEN_TIP * 30n; // 30 tips: below the minimum (100), above the floor (2)
+    await x.tick();
+    expect(raws, "the swap can still deliver: it waits").toHaveLength(0);
+    clock = 2_000; // deliverBy
+    await x.tick();
+    expect(raws).toHaveLength(1);
+    expect((sentShield(raws[0]).args as [{ receiptId: Hex }, Hex])[0].receiptId).toBe(tokenParams.receiptId);
+    expect(x.get(tokenParams.receiptId)!.unpaidShields).toBe(1);
+  });
+
+  it("token dust below the floor is never estimated, and the job ends with the watch (c10)", async () => {
+    const x = executor();
+    await x.add(request({ params: receiverParamsJson(tokenParams) }));
+    receiverToken = TOKEN_TIP; // one tip: below twice the tip
+    clock = 2_000;
+    await x.tick();
+    expect(raws).toHaveLength(0);
+    expect(estimates, "no gas estimate for a delivery below its floor").toBe(0);
+    expect(x.get(tokenParams.receiptId)!.state).toBe("waiting-delivery");
+    clock = 2_600; // the watch is over
+    await x.tick();
+    const job = x.get(tokenParams.receiptId)!;
+    expect(job.state).toBe("expired");
+    expect(job.error).toMatch(/^the 4100000 that arrived is below the floor of a shield no tip pays for/);
+    expect(x.open()).toBe(0);
+  });
+
   it("deliveries after the paid shield are bounded and floored; nothing pays for them", async () => {
     const x = executor({ maxUnpaidShields: 1 });
     await x.add(request());
@@ -381,7 +423,7 @@ describe("the watch", () => {
     expect(x.get(params.receiptId)!.unpaidShields).toBe(1);
   });
 
-  it("a receipt nothing reached expires after the watch; a shield that would revert fails without gas spent", async () => {
+  it("a receipt nothing reached expires after the watch; a shield that would revert is never sent, is estimated again later, and fails only when the watch ends (audit c13)", async () => {
     const x = executor();
     await x.add(request());
     clock = 2_600;
@@ -394,8 +436,49 @@ describe("the watch", () => {
     revertEstimate = true;
     await y.tick();
     expect(raws).toHaveLength(0);
-    expect(y.get(params.receiptId)!.state).toBe("shield-failed");
-    expect(y.get(params.receiptId)!.error).toMatch(/would revert/);
+    const job = y.get(params.receiptId)!;
+    expect(job.state, "one revert (a paused token, a race) does not end the job").toBe("waiting-delivery");
+    expect(job.error).toMatch(/would revert: .*; estimated again in 10 min$/);
+    await y.tick();
+    expect(estimates, "not estimated again before ESTIMATE_RETRY_SECONDS").toBe(1);
+    clock = 1_000 + ESTIMATE_RETRY_SECONDS;
+    revertEstimate = false;
+    await y.tick();
+    expect(raws, "the shield once it no longer reverts").toHaveLength(1);
+    expect(job.revertedAt).toBeUndefined();
+    const z = executor();
+    clock = 1_000;
+    raws.length = 0;
+    await z.add(request());
+    revertEstimate = true;
+    await z.tick();
+    clock = 2_600; // the watch is over and it still reverts
+    await z.tick();
+    expect(raws).toHaveLength(0);
+    expect(z.get(params.receiptId)!.state).toBe("shield-failed");
+    expect(z.get(params.receiptId)!.error).toMatch(/^would revert/);
+  });
+
+  it("a mined shield that reverted sends the job back to read the receiver again, at most MAX_REVERTED_SHIELDS times (audit c13)", async () => {
+    const x = executor();
+    await x.add(request());
+    receiverEth = 2_280_000_000_000_000_000n;
+    for (let i = 1; i <= MAX_REVERTED_SHIELDS; i++) {
+      await x.tick();
+      expect(raws).toHaveLength(i);
+      receipt = { status: "0x0", amount: 0n, tip: 0n, leafIndex: 0 };
+      await x.tick();
+      receipt = null;
+      const job = x.get(params.receiptId)!;
+      expect(job.state, `revert ${i}: back to its state`).toBe("waiting-delivery");
+      expect(job.revertedShields).toBe(i);
+      expect(job.error).toMatch(/reverted; the receiver is read again$/);
+    }
+    await x.tick();
+    receipt = { status: "0x0", amount: 0n, tip: 0n, leafIndex: 0 };
+    await x.tick();
+    expect(x.get(params.receiptId)!.state).toBe("shield-failed");
+    expect(raws).toHaveLength(MAX_REVERTED_SHIELDS + 1);
   });
 
   it("a shield the node dropped goes back DROP_AFTER_MS after it was sent and is shielded again; an unpaid one gives its place in the budget back (2026-10-15)", async () => {
