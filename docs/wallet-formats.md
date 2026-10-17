@@ -145,3 +145,10 @@ bech32m, hrp `pp`, data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)`; 113 char
 key and nonce, three BIP-39 cases (12 and 24 words, with and without the `TREZOR` passphrase).
 `chainkeys.json`: SLIP-0010 ed25519 test vectors 1 and 2, the BIP-84 first receive and change
 addresses of the reference mnemonic, its BIP-44 Ethereum address and its Phantom Solana address.
+`owner-keys.json` (`packages/protocol/src/genOwnerKeyVectors.ts`; audit round of 2026-10-16, c18): the owner key a
+deposited note is made out to, `keccak256(be32(spendKey) ‖ "/owner-key/" ‖ be32(noteSecret)) mod p` (a 75-byte
+preimage), and its owner commitment `H(OWNER_COMMITMENT, ownerKey)`, for the example seed's note secrets at counters 0,
+1, 7, 255, 1024, 2^32 − 1 and 2^32 and for the secrets 0, 1 and p − 1; counter 1's preimage; a sample spend (body,
+commitment, nullifier, phantom). Frozen: `packages/protocol/test/ownerKeys.test.ts` pins the file's SHA-256, the
+generator refuses to write a different one, and `reference/python/test_vectors.py` reproduces it. No deposit is made
+out to such a key yet; the wallet switches its deposits in a later follow-up.

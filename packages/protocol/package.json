@@ -7,6 +7,7 @@
   "scripts": {
     "test": "vitest run",
     "vectors": "tsx src/genVectors.ts",
+    "owner-key-vectors": "tsx src/genOwnerKeyVectors.ts",
     "fixtures": "tsx src/genTxFixtures.ts",
     "e2e": "tsx src/genE2EInputs.ts"
   },

@@ -87,6 +87,13 @@ def derive_note_secret(note_key: int, counter: int) -> int:
     return int.from_bytes(keccak256(note_key.to_bytes(32, "big") + counter.to_bytes(8, "big")), "big") % P
 
 
+def derive_owner_key(spend_key: int, note_secret: int) -> int:
+    """A deposited note's own owner key (packages/protocol/src/keys.ts deriveOwnerKey)."""
+    if not (0 <= spend_key < P and 0 <= note_secret < P):
+        raise ValueError("an owner key derives from field elements only")
+    return int.from_bytes(keccak256(spend_key.to_bytes(32, "big") + b"/owner-key/" + note_secret.to_bytes(32, "big")), "big") % P
+
+
 def owner_commitment(spend_key: int) -> int:
     return H([OWNER_COMMITMENT, spend_key])
 

@@ -78,8 +78,33 @@ def test_tree_and_bindings():
     check("txDomain", pp.tx_domain(v(ex["chainId"]), v(ex["core"])), v(ex["txDomain"]))
 
 
+def test_owner_keys():
+    ok = json.loads((Path(__file__).resolve().parents[2] / "packages" / "protocol" / "test" / "vectors" / "owner-keys.json").read_text())
+    keys = pp.derive_keys(ok["seed"].encode())
+    check("owner keys: spendKey", keys["spendKey"], v(ok["spendKey"]))
+    check("owner keys: main owner commitment", pp.owner_commitment(keys["spendKey"]), v(ok["mainOwnerCommitment"]))
+    for k in ok["byCounter"]:
+        secret = pp.derive_note_secret(keys["noteKey"], k["counter"])
+        check(f"noteSecret {k['counter']}", secret, v(k["noteSecret"]))
+        key = pp.derive_owner_key(keys["spendKey"], secret)
+        check(f"ownerKey {k['counter']}", key, v(k["ownerKey"]))
+        check(f"ownerCommitment {k['counter']}", pp.owner_commitment(key), v(k["ownerCommitment"]))
+    for k in ok["edgeSecrets"]:
+        key = pp.derive_owner_key(keys["spendKey"], v(k["noteSecret"]))
+        check(f"ownerKey of secret {k['noteSecret']}", key, v(k["ownerKey"]))
+    s = ok["sampleSpend"]
+    secret = pp.derive_note_secret(keys["noteKey"], s["counter"])
+    key = pp.derive_owner_key(keys["spendKey"], secret)
+    body = pp.note_body(pp.Note(v(s["vaultId"]), v(s["amount"]), pp.owner_commitment(key), secret))
+    check("sample spend: body", body, v(s["body"]))
+    cm = pp.note_commitment(body, s["leafIndex"])
+    check("sample spend: commitment", cm, v(s["commitment"]))
+    check("sample spend: nullifier", pp.nullifier(cm, key), v(s["nullifier"]))
+    check("sample spend: phantom", pp.phantom_nullifier(pp.nullifier(cm, key), 1, key), v(s["phantom"]))
+
+
 if __name__ == "__main__":
-    for fn in [test_poseidon2_nargo_vectors, test_domains_and_keys, test_note_nullifier_phantom, test_tree_and_bindings]:
+    for fn in [test_poseidon2_nargo_vectors, test_domains_and_keys, test_note_nullifier_phantom, test_tree_and_bindings, test_owner_keys]:
         fn()
     failed = [n for n, ok in results if not ok]
     print(f"\nPython reference: {len(results) - len(failed)}/{len(results)} vectors match")
