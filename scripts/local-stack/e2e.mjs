@@ -220,8 +220,10 @@ async function orderWords(page) {
 /** V6 Stage 15: a persistent profile, so the run can close the browser and start it again on the same storage (doc §74) */
 const PROFILE = join(OUT, "profile");
 async function launchContext() {
-  // Chrome 154's new headless mode does not come up under Playwright 1.64 here; its old headless shell does
-  const args = CHANNEL === "chrome" && HEADLESS ? ["--headless=old"] : [];
+  // Chrome 154's new headless mode does not come up under Playwright 1.64 here; its old headless shell does. The origin stays
+  // localhost (WebAuthn's RP ID), but the browser connects to 127.0.0.1, where the stack listens: another dev server on
+  // [::1]:5173 had answered the run instead (2026-10-16)
+  const args = [...(CHANNEL === "chrome" && HEADLESS ? ["--headless=old"] : []), "--host-resolver-rules=MAP localhost 127.0.0.1"];
   return chromium.launchPersistentContext(PROFILE, { headless: HEADLESS, timeout: 30_000, args, ...(CHANNEL ? { channel: CHANNEL } : {}), viewport: { width: 430, height: 932 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 }
 /** unlock after a reload */
