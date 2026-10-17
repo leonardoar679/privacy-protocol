@@ -483,7 +483,7 @@ export function SwapScreen(p: SwapScreenProps) {
         delay: delayOn,
         ...(older ? { maxTiming: older.maxTiming } : {}),
       });
-      navigate(`/swap/progress/${swapRecordId(r.stored.orderId)}`);
+      navigate(`/swap/progress/${swapRecordId(r.stored.orderId)}`, { replace: true }); // the confirmed Review is not shown again (c48)
     } catch (e) {
       setStatus(classify(e).detail || String(e));
     } finally {

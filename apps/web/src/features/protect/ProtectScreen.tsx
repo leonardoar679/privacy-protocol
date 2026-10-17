@@ -195,7 +195,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
     setLeftover(null);
     setRevoked(null);
     setResult(null);
-    navigate(`/protect/progress/${rec.id}`);
+    // the confirmed Review gives its place to the progress (c48): browser Back never shows it again
+    navigate(`/protect/progress/${rec.id}`, { replace: true });
     const onEvent = engineListener((ev) => {
       applyEvent(rec.id, ev);
     });
@@ -431,6 +432,21 @@ function ProtectProgress(p: ProgressProps) {
     );
   }
   const stopped = record.reason || (record.declined && ["DRAFT", "QUOTING", "REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
+  // an outcome not known yet (c47): another protect from the form could deposit twice — only Done
+  if (stopped && (record.state === "RECOVERY_REQUIRED" || record.reason?.fundsClass === "unknown")) {
+    return (
+      <Page title={t("protect.title")} back={p.onDone} testId="protect-view">
+        <OperationProgress
+          record={record}
+          actions={
+            <Button onClick={p.onDone} data-testid="protect-done-unknown">
+              {t("protect.doneButton")}
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
   if (stopped) {
     return (
       <Page title={t("protect.title")} back={p.onBackToReview} testId="protect-view">

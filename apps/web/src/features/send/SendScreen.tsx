@@ -243,7 +243,9 @@ export function SendScreen(p: SendScreenProps) {
     setConsolidate(false);
     setResult(null);
     setBusy(true);
-    navigate(`/send/progress/${rec.id}`);
+    // the confirmed Review gives its place to the progress (the audit round of 2026-10-16, c48): browser Back never shows it
+    // again, one tap from a second send
+    navigate(`/send/progress/${rec.id}`, { replace: true });
     const onEvent = engineListener((ev) => {
       applyEvent(rec.id, ev);
     });
@@ -599,6 +601,23 @@ function SendProgress(p: ProgressProps) {
     );
   }
   const stopped = record.reason || (record.declined && ["DRAFT", "QUOTING", "REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
+  // an outcome not known yet (the audit round of 2026-10-16, c47): confirming again would plan from notes the first spend may
+  // be using, and could pay twice — only Done; the record moves by the chain's answer
+  const unknownOutcome = record.state === "RECOVERY_REQUIRED" || record.reason?.fundsClass === "unknown";
+  if (stopped && unknownOutcome) {
+    return (
+      <Page title={t("screen.send.title")} back={p.onDone} testId="send-view">
+        <OperationProgress
+          record={record}
+          actions={
+            <Button onClick={p.onDone} data-testid="send-done-unknown">
+              {t("send.doneButton")}
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
   if (stopped) {
     return (
       <Page title={t("screen.send.title")} back={p.onEdit} testId="send-view">

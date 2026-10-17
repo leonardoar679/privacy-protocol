@@ -877,7 +877,10 @@ reason. I-O4 `COMPLETED` needs a settlement reference (a leaf index, a destinati
 completion). I-O5 the words "Transaction failed" never describe a delay or a provider that executed with the
 destination still confirming. **I-O6** (*V6*) `FAILED` only when the funds class is `not-moved` or `still-protected`;
 an unknown outcome is always `RECOVERY_REQUIRED`. **I-O7** (*V6*) after `SUBMITTED` a record never returns to a
-state before signing — nothing is ever re-sent. A 2,000-sequence property test holds them.
+state before signing — nothing is ever re-sent. A 2,000-sequence property test holds them. The screens hold to it too
+(the audit round of 2026-10-16, c47/c48): a record whose outcome is not known offers Done only, never its Review or its
+form again, and a confirmed Review gives its place in the browser's history to the progress page, so Back never shows it
+again.
 
 Code (Stage 8): FAILED is terminal, so a failure goes there only when its catalog row also leaves nothing to track or
 return (`failureTarget` in `packages/sdk/src/operations/errors/codes.ts`: a code offering a resume, monitoring or a

@@ -27,7 +27,7 @@ import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { native: unknown[]; erc20: unknown[] } = { native: [], erc20: [] };
-let nativeBehaviour: "ok" | "rejected" | "reverted" = "ok";
+let nativeBehaviour: "ok" | "rejected" | "reverted" | "lost" = "ok";
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   shieldNative: async (o: { amount: bigint; onEvent?: (e: EngineEvent) => void; onStatus?: (s: string) => void }) => {
@@ -38,6 +38,7 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
     o.onEvent?.({ type: "submitted", txHash: HASH, by: "wallet" });
     o.onEvent?.({ type: "waiting-receipt", txHash: HASH });
     if (nativeBehaviour === "reverted") throw new Error(`transaction ${HASH} reverted`);
+    if (nativeBehaviour === "lost") throw new Error("the commitment was not found in the receipt"); // sent: the outcome not known
     o.onEvent?.({ type: "mined", txHash: HASH, leafIndex: 7 });
     return { txHash: HASH, leafIndex: 7 };
   },
@@ -273,6 +274,22 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     });
     expect(activityOf(session.journal())).toEqual([]);
   });
+  it("a protect whose outcome is not known offers Done only: no way back to the Review or the form (the audit round of 2026-10-16, c47)", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    nativeBehaviour = "lost";
+    mount();
+    type(screen.getByTestId("amount-input"), "0.5");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("protect-done-unknown");
+    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { fundsClass: "unknown" } });
+    expect(screen.queryByTestId("protect-back"), "another protect from the form could deposit twice").toBeNull();
+    expect(screen.queryByTestId("review-confirm")).toBeNull();
+  });
+
   it("an ERC-20 protect: the approval first (1 of 2), then the deposit, one operation; the common sizes under Advanced; the recovery-information card is shown once per session", async () => {
     await unlocked();
     setActiveProvider(provider());

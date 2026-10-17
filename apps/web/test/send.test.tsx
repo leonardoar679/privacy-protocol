@@ -405,5 +405,29 @@ describe("Send (spec v2.0 §7.4)", () => {
       recovery: { state: "monitoring" },
     });
     expect(screen.queryByText(/transaction failed/i), "I-O5: never for a submission that may have gone through").toBeNull();
+    // the audit round of 2026-10-16 (c47): an unknown outcome offers no second confirmation — only Done
+    expect(screen.queryByTestId("send-back-review")).toBeNull();
+    expect(screen.queryByTestId("send-edit")).toBeNull();
+    expect(screen.getByTestId("send-done-unknown")).toBeTruthy();
+  });
+
+  it("a confirmed Review is not shown again by browser Back: the progress took its place (audit c48)", async () => {
+    await unlocked();
+    const { router, path } = mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "0.5");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/send/review");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await waitFor(() => expect(path()).toMatch(/^\/send\/progress\//));
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    expect(path(), "Back lands on the form, never on the confirmed Review").toBe("/send");
+    expect(screen.queryByTestId("review-confirm")).toBeNull();
+    expect(calls.transfer).toHaveLength(1);
   });
 });
