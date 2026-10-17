@@ -46,7 +46,7 @@ const cfg: RelayerConfig = {
   privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: seed(env("RELAYER_SEED")), rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",
   journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json")),
-  feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 10_000), // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
+  feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 9_999), // 10000 passed and answered every withdrawal 500 (the fee rule takes [0, 10000); unverified m03) // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
 };
 const relayer = Relayer.fromConfig(cfg);
 // swap-order executor (private-swap spec §11): deployAndExecute once an escrow is funded, deployAndRefund after the window,

@@ -80,9 +80,16 @@ export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "exec
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
 /** `executionTx`: the deployAndExecute transaction, set once and never overwritten (whale spec §19: `txHash` is reused by refund transactions; the wallet tracks the destination side from this hash). */
 /** `sent`: the transaction in flight — the state it was sent from, when (unix seconds) and whether no tip pays for it; one the node drops sends the job back there (a V6 follow-up of 2026-10-15). */
-export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number; /** V6 (spec v2.0 §3): the last mined transaction's gas and gasUsed × effectiveGasPrice */ gasUsed?: string; actualNetworkWei?: string; sent?: SentTx<SwapJobState> }
+/** `refundReverts` / `revertedAt`: refunds that reverted (at the estimate or mined) and when the last did: tried again
+ *  REFUND_RETRY_SECONDS later, refund-failed only at the MAX_REFUND_REVERTS-th (the audit's unverified m07, 2026-10-17). */
+export interface SwapJob { id: string; escrow: Address; factory: Address; params: SwapParamsJson; execution?: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; executed?: boolean; unpaidRefunds?: number; refundReverts?: number; revertedAt?: number; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; createdAt: number; updatedAt: number; /** V6 (spec v2.0 §3): the last mined transaction's gas and gasUsed × effectiveGasPrice */ gasUsed?: string; actualNetworkWei?: string; sent?: SentTx<SwapJobState> }
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
+
+/** A refund that reverted (a paused token, a race at the escrow) is tried again this much later, never at once. */
+export const REFUND_RETRY_SECONDS = 600;
+/** The refund that reverts this many times is final (refund-failed): the escrow is left to whoever calls deployAndRefund. */
+export const MAX_REFUND_REVERTS = 3;
 
 /** Whether an estimateGas failure is the call reverting (an answer), not the RPC failing (retried next tick). */
 const reverted = (e: unknown) => /revert/i.test(String((e as Error)?.message ?? e));
@@ -148,7 +155,7 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number; /** default LAPSE_AFTER_SECONDS */ lapseAfterSeconds?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number; /** default LAPSE_AFTER_SECONDS */ lapseAfterSeconds?: number; /** default MAX_REFUND_REVERTS */ maxRefundReverts?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -483,11 +490,20 @@ export class SwapExecutor {
       if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return; }
       // an execution that would revert because another transaction executed the escrow first: the order is executed
       if (failed === "execute-failed" && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); return; }
+      // one reverted refund was final (the audit's unverified m07): it is tried again later, and final only at the last
+      if (failed === "refund-failed" && this.refundRevertedOnce(job)) { this.note(job, `would revert: ${firstLine(e, 160)}; tried again in ${REFUND_RETRY_SECONDS / 60} min`); return; }
       job.state = failed; job.error = `would revert: ${firstLine(e, 200)}`; job.updatedAt = Date.now();
       this.persist();
       return;
     }
     await this.dispatch(job, job.factory, data, gas, next, o.unpaid);
+  }
+
+  /** Counts a reverted refund; true while it may be tried again (fewer than MAX_REFUND_REVERTS so far). */
+  private refundRevertedOnce(job: SwapJob): boolean {
+    job.refundReverts = (job.refundReverts ?? 0) + 1;
+    job.revertedAt = this.now();
+    return job.refundReverts < (this.cfg.maxRefundReverts ?? MAX_REFUND_REVERTS);
   }
 
   /** The transaction moving the job to `next`, through the account's one sender; false when it never left (noted, tried again next tick). */
@@ -546,6 +562,19 @@ export class SwapExecutor {
         const receipt = job.txHash ? await this.cfg.publicClient.getTransactionReceipt({ hash: job.txHash }).catch(() => null) : null;
         if (!receipt) { await this.resendIfDropped(job, now); continue; }
         const ok = receipt.status === "success";
+        const from = job.sent?.from;
+        // a mined refund that reverted goes back to the state it was sent from, tried again later (m07)
+        if (job.state === "refunding" && !ok && from && this.refundRevertedOnce(job)) {
+          if (job.sent?.unpaid) job.unpaidRefunds = Math.max(0, (job.unpaidRefunds ?? 1) - 1); // it re-shielded nothing
+          job.sent = undefined;
+          job.gasUsed = receipt.gasUsed.toString();
+          job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
+          job.state = from;
+          job.error = `the refund ${receipt.transactionHash} reverted; tried again in ${REFUND_RETRY_SECONDS / 60} min`;
+          job.updatedAt = Date.now();
+          this.persist();
+          continue;
+        }
         job.sent = undefined;
         job.gasUsed = receipt.gasUsed.toString();
         job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
@@ -557,11 +586,21 @@ export class SwapExecutor {
         this.persist();
         continue;
       }
-      const { spendable: balance, refundable } = await this.escrowBalances(job);
+      // one escrow that cannot be read is that job's tick, never the pass's (the audit's unverified m08: it aborted every job after it)
+      let balances: { spendable: bigint; refundable: bigint };
+      try {
+        balances = await this.escrowBalances(job);
+      } catch (e) {
+        this.note(job, `could not read the escrow: ${firstLine(e, 160)}; read again next tick`);
+        continue;
+      }
+      const { spendable: balance, refundable } = balances;
       job.balance = refundable.toString();
       // refund path: from refundAfter on, what is left in the escrow re-shields as the committed note: a foreign token a
       // provider paid back first (refundToken on the deployed escrow), then the order's asset (incl. WETH for ETH). After
       // execution nothing pays for that, so it is bounded (PP-S12): a budget per order, and a floor per asset
+      // a refund that reverted waits REFUND_RETRY_SECONDS before it is tried again (m07)
+      if (now >= Number(p.refundAfter) && job.revertedAt !== undefined && now - job.revertedAt < REFUND_RETRY_SECONDS) continue;
       if (now >= Number(p.refundAfter)) {
         // an order this executor did not execute may have been executed by a copy of its call (audit c08/c30): then it is an
         // executed order, under the watch and the budget of one

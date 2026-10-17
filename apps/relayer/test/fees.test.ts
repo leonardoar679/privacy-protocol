@@ -65,7 +65,7 @@ describe("the terms on /info (spec §10)", () => {
     expect(readFileSync(join(FIXTURE_ROOT, "apps/relayer/.env.example"), "utf8")).toMatch(/^FEE_PERCENT_BPS=100$/m);
     expect(readFileSync(join(FIXTURE_ROOT, "scripts/local-stack/start-services.mjs"), "utf8")).toMatch(/FEE_PERCENT_BPS: "100"/);
     // read strictly since 2026-10-15: 0 when absent, a whole number of basis points up to 100 %, or the start fails
-    expect(readFileSync(join(FIXTURE_ROOT, "apps/relayer/src/server.ts"), "utf8")).toMatch(/feePercentBps: int\("FEE_PERCENT_BPS", 0, 0, 10_000\)/);
+    expect(readFileSync(join(FIXTURE_ROOT, "apps/relayer/src/server.ts"), "utf8")).toMatch(/feePercentBps: int\("FEE_PERCENT_BPS", 0, 0, 9_999\)/); // the fee rule takes [0, 10000) (unverified m03)
   });
 });
 

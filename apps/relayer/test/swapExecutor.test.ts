@@ -16,7 +16,7 @@ import { createPublicClient, createWalletClient, decodeFunctionData, http, kecca
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
-import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
+import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest, MAX_REFUND_REVERTS, REFUND_RETRY_SECONDS } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -34,6 +34,7 @@ let receiptStatus: "0x1" | "0x0" | null = null;
 let gasPrice = "0x3b9aca00"; // 1 gwei
 let refuseSend = false;
 let estimateDown = false;
+let balanceDownFor: string | null = null; // an escrow whose balance cannot be read (the audit's unverified m08)
 let revertError: { code: number; message: string; data?: string } = { code: 3, message: "execution reverted: BadSignature()" };
 // the escrow's code and its `executed()` (a V6 follow-up of 2026-10-16, audit c08/c30: a copy of the executor's call can land first)
 let escrowCode: Hex = "0x";
@@ -51,7 +52,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_gasPrice": return res(gasPrice);
     case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
-    case "eth_getBalance": return res(toHex(escrowBalance));
+    case "eth_getBalance": return balanceDownFor && String(req.params[0]).toLowerCase() === balanceDownFor ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : res(toHex(escrowBalance));
     case "eth_getCode": return res(escrowCode);
     case "eth_call":
       if (String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_EXECUTED)) return res("0x" + (escrowExecuted ? "1" : "0").padStart(64, "0"));
@@ -252,6 +253,62 @@ describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
     o.execution = { ...o.execution, deadline, signature: signExecution(ORDER_KEY, digest) };
     return vouched(o, CHAIN_ID, creationCode);
   };
+
+  it("one escrow that cannot be read is its job's tick, never the pass's: the next job is executed all the same (the audit's unverified m08)", async () => {
+    clock = 1000; escrowBalance = BigInt(request.params.amount);
+    const a = executor.add(order(0x31)), b = executor.add(order(0x32));
+    balanceDownFor = a.escrow.toLowerCase();
+    try {
+      await executor.tick();
+    } finally {
+      balanceDownFor = null;
+    }
+    expect(a.error).toMatch(/^could not read the escrow: .*; read again next tick$/);
+    expect(b.state, "the job after it").toBe("executing");
+  });
+
+  it("a refund that reverts is tried again later, and only the third is final (the audit's unverified m07)", async () => {
+    clock = 1000; escrowBalance = 0n;
+    const job = executor.add(order(0x33));
+    clock = 1202;
+    await executor.tick();
+    expect(job.state).toBe("expired");
+    escrowBalance = BigInt(request.params.amount); // funded late
+    clock = 7201;
+    revertSimulation = true;
+    try {
+      await executor.tick();
+      expect(job.state, "a refund that would revert: not final").toBe("expired");
+      expect(job.error).toMatch(/^would revert: .*; tried again in 10 min$/);
+      const sent = raws.length;
+      clock = 7201 + REFUND_RETRY_SECONDS - 1;
+      await executor.tick();
+      expect(raws.length, "not before REFUND_RETRY_SECONDS").toBe(sent);
+    } finally {
+      revertSimulation = false;
+    }
+    clock = 7201 + REFUND_RETRY_SECONDS;
+    await executor.tick();
+    expect(job.state).toBe("refunding");
+    receiptStatus = "0x0"; // the refund is mined and reverts (a token paused between the estimate and the block)
+    try {
+      await executor.tick();
+    } finally {
+      receiptStatus = null;
+    }
+    expect(job.state, "a mined revert goes back to the state it was sent from").toBe("expired");
+    expect(job.error).toMatch(/reverted; tried again in 10 min$/);
+    clock += REFUND_RETRY_SECONDS;
+    await executor.tick();
+    expect(job.state).toBe("refunding");
+    receiptStatus = "0x0";
+    try {
+      await executor.tick();
+    } finally {
+      receiptStatus = null;
+    }
+    expect(job.state, `the ${MAX_REFUND_REVERTS}rd revert is final`).toBe("refund-failed");
+  });
 
   it("an execution the node refused stays waiting with a note, and the next tick executes it; it was execute-failed", async () => {
     clock = 1000; escrowBalance = BigInt(request.params.amount);
