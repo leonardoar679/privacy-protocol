@@ -108,7 +108,10 @@ export function SendScreen(p: SendScreenProps) {
           : null;
   const priced = feedsConfigured(p.deployment);
   const assessment = asset && units > 0n && priced ? priceStore.assess(units, asset) : null;
-  const tier: Tier = assessment?.tier ?? "standard";
+  // the band of what leaves, not of what is typed (2026-10-17, the audit's unverified m59): an exact output's total is the
+  // typed amount and its fees, so $49.6K to arrive — about $50.1K leaving — is held, never a tap
+  const leaving = asset && split && split.total > units && priced ? priceStore.assess(split.total, asset) : assessment;
+  const tier: Tier = leaving?.tier ?? "standard";
   const controls = controlsFor(tier);
   const price = asset ? availablePrice(prices.prices, asset.symbol) : null;
   const usd = assessment && "usd" in assessment.value ? formatUsd(assessment.value.usd) : null;

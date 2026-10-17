@@ -368,6 +368,18 @@ describe("Send (spec v2.0 §7.4)", () => {
     fireEvent.click(reviewButton());
     expect(screen.queryByTestId("review-confirm"), "never a tap at $60K").toBeNull();
     expect(screen.getByTestId("hold-to-confirm")).toBeTruthy();
+    // exact output: 19.9 ETH ($49,750) to arrive takes about 20.1 ETH ($50.2K) with the fees — the band of what leaves, the
+    // hold (the audit's unverified m59)
+    await act(async () => {
+      await router.navigate("/send");
+    });
+    fireEvent.click(screen.getByTestId("send-exact"));
+    type(screen.getByTestId("amount-input"), "19.9");
+    await waitFor(() => expect(screen.getByTestId("send-total").textContent).toContain("20.1"));
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    expect(screen.queryByTestId("review-confirm"), "what leaves is above $50K: never a tap").toBeNull();
+    expect(screen.getByTestId("hold-to-confirm")).toBeTruthy();
   });
 
   it("failures: before the signature the balance is untouched and consolidation is offered; after the submission a lost relayer answer is a recovery with 'We are checking where your funds are.'", async () => {
