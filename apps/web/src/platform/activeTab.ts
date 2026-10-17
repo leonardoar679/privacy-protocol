@@ -7,6 +7,8 @@
 //   signature prompt, a proof, a submission or a hand-over (the session's holds) — which releases the lock; only then
 //   does this tab show the wallet and run its scheduler.
 // - The tab unlocked last wins: a tab granted the lock after another asked steps aside in turn.
+// - A tab granted the lock reads the journal again before anything of it runs (a V6 follow-up of 2026-10-16, audit c40):
+//   it opened the journal at its unlock, and the other tab kept writing until it stepped aside.
 // - Without Web Locks (an old browser) nothing changes; without BroadcastChannel a waiting tab waits for the other to lock.
 import { useSyncExternalStore } from "react";
 import type { WalletSession } from "@privacy-wallet/sdk/wallet/session";
@@ -63,6 +65,8 @@ export function startActiveTab(d: {
   /** this tab's place in the queue */
   let queued: AbortController | null = null;
   let checking = false;
+  /** granted the lock, reading the journal again before holding it: a change of the session meanwhile asks for nothing */
+  let taking = false;
 
   const hold = (): Promise<void> =>
     new Promise<void>((resolve) => {
@@ -74,15 +78,26 @@ export function startActiveTab(d: {
       if (laterAsker !== null) d.stepAside(); // another tab was unlocked after this one asked: it wins
     });
 
+  // the journal as the store holds it when this tab takes the wallet over: what the other tab wrote last
+  const takeOver = async (): Promise<void> => {
+    taking = true;
+    try {
+      await d.session.reload().catch(() => undefined);
+    } finally {
+      taking = false;
+    }
+    if (d.session.isUnlocked()) return hold();
+  };
+
   const acquire = () => {
-    if (release || queued || checking) return;
+    if (release || queued || checking || taking) return;
     checking = true;
     laterAsker = null; // a fresh unlock: only a tab that asks from now on comes after this one
     store.set("checking");
     void locks.request(ACTIVE_LOCK, { ifAvailable: true }, (lock) => {
       checking = false;
       if (!d.session.isUnlocked()) return; // locked again before the answer
-      if (lock) return hold();
+      if (lock) return takeOver();
       // another tab holds it: ask it to step aside, and wait in line
       store.set("waiting");
       queued = new AbortController();
@@ -90,7 +105,7 @@ export function startActiveTab(d: {
       locks
         .request(ACTIVE_LOCK, { signal: queued.signal }, () => {
           queued = null;
-          return hold();
+          return takeOver();
         })
         .catch(() => {
           // aborted: this tab locked while it waited

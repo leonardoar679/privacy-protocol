@@ -14,6 +14,12 @@ export interface SecureStore extends KeyValueStorage {
   keys(): string[];
   /** awaits every write queued so far */
   flush(): Promise<void>;
+  /**
+   * What IndexedDB holds now, once this store's own writes have landed (a V6 follow-up of 2026-10-16, audit c40): the
+   * mirror was filled at page load, and another tab may have written since — an older tab unlocking on its mirror had
+   * brought back its old journal and written it over the newer one.
+   */
+  refresh(): Promise<void>;
   /** what the one-time move did at hydrate (empty when there was nothing to move) */
   migration(): MigrationReport | null;
 }
@@ -50,6 +56,18 @@ export function createSecureStore(): SecureStore {
     },
     keys: () => [...mirror.keys()].sort(),
     flush: () => queue,
+    refresh: async () => {
+      await ready;
+      if (!useIdb) return;
+      await queue;
+      try {
+        const now = await idbEntries("secure");
+        mirror.clear();
+        for (const [k, v] of now) mirror.set(k, v);
+      } catch {
+        // IndexedDB refused: the mirror stays as it was
+      }
+    },
     migration: () => report,
   };
 }

@@ -676,6 +676,10 @@ the same funding and signing ticks.
   up holding the wallet. The tab that stepped aside says why on its lock screen.
 - **Without Web Locks** (an old browser) nothing changes; without BroadcastChannel a waiting tab waits for the other to
   lock by itself.
+- **The newest journal** (a V6 follow-up of 2026-10-16, audit c40). Each tab's secure store is a mirror filled when the
+  page opened, so a tab opened before the other tab's last changes unlocked to its old journal and wrote it over the newer
+  one. An unlock reads the store again first (`SecureStore.refresh`), and a tab granted the Web Lock reads the journal again
+  (`WalletSession.reload`) before anything of it runs: the other tab kept writing until it stepped aside.
 
 Code: `apps/web/src/platform/activeTab.ts` (`startActiveTab`, the states `active` / `checking` / `waiting`),
 `apps/web/src/app/Gate.tsx` (`OtherTab`), `packages/sdk/src/session/autoLock.ts` (`stepAside`, the cause `elsewhere`).

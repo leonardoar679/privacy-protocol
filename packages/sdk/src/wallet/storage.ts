@@ -12,6 +12,8 @@ export interface KeyValueStorage {
   remove(key: string): void;
   /** resolves once the store holds what the device had (absent: ready at once) */
   ready?: Promise<void>;
+  /** re-reads what another tab of this browser may have written since (absent: nothing else writes it) */
+  refresh?(): Promise<void>;
 }
 
 export { JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY } from "./storageKeys";

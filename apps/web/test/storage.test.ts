@@ -25,6 +25,26 @@ beforeEach(() => {
   settings.reset();
 });
 
+describe("another tab's writes (a V6 follow-up of 2026-10-16, audit c40)", () => {
+  it("refresh re-reads what another tab wrote since this one opened, after this tab's own writes landed", async () => {
+    const a = createSecureStore();
+    await a.ready;
+    a.set(JOURNAL_KEY, journalJson("33".repeat(48)));
+    await a.flush();
+    const older = createSecureStore(); // a tab opened now: its mirror holds that journal
+    await older.ready;
+    a.set(JOURNAL_KEY, journalJson("44".repeat(48))); // the other tab writes on
+    await a.flush();
+    expect(older.get(JOURNAL_KEY)).toBe(journalJson("33".repeat(48)));
+    await older.refresh();
+    expect(older.get(JOURNAL_KEY)).toBe(journalJson("44".repeat(48)));
+    a.remove(JOURNAL_KEY);
+    await a.flush();
+    await older.refresh();
+    expect(older.get(JOURNAL_KEY), "a key the other tab removed is gone here too").toBeNull();
+  });
+});
+
 describe("the secure store (spec §8)", () => {
   it("writes reach IndexedDB in order and a fresh store hydrates them before it is ready", async () => {
     const a = createSecureStore();

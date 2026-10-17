@@ -53,8 +53,16 @@ export class WalletSession {
   // the store and the scrypt cost may be given now or resolved at the moment of use (the shared session is built at import,
   // before the platform configures the engine: V6 Stage 3–4)
   constructor(private readonly storageSource: KeyValueStorage | (() => KeyValueStorage) = browserStorage, private readonly kdf: KdfParams | (() => KdfParams) = KDF_DEFAULT) {
-    // mirror the in-memory stores into the journal while unlocked
-    noteStore.subscribe(() => this.update((j) => { const s = noteStore.serialize(); j.notes = s.notes; j.noteCounter = s.noteCounter; if (s.countersHeld) j.countersHeld = true; else delete j.countersHeld; }));
+    // mirror the in-memory stores into the journal while unlocked — when the notes changed: an unlock's load gives the
+    // journal its own notes back, and journaling them again only rewrote what the store held (a V6 follow-up of 2026-10-16:
+    // an older tab's unlock had written its old journal over a newer one that way, audit c40)
+    noteStore.subscribe(() => {
+      const j = this.data;
+      if (!j) return;
+      const s = noteStore.serialize();
+      if (j.noteCounter === s.noteCounter && !!j.countersHeld === !!s.countersHeld && JSON.stringify(j.notes) === JSON.stringify(s.notes)) return;
+      this.update((x) => { x.notes = s.notes; x.noteCounter = s.noteCounter; if (s.countersHeld) x.countersHeld = true; else delete x.countersHeld; });
+    });
     settings.subscribe(() => this.update((j) => { j.settings = { ...settings.get() }; }));
   }
 
@@ -88,6 +96,7 @@ export class WalletSession {
     this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
     this.open(own, emptyJournal());
+    this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
     this.firstLaunch = true;
     return this.pendingPhrase;
   }
@@ -99,6 +108,8 @@ export class WalletSession {
   }
 
   async unlock(password: string): Promise<boolean> {
+    // what the store holds now, not what it held when the page opened: another tab may have written since (audit c40)
+    await this.store.refresh?.();
     const raw = this.store.get(KEYSTORE_KEY);
     if (!raw) return false;
     const seed = await unlockKeystore(JSON.parse(raw) as Keystore, password);
@@ -115,6 +126,27 @@ export class WalletSession {
     if (this.unreadable) noteStore.holdCounters();
     this.firstLaunch = false;
     return true;
+  }
+
+  /**
+   * The journal as the store holds it now (a V6 follow-up of 2026-10-16, audit c40). A tab unlocked while another held the
+   * wallet opened the journal as it was then, and the other kept writing until it stepped aside; this tab reads it again
+   * when it takes the wallet over (apps/web/src/platform/activeTab.ts), before anything of it runs. A journal that does not
+   * open, or a lock meanwhile, leaves the session as it is.
+   */
+  async reload(): Promise<void> {
+    if (!this.data || !this.key) return;
+    await this.store.refresh?.();
+    const key = this.key;
+    const blob = this.store.get(JOURNAL_KEY);
+    if (!blob || !this.data || this.key !== key) return;
+    let journal: JournalData | null = null;
+    try { journal = decryptJournal(key, JSON.parse(blob) as EncryptedJournal); } catch { journal = null; }
+    if (!journal) return;
+    this.data = journal;
+    noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
+    if (journal.settings) settings.set(journal.settings as Partial<Settings>);
+    this.emit();
   }
 
   /**
