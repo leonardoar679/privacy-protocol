@@ -86,6 +86,9 @@ export interface SwapJob { id: string; escrow: Address; factory: Address; params
 
 export class SwapJobError extends Error { constructor(public readonly code: string, message: string) { super(message); } }
 
+/** No execution is sent closer than this to its signed deadline: three blocks, the time one takes to be mined. */
+export const EXECUTE_MARGIN_SECONDS = 36;
+
 /** A refund that reverted (a paused token, a race at the escrow) is tried again this much later, never at once. */
 export const REFUND_RETRY_SECONDS = 600;
 /** The refund that reverts this many times is final (refund-failed): the escrow is left to whoever calls deployAndRefund. */
@@ -625,7 +628,9 @@ export class SwapExecutor {
         continue;
       }
       if (job.state === "waiting-funding" && job.execution) {
-        if (now > Number(job.execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); continue; }
+        // never in the last blocks before the signed deadline (the audit's unverified m10): one mined just after it reverts
+        // DeadlinePassed at the relayer's gas — such an order goes the way of an expired one
+        if (now + EXECUTE_MARGIN_SECONDS > Number(job.execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); continue; }
         if (balance >= BigInt(p.amount)) {
           const data = encodeDeployAndExecute(p, job.execution);
           const priced = Number(p.assetType) === 0 ? await this.belowCost(job, data) : { wait: false };

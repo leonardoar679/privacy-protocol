@@ -245,6 +245,9 @@ export class Relayer {
         if (now - job.submittedAt < DROP_AFTER_MS || !(await unknownToTheNode(this.clients.publicClient, job.txHash))) continue;
         const spent = await Promise.all(job.nullifiers.map((n) => this.nullifierSpent(BigInt(n))));
         if (spent.some((s) => s === null)) continue; // unread: watched again
+        // a GET /status that found its receipt while these reads were out settled it: mined is never overwritten (the
+        // audit's unverified m00, 2026-10-17)
+        if (job.status !== "submitted") continue;
         job.status = "dropped";
         job.droppedAt = now;
         job.nullifiers.forEach((n) => this.inflight.delete(n));

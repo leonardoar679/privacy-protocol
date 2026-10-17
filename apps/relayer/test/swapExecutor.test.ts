@@ -16,7 +16,7 @@ import { createPublicClient, createWalletClient, decodeFunctionData, http, kecca
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
-import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest, MAX_REFUND_REVERTS, REFUND_RETRY_SECONDS } from "../src/swapExecutor";
+import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest, MAX_REFUND_REVERTS, REFUND_RETRY_SECONDS, EXECUTE_MARGIN_SECONDS } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -253,6 +253,19 @@ describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
     o.execution = { ...o.execution, deadline, signature: signExecution(ORDER_KEY, digest) };
     return vouched(o, CHAIN_ID, creationCode);
   };
+
+  it("funded in the last blocks before its signed deadline: never sent, expired (the audit's unverified m10)", async () => {
+    clock = 1000; escrowBalance = 0n;
+    const job = executor.add(order(0x34));
+    await executor.tick();
+    expect(job.state).toBe("waiting-funding");
+    escrowBalance = BigInt(request.params.amount);
+    clock = Number(request.execution.deadline) - EXECUTE_MARGIN_SECONDS + 1; // funded with less than the margin left
+    const sent = raws.length;
+    await executor.tick();
+    expect(raws.length, "an execution mined after the deadline would revert at the relayer's gas").toBe(sent);
+    expect(job.state).toBe("expired");
+  });
 
   it("one escrow that cannot be read is its job's tick, never the pass's: the next job is executed all the same (the audit's unverified m08)", async () => {
     clock = 1000; escrowBalance = BigInt(request.params.amount);

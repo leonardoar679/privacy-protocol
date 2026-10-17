@@ -118,6 +118,22 @@ describe("the relayer's own look at its submissions", () => {
     expect(relayerOver(w.journal.load(), {}).inflight().size, "nor after a restart").toBe(0);
   });
 
+  it("a job whose receipt a GET /status found while the monitor read its nullifiers stays mined, never dropped (the audit's unverified m00)", async () => {
+    const lost = job(13, NOW - DROP_AFTER_MS - 1);
+    const chain: Chain = {};
+    const w = relayerOver([lost], chain);
+    // the nullifier read lags; meanwhile a wallet's GET /status finds the receipt
+    const client = (w.relayer as unknown as { clients: { publicClient: { readContract: (a: { args: [bigint] }) => Promise<boolean> } } }).clients.publicClient;
+    const read = client.readContract;
+    client.readContract = async (a) => {
+      chain.mined = new Set([lost.txHash]);
+      await w.relayer.status(lost.txHash);
+      return read(a);
+    };
+    await w.relayer.monitor(NOW);
+    expect(w.journal.load()[0].status).toBe("mined");
+  });
+
   it("one pass at a time: a tick while another runs does nothing", async () => {
     const w = relayerOver([job(9, NOW - 1_000), job(10, NOW - 1_000)], { pending: new Set([hash(9), hash(10)]) });
     await Promise.all([w.relayer.monitor(NOW), w.relayer.monitor(NOW)]);
