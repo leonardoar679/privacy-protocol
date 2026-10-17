@@ -12,7 +12,7 @@ import { atLeast, higherTier, type Assessment, type TierThresholds } from "@priv
 import { executionDigest, orderSignerAddress, predictEscrow, recoverExecutionSigner, signExecution } from "./endpoints";
 import { encodeCall } from "./abi";
 import { NO_VALUER, assessRequest, type Valuer } from "./valuation";
-import { ProviderHealthTracker } from "./health";
+import { incidents, ProviderHealthTracker } from "./health";
 import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
 import { normalizeQuote } from "./normalize";
@@ -259,10 +259,14 @@ export class PrivateSwapEngine {
     const budget = this.cfg.quoteTimeoutMs ?? QUOTE_TIMEOUT_MS;
     const competition: CompetitionEntry[] = [];
     const skipped: Partial<Record<ProviderId, string>> = {};
+    // a fresh incident on the feed — the risk database's or the operator's own (INCIDENTS_FILE) — opens its provider's breaker
+    // (the audit round of 2026-10-16, c22: nothing called recordIncident, so an operator's incident stopped no route)
+    const feed = incidents(now);
     const results = await Promise.all(ordered.map(async (a) => {
       const t0 = Date.now();
       // the budget covers the provider's health check and its quote together: the competition never waits longer for one provider (§16)
       const { health, timedOut } = await this.healthWithin(a, now, budget);
+      for (const i of feed) if (i.provider === a.id && Number.isFinite(Date.parse(i.date))) this.tracker.recordIncident(a.id, Date.parse(i.date), now);
       const open = this.tracker.breakerOpen(a.id, now);
       if (open) { skipped[a.id] = open; competition.push({ provider: a.id, outcome: "skipped", reason: open, ms: 0 }); return { id: a.id, health, quote: undefined, error: open }; }
       if (!a.implemented) { competition.push({ provider: a.id, outcome: "refused", reason: "not implemented", ms: 0 }); return { id: a.id, health, quote: undefined, error: "not implemented" }; }

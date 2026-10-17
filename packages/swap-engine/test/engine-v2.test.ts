@@ -3,6 +3,10 @@
 // record with its time budget and the circuit breaker, the phase-1 placeholder destination, and the privacy
 // inputs (the asset's own bucket alphabet, the destination's provenance).
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { providerRisks } from "../src/risk/protection";
 import { PrivateSwapEngine, QUOTE_TIMEOUT_MS } from "../src/engine";
 import { IMPACT_CAP_BPS, STREAM_MAX_SECONDS, WEIGHTS, chooseRoute, maxGapBpsFor, policyFor, scoreRoutes } from "../src/scoring";
 import { ProviderHealthTracker, chainHalted, reliabilityScore } from "../src/health";
@@ -141,6 +145,31 @@ class Stub implements ProviderAdapter {
 const engine = (adapters: ProviderAdapter[], over: Partial<ConstructorParameters<typeof PrivateSwapEngine>[0]> = {}) =>
   new PrivateSwapEngine({ adapters, factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002", [USDC.asset]: "0x0000000000000000000000000000000000000003" }, tips: shareTips(25n), refundWindowSeconds: 7200, valuer: NO_VALUER, ...over });
 const req: QuoteRequest = { from: ETH, to: BTC, amount: 10n ** 18n, destination: DEST_BTC, slippageBps: 50 };
+
+describe("an operator's incident (the audit round of 2026-10-16, c22)", () => {
+  it("a fresh one in INCIDENTS_FILE opens its provider's breaker — the competition skips it — and reaches the risk view", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "incidents-"));
+    const file = join(dir, "incidents.json");
+    const fresh = { provider: "thorchain", date: new Date(Date.now() - 3600_000).toISOString(), title: "operator: vault anomaly", lossUsd: 0, class: "api", halfLifeDays: 30, source: "ops" };
+    writeFileSync(file, JSON.stringify([fresh]));
+    const before = process.env.INCIDENTS_FILE;
+    process.env.INCIDENTS_FILE = file;
+    try {
+      const thor = new Stub("thorchain", "quote"), cf = new Stub("chainflip", "quote");
+      const e = engine([thor, cf]);
+      const set = await e.quoteAll(req, "balanced");
+      const by = Object.fromEntries(set.competition.map((c) => [c.provider, c]));
+      expect(by.thorchain).toMatchObject({ outcome: "skipped", reason: expect.stringContaining("security incident") });
+      expect(set.chosen?.provider).toBe("chainflip");
+      const risks = providerRisks({ ...set, quotes: [q("thorchain", 10n ** 18n)] } as never, req, "balanced");
+      expect(risks.thorchain?.incidents.map((i) => i.title), "the risk view names it").toContain("operator: vault anomaly");
+    } finally {
+      if (before === undefined) delete process.env.INCIDENTS_FILE;
+      else process.env.INCIDENTS_FILE = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("the competition record, the time budget and the breaker (whale spec §2, §3, §16)", () => {
   it("records what every capable provider answered; a hang is a timeout; a refusal of the size is not an outage", async () => {

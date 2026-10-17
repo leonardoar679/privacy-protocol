@@ -3,6 +3,9 @@
 // resumed from the journaled params and found again by a restore; there is no listing and an order id is never an id;
 // the registries, the status, the risk view, the track and the guest quote answer.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OPERATION_ID, QUOTE_ID } from "../src/ids";
 import { harness, orderBody, sign, swapRequest, type Harness } from "./helpers";
 
@@ -152,6 +155,32 @@ describe("the registries, the status, the risk view, the track, the guest quote"
     expect(health.body.providers[0]).toMatchObject({ provider: "thorchain", reachable: false, recentFailures: 1 });
     expect((await h.get("/v1/risk")).body.providers.map((p: { provider: string }) => p.provider)).toEqual(["thorchain"]);
     expect((await h.get("/v1/risk/nobody")).status).toBe(404);
+    // an operator's incident (INCIDENTS_FILE) is in the risk view the wallet's checks read (the audit round of 2026-10-16, c22)
+    const dir = mkdtempSync(join(tmpdir(), "api-incidents-"));
+    const before = process.env.INCIDENTS_FILE;
+    process.env.INCIDENTS_FILE = join(dir, "incidents.json");
+    writeFileSync(
+      process.env.INCIDENTS_FILE,
+      JSON.stringify([
+        {
+          provider: "thorchain",
+          date: new Date(Date.now() - 3600_000).toISOString(),
+          title: "operator: vault anomaly",
+          lossUsd: 0,
+          class: "api",
+          halfLifeDays: 30,
+          source: "ops",
+        },
+      ]),
+    );
+    try {
+      const risk = (await h.get("/v1/risk/thorchain")).body;
+      expect(risk.security.incidentList.map((i: { title: string }) => i.title)).toContain("operator: vault anomaly");
+    } finally {
+      if (before === undefined) delete process.env.INCIDENTS_FILE;
+      else process.env.INCIDENTS_FILE = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
     expect((await h.get("/v1/track/thorchain")).status, "tx or ref is required").toBe(400);
     expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}`)).body).toMatchObject({ track: { state: "pending" }, status: "Pending" });
     expect((await h.post("/v1/guest/quote", swapRequest())).body.quotes).toHaveLength(1);

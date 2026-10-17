@@ -9,7 +9,7 @@
 import { MinimumMovedError, asProviderFailure, type PreparedExecution, type PrivateSwapEngine, type QuoteHint } from "@privacy-wallet/swap-engine/engine";
 import { riskDb } from "@privacy-wallet/swap-engine/risk/riskDb";
 import { securityBreakdown } from "@privacy-wallet/swap-engine/risk/security";
-import { incidents } from "@privacy-wallet/swap-engine/health";
+import { fileIncidents, incidents } from "@privacy-wallet/swap-engine/health";
 import { userStatus } from "@privacy-wallet/swap-engine/order";
 import { maxGapBpsFor, PriceGuardError } from "@privacy-wallet/swap-engine/scoring";
 import {
@@ -633,7 +633,7 @@ export class SwapApi {
       return {
         provider: id,
         model: riskModelOf(id, {}, { symbol: "" }, { symbol: "" }, "balanced", db.override(id)),
-        security: securityBreakdown(id, now, db),
+        security: securityBreakdown(id, now, db, fileIncidents(now)), // the operator's incidents too: the wallet's checks read them here (c22)
         breaker: this.engine.tracker.state(id, now),
         record: record ? fields : null,
         routes: [...db.routes.values()]

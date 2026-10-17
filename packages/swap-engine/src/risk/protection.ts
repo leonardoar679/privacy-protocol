@@ -10,7 +10,7 @@ import { capBpsFor as policyCap, exposureTierOf, impactRemedy as remedyOf, type 
 import { chainHalted } from "../health";
 import type { QuoteSet } from "../engine";
 import type { ProviderHealthTracker } from "../health";
-import { reliabilityScore } from "../health";
+import { fileIncidents, reliabilityScore } from "../health";
 import { IMPACT_CAP_BPS } from "../scoring";
 import type { ProviderId, QuoteRequest } from "../types";
 import { daysSinceIncident, securityBreakdown, type SecurityBreakdown } from "./security";
@@ -74,7 +74,7 @@ export function providerRisks(set: QuoteSet, req: QuoteRequest, mode: Protection
   for (const q of set.quotes) {
     const pair = `${req.from.symbol}>${req.to.symbol}`;
     const model = riskModelOf(q.provider, { plan: q.plan, sourceSwap: q.hops.length > 1 }, req.from, req.to, mode, db.override(q.provider, pair));
-    const security = securityBreakdown(q.provider, now, db);
+    const security = securityBreakdown(q.provider, now, db, fileIncidents(now)); // the operator's incidents too (c22)
     const h = set.health[q.provider];
     out[q.provider] = { model, security, incidents: security.incidentList, reliability: h ? reliabilityScore(h, [req.from.chain, req.to.chain]) : null };
   }
