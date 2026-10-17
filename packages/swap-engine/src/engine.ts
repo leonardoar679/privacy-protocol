@@ -145,9 +145,13 @@ export interface QuoteHint {
 }
 /** The shortest execution window a wallet can ask for: a quote refreshed at submission still needs a relayer tick (High-Value Protection spec §3). */
 export const EXECUTE_WINDOW_MIN_SECONDS = 600;
-/** executeDeadline − quote expiry: the policy's maximum delay (V2), or the wallet's shorter window clamped into [EXECUTE_WINDOW_MIN_SECONDS, that maximum]. */
+/**
+ * executeDeadline − quote expiry: the policy's maximum delay (V2), or the wallet's shorter window clamped into
+ * [EXECUTE_WINDOW_MIN_SECONDS, that maximum]. Never below the minimum (the audit round of 2026-10-16, c39): "Fastest" has
+ * no delay budget, and its window of 0 s ended before any funding could land — every such swap stopped as order_expired.
+ */
 export function executeWindowFor(policy: Policy, executeWindowSeconds?: number): number {
-  const dMax = DELAY_BUDGET[policy][1];
+  const dMax = Math.max(DELAY_BUDGET[policy][1], EXECUTE_WINDOW_MIN_SECONDS);
   if (executeWindowSeconds === undefined || !Number.isFinite(executeWindowSeconds)) return dMax;
   return Math.max(Math.min(EXECUTE_WINDOW_MIN_SECONDS, dMax), Math.min(Math.floor(executeWindowSeconds), dMax));
 }

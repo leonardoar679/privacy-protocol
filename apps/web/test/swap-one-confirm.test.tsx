@@ -11,6 +11,7 @@
 // delayed — from older notes at once when they cover it (stopped unfunded if they no longer do), else at a random time —;
 // nothing secret leaves the wallet.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { toFunctionSelector, type Address, type Hex } from "viem";
@@ -496,6 +497,20 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(await tick(orderId)).toBe("delayed");
     expect(funding.count).toBe(0);
     expect((await screen.findByTestId("swap-funding-at")).textContent).toMatch(/Funded at/);
+  }, 60_000);
+
+  it("under 'Fastest' no delay is offered: its order's window is minutes, and a delayed funding could only miss it (the audit round of 2026-10-16, c39)", async () => {
+    await wallet({ recent: true });
+    settings.set({ preference: "fastest" });
+    try {
+      mount();
+      fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.5" } });
+      await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
+      expect(screen.getByTestId("swap-recent"), "the recent-protect notice stays").toBeTruthy();
+      expect(screen.queryByTestId("swap-delay"), "no delay to choose").toBeNull();
+    } finally {
+      settings.set({ preference: "balanced" });
+    }
   }, 60_000);
 
   /** 1 ETH protected a moment ago (the smallest note a 0.5 ETH swap spends) and 2 ETH protected three days ago. */

@@ -322,7 +322,9 @@ describe("the per-tranche execution window (spec §3)", () => {
     expect(executeWindowFor("balanced", 60)).toBe(600);
     expect(executeWindowFor("balanced", 999_999)).toBe(86_400);
     expect(executeWindowFor("best-privacy", 7200.9)).toBe(7200);
-    expect(executeWindowFor("fastest", 7200)).toBe(0);
+    // "Fastest" has no delay budget, and still a window a funding can land in (the audit round of 2026-10-16, c39)
+    expect(executeWindowFor("fastest", 7200)).toBe(EXECUTE_WINDOW_MIN_SECONDS);
+    expect(executeWindowFor("fastest")).toBe(EXECUTE_WINDOW_MIN_SECONDS);
     expect(executeWindowFor("balanced", Number.NaN)).toBe(86_400);
     const engine = new PrivateSwapEngine({ adapters: [], factory: "0x0000000000000000000000000000000000000001", escrowCreationCode: "0x00", chainId: 1n, refundVaults: { native: "0x0000000000000000000000000000000000000002" }, tips: shareTips(25n), refundWindowSeconds: 7200, valuer: NO_VALUER });
     const quote = q("thorchain", eth(50), { executorTip: eth(50) / 400n });

@@ -246,7 +246,8 @@ export function SwapScreen(p: SwapScreenProps) {
   // a one-order swap (the steps of a protected execution have their own timing); it spends older notes first — funded at
   // once from them — else the funding waits a random 1–24 h. The card stays while the choice is on.
   const recentFunds = !!fromAsset && units > 0n && timingOfFunding(timing) >= 1;
-  const delayOffered = recentFunds && !protectedSteps && !campaignMode;
+  // never under "Fastest" (c39): it has no delay budget, so a delayed funding could only miss the order's window
+  const delayOffered = recentFunds && !protectedSteps && !campaignMode && policy !== "fastest";
   const delayOn = delay && delayOffered;
   const older = delayOn && fromAsset ? olderFunding(BigInt(fromAsset.vault), units, now) : null;
   const privacy =
