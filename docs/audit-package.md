@@ -340,6 +340,16 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     than calling it failed. What remains is the executor's economics: on a public mempool it can be made to pay without
     being paid. A private transaction relay for the executors' sends answers it outside the contracts; a tip recipient
     committed in the order or the receipt answers it inside them, with a new deployment of both factories.
+50. **V6 — the shield executor's job cap can be filled** (the audit round of 2026-10-16, c11; narrowed 2026-10-17). A
+    relayer watches at most `MAX_SWAP_JOBS` (1,000) open shield receipts. Since the vouches (gap 47) a receipt needs the
+    swap service's vouch from an order's commit, but a commit costs nothing until the order is funded, and the wallet
+    registers its receipt before the funding (c12). So anyone who commits orders fast enough (past the API's per-caller
+    rate limits) can fill the cap, and same-chain swaps are then refused (`capacity`, retried, nothing funded) until the
+    jobs end: at their `deliverBy` and a day's late watch when nothing arrived. Before 2026-10-17 a dust delivery kept a
+    job open for good; it now ends at the watch's end (c10). What would close it: a vouch over the order's `refundAfter`
+    as well as the receiver (the job then ends with its own order), and a job that becomes watched each tick only once
+    the order's escrow holds its funding (checked at the hand-over's registration, with the order's vouch), unfunded
+    receipts kept in a short-lived tier of their own.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
