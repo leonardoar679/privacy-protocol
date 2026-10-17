@@ -65,6 +65,9 @@ export function guestStatus(s: TrackStatus["state"]): UserStatus {
 
 export class BadRequest extends Error {}
 
+/** How far ahead a restored order's refund may be, besides the refund window: the longest delay budget (72 h) and a day. */
+export const RESTORE_HORIZON_SECONDS = 4 * 86_400;
+
 /* eslint-disable @typescript-eslint/no-explicit-any -- the request bodies are read field by field and checked */
 const tierHint = (b: any): Tier | undefined => (isTier(b?.tier) ? b.tier : undefined);
 const preferenceOf = (b: any): Preference | undefined => (isPreference(b?.preference) ? b.preference : undefined);
@@ -394,6 +397,10 @@ export class SwapApi {
   private async rebuilt(b: Record<string, unknown>, req: QuoteRequest): Promise<Order | Answer> {
     const provider = b.provider as ProviderId;
     const params = paramsOf(b.params); // checked before any provider is asked
+    // never a refund time further ahead than this service sets one (the audit round of 2026-10-16, c18): a restore records
+    // its operation, and one named with a refundAfter years away was never purged
+    const horizon = Math.floor(this.d.now() / 1000) + RESTORE_HORIZON_SECONDS + this.engine.cfg.refundWindowSeconds;
+    if (params.refundAfter > horizon) throw new BadRequest("params name a refund time further ahead than this service sets one");
     const set = await this.engine.quoteAll(req, policyOf(b), hintsOf(b));
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote)

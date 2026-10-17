@@ -28,9 +28,15 @@ export interface AppOptions {
   log: Logger;
 }
 
+/** At most one rate.limited event this often, however many requests the limiter refuses. */
+export const RATE_EVENT_EVERY_MS = 60_000;
+
 export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
   const api = new SwapApi(deps);
   const limiter = new RateLimiter({ perMinute: o.ratePerMinute, burst: Math.min(20, o.ratePerMinute) });
+  // a flood is one event a minute, not a row per refused request (the audit round of 2026-10-16, c19): every one had been
+  // kept in system_events for 7 days, so one client's flood grew the disk
+  let lastLimitedEvent = -Infinity;
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", false);
@@ -41,7 +47,11 @@ export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
     if (req.method === "OPTIONS") return void res.status(204).end();
     const caller = callerKey(req.socket, { header: req.headers["x-forwarded-for"], hops: o.trustProxyHops ?? 0 });
     if (!limiter.allow(caller)) {
-      deps.store.event({ event: "rate.limited", errorClass: "rate_limited" });
+      const now = Date.now();
+      if (now - lastLimitedEvent >= RATE_EVENT_EVERY_MS) {
+        lastLimitedEvent = now;
+        deps.store.event({ event: "rate.limited", errorClass: "rate_limited" });
+      }
       return void res
         .status(429)
         .set("retry-after", String(limiter.retryAfterSeconds(caller)))

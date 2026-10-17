@@ -99,6 +99,8 @@ describe("the request bodies, checked at the edge", () => {
       { orderSigner: "nobody" },
       { executeDeadline: "soon" },
       { refundNoteDataHash: "0xab" },
+      // a refund time years ahead: the operation it records would never be purged (the audit round of 2026-10-16, c18)
+      { refundAfter: 99_999_999_999 },
     ]) {
       const body = { ...swapRequest(), provider: "thorchain", params: { ...params, ...bad } };
       expect(await refused("/v1/operations", body), JSON.stringify(bad)).toEqual({ status: 400, code: "invalid_request" });

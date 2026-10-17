@@ -62,6 +62,12 @@ describe("the HTTP edge", () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(limited.body.code).toBe("rate_limited");
+    // a flood is one event a minute, not a row per refused request (the audit round of 2026-10-16, c19)
+    for (let i = 0; i < 20; i++) await h.get("/v1/assets");
+    expect(
+      h.lines.filter((l) => l.includes('"rate.limited"')),
+      "one event for the whole flood",
+    ).toHaveLength(1);
   });
   it("behind a trusted proxy (TRUST_PROXY_HOPS=1) each caller has its own bucket, and a forged entry buys nothing (2026-10-15)", async () => {
     h = await harness({ ratePerMinute: 1, trustProxyHops: 1 });
