@@ -89,11 +89,15 @@ export function putOperation(record: OperationRecord, s: WalletSession = default
   bump();
 }
 
-/** Apply an event to a record and store the result; the refusal (if any) is returned, the record untouched. */
-export function applyEvent(id: string, ev: OperationEvent, s: WalletSession = defaultSession, now = Date.now()): TransitionResult | null {
+/**
+ * Apply an event to a record and store the result; the refusal (if any) is returned, the record untouched. The record is
+ * this page's flow's from then on (`isLiveOperation`) — except for `{ live: false }`: the stale reconciler moving a record
+ * from the chain's answers (the audit round of 2026-10-16, c43: a Send it moved to SUBMITTED was never looked at again).
+ */
+export function applyEvent(id: string, ev: OperationEvent, s: WalletSession = defaultSession, now = Date.now(), o: { live?: boolean } = {}): TransitionResult | null {
   const rec = getOperation(id, s);
   if (!rec) return null;
-  live.add(id);
+  if (o.live !== false) live.add(id);
   const t = transition(rec, ev, now);
   if (t.ok && t.changed) putOperation(t.record, s);
   return t;

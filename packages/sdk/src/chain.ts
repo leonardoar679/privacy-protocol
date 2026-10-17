@@ -181,11 +181,18 @@ export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{
 }
 
 /** A mined transaction of ours: the notes it inserted and what it really cost (V6, spec v2.0 §3: gasUsed × effectiveGasPrice). */
-export async function minedTx(client: PublicClient, hash: Hex): Promise<{ inserted: { leafIndex: number; commitment: bigint }[]; costWei: bigint }> {
+export async function minedTx(
+  client: PublicClient,
+  hash: Hex,
+  /** the core: only its own events count (a V6 follow-up of 2026-10-17, audit c31) */
+  core?: Address,
+): Promise<{ inserted: { leafIndex: number; commitment: bigint }[]; costWei: bigint; /** the nullifier pairs its transact calls spent */ spends: [bigint, bigint][] }> {
   const receipt = await client.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted`);
-  const inserted = parseEventLogs({ abi: coreAbi, logs: receipt.logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
-  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n) }; // an RPC that omits the price: no cost known
+  const logs = core ? receipt.logs.filter((l) => l.address.toLowerCase() === core.toLowerCase()) : receipt.logs;
+  const inserted = parseEventLogs({ abi: coreAbi, logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
+  const spends = parseEventLogs({ abi: coreAbi, logs, eventName: "ShieldedTransaction" }).map((l) => [l.args.nullifier0, l.args.nullifier1] as [bigint, bigint]);
+  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends }; // an RPC that omits the price: no cost known
 }
 
 /** The connected account's public balance, read through the injected wallet's OWN provider (never our RPCs: no address ↔ endpoint link). */

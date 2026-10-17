@@ -930,6 +930,12 @@ it and stayed open for good. After each note scan the chain now moves it (`packa
   makes for the wallet (a Protect's deposit, a Send's change), once the scan found it, completes it. A Send's relayer,
   asked by its nullifiers, names the transaction, whose receipt decides. Nothing found and nothing spent past 10
   minutes: nothing moved. Spent nullifiers without a known transaction leave it as it is.
+- a record that kept its nullifiers takes only a transaction whose own call is a transact of the core spending them
+  (the audit round of 2026-10-16, c42): the relayer's word alone had named any mined transaction. One that spends other
+  notes is never adopted, and a record already carrying it needs recovery (`not_this_spend`). What the reconciler moves
+  stays its own to move (c43: it had marked such a record as driven by this page, and never looked at it again).
+- a spend's own flow marks its notes spent only on a receipt whose `ShieldedTransaction` names the spend's nullifiers
+  (c31): a replacement, a cancel in the connected wallet or another transaction handed back had marked them for good.
 While offline, money-moving steps pause and resume only after the state is verified (§7.11). `notificationFor(prev, next, prefs)` produces the five
 kinds (Quote ready, Transaction confirmed, Cross-chain executing, Completed, Recovery required) without amounts
 unless the user opted in (the V3 preview setting); delivery (web push) is later.

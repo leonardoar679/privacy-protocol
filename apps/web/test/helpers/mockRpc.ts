@@ -33,7 +33,7 @@ export async function startMockCore(o: MockCoreOptions) {
   const pad32 = (v: bigint) => ("0x" + v.toString(16).padStart(64, "0")) as Hex;
   const events: Record<number, MockEvent> = { ...o.events };
   // `spent`: every nullifier reads spent; `spentNullifiers`: these do (the audit round of 2026-10-16, c18: a note's own key's nullifier)
-  const state = { root: o.root, spent: false, spentNullifiers: new Set<bigint>(), next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, methods: [] as string[] };
+  const state = { root: o.root, spent: false, spentNullifiers: new Set<bigint>(), next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, spends: {} as Record<string, [bigint, bigint]>, methods: [] as string[] };
   const feedAt = (to: string) => Object.entries(state.feeds).find(([a]) => a.toLowerCase() === to.toLowerCase())?.[1];
   const logFor = (leafIndex: number, l: MockEvent) => ({
     address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex } }),
@@ -54,7 +54,13 @@ export async function startMockCore(o: MockCoreOptions) {
         return res({
           transactionHash: hash, transactionIndex: "0x0", blockHash: "0x" + "22".repeat(32), blockNumber: "0x5", from: "0x" + "00".repeat(20), to: o.core.toLowerCase(), contractAddress: null,
           cumulativeGasUsed: "0x5208", gasUsed: "0x5208", effectiveGasPrice: "0x1", status: "0x1", type: "0x2", logsBloom: "0x" + "00".repeat(256),
-          logs: leaves.map((leafIndex) => logFor(leafIndex, events[leafIndex])),
+          logs: [
+            ...leaves.map((leafIndex) => logFor(leafIndex, events[leafIndex])),
+            // a transact's own event: the nullifiers it spent (a V6 follow-up of 2026-10-17, audit c31)
+            ...(state.spends[hash]
+              ? [{ address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "ShieldedTransaction" }), data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [state.spends[hash][0], state.spends[hash][1], 0n, 0n, 0n]), blockNumber: "0x5", blockHash: "0x" + "22".repeat(32), transactionHash: hash, transactionIndex: "0x0", logIndex: toHex(1000 + leaves.length), removed: false }]
+              : []),
+          ],
         });
       }
       case "eth_getTransactionByHash": return res(null);
@@ -101,11 +107,12 @@ export async function startMockCore(o: MockCoreOptions) {
     url, state, events,
     close: () => new Promise<void>((r) => server.close(() => r())),
     /** A transaction mined: its leaves inserted (events added at their indexes), the leaf count and the root moved, its receipt served. */
-    mine(txHash: Hex, inserted: { leafIndex: number; commitment: bigint; noteData: Hex }[], root: bigint): void {
+    mine(txHash: Hex, inserted: { leafIndex: number; commitment: bigint; noteData: Hex }[], root: bigint, spends?: [bigint, bigint]): void {
       for (const l of inserted) events[l.leafIndex] = { commitment: l.commitment, noteData: l.noteData, txHash };
       state.next = Math.max(state.next, ...inserted.map((l) => l.leafIndex + 1));
       state.root = root;
       state.receipts[txHash.toLowerCase()] = inserted.map((l) => l.leafIndex);
+      if (spends) state.spends[txHash.toLowerCase()] = spends;
     },
   };
 }

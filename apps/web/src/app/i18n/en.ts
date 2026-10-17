@@ -519,6 +519,8 @@ export const en = {
   "op.error.interrupted.reason": "The page was closed or reloaded before it was sent. Nothing moved: start it again.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
+  "op.error.not_this_spend.title": "We're checking where this transaction went",
+  "op.error.not_this_spend.reason": "The transaction we were given back does not spend these funds. Nothing is counted as sent: the wallet reads the chain to find out.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",
   "op.error.funding_unconfirmed.reason": "Its funding was sent but never landed, and a funding is never sent twice on its own. Your funds are still in your protected balance. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",

@@ -97,7 +97,7 @@ async function relayer(pathname: string, body: unknown): Promise<Response> {
     const txHash = ("0x" + "cd".repeat(31) + (relayerBodies.length).toString(16).padStart(2, "0")) as Hex;
     for (const l of inserted) mock!.events[l.leafIndex] = { commitment: l.commitment, noteData: l.noteData, txHash };
     mock!.state.next = next + 3;
-    mock!.mine(txHash, inserted, await rootOf());
+    mock!.mine(txHash, inserted, await rootOf(), [sig.nullifier0, sig.nullifier1]);
     return json({ txHash, feeWei: "1000000000000000", gas: "350000", feePayloadReadable: true });
   }
   return json({ error: "no such route" }, 404);

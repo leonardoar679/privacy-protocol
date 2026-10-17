@@ -115,6 +115,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped
   interrupted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // a V6 follow-up of 2026-10-17 (audit c31/c42): the transaction a spend was handed back spends other notes
+  not_this_spend: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking"] },
   unsafe_contract_call: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
   // the order runner: a funded order whose execution window closed before its hand-over — the escrow only refunds now
   execution_window_closed: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },

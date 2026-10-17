@@ -9,9 +9,13 @@
 // - "submitting" with no answer yet: what it kept at that step decides. A Protect's note, once the scan found it, completes
 //   it. A Send's relayer, asked by the spend's nullifiers, supplies the transaction the page never got. Nullifiers still
 //   unspent with no job past STALE_DROP_MS mean nothing moved; spent ones without a known transaction leave it as it is.
+// - the transaction of a record that kept its nullifiers must be a call of the core spending them (the audit round of
+//   2026-10-16, c42): the relayer's word alone named any mined transaction, and the Send read as completed. One that
+//   spends other notes is not this record's: never adopted, and a record already carrying it needs recovery
+//   (`not_this_spend`). What this module moves stays its own to move (c43).
 // A record a flow of this page still drives (store.ts `isLiveOperation`) and a swap (its runner moves it) are never
 // touched here.
-import { TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
+import { decodeFunctionData, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
 import { clientFor, type Deployment } from "../chain";
 import { coreAbi } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
@@ -36,6 +40,9 @@ export interface StaleReads {
   spent(nullifier: bigint): Promise<boolean>;
   /** the relayer's job spending these nullifiers, or null; throws when it cannot be read */
   relayerJob(url: string, nullifiers: [bigint, bigint]): Promise<{ txHash: Hex } | null>;
+  /** the nullifiers the transaction's core call spends: null when the node does not know it, [] when it is no transact of
+   *  the core; throws when it cannot be read */
+  txSpends(hash: Hex): Promise<[bigint, bigint][] | null>;
 }
 
 /** The reads through the wallet's own RPC, and the relayer the spend went to. */
@@ -61,7 +68,34 @@ export function staleReads(d: Deployment): StaleReads {
     },
     spent: async (n) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean,
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
+    txSpends: async (hash) => {
+      let tx;
+      try {
+        tx = await client.getTransaction({ hash });
+      } catch (e) {
+        if (e instanceof TransactionNotFoundError) return null;
+        throw e;
+      }
+      if (!tx.to || tx.to.toLowerCase() !== d.core.toLowerCase()) return [];
+      try {
+        const call = decodeFunctionData({ abi: coreAbi, data: tx.input });
+        if (call.functionName !== "transact") return [];
+        const pi = call.args[1] as { nullifier0: bigint; nullifier1: bigint };
+        return [[pi.nullifier0, pi.nullifier1]];
+      } catch {
+        return [];
+      }
+    },
   };
+}
+
+/** Whether the transaction spends the record's nullifiers: null when the node does not know it (yet). */
+async function spendsRecord(r: OperationRecord, hash: Hex, reads: StaleReads): Promise<boolean | null> {
+  if (!r.refs.nullifiers) return true; // a Protect: nothing of the pool spent, nothing to check
+  const spends = await reads.txSpends(hash);
+  if (spends === null) return null;
+  const [n0, n1] = [BigInt(r.refs.nullifiers[0]), BigInt(r.refs.nullifiers[1])];
+  return spends.some(([a, b]) => a === n0 && b === n1);
 }
 
 const INTERRUPTED: OperationEvent = { type: "submission-failed", code: "interrupted", detail: "the page was closed or reloaded before it was sent" };
@@ -83,7 +117,8 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
   if (r.refs.nullifiers) {
     const nullifiers: [bigint, bigint] = [BigInt(r.refs.nullifiers[0]), BigInt(r.refs.nullifiers[1])];
     const job = r.refs.relayerUrl ? await reads.relayerJob(r.refs.relayerUrl, nullifiers) : null;
-    if (job) return job.txHash;
+    // the relayer names it; the transaction itself says whether it spends these notes (c42)
+    if (job && (await spendsRecord(r, job.txHash, reads)) !== false) return job.txHash;
     if ((await Promise.all(nullifiers.map((n) => reads.spent(n)))).some(Boolean)) return null; // sent; its transaction is not known here
   }
   // nothing landed and nothing spent: past the limit, nothing moved; a record that kept nothing is left as it is
@@ -99,7 +134,7 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
     let hash = r.refs.txHashes[r.refs.txHashes.length - 1] as Hex | undefined;
     let changed = false;
     const apply = (ev: OperationEvent) => {
-      const t = applyEvent(r.id, ev, s, now);
+      const t = applyEvent(r.id, ev, s, now, { live: false });
       if (t?.ok && t.changed) changed = true;
     };
     try {
@@ -113,7 +148,9 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
       }
       if (hash) {
         const status = await reads.receipt(hash);
-        if (status === "success") apply({ type: "completed", ref: { txHash: hash } });
+        const ours = status === null ? null : await spendsRecord(r, hash, reads);
+        if (ours === false) apply({ type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` });
+        else if (status === "success") apply({ type: "completed", ref: { txHash: hash } });
         else if (status === "reverted") apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
         else if (old && !(await reads.txKnown(hash)))
           apply({ type: "submission-failed", code: "transaction_dropped", detail: `transaction ${hash} was dropped before it was mined` });

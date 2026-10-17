@@ -571,6 +571,8 @@ export const ko: Record<MessageKey, string> = {
   "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",
   "op.error.transaction_dropped.reason": "전송되었지만 처리되기 전에 누락되어 아무것도 이동하지 않았습니다. 다시 보내세요.",
+  "op.error.not_this_spend.title": "이 거래가 어디로 갔는지 확인하고 있습니다",
+  "op.error.not_this_spend.reason": "돌려받은 거래는 이 자금을 사용하지 않습니다. 보낸 것으로 계산하지 않으며, 지갑이 체인을 읽어 확인합니다.",
   "op.error.funding_unconfirmed.title": "자금 투입이 확인되지 않아 스왑이 중단되었습니다",
   "op.error.funding_unconfirmed.reason":
     "자금 투입이 전송되었지만 처리되지 않았고, 자금 투입은 저절로 두 번 전송되지 않습니다. 자금은 보호 잔액에 그대로 있습니다. 스왑을 다시 검토하세요.",

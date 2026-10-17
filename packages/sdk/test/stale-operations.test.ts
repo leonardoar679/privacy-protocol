@@ -59,7 +59,16 @@ function record(
 }
 
 function chain(
-  o: { mined?: number[]; reverted?: number[]; known?: number[]; down?: boolean; spent?: string[]; jobs?: Record<string, number> } = {},
+  o: {
+    mined?: number[];
+    reverted?: number[];
+    known?: number[];
+    down?: boolean;
+    spent?: string[];
+    jobs?: Record<string, number>;
+    /** the nullifiers each transaction's core call spends */
+    spends?: Record<number, [string, string]>;
+  } = {},
 ): StaleReads {
   const has = (list: number[] | undefined, h: Hex) => (list ?? []).some((n) => hash(n) === h);
   return {
@@ -79,6 +88,13 @@ function chain(
       if (o.down) throw new Error("relayer: no answer within 20 s");
       const n = o.jobs?.[nullifiers[0].toString()];
       return n === undefined ? null : { txHash: hash(n) };
+    },
+    txSpends: async (h) => {
+      if (o.down) throw new Error("fetch failed");
+      if (!(has(o.known, h) || has(o.mined, h) || has(o.reverted, h))) return null;
+      const n = Number(BigInt(h));
+      const pair = o.spends?.[n];
+      return pair ? [[BigInt(pair[0]), BigInt(pair[1])]] : [];
     },
   };
 }
@@ -136,7 +152,7 @@ describe("operations whose flow is gone", () => {
     const lost = record("send", "submitting", 21, T0, { nullifiers: ["211", "212"], relayerUrl: relayer });
     const spentElsewhere = record("withdraw", "submitting", 22, T0, { nullifiers: ["221", "222"], relayerUrl: relayer });
     resetOperationsMemory();
-    const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"] });
+    const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"], spends: { 20: ["201", "202"] } });
     expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(1);
     expect(getOperation(answered)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(20)] } });
     expect(getOperation(lost)!.state).toBe("AWAITING_SIGNATURE");
@@ -156,6 +172,34 @@ describe("operations whose flow is gone", () => {
     });
     await reconcileStaleOperations(chain({ spent: ["231"] }), T0 + 60_000);
     expect(getOperation(own)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 9, txHashes: [hash(23)] } });
+  });
+
+  it("the relayer's word alone completes nothing: a transaction spending other notes is never adopted, and one a record already carries needs recovery (the audit round of 2026-10-16, c42)", async () => {
+    const relayer = "http://relayer.test";
+    const named = record("send", "submitting", 30, T0, { nullifiers: ["301", "302"], relayerUrl: relayer });
+    resetOperationsMemory();
+    // the relayer names transaction 31: mined, but a spend of notes 311/312
+    const reads = chain({ jobs: { "301": 31 }, mined: [31], spends: { 31: ["311", "312"] } });
+    await reconcileStaleOperations(reads, T0 + 60_000);
+    expect(getOperation(named)!.state, "not adopted: still waiting for its own").toBe("AWAITING_SIGNATURE");
+    expect(getOperation(named)!.refs.txHashes).toEqual([]);
+    // a Send whose page got the relayer's answer before it went away carries that transaction
+    const carried = record("send", "submitting", 32, T0, { nullifiers: ["321", "322"], relayerUrl: relayer });
+    applyEvent(carried, { type: "submitted", by: "relayer", txHash: hash(33) }, undefined, T0);
+    resetOperationsMemory();
+    await reconcileStaleOperations(chain({ mined: [33], spends: { 33: ["331", "332"] } }), T0 + 60_000);
+    expect(getOperation(carried)).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "not_this_spend", fundsClass: "unknown" } });
+  });
+
+  it("a record it moved is still its own to move: a Send it moved to SUBMITTED completes in the same page (the audit round of 2026-10-16, c43)", async () => {
+    const relayer = "http://relayer.test";
+    const id = record("send", "submitting", 40, T0, { nullifiers: ["401", "402"], relayerUrl: relayer });
+    resetOperationsMemory();
+    await reconcileStaleOperations(chain({ jobs: { "401": 40 }, known: [40], spends: { 40: ["401", "402"] } }), T0 + 60_000);
+    expect(getOperation(id)).toMatchObject({ state: "SUBMITTED", refs: { txHashes: [hash(40)] } });
+    // no reload: the transaction is mined at the next scan
+    expect(await reconcileStaleOperations(chain({ jobs: { "401": 40 }, mined: [40], spends: { 40: ["401", "402"] } }), T0 + 120_000)).toBe(1);
+    expect(getOperation(id)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(40)] } });
   });
 
   it("a record this page still drives, a swap, an unread chain: nothing moves", async () => {

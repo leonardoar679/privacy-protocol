@@ -336,6 +336,20 @@ export class FeeMoved extends Error {
   }
 }
 
+/**
+ * The transaction a spend was handed back is not the one that spends its notes (the audit round of 2026-10-16, c31): a
+ * replacement, a cancel in the connected wallet, a relayer naming another transaction. Its notes are not marked spent —
+ * nothing would ever have cleared the flag, and the balance would have lost them — and where the spend went is not known:
+ * the next scan reads its nullifiers.
+ */
+export class NotThisSpend extends Error {
+  readonly code = "not_this_spend";
+  constructor(readonly txHash: Hex) {
+    super(`transaction ${txHash} was mined, but it does not spend this transaction's notes: none was marked spent`);
+    this.name = "NotThisSpend";
+  }
+}
+
 /** The fee this spend would pay, refused above the one the Review showed (`maxFee`, in the vault's base units). */
 function boundFee(terms: { fee: FeeTerms } | null, maxFee: bigint | undefined): void {
   const fee = terms?.fee.amount ?? 0n;
@@ -403,7 +417,10 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   }
   o.onStatus?.("Waiting for the transaction to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
-  const { inserted, costWei } = await minedTx(client, txHash);
+  const { inserted, costWei, spends } = await minedTx(client, txHash, o.deployment.core);
+  // the notes are spent by this transaction, or by none the wallet knows of (c31)
+  const [n0, n1] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
+  if (!spends.some(([a, b]) => a === n0 && b === n1)) throw new NotThisSpend(txHash);
   noteStore.markSpent(o.spent.map((n) => n.leafIndex));
   const find = (n: Note) => inserted.find((i) => i.commitment === noteCommitment(noteBody(n), BigInt(i.leafIndex)));
   let change: OwnedNote | undefined;
