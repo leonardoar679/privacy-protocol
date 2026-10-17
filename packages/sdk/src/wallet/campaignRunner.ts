@@ -279,7 +279,10 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       }
     }
     const after = c.tranches[t.index];
-    if (!active && ["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"].includes(after.state)) {
+    // a step its provider failed (at the destination, or by never answering) comes back as `refunding`: its facts are the
+    // pass's too, so the campaign pauses instead of sending the next step to the same provider (the audit round of 2026-10-16, c53)
+    const failedAtProvider = after.state === "refunding" && ["DESTINATION_FAILED", "PROVIDER_TIMEOUT"].includes(r.tracked.state);
+    if (!active && (["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"].includes(after.state) || failedAtProvider)) {
       active = { trackState: r.tracked.state, jobState: r.job?.state, ageSeconds: after.handedOverAt ? Math.floor((now - after.handedOverAt) / 1000) : undefined, expectedSeconds: after.expected?.etaSeconds };
     }
   }

@@ -145,6 +145,8 @@ describe("exposure (§5)", () => {
     const carried = { ...share, tranches: share.tranches.map((t, i) => (i < 3 ? { ...t, provider: "thorchain" } : t)) };
     const flying = withTrancheState(withTrancheState(carried, 0, "executing", 6), 1, "destination-confirmed", 7); // $500K of $1M in flight with THORChain > 30 %
     expect(exposure(flying).inFlight).toBe(500n * K); // destination-confirmed counts as in flight (I3 until the gate)
+    // a step coming back counts until its refund lands (the audit round of 2026-10-16, c53): it had counted nowhere
+    expect(exposure(withTrancheState(flying, 1, "refunding", 8)).inFlight).toBe(500n * K);
     expect(providerLimit(carried)).toBe(300n * K);
     expect(canRelease(flying, 250n * K, "thorchain")).toMatchObject({ ok: false, reason: expect.stringContaining("I6") });
     expect(canRelease(flying, 250n * K, "chainflip")).toMatchObject({ ok: false, reason: expect.stringContaining("first tranche") }); // under the cap and its share, but the first piece is unsettled

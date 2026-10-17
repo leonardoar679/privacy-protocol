@@ -265,6 +265,9 @@ export function exposure(c: Campaign): Exposure {
     if (t.state === "settled") completed += a;
     else if (t.state === "partial") { const d = big(t.outcome?.delivered); completed += d > a ? a : d; fly(t, a - (d > a ? a : d)); }
     else if (IN_FLIGHT.includes(t.state)) fly(t, a);
+    // a step coming back (a provider that failed it, a return) is out of the private balance until its refund lands (the
+    // audit round of 2026-10-16, c53): it had counted nowhere, and the next step went to the same provider at once
+    else if (t.state === "refunding") fly(t, a);
     else if (PREPARED.includes(t.state)) { prepared += a; preparedCount++; }
   }
   const remaining = total - completed - inFlight - prepared;
@@ -431,7 +434,8 @@ export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; 
   if (f.receiverMismatch) return { reason: "unexpected-destination", detail: "The provider call would pay a different destination; nothing was signed." };
   const since = c.createdAt;
   if (f.incidentDates?.some((d) => d >= since)) return { reason: "security-incident", detail: "A security incident for the chosen provider was reported after this operation started." };
-  if (f.jobState === "execute-failed" || f.jobState === "refund-failed" || f.trackState === "FAILED" || f.providerHealth?.breakerOpen) return { reason: "provider-error", detail: f.providerHealth?.breakerOpen ? "The provider is skipped after repeated failures." : "The executor or the provider reported a failure on the current step." };
+  // a provider that failed the step at its destination, or never answered it, is a provider error too (c53)
+  if (f.jobState === "execute-failed" || f.jobState === "refund-failed" || f.trackState === "FAILED" || f.trackState === "DESTINATION_FAILED" || f.trackState === "PROVIDER_TIMEOUT" || f.providerHealth?.breakerOpen) return { reason: "provider-error", detail: f.providerHealth?.breakerOpen ? "The provider is skipped after repeated failures." : "The executor or the provider reported a failure on the current step." };
   if (f.delivered !== undefined && f.guaranteedMin !== undefined && big(f.delivered) < big(f.guaranteedMin)) return { reason: "anomaly", detail: `The step delivered less than its guaranteed minimum (${f.delivered} of at least ${f.guaranteedMin}).` };
   if (f.trackState === "PARTIAL") return { reason: "anomaly", detail: "The step was filled only in part; the rest returns to your private balance before anything continues." };
   if (f.settlementAgeSeconds !== undefined && f.expectedSeconds !== undefined && f.expectedSeconds > 0 && f.settlementAgeSeconds > STALL_FACTOR * f.expectedSeconds) return { reason: "anomaly", detail: "The current step is taking far longer than expected." };

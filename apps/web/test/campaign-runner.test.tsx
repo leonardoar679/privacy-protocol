@@ -826,6 +826,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     world.fate = "unknown";
   });
 
+  it("a step its provider failed at the destination pauses the campaign, and its amount counts until it is back (the audit round of 2026-10-16, c53)", async () => {
+    const c = await fresh();
+    await toInFlight(c); // step 1 handed over
+    const t = current(c).tranches[0];
+    world.tracked.set(t.orderId!, "DESTINATION_FAILED");
+    clock += 2000;
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("refunding");
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    expect(exposure(current(c)).inFlight, "still out of the private balance").toBe(BigInt(t.amount));
+    const commits = world.calls.filter((x) => x.startsWith("commit:")).length;
+    clock += 120_000;
+    await tick(c);
+    expect(world.calls.filter((x) => x.startsWith("commit:")).length, "the next step is not sent to the same provider").toBe(commits);
+    world.tracked.delete(t.orderId!);
+  });
+
   it("a refunded tranche is re-planned; a partial fill pauses, then settles for what was delivered once the rest is back", async () => {
     const c = await fresh();
     await toInFlight(c);
