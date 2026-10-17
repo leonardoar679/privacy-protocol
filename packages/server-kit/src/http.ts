@@ -48,7 +48,7 @@ export const MAX_BODY_BYTES = 64 * 1024;
  * those proxies and keeps the socket's address.
  */
 export function callerKey(socket: { remoteAddress?: string | undefined }, forwarded?: { header: string | string[] | undefined; hops: number }): string {
-  const own = socket.remoteAddress ?? "unknown";
+  const own = bucketOf(socket.remoteAddress ?? "unknown");
   if (!forwarded || forwarded.hops < 1) return own;
   const entries = [forwarded.header ?? []]
     .flat()
@@ -56,7 +56,29 @@ export function callerKey(socket: { remoteAddress?: string | undefined }, forwar
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return entries.length >= forwarded.hops ? entries[entries.length - forwarded.hops] : own;
+  return entries.length >= forwarded.hops ? bucketOf(entries[entries.length - forwarded.hops]) : own;
+}
+
+/**
+ * The bucket an address belongs to (2026-10-17, the audit's unverified m19): an IPv4 address itself, an IPv4-mapped IPv6
+ * one too, and an IPv6 address its /64 — one subscriber's allocation, so the whole of it no longer gets a fresh burst per
+ * address. Anything that is no address is its own bucket.
+ */
+export function bucketOf(ip: string): string {
+  const v4 = ip.match(/^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (v4) return v4[1];
+  if (!ip.includes(":")) return ip;
+  const bare = ip.split("%")[0];
+  const halves = bare.split("::");
+  if (halves.length > 2) return ip;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const groups = halves.length === 2 ? [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill("0"), ...tail] : head;
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/i.test(g))) return ip;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => g.toLowerCase().replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
 }
 
 /** TRUST_PROXY_HOPS: how many proxies in front of the service append to X-Forwarded-For (unset: none; at most 10). */

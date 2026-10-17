@@ -24,6 +24,13 @@ describe("the HTTP edge", () => {
     expect(MAX_BODY_BYTES).toBe(65_536);
     expect(callerKey({ remoteAddress: "10.0.0.7" })).toBe("10.0.0.7");
     expect(callerKey({})).toBe("unknown");
+    // an IPv6 caller is its /64, an IPv4-mapped one its IPv4 address (the audit's unverified m19)
+    expect(callerKey({ remoteAddress: "2001:db8:1:2::5" })).toBe("2001:db8:1:2::/64");
+    expect(callerKey({ remoteAddress: "2001:0db8:0001:0002:ffff:0:0:9" }), "another address of the same /64").toBe("2001:db8:1:2::/64");
+    expect(callerKey({ remoteAddress: "2001:db8:1:3::5" }), "another /64").toBe("2001:db8:1:3::/64");
+    expect(callerKey({ remoteAddress: "::ffff:10.0.0.7" })).toBe("10.0.0.7");
+    expect(callerKey({ remoteAddress: "::1" })).toBe("0:0:0:0::/64");
+    expect(callerKey({ remoteAddress: "fe80::1%eth0" })).toBe("fe80:0:0:0::/64");
     expect(callerKey({ remoteAddress: "10.0.0.7" }, { header: "203.0.113.5", hops: 0 }), "no proxy trusted: the header is not read").toBe("10.0.0.7");
   });
   it("behind the proxies the operator trusts, the address the outermost of them saw; what a caller writes itself buys nothing (2026-10-15)", () => {
