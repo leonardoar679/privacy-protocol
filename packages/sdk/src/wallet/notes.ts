@@ -22,14 +22,50 @@ export interface SerializedNote { vaultId: string; amount: string; ownerCommitme
 
 type Listener = () => void;
 
+const sameNote = (a: Note, b: Note): boolean =>
+  a.vaultId === b.vaultId && a.amount === b.amount && a.ownerCommitment === b.ownerCommitment && a.noteSecret === b.noteSecret;
+
+/**
+ * A second copy of a note already at its leaf completes the first (a V6 follow-up of 2026-10-16, audit c23/c34): what the
+ * flow knew and the scan could not — its label, counter, time and transaction — fills in, and spent stays spent. Another
+ * note at that leaf replaces it: each was checked against the leaf when it came, so the later one is the leaf's now (a
+ * block the chain dropped had put the first one there).
+ */
+function settle(into: OwnedNote, n: OwnedNote): OwnedNote {
+  if (!sameNote(into.note, n.note)) return n;
+  into.spent ||= n.spent;
+  into.counter ??= n.counter;
+  into.txHash ??= n.txHash;
+  into.addedAt ??= n.addedAt;
+  if (n.label && (!into.label || into.label === "discovered")) into.label = n.label;
+  return into;
+}
+
+/** The notes with one entry per leaf, in order: a later copy completes the first, a later other note replaces it. */
+function onePerLeaf(notes: OwnedNote[]): OwnedNote[] {
+  const byLeaf = new Map<number, OwnedNote>();
+  for (const n of notes) {
+    const known = byLeaf.get(n.leafIndex);
+    byLeaf.set(n.leafIndex, known ? settle(known, n) : n);
+  }
+  return [...byLeaf.values()];
+}
+
 export class NoteStore {
   private notes: OwnedNote[] = [];
   private snapshot: OwnedNote[] = [];
   private listeners = new Set<Listener>();
   private counter = 0;
 
+  /**
+   * A note of this wallet at its leaf. The same note already there is completed instead of added again (a V6 follow-up of
+   * 2026-10-16, audit c23/c34): a scan can record a protect, a change or a merged note before its own flow does, and two
+   * copies had doubled the balance and failed every spend that picked both. Another note there is replaced (settle).
+   */
   add(n: OwnedNote): void {
-    this.notes.push(n);
+    const i = this.notes.findIndex((x) => x.leafIndex === n.leafIndex);
+    if (i < 0) this.notes.push(n);
+    else this.notes[i] = settle(this.notes[i], n);
     this.emit();
   }
   markSpent(leafIndexes: number[]): void {
@@ -70,7 +106,8 @@ export class NoteStore {
   }
   /** Replace the contents with a journal's (on unlock). The counter never goes backwards. */
   load(data: { notes: SerializedNote[]; noteCounter: number }): void {
-    this.notes = data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}) }));
+    // a journal written before notes were one per leaf may hold a leaf twice: it loads once
+    this.notes = onePerLeaf(data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}) })));
     this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
     this.emit();
   }
