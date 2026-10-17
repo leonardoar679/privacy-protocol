@@ -207,9 +207,12 @@ export function formatUsd(usd: number, opts: { compact?: boolean } = {}): string
     if (usd >= 1e3) return `$${trim((usd / 1e3).toFixed(usd >= 1e5 ? 0 : 1))}K`;
     return `$${trim(usd.toFixed(2))}`;
   }
-  const whole = Math.floor(usd), cents = Math.round((usd - whole) * 100);
+  // in whole cents, the sign in front (the audit round of 2026-10-16, c56): −37.25 read "$-38.75" and 12.996 "$12.100"
+  const total = Math.round(Math.abs(usd) * 100);
+  const sign = usd < 0 && total > 0 ? "−" : "";
+  const whole = Math.floor(total / 100), cents = total % 100;
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return cents > 0 && usd < 1e6 ? `$${grouped}.${cents.toString().padStart(2, "0")}` : `$${grouped}`;
+  return cents > 0 && Math.abs(usd) < 1e6 ? `${sign}$${grouped}.${cents.toString().padStart(2, "0")}` : `${sign}$${grouped}`;
 }
 const trim = (s: string) => (s.includes(".") ? s.replace(/\.?0+$/, "") : s);
 

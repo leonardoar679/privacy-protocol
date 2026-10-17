@@ -126,6 +126,12 @@ describe("formatUsd", () => {
     expect(formatUsd(4_281_924.2)).toBe("$4,281,924");
     expect(formatUsd(120_345.5)).toBe("$120,345.50");
     expect(formatUsd(0.5)).toBe("$0.50");
+    // in whole cents, the sign in front (the audit round of 2026-10-16, c56): "$-38.75" and "$12.100" before
+    expect(formatUsd(-37.25)).toBe("−$37.25");
+    expect(formatUsd(12.996)).toBe("$13");
+    expect(formatUsd(0.999)).toBe("$1");
+    expect(formatUsd(-0.001)).toBe("$0");
+    expect(formatUsd(-1_250_000)).toBe("−$1,250,000");
     expect(formatUsd(4_281_924.2, { compact: true })).toBe("$4.28M");
     expect(formatUsd(120_000, { compact: true })).toBe("$120K");
     expect(formatUsd(2_500, { compact: true })).toBe("$2.5K");
