@@ -594,7 +594,17 @@ export class SwapApi {
     if (!tx && !ref) throw new BadRequest("tx (the execution transaction) or ref (the provider's reference) is required");
     if (tx !== undefined && !TX_HASH.test(tx)) throw new BadRequest("tx must be a transaction hash");
     if (ref !== undefined && !PROVIDER_REF.test(ref)) throw new BadRequest("ref must be a provider's reference");
-    const t = await adapter.track({ sourceTxHash: tx, providerRef: ref }).catch((e: unknown) => {
+    // the order's decimals, for a provider that tracks in its own units (THORChain's 1e8; the audit round of 2026-10-16, c25)
+    const decimalsOf = (name: string): number | undefined => {
+      const v = query.get(name);
+      if (v === null) return undefined;
+      if (!/^\d{1,2}$/.test(v) || Number(v) > 36) throw new BadRequest(`${name} must be a whole number of decimals from 0 to 36`);
+      return Number(v);
+    };
+    const out = decimalsOf("outDecimals"),
+      inn = decimalsOf("inDecimals");
+    const decimals = out !== undefined || inn !== undefined ? { ...(out !== undefined ? { out } : {}), ...(inn !== undefined ? { in: inn } : {}) } : undefined;
+    const t = await adapter.track({ sourceTxHash: tx, providerRef: ref, ...(decimals ? { decimals } : {}) }).catch((e: unknown) => {
       throw asProviderFailure(adapter.id, e);
     });
     // V3 §10: a settlement stall counts against the provider only for an execution the API itself knows — named by its

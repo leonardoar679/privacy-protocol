@@ -59,6 +59,11 @@ const fmtUnits = (units: string | bigint | undefined, decimals: number): string 
   return `${u / base}${frac ? `.${frac}` : ""}`;
 };
 const params = (s: StoredSwap) => s.params as { amount: string; executeDeadline: number; refundAfter: number };
+/** The order's output and input decimals, for the track (a provider that tracks in its own units: audit c25). */
+const decimalsOf = (s: StoredSwap): { outDecimals?: number; inDecimals?: number } => {
+  const r = req(s);
+  return { ...(Number.isInteger(r.to?.decimals) ? { outDecimals: r.to!.decimals } : {}), ...(Number.isInteger(r.from?.decimals) ? { inDecimals: r.from!.decimals } : {}) };
+};
 /** A tracker's base-unit amount, or 0 when it is not one. */
 const unitsOf = (x: string | undefined): bigint => { try { return x === undefined ? 0n : BigInt(x); } catch { return 0n; } };
 const req = (s: StoredSwap) => s.request as { from?: { symbol?: string; decimals?: number }; to?: { symbol?: string; decimals?: number } };
@@ -200,7 +205,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const executionTx = stored.executionTx ?? job?.executionTx;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const balance = await (r.balance ? r.balance(stored) : stored.fundedTx && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
-  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
+  const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...decimalsOf(stored), ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
   const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
   // journal: executionTx once, the read, a transition when the state changed
   if (s.isUnlocked()) {

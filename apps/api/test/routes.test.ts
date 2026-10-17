@@ -183,6 +183,10 @@ describe("the registries, the status, the risk view, the track, the guest quote"
     }
     expect((await h.get("/v1/track/thorchain")).status, "tx or ref is required").toBe(400);
     expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}`)).body).toMatchObject({ track: { state: "pending" }, status: "Pending" });
+    // the order's decimals for a provider that tracks in its own units (audit c25): whole numbers 0–36 only
+    expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}&outDecimals=18&inDecimals=6`)).status).toBe(200);
+    expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}&outDecimals=99`)).status).toBe(400);
+    expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}&inDecimals=1e3`)).status).toBe(400);
     expect((await h.post("/v1/guest/quote", swapRequest())).body.quotes).toHaveLength(1);
     expect((await h.get("/v1/gateway/health")).status).toBe(200);
   });

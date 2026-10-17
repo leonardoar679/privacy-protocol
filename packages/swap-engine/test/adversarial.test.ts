@@ -469,6 +469,13 @@ describe("§71 timeout / partial / refund / reorg / destination congestion — s
     const t2 = await withTamper([{ match: "/thorchain/tx/status/", offline: true, status: 200, json: () => ({ stages: { outbound_signed: { completed: true } }, out_txs: [{ id: "ABC", coins: [{ amount: "12345", asset: "BTC.BTC" }] }] }) }], () => new ThorchainAdapter().track({ sourceTxHash: "0x" + "44".repeat(32) }));
     expect(t2.state).toBe("destination-final");
     expect(t2.deliveredAmount).toBe(12345n);
+    // THORNode's amounts are 1e8 units: an ETH delivery and a USDC refund in their own base units (the audit round of 2026-10-16, c25)
+    const status = () => ({ stages: { outbound_signed: { completed: true } }, out_txs: [{ id: "OUT", memo: "OUT:X", coins: [{ amount: "250000000", asset: "ETH.ETH" }] }, { id: "BACK", memo: "REFUND:X", coins: [{ amount: "1000000000", asset: "ETH.USDC-0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48" }] }] });
+    const t3 = await withTamper([{ match: "/thorchain/tx/status/", offline: true, status: 200, json: status }], () => new ThorchainAdapter().track({ sourceTxHash: "0x" + "44".repeat(32), decimals: { out: 18, in: 6 } }));
+    expect(t3).toMatchObject({ state: "partial", deliveredAmount: 25n * 10n ** 17n, refundedAmount: 10n * 10n ** 6n });
+    const t4 = await withTamper([{ match: "/thorchain/tx/status/", offline: true, status: 200, json: status }], () => new ThorchainAdapter().track({ sourceTxHash: "0x" + "44".repeat(32) }));
+    expect(t4.deliveredAmount, "a native asset: its own decimals").toBe(25n * 10n ** 17n);
+    expect(t4.refundedAmount, "a token whose decimals are not given: no amount rather than a wrong one").toBeUndefined();
   }, 90_000);
   it("provider timeout: funded, executed, nothing delivered → REFUND_PENDING once the window opens, not before", () => {
     expect(recoverState(order, { now: 1500, escrowBalance: 100n, executed: true, refunded: false, track: { state: "pending" } })).toBe("PROVIDER_EXECUTING");

@@ -42,6 +42,12 @@ export function thorAssetShort(a: AssetRef): string {
 /** A UTXO chain carries the memo in OP_RETURN: at most 80 bytes (THORChain memo docs). */
 export const UTXO_MEMO_BYTES = 80;
 
+/** A native THORChain asset's own decimals (a token's are not known here: "CHAIN.SYMBOL-CONTRACT" gives undefined). */
+export function nativeDecimals(asset: unknown): number | undefined {
+  const NATIVE: Record<string, number> = { "BTC.BTC": 8, "ETH.ETH": 18, "BASE.ETH": 18, "ARB.ETH": 18, "AVAX.AVAX": 18, "BSC.BNB": 18, "LTC.LTC": 8, "DOGE.DOGE": 8, "BCH.BCH": 8, "GAIA.ATOM": 6, "TRON.TRX": 6, "XRP.XRP": 6 };
+  return typeof asset === "string" ? NATIVE[asset.toUpperCase()] : undefined;
+}
+
 /** THORChain amounts are 1e8-based regardless of the asset's decimals. */
 export const to1e8 = (amount: bigint, decimals: number) => (amount * 10n ** 8n) / 10n ** BigInt(decimals);
 export const from1e8 = (amount1e8: bigint, decimals: number) => (amount1e8 * 10n ** BigInt(decimals)) / 10n ** 8n;
@@ -291,7 +297,7 @@ export class ThorchainAdapter implements ProviderAdapter {
    * address (a missing memo counts as delivered) — so a stream whose remainder came back is `partial`, with both amounts; the stream's
    * progress comes from `stages.swap_status.streaming`.
    */
-  async track(ref: { sourceTxHash?: string }): Promise<TrackStatus> {
+  async track(ref: { sourceTxHash?: string; decimals?: { out?: number; in?: number } }): Promise<TrackStatus> {
     if (!ref.sourceTxHash) return { state: "unknown" };
     const id = ref.sourceTxHash.replace(/^0x/, "").toUpperCase();
     const { data } = await thornode<any>(`/thorchain/tx/status/${id}`);
@@ -299,13 +305,21 @@ export class ThorchainAdapter implements ProviderAdapter {
     const outs: any[] = data?.out_txs ?? [];
     const isRefund = (o: any) => String(o?.memo ?? "").toUpperCase().startsWith("REFUND:");
     const delivered = outs.filter((o) => !isRefund(o)), refunded = outs.filter(isRefund);
-    const sum = (xs: any[]) => xs.reduce((s: bigint, o: any) => s + BigInt(o?.coins?.[0]?.amount ?? 0), 0n);
+    // THORNode's amounts are THORChain's 1e8 units whatever the asset (the audit round of 2026-10-16, c25): read as the
+    // asset's own base units, an ETH delivery was ten billion times too small. Converted with the order's decimals, or the
+    // native asset's own; a token whose decimals are not known has no amount rather than a wrong one
+    const sum1e8 = (xs: any[]) => xs.reduce((s: bigint, o: any) => s + BigInt(o?.coins?.[0]?.amount ?? 0), 0n);
+    const inBase = (xs: any[], decimals: number | undefined): bigint | undefined => {
+      const d = decimals ?? nativeDecimals(xs[0]?.coins?.[0]?.asset);
+      return d === undefined ? undefined : from1e8(sum1e8(xs), d);
+    };
+    const sum = (xs: any[], which: "out" | "in") => inBase(xs, ref.decimals?.[which]);
     const streaming = st.swap_status?.streaming;
     const progress = streaming && Number(streaming.quantity) > 0 ? { parts: Number(streaming.quantity), done: Number(streaming.count ?? 0) } : undefined;
     if (outs.length && st.outbound_signed?.completed) {
-      if (delivered.length && refunded.length) return { state: "partial", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered), deliveredAsset: delivered[0].coins?.[0]?.asset, refundedAmount: sum(refunded), progress, raw: data };
-      if (!delivered.length) return { state: "refunded", refundedAmount: sum(refunded), progress, raw: data };
-      return { state: "destination-final", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered), deliveredAsset: delivered[0].coins?.[0]?.asset, progress, raw: data };
+      if (delivered.length && refunded.length) return { state: "partial", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered, "out"), deliveredAsset: delivered[0].coins?.[0]?.asset, refundedAmount: sum(refunded, "in"), progress, raw: data };
+      if (!delivered.length) return { state: "refunded", refundedAmount: sum(refunded, "in"), progress, raw: data };
+      return { state: "destination-final", destinationTxHash: delivered[0].id, deliveredAmount: sum(delivered, "out"), deliveredAsset: delivered[0].coins?.[0]?.asset, progress, raw: data };
     }
     if (st.swap_finalised?.completed) return { state: "destination-submitted", progress, raw: data };
     if (st.inbound_finalised?.completed) return { state: "executing", progress, raw: data };

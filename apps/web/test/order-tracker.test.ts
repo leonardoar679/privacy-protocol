@@ -157,8 +157,9 @@ describe("trackOrder", () => {
     }
     expect(urls).toHaveLength(2);
     const [first, second] = urls.map((u) => new URL(u).searchParams);
-    expect([...first.keys()]).toEqual(["tx"]);
-    expect([...second.keys()].sort()).toEqual(["operation", "tx"]);
+    // the order's decimals go with every track: THORChain tracks in its own 1e8 units (the audit round of 2026-10-16, c25)
+    expect([...first.keys()].sort()).toEqual(["inDecimals", "outDecimals", "tx"]);
+    expect([...second.keys()].sort()).toEqual(["inDecimals", "operation", "outDecimals", "tx"]);
     expect(second.get("operation")).toBe("op_aaaaaaaaaaaaaaaaaaaaaaaaaa");
     for (const u of urls) expect(u, "the wallet's own timing never leaves it").not.toMatch(/since=|expected=/);
   });

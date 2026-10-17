@@ -169,7 +169,8 @@ export interface ProviderAdapter {
   capabilities(): Capabilities;
   quote(req: QuoteRequest): Promise<Quote>;
   prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress>;
-  track(ref: { sourceTxHash?: string; providerRef?: string }): Promise<TrackStatus>;
+  /** `decimals`: the order's output (`out`) and input (`in`) assets' decimals, for a provider that tracks in its own units */
+  track(ref: { sourceTxHash?: string; providerRef?: string; decimals?: { out?: number; in?: number } }): Promise<TrackStatus>;
   health(): Promise<Health>;
 }
 
