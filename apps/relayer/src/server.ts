@@ -15,7 +15,7 @@
 import { createServer } from "node:http";
 import type { Hex } from "viem";
 import { Relayer, type RelayerConfig } from "./relayer";
-import { LATE_REFUND_WATCH_SECONDS, MAX_UNPAID_REFUNDS, SwapExecutor, loadEscrowCreationCode } from "./swapExecutor";
+import { LATE_REFUND_WATCH_SECONDS, MAX_UNPAID_REFUNDS, SwapExecutor, TERMINAL as SWAP_TERMINAL, loadEscrowCreationCode } from "./swapExecutor";
 import { LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS, ShieldExecutor } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
@@ -77,7 +77,7 @@ const PROXY_HOPS = proxyHopsFrom(process.env.TRUST_PROXY_HOPS); // the proxies i
 const RATE_PER_MINUTE = int("RATE_PER_MINUTE", 60, 1, 1_000_000);
 const limiter = new RateLimiter({ perMinute: RATE_PER_MINUTE, burst: Math.min(20, RATE_PER_MINUTE) });
 const MAX_SWAP_JOBS = int("MAX_SWAP_JOBS", 1000, 1, 1_000_000);
-const openSwapJobs = () => executor.list().filter((j) => !["refunded", "completed", "refund-failed"].includes(j.state)).length;
+const openSwapJobs = () => executor.list().filter((j) => !SWAP_TERMINAL.includes(j.state)).length;
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 
 const server = createServer(async (req, res) => {

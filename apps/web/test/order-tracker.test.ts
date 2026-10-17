@@ -81,6 +81,14 @@ describe("deriveState", () => {
 });
 const partial = (f: StoredSwap) => deriveState(f, facts({ job: job("executed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "1", refundedAmount: "1" } }));
 
+describe("an executor's job that ended with nothing in the escrow (a V6 follow-up of 2026-10-16, audit c07)", () => {
+  it("never funded: Not started; funded: the refund is looked for; the refund note found: Refunded", () => {
+    expect(deriveState(order({ jobId: "j" }), facts({ job: job("lapsed"), now: NOW + 30 * 3600_000 }))).toMatchObject({ state: "EXPIRED", label: "Not started" });
+    expect(deriveState(order({ fundedTx: "0x1", state: "funded", jobId: "j" }), facts({ job: job("lapsed") }))).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
+    expect(deriveState(order({ fundedTx: "0x1", state: "funded", jobId: "j", refunds: [{ leafIndex: 4, vault: "0x" + "e1".repeat(20), amount: "1" }] }), facts({ job: job("lapsed") }))).toMatchObject({ state: "REFUNDED" });
+  });
+});
+
 describe("a partial fill whose rest came back (a V6 follow-up of 2026-10-16)", () => {
   it("reads Partial with both amounts, not Refunded; a never-executed order's refund note still reads Refunded", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "300000000000000000" }] });

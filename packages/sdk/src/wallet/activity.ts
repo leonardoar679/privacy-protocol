@@ -32,7 +32,7 @@ export function deleteActivity(id: string, s: WalletSession = defaultSession): v
 /** A swap order's journal state → the Activity / Swap label (plan §33: never a bare "failed" for a funded order). */
 const SWAP_LABELS: Record<string, string> = {
   committed: "Pending", "waiting-funding": "Pending", funded: "Funded", executing: "Executing", executed: "Executing", completed: "Completed",
-  expired: "Refunding", "refund-only": "Refunding", refunding: "Refunding", refunded: "Refunded", "execute-failed": "Needs attention", "refund-failed": "Needs attention", abandoned: "Abandoned",
+  expired: "Refunding", "refund-only": "Refunding", refunding: "Refunding", refunded: "Refunded", "execute-failed": "Needs attention", "refund-failed": "Needs attention", abandoned: "Abandoned", lapsed: "Ended",
 };
 const PLAIN_LABELS: Record<string, string> = { completed: "Completed", pending: "Pending", failed: "Failed" };
 

@@ -7,7 +7,7 @@
 // gas), and records each receipt's actual cost. A V6 follow-up of 2026-10-15: an execution the node refused, or an RPC
 // that could not estimate a refund, leaves the job to the next tick (it was execute-failed, or refund-failed for good),
 // and a transaction the node dropped sends the job back to the state it was sent from. No real chain, no funds.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,7 +16,7 @@ import { createPublicClient, createWalletClient, decodeFunctionData, http, kecca
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
-import { SwapExecutor, SwapJobError, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
+import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -35,6 +35,10 @@ let gasPrice = "0x3b9aca00"; // 1 gwei
 let refuseSend = false;
 let estimateDown = false;
 let revertError: { code: number; message: string; data?: string } = { code: 3, message: "execution reverted: BadSignature()" };
+// the escrow's code and its `executed()` (a V6 follow-up of 2026-10-16, audit c08/c30: a copy of the executor's call can land first)
+let escrowCode: Hex = "0x";
+let escrowExecuted = false;
+const SEL_EXECUTED = toFunctionSelector("executed()");
 const taken = new Set<Hex>(); // what the node took
 const dropped = new Set<Hex>(); // what it no longer knows
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
@@ -48,6 +52,10 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(escrowBalance));
+    case "eth_getCode": return res(escrowCode);
+    case "eth_call":
+      if (String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_EXECUTED)) return res("0x" + (escrowExecuted ? "1" : "0").padStart(64, "0"));
+      return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "mock rpc: eth_call unsupported" } };
     case "eth_estimateGas": return estimateDown ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : revertSimulation ? { jsonrpc: "2.0", id: req.id, error: revertError } : res("0x7a120");
     case "eth_sendRawTransaction":
       if (refuseSend) return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "nonce too low" } };
@@ -420,6 +428,90 @@ describe("a never-executed order is refunded only when its escrow pays the tip (
     expect(job.state).toBe("refunding");
     const sent = parseTransaction(raws.find((r) => keccak256(r) === job.txHash)!);
     expect(decodeFunctionData({ abi: factoryAbi, data: sent.data! }).functionName).toBe("deployAndRefund");
+  });
+});
+
+describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30)", () => {
+  /** A request for a fresh order of the vector (its own orderId and escrow), signed and vouched. */
+  const fresh = (byte: string): SwapJobRequest => {
+    const r: SwapJobRequest = { ...request, params: { ...request.params, orderId: ("0x" + byte.repeat(32)) as Hex } };
+    const escrow = predictEscrow(r.factory, creationCode, { ...r.params, assetType: 0, amount: BigInt(r.params.amount), refundOwnerCommitment: BigInt(r.params.refundOwnerCommitment), refundNoteSecret: BigInt(r.params.refundNoteSecret), executorTip: BigInt(r.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, r.params.orderId, r.execution.provider, BigInt(r.execution.value), r.execution.providerCalldata, r.execution.deadline);
+    r.execution = { ...r.execution, signature: signExecution(ORDER_KEY, digest) };
+    return vouched(r, CHAIN_ID, creationCode);
+  };
+  const reset = () => {
+    escrowCode = "0x"; escrowExecuted = false; revertSimulation = false; receiptStatus = null; escrowBalance = 0n; clock = 1000;
+  };
+  // an executor of its own on the same chain: the mocked escrow answers for every address, and the shared executor's jobs
+  // must not see it
+  let own: SwapExecutor;
+  beforeEach(() => {
+    own = new SwapExecutor({ ...executor.cfg });
+  });
+
+  it("a copy of the executor's call landed first: our reverted execution leaves the order executed, never execute-failed", async () => {
+    try {
+      clock = 1000; escrowBalance = 0n; receiptStatus = null;
+      const job = own.add(fresh("c1"));
+      escrowBalance = BigInt(job.params.amount);
+      await own.tick();
+      expect(job.state).toBe("executing");
+      // the copy executed the escrow; ours reverted (AlreadyExecuted)
+      escrowCode = "0x6080"; escrowExecuted = true; escrowBalance = 0n; receiptStatus = "0x0";
+      await own.tick();
+      expect(job.state).toBe("executed");
+      expect(job.executed).toBe(true);
+      expect(job.error).toMatch(/another transaction/);
+    } finally {
+      reset();
+    }
+  });
+
+  it("an execution whose estimate reverts because the escrow was executed already: executed too", async () => {
+    try {
+      clock = 1000; escrowBalance = 0n;
+      const job = own.add(fresh("c2"));
+      escrowBalance = BigInt(job.params.amount);
+      escrowCode = "0x6080"; escrowExecuted = true; revertSimulation = true;
+      await own.tick();
+      expect(job.state).toBe("executed");
+      expect(job.executed).toBe(true);
+    } finally {
+      reset();
+    }
+  });
+
+  it("an order never funded ends a day past its window: lapsed, no longer read nor open; a refund-only request reopens it", async () => {
+    try {
+      clock = 1000; escrowBalance = 0n;
+      const job = own.add(fresh("c3"));
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS - 1;
+      await own.tick();
+      expect(job.state, "a day not yet past its window").not.toBe("lapsed");
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS;
+      await own.tick();
+      expect(job.state).toBe("lapsed");
+      expect(TERMINAL).toContain("lapsed");
+      // a funding that lands after all: the wallet's refund-only request re-opens the job
+      const again = own.addRefund(vouched({ factory: request.factory, params: job.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode));
+      expect(again.state).toBe("refund-only");
+    } finally {
+      reset();
+    }
+  });
+
+  it("an escrow that holds something a day past its window is refunded, never lapsed", async () => {
+    try {
+      clock = 1000; escrowBalance = 0n;
+      const job = own.add(fresh("c4"));
+      escrowBalance = BigInt(job.params.amount);
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS + 10;
+      await own.tick();
+      expect(job.state).toBe("refunding");
+    } finally {
+      reset();
+    }
   });
 });
 

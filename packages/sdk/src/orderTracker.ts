@@ -124,6 +124,12 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
     if (t?.state === "partial") return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded.`, extras);
     return out("COMPLETED", "Completed", [true, true, true, true], `${delivered ? `${delivered} delivered` : "Delivered"} at your fresh address; the executor's watch for a late refund ended with nothing left in the escrow.`, extras);
   }
+  // the executor's job ended with nothing in the escrow a day past its window (a V6 follow-up of 2026-10-16): never funded,
+  // or funded and back already — the refund note, once the scan finds it, makes it Refunded above
+  if (job === "lapsed")
+    return funded
+      ? out("REFUND_PENDING", "Refunding", [true, true, false, false], "The escrow holds nothing now and the executor's job has ended; the wallet looks for the refund in the pool.", extras)
+      : out("EXPIRED", "Not started", [true, false, false, false], "The order was never funded and its window has closed: nothing left your private balance.");
   if (job === "refunding" || job === "refund-only" || job === "expired") return out("REFUND_PENDING", "Refunding", [true, true, false, false], job === "refund-only" ? `Returning to your private balance: the escrow re-shields after ${new Date(p.refundAfter * 1000).toLocaleString()}.` : job === "expired" ? "The signed quote expired before execution; the escrow returns to your private balance after the window, or confirm again with a fresh quote." : "The executor is re-shielding the escrow into your private balance.", extras);
   if (job === "refund-failed" || job === "execute-failed") {
     const where = f.escrowBalance !== null ? `${fmtUnits(f.escrowBalance, from.decimals ?? 18)} ${from.symbol ?? ""} sits in the one-time escrow` : "the funds sit in the one-time escrow";

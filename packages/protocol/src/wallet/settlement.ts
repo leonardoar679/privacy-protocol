@@ -38,9 +38,23 @@ export function settlementOf(l: SettlementLegs): SettlementState | null {
 export const nextSettlement = (prev: SettlementState | null | undefined, legs: SettlementLegs | null): SettlementState | null =>
   legs ? settlementOf(legs) : (prev ?? null);
 
-/** The relayer's swap job states (apps/relayer/src/swapExecutor.ts; the wallet's packages/sdk/src/relayer.ts). */
+/**
+ * The relayer's swap job states (apps/relayer/src/swapExecutor.ts; the wallet's packages/sdk/src/relayer.ts). `lapsed` (a
+ * V6 follow-up of 2026-10-16): never executed, and the escrow held nothing a day past its window — never funded, or its
+ * funds already back, which the refund note then shows.
+ */
 export type SwapJobState =
-  "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+  | "waiting-funding"
+  | "expired"
+  | "refund-only"
+  | "executing"
+  | "executed"
+  | "execute-failed"
+  | "refunding"
+  | "refunded"
+  | "refund-failed"
+  | "completed"
+  | "lapsed";
 
 /** A vocabulary read into the operation's: the state, the phase, the catalog code of a failure or a delay. */
 export interface Mapped {
@@ -58,6 +72,9 @@ export const SWAP_JOB_MAP: Record<SwapJobState, Mapped> = {
   completed: { state: "COMPLETED", phase: "settlement" },
   expired: { state: "REFUNDING", phase: "settlement" },
   "refund-only": { state: "REFUNDING", phase: "settlement" },
+  // nothing in the escrow, never executed: its funds came back (the refund note found makes it REFUNDED) or never arrived
+  // (the wallet's own reads stop such an order unfunded)
+  lapsed: { state: "REFUNDING", phase: "settlement" },
   refunding: { state: "REFUNDING", phase: "settlement" },
   refunded: { state: "REFUNDED", phase: "settlement" },
   "execute-failed": { state: "RECOVERY_REQUIRED", phase: "execution", code: "execute_failed" },
@@ -101,7 +118,13 @@ export function legsFrom(f: LegFacts): SettlementLegs | null {
   if (f.jobUnread) return null; // the executor's job was not read
   const t = f.track?.state;
   const executed = job === "completed" || job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? f.executionTx));
-  if (job === "refunding" || job === "refund-only" || job === "expired" || (executed && job !== "completed" && (t === "refunded" || t === "failed")))
+  if (
+    job === "refunding" ||
+    job === "refund-only" ||
+    job === "expired" ||
+    job === "lapsed" ||
+    (executed && job !== "completed" && (t === "refunded" || t === "failed"))
+  )
     return { funded: true, executed, refund: "pending", refundable: false };
   if (executed) {
     if (job !== "completed" && !f.track) return null; // the provider's side was not read

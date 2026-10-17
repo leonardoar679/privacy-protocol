@@ -13,7 +13,7 @@ import type { SwapJobState } from "@privacy-wallet/sdk/relayer";
 import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
 const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED"];
-const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed"];
+const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed", "lapsed"];
 const TRANCHE_STATES: TrancheState[] = ["planned", "ready", "committed", "funded", "signed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "settled", "partial", "refunding", "refunded", "failed", "skipped"];
 const PAUSES: PauseReason[] = ["price-deviation", "provider-error", "chain-congestion", "route-degraded", "unexpected-destination", "security-incident", "anomaly", "reconcile", "bounds", "user", "wallet-pause", "velocity"];
 

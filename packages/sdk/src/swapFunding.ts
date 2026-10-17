@@ -22,7 +22,7 @@ import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
 
-export const CLOSED_STATES = ["completed", "refunded", "abandoned"];
+export const CLOSED_STATES = ["completed", "refunded", "abandoned", "lapsed"];
 export const isOpenSwap = (s: Pick<StoredSwap, "state">): boolean => !CLOSED_STATES.includes(s.state);
 
 /** The private asset a stored order was funded from (by the request's source asset). */

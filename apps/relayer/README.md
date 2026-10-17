@@ -64,6 +64,13 @@ simulation gate behave. ETH and ERC-20 escrows (`balanceOf` for tokens; an ERC-2
 value). A **re-signed execution for the same order replaces** a waiting / expired / failed one (quotes are
 short-lived while the privacy delay budget is long, so the wallet funds first and signs against a fresh
 quote at execution time); an order that is executing or settled ignores later executions.
+The executor reads an escrow's fate from the escrow itself (a V6 follow-up of 2026-10-16, audit c07/c08/c30).
+`deployAndExecute` is anyone's to send with the signed execution, so a copy of the executor's own call can land first and
+take the tip: an execution that then reverts (its receipt, or its estimate) for an escrow whose `executed()` is true
+leaves the job **executed**, under the late-refund watch and the unpaid budget, and so does an order found executed at its
+refund time. A job never executed whose escrow holds nothing `LAPSE_AFTER_SECONDS` (24 h) past its window is **lapsed**:
+never funded, or its funds already back. No pass reads it again and it no longer counts toward `MAX_SWAP_JOBS`; a
+refund-only request still reopens it.
 A provider can pay back after `refundAfter` (Across refunds an unfilled deposit with the settlement
 bundle after its fill deadline, 2 h after the quote): an **executed order stays watched** for
 `LATE_REFUND_WATCH_SECONDS` (24 h) past the window, everything that arrives re-shields, and only an

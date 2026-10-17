@@ -67,7 +67,8 @@ export interface SwapExecuteRequest {
 }
 /** A funded order the wallet will not execute: the executor re-shields it after the window (no execution needed). */
 export type SwapRefundRequest = Omit<SwapExecuteRequest, "execution">;
-export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+/** `lapsed` (a V6 follow-up of 2026-10-16): never executed, and the escrow held nothing a day past its window — never funded, or its funds already back. */
+export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed" | "lapsed";
 /** `executionTx`: the deployAndExecute transaction (whale spec §19), set once; `txHash` is reused by the executor's refund transactions. */
 export interface SwapJob { id: string; escrow: Address; state: SwapJobState; txHash?: Hex; executionTx?: Hex; error?: string; balance?: string; updatedAt: number }
 /** V6 Stage 12 (spec v2.0 §11.2): a same-chain swap's receipt for the shield executor; `deliverBy` the order's refundAfter. */
@@ -183,13 +184,14 @@ export function feeInVault(info: RelayerInfo, vault: Address, marginBps = 1000, 
 }
 
 /** What the user sees for a swap job (plan §33: never "atomic"). */
-export function swapJobStatus(s: SwapJobState): "Pending" | "Executing" | "Completed" | "Refunding" | "Refunded" | "Failed" {
+export function swapJobStatus(s: SwapJobState): "Pending" | "Executing" | "Completed" | "Refunding" | "Refunded" | "Ended" | "Failed" {
   switch (s) {
     case "waiting-funding": return "Pending";
     case "executing": case "executed": return "Executing";
     case "completed": return "Completed";
     case "expired": case "refund-only": case "refunding": return "Refunding";
     case "refunded": return "Refunded";
+    case "lapsed": return "Ended";
     default: return "Failed";
   }
 }

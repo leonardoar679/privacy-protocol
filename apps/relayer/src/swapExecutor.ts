@@ -45,9 +45,17 @@ export const factoryAbi = parseAbi([
 const erc20Abi = parseAbi(["function balanceOf(address owner) view returns (uint256)"]);
 const factoryConfigAbi = parseAbi(["function WRAPPED_NATIVE() view returns (address)"]);
 export const escrowAbi = parseAbi(["function refundToken(address token, bytes noteData)"]);
+/** The escrow's own record of its execution: deployAndExecute is anyone's to send with the signed execution (SwapOrderEscrow.sol). */
+const escrowStateAbi = parseAbi(["function executed() view returns (bool)"]);
 const vaultLinkAbi = parseAbi(["function core() view returns (address)", "function VAULT_FACTORY() view returns (address)", "function vaultOf(address asset) view returns (address)"]);
 /** How long an executed order is watched after `refundAfter` for a provider's late refund (PP-S11). */
 export const LATE_REFUND_WATCH_SECONDS = 24 * 3600;
+/**
+ * How long after `refundAfter` a job whose order never executed and whose escrow holds nothing is still looked at (a V6
+ * follow-up of 2026-10-16, audit c07): then it has ended — never funded, or its funds already back in the pool — and is
+ * `lapsed`, no longer read every pass nor counted among the open jobs (MAX_SWAP_JOBS).
+ */
+export const LAPSE_AFTER_SECONDS = 24 * 3600;
 const MAX_REFUND_TOKENS = 4;
 /** At most this many re-shields of an executed order, which no tip pays for (PP-S12). */
 export const MAX_UNPAID_REFUNDS = 3;
@@ -67,7 +75,7 @@ export interface SwapExecutionJson { provider: Address; value: string; providerC
 export interface SwapJobRequest { factory: Address; params: SwapParamsJson; execution: SwapExecutionJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; vouch?: { execution?: Hex; order?: Hex } }
 /** Return a funded order to the pool after its window, without executing it. */
 export interface SwapRefundRequest { factory: Address; params: SwapParamsJson; refundNoteData: Hex; refundTokens?: Address[]; refundFloors?: Record<string, string>; vouch?: { execution?: Hex; order?: Hex } }
-export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed";
+export type SwapJobState = "waiting-funding" | "expired" | "refund-only" | "executing" | "executed" | "execute-failed" | "refunding" | "refunded" | "refund-failed" | "completed" | "lapsed";
 /** `execution` is absent for a refund-only job. */
 /** `unpaidRefunds`: re-shields sent after execution, which no tip paid for (PP-S12). */
 /** `executionTx`: the deployAndExecute transaction, set once and never overwritten (whale spec §19: `txHash` is reused by refund transactions; the wallet tracks the destination side from this hash). */
@@ -96,7 +104,8 @@ const tooEarly = (e: unknown): boolean => {
 };
 const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).split("\n")[0].slice(0, n);
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
-const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed"];
+/** The states a job ends in: no pass looks at it again (but a refunded executed order's late-refund watch), and it is not open. */
+export const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed", "lapsed"];
 
 /** The escrow's creation code, as forge exported it (@privacy-wallet/contracts; part of every escrow's CREATE2 address). */
 export function loadEscrowCreationCode(): Hex {
@@ -129,7 +138,7 @@ function mergeRefunds(job: Pick<SwapJob, "refundTokens" | "refundFloors"> | unde
 }
 
 /** States in which a newer execution (re-signed with a fresh quote) may replace the stored one, or a refund-only request drop it. */
-const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-failed", "refund-only"];
+const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-failed", "refund-only", "lapsed"];
 
 export class SwapExecutor {
   private jobs = new Map<string, SwapJob>();
@@ -139,7 +148,7 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number; /** default LAPSE_AFTER_SECONDS */ lapseAfterSeconds?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -423,6 +432,32 @@ export class SwapExecutor {
     return { wait: true };
   }
 
+  /**
+   * Whether another transaction executed this order's escrow (a V6 follow-up of 2026-10-16, audit c08/c30): deployAndExecute
+   * is anyone's to send with the signed execution, so a copy of this executor's own can land first and take the tip. The
+   * escrow's `executed` says so. A chain that does not answer leaves the job as it was before this check.
+   */
+  private async executedElsewhere(job: SwapJob): Promise<boolean> {
+    if (job.executed) return false;
+    try {
+      const code = await this.cfg.publicClient.getCode({ address: job.escrow });
+      if (!code || code === "0x") return false;
+      return (await this.cfg.publicClient.readContract({ address: job.escrow, abi: escrowStateAbi, functionName: "executed" })) as boolean;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The order was executed by another transaction: the job goes on as executed (the late-refund watch, the unpaid re-shield budget). */
+  private markExecutedElsewhere(job: SwapJob): void {
+    job.executed = true;
+    job.state = "executed";
+    job.sent = undefined;
+    job.error = "executed by another transaction, a copy of this executor's own: its tip went to that sender";
+    job.updatedAt = Date.now();
+    this.persist();
+  }
+
   /** Record a note on the job once (not on every tick). */
   private note(job: SwapJob, msg: string): void {
     if (job.error === msg) return;
@@ -446,6 +481,8 @@ export class SwapExecutor {
     } catch (e) {
       if (!reverted(e)) { this.note(job, `could not estimate: ${firstLine(e, 200)}; retried next tick`); return; }
       if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return; }
+      // an execution that would revert because another transaction executed the escrow first: the order is executed
+      if (failed === "execute-failed" && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); return; }
       job.state = failed; job.error = `would revert: ${firstLine(e, 200)}`; job.updatedAt = Date.now();
       this.persist();
       return;
@@ -512,6 +549,8 @@ export class SwapExecutor {
         job.sent = undefined;
         job.gasUsed = receipt.gasUsed.toString();
         job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
+        // our execution reverted because a copy of it landed first: the order is executed all the same (audit c08/c30)
+        if (job.state === "executing" && !ok && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); continue; }
         if (job.state === "executing" && ok) job.executed = true;
         job.state = job.state === "executing" ? (ok ? "executed" : "execute-failed") : (ok ? "refunded" : "refund-failed");
         job.updatedAt = Date.now();
@@ -524,6 +563,9 @@ export class SwapExecutor {
       // provider paid back first (refundToken on the deployed escrow), then the order's asset (incl. WETH for ETH). After
       // execution nothing pays for that, so it is bounded (PP-S12): a budget per order, and a floor per asset
       if (now >= Number(p.refundAfter)) {
+        // an order this executor did not execute may have been executed by a copy of its call (audit c08/c30): then it is an
+        // executed order, under the watch and the budget of one
+        if (!job.executed && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); continue; }
         const foreign = await this.foreignHeld(job);
         const deployed = foreign.length > 0 && ((await this.cfg.publicClient.getCode({ address: job.escrow }).catch(() => undefined)) ?? "0x") !== "0x";
         const budget = !job.executed || this.unpaidBudgetLeft(job);
@@ -531,6 +573,13 @@ export class SwapExecutor {
         if (deployed && budget) for (const f of foreign) if ((acted = await this.refundForeign(job, f))) break;
         if (!acted && refundable > 0n && budget) acted = await this.refundOwn(job, refundable); // deploys it too
         if (acted) continue;
+        // never executed and nothing in the escrow a day past its window (audit c07): never funded, or its funds already
+        // back — the job has ended, and no pass reads it again
+        if (!job.executed && refundable === 0n && foreign.length === 0 && now >= Number(p.refundAfter) + (this.cfg.lapseAfterSeconds ?? LAPSE_AFTER_SECONDS)) {
+          job.state = "lapsed"; job.error = "ended: nothing in the escrow a day past its window"; job.updatedAt = Date.now();
+          this.persist();
+          continue;
+        }
         if (!budget && (foreign.length || refundable > 0n)) this.note(job, `the ${this.cfg.maxUnpaidRefunds ?? MAX_UNPAID_REFUNDS} re-shields after execution that no tip pays for are used: what arrives now stays in the escrow, where anyone can re-shield it`);
         else if (!deployed && foreign.length && refundable === 0n) this.note(job, "foreign tokens at an escrow that was never deployed: nothing here deploys it");
         if (job.state === "executed" && now >= watchEnd) { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); } // dust below its floor stays
