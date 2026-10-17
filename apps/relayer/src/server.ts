@@ -22,7 +22,7 @@ import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
 import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
 import { addressListSetting, bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
 import { edge } from "./edge";
-import { errorAnswer, infoAnswer, readJson } from "./answers";
+import { errorAnswer, infoAnswer, readJson, statusAnswer } from "./answers";
 import { adminAuthorized } from "./admin";
 import { join } from "node:path";
 
@@ -98,7 +98,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname.startsWith("/status/")) {
       const job = await relayer.status(url.pathname.slice("/status/".length) as Hex);
-      return job ? send(200, job) : send(404, { error: "unknown transaction" });
+      return job ? send(200, statusAnswer(job)) : send(404, { error: "unknown transaction" }); // never the fee note's opening
     }
     if (req.method === "GET" && url.pathname === "/swap") {
       // the whole job list is operator data (a campaign's escrows are not listable by anyone): a bearer token opens it

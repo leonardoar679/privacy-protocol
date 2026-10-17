@@ -4,7 +4,7 @@
 // path, and the request's body — and a body that was not JSON answered as the relayer's own error.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { errorAnswer, infoAnswer, readJson } from "../src/answers";
+import { errorAnswer, infoAnswer, readJson, statusAnswer } from "../src/answers";
 import { RelayerError } from "../src/relayer";
 import { ShieldJobError } from "../src/shieldExecutor";
 import { SwapJobError } from "../src/swapExecutor";
@@ -49,6 +49,37 @@ describe("the relayer's answer to a failed request", () => {
     expect(handler).toContain("errorAnswer(e)");
     expect(handler, "no message taken from an error").not.toMatch(/\.message/);
     expect(handler, "every body read as JSON through readJson").not.toMatch(/JSON\.parse/);
+  });
+});
+
+describe("what /status says of a submission (a V6 follow-up of 2026-10-16)", () => {
+  it("where it stands and what it cost, never the fee note's opening; the server answers with it", () => {
+    const job = {
+      txHash: "0x" + "ab".repeat(32),
+      nullifiers: ["1", "2"] as [string, string],
+      feeWei: "25000000000000000",
+      feeVault: "0x00000000000000000000000000000000000000e7",
+      feeOutputIndex: 2,
+      feeNoteSecret: "123456789",
+      feePayloadReadable: true,
+      submittedAt: 1_800_000_000,
+      status: "mined",
+      gasUsed: "1800000",
+      actualNetworkWei: "1800000000000000",
+      blockNumber: "17",
+    };
+    const a = statusAnswer(job);
+    expect(a).toEqual({
+      txHash: job.txHash,
+      status: "mined",
+      submittedAt: job.submittedAt,
+      gasUsed: "1800000",
+      actualNetworkWei: "1800000000000000",
+      blockNumber: "17",
+    });
+    expect(JSON.stringify(a)).not.toMatch(/feeWei|feeNoteSecret|feeVault|feeOutputIndex|nullifiers|123456789|25000000000000000/);
+    const server = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    expect(server).toContain("send(200, statusAnswer(job))");
   });
 });
 

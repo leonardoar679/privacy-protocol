@@ -21,6 +21,31 @@ export function errorAnswer(e: unknown): ErrorAnswer {
 }
 
 /**
+ * GET /status/:txHash: where a submission stands, and nothing of what it paid (a V6 follow-up of 2026-10-16). The job holds the
+ * fee note's opening — its amount, secret, vault and output — and transaction hashes are public, so anyone could read what
+ * every relayed spend paid, and from a percentage fee what it moved. The submitter got its fee in the submit answer.
+ */
+export function statusAnswer(job: {
+  txHash: string;
+  status: string;
+  submittedAt: number;
+  gasUsed?: string;
+  actualNetworkWei?: string;
+  droppedAt?: number;
+  blockNumber?: string;
+}): { txHash: string; status: string; submittedAt: number; gasUsed?: string; actualNetworkWei?: string; droppedAt?: number; blockNumber?: string } {
+  return {
+    txHash: job.txHash,
+    status: job.status,
+    submittedAt: job.submittedAt,
+    ...(job.gasUsed !== undefined ? { gasUsed: job.gasUsed } : {}),
+    ...(job.actualNetworkWei !== undefined ? { actualNetworkWei: job.actualNetworkWei } : {}),
+    ...(job.droppedAt !== undefined ? { droppedAt: job.droppedAt } : {}),
+    ...(job.blockNumber !== undefined ? { blockNumber: job.blockNumber } : {}),
+  };
+}
+
+/**
  * GET /info: the fee terms, and what this relayer runs for (a V6 follow-up of 2026-10-16) — the deployment's swap and shield
  * factories when set, and the swap service's addresses whose vouches it accepts (API_VOUCHER, lowercased; empty: it runs no
  * swaps). An operator rotating the API's key checks here that every relayer lists the new address before the API signs
