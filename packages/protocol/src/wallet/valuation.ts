@@ -124,16 +124,23 @@ export function agreePrices(reads: PriceRead[], spec: FeedSpec, now: number, tol
   }
   const newest = reads.reduce((m, r) => (r.roundId > m.roundId ? r : m));
   for (const r of reads) if (newest.roundId - r.roundId > 1n) return { disagree: `${spec.symbol}: ${r.source} is ${newest.roundId - r.roundId} rounds behind` };
-  return { ...newest, endpoints: reads.length, stale: isStale(newest, spec, now), heartbeatSeconds: spec.heartbeatSeconds };
+  // stale when any endpoint's round is (2026-10-17, the audit's unverified m61): one endpoint answering the next round with a
+  // fresh time had passed a feed the others showed stale — an honest round behind is at most a heartbeat older
+  return { ...newest, endpoints: reads.length, stale: reads.some((r) => isStale(r, spec, now)), heartbeatSeconds: spec.heartbeatSeconds };
 }
 export const isStale = (read: Pick<PriceRead, "updatedAt">, spec: Pick<FeedSpec, "heartbeatSeconds">, now: number): boolean => now - read.updatedAt > 2 * spec.heartbeatSeconds;
 const fmt1e8 = (x: bigint) => `${x / 100000000n}.${(x % 100000000n).toString().padStart(8, "0").slice(0, 2)}`;
 
 /** What a wallet or the engine holds after a read: per symbol, the agreed price or why there is none. */
 export interface Prices { chainId: number; at: number; feeds: Record<string, AgreedPrice | { unavailable: true; reason: string }> }
-export const availablePrice = (p: Prices | null | undefined, symbol: string): AgreedPrice | null => {
+/**
+ * The agreed price of `symbol`, or null when there is none or it is stale. With `now`, stale also by then (2026-10-17, the
+ * audit's unverified m62): the flag is the read's, and prices are kept after a failed refresh — a tier came from a price
+ * past twice its heartbeat.
+ */
+export const availablePrice = (p: Prices | null | undefined, symbol: string, now?: number): AgreedPrice | null => {
   const f = p?.feeds[symbol];
-  return f && !("unavailable" in f) && !f.stale ? f : null;
+  return f && !("unavailable" in f) && !f.stale && (now === undefined || !isStale(f, f, now)) ? f : null;
 };
 
 /** A cost in wei as `asset`'s base units at the agreed ETH and asset prices, rounded up; null without both prices (Privacy
@@ -186,7 +193,7 @@ export interface Assessment { value: Valuation; tier: Tier; /** the tier came fr
  */
 export function assess(o: { amount: bigint; decimals: number; symbol: string; prices: Prices | null; lastPrices?: Prices | null; thresholds?: TierThresholds; now: number }): Assessment {
   const t = o.thresholds ?? TIER_DEFAULTS;
-  const p = availablePrice(o.prices, o.symbol);
+  const p = availablePrice(o.prices, o.symbol, o.now);
   if (p) {
     const usd = usdOf(o.amount, o.decimals, p.usd1e8);
     return { value: { usd, at: o.now, source: "chainlink", feeds: [{ pair: `${o.symbol} / USD`, roundId: p.roundId.toString(), updatedAt: p.updatedAt }] }, tier: tierOf(usd, t), failSafe: false };

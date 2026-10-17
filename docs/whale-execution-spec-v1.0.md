@@ -393,7 +393,9 @@ read checks it again before the price is used. A deployment on another chain nam
 (`VITE_PRICE_FEEDS`, a JSON list of the same shape); without any, valuation is *not configured* and
 the wallet shows no USD. Endpoints agree when every answer is within 0.5 % of the median and no round
 is more than one behind the newest; the newest read is used. A price older than **2 × heartbeat** is
-*unavailable*. The wallet reads prices only once it holds unspent notes on a chain with feeds (never
+*unavailable* — when any endpoint's round is, and by the time it is used, not only when it was read (the audit's unverified
+m61/m62, 2026-10-17: one endpoint answering the next round with a fresh time hid a stale feed, and a price kept after a
+failed refresh tiered an amount long after). The wallet reads prices only once it holds unspent notes on a chain with feeds (never
 at first launch; `apps/web/test/first-launch.test.tsx` pins it; `test/prices.test.ts` the rest),
 caches a read for five minutes and journals the last good one (`journal.prices`, JSON form, §25) as
 the memory of the fail-safe. The service reads through its own `RPC_URLS` and applies the default

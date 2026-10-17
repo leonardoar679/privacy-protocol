@@ -77,6 +77,10 @@ describe("prices (spec §13)", () => {
     expect(isStale({ updatedAt: NOW - 7201 }, ETH, NOW)).toBe(true);
     const stale = agreePrices([read(2500, { updatedAt: NOW - 8000 })], ETH, NOW);
     if (!("disagree" in stale)) expect(stale.stale).toBe(true);
+    // one endpoint answering the next round with a fresh time does not hide a stale feed (the audit's unverified m61)
+    const lying = agreePrices([read(2500, { updatedAt: NOW - 8000 }), read(2500, { source: "rpc-b", roundId: 101n, updatedAt: NOW - 10 })], ETH, NOW);
+    expect("disagree" in lying).toBe(false);
+    if (!("disagree" in lying)) expect(lying.stale).toBe(true);
   });
   it("round-trips a read through its JSON (journal) form and refuses a broken one", () => {
     const p = prices(2571.28);
@@ -107,6 +111,10 @@ describe("assess (spec §1, §13)", () => {
     const stale = assess({ amount: 10n ** 18n, decimals: 18, symbol: "ETH", prices: prices(2500, { updatedAt: NOW - 90_000 }), now: NOW });
     expect(stale).toMatchObject({ tier: "high-value", failSafe: true });
     expect((stale.value as { reason: string }).reason).toMatch(/stale/);
+    // a price fresh when it was read and stale by now — kept after a failed refresh — is the fail-safe (the audit's unverified m62)
+    const later = assess({ amount: 10n ** 18n, decimals: 18, symbol: "ETH", prices: prices(2500), now: NOW + 3 * 3600 });
+    expect(later).toMatchObject({ tier: "high-value", failSafe: true });
+    expect((later.value as { reason: string }).reason).toMatch(/stale/);
     const noFeed = assess({ amount: 10n ** 18n, decimals: 18, symbol: "SOL", prices: prices(2500), now: NOW });
     expect((noFeed.value as { reason: string }).reason).toMatch(/no SOL \/ USD feed/);
     // the last journaled price (< 24 h) implies institutional for 5,000 ETH: the higher tier wins
