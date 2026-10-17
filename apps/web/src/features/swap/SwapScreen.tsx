@@ -25,6 +25,7 @@ import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/walle
 import { assessSwapPrivacy, timingOfFunding } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
+import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
@@ -215,8 +216,10 @@ export function SwapScreen(p: SwapScreenProps) {
       clearTimeout(timer);
       abort.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the quote follows what the user chose, not the price store's ticks
-  }, [quotable, units, fromAsset, target, edited, preference, protection.mode, submission, p.deployment, refresh]);
+    // the band too (2026-10-17, the audit's unverified m57): a quote fetched at the fail-safe band before the prices loaded,
+    // or just across the $50K line, carried another band's protection plan into the Review and the steps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the quote follows what the user chose and its band, not the price store's ticks
+  }, [quotable, units, fromAsset, target, edited, preference, protection.mode, submission, p.deployment, refresh, tier]);
   // the countdown while a quote is shown
   useEffect(() => {
     if (!quotes) return;
@@ -862,7 +865,14 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
         <SuccessCard
           testId="swap-steps-done"
-          title={c.state === "completed" ? t("screen.swap.stepsDone", { usd: total, pair }) : t("screen.swap.returned")}
+          title={
+            c.state === "completed"
+              ? t("screen.swap.stepsDone", { usd: total, pair })
+              : // steps delivered before it was cancelled: part of it is complete, never "Returned" alone (the audit's unverified m58)
+                exposure(c).completed > 0n
+                ? t("screen.swap.stepsPartly", { pair })
+                : t("screen.swap.returned")
+          }
           actions={
             <>
               <Button onClick={p.onDone} data-testid="swap-finish">

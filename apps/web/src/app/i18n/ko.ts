@@ -246,6 +246,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.swap.intoProtected": "보호 잔액으로 들어옵니다.",
   "screen.swap.addingToProtected": "전달됨 — 보호 잔액에 추가하는 중…",
   "screen.swap.returned": "보호 잔액으로 반환되었습니다.",
+  "screen.swap.stepsPartly": "{pair} 스왑의 일부가 완료되었습니다. 나머지는 보호 잔액에 있습니다.",
   "screen.swap.cancelled": "취소되었습니다. 보호 잔액에서 빠져나간 것은 없습니다.",
   "screen.swap.again": "다시 스왑",
   "screen.swap.minimumMoved": "이제 이 경로가 보장하는 최소 수령액은 {now} {symbol}입니다(승인한 최소 수령액: {approved} {symbol}).",

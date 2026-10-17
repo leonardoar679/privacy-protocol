@@ -239,6 +239,7 @@ export const en = {
   "screen.swap.intoProtected": "Arrives in your protected balance.",
   "screen.swap.addingToProtected": "Delivered — adding it to your protected balance…",
   "screen.swap.returned": "Returned to your protected balance.",
+  "screen.swap.stepsPartly": "Part of your {pair} swap is complete. The rest is in your protected balance.",
   "screen.swap.cancelled": "Cancelled. Nothing left your protected balance.",
   "screen.swap.again": "Swap again",
   "screen.swap.minimumMoved": "The route now guarantees at least {now} {symbol}; you approved {approved} {symbol}.",

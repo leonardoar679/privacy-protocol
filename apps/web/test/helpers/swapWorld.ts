@@ -60,6 +60,8 @@ export const world: {
   relayerInfo?: Record<string, unknown>;
   /** the same follow-up: what else the service's status names of its deployment (its voucher, its previousVouchers), when set */
   serviceDeployment?: Record<string, unknown>;
+  /** 2026-10-17 (the audit's unverified m57): the ETH / USD feed does not answer — the wallet's band is the fail-safe one */
+  feedDown?: boolean;
 } = {
   bend: {},
   rpcBend: {},
@@ -132,6 +134,7 @@ function rpc(req: any) {
   if (method === "eth_call") {
     const tx = req.params[0];
     if (String(tx.to).toLowerCase() === ETH_FEED) {
+      if (world.feedDown) return { jsonrpc: "2.0", id, error: { code: -32000, message: "mock: the feed does not answer" } };
       if (String(tx.data).startsWith("0x7284e416")) return { jsonrpc: "2.0", id, result: encodeAbiParameters([{ type: "string" }], ["ETH / USD"]) };
       const t = BigInt(Math.floor(Date.now() / 1000) - 60);
       return {
@@ -288,6 +291,7 @@ export function resetWorld(): void {
   world.protection = undefined;
   world.relayerInfo = undefined;
   world.serviceDeployment = undefined;
+  world.feedDown = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

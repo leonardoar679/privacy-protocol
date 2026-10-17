@@ -21,7 +21,7 @@ import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
 import { campaignProgressModel } from "../src/features/progress/model";
 import { confirmBlockers, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
-import { deployment, ETH_VAULT, fetchMock, resetWorld, world } from "./helpers/swapWorld";
+import { deployment, ETH_VAULT, fetchMock, requests, resetWorld, world } from "./helpers/swapWorld";
 
 beforeAll(() => {
   globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -129,6 +129,13 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
     expect(campaignById(c.id, session)?.state).toBe("winding-down");
     expect(campaignById(c.id, session)?.tranches.every((t) => t.state === "skipped")).toBe(true);
     expect(screen.getByTestId("swap-steps-note").textContent).toMatch(/Returning the rest/);
+    // cancelled with a step delivered: part of the swap is complete, never "Returned" alone (the audit's unverified m58)
+    const back = campaignById(c.id, session)!;
+    await act(async () => {
+      putCampaign({ ...back, state: "cancelled", tranches: back.tranches.map((x, i) => (i === 0 ? { ...x, state: "settled" as const } : x)) }, session);
+    });
+    expect((await screen.findByTestId("swap-steps-done")).textContent).toContain("Part of your ETH → BTC swap is complete.");
+    expect(screen.getByTestId("swap-steps-done").textContent).not.toContain("Returned to your protected balance.");
   });
 
   it("paused with a step funded: that step is said to be held for its swap, not in the protected balance (the audit round of 2026-10-16, c51)", async () => {
@@ -161,6 +168,30 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
         /a step already funded is held for its swap and returns to your protected balance after its refund time/,
       ),
     );
+  });
+
+  it("the quote follows the band: one fetched at the fail-safe band before the prices load is fetched again at the band they give (the audit's unverified m57)", async () => {
+    world.protection = bandPlan;
+    world.feedDown = true;
+    await session.create("a strong password");
+    session.acknowledgePhrase();
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 40n * ETH, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    priceStore.reset();
+    const from = requests.length;
+    const quoted = () =>
+      requests
+        .slice(from)
+        .filter((r) => r.url.endsWith("/v1/quotes"))
+        .map((r) => (JSON.parse(r.body!) as { tier?: string }).tier);
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await waitFor(() => expect(quoted().length).toBeGreaterThan(0), { timeout: 15_000 });
+    expect(quoted().at(-1), "no price: the fail-safe band").toBe("high-value");
+    world.feedDown = false;
+    await act(async () => {
+      await priceStore.refresh(deployment, { force: true });
+    });
+    await waitFor(() => expect(quoted().at(-1), "quoted again at the band of the price").toBe("large-protected"), { timeout: 15_000 });
   });
 
   it("below the band ($20K–$50K) the swap stays one order — the strict quote from the Medium band (spec v2.0 §2)", () => {
