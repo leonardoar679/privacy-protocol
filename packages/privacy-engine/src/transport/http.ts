@@ -29,9 +29,17 @@ export class TransportRefusal extends Error {
 /** Announces every request to the listener until the returned function is called. */
 export function onRequest(l: (r: RequestRecord) => void): () => void { listeners.add(l); return () => { listeners.delete(l); }; }
 
+const OWN_ORIGIN = "own-origin.invalid";
 export function hostOf(url: string): string | null {
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return ""; // relative: the page's own origin
-  try { return new URL(url).hostname.toLowerCase(); } catch { return null; }
+  // resolved as fetch resolves it, against a stand-in for the page's origin (2026-10-17, the audit's unverified m66): a
+  // protocol-relative "//host/…" (or "/\host/…", which the URL parser reads the same) had read as the page's own origin
+  // and passed the strict allowlist; a relative path is still the page's own origin ("")
+  try {
+    const host = new URL(url, `https://${OWN_ORIGIN}/`).hostname.toLowerCase();
+    return host === OWN_ORIGIN ? "" : host;
+  } catch {
+    return null;
+  }
 }
 
 /** Allows hosts (plain names or URLs); a comma-separated list is accepted. */

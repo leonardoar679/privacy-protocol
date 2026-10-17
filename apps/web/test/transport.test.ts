@@ -41,6 +41,12 @@ describe("the transport policy (spec §7)", () => {
     expect(hostOf("https://")).toBeNull(); // an absolute URL that does not parse
     expect(() => checkUrl("https://")).toThrow(TransportRefusal);
     expect(hostOf("zkapi/pin-check.json"), "no scheme: the page's own origin").toBe("");
+    // a protocol-relative URL names another host: never the page's own origin (the audit's unverified m66)
+    expect(hostOf("//evil.example/collect")).toBe("evil.example");
+    expect(hostOf("/\\evil.example/collect"), "a backslash reads as a slash").toBe("evil.example");
+    expect(() => checkUrl("//evil.example/collect")).toThrow(TransportRefusal);
+    await expect(secureFetch("//evil.example/collect")).rejects.toThrow(/not an endpoint of this deployment/);
+    expect(() => checkUrl("//rpc.example/v1"), "an allowed host stays allowed").not.toThrow();
   });
   it("fetchJson parses what parses and keeps the text; fetchFor is fetch-shaped and carries its purpose", async () => {
     const r = await fetchJson<{ ok: number }>("https://relayer.test/info", {}, "relayer");
