@@ -5,9 +5,10 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { startActiveTab } from "./activeTab";
 import { stepAside, startAutoLock } from "./autoLock";
 import { startConnectivity } from "./connectivity";
+import { prefs } from "../storage/prefs";
 
 export function startPlatform(): () => void {
-  const stops = [startAutoLock(), startConnectivity(), startActiveTab({ session, stepAside })];
+  const stops = [startAutoLock(), startConnectivity(), startActiveTab({ session, stepAside, refresh: () => prefs().reload() })];
   return () => {
     for (const s of stops) s();
   };

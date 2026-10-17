@@ -30,6 +30,12 @@ export interface PrefsStore {
   reset(): void;
   subscribe(l: () => void): () => void;
   flush(): Promise<void>;
+  /**
+   * What the store holds now, after this page's own writes: read again when this tab takes the wallet over from another
+   * (2026-10-17, the audit's unverified m46 — the store was read once per page, and a tab taking over wrote back the
+   * preferences it had loaded: another tab's backup time, experience and language lost).
+   */
+  reload(): Promise<void>;
 }
 
 export function parsePrefs(raw: unknown): Prefs {
@@ -43,16 +49,19 @@ export function createPrefsStore(): PrefsStore {
   let queue: Promise<void> = Promise.resolve();
   const emit = () => { for (const l of listeners) l(); };
   const persist = () => { if (!useIdb) return; const snapshot = JSON.stringify(current); queue = queue.then(() => idbPut("prefs", PREFS_KEY, snapshot), () => idbPut("prefs", PREFS_KEY, snapshot)).catch(() => undefined); };
-  const ready = (async () => {
+  const load = async (): Promise<void> => {
     if (!useIdb) return;
     try {
       const raw = await idbGet("prefs", PREFS_KEY);
       if (raw !== undefined) {
         const parsed = PrefsSchema.safeParse(JSON.parse(raw));
-        if (parsed.success) { current = parsed.data; emit(); } else persist(); // an unreadable preference is replaced by the defaults
+        // the screens hear only of a change: a read that finds what this page holds says nothing (a takeover's reload had
+        // re-applied a locale the page's URL no longer named)
+        if (parsed.success) { const changed = JSON.stringify(parsed.data) !== JSON.stringify(current); current = parsed.data; if (changed) emit(); } else persist(); // an unreadable preference is replaced by the defaults
       }
-    } catch { /* the defaults stand */ }
-  })();
+    } catch { /* what this page holds stands */ }
+  };
+  const ready = load();
   return {
     ready,
     backend: useIdb ? "indexeddb" : "memory",
@@ -67,6 +76,7 @@ export function createPrefsStore(): PrefsStore {
     reset: () => { current = { ...DEFAULT_PREFS }; persist(); emit(); },
     subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
     flush: () => queue,
+    reload: () => (queue = queue.then(load, load)),
   };
 }
 

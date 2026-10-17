@@ -52,6 +52,8 @@ export function startActiveTab(d: {
   locks?: LockManager | null;
   channel?: () => Channel | null;
   store?: TabStateStore;
+  /** what else is read again when this tab takes the wallet over: the preferences (the audit's unverified m46) */
+  refresh?: () => Promise<void>;
 }): () => void {
   const store = d.store ?? activeTab;
   const locks = d.locks === undefined ? (typeof navigator !== "undefined" ? (navigator.locks ?? null) : null) : d.locks;
@@ -83,6 +85,7 @@ export function startActiveTab(d: {
     taking = true;
     try {
       await d.session.reload().catch(() => undefined);
+      await d.refresh?.().catch(() => undefined);
     } finally {
       taking = false;
     }

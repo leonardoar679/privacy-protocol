@@ -118,6 +118,29 @@ describe("the secure store (spec §8)", () => {
     await r.ready;
     expect(r.get().experience, "an unreadable preference falls back to the defaults").toBe("simple");
   });
+  it("prefs: a page reads again what another page wrote, before it writes (the audit's unverified m46)", async () => {
+    const a = createPrefsStore();
+    const b = createPrefsStore();
+    await a.ready;
+    await b.ready;
+    a.update({ backup: { exportedAt: 1700000000000 } });
+    await a.flush();
+    await b.reload();
+    b.update({ experience: "advanced" });
+    await b.flush();
+    const r = createPrefsStore();
+    await r.ready;
+    expect(r.get(), "the other page's backup time kept").toMatchObject({ experience: "advanced", backup: { exportedAt: 1700000000000 } });
+    // a read again that finds what the page holds tells no screen (a locale taken from the URL stays); a change does
+    let heard = 0;
+    r.subscribe(() => heard++);
+    await r.reload();
+    expect(heard, "nothing new").toBe(0);
+    b.update({ theme: "dark" });
+    await b.flush();
+    await r.reload();
+    expect([heard, r.get().theme]).toEqual([1, "dark"]);
+  });
   it("without IndexedDB both stores run on memory and are ready at once", async () => {
     const saved = (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;
     delete (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;

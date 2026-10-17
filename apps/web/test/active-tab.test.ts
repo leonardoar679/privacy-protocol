@@ -87,8 +87,13 @@ async function browser() {
   const tab = (stepAsideToo = true) => {
     const session = new WalletSession(storage, KDF);
     const store = new TabStateStore();
-    const stop = startActiveTab({ session, stepAside: () => stepAsideToo && session.lock(), locks, channel, store });
-    return { session, store, stop };
+    const seen = { refreshes: 0, stateAtRefresh: [] as string[] };
+    const refresh = async () => {
+      seen.refreshes++;
+      seen.stateAtRefresh.push(store.get());
+    };
+    const stop = startActiveTab({ session, stepAside: () => stepAsideToo && session.lock(), locks, channel, store, refresh });
+    return { session, store, stop, seen };
   };
   return { tab };
 }
@@ -204,6 +209,19 @@ describe("one unlocked tab at a time", () => {
     expect(await a.session.unlock("pw")).toBe(true);
     await settle();
     expect([a.session.isUnlocked(), a.store.get(), b.session.isUnlocked()]).toEqual([true, "active", false]);
+  });
+
+  it("the tab that takes the wallet over reads the preferences again before it opens (the audit's unverified m46)", async () => {
+    const { tab } = await browser();
+    const a = tab();
+    const b = tab();
+    expect(await a.session.unlock("pw")).toBe(true);
+    await settle();
+    expect(await b.session.unlock("pw")).toBe(true);
+    await settle();
+    expect(b.store.get()).toBe("active");
+    expect(b.seen.refreshes, "read again once, as it took over").toBe(1);
+    expect(b.seen.stateAtRefresh[0], "before the wallet opened in it").not.toBe("active");
   });
 
   it("three tabs: the tab unlocked last wins, and only one is ever unlocked at the end", async () => {
