@@ -119,6 +119,10 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   if (refundedToo && executed && unitsOf(t?.deliveredAmount) > 0n)
     return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
+  // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of
+  // the output, and nothing said to have come back
+  if (t?.state === "partial" && t.deliveredAmount === undefined && t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase())
+    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t.deliveredAsset} at the destination instead of ${to.symbol}: the route gave another token.`, extras);
   const job = f.job?.state;
   if (s.shield && (job === "completed" || job === "executed" || job === "executing")) {
     const sj = s.shield.job?.state;

@@ -266,7 +266,11 @@ export class LifiAdapter implements ProviderAdapter {
       : data.status === "FAILED" ? "failed"
       : data.status === "PENDING" ? (data.receiving?.txHash ? "destination-submitted" : "executing")
       : data.status === "NOT_FOUND" ? "pending" : "unknown";
-    return { state, destinationTxHash: data.receiving?.txHash, deliveredAmount: data.receiving?.amount ? BigInt(data.receiving.amount) : undefined, deliveredAsset: data.receiving?.token?.symbol, raw: data };
+    // PARTIAL is another token at the destination (a bridge's alternative token when liquidity is low): its amount is never
+    // reported as the output's units (2026-10-17, the audit's unverified m60) — a campaign valued it at the expected rate,
+    // settled the step for that and planned the "rest" again
+    const otherToken = sub === "PARTIAL";
+    return { state, destinationTxHash: data.receiving?.txHash, deliveredAmount: data.receiving?.amount && !otherToken ? BigInt(data.receiving.amount) : undefined, deliveredAsset: data.receiving?.token?.symbol, raw: data };
   }
 
   async health(): Promise<Health> {

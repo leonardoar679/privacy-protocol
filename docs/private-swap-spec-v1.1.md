@@ -92,7 +92,7 @@ EXPIRED    CANCELLED                                                         ▼
 | PROVIDER_EXECUTING | `execute()` done; provider has the funds | `Executed` event |
 | DESTINATION_SUBMITTED / FINAL | provider's outbound seen / finalized on the destination chain | adapter `track()` |
 | COMPLETED | destination amount ≥ minOut received at the fresh address | — |
-| PARTIAL | provider delivered a different asset/amount than quoted (LI.FI documents this) | adapter status |
+| PARTIAL | provider delivered a different asset/amount than quoted (LI.FI documents this; its PARTIAL is another token, whose amount the adapter never reports as the output's — the audit's unverified m60, 2026-10-17) | adapter status |
 | PROVIDER_TIMEOUT | no outbound within the provider's window | — |
 | REFUND_PENDING | `refundAfter` reached, funds (or remainder) still in escrow | — |
 | REFUNDED | `refund()` re-shielded the balance as the committed fresh note | `Refunded` + vault `Deposited` |

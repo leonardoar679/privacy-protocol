@@ -99,6 +99,17 @@ describe("a partial fill whose rest came back (a V6 follow-up of 2026-10-16)", (
   });
 });
 
+describe("another token at the destination (the audit's unverified m60)", () => {
+  it("reads Partial with the token it came in, no amount of the output and nothing said to have come back", () => {
+    const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", provider: "lifi" });
+    const other = deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAsset: "USDC.e" } }));
+    expect(other).toMatchObject({ state: "PARTIAL", label: "Partial" });
+    expect(other.deliveredUnits).toBeUndefined();
+    expect(other.detail).toBe("Delivered in USDC.e at the destination instead of BTC: the route gave another token.");
+    expect(other.detail).not.toMatch(/came back|comes back/);
+  });
+});
+
 describe("trackOrder", () => {
   const KDF = { N: 1 << 12, r: 8, p: 1 };
   let s: WalletSession;

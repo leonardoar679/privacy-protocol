@@ -425,9 +425,11 @@ describe("§71 timeout / partial / refund / reorg / destination congestion — s
 
   it("LI.FI DONE/PARTIAL → partial → PARTIAL → refund of the remainder", async () => {
     const a = new LifiAdapter();
-    const s = await withTamper([{ match: "/status", offline: true, json: () => ({ status: "DONE", substatus: "PARTIAL", receiving: { amount: "1", txHash: "0x01" } }) }], () => a.track({ sourceTxHash: "0x" + "00".repeat(32) }));
+    const s = await withTamper([{ match: "/status", offline: true, json: () => ({ status: "DONE", substatus: "PARTIAL", receiving: { amount: "1", txHash: "0x01", token: { symbol: "USDC.e" } } }) }], () => a.track({ sourceTxHash: "0x" + "00".repeat(32) }));
     expect(s.state).toBe("partial");
-    expect(s.deliveredAmount).toBe(1n);
+    // another token at the destination: its amount is never the output's units (the audit's unverified m60)
+    expect(s.deliveredAmount).toBeUndefined();
+    expect(s.deliveredAsset).toBe("USDC.e");
     expect(chain("PROVIDER_EXECUTING", ["partial", "refund-window", "refunded"])).toBe("REFUNDED");
     expect(recoverState(order, { now: 2500, escrowBalance: 3n, executed: true, refunded: false, track: { state: "partial" } })).toBe("PARTIAL");
   }, 60_000);
