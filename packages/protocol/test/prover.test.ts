@@ -10,7 +10,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { encodeProof, expectedPublicSignals, proveInputs, proveTransaction, publicInputsFromSignals, PUBLIC_SIGNALS } from "../src/prover";
-import { deriveKeys, deriveNoteSecret } from "../src/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "../src/note";
 import { nullifier } from "../src/nullifier";
 import { MerkleTree } from "../src/merkle";
@@ -77,5 +77,30 @@ describe.skipIf(!have)("wallet-side prover (real artifacts, dev setup)", () => {
     // the ordering guard: a shuffled signal list is rejected
     expect(() => publicInputsFromSignals(call.publicSignals.slice(1))).toThrow(/expected 14/);
     expect(expectedPublicSignals({ ...({} as any), root: "1", nullifier: ["2", "3"], outputBody: ["4", "5", "6"], mode: "1", withdrawalVault: "7", withdrawalAmount: "8", withdrawalRecipient: "9", outDataHash: ["10", "11", "12"], txDomain: "13" })).toEqual([1n, 2n, 3n, 4n, 5n, 6n, 1n, 7n, 8n, 9n, 10n, 11n, 12n, 13n]);
+  }, 180_000);
+
+  it("proves a merge of a deposited note under its own owner key with a note of the privacy address, and verifies it (audit c18: the unchanged circuit takes a key per input)", async () => {
+    const keys = deriveKeys(utf8ToBytes("prover-test-seed"));
+    const oc = ownerCommitmentOf(keys.spendKey);
+    const vault = 0x1234n, core = 0xc0ffeen, chainId = 31337n;
+    const secret = deriveNoteSecret(keys.noteKey, 0);
+    const ownKey = deriveOwnerKey(keys.spendKey, secret);
+    const deposited: SpendNote = { spendKey: ownKey, ownerCommitment: ownerCommitmentOf(ownKey), vaultId: vault, amount: 10n ** 18n, noteSecret: secret, leafIndex: 0 };
+    const change: SpendNote = { spendKey: keys.spendKey, ownerCommitment: oc, vaultId: vault, amount: 5n * 10n ** 17n, noteSecret: deriveNoteSecret(keys.noteKey, 1), leafIndex: 4 };
+    const tree = new MerkleTree(TX_LEVELS);
+    tree.insertLeaf(noteCommitment(noteBody(deposited), 0n));
+    tree.insertLeaf(noteCommitment(noteBody(change), 4n));
+    let ctr = 100;
+    const rnd = () => deriveNoteSecret(keys.noteKey, ctr++);
+    const merged: Note = { vaultId: vault, amount: 15n * 10n ** 17n, ownerCommitment: oc, noteSecret: deriveNoteSecret(keys.noteKey, 2) };
+    const payloads = [testNoteData(1n), testNoteData(2n), testNoteData(3n)];
+    const call = await proveTransaction(snarkjs, {
+      leaves: tree.leaves, inputs: [deposited, change], outputs: [merged, dummyOutput(vault, rnd), dummyOutput(vault, rnd)],
+      withdrawal: null, outDataHash: payloads.map(noteDataHash) as [bigint, bigint, bigint], txDomain: txDomain(chainId, core),
+    }, { wasm, zkey, verificationKey: vk });
+    expect(call.publicInputs.nullifier0).toBe(nullifier(noteCommitment(noteBody(deposited), 0n), ownKey));
+    expect(call.publicInputs.nullifier1).toBe(nullifier(noteCommitment(noteBody(change), 4n), keys.spendKey));
+    expect(call.publicInputs.outputBody0).toBe(noteBody(merged));
+    expect(await snarkjs.groth16.verify(vk, call.publicSignals.map(String), call.proofJson)).toBe(true);
   }, 180_000);
 });

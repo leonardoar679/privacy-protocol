@@ -32,7 +32,8 @@ export async function startMockCore(o: MockCoreOptions) {
   const FEED_REGISTRY = "0x47fb2585d2c56fe188d0e6ec628a38b74fceeedf";
   const pad32 = (v: bigint) => ("0x" + v.toString(16).padStart(64, "0")) as Hex;
   const events: Record<number, MockEvent> = { ...o.events };
-  const state = { root: o.root, spent: false, next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, methods: [] as string[] };
+  // `spent`: every nullifier reads spent; `spentNullifiers`: these do (the audit round of 2026-10-16, c18: a note's own key's nullifier)
+  const state = { root: o.root, spent: false, spentNullifiers: new Set<bigint>(), next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, methods: [] as string[] };
   const feedAt = (to: string) => Object.entries(state.feeds).find(([a]) => a.toLowerCase() === to.toLowerCase())?.[1];
   const logFor = (leafIndex: number, l: MockEvent) => ({
     address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex } }),
@@ -83,7 +84,7 @@ export async function startMockCore(o: MockCoreOptions) {
         }
         if (data.startsWith(selNext)) return res(pad32(BigInt(state.next)));
         if (data.startsWith(selRoot)) return res(pad32(state.root));
-        if (data.startsWith(selSpent)) return res(pad32(state.spent ? 1n : 0n));
+        if (data.startsWith(selSpent)) return res(pad32(state.spent || state.spentNullifiers.has(BigInt("0x" + data.slice(10, 74))) ? 1n : 0n));
         return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
       }
       default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };

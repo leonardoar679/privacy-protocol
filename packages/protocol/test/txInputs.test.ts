@@ -6,7 +6,7 @@ import { hash2 } from "../src/poseidon";
 import { MerkleLayers, MerkleTree, ZERO_LEAF, merkleProof } from "../src/merkle";
 import { noteBody, noteCommitment, ownerCommitmentOf, encodeNote, decodeNote } from "../src/note";
 import { nullifier, phantomNullifier } from "../src/nullifier";
-import { deriveKeys, deriveNoteSecret } from "../src/keys";
+import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteDataHash, testNoteData, txDomain, NOTE_DATA_BYTES } from "../src/payload";
 import { buildTxInputs, dummyOutput, type SpendNote, type TxSpec } from "../src/txInputs";
 
@@ -136,6 +136,33 @@ describe("buildTxInputs", () => {
   it("refuses to spend a note under a foreign key or a wrong secret", () => {
     expect(() => buildTxInputs({ ...spec, inputs: [{ ...spend, spendKey: 12345n }, null] })).toThrow(/does not own/);
     expect(() => buildTxInputs({ ...spec, inputs: [{ ...spend, noteSecret: 1n }, null] })).toThrow(/does not open/);
+  });
+
+  it("inputs may have different owner keys: a deposited note's own and the spend key (audit c18; no circuit change)", () => {
+    const secret5 = deriveNoteSecret(keys.noteKey, 5);
+    const key5 = deriveOwnerKey(keys.spendKey, secret5);
+    const deposited = { vaultId: VAULT, amount: ONE, ownerCommitment: ownerCommitmentOf(key5), noteSecret: secret5 };
+    const main4 = { ...note0, noteSecret: deriveNoteSecret(keys.noteKey, 6) };
+    const cmDep = noteCommitment(noteBody(deposited), 0n), cm4 = noteCommitment(noteBody(main4), 4n);
+    const t2 = new MerkleTree(32);
+    t2.insertLeaf(cmDep);
+    t2.insertLeaf(cm4);
+    const mixed: TxSpec = {
+      leaves: t2.leaves,
+      inputs: [{ ...deposited, spendKey: key5, leafIndex: 0 }, { ...main4, spendKey: keys.spendKey, leafIndex: 4 }],
+      outputs: [out(2n * ONE), dummyOutput(VAULT, rnd), dummyOutput(VAULT, rnd)],
+      withdrawal: null,
+      outDataHash: [1n, 2n, 3n],
+      txDomain: 99n,
+    };
+    const i = buildTxInputs(mixed);
+    expect(i.inOwnerKey).toEqual([key5.toString(), keys.spendKey.toString()]);
+    expect(i.nullifier).toEqual([nullifier(cmDep, key5).toString(), nullifier(cm4, keys.spendKey).toString()]);
+    // each input under the other's key is refused
+    expect(() => buildTxInputs({ ...mixed, inputs: [{ ...deposited, spendKey: keys.spendKey, leafIndex: 0 }, { ...main4, spendKey: key5, leafIndex: 4 }] })).toThrow(/does not own/);
+    // alone, the deposited note's phantom is bound to its own key (PP-P02 holds: that key is secret)
+    const single = buildTxInputs({ ...mixed, inputs: [{ ...deposited, spendKey: key5, leafIndex: 0 }, null], outputs: [out(ONE), dummyOutput(VAULT, rnd), dummyOutput(VAULT, rnd)] });
+    expect(single.nullifier).toEqual([nullifier(cmDep, key5).toString(), phantomNullifier(nullifier(cmDep, key5), 1, key5).toString()]);
   });
 
   it("refuses value or asset violations", () => {

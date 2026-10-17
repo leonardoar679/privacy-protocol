@@ -21,7 +21,8 @@ import { dummyNoteData, encryptNoteData, viewKeyPair } from "@privacy-wallet/pro
 import { decodePrivacyAddress, encodePrivacyAddress } from "@privacy-wallet/protocol/address";
 import { nullifier } from "@privacy-wallet/protocol/nullifier";
 import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
-import { discoverNotes } from "./core";
+import { openNotePayloads } from "./core";
+import { mainOwnerCommitment, NoOwnerKey, ownedOpening, ownerKeyOf } from "./keys/ownerKeys";
 import { noteStore, type OwnedNote } from "./wallet/notes";
 import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
@@ -238,12 +239,27 @@ export interface FeeTerms { ownerCommitment: bigint; viewPub: Uint8Array; amount
 export interface FeeOutput { note: Note; outputIndex: 0 | 1 | 2 }
 export interface WithdrawalPlan { spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: { note: Note; noteData: Hex; counter: number }; fee?: FeeOutput }
 
+/** The key that spends one of this wallet's notes (keys/ownerKeys.ts), or NoOwnerKey before anything is proved. */
+function spendKeyOf(keys: WalletKeys, n: OwnedNote): bigint {
+  const key = ownerKeyOf(keys, n.note);
+  if (key === null) throw new NoOwnerKey(n.leafIndex);
+  return key;
+}
+
 function pickInputs(keys: WalletKeys, vaultId: bigint, needed: bigint, from?: OwnedNote[]): { spent: OwnedNote[]; inputs: [SpendNote, SpendNote | null]; change: bigint } {
-  const mine = from ?? noteStore.unspent(vaultId);
+  // each note with the key that spends it (the audit round of 2026-10-16, c18): one this wallet's keys do not open is left
+  // out of the choice, rather than failing every spend of the asset that picks it
+  const main = mainOwnerCommitment(keys);
+  const keyOf = new Map<number, bigint>();
+  const mine = (from ?? noteStore.unspent(vaultId)).filter((n) => {
+    const key = ownerKeyOf(keys, n.note, main);
+    if (key !== null) keyOf.set(n.leafIndex, key);
+    return key !== null;
+  });
   const sel = selectInputs(mine.map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })), needed);
   if (sel.merges.length) throw new Error("this amount needs a private merge of smaller notes first (ensureSpendable)");
   const spent = sel.inputs.map((i) => mine.find((n) => String(n.leafIndex) === i.id)!);
-  const asSpend = (n: OwnedNote): SpendNote => ({ ...n.note, spendKey: keys.spendKey, leafIndex: n.leafIndex });
+  const asSpend = (n: OwnedNote): SpendNote => ({ ...n.note, spendKey: keyOf.get(n.leafIndex)!, leafIndex: n.leafIndex });
   return { spent, inputs: [asSpend(spent[0]), spent[1] ? asSpend(spent[1]) : null], change: sel.change };
 }
 
@@ -472,7 +488,7 @@ export function planMerge(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint
   const keys = deriveKeys(masterSeed);
   const total = a.note.amount + b.note.amount - (fee?.amount ?? 0n);
   if (total <= 0n) throw new Error("the notes do not even cover the relayer fee");
-  const asSpend = (n: OwnedNote): SpendNote => ({ ...n.note, spendKey: keys.spendKey, leafIndex: n.leafIndex });
+  const asSpend = (n: OwnedNote): SpendNote => ({ ...n.note, spendKey: spendKeyOf(keys, n), leafIndex: n.leafIndex });
   const counter = noteStore.allocateCounter();
   const mergedNote: Note = { vaultId, amount: total, ownerCommitment: ownerCommitmentOf(keys.spendKey), noteSecret: deriveNoteSecret(keys.noteKey, counter) };
   const merged = { note: mergedNote, noteData: encryptForSelf(keys, mergedNote), counter };
@@ -559,7 +575,7 @@ export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote
   const feeOut: FeeOutput | undefined = fee ? { note: feeNote(vaultId, fee), outputIndex: 2 } : undefined;
   const noteData: [Hex, Hex, Hex] = [pieceOut.noteData, restOut.noteData, feeOut ? encryptTo(fee!.viewPub, feeOut.note) : placeholderNoteData()];
   const spec: TxSpec = {
-    ...treeSpec(tree), inputs: [{ ...note.note, spendKey: keys.spendKey, leafIndex: note.leafIndex }, null], outputs: [pieceOut.note, restOut.note, feeOut?.note ?? dummy(vaultId)],
+    ...treeSpec(tree), inputs: [{ ...note.note, spendKey: spendKeyOf(keys, note), leafIndex: note.leafIndex }, null], outputs: [pieceOut.note, restOut.note, feeOut?.note ?? dummy(vaultId)],
     withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: domain,
   };
   return { spec, noteData, spent: [note], piece: pieceOut, rest: restOut, fee: feeOut };
@@ -625,8 +641,10 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
 
 /**
  * Note discovery (spec §12): walk every NoteInserted payload, open the ones encrypted to our view
- * key, keep only those that reproduce the leaf's commitment with OUR owner commitment, and read
- * their spent status from the core's nullifier set. Idempotent: known leaves are only updated.
+ * key, keep only those that reproduce the leaf's commitment with OUR owner commitment — the privacy
+ * address's, or (the audit round of 2026-10-16, c18) a deposited note's own, derived from the opened
+ * secret with the spend key on this thread —, and read their spent status from the core's nullifier
+ * set, each by its own key's nullifier. Idempotent: known leaves are only updated.
  * On a chain the light client serves (plan §38), the tree the payloads came from must contain the
  * pool proven at the latest finalized block (a forged event cannot add a note there), and each found
  * note's spent status is also proven at that block: an endpoint that calls a spent note unspent is
@@ -635,9 +653,17 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
 /** Found notes into the store, each with its spent status: the RPC quorum's answer and, where a light client applies, the proven one. */
-async function recordFound(d: Deployment, keys: WalletKeys, found: FoundNote[]): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
+async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[]): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
   const client = clientFor(d);
-  const nullifiers = found.map((f) => nullifier(f.commitment, keys.spendKey));
+  // each note's nullifier is its own key's (the audit round of 2026-10-16, c18): with the spend key, a spent deposited note
+  // would read unspent for good. A note neither key opens is left out, not the whole scan
+  const main = mainOwnerCommitment(keys);
+  const keyed = all.flatMap((f) => {
+    const key = ownerKeyOf(keys, f.note, main);
+    return key === null ? [] : [{ f, key }];
+  });
+  const found = keyed.map((k) => k.f);
+  const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
   const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
   const proven = await provenSpent(d, nullifiers);
   let added = 0, spentCount = 0;
@@ -710,7 +736,15 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   await verifyTree(o.deployment, tree, o.onStatus);
   poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
   const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
-  const hits = await discoverNotes(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
+  const opened = await openNotePayloads(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
+  // the notes made out to the privacy address, and the deposited notes made out to their own owner commitment (the audit
+  // round of 2026-10-16, c18), each kept only when it reproduces its leaf
+  const main = mainOwnerCommitment(keys);
+  const hits = opened.flatMap((op) => {
+    const l = byLeaf.get(op.leafIndex);
+    const note = l ? ownedOpening(keys, op, l.commitment, main) : null;
+    return note ? [{ leafIndex: op.leafIndex, note }] : [];
+  });
   // which counters this wallet used, by the secrets of the notes it found (PP-P03: a phrase-only restore has no journal counter)
   const counters = usedCounters(keys.noteKey, hits.map((h) => h.note.noteSecret));
   const found: FoundNote[] = hits.map(({ leafIndex, note }) => { const l = byLeaf.get(leafIndex)!; const c = counters.get(note.noteSecret); return { leafIndex, note, commitment: l.commitment, noteData: l.noteData, txHash: l.transactionHash, label: "discovered", ...(c !== undefined ? { counter: c } : {}) }; });
@@ -722,10 +756,11 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, found);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
-  // a note this wallet's seed did not make (no counter) and that is no swap's refund or delivery: someone sent it here
+  // a note this wallet's seed did not make (no counter), made out to the privacy address (only this wallet derives a
+  // deposited note's own owner commitment), and that is no swap's refund or delivery: someone sent it here
   const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
   const received: ReceivedNote[] = addedNotes
-    .filter((f) => f.counter === undefined && !refundLeaves.has(f.leafIndex))
+    .filter((f) => f.counter === undefined && !refundLeaves.has(f.leafIndex) && f.note.ownerCommitment === main)
     .map((f) => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash }));
   o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
   return { scanned: logs.length, ...r, refunds: refunds.length, received };

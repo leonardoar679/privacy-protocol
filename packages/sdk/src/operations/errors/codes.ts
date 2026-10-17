@@ -81,6 +81,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   destination_not_protectable: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   // the service has the order's asset under another symbol or decimals, or not at all (a V6 follow-up of 2026-10-16): no order exists
   asset_mismatch: { source: "service", fundsClass: "not-moved", actions: ["check-settings"] },
+  // a note to spend that neither the spend key nor a deposited note's own key opens (the audit round of 2026-10-16, c18):
+  // refused before anything is proved
+  no_owner_key: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
   provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
