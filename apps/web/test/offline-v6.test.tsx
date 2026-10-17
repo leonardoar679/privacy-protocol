@@ -2,6 +2,7 @@
 // Offline (spec v2.0 §7.11, §12.5; doc §75; V6 Stage 15): the banner's three lines while the connection is interrupted;
 // the scheduler runs nothing while offline (the action stays due) and runs it once the browser is back online.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
@@ -52,6 +53,49 @@ describe("offline (doc §75)", () => {
     await probe();
     expect(fetchSpy, "online: no probe").not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it("the probe asks the services the wallet uses: the relayer down, the swap service's answer brings it back; the user's own relayer, never the build's default (the audit round of 2026-10-16, c60)", async () => {
+    for (let i = 0; i < FAILURES_TO_OFFLINE; i++) connectivity.unreachable();
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      asked.push(url);
+      if (url.endsWith("/info")) throw new TypeError("Failed to fetch"); // the relayer is down
+      return new Response("{}", { status: 200 });
+    });
+    try {
+      await probe();
+      expect(
+        asked.some((u) => u.endsWith("/info")),
+        "the relayer is asked",
+      ).toBe(true);
+      expect(
+        asked.some((u) => u.endsWith("/v1/status")),
+        "and the swap service",
+      ).toBe(true);
+      expect(connectivity.get().online, "an answer from any of them is the network back").toBe(true);
+      const own = "http://127.0.0.1:18790";
+      settings.set({ submission: { kind: "relayer", url: own } });
+      for (let i = 0; i < FAILURES_TO_OFFLINE; i++) connectivity.unreachable();
+      asked.length = 0;
+      await probe();
+      expect(
+        asked.filter((u) => u.endsWith("/info")),
+        "the user's relayer, not the build's",
+      ).toEqual([`${own}/info`]);
+      settings.set({ submission: { kind: "wallet" } });
+      for (let i = 0; i < FAILURES_TO_OFFLINE; i++) connectivity.unreachable();
+      asked.length = 0;
+      await probe();
+      expect(
+        asked.some((u) => u.endsWith("/info")),
+        "the connected wallet submits: no relayer is told",
+      ).toBe(false);
+    } finally {
+      settings.reset();
+      fetchSpy.mockRestore();
+    }
   });
 
   it("a probe the relayer never answers ends when the next one starts: probes never pile up", async () => {
