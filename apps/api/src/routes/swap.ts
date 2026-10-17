@@ -65,6 +65,9 @@ export function guestStatus(s: TrackStatus["state"]): UserStatus {
 
 export class BadRequest extends Error {}
 
+const otherOrder: Answer = { status: 409, body: { error: "these params are another order's", code: "order_mismatch" } };
+const sameEscrow = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
 /** How far ahead a restored order's refund may be, besides the refund window: the longest delay budget (72 h) and a day. */
 export const RESTORE_HORIZON_SECONDS = 4 * 86_400;
 
@@ -380,6 +383,9 @@ export class SwapApi {
     const order = await this.rebuilt(b, req);
     if ("status" in order) return order;
     const known = this.d.store.operationByOrder(order.orderId);
+    // an order is its escrow, not its id (the audit's unverified m16, 2026-10-17): an order id is public once a relayer or the
+    // chain names it, and other params under it replaced that order's stored order and were answered with its operation id
+    if (known && !sameEscrow(known.escrow, order.endpoint)) return otherOrder;
     if (known && !this.d.store.execution(known.id)) this.d.store.setBlob(known.id, encodeBlob({ order } satisfies Blob)); // finalized: never again
     const operationId = known?.id ?? this.record(order, null);
     return {
@@ -446,7 +452,7 @@ export class SwapApi {
     const b = body as Record<string, unknown>;
     const order = await this.rebuilt(b, request(b));
     if ("status" in order) return order;
-    if (order.orderId.toLowerCase() !== row.orderId) return { status: 409, body: { error: "these params are another order's", code: "order_mismatch" } };
+    if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
     if (!this.d.store.execution(id)) this.d.store.setBlob(id, encodeBlob({ order } satisfies Blob));
     return { status: 200, body: wire({ operationId: id, order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: order.policy }) };
   }
@@ -467,7 +473,7 @@ export class SwapApi {
       if (!restore) return unknownOperation; // the wallet sends its journaled params with the prepare
       const order = await this.rebuilt(restore, request(restore));
       if ("status" in order) return order;
-      if (order.orderId.toLowerCase() !== row.orderId) return { status: 409, body: { error: "these params are another order's", code: "order_mismatch" } };
+      if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
       blob = { order };
     }
     const adapter = this.adapterOf(blob.order.quote.provider);

@@ -120,6 +120,13 @@ describe("operations", () => {
     expect(mismatch.status).toBe(409);
     expect(mismatch.body.code).toBe("order_mismatch");
     expect((await h.post(`/v1/operations/op_${"a".repeat(26)}/resume`, journaled)).status, "an unknown operation: the wallet restores").toBe(404);
+    // the order's id with other params (another escrow) is another order (the audit's unverified m16): never its operation
+    const forged = { ...journaled, params: { ...journaled.params, refundNoteSecret: "777" } };
+    const taken = await h.post("/v1/operations", forged);
+    expect(taken.status).toBe(409);
+    expect(taken.body.code).toBe("order_mismatch");
+    expect(JSON.stringify(taken.body), "and its operation id is not given away").not.toContain(id);
+    expect((await h.post(`/v1/operations/${id}/prepare`, { restore: forged })).status, "nor rebuilt from them").toBe(409);
   });
   it("no listing, and an order id is never an id: only op_ ids resolve", async () => {
     const { body } = await h.post("/v1/operations", orderBody());
