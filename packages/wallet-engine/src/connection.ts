@@ -116,7 +116,13 @@ export const connection = {
     if (!p || expected === null) return false;
     try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${expected.toString(16)}` }] }); return true; } catch (e) { set({ error: e instanceof Error ? e.message : String(e) }); return false; }
   },
-  disconnect(): void { unbind(); setActiveProvider(null); set({ status: "disconnected", account: null, chainId: null, connector: null, error: null }); },
+  disconnect(): void {
+    // a WalletConnect session is ended at its relay too, not only forgotten here (the audit's unverified m65)
+    if (state.connector?.kind === "walletconnect") void import("./walletConnect").then((m) => m.endWalletConnect());
+    unbind();
+    setActiveProvider(null);
+    set({ status: "disconnected", account: null, chainId: null, connector: null, error: null });
+  },
   /** Tests: everything back to the start. */
   reset(): void { unbind(); setActiveProvider(null); discovered.clear(); expected = null; state = { status: "disconnected", account: null, chainId: null, expectedChainId: null, connector: null, connectors: [], error: null }; for (const l of listeners) l(); },
   provider: (): Eip1193Provider | null => activeProvider(),

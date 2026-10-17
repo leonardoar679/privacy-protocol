@@ -3,7 +3,27 @@
 // wallet and an EIP-6963 announcement; connect reads the account and the chain; signMessage and requestSignature ask
 // the wallet with the account and the exact payload (EIP-191 hex text, EIP-712 JSON with bigints as decimal strings);
 // switchNetwork asks for the deployment's chain; disconnect forgets it; nothing signs without a connected wallet.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { configureWalletConnect, resetWalletConnect } from "../src/walletConnect";
+
+// WalletConnect's provider, scripted: every init is a new pairing, and a disconnect ends that session
+const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0 }));
+vi.mock("@walletconnect/ethereum-provider", () => ({
+  EthereumProvider: {
+    init: async () => {
+      wc.inits++;
+      return {
+        request: async ({ method }: { method: string }) =>
+          method === "eth_requestAccounts" ? ["0x7a3b000000000000000000000000000000c491f2"] : method === "eth_chainId" ? "0x1" : null,
+        on: () => {},
+        removeListener: () => {},
+        disconnect: async () => {
+          wc.disconnects++;
+        },
+      };
+    },
+  },
+}));
 import { connect, connection, detectWallet, disconnect, getAddress, requestSignature, signMessage, switchNetwork, type Eip1193Provider } from "../src/index";
 
 const ACCOUNT = "0x7a3b000000000000000000000000000000c491f2";
@@ -98,5 +118,24 @@ describe("the wallet engine (doc §15)", () => {
     expect(detectWallet()).toEqual([]);
     expect(await connect()).toMatchObject({ status: "unavailable", account: null });
     expect(await switchNetwork()).toBe(false);
+  });
+});
+
+describe("WalletConnect (the audit's unverified m65)", () => {
+  it("Disconnect ends the session at its relay, and the next connection is a new pairing", async () => {
+    configureWalletConnect("a-project-id");
+    try {
+      const first = await connection.connect("walletconnect");
+      expect(first.status).toBe("connected");
+      expect(wc.inits).toBe(1);
+      connection.disconnect();
+      await vi.waitFor(() => expect(wc.disconnects, "the session is ended, not only forgotten").toBe(1));
+      await connection.connect("walletconnect");
+      expect(wc.inits, "a new pairing, never the old session").toBe(2);
+    } finally {
+      connection.disconnect();
+      configureWalletConnect(undefined);
+      resetWalletConnect();
+    }
   });
 });

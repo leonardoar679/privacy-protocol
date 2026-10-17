@@ -30,5 +30,16 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
   return cached;
 }
 
+/**
+ * Ends the WalletConnect session (2026-10-17, the audit's unverified m65): "Disconnect" had only forgotten the account,
+ * the relay socket stayed open and the next WalletConnect connection reused the session. The provider is forgotten, so
+ * the next connection is a new pairing. A session the wallet already ended is not an error.
+ */
+export async function endWalletConnect(): Promise<void> {
+  const p = cached;
+  cached = null;
+  if (p) await p.disconnect().catch(() => {});
+}
+
 /** Tests: forget the cached provider. */
 export function resetWalletConnect(): void { cached = null; }
