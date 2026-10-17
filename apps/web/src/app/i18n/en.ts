@@ -303,6 +303,8 @@ export const en = {
   "journal.unreadableBody": "Nothing was overwritten. This session runs on an empty journal and saves nothing until you decide: restore a backup file (lock, then Restore), or set the unreadable journal aside and start fresh.",
   "journal.lockRestore": "Lock and restore a backup",
   "journal.setAside": "Set it aside and start fresh",
+  "storage.memoryTitle": "This browser is not keeping the wallet's data",
+  "storage.memoryBody": "Your wallet and its activity are kept in this tab only and are gone when it closes. Keep your recovery phrase: it brings the wallet back.",
   "fees.total": "Total fees",
   "fees.viewDetails": "View fee details",
   "fees.privacy": "Privacy fee ({percent})",

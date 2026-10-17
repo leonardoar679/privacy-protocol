@@ -13,6 +13,7 @@ import type { MessageKey } from "./i18n/en";
 // V6 Stage 16: the runners and the scheduler load after the shell renders (they are not on Home's critical path)
 const Background = lazy(() => import("./Background").then((m) => ({ default: m.Background })));
 import { NotificationToasts } from "./notifications";
+import { StorageNotice } from "./StorageNotice";
 import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks/core";
 import { moreEntries } from "../features/more/entries";
 
@@ -81,6 +82,7 @@ export function Shell() {
       </Suspense>
       <NotificationToasts />
       <ConnectionBanner />
+      <StorageNotice />
       {s.journalUnreadable ? (
         <div className="notice" data-testid="journal-unreadable">
           <p>

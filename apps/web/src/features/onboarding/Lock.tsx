@@ -7,6 +7,7 @@ import { useT } from "../../app/i18n/useT";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks/core";
 import { lockedElsewhere } from "../../platform/autoLock";
+import { StorageNotice } from "../../app/StorageNotice";
 
 export type LockMode = "unlock" | "create" | "restore";
 
@@ -84,6 +85,7 @@ export function Create() {
   return (
     <main className="ds-main">
       <Page title={t("lock.createTitle")} testId="lock-screen">
+        <StorageNotice />
         <Card padding="lg">
           <p className="ds-field-hint">{t("lock.createIntro")}</p>
           <form onSubmit={submit} className="ds-page-body">
@@ -121,6 +123,7 @@ export function Restore() {
   return (
     <main className="ds-main">
       <Page title={t("lock.restoreTitle")} testId="lock-screen">
+        <StorageNotice />
         <Card padding="lg">
           <Segmented value={kind} onChange={(v) => setKind(v === "file" ? "file" : "phrase")} ariaLabel={t("lock.restoreTitle")} name="restore-kind" options={[{ value: "phrase", label: t("lock.restorePhrase"), testId: "restore-phrase" }, { value: "file", label: t("lock.restoreFile"), testId: "restore-file" }]} />
           <form onSubmit={submit} className="ds-page-body">

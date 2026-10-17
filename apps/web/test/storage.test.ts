@@ -141,6 +141,34 @@ describe("the secure store (spec §8)", () => {
     await r.reload();
     expect([heard, r.get().theme]).toEqual([1, "dark"]);
   });
+  it("IndexedDB present but refusing: the store says memory and never writes over what it could not read (the audit's unverified m49)", async () => {
+    const real = new IDBFactory();
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = real;
+    resetDbCache();
+    const a = createSecureStore();
+    await a.ready;
+    a.set(KEYSTORE_KEY, keystoreJson());
+    await a.flush();
+    resetDbCache();
+    (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+      open: () => {
+        const r: { error?: DOMException; onerror?: () => void } = {};
+        queueMicrotask(() => {
+          r.error = new DOMException("denied", "UnknownError");
+          r.onerror?.();
+        });
+        return r;
+      },
+    };
+    const s = createSecureStore();
+    await s.ready;
+    expect([s.backend, s.refused], "said, not hidden").toEqual(["memory", true]);
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = real; // the refusal has passed
+    s.set(KEYSTORE_KEY, keystoreJson("99".repeat(48)));
+    s.remove(JOURNAL_KEY);
+    await s.flush();
+    expect(await idbEntriesForTest(), "the keystore it could not read is untouched").toEqual([[KEYSTORE_KEY, keystoreJson()]]);
+  });
   it("without IndexedDB both stores run on memory and are ready at once", async () => {
     const saved = (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;
     delete (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;

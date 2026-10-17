@@ -312,6 +312,8 @@ export const ko: Record<MessageKey, string> = {
     "덮어쓴 것은 없습니다. 이 세션은 빈 기록으로 실행되며, 결정하기 전까지 아무것도 저장하지 않습니다. 백업 파일을 복원하거나(잠근 뒤 복원), 읽을 수 없는 기록을 따로 두고 새로 시작하세요.",
   "journal.lockRestore": "잠그고 백업 복원",
   "journal.setAside": "따로 두고 새로 시작",
+  "storage.memoryTitle": "이 브라우저가 지갑 데이터를 저장하지 않습니다",
+  "storage.memoryBody": "지갑과 활동 기록은 이 탭에만 있으며 탭을 닫으면 사라집니다. 복구 문구를 보관하세요. 복구 문구로 지갑을 되살릴 수 있습니다.",
   "fees.total": "총 수수료",
   "fees.viewDetails": "수수료 상세 보기",
   "fees.privacy": "프라이버시 수수료 ({percent})",
