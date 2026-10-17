@@ -15,6 +15,7 @@ import type { ActivityRow, DayGroup } from "./rows";
 import { costDifference } from "@privacy-wallet/sdk/operations/costs";
 import type { OperationCosts } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { formatUnits } from "viem";
+import { PRIVACY_FEE_BPS, privacyFee } from "@privacy-wallet/protocol/wallet/fees";
 import type { ActivityGroupView, ActivityModel, ActivityRowView, DetailModel, DetailStep } from "./View";
 
 type T = (key: MessageKey, vars?: Vars) => string;
@@ -35,9 +36,47 @@ const ICON: Record<string, IconName> = {
   "classic-withdraw": "recovery",
 };
 
-/** The amount a row shows: the record's input, else the activity line's. */
+const DIGITS = /^[0-9]+$/;
+
+/**
+ * The fee note a funded swap paid besides its escrow (2026-10-17, the audit's unverified m54): a swap record's input is the
+ * escrow amount W, and the fee note p(A) + F that also left was shown nowhere. It is the Review's fee (`reviewedFee`: the
+ * funding never pays more); null for an order never funded, one sent through the connected wallet, or one from before.
+ */
+function swapFeeNote(r: ActivityRow): bigint | null {
+  const rec = r.record;
+  const s = r.swap;
+  if (!rec || !s || (rec.kind !== "swap" && rec.kind !== "cross-chain")) return null;
+  if (!s.fundedTx || !s.reviewedFee || !DIGITS.test(s.reviewedFee) || !DIGITS.test(rec.amounts.input)) return null;
+  return BigInt(s.reviewedFee);
+}
+
+/**
+ * A funded swap's fee lines from its fee note, when its record has none (m54): the privacy fee — the 1 % of what left
+ * (the fee rule; at most the note) — and the rest, with the executor's tip, as relayer/network. The two add up to what was
+ * paid; a relayer asking less than the 1 % moves part of it from one line to the other.
+ */
+function swapFees(r: ActivityRow, t: T): DetailModel["fees"] {
+  const note = swapFeeNote(r);
+  if (note === null || !r.record) return [];
+  const { asset, decimals } = r.record.amounts;
+  const p = privacyFee(BigInt(r.record.amounts.input) + note, PRIVACY_FEE_BPS);
+  const privacy = p < note ? p : note;
+  const tipRaw = (r.swap?.params as { executorTip?: unknown } | undefined)?.executorTip;
+  const tip = typeof tipRaw === "string" && DIGITS.test(tipRaw) ? BigInt(tipRaw) : 0n;
+  return [
+    { label: t("screen.review.privacyFee"), value: amountFrom(privacy.toString(), asset, decimals) },
+    { label: t("screen.review.relayerFee"), value: amountFrom((note - privacy + tip).toString(), asset, decimals) },
+  ];
+}
+
+/** The amount a row shows: the record's input (a funded swap's with its fee note: what left), else the activity line's. */
 function rowAmount(r: ActivityRow): Amount {
-  if (r.record) return amountFrom(r.record.amounts.input, r.record.amounts.asset, r.record.amounts.decimals);
+  if (r.record) {
+    const note = swapFeeNote(r);
+    const input = note !== null ? (BigInt(r.record.amounts.input) + note).toString() : r.record.amounts.input;
+    return amountFrom(input, r.record.amounts.asset, r.record.amounts.decimals);
+  }
   if (r.activity) return amountFrom(r.activity.amount, r.activity.asset, r.activity.decimals);
   return amountFrom("0", "", 0);
 }
@@ -178,7 +217,7 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
     pay: amount,
     receive,
     destination,
-    fees: (rec?.fees ?? []).map((f) => ({ label: f.label, value: { text: f.value } })),
+    fees: rec?.fees.length ? rec.fees.map((f) => ({ label: f.label, value: { text: f.value } })) : swapFees(r, t),
     steps: rec ? stepsOf(rec, t) : [],
     advanced,
     canRemove: r.finished && !!r.activity,

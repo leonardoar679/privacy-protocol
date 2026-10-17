@@ -149,6 +149,22 @@ describe("the screens (spec §3.10)", () => {
     await waitFor(() => expect(screen.getByTestId("detail-status").textContent).toContain("Completed"));
     expect(session.journal().operations!.find((r) => r.id === `swap:${ORDER}`)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [stored.fundedTx, "0x" + "dd".repeat(32)] } });
   });
+  it("a funded swap's detail: You pay what left, its fee note as the privacy fee and the relayer/network line (the audit's unverified m54)", () => {
+    const E = 10n ** 18n;
+    const F = 10n ** 15n;
+    const p = E / 100n; // the 1 % of 1 ETH
+    const W = E - p - F; // the escrow's 0.989 ETH
+    const stored: StoredSwap = { ...storedSwap(), request: { ...storedSwap().request, amount: W.toString() }, params: { amount: W.toString(), executorTip: "0" }, reviewedFee: (p + F).toString() };
+    session.update((j) => { j.swaps = [stored]; });
+    recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: W.toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
+    render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
+    const row = (label: string) => screen.getByText(label).closest(".ds-review-row")?.textContent ?? "";
+    expect(row("You pay"), "what left the protected balance").toContain("1 ETH");
+    expect(row("You pay")).not.toContain("0.989");
+    expect(row("Privacy fee")).toContain("0.01 ETH");
+    expect(row("Relayer/network")).toContain("0.001 ETH");
+  });
   it("a swap needing attention shows the recovery card in its detail: the refund hands a refund-only job to the executor, never a retry", async () => {
     const stored = storedSwap();
     session.update((j) => { j.swaps = [stored]; });
