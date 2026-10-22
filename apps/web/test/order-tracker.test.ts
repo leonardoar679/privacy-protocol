@@ -28,6 +28,9 @@ describe("deriveState", () => {
     expect(steps(deriveState(order(), facts()))).toBe("1000");
     expect(deriveState(order({ fundedTx: "0x1" }), facts())).toMatchObject({ state: "SOURCE_SUBMITTED", label: "Waiting for source" });
     expect(deriveState(order({ fundedTx: "0x1" }), facts({ escrowBalance: 10n ** 17n }))).toMatchObject({ state: "SOURCE_SUBMITTED" });
+    // journaled funded without its transaction — reconciled from the escrow, or a funding that landed while its page was gone
+    // (audit round 2, r10): funded all the same, never "Preparing" or "nothing left your private balance"
+    expect(deriveState(order({ state: "funded" }), facts({ escrowBalance: 10n ** 18n })).state).toBe(deriveState(order({ fundedTx: "0x1", state: "funded" }), facts({ escrowBalance: 10n ** 18n })).state);
     const funded = deriveState(order({ fundedTx: "0x1", state: "funded" }), facts({ escrowBalance: 10n ** 18n }));
     expect(funded).toMatchObject({ state: "SOURCE_FINAL", label: "Preparing" });
     expect(steps(funded)).toBe("1100");

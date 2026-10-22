@@ -311,6 +311,10 @@ export async function fundEscrow(o: {
   // and a dead one only on the user's word (`replaceDead`) —, and none goes out past the order's window
   if (stored.fundingAttempt) {
     const fate = await fundingFate(stored.fundingAttempt, o.reads ?? fundingReads(o.deployment), o.now);
+    // landed while its page was gone — a tab closed or reloaded while it was mined (audit round 2, r10): the order is funded,
+    // and journaled so. Refused for good, its scheduled funding retried on the backoff forever, the order read "Funding is
+    // scheduled", then "nothing left your private balance", and offered only Abandon — while its amount sat in the escrow
+    if (fate === "landed") patchSwap(stored.orderId, { state: "funded", ...(stored.fundingAttempt.txHash ? { fundedTx: stored.fundingAttempt.txHash } : {}) }, s);
     if (fate !== "dead" || !o.replaceDead) throw new FundingAlreadySent(fate);
     patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
   }
@@ -365,13 +369,16 @@ export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Ui
   }
   if (a.kind !== "fund-escrow") return; // a campaign tick is dispatched by the App to wallet/campaignRunner.ts
   const stored = s.journal().swaps.find((x) => x.orderId === a.orderId);
-  if (!stored || stored.fundedTx || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; } // a tranche is funded by its campaign, never here
+  // funded already — by hand, or a funding that landed while its page was gone (r10) —, closed, or a tranche (its campaign funds it)
+  if (!stored || stored.fundedTx || stored.state === "funded" || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; }
   const asset = assetOfStored(o.deployment, stored);
   schedulerStatus.start(a.id, `Funding the scheduled swap (${asset.symbol}) from your private balance…`);
   try {
     const sub = settings.get().submission;
     await fundEscrow({ masterSeed: o.masterSeed, deployment: o.deployment, stored, session: s, onStatus: (line) => schedulerStatus.progress(line), relayerUrl: sub.kind === "relayer" ? sub.url : null });
   } catch (e) {
+    // its funding landed while its page was gone (r10): the order is funded and journaled so, nothing more runs here
+    if (e instanceof FundingAlreadySent && e.fate === "landed") { cancelAction(a.id, s); return; }
     // an order an older build committed under the privacy address's owner commitment (c18): given up, never funded
     if ((e as { code?: unknown })?.code !== "order_outdated") throw e;
     patchSwap(stored.orderId, { paused: { code: "order_outdated", detail: (e as Error).message, at: Date.now() } }, s);

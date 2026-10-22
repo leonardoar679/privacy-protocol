@@ -77,11 +77,18 @@ export function legsOf(s: StoredSwap, f: TrackFacts): SettlementLegs | null {
   const p = params(s);
   const shielded = (s.shield?.leaves?.length ?? 0) > 0; // the delivery is in the protected balance: the destination is final
   return legsFrom({
-    fundingSent: !!s.fundedTx, abandoned: s.state === "abandoned", refundFound: f.refundFound || (s.refunds?.length ?? 0) > 0,
+    fundingSent: fundedOf(s), abandoned: s.state === "abandoned", refundFound: f.refundFound || (s.refunds?.length ?? 0) > 0,
     job: f.job ? { state: f.job.state, ...(f.job.executionTx ? { executionTx: f.job.executionTx } : {}) } : null, jobUnread: !!s.jobId && !f.job,
     ...(s.executionTx ? { executionTx: s.executionTx } : {}), track: shielded ? { state: "destination-final" } : f.track, escrowBalance: f.escrowBalance, amount: BigInt(p.amount), executeDeadline: p.executeDeadline, now: Math.floor(f.now / 1000),
   });
 }
+
+/**
+ * Whether the order's funding was sent: its transaction journaled, or the order journaled funded without one — reconciled
+ * from the escrow's balance, or a funding that landed while its page was gone (audit round 2, r10): such an order read
+ * "Funding is scheduled", then "nothing left your private balance", while its amount sat in the escrow.
+ */
+const fundedOf = (s: StoredSwap): boolean => !!s.fundedTx || s.state === "funded";
 
 /** Pure: the state a wallet should show for a journaled order given what it observed (spec §19 "recoverState"), with the V6 settlement. */
 export function deriveState(s: StoredSwap, f: TrackFacts): Tracked {
@@ -94,7 +101,7 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const p = params(s), r = req(s);
   const nowS = Math.floor(f.now / 1000);
   const amount = BigInt(p.amount);
-  const funded = !!s.fundedTx;
+  const funded = fundedOf(s);
   const to = r.to ?? { symbol: "", decimals: 0 }, from = r.from ?? { symbol: "", decimals: 18 };
   const out = (state: OrderState, label: SettlementLabel, steps: Tracked["steps"], detail: string, extra: Partial<Tracked> = {}): Tracked => ({ state, label, steps, detail, ...extra });
   const t = f.track;
@@ -208,7 +215,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const job = await (r.job ? r.job(stored) : stored.jobId && deps.relayerUrl ? relayerSwapStatus(deps.relayerUrl, stored.jobId).catch(() => null) : Promise.resolve(null));
   const executionTx = stored.executionTx ?? job?.executionTx;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
-  const balance = await (r.balance ? r.balance(stored) : stored.fundedTx && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
+  const balance = await (r.balance ? r.balance(stored) : fundedOf(stored) && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
   const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...decimalsOf(stored), ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
   const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
   // journal: executionTx once, the read, a transition when the state changed

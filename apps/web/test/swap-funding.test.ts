@@ -62,10 +62,15 @@ describe("swap funding", () => {
     // 0xc is open and unfunded: the runner tries to fund it (and, with no deployment, says why it cannot)
     await expect(runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment: null, session: s })).rejects.toThrow(/No deployment configured/);
     expect(pendingActions(s).map((a) => a.orderId), "a failed attempt keeps the action for the backoff").toEqual(["0xc"]);
+    // an order journaled funded without a transaction — reconciled from its escrow, or a funding that landed while its page
+    // was gone (audit round 2, r10) — has its action dropped too: it had been funded again, or refused on the backoff for good
+    patchSwap("0xc", { state: "funded" }, s);
+    await runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment: null, session: s });
+    expect(pendingActions(s), "dropped, never run").toEqual([]);
     // an action whose order is gone from the journal is dropped too
     scheduleAction({ kind: "fund-escrow", orderId: "0xzz", dueAt: 0 }, s);
     await runScheduledAction(pendingActions(s).find((a) => a.orderId === "0xzz")!, { masterSeed: seed, deployment: null, session: s });
-    expect(pendingActions(s).map((a) => a.orderId)).toEqual(["0xc"]);
+    expect(pendingActions(s)).toEqual([]);
   });
 
   it("fundEscrow refuses closed, funded and unconfigured orders before touching a note", async () => {
@@ -177,6 +182,26 @@ describe("swap funding", () => {
     // the user's word replaces a dead funding, once
     await fundEscrow({ ...relayed, stored: sent, reads: reads("dead"), replaceDead: true });
     expect(withdrawals.calls).toHaveLength(1);
+  });
+
+  it("a funding that landed while its page was gone is journaled: the order funded, its transaction kept, nothing sent again (audit round 2, r10)", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const NOW = 1_900_000_000_000;
+    const params = {
+      orderId: ("0x" + "3f".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const TX = "0x" + "ee".repeat(32);
+    const sent: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params), fundingAttempt: { nullifiers: ["7", "8"], by: "relayer", relayerUrl: "http://relayer.test", txHash: TX, at: NOW - 1000 } };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [sent]; });
+    withdrawals.calls.length = 0;
+    const landed: FundingReads = { spent: async () => true, relayerJob: async () => null, receipt: async () => "success", txKnown: async () => true };
+    await expect(fundEscrow({ masterSeed: seed, deployment, session: s, relayerUrl: "http://relayer.test", now: NOW, stored: sent, reads: landed, replaceDead: true })).rejects.toMatchObject({ fate: "landed" });
+    expect(s.journal().swaps[0]).toMatchObject({ state: "funded", fundedTx: TX });
+    expect(withdrawals.calls, "nothing sent again").toHaveLength(0);
   });
 
   it("the funding's own submission is journaled before it is sent, then its transaction; a merge before it never is", async () => {
