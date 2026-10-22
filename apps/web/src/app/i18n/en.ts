@@ -69,6 +69,7 @@ export const en = {
   "lock.fileLabel": "Backup file contents (JSON)",
   "lock.replaceWarning": "This replaces the wallet on this device: its keystore and encrypted journal are removed. Its phrase or a backup file is then the only way back. Type REPLACE to confirm.",
   "lock.replacePlaceholder": "REPLACE",
+  "lock.walletExists": "A wallet was created on this device in another tab. Unlock it, or type REPLACE below to replace it.",
   "lock.guest": "Swap without a wallet",
   "lock.toUnlock": "Unlock instead",
   "phrase.title": "Your recovery phrase",

@@ -112,7 +112,7 @@ describe("note discovery", () => {
     const other = new WalletSession(memoryStorage(), { N: 1 << 12, r: 8, p: 1 });
     const phrase = await other.create("another password");
     expect(other.isFirstLaunch()).toBe(true);
-    await other.restoreFromPhrase(phrase, "a new password");
+    await other.restoreFromPhrase(phrase, "a new password", { replace: true }); // over the wallet it holds: the typed REPLACE (audit round 2, r27)
     expect(other.isFirstLaunch(), "a restore looks for its notes at once").toBe(false);
   });
 

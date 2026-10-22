@@ -11,6 +11,9 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { JOURNAL_KEY, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
 import { secureStore } from "../src/storage";
+import { idbGet, idbPut } from "../src/storage/idb";
+import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { KEYSTORE_KEY, memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
 import { prefs } from "../src/storage/prefs";
 import { renderApp } from "./helpers/render";
 
@@ -114,6 +117,26 @@ describe("the shell", () => {
     expect(secureStore().get(UNREADABLE_JOURNAL_KEY)).toBe(corrupt);
     expect(secureStore().get(JOURNAL_KEY)).not.toBe(corrupt);
     expect(session.journal().activity!.map((r) => r.id)).toEqual(["shield:0x1"]); // the in-memory journal is what got persisted
+  }, 60_000);
+
+  it("a tab opened before another tab created the wallet asks for REPLACE before it creates over it (audit round 2, r27)", async () => {
+    const { pathname } = await renderApp("/create");
+    await screen.findByTestId("create");
+    expect(pathname()).toBe("/create");
+    expect(screen.queryByTestId("replace-confirm"), "no wallet when this tab opened").toBeNull();
+    // another tab creates its wallet: IndexedDB holds it, this tab's copy of the store does not
+    const other = new WalletSession(memoryStorage());
+    await other.create("the other tab's password");
+    const theirs = JSON.stringify((JSON.parse(other.exportBackup()) as { keystore: unknown }).keystore);
+    await idbPut("secure", KEYSTORE_KEY, theirs);
+    const [pw, confirm] = [...document.querySelectorAll('input[type="password"]')] as HTMLInputElement[];
+    type(pw, "another password");
+    type(confirm, "another password");
+    fireEvent.click(screen.getByTestId("create"));
+    expect(await screen.findByText(/created on this device in another tab/, {}, { timeout: 20_000 })).toBeTruthy();
+    expect(await idbGet("secure", KEYSTORE_KEY), "the other tab's wallet is untouched").toBe(theirs);
+    expect(screen.getByTestId("replace-confirm"), "this tab reads the wallet now, and asks").toBeTruthy();
+    expect(screen.getByTestId("create")).toBeDisabled();
   }, 60_000);
 
   it("creating a wallet over an existing one needs the typed confirmation", async () => {

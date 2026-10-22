@@ -26,6 +26,20 @@ export interface SessionState {
 
 export interface Backup { v: 1; keystore: Keystore; journal: EncryptedJournal | null }
 
+/**
+ * A wallet is already on this device (audit round 2, r27). A tab opened before another tab created one still read "no
+ * wallet" — its copy of the store is filled when the page opens — and its Create or Restore wrote over that wallet's keystore
+ * and journal with no REPLACE asked. The store is read again first; creating or restoring over a wallet takes the user's
+ * typed REPLACE (`replace`).
+ */
+export class WalletExists extends Error {
+  readonly code = "wallet_exists";
+  constructor() {
+    super("a wallet is already on this device: replacing it takes the typed REPLACE");
+    this.name = "WalletExists";
+  }
+}
+
 /** A critical section that defers an automatic lock (spec v2.0 §8; ../session/autoLock.ts). */
 export interface Hold { reason: string; since: number }
 
@@ -87,8 +101,10 @@ export class WalletSession {
     for (const l of this.listeners) l();
   }
 
-  /** New wallet: a fresh seed, encrypted under `password`; returns the recovery phrase to show once. */
-  async create(password: string, seed: Uint8Array = generateMasterSeed()): Promise<string> {
+  /** New wallet: a fresh seed, encrypted under `password`; returns the recovery phrase to show once. Over a wallet already
+   *  here only with `replace` (the user's typed REPLACE): WalletExists otherwise. */
+  async create(password: string, seed: Uint8Array = generateMasterSeed(), opts: { replace?: boolean } = {}): Promise<string> {
+    await this.guardExisting(opts.replace);
     const own = seed.slice(); // the session owns (and later zeroes) its own copy
     const ks = await createKeystore(own, password, typeof this.kdf === "function" ? this.kdf() : this.kdf);
     this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
@@ -99,6 +115,14 @@ export class WalletSession {
     this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
     this.firstLaunch = true;
     return this.pendingPhrase;
+  }
+
+  /** What the store holds now (another tab may have created a wallet since this page opened): a wallet there is replaced only with `replace`. */
+  private async guardExisting(replace: boolean | undefined): Promise<void> {
+    await this.store.refresh?.();
+    if (replace || !this.hasKeystore()) return;
+    this.emit(); // its status reads "locked" now: the screens ask for REPLACE
+    throw new WalletExists();
   }
 
   /** The user has written the phrase down: forget it (the seed stays, encrypted at rest and in memory while unlocked). */
@@ -166,9 +190,9 @@ export class WalletSession {
    * Restore from the 24 words: the same seed under a new password; notes come back with a chain rescan. No new note is
    * made before one complete scan has seen the counters already used (PP-P03; the audit round of 2026-10-16).
    */
-  async restoreFromPhrase(phrase: string, password: string): Promise<void> {
+  async restoreFromPhrase(phrase: string, password: string, opts: { replace?: boolean } = {}): Promise<void> {
     const seed = phraseToSeed(phrase);
-    await this.create(password, seed);
+    await this.create(password, seed, opts);
     noteStore.holdCounters();
     this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
   }
@@ -182,9 +206,10 @@ export class WalletSession {
   }
 
   /** Restore keystore + journal from a backup file (its own password). */
-  async restoreFromBackup(json: string, password: string): Promise<boolean> {
+  async restoreFromBackup(json: string, password: string, opts: { replace?: boolean } = {}): Promise<boolean> {
     const b = JSON.parse(json) as Backup;
     if (b?.v !== 1 || !b.keystore) throw new Error("not a wallet backup file");
+    await this.guardExisting(opts.replace);
     const seed = await unlockKeystore(b.keystore, password);
     if (!seed) return false;
     this.store.set(KEYSTORE_KEY, JSON.stringify(b.keystore));

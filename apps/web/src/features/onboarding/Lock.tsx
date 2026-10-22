@@ -4,12 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { session } from "@privacy-wallet/sdk/wallet/session";
+import { session, WalletExists } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks/core";
 import { lockedElsewhere } from "../../platform/autoLock";
 import { StorageNotice } from "../../app/StorageNotice";
 
 export type LockMode = "unlock" | "create" | "restore";
+
+/** A wallet another tab created meanwhile (audit round 2, r27): said in the reader's words; the screen now asks for REPLACE. */
+const worded = (e: unknown, t: ReturnType<typeof useT>) => (e instanceof WalletExists ? new Error(t("lock.walletExists")) : e);
 
 function useRun() {
   const [busy, setBusy] = useState(false);
@@ -81,7 +84,10 @@ export function Create() {
   const [replace, setReplace] = useState("");
   const replacing = s.status === "locked";
   const ok = password.length >= 8 && password === confirm && (!replacing || replace === "REPLACE");
-  const submit = (e: FormEvent) => { e.preventDefault(); if (ok) void run(async () => { await session.create(password); }); };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (ok) void run(() => session.create(password, undefined, { replace: replacing }).then(() => undefined, (x: unknown) => { throw worded(x, t); }));
+  };
   return (
     <main className="ds-main">
       <Page title={t("lock.createTitle")} testId="lock-screen">
@@ -117,8 +123,12 @@ export function Restore() {
   const okFile = password.length > 0 && file.trim().length > 0 && confirmed;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (kind === "phrase" && okPhrase) void run(() => session.restoreFromPhrase(phrase, password));
-    if (kind === "file" && okFile) void run(async () => { if (!(await session.restoreFromBackup(file, password))) throw new Error(t("lock.wrongBackupPassword")); });
+    if (kind === "phrase" && okPhrase) void run(() => session.restoreFromPhrase(phrase, password, { replace: replacing }).catch((x: unknown) => { throw worded(x, t); }));
+    if (kind === "file" && okFile)
+      void run(async () => {
+        const restored = await session.restoreFromBackup(file, password, { replace: replacing }).catch((x: unknown) => { throw worded(x, t); });
+        if (!restored) throw new Error(t("lock.wrongBackupPassword"));
+      });
   };
   return (
     <main className="ds-main">
