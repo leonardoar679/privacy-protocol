@@ -553,6 +553,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + TRACK_INTERVAL_MS;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
+          // the signed call came too close to its deadline, here or at the relayer (audit round 2, r02): nothing was handed
+          // over, and the step is signed afresh at the next tick
+          if ((e as { code?: unknown })?.code === "deadline_too_close") {
+            signedCache.delete(stored.orderId.toLowerCase());
+            c = withTrancheState(c, t.index, "funded", now, {}, "its signed call came too close to its deadline before the hand-over; signing a fresh one");
+            nextAt = now + 1000;
+            break;
+          }
           if (/Not handed over|builds for/i.test(m)) { c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index); break; }
           c = pauseWith(c, "reconcile", `The hand-over of step ${t.index + 1} ended without a known outcome (${m}); the executor is asked before anything is sent again.`, now, t.index);
         }

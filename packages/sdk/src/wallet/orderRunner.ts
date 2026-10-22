@@ -473,6 +473,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         await io.handOver(stored, r);
       } catch (e) {
         const m = (e as Error)?.message ?? String(e);
+        // the call came too close to its deadline, here or at the relayer (audit round 2, r02): nothing was handed over, and
+        // the next tick prepares and signs a fresh one — no pause for the user, nor the reconcile backoff
+        if ((e as { code?: unknown })?.code === "deadline_too_close") {
+          tickAt(a.orderId, now + 1000, s, now);
+          return { step: "waiting", stored: journaled(a.orderId, s)! };
+        }
         if (/Not handed over|builds for/i.test(m)) return pause("execution_unavailable", m);
         const p = pause("reconcile", `The hand-over ended without a known outcome (${m}); the executor is asked before anything is sent again.`);
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);

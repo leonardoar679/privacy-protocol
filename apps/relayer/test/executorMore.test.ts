@@ -189,6 +189,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   });
 
   it("refundTokens: at most four addresses, never the order's own asset; address(0), the escrow's ETH, only for an ERC-20 order", () => {
+    clock = 1000; // before the calls' deadlines: one within its last seconds is refused (audit round 2, r02)
     const ex = executorWith();
     const ZERO = "0x" + "00".repeat(20);
     const base = makeRequest(("0x" + "1d".repeat(32)) as Hex, 1500, 1);
@@ -307,6 +308,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   });
 
   it("refundFloors name listed tokens in base units; a later request only raises a floor; an order lists at most four tokens in all", () => {
+    clock = 1000; // before the calls' deadlines: one within its last seconds is refused (audit round 2, r02)
     const ex = executorWith();
     const [A, B, C, D, E] = ["a1", "b1", "c1", "d1", "e1"].map((x) => "0x" + x.padStart(40, "0"));
     const base = makeRequest(("0x" + "2c".repeat(32)) as Hex, 1500);
@@ -361,8 +363,10 @@ describe("re-signed executions", () => {
     const ex = executorWith();
     const orderId = ("0x" + "0a".repeat(32)) as Hex;
     const first = makeRequest(orderId, 1201);
-    clock = 1300; // the first quote expired before funding
+    clock = 1000;
     const job = ex.add(first);
+    clock = 1300; // the first quote expired before funding (a call already past it is refused at admission: audit round 2, r02)
+    await ex.tick();
     expect(job.state).toBe("expired");
     const fresh = makeRequest(orderId, 1700); // re-quoted, re-signed by the same one-time key (deadline ≤ executeDeadline 1801)
     expect(ex.add(fresh)).toBe(job);

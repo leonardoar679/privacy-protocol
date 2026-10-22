@@ -460,6 +460,8 @@ export const en = {
   "op.error.bad_request.reason": "The executor could not read the signed execution. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.bad_deadlines.title": "The order's deadlines are out of range",
   "op.error.bad_deadlines.reason": "The executor refused the execution window. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
+  "op.error.deadline_too_close.title": "The signed swap ran out of time before the hand-over",
+  "op.error.deadline_too_close.reason": "The executor sends nothing in the last seconds before a call's deadline. Your funds sit in your one-time escrow; a fresh quote is prepared and checked before anything is signed again.",
   "op.error.bad_execution.title": "The signed execution does not match the order",
   "op.error.bad_execution.reason": "The executor refused the execution it was handed. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.bad_refund_floors.title": "The refund floors were refused",

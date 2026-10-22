@@ -14,7 +14,7 @@ import { session } from "../src/wallet/session";
 import type { ScheduledAction, StoredSwap } from "../src/wallet/journal";
 import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
-import type { Signed } from "../src/swapExecute";
+import { CallTooClose, HAND_OVER_MARGIN_SECONDS, handOverSigned, type Signed } from "../src/swapExecute";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
 import { OrderOutdated, RelayerNotReady, ServiceKeyChanged } from "../src/swapFunding";
@@ -488,6 +488,47 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     down = false;
     expect((await runOrderTick(pending()!, deps(io, T0 + 2_000 + SIGN_RETRY_MS)))?.step).toBe("handed-over");
     expect(w.handOvers).toBe(1);
+  });
+
+  it("a call that came too close to its deadline before the hand-over is signed afresh at once: no pause, handed over once (audit round 2, r02)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    const handOver = io.handOver;
+    let refuse = true;
+    io.handOver = async (st, signed) => {
+      if (!refuse) return handOver(st, signed);
+      refuse = false;
+      throw Object.assign(new Error("relayer: the call's deadline is less than 36 s away (deadline_too_close)"), { code: "deadline_too_close" });
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    const r = await runOrderTick(pending()!, deps(io, T0 + 2_000));
+    expect(r?.step, "never a pause, nor the reconcile backoff").toBe("waiting");
+    expect(stored().paused).toBeUndefined();
+    expect(pending()!.dueAt).toBe(T0 + 3_000);
+    expect((await runOrderTick(pending()!, deps(io, T0 + 3_000)))?.step).toBe("handed-over");
+    expect([w.signs, w.handOvers], "a fresh call, handed over once").toEqual([2, 1]);
+  });
+
+  it("handOverSigned hands over no call closer than HAND_OVER_MARGIN_SECONDS to its deadline: nothing registered, finalized or sent (audit round 2, r02)", async () => {
+    order();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const signed = {
+        prepared: { deadline: Math.floor(Date.now() / 1000) + HAND_OVER_MARGIN_SECONDS - 2 },
+        sim: { ok: true },
+        call: {},
+        signature: "0x",
+      } as unknown as Signed;
+      await expect(
+        handOverSigned({ deployment: null, stored: stored(), order: {} as never, signed, submission: { kind: "relayer", url: "http://relayer.test" } }),
+      ).rejects.toBeInstanceOf(CallTooClose);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   // 2026-10-14: an order whose execution window closes — a funding delayed for privacy run at a late unlock, a tab closed

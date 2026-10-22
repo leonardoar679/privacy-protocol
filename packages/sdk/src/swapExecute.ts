@@ -227,6 +227,20 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   return { prepared, params, call, signature, sim, label };
 }
 
+/**
+ * No signed call is handed over closer than this to its deadline (audit round 2, r02): the relayer sends no execution in the
+ * last EXECUTE_MARGIN_SECONDS (36 s) before it and refuses to take one, and the hand-over itself takes a few round trips.
+ */
+export const HAND_OVER_MARGIN_SECONDS = 48;
+
+/** The signed call is too close to its deadline to be handed over: the runners prepare and sign a fresh one. */
+export class CallTooClose extends Error {
+  readonly code = "deadline_too_close";
+  constructor(readonly deadline: number) {
+    super(`the signed call's deadline is less than ${HAND_OVER_MARGIN_SECONDS} s away: a fresh call is prepared and signed`);
+  }
+}
+
 export interface HandOverInput { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; order: ServiceOrder; signed: Signed; submission: Submission }
 
 /** Hand a checked, signed and simulated execution to the service (finalize) and the relayer's executor. */
@@ -234,6 +248,8 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   const s = i.session ?? defaultSession;
   const { stored, order, signed } = i;
   if (!signed.sim.ok) throw new Error(`Not handed over: ${signed.sim.reason}. The signature stays in this wallet; confirm again later against a fresh quote, or return the order to your private balance.`);
+  // before anything is registered or finalized: a call this close to its deadline would never be sent (audit round 2, r02)
+  if (signed.prepared.deadline - Date.now() / 1000 < HAND_OVER_MARGIN_SECONDS) throw new CallTooClose(signed.prepared.deadline);
   const refundNoteData = stored.refundNoteData as Hex | undefined;
   if (!refundNoteData) throw new Error("this order has no refund payload in the journal; it is not handed over");
   // V6 Stage 12: the executor watches the shield receiver before the order can deliver into it (idempotent by receipt)

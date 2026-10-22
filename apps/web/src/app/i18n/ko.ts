@@ -494,6 +494,9 @@ export const ko: Record<MessageKey, string> = {
     "실행기가 서명된 실행 정보를 읽지 못했습니다. 자금은 일회용 에스크로에 있습니다. 새 견적으로 다시 확인하거나 자금을 반환하세요.",
   "op.error.bad_deadlines.title": "주문의 기한이 허용 범위를 벗어났습니다",
   "op.error.bad_deadlines.reason": "실행기가 실행 기간을 거부했습니다. 자금은 일회용 에스크로에 있습니다. 새 견적으로 다시 확인하거나 자금을 반환하세요.",
+  "op.error.deadline_too_close.title": "인계 전에 서명된 스왑의 시간이 다 되었습니다",
+  "op.error.deadline_too_close.reason":
+    "실행기는 실행 기한 직전 몇 초 동안에는 아무것도 보내지 않습니다. 자금은 일회용 에스크로에 있습니다. 다시 서명하기 전에 새 견적을 준비해 확인합니다.",
   "op.error.bad_execution.title": "서명된 실행 정보가 주문과 일치하지 않습니다",
   "op.error.bad_execution.reason":
     "실행기가 전달받은 실행 정보를 거부했습니다. 자금은 일회용 에스크로에 있습니다. 새 견적으로 다시 확인하거나 자금을 반환하세요.",

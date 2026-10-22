@@ -266,7 +266,11 @@ export class SwapExecutor {
       throw new SwapJobError("unvouched_order", "the swap service did not vouch for this call: the executor runs only calls it prepared for an order it committed");
     if (BigInt(x.value) > BigInt(p.amount) - BigInt(p.executorTip)) throw new SwapJobError("bad_execution", "value exceeds the escrow's spendable balance");
     const id = p.orderId.toLowerCase();
-    const state: SwapJobState = this.now() > Number(x.deadline) ? "expired" : "waiting-funding";
+    // a call with fewer than EXECUTE_MARGIN_SECONDS left is refused, never admitted only to expire at its first pass (audit
+    // round 2, r02): the wallet took it as handed over and only tracked it, while its funded escrow waited for refundAfter
+    if (this.now() + EXECUTE_MARGIN_SECONDS > Number(x.deadline))
+      throw new SwapJobError("deadline_too_close", `the call's deadline is less than ${EXECUTE_MARGIN_SECONDS} s away, too close for the executor to send it: sign a fresh one`);
+    const state: SwapJobState = "waiting-funding";
     const existing = this.jobs.get(id);
     if (existing) {
       // a re-signed execution (fresh quote after expiry / a failed provider call) replaces the old one; an order already executing or settled is left alone

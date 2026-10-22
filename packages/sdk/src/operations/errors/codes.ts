@@ -45,6 +45,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   admin_token: { source: "relayer", fundsClass: "not-moved", actions: ["check-settings"] },
   bad_request: { source: "executor", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   bad_deadlines: { source: "executor", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
+  deadline_too_close: { source: "executor", fundsClass: "still-protected", actions: ["new-quote"] },
   bad_execution: { source: "executor", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   bad_refund_floors: { source: "executor", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   bad_refund_payload: { source: "executor", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },

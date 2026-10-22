@@ -68,6 +68,8 @@ class World implements CampaignIo {
   /** awaited by the next commit, so a test can answer while a tick runs */
   gate: Promise<void> | null = null;
   handOverThrows = false;
+  /** thrown once by the next hand-over, before the executor took anything */
+  handOverRefusal: Error | null = null;
   /** the next signature fails with this (then signs normally) */
   signThrows: Error | null = null;
   /** the settlement read fails (the service or the network is down) */
@@ -140,6 +142,7 @@ class World implements CampaignIo {
   }
   async handOver(stored: StoredSwap) {
     this.calls.push(`handover:${stored.campaign!.index}`);
+    if (this.handOverRefusal) { const e = this.handOverRefusal; this.handOverRefusal = null; throw e; }
     const job: SwapJob = { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "executing", updatedAt: this.now() };
     this.jobs.set(stored.orderId, job);
     if (this.handOverThrows) throw new Error("socket hang up"); // the executor took the job, the answer was lost
@@ -439,6 +442,22 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(cur.tranches[0].state).toBe("source-confirmed");
     expect(world.calls.filter((x) => x.startsWith("handover:")), "no second hand-over").toEqual(["handover:0"]);
     expect(cur.tranches[0].history.map((h) => h.note).some((n) => /reconciled from the executor/.test(n ?? ""))).toBe(true);
+  });
+
+  it("a step whose signed call came too close to its deadline before the hand-over is signed afresh, never paused (audit round 2, r02)", async () => {
+    const c = await fresh();
+    for (const expected of ["commit", "fund", "sign"]) { const r = await tick(c); expect(r?.action.kind, expected).toBe(expected); clock += 2000; }
+    world.handOverRefusal = Object.assign(new Error("relayer: the call's deadline is less than 36 s away (deadline_too_close)"), { code: "deadline_too_close" });
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("hand-over");
+    expect(current(c).state, "no pause for the user").toBe("running");
+    expect(current(c).tranches[0].state).toBe("funded");
+    clock += 2000;
+    r = await tick(c); expect(r?.action.kind).toBe("sign"); clock += 2000;
+    r = await tick(c); expect(r?.action.kind).toBe("hand-over");
+    expect(current(c).tranches[0].state).toBe("executing");
+    expect(world.calls.filter((x) => x.startsWith("sign:")), "a fresh call").toEqual(["sign:0", "sign:0"]);
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "never funded twice").toEqual(["fund:0"]);
   });
 
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {

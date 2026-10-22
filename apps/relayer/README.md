@@ -48,8 +48,9 @@ and without the address no swaps run), that the refund vault is its pool's own f
 (`CORE.VAULT_FACTORY().vaultOf(asset)`, ETH `address(0)`; read before admission, `bad_refund_vault`), that the refund
 payload hashes to the committed
 value, that the execution is signed by the order's one-time key for the predicted escrow (same CREATE2
-formula as `SwapOrderFactory.predict`), that the deadlines are consistent and the value is spendable —
-then watches the escrow's balance:
+formula as `SwapOrderFactory.predict`), that the deadlines are consistent — a call with fewer than
+`EXECUTE_MARGIN_SECONDS` (36 s) left is refused (`deadline_too_close`, audit round 2, r02), never admitted only to expire
+unsent — and the value is spendable — then watches the escrow's balance:
 ```
 waiting-funding ──(balance ≥ amount, before the signed deadline)──▶ executing ──▶ executed ──▶ completed
       │ signed deadline passed ▶ expired                                              ▲ leftover re-shielded

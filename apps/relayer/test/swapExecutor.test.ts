@@ -121,7 +121,7 @@ describe("job admission", () => {
     const digest = executionDigest(BigInt(CHAIN_ID), escrow, params.orderId, request.execution.provider, BigInt(request.execution.value), request.execution.providerCalldata, request.execution.deadline);
     expect(code(() => executor.add({ ...request, factory: theirs, params, execution: { ...request.execution, signature: signExecution(ORDER_KEY, digest) } }))).toBe("unknown_swap_factory");
     expect(code(() => executor.addRefund({ factory: theirs, params: request.params, refundNoteData: request.refundNoteData }))).toBe("unknown_swap_factory");
-    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never, now: () => 1000 }; // the vector's own time
     const mine = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, ...offline });
     expect(code(() => mine.add({ ...request, factory: vector.factory.toUpperCase().replace("0X", "0x") }))).toBe("admitted"); // its own, in any case
     const none = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, ...offline });
@@ -258,6 +258,23 @@ describe("a send's fate (a V6 follow-up of 2026-10-15)", () => {
     o.execution = { ...o.execution, deadline, signature: signExecution(ORDER_KEY, digest) };
     return vouched(o, CHAIN_ID, creationCode);
   };
+
+  it("a call with fewer than EXECUTE_MARGIN_SECONDS left is refused, never admitted only to expire unsent (audit round 2, r02)", () => {
+    // a 60-s LI.FI call that reached the relayer 25 s after its prepare was admitted, expired at the first pass, and the
+    // wallet only tracked it: the funded escrow waited for refundAfter, its fee note and tip lost
+    const code = (r: SwapJobRequest) => { try { return executor.add(r).state; } catch (e) { return (e as SwapJobError).code; } };
+    try {
+      clock = Number(request.execution.deadline) - EXECUTE_MARGIN_SECONDS + 1;
+      expect(code(order(0x36))).toBe("deadline_too_close");
+      expect(executor.get(toHex(0x36, { size: 32 })), "no job").toBeUndefined();
+      clock = Number(request.execution.deadline) + 5; // past it: refused too, never held as expired
+      expect(code(order(0x38))).toBe("deadline_too_close");
+      clock = Number(request.execution.deadline) - EXECUTE_MARGIN_SECONDS;
+      expect(code(order(0x37)), "the margin left: admitted").toBe("waiting-funding");
+    } finally {
+      clock = 1000;
+    }
+  });
 
   it("funded in the last blocks before its signed deadline: never sent, expired (the audit's unverified m10)", async () => {
     clock = 1000; escrowBalance = 0n;
@@ -445,7 +462,7 @@ describe("only what the swap service vouched for (a V6 follow-up of 2026-10-16, 
       return (e as SwapJobError).code;
     }
   };
-  const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+  const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never, now: () => 1000 }; // the vector's own time
   const fresh = () => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, ...offline });
   const another = new Uint8Array(32).fill(0x5b);
 
@@ -662,7 +679,7 @@ describe("a rotation of the swap service's key (a V6 follow-up of 2026-10-16)", 
   it("a vouch by the former key counts while both are listed, and no longer once only the new one is", () => {
     const former = new Uint8Array(32).fill(0x5d);
     const formerAddress = orderSignerAddress(former);
-    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never };
+    const offline = { account: privateKeyToAccount(RELAYER_KEY), publicClient: {} as never, walletClient: {} as never, now: () => 1000 }; // the vector's own time
     const executorFor = (voucher: Hex | Hex[]) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher, ...offline });
     const refund = vouched({ factory: request.factory, params: request.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode, former);
     const code = (x: SwapExecutor) => {
