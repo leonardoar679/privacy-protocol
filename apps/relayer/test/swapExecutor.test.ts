@@ -40,6 +40,10 @@ let revertError: { code: number; message: string; data?: string } = { code: 3, m
 let escrowCode: Hex = "0x";
 let escrowExecuted = false;
 const SEL_EXECUTED = toFunctionSelector("executed()");
+// a token the escrow holds that is not the order's (audit round 2, r00): its balanceOf answers `foreignBalance`
+const FOREIGN = "0x00000000000000000000000000000000000f0e19";
+let foreignBalance = 0n;
+const SEL_BALANCE_OF = toFunctionSelector("balanceOf(address)");
 const taken = new Set<Hex>(); // what the node took
 const dropped = new Set<Hex>(); // what it no longer knows
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
@@ -56,6 +60,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_getCode": return res(escrowCode);
     case "eth_call":
       if (String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_EXECUTED)) return res("0x" + (escrowExecuted ? "1" : "0").padStart(64, "0"));
+      if (String(req.params[0]?.to ?? "").toLowerCase() === FOREIGN && String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_BALANCE_OF)) return res(toHex(foreignBalance, { size: 32 }));
       return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "mock rpc: eth_call unsupported" } };
     case "eth_estimateGas": return estimateDown ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : revertSimulation ? { jsonrpc: "2.0", id: req.id, error: revertError } : res("0x7a120");
     case "eth_sendRawTransaction":
@@ -511,7 +516,7 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
     return vouched(r, CHAIN_ID, creationCode);
   };
   const reset = () => {
-    escrowCode = "0x"; escrowExecuted = false; revertSimulation = false; receiptStatus = null; escrowBalance = 0n; clock = 1000;
+    escrowCode = "0x"; escrowExecuted = false; revertSimulation = false; receiptStatus = null; escrowBalance = 0n; foreignBalance = 0n; clock = 1000;
   };
   // an executor of its own on the same chain: the mocked escrow answers for every address, and the shared executor's jobs
   // must not see it
@@ -566,6 +571,44 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
       // a funding that lands after all: the wallet's refund-only request re-opens the job
       const again = own.addRefund(vouched({ factory: request.factory, params: job.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode));
       expect(again.state).toBe("refund-only");
+    } finally {
+      reset();
+    }
+  });
+
+  it("dust below its tip at an escrow never funded ends a day past its window too: lapsed, never refunded (audit round 2, r00)", async () => {
+    // one wei at each of many vouched escrows, refund-only jobs asked for at no cost: refundOwn waits for the tip, and the jobs
+    // had stayed open for good, until they filled MAX_SWAP_JOBS and every hand-over and Return funds was refused
+    try {
+      clock = 1000; escrowBalance = 0n;
+      const r = fresh("c6");
+      const job = own.addRefund(vouched({ factory: r.factory, params: r.params, refundNoteData: r.refundNoteData }, CHAIN_ID, creationCode));
+      escrowBalance = 1n;
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS - 1;
+      await own.tick();
+      expect(job.state, "a day not yet past its window").toBe("refund-only");
+      expect(job.error).toMatch(/less than the order's .* tip/);
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS;
+      await own.tick();
+      expect(job.state).toBe("lapsed");
+      expect(job.txHash, "nothing sent at the relayer's gas").toBeUndefined();
+      expect(job.error).toMatch(/would be paid by its tip; anyone can still call deployAndRefund/);
+    } finally {
+      reset();
+    }
+  });
+
+  it("a listed foreign token at an escrow never deployed does not keep a never-executed job open either (audit round 2, r00)", async () => {
+    // the cheaper variant: a listed token contract whose balanceOf answers non-zero had blocked the lapse with no transfer at all
+    try {
+      clock = 1000; escrowBalance = 0n; foreignBalance = 5n;
+      const r = fresh("c7");
+      const job = own.addRefund(vouched({ factory: r.factory, params: r.params, refundNoteData: r.refundNoteData, refundTokens: [FOREIGN] }, CHAIN_ID, creationCode));
+      clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS;
+      await own.tick();
+      expect(job.state).toBe("lapsed");
+      expect(job.txHash).toBeUndefined();
+      expect(job.error).toMatch(/only other tokens/);
     } finally {
       reset();
     }

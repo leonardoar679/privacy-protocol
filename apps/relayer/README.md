@@ -69,8 +69,9 @@ The executor reads an escrow's fate from the escrow itself (a V6 follow-up of 20
 take the tip: an execution that then reverts (its receipt, or its estimate) for an escrow whose `executed()` is true
 leaves the job **executed**, under the late-refund watch and the unpaid budget, and so does an order found executed at its
 refund time. A job never executed whose escrow holds nothing `LAPSE_AFTER_SECONDS` (24 h) past its window is **lapsed**:
-never funded, or its funds already back. No pass reads it again and it no longer counts toward `MAX_SWAP_JOBS`; a
-refund-only request still reopens it.
+never funded, or its funds already back. So is one whose escrow holds less than its tip then (audit round 2, r00): no
+refund of that would be paid, and dust at many vouched escrows had kept their jobs open until `MAX_SWAP_JOBS` was full.
+No pass reads a lapsed job again and it no longer counts toward `MAX_SWAP_JOBS`; a refund-only request still reopens it.
 A provider can pay back after `refundAfter` (Across refunds an unfilled deposit with the settlement
 bundle after its fill deadline, 2 h after the quote): an **executed order stays watched** for
 `LATE_REFUND_WATCH_SECONDS` (24 h) past the window, everything that arrives re-shields, and only an

@@ -51,9 +51,10 @@ const vaultLinkAbi = parseAbi(["function core() view returns (address)", "functi
 /** How long an executed order is watched after `refundAfter` for a provider's late refund (PP-S11). */
 export const LATE_REFUND_WATCH_SECONDS = 24 * 3600;
 /**
- * How long after `refundAfter` a job whose order never executed and whose escrow holds nothing is still looked at (a V6
- * follow-up of 2026-10-16, audit c07): then it has ended — never funded, or its funds already back in the pool — and is
- * `lapsed`, no longer read every pass nor counted among the open jobs (MAX_SWAP_JOBS).
+ * How long after `refundAfter` a job whose order never executed and whose escrow holds nothing a refund would be paid for
+ * is still looked at (a V6 follow-up of 2026-10-16, audit c07): then it has ended — never funded, its funds already back in
+ * the pool, or only dust below its tip there (audit round 2, r00) — and is `lapsed`, no longer read every pass nor counted
+ * among the open jobs (MAX_SWAP_JOBS).
  */
 export const LAPSE_AFTER_SECONDS = 24 * 3600;
 const MAX_REFUND_TOKENS = 4;
@@ -616,9 +617,17 @@ export class SwapExecutor {
         if (!acted && refundable > 0n && budget) acted = await this.refundOwn(job, refundable); // deploys it too
         if (acted) continue;
         // never executed and nothing in the escrow a day past its window (audit c07): never funded, or its funds already
-        // back — the job has ended, and no pass reads it again
-        if (!job.executed && refundable === 0n && foreign.length === 0 && now >= Number(p.refundAfter) + (this.cfg.lapseAfterSeconds ?? LAPSE_AFTER_SECONDS)) {
-          job.state = "lapsed"; job.error = "ended: nothing in the escrow a day past its window"; job.updatedAt = Date.now();
+        // back — the job has ended, and no pass reads it again. So has one whose escrow holds less than its tip (audit round
+        // 2, r00): no refund of that is ever paid (refundOwn waits for the tip), and dust at a vouched escrow had kept the job
+        // open for good, until enough of them filled MAX_SWAP_JOBS. Foreign tokens do not keep it either: no provider ever
+        // held this order's funds, so none paid anything back, and refundForeign has had its turn above
+        const tip = BigInt(p.executorTip);
+        if (!job.executed && (refundable === 0n || tip === 0n || refundable < tip) && now >= Number(p.refundAfter) + (this.cfg.lapseAfterSeconds ?? LAPSE_AFTER_SECONDS)) {
+          job.state = "lapsed";
+          job.error = refundable > 0n
+            ? `ended a day past its window: no refund of what the escrow holds (${refundable}) would be paid by its tip; anyone can still call deployAndRefund`
+            : foreign.length ? "ended a day past its window: the escrow holds only other tokens, and no provider ever held this order's funds" : "ended: nothing in the escrow a day past its window";
+          job.updatedAt = Date.now();
           this.persist();
           continue;
         }
