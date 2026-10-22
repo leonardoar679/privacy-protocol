@@ -27,7 +27,7 @@ import { noteStore, type OwnedNote } from "./wallet/notes";
 import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
-import { PRIVACY_FEE_BPS, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
+import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
 import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
@@ -363,10 +363,25 @@ export class NotThisSpend extends Error {
   }
 }
 
-/** The fee this spend would pay, refused above the one the Review showed (`maxFee`, in the vault's base units). */
-function boundFee(terms: { fee: FeeTerms } | null, maxFee: bigint | undefined): void {
-  const fee = terms?.fee.amount ?? 0n;
-  if (maxFee !== undefined && fee > maxFee) throw new FeeMoved(maxFee, fee);
+/**
+ * The fee a spend pays against the one its Review showed (`maxFee`, in the vault's base units). The terms are read again at
+ * submit, and the relayer prices its minimum from the gas price at every read: a fresh fee at or below the Review's is paid;
+ * above it, the Review's own is paid while it still meets the relayer's live rule — the margin this wallet adds to the
+ * minimum is for just that move between the Review and the submission —, and only a fee the relayer would now refuse is
+ * FeeMoved (audit round 2, r09: any rise had been refused, and a Send or a swap's funding stopped on every gas uptick).
+ * `live`: the relayer's minimum now, without this wallet's margin; `delivered`: what leaves for the recipient.
+ */
+export function feeWithinReview(fresh: bigint, maxFee: bigint | undefined, live: { minimum: bigint; feePercentBps: number }, delivered: bigint): bigint {
+  if (maxFee === undefined || fresh <= maxFee) return fresh;
+  if (feeMeetsTerms(delivered, maxFee, live.feePercentBps, live.minimum).ok) return maxFee;
+  throw new FeeMoved(maxFee, fresh);
+}
+
+/** The terms a spend pays with: their fee bounded by the Review's (`feeWithinReview`). */
+function boundFee(terms: { info: RelayerInfo; fee: FeeTerms } | null, maxFee: bigint | undefined, vault: Address, delivered: bigint): void {
+  if (!terms) return;
+  const minimum = feeInVault(terms.info, vault, 0) ?? terms.fee.amount; // the relayer's own, without this wallet's margin
+  terms.fee = { ...terms.fee, amount: feeWithinReview(terms.fee.amount, maxFee, { minimum, feePercentBps: terms.info.feePercentBps ?? 0 }, delivered) };
 }
 
 /** V6 Stage 15 (spec v2.0 §8): proving and the submission are a critical section for the auto-lock. */
@@ -525,7 +540,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
-  boundFee(terms, o.maxFee);
+  boundFee(terms, o.maxFee, vault, o.amount);
   const needed = o.amount + (terms?.fee.amount ?? 0n);
   // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
   if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
@@ -698,7 +713,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
   const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
-  boundFee(terms, o.maxFee);
+  boundFee(terms, o.maxFee, vault, o.amount);
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
   await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });

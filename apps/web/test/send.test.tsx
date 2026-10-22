@@ -29,7 +29,8 @@ import { startMockCore } from "./helpers/mockRpc";
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const HASH2 = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { transfer: { amount: bigint; recipient: string }[]; withdraw: { amount: bigint; recipient: string }[] } = { transfer: [], withdraw: [] };
-let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" = "ok";
+let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" = "ok";
+let feeReads = 0; // the relayer's terms read (audit round 2, r09: "Back to review" reads them again)
 function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string}`, leafIndex?: number) {
   for (const e of [
     { type: "fee-terms" },
@@ -49,13 +50,17 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>();
   return {
     ...orig,
-    feeTerms: async () => ({
-      url: "http://relayer.test",
-      info: { feePercentBps: 100 },
-      fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n },
-    }),
+    feeTerms: async () => {
+      feeReads++;
+      return {
+        url: "http://relayer.test",
+        info: { feePercentBps: 100 },
+        fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n },
+      };
+    },
     privateTransfer: async (o: { amount: bigint; recipient: string; onEvent?: (e: EngineEvent) => void }) => {
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
+      if (behaviour === "fee-moved") throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
       calls.transfer.push({ amount: o.amount, recipient: o.recipient });
       emit(o.onEvent, HASH, 5);
       return { txHash: HASH, proofMs: 1234, verifiedLocally: true, recipientNote: { leafIndex: 5 }, spent: [0], submittedBy: "relayer" };
@@ -380,6 +385,25 @@ describe("Send (spec v2.0 §7.4)", () => {
     fireEvent.click(reviewButton());
     expect(screen.queryByTestId("review-confirm"), "what leaves is above $50K: never a tap").toBeNull();
     expect(screen.getByTestId("hold-to-confirm")).toBeTruthy();
+  });
+
+  it("a fee that moved past the Review's: nothing was sent, and 'Back to review' reads the relayer's terms again so the Review shows the new fee (audit round 2, r09)", async () => {
+    await unlocked();
+    behaviour = "fee-moved";
+    const { path } = mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    const error = await screen.findByTestId("operation-progress-error");
+    expect(error.textContent).toContain("The relayer's fee went up");
+    const before = feeReads;
+    fireEvent.click(screen.getByTestId("send-back-review"));
+    expect(path()).toBe("/send/review");
+    await waitFor(() => expect(feeReads, "the terms read again").toBeGreaterThan(before));
   });
 
   it("failures: before the signature the balance is untouched and consolidation is offered; after the submission a lost relayer answer is a recovery with 'We are checking where your funds are.'", async () => {

@@ -533,7 +533,10 @@ export function SendScreen(p: SendScreenProps) {
               const ok = scheduleHousekeeping(p.deployment, { now: true });
               setStatus(ok ? t("send.consolidateScheduled") : t("send.consolidateNotScheduled"));
             }}
-            onBackToReview={() => navigate("/send/review")}
+            onBackToReview={() => {
+              terms.refresh(); // a fee that moved past the Review's is read again, so the Review shows the new one (audit round 2, r09)
+              navigate("/send/review");
+            }}
             onEdit={() => navigate("/send")}
             onAgain={() => {
               setAmount("");
