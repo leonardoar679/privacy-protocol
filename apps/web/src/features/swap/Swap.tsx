@@ -228,7 +228,9 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     const req = { ...request(), destination: dest };
     const committedLint = lintItems, competition = quotes?.competition;
     const reviewHoldUntil = controls.reviewHold ? Date.now() + reviewHoldMinutes() * 60_000 : undefined; // institutional (spec §24)
-    const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil } }));
+    // the relayer's fee the Review showed bounds the funding, scheduled or "Fund now" (c46; audit round 2, r12: this page journaled none)
+    const reviewedFee = funding && funding.amount === units ? funding.amount - funding.split.delivered : undefined;
+    const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil }, ...(reviewedFee !== undefined ? { reviewedFee } : {}) }));
     if (!res) return;
     reset();
     setOrder(res.order); setStored(res.stored); setOrderKey(res.key); setRefundNoteData(res.refund.noteData);

@@ -59,6 +59,7 @@ async function committedAndFunded(container: HTMLElement) {
   await vi.waitFor(() => expect(session.journal().swaps).toHaveLength(1));
   const s = session.journal().swaps[0];
   expect(s.approvedMin, "the minimum the user saw is journaled at commit").toBe(LIMIT.toString());
+  expect(s.reviewedFee, "and the relayer's fee its Review showed, which bounds the funding (audit round 2, r12): none here, at this relayer's terms").toBe("0");
   session.update((j) => { j.swaps[0].fundedTx = "0x" + "11".repeat(32); j.swaps[0].state = "funded"; }); // the private withdrawal itself is covered elsewhere
   await mount(container); // a reload: the order comes back from the journal
   await act(async () => { button(container, "Open")!.click(); });
