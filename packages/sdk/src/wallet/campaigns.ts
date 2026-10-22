@@ -18,7 +18,7 @@ import { activityId, recordActivity, updateActivity } from "./activity";
 import type { JournalData, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { cancelAction, scheduleAction } from "./schedule";
-import { session as defaultSession, type WalletSession } from "./session";
+import { assertJournalSaved, session as defaultSession, type WalletSession } from "./session";
 import { PROTECTION_DEFAULTS } from "./settings";
 import { capBpsFor, type ExposureTier } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 
@@ -159,6 +159,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
 /** The confirmation (§7): journal the campaign, its Activity line and the first tick (now). */
 export function startCampaign(i: StartCampaignInput): Campaign {
   const s = i.session ?? defaultSession;
+  assertJournalSaved(s); // its record would be lost at the next lock (audit round 2, r47)
   const c = buildCampaign(i);
   s.update((j) => { j.campaigns = [...(j.campaigns ?? []), c]; });
   recordActivity({ id: activityId("campaign", c.id), kind: "campaign", asset: i.from.symbol, decimals: i.from.decimals, amount: i.amount.toString(), status: c.state, ref: c.id, note: `→ ${i.to.symbol} · ${progressLine(c)}` }, s);

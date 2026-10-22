@@ -27,6 +27,25 @@ export interface SessionState {
 export interface Backup { v: 1; keystore: Keystore; journal: EncryptedJournal | null }
 
 /**
+ * The stored journal does not open, and this session saves nothing (audit round 2, r47): a swap committed or funded now
+ * would be journaled in memory only — its one-time key's attempt id, its params, its refund payload — and the next lock or
+ * reload would forget it, its escrow stranded. Swaps and protected executions wait until the journal is restored from a
+ * backup or set aside.
+ */
+export class JournalUnreadable extends Error {
+  readonly code = "journal_unreadable";
+  constructor() {
+    super("this wallet's journal could not be read: no swap is started or funded until it is restored from a backup or set aside");
+    this.name = "JournalUnreadable";
+  }
+}
+
+/** Throws JournalUnreadable while the session saves nothing (r47). */
+export function assertJournalSaved(s: WalletSession): void {
+  if (s.state().journalUnreadable) throw new JournalUnreadable();
+}
+
+/**
  * A wallet is already on this device (audit round 2, r27). A tab opened before another tab created one still read "no
  * wallet" — its copy of the store is filled when the page opens — and its Create or Restore wrote over that wallet's keystore
  * and journal with no REPLACE asked. The store is read again first; creating or restoring over a wallet takes the user's

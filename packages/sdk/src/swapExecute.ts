@@ -23,7 +23,7 @@ import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefu
 import { patchSwap, swapFactoryOf } from "./swapFunding";
 import { DELAY_WINDOW } from "./policy";
 import { noteStore } from "./wallet/notes";
-import { session as defaultSession, type WalletSession } from "./wallet/session";
+import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import type { Submission } from "./wallet/settings";
 import type { StoredShield, StoredSwap } from "./wallet/journal";
 import { activityId, recordActivity } from "./wallet/activity";
@@ -70,6 +70,7 @@ export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { pri
 /** Commit an order: the one-time key and the refund note fixed first, `/order`, the escrow checked, the order journaled (and, for a plain order, its funding scheduled). */
 export async function commitOrder(i: CommitInput): Promise<Committed> {
   const s = i.session ?? defaultSession;
+  assertJournalSaved(s); // its record would be lost at the next lock (audit round 2, r47)
   const now = i.now ?? Date.now();
   const factory = swapFactoryOf(i.deployment);
   // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)

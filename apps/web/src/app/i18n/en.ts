@@ -528,6 +528,8 @@ export const en = {
   "op.error.older_notes_unavailable.reason": "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
   "op.error.interrupted.title": "Stopped before anything was sent",
   "op.error.interrupted.reason": "The page was closed or reloaded before it was sent. Nothing moved: start it again.",
+  "op.error.journal_unreadable.title": "Swaps wait for your activity record",
+  "op.error.journal_unreadable.reason": "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
   "op.error.not_this_spend.title": "We're checking where this transaction went",

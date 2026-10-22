@@ -582,6 +582,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.older_notes_unavailable.title": "이전 자금으로 이 스왑을 충당할 수 없습니다",
   "op.error.older_notes_unavailable.reason":
     "이 스왑은 이전에 보호한 자금으로 지불될 예정이었습니다. 해당 자금이 사용되었거나 수수료를 포함한 금액에 미치지 못해 자금을 투입하기 전에 중단했습니다. 스왑을 다시 검토하세요.",
+  "op.error.journal_unreadable.title": "스왑은 활동 기록을 기다립니다",
+  "op.error.journal_unreadable.reason":
+    "이 지갑의 활동 기록을 읽을 수 없어서, 새 스왑의 기록은 다음 잠금 때 사라집니다. 아무것도 전송되지 않았습니다. 먼저 백업을 복원하거나 기록을 따로 보관하세요.",
   "op.error.interrupted.title": "전송되기 전에 중단되었습니다",
   "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",

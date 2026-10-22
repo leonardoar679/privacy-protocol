@@ -17,7 +17,7 @@ import { OrderMismatch, orderVouchDigest, predictEscrow } from "./swapGuard";
 import { noteStore } from "./wallet/notes";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { mainOwnerCommitment } from "./keys/ownerKeys";
-import { session as defaultSession, type WalletSession } from "./wallet/session";
+import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
@@ -290,6 +290,7 @@ export async function fundEscrow(o: {
 }): Promise<Submitted> {
   const s = o.session ?? defaultSession;
   const { stored } = o;
+  assertJournalSaved(s); // its funding attempt would be lost at the next lock, and sent again (audit round 2, r47)
   if (!o.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
   if (!isOpenSwap(stored)) throw new Error(`order ${stored.orderId.slice(0, 10)}… is ${stored.state}; it is not funded`);
   if (stored.fundedTx) throw new Error(`order ${stored.orderId.slice(0, 10)}… is already funded`);

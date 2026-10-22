@@ -8,6 +8,9 @@ import { decryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { commitOrder } from "@privacy-wallet/sdk/swapExecute";
+import { startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { fundEscrow } from "@privacy-wallet/sdk/swapFunding";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 
@@ -42,6 +45,22 @@ describe("unreadable journal", () => {
     expect(await s.unlock("pw")).toBe(true);
     expect(s.state().journalUnreadable).toBe(false);
     expect(s.journal().activity?.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  it("while it is unreadable, no swap is committed, started or funded: its record would be lost at the next lock (audit round 2, r47)", async () => {
+    const storage = memoryStorage();
+    const s = new WalletSession(storage, KDF);
+    await s.create("pw");
+    s.lock();
+    storage.set(JOURNAL_KEY, JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "22".repeat(64) }));
+    expect(await s.unlock("pw")).toBe(true);
+    expect(s.state().journalUnreadable).toBe(true);
+    await expect(commitOrder({ session: s } as never)).rejects.toMatchObject({ code: "journal_unreadable" });
+    expect(() => startCampaign({ session: s } as never)).toThrow(/journal could not be read/);
+    await expect(fundEscrow({ session: s, stored: {} } as never)).rejects.toMatchObject({ code: "journal_unreadable" });
+    expect(s.journal().swaps, "nothing journaled in memory either").toEqual([]);
+    s.discardUnreadableJournal(); // the user's choice: from here the session saves again
+    await expect(commitOrder({ session: s } as never)).rejects.not.toMatchObject({ code: "journal_unreadable" });
   });
 
   it("a blob that is not even JSON-shaped is handled the same way; a readable journal never sets the flag", async () => {
