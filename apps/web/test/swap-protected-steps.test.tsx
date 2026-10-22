@@ -87,6 +87,28 @@ function mount(path = "/swap") {
 }
 
 describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, §7.6)", () => {
+  it("after the hold, Back never shows the confirmed Review again: one campaign, never a second from the same quote (audit round 2, r15)", async () => {
+    world.protection = bandPlan;
+    await wallet();
+    const router = mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
+    fireEvent.click(screen.getByTestId("swap-review"));
+    await screen.findByTestId("review-view");
+    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+    await act(async () => {
+      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 120));
+    });
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    expect(router.state.location.pathname, "the steps page replaced the Review in the history").toBe("/swap");
+    expect(screen.queryByTestId("hold-to-confirm")).toBeNull();
+    expect(campaignsOf(session.journal())).toHaveLength(1);
+  });
+
   it("$80,000: the Protected execution checks and the hold, one confirmation, then the steps in amounts only", async () => {
     world.protection = bandPlan;
     await wallet();

@@ -424,7 +424,8 @@ export function SwapScreen(p: SwapScreenProps) {
         confirmations: edited && destAck ? { destinationVerified: at } : {},
         now: at,
       });
-      navigate(`/swap/steps/${c.id}`);
+      // the confirmed Review is not shown again (c48, audit round 2 r15): Back had re-shown it, one hold from a second campaign
+      navigate(`/swap/steps/${c.id}`, { replace: true });
     } catch (e) {
       setStatus(classify(e).detail || String(e));
     } finally {
