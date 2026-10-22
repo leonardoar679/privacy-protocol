@@ -12,6 +12,7 @@ import { IMPACT_CAP_BPS, STREAM_MAX_SECONDS, WEIGHTS, chooseRoute, maxGapBpsFor,
 import { ProviderHealthTracker, chainHalted, reliabilityScore } from "../src/health";
 import { PLACEHOLDER_BTC, PLACEHOLDER_EVM, PLACEHOLDER_SOL, placeholderDestination } from "../src/placeholders";
 import { NO_VALUER } from "../src/valuation";
+import { AdapterRefusal } from "../src/types";
 import type { AssetRef, Capabilities, Health, Ingress, POLICIES as _P, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "../src/types";
 import { POLICIES, isPolicy } from "../src/types";
 import { shareTips } from "./helpers/tips";
@@ -129,12 +130,14 @@ describe("health: failures, the breaker and the cache (whale spec §16)", () => 
 class Stub implements ProviderAdapter {
   readonly implemented = true;
   seen: string[] = [];
-  constructor(readonly id: ProviderId, private readonly mode: "quote" | "refuse" | "hang" | "outage", private readonly nativeAssets = true) {}
+  constructor(readonly id: ProviderId, private readonly mode: "quote" | "refuse" | "hang" | "outage" | "check-refuse", private readonly nativeAssets = true) {}
   capabilities(): Capabilities { return { routes: ["A", "B", "C", "D", "E"], ingress: ["contract-call"], nativeAssets: this.nativeAssets, atomic: false, chains: ["ethereum", "bitcoin", "solana"], destinationLinkPublic: true, linkEvidence: "stub adapter: the calldata names the destination" }; }
   async quote(req: QuoteRequest): Promise<Quote> {
     this.seen.push(req.destination);
     if (this.mode === "refuse") throw new Error("HTTP 400 insufficient liquidity for the requested amount");
     if (this.mode === "outage") throw new TypeError("fetch failed");
+    // the adapter's own check refused the answer for this request: the words 9051b0b's floor check throws for a mislabelled asset
+    if (this.mode === "check-refuse") throw new AdapterRefusal("Across swap: bridges 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (USDC) for USDX; the swap's floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth");
     if (this.mode === "hang") await new Promise((r) => setTimeout(r, 200));
     return q(this.id, req.amount / 30n, { nativeAssets: this.nativeAssets, plan: req.plan === "stream" ? { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 } : undefined });
   }
@@ -227,6 +230,14 @@ describe("the competition record, the time budget and the breaker (whale spec §
     // 150 ms of health and 200 ms of quote are past the 250 ms budget: alone, either would have fit
     expect(set.competition.find((c) => c.provider === "thorchain")).toMatchObject({ outcome: "timeout", reason: expect.stringContaining("no answer within") });
     expect(set.chosen?.provider).toBe("chainflip");
+  });
+  it("an answer the adapter's own checks refuse never opens the breaker, whatever its words: a caller's mislabelled asset had opened it for every user (audit round 2, r03)", async () => {
+    const thor = new Stub("thorchain", "quote"), across = new Stub("uniswap-across", "check-refuse");
+    const e = engine([thor, across]);
+    for (let i = 0; i < 7; i++) await e.quoteAll(req, "balanced"); // past three in a row and six in the hour
+    const set = await e.quoteAll(req, "balanced");
+    expect(set.competition.find((c) => c.provider === "uniswap-across")).toMatchObject({ outcome: "refused", reason: expect.stringContaining("counted in the asset delivered") });
+    expect(set.errors["uniswap-across"]).not.toMatch(/skipped/);
   });
   it("three outages open the breaker: the provider is skipped for a while and the competition says so", async () => {
     const thor = new Stub("thorchain", "quote"), lifi = new Stub("lifi", "outage");

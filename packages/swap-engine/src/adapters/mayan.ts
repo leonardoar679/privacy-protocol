@@ -31,7 +31,7 @@ import { encodeCall, hexBuf, padLeft32, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { escrowCanReshield } from "../escrowAssets";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { SINGLE_PLAN, categoryOf } from "../types";
+import { AdapterRefusal, SINGLE_PLAN, categoryOf } from "../types";
 
 export const MAYAN_PRICE_API = process.env.MAYAN_PRICE_API ?? "https://price-api.mayan.finance/v3";
 export const MAYAN_EXPLORER_API = process.env.MAYAN_EXPLORER_API ?? "https://explorer-api.mayan.finance/v3";
@@ -294,7 +294,8 @@ export class MayanAdapter implements ProviderAdapter {
     for (const q of offered) {
       try { built.push(q.type === "SWIFT" ? this.swiftQuote(req, q) : this.fastQuote(req, q)); } catch (e) { refused.push(`${q.type}: ${(e as Error).message}`); }
     }
-    if (!built.length) throw new Error(refused.length ? refused.join("; ") : `Mayan: no ${this.orderTypes.join("/")} quote (${(data.quotes ?? []).map((x) => x.type).join(",") || "none"})`);
+    // every quote Mayan offered failed this adapter's own checks: a refusal for this request, never an outage (audit round 2, r03)
+    if (!built.length) throw refused.length ? new AdapterRefusal(refused.join("; ")) : new Error(`Mayan: no ${this.orderTypes.join("/")} quote (${(data.quotes ?? []).map((x) => x.type).join(",") || "none"})`);
     // the higher guaranteed minimum; on a tie SWIFT, whose unfilled order is refunded to the escrow
     const swift = (x: Quote) => ((x.raw as MayanQuote).type === "SWIFT" ? 1 : 0);
     built.sort((a, b) => (a.toAmountMin === b.toAmountMin ? swift(b) - swift(a) : a.toAmountMin > b.toAmountMin ? -1 : 1));

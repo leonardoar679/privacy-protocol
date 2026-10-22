@@ -1,6 +1,7 @@
 // Offline checks of the Mayan helpers against the SDK's conventions.
 import { describe, it, expect } from "vitest";
-import { SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, addressHex32, checkFastMctpQuote, encodeCreateOrder, fractionalToUnits, minOutBaseUnits, orderPayloadFromQuote } from "../src/adapters/mayan";
+import { MayanAdapter, SEL_CREATE_ORDER, SEL_FORWARD_ERC20, SEL_SWAP_AND_FORWARD_ETH, addressHex32, checkFastMctpQuote, encodeCreateOrder, fractionalToUnits, minOutBaseUnits, orderPayloadFromQuote } from "../src/adapters/mayan";
+import { AdapterRefusal } from "../src/types";
 import { decodeParams, encodeParams, hexBuf } from "../src/abi";
 
 describe("Mayan helpers (offline)", () => {
@@ -69,6 +70,23 @@ describe("Mayan helpers (offline)", () => {
     expect(() => checkFastMctpQuote(small, reqU, NOW)).not.toThrow();
     expect(() => checkFastMctpQuote({ ...small, refundRelayerFee64: "1514594" }, reqU, NOW)).toThrow(/fees/);
   });
+  it("a quote every check of this adapter refuses is a refusal, never an outage: a caller's mislabelled decimals (audit round 2, r03)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ETH = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" } as const;
+    // ETH -> SOL as Mayan quotes it, asked for by a caller who wrote SOL with 6 decimals
+    const quote = { type: "FAST_MCTP", fromChain: "ethereum", toChain: "solana", toToken: { contract: "0x0000000000000000000000000000000000000000", decimals: 9 }, gasDrop: 0, redeemRelayerFee: 0.738673, refundRelayerFee64: "485684", circleMaxFee64: "270887", deadline64: String(now + 1794), minMiddleAmount: 2460.750906422056, effectiveAmountIn64: (10n ** 18n).toString(), fastMctpMayanContract: "0x0000000000000000000000000000000000000001", fastMctpInputContract: "0x0000000000000000000000000000000000000002" };
+    const real = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ quotes: [quote] }), { status: 200 })) as typeof fetch;
+    try {
+      const mislabelled = { chain: "solana", asset: "native", decimals: 6, symbol: "SOL" } as const;
+      const refused = new MayanAdapter({ orderTypes: ["FAST_MCTP"] }).quote({ from: ETH, to: mislabelled, amount: 10n ** 18n, destination: "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", slippageBps: 50 });
+      await expect(refused).rejects.toBeInstanceOf(AdapterRefusal);
+      await expect(refused).rejects.toThrow(/9 decimals\), not SOL/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
   it("dynamic bytes encoding is head/tail correct", () => {
     const enc = encodeParams([{ t: "uint", v: 1 }, { t: "bytes", v: "0xabcd" }, { t: "uint", v: 2 }]);
     expect(enc.length).toBe(3 * 32 + 64);

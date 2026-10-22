@@ -21,7 +21,7 @@
 // unfilled deposit is refunded to the escrow); something must drain the output token to the fresh address.
 import { hexBuf } from "../abi";
 import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
-import { SINGLE_PLAN, categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
+import { AdapterRefusal, SINGLE_PLAN, categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
 
 /** SpokePoolPeriphery on Ethereum (Across, `contracts/periphery/SpokePoolPeriphery.sol`, Sourcify exact match). */
 export const ACROSS_PERIPHERY: Record<string, string> = { ethereum: "0x97ccdbea4632140639ad5ea9b944aa034eb15fd4" };
@@ -197,10 +197,16 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
   let data: any; try { data = JSON.parse(text); } catch { data = text; }
   if (r.status !== 200 || !data?.swapTx) throw new Error(`Across swap/approval: HTTP ${r.status} ${JSON.stringify(data).slice(0, 200)}`);
   if (data.crossSwapType !== "anyToBridgeable") throw new Error(`Across swap: a ${data.crossSwapType} route (only a swap on the origin chain, then the bridge, is offered)`);
-  const v = verifyAcrossSwapCall(req, data.swapTx, pins, { requireDepositor: false });
+  // the adapter's own checks of the call refuse it for this request: a refusal, never an outage (audit round 2, r03)
+  let v: ReturnType<typeof verifyAcrossSwapCall>;
+  try {
+    v = verifyAcrossSwapCall(req, data.swapTx, pins, { requireDepositor: false });
+  } catch (e) {
+    throw new AdapterRefusal((e as Error)?.message ?? String(e));
+  }
   const toAmount = BigInt(data.expectedOutputAmount ?? v.minOut);
   // the minimum the call guarantees must be consistent with the slippage asked for (a lowered minimum is a changed quote)
-  if (v.minOut * 10000n < toAmount * BigInt(10000 - req.slippageBps - 50)) throw new Error(`Across swap: the guaranteed ${v.minOut} is more than ${req.slippageBps + 50} bps below the expected ${toAmount}`);
+  if (v.minOut * 10000n < toAmount * BigInt(10000 - req.slippageBps - 50)) throw new AdapterRefusal(`Across swap: the guaranteed ${v.minOut} is more than ${req.slippageBps + 50} bps below the expected ${toAmount}`);
   const total = data.fees?.total;
   const fees: Fee[] = total ? [{ kind: "network", amount: BigInt(total.amount ?? 0), asset: total.token?.symbol ?? "?", decimals: typeof total.token?.decimals === "number" ? total.token.decimals : undefined, usd: Number(total.amountUsd ?? 0) }] : [];
   const fill = v.call.depositData.fillDeadline;

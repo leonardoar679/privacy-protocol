@@ -4,7 +4,7 @@
 // per-order wallet-derived key.
 import { randomBytes } from "crypto";
 import type { AssetRef, CompetitionEntry, Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
-import { CATEGORY_PREFERENCE, categoryOf } from "./types";
+import { AdapterRefusal, CATEGORY_PREFERENCE, categoryOf } from "./types";
 import { chooseRoute, policyFor, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
 import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
@@ -133,7 +133,10 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string, budgetMs = ms):
     const t = setTimeout(() => reject(new QuoteTimeout(`${what}: no answer within ${Math.round(budgetMs / 1000)} s`)), ms);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
-/** A provider that answered "no" for this request (a 4xx with a reason, a refusal of the size or the route) is not an outage: the breaker ignores it. */
+/**
+ * A provider that answered "no" for this request (a 4xx with a reason, a refusal of the size or the route) is not an outage: the
+ * breaker ignores it. So is an answer the adapter's own checks refused (`AdapterRefusal`, whatever its words: audit round 2, r03).
+ */
 const isRefusal = (msg: string) => /HTTP 4\d\d|refused|not supported|does not (support|list|serve)|insufficient|too low|too high|not offered|cannot|no (dry-quote|quote|liquidity|route|available)|unexpected|mismatch|placeholder|not implemented|only|limit/i.test(msg);
 
 export interface QuoteHint {
@@ -284,7 +287,7 @@ export class PrivateSwapEngine {
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
         const timeout = e instanceof QuoteTimeout;
-        if (timeout || !isRefusal(msg)) this.tracker.recordFailure(a.id, Date.now());
+        if (timeout || (!(e instanceof AdapterRefusal) && !isRefusal(msg))) this.tracker.recordFailure(a.id, Date.now());
         competition.push({ provider: a.id, outcome: timeout ? "timeout" : "refused", reason: msg, ms: Date.now() - t0 });
         return { id: a.id, health, quote: undefined, error: msg };
       }

@@ -162,6 +162,14 @@ export interface Capabilities {
   linkEvidence: string;
 }
 
+/**
+ * The adapter's own check of a provider's answer refused it for this request — the asset it delivers or its decimals, a floor,
+ * a minimum, the chain the request named: a refusal, never an outage, so the engine's breaker does not count it (audit round
+ * 2, r03). The breaker had gone by the message's words alone, and a caller's own mislabelled asset, failing such a check,
+ * opened a provider's breaker for every user.
+ */
+export class AdapterRefusal extends Error {}
+
 /** Provider adapter interface — spec §4; whale spec §5. */
 export interface ProviderAdapter {
   readonly id: ProviderId;
