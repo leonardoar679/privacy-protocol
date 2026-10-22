@@ -24,10 +24,36 @@ export function Input({ className, invalid, ...rest }: InputHTMLAttributes<HTMLI
   return <input className={cx("ds-input", className)} aria-invalid={invalid || undefined} {...rest} />;
 }
 
-/** Accepts digits with one decimal point and at most `decimals` fractional digits; the caller keeps base units. */
+/** A whole number grouped by threes with `sep`, its first group never 0 ("1,000,000"; never "0.000.001"). */
+const groupedBy = (s: string, sep: "," | "."): boolean => (sep === "," ? /^[1-9]\d{0,2}(,\d{3})+$/ : /^[1-9]\d{0,2}(\.\d{3})+$/).test(s);
+
+/**
+ * Accepts digits with one decimal point and at most `decimals` fractional digits; the caller keeps base units. A lone comma
+ * is the decimal point, as a lone dot is (a V6 follow-up of 2026-10-22, from the audit's review of the input layer): every
+ * comma had been dropped as a thousands separator, so on a comma-decimal keypad — the only decimal key it offers — "0,5"
+ * became "05", five, ten times what was meant. Thousands are read only where they cannot be the decimal point: two or more
+ * of one separator ("1,000,000", "1.000.000"), or both kinds, the last one the decimal point ("1,000.5", "1.000,5"), each
+ * grouping by threes. So an amount is never read larger than it was meant in either convention — "2,500" reads 2.5 — and
+ * anything else is refused. The device's region plays no part: its keypad and its language need not agree.
+ */
 export function cleanAmount(raw: string, decimals: number): string | null {
-  const s = raw.replace(/,/g, "").trim();
+  let s = raw.replace(/\s/g, "");
   if (s === "") return "";
+  const commas = s.split(",").length - 1;
+  const dots = s.split(".").length - 1;
+  if (commas && dots) {
+    const at = Math.max(s.lastIndexOf(","), s.lastIndexOf("."));
+    const group = s[at] === "," ? "." : ",";
+    const whole = s.slice(0, at);
+    const frac = s.slice(at + 1);
+    // a point typed after the field's own ("1.000," then "5") is refused, never a thousand
+    if (!/^\d+$/.test(frac) || !groupedBy(whole, group)) return null;
+    s = `${whole.split(group).join("")}.${frac}`;
+  } else if (commas + dots > 1) {
+    const group = commas ? "," : ".";
+    if (!groupedBy(s, group)) return null;
+    s = s.split(group).join("");
+  } else s = s.replace(",", ".");
   if (!/^\d*\.?\d*$/.test(s)) return null;
   const [whole, frac = ""] = s.split(".");
   if (frac.length > decimals) return null;

@@ -140,6 +140,32 @@ describe("the design-system components (spec v2.0 §5)", () => {
     expect(cleanAmount("", 6)).toBe("");
   });
 
+  it("a lone comma is the decimal point, as a lone dot is: never 0,5 as five (2026-10-22, the audit's review of the input layer)", () => {
+    // what a controlled field holds after each key: a refused key leaves it as it was
+    const typed = (keys: string, decimals = 18) => [...keys].reduce((field, k) => cleanAmount(field + k, decimals) ?? field, "");
+    // a comma-decimal keypad offers only ","
+    expect(typed("0,5")).toBe("0.5");
+    expect(typed("1,2345"), "on past three places, the field showing its point").toBe("1.2345");
+    expect(typed("2,500")).toBe("2.500");
+    expect(cleanAmount("0,", 18)).toBe("0.");
+    expect(cleanAmount("1.234", 18)).toBe("1.234");
+    // thousands only where they cannot be the decimal point, each group of three
+    expect(cleanAmount("1.000,25", 18)).toBe("1000.25");
+    expect(cleanAmount("1,000.25", 18)).toBe("1000.25");
+    expect(cleanAmount("1,000,000", 18)).toBe("1000000");
+    expect(cleanAmount("1.000.000", 18)).toBe("1000000");
+    expect(cleanAmount("1 000.5", 18), "spaces group too").toBe("1000.5");
+    // never larger than meant in either convention
+    expect(cleanAmount("2,500", 18), "2.5 or 2,500: the smaller").toBe("2.500");
+    expect(cleanAmount("1,2,3", 18)).toBeNull();
+    expect(cleanAmount("10,00,000", 18)).toBeNull();
+    expect(cleanAmount("0.000.001", 18)).toBeNull();
+    expect(cleanAmount("1.000,", 18), "a point typed after the field's own").toBeNull();
+    expect(cleanAmount("1.5,", 18)).toBeNull();
+    expect(typed("1.000,5"), "never a thousand").toBe("1.0005");
+    expect(cleanAmount("0,1234567", 6), "more places than the asset has").toBeNull();
+  });
+
   it("AddressInput: inputmode text without autocorrection, the four checks with their state, paste, the address book", async () => {
     const onChange = vi.fn();
     const onPick = vi.fn();
