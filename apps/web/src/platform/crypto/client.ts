@@ -26,9 +26,14 @@ interface Pending {
 let worker: Worker | null = null;
 let seq = 0;
 const pending = new Map<number, Pending>();
+/** The locks so far: a proof that waited on a request of its own across one never goes on (audit round 2, r19). */
+let locks = 0;
 
-function failAll(message: string): void {
-  for (const p of pending.values()) p.reject(new Error(message));
+/** A lock ended it before anything was sent: nothing moved (the catalog's `interrupted`). */
+const interrupted = (): Error => Object.assign(new Error("the wallet locked before anything was sent"), { code: "interrupted" });
+
+function failAll(error: () => Error): void {
+  for (const p of pending.values()) p.reject(error());
   pending.clear();
 }
 
@@ -44,7 +49,7 @@ function spawn(): Worker {
     else p.resolve(r);
   };
   w.onerror = (e) => {
-    failAll(`the crypto worker failed: ${e.message}`);
+    failAll(() => new Error(`the crypto worker failed: ${e.message}`));
     w.terminate();
     if (worker === w) worker = null;
   };
@@ -53,9 +58,10 @@ function spawn(): Worker {
 
 /** Ends the worker and everything it was doing (every lock does this: the spend plan and the keys it held go with it). */
 export function stopCryptoWorker(): void {
+  locks++;
   worker?.terminate();
   worker = null;
-  failAll("locked");
+  failAll(interrupted);
 }
 
 // a lock ends the worker: the spend plans and the view key it held go with it (spec v2.0 §8); registered when this
@@ -66,6 +72,9 @@ session.onLock(stopCryptoWorker);
 export const cryptoWorkerRunning = (): boolean => worker !== null;
 
 function call(req: Req, transfer: Transferable[] = [], onProgress?: (phase: ProvePhase) => void): Promise<CryptoResponse> {
+  // never a worker while the wallet is locked (audit round 2, r19): one started after a lock was handed the spend plan and the
+  // keys that a proof waiting out the lock still held — proved, sent and mined, then recorded "Nothing moved"
+  if (!session.isUnlocked()) return Promise.reject(interrupted());
   worker ??= spawn();
   const id = ++seq;
   return new Promise<CryptoResponse>((resolve, reject) => {
@@ -114,6 +123,7 @@ export function planMessage(spec: TxSpec): PlanMessage {
 
 /** The SDK's prover port: the plan to the worker; the device's timings to the journal. */
 export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<ProofResult> {
+  const at = locks; // a lock while this waits for its own requests ends it (audit round 2, r19)
   let verificationKey: unknown;
   try {
     const r = await secureFetch(artifactUrls().verificationKey, {}, "artifacts");
@@ -122,6 +132,7 @@ export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<
     /* no local verification; the chain verifies anyway */
   }
   const pins = await loadPins();
+  if (locks !== at) throw interrupted();
   const urls = artifactUrls();
   const r = await call(
     { op: "prove", plan: planMessage(spec), artifacts: { wasmUrl: urls.wasm, zkeyUrl: urls.zkey, verificationKey, pins, production: config().production } },

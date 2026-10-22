@@ -171,4 +171,49 @@ describe("the worker boundary (doc §83)", () => {
     expect(created[0].terminated).toBe(true);
     await expect(pending).rejects.toThrow(/locked/);
   });
+
+  it("a lock while a proof waits for its own requests ends it: no worker starts after the lock, nothing is proved (audit round 2, r19)", async () => {
+    // the verification key (or the pins) answered after an explicit lock; a new worker was started and handed the plan, the
+    // spend was proved, relayed and mined, and its record — locked out — read "Nothing moved: start it again"
+    expect(await session.unlock("pw")).toBe(true);
+    const seed = session.state().seed!;
+    const k = deriveKeys(seed);
+    const ours: Note = {
+      vaultId: BigInt(VAULT),
+      amount: 10n ** 18n,
+      ownerCommitment: ownerCommitmentOf(k.spendKey),
+      noteSecret: deriveNoteSecret(k.noteKey, 1),
+    };
+    const tree = new MerkleTree(TX_LEVELS);
+    tree.insertLeaf(noteCommitment(noteBody(ours), 0n));
+    noteStore.clear();
+    noteStore.add({ note: ours, leafIndex: 0, noteData: placeholderNoteData(), spent: false, label: "shield" });
+    const { spec } = planWithdrawal(
+      seed,
+      MerkleLayers.build(tree.leaves, TX_LEVELS),
+      BigInt(VAULT),
+      4n * 10n ** 17n,
+      0xb0b0n,
+      txDomain(31337n, BigInt("0x5FbDB2315678afecb367f032d93F642f64180aa3")),
+    );
+    const real = globalThis.fetch;
+    let answer!: () => void;
+    const held = new Promise<void>((r) => (answer = r));
+    globalThis.fetch = (async () => {
+      await held;
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    try {
+      const workers = created.length;
+      const proof = proveSpend(spec);
+      await new Promise((r) => setTimeout(r, 10));
+      session.lock();
+      answer();
+      await expect(proof).rejects.toMatchObject({ code: "interrupted" });
+      expect(created.length, "no worker started after the lock").toBe(workers);
+      expect(cryptoWorkerRunning()).toBe(false);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
 });

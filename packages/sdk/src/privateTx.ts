@@ -448,6 +448,9 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   // crypto worker on the web) — and throws, as the builder always did, when a note does not open its leaf or the value
   // is not conserved
   const proof = await prove(o.spec, o.onStatus);
+  // nothing is sent from a wallet that locked while it proved (audit round 2, r19): its record, locked out, still reads the
+  // proof step, and a reconcile would call a mined spend "nothing moved"
+  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "interrupted" });
   o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
   let txHash: Hex;
   let submittedBy: Submitted["submittedBy"];
