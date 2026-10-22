@@ -32,13 +32,14 @@ const WASM = utf8ToBytes("the witness generator");
 const ZKEY = utf8ToBytes("the proving key");
 
 /** An in-memory Cache API. */
-function memoryCaches() {
+function memoryCaches(override: { match?: () => Promise<never>; put?: () => Promise<never> } = {}) {
   const entries = new Map<string, Uint8Array>();
   const cache = {
     match: async (k: string) => (entries.has(k) ? new Response(entries.get(k)!) : undefined),
     put: async (k: string, r: Response) => void entries.set(k, new Uint8Array(await r.arrayBuffer())),
     delete: async (k: string | { url: string }) => entries.delete(typeof k === "string" ? k : k.url),
     keys: async () => [...entries.keys()].map((url) => ({ url })),
+    ...override,
   };
   return { entries, storage: { open: async () => cache } as unknown as CacheStorage };
 }
@@ -155,9 +156,9 @@ describe("the proof in the worker", () => {
     spec = planWithdrawal(seed, layers, BigInt(VAULT), 4n * 10n ** 17n, 0xb0b0n, txDomain(31337n, BigInt("0x5FbDB2315678afecb367f032d93F642f64180aa3"))).spec;
   });
 
-  function harness(o: { production?: boolean; pinned?: boolean } = {}) {
+  function harness(o: { production?: boolean; pinned?: boolean; cache?: Parameters<typeof memoryCaches>[0] } = {}) {
     const fetches: string[] = [];
-    const caches = memoryCaches();
+    const caches = memoryCaches(o.cache);
     const seen: CircuitInputs[] = [];
     const snarkjs: SnarkjsLike = {
       groth16: {
@@ -242,6 +243,13 @@ describe("the proof in the worker", () => {
     const last = (await p.prove(16)).at(-1)!;
     expect(last).toMatchObject({ type: "error" });
     expect((last as { error: string }).error).toMatch(/refusing to prove/);
+  });
+
+  it("a cache the browser refuses — no room to keep the key, an entry it cannot read — never fails the proof the verified download makes (audit round 2, r20)", async () => {
+    const full = harness({ cache: { put: async () => Promise.reject(new DOMException("Quota exceeded.", "QuotaExceededError")) } });
+    expect((await full.prove(19)).at(-1)).toMatchObject({ type: "proved", keyCached: false, pins: { zkey: "match", wasm: "match" } });
+    const unreadable = harness({ cache: { match: async () => Promise.reject(new DOMException("The operation failed.", "UnknownError")) } });
+    expect((await unreadable.prove(20)).at(-1)).toMatchObject({ type: "proved", keyCached: false });
   });
 
   it("an older pin of an artifact leaves the cache when a new one is stored", async () => {

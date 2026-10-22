@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ARTIFACTS, comparePins, hashArtifacts, readPins } from "../scripts/artifact-pins-lib.mjs";
 import { enforce, pinsFromManifest, sha256Hex, verdictOf } from "../src/prover/pins";
+import { loadPins, resetPins } from "../src/prover/client";
 
 const H = "a".repeat(64), G = "b".repeat(64);
 
@@ -48,5 +49,22 @@ describe("the artifact pins (spec §20)", () => {
     expect(pins, "public/artifacts.json is committed").toBeTruthy();
     const r = comparePins(pins, hashArtifacts());
     expect(r.rows.filter((x: { status: string }) => x.status === "mismatch" || x.status === "unpinned").map((x: { name: string; detail: string }) => `${x.name}: ${x.detail}`)).toEqual([]);
+  });
+  it("a failed read of the pins is not kept: the next proof asks again; a good read is kept (audit round 2, r22)", async () => {
+    // kept, a 502 during a redeploy had refused every later proof of the page ("no pin in artifacts.json") until a reload
+    const real = globalThis.fetch;
+    const answers = [new Response("bad gateway", { status: 502 }), new Response(JSON.stringify({ files: { "transaction_final.zkey": { sha256: "ab".repeat(32) } } }))];
+    let reads = 0;
+    globalThis.fetch = (async () => answers[reads++] ?? new Response("{}", { status: 404 })) as typeof fetch;
+    resetPins();
+    try {
+      expect(await loadPins(), "this proof goes without them").toEqual({});
+      expect(await loadPins(), "the next asks again").toMatchObject({ zkey: "ab".repeat(32) });
+      expect(await loadPins(), "a good read is kept").toMatchObject({ zkey: "ab".repeat(32) });
+      expect(reads).toBe(2);
+    } finally {
+      globalThis.fetch = real;
+      resetPins();
+    }
   });
 });

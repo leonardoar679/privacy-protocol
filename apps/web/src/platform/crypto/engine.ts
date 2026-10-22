@@ -146,12 +146,18 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
     const want = pin?.toLowerCase();
     const store = await openCache(want);
     const key = want ? artifactCacheKey(name, want) : "";
+    // every cache read and write is best effort (audit round 2, r20): one the browser refuses — no room left to keep the key,
+    // an entry it cannot read back — had failed the proof the verified download could make, every time, on such a device
     if (store) {
-      const hit = await store.match(key);
-      if (hit) {
-        const bytes = new Uint8Array(await hit.arrayBuffer());
-        if ((await sha256Hex(bytes)) === want) return { bytes, verdict: "match", cached: true };
-        await store.delete(key); // altered at rest: dropped, fetched again below
+      try {
+        const hit = await store.match(key);
+        if (hit) {
+          const bytes = new Uint8Array(await hit.arrayBuffer());
+          if ((await sha256Hex(bytes)) === want) return { bytes, verdict: "match", cached: true };
+          await store.delete(key); // altered at rest: dropped, fetched again below
+        }
+      } catch {
+        await store.delete(key).catch(() => false); // unreadable: dropped if it can be, fetched again below
       }
     }
     const r = await fetchBytes(url);
@@ -159,11 +165,15 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
     const bytes = new Uint8Array(await r.arrayBuffer());
     const verdict = enforce(name, verdictOf(want, await sha256Hex(bytes)), { production, warn: deps.warn ?? ((m) => console.warn(m)) });
     if (store && verdict === "match") {
-      await store.put(key, new Response(bytes, { headers: { "content-type": "application/octet-stream" } }));
-      // an older pin of the same artifact goes (a new circuit build or ceremony replaces the key)
-      for (const k of await store.keys()) {
-        const path = new URL(k.url, "http://cache.invalid").pathname;
-        if (path.startsWith(`/__artifact-cache/${name}/`) && path !== key) await store.delete(k);
+      try {
+        await store.put(key, new Response(bytes, { headers: { "content-type": "application/octet-stream" } }));
+        // an older pin of the same artifact goes (a new circuit build or ceremony replaces the key)
+        for (const k of await store.keys()) {
+          const path = new URL(k.url, "http://cache.invalid").pathname;
+          if (path.startsWith(`/__artifact-cache/${name}/`) && path !== key) await store.delete(k);
+        }
+      } catch (e) {
+        (deps.warn ?? ((m) => console.warn(m)))(`${name}: not kept on this device (${(e as Error)?.message ?? String(e)}); proving with the verified download`);
       }
     }
     return { bytes, verdict, cached: false };

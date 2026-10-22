@@ -22,15 +22,29 @@ export type BrowserProof = ProofResult;
 
 let pinsCache: Promise<ArtifactPins> | null = null;
 
-/** The build's pins, read once; absent or unreadable → no pins (the worker then refuses in production, warns in dev). */
+/**
+ * The build's pins, read once it is read at all; absent (404) → no pins, kept (the worker then refuses in production, warns
+ * in dev). A read that failed — a 5xx while the app is redeployed, the network gone, a cut body — is not kept (audit round
+ * 2, r22): this proof goes without pins, and the next asks again. Kept, it had refused every proof of the page until a reload.
+ */
 export function loadPins(): Promise<ArtifactPins> {
-  pinsCache ??= (async () => {
+  if (pinsCache) return pinsCache;
+  let read = true;
+  const pins = (async () => {
     try {
       const r = await secureFetch(PIN_URL, {}, "artifacts");
-      return r.ok ? pinsFromManifest(await r.json()) : {};
-    } catch { return {}; }
+      if (r.ok) return pinsFromManifest(await r.json());
+      read = r.status === 404;
+    } catch {
+      read = false;
+    }
+    return {};
   })();
-  return pinsCache;
+  pinsCache = pins;
+  void pins.then(() => {
+    if (!read && pinsCache === pins) pinsCache = null;
+  });
+  return pins;
 }
 /** Tests: forget the cached pins. */
 export function resetPins(): void { pinsCache = null; }
