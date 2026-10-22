@@ -53,14 +53,28 @@ export async function idbGet(name: StoreName, key: string): Promise<string | und
   const v = await request((await store(name, "readonly")).get(key));
   return typeof v === "string" ? v : undefined;
 }
+/**
+ * A write in its own transaction, settled when the transaction commits (audit round 2, n46): the request's success is not
+ * the write's — a quota aborts the transaction after it, and such a write had counted as kept.
+ */
+async function write(name: StoreName, op: (s: IDBObjectStore) => void): Promise<void> {
+  const tx = (await openDb()).transaction(name, "readwrite");
+  const done = new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB write failed"));
+    tx.onabort = () => reject(tx.error ?? new DOMException("IndexedDB write aborted", "AbortError"));
+  });
+  op(tx.objectStore(name));
+  return done;
+}
 export async function idbPut(name: StoreName, key: string, value: string): Promise<void> {
-  await request((await store(name, "readwrite")).put(value, key));
+  await write(name, (s) => s.put(value, key));
 }
 export async function idbDelete(name: StoreName, key: string): Promise<void> {
-  await request((await store(name, "readwrite")).delete(key));
+  await write(name, (s) => s.delete(key));
 }
 export async function idbClear(name: StoreName): Promise<void> {
-  await request((await store(name, "readwrite")).clear());
+  await write(name, (s) => s.clear());
 }
 export async function idbEntries(name: StoreName): Promise<[string, string][]> {
   const s = await store(name, "readonly");

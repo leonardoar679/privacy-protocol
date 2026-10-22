@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { bytesToHex } from "@noble/hashes/utils";
 import { assertSecureShape, createPrefsStore, createSecureStore, idbEntriesForTest, JOURNAL_KEY, KEYSTORE_KEY, resetDbCache, UNREADABLE_JOURNAL_KEY } from "./helpers/storage";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { openDb } from "../src/storage/idb";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
@@ -169,6 +170,22 @@ describe("the secure store (spec §8)", () => {
     await s.flush();
     expect(await idbEntriesForTest(), "the keystore it could not read is untouched").toEqual([[KEYSTORE_KEY, keystoreJson()]]);
   });
+  it("a write IndexedDB refuses after the store hydrated is said at once, and nothing is read back over the mirror (audit round 2, r16)", async () => {
+    const s = createSecureStore();
+    await s.ready;
+    s.set(KEYSTORE_KEY, keystoreJson());
+    await s.flush();
+    let told = 0;
+    const off = s.subscribe(() => told++);
+    (await openDb()).close(); // the writes from here fail, as a full quota's would
+    s.set(JOURNAL_KEY, journalJson());
+    await s.flush();
+    expect([s.backend, s.refused, told], "said, not swallowed").toEqual(["memory", true, 1]);
+    await s.refresh();
+    expect(s.get(JOURNAL_KEY), "the mirror keeps what IndexedDB did not take").toBe(journalJson());
+    off();
+  });
+
   it("without IndexedDB both stores run on memory and are ready at once", async () => {
     const saved = (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;
     delete (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB;

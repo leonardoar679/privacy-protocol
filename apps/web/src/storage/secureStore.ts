@@ -3,7 +3,8 @@
 // localStorage); writes update the mirror at once and reach IndexedDB in order; `flush()` awaits them. Without
 // IndexedDB the mirror is the store (the wallet keeps working for the session, as it did when localStorage was blocked).
 // IndexedDB present but refusing at hydrate is the same (2026-10-17, the audit's unverified m49): `backend` says
-// "memory" — the shell says so — and the page never writes over, deletes or reads back what it could not see.
+// "memory" — the shell says so — and the page never writes over, deletes or reads back what it could not see. So is a
+// write it refuses later (audit round 2, r16): from then on the store is this tab's mirror alone, and says so at once.
 import { hasIndexedDb, idbDelete, idbEntries, idbPut } from "./idb";
 import { assertSecureShape } from "./guard";
 import { migrateFromLocalStorage, type MigrationReport } from "./migrate";
@@ -26,6 +27,8 @@ export interface SecureStore extends KeyValueStorage {
   refresh(): Promise<void>;
   /** what the one-time move did at hydrate (empty when there was nothing to move) */
   migration(): MigrationReport | null;
+  /** told when the store stops keeping its data — a write IndexedDB refused (audit round 2, r16); returns the unsubscribe */
+  subscribe(listener: () => void): () => void;
 }
 
 export function createSecureStore(): SecureStore {
@@ -34,7 +37,16 @@ export function createSecureStore(): SecureStore {
   let refused = false;
   let queue: Promise<void> = Promise.resolve();
   let report: MigrationReport | null = null;
-  const enqueue = (op: () => Promise<void>) => { queue = queue.then(op, op).catch(() => undefined); return queue; };
+  const listeners = new Set<() => void>();
+  // a write IndexedDB refused after hydrate (r16): it had been swallowed — the wallet ran on, its journal lost at the tab's
+  // close, and a refresh read the older copy back over what this tab held. Now the mirror alone, said
+  const refuse = () => {
+    if (refused) return;
+    backend = "memory";
+    refused = true;
+    for (const l of listeners) l();
+  };
+  const enqueue = (op: () => Promise<void>) => { queue = queue.then(op, op).catch(refuse); return queue; };
 
   const ready: Promise<void> = (async () => {
     if (backend === "memory") return;
@@ -82,6 +94,10 @@ export function createSecureStore(): SecureStore {
       }
     },
     migration: () => report,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
   };
 }
 
