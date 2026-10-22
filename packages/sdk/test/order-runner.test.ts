@@ -14,12 +14,13 @@ import { session } from "../src/wallet/session";
 import type { ScheduledAction, StoredSwap } from "../src/wallet/journal";
 import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
-import { CallTooClose, HAND_OVER_MARGIN_SECONDS, handOverSigned, type Signed } from "../src/swapExecute";
+import { CallTooClose, HAND_OVER_MARGIN_SECONDS, handOverSigned, prepareAndSign, type Signed } from "../src/swapExecute";
+import type { Deployment } from "../src/chain";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
 import { OrderOutdated, RelayerNotReady, ServiceKeyChanged } from "../src/swapFunding";
 import { FeeMoved } from "../src/privateTx";
-import { FUNDING_MARGIN_MS, patchSwap, type FundingFate } from "../src/swapFunding";
+import { FUNDING_MARGIN_MS, patchSwap, swapFactoryOf, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId, reconcileOpenSwaps } from "../src/operations/swapRecords";
@@ -529,6 +530,59 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+
+  it("the swap service's factory is read before the call is prepared, never between the prepare and the hand-over (audit round 2, r02)", async () => {
+    // that status read can take the providers' 25-s health budget: it had left a one-minute LI.FI call too close to its deadline
+    order({ operationId: "op_test" } as Partial<StoredSwap>);
+    const deployment = {
+      chainId: 1,
+      core: "0x00000000000000000000000000000000000000c0",
+      ethVault: "0x00000000000000000000000000000000000000e1",
+      rpcUrl: "http://127.0.0.1:1",
+      rpcUrls: ["http://127.0.0.1:1"],
+      fromBlock: 0n,
+      erc20Vaults: [],
+      swapFactory: "0x00000000000000000000000000000000000000f5",
+    } as unknown as Deployment;
+    const calls: string[] = [];
+    const health = vi.spyOn(swapService, "health").mockImplementation(async () => {
+      calls.push("status");
+      return { deployment: { factory: swapFactoryOf(deployment) } } as never;
+    });
+    const prepare = vi.spyOn(swapService, "prepare").mockImplementation(async () => {
+      calls.push("prepare");
+      throw new Error("prepared no further here");
+    });
+    try {
+      await expect(
+        prepareAndSign({
+          masterSeed: new Uint8Array(32),
+          deployment,
+          stored: stored(),
+          order: {} as never,
+          submission: { kind: "relayer", url: "http://relayer.test" },
+        }),
+      ).rejects.toThrow("prepared no further here");
+      expect(calls).toEqual(["status", "prepare"]);
+    } finally {
+      health.mockRestore();
+      prepare.mockRestore();
+    }
+  });
+
+  it("a swap service that builds for another factory pauses the funded order at its signing, as it did at the hand-over (audit round 2, r02)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { io } = world();
+    io.sign = async () => {
+      throw new Error("the swap service builds for 0x00000000000000000000000000000000000000f1, this wallet for 0x00000000000000000000000000000000000000f2");
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step).toBe("paused");
+    expect(stored().paused?.code).toBe("execution_unavailable");
   });
 
   // 2026-10-14: an order whose execution window closes — a funding delayed for privacy run at a late unlock, a tab closed

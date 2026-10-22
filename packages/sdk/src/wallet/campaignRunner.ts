@@ -514,7 +514,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             else if (/below the best alternative|price_guard/i.test(m)) {
               if (leftBehind) leftRefund = "its own route is refused against the better one";
               else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
-            } else if (/escrow|digest|not the one this wallet committed|minimum/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
+            } else if (/escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
             else { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
           }
         }

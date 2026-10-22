@@ -442,6 +442,8 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     } catch (e) {
       const m = (e as Error)?.message ?? String(e);
       if (!(e instanceof ProviderCallUnverified)) {
+        // the swap service builds for another factory (read before the prepare since audit round 2, r02): it was a hand-over's pause
+        if (/builds for/i.test(m)) return pause("execution_unavailable", m);
         if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
           return pause("unsafe_contract_call", m);
         // the service's price guard refused the hard quote (a route far below the best alternative): the user tries again or returns the funds

@@ -198,6 +198,14 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   const deployment = i.deployment;
   i.onStatus?.(i.reuse ? "Checking the call whose minimum you accepted…" : "Re-quoting with the escrow as sender, then checking the call…");
   const fresh = () => onOperation(deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
+  // the swap service builds for this wallet's factory, read before the prepare (audit round 2, r02): a call can be valid for a
+  // minute only (LI.FI), and this status read can take the providers' 25-s health budget — read between the prepare and the
+  // hand-over, it left the relayer a call too close to its deadline to send. A reused call's order was read at its first signing
+  if (!i.reuse) {
+    const health = await swapService.health();
+    const factory = swapFactoryOf(deployment);
+    if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
+  }
   let prepared = i.reuse ?? (await fresh());
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
   const check = (p: Prepared) =>
@@ -261,9 +269,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   // the order's vouch from its commit, for the API's vouch for this call (audit gap 47); a resumed operation is the same order
   const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature, stored.orderVouch));
   if (i.submission.kind !== "relayer") return {};
-  const health = await swapService.health();
-  const factory = swapFactoryOf(i.deployment);
-  if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
+  const factory = swapFactoryOf(i.deployment); // the swap service's own was read before the call was prepared (prepareAndSign)
   const { refundTokens, refundFloors } = signed.call;
   if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
   const job = await relayerSwapExecute(i.submission.url, {
