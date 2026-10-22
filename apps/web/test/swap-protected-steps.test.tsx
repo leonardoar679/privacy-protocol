@@ -9,7 +9,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { exposure, withTrancheState, type Campaign, withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
-import { swapFunding } from "@privacy-wallet/protocol/wallet/fees";
+import { feeForWithdrawal, swapFunding } from "@privacy-wallet/protocol/wallet/fees";
 import type { Protection, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -248,6 +248,14 @@ describe("the pure pieces", () => {
       expect(units - amount < units / 50n, "about 1 % plus four relayer fees, no more").toBe(true);
     }
     expect(protectedStepsAmount(80_000_000_003n, null, 4), "no fee note: a whole number of steps").toBe(80_000_000_000n);
+  });
+  it("the steps amount keeps room for each step's fee note priced when it is funded, hours later: a tenth more than the Review's F (audit round 2, r11)", () => {
+    const terms = { minimum: 4_100_000n, feePercentBps: 100 };
+    const later = { ...terms, minimum: (terms.minimum * 11n) / 10n }; // the relayer's F a tenth up by the time the steps are funded
+    for (const units of [80_000_000_000n, 99_999_999_999n, 10_000_000_000_000n]) {
+      const step = protectedStepsAmount(units, terms, 4) / 4n;
+      expect(4n * (step + feeForWithdrawal(step, later)) <= units, `${units}: the last step is still fundable`).toBe(true);
+    }
   });
   it("the steps amount at its own count: a lower amount that makes more steps pays a fee note for each (the audit round of 2026-10-16, c50)", () => {
     const terms = { minimum: 10n ** 15n, feePercentBps: 0 };

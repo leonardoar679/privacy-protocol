@@ -68,11 +68,14 @@ export const shieldTipOf = (q: QuoteSet | null): bigint => BigInt(q?.shieldTip ?
  * V6 Stage 13 (spec v2.0 §3, §13.5): a protected execution's amount — what its `n` steps' withdrawals deliver once each pays
  * its own fee note (p + F a step), less four base units a step for the exact-output rounding of each step's funding, in
  * whole steps: the steps together spend at most what the user typed. Without relayer terms (the connected wallet funds)
- * there is no fee note.
+ * there is no fee note. Each step's F is priced when the step is funded, hours later: the steps keep a tenth more for it
+ * (STEP_FEE_ROOM_BPS; audit round 2, r11 — sized at the Review's F alone, any rise left the last step of a whole balance
+ * unfundable).
  */
-export function protectedStepsAmount(units: bigint, terms: FeeTerms | null, n: number): bigint {
+export function protectedStepsAmount(units: bigint, reviewed: FeeTerms | null, n: number): bigint {
   const k = BigInt(Math.max(1, Math.floor(n)));
-  if (!terms) return units - (units % k);
+  if (!reviewed) return units - (units % k);
+  const terms = { ...reviewed, minimum: (reviewed.minimum * (10_000n + STEP_FEE_ROOM_BPS)) / 10_000n };
   const q = units / k;
   let total = 0n;
   for (let i = 0n; i < k; i++) {
@@ -83,6 +86,9 @@ export function protectedStepsAmount(units: bigint, terms: FeeTerms | null, n: n
   total -= 4n * k;
   return total > 0n ? total - (total % k) : 0n;
 }
+
+/** The room each protected step keeps for its fee note's F rising between the Review and its funding (basis points of F). */
+export const STEP_FEE_ROOM_BPS = 1_000n;
 
 /**
  * The steps' amount at the count of steps it makes itself (the audit round of 2026-10-16, c50): a lower amount can make more

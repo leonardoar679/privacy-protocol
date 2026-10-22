@@ -475,6 +475,18 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(world.calls.filter((x) => x.startsWith("commit:")), "never planned and committed again").toHaveLength(1);
   });
 
+  it("a step its protected balance no longer covers with the relayer's fee now pauses the campaign: never the backoff, planned and committed again for good (audit round 2, r11)", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    clock += 2000;
+    world.fundThrows = new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "bounds", trancheIndex: 0 } });
+    expect(current(c).pause?.detail).toMatch(/nothing was sent/);
+  });
+
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {
     const c = await fresh();
     world.breakerOpen = true;

@@ -480,6 +480,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             nextAt = now + 1000;
             break;
           }
+          // the rest of the balance no longer covers this step with the relayer's fee now (audit round 2, r11): each step's fee
+          // note is priced when it is funded, and a rise past the room the steps keep made the last one unfundable — to the
+          // backoff, its window closing, planned and committed again, for good, while the screen said "Executing". Paused instead
+          if (!sent && /insufficient shielded balance|in your private balance for this order/i.test(m)) {
+            c = pauseWith(c, "bounds", `Step ${t.index + 1} no longer fits in your protected balance with the relayer's fee now; nothing was sent. Resume once fees fall, or return the rest.`, now, t.index);
+            break;
+          }
           if (!sent) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
           c = pauseWith(c, "reconcile", `The funding of step ${t.index + 1} ended without a known outcome (${m}); the escrow is read before anything is sent again.`, now, t.index);
         }
