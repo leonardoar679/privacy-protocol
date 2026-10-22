@@ -178,6 +178,10 @@ export class Relayer {
 
   async submit(req: SubmitRequest): Promise<{ txHash: Hex; feeWei: string; feeVault: Address; gas: string; feePayloadReadable: boolean }> {
     const { pi, feeWei, feeVault, feePayloadReadable } = this.validateShape(req);
+    const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
+    // the notes in flight first (audit round 2, r44): a wallet retrying after a lost answer must hear that its first attempt
+    // holds them — a fee re-priced meanwhile refused the retry as fee_too_low, and the wallet took that for "not moved"
+    if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     const minFee = await this.minFeeIn(req.fee);
     // V6 (spec v2.0 §3): f ≥ ⌈(W + f)·b / 10000⌉ + m for a withdrawal — a swap's escrow funding included, the V5 exemption
     // is gone; a transfer hides its amount, so its fee note answers to the minimum alone (the wallet pays the percentage)
@@ -185,7 +189,7 @@ export class Relayer {
     const verdict = feeMeetsTerms(pi.mode === 1n ? pi.withdrawalAmount : 0n, feeWei, bps, minFee);
     if (!verdict.ok && verdict.code === "fee_too_low") throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
     if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of the ${pi.withdrawalAmount + feeWei} leaving the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
-    const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
+    // again, with the reservation below and nothing awaited in between: two requests at once, one of them held
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     if (this.revertedWithin(nullifiers, Date.now())) throw new RelayerError("reverted_before", `a transaction spending these notes reverted on chain at this relayer in the last ${REVERTED_HOLD_MS / 3_600_000} h: it is not sent again from here`);
     // reserved in the same step as the check, before anything is awaited (a V6 follow-up of 2026-10-15): they were

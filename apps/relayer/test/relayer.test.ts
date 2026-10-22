@@ -199,6 +199,24 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
     receiptStatus = null;
     expect((await relayer.info()).inflight).toBe(0);
   });
+  it("a retry of a body in flight hears nullifier_in_flight even when its fee no longer meets the terms (audit round 2, r44)", async () => {
+    const { req } = fixtureRequest();
+    taken.clear();
+    const first = await relayer.submit(req);
+    const floor = cfg.minFeeWei;
+    cfg.minFeeWei = 10n ** 18n; // the minimum re-priced above the body's fee since its first attempt
+    try {
+      await expect(relayer.submit(req), "its first attempt holds the notes: the wallet then asks for that job").rejects.toMatchObject({ code: "nullifier_in_flight" });
+    } finally {
+      cfg.minFeeWei = floor;
+    }
+    receiptStatus = "0x1";
+    try {
+      expect((await relayer.status(first.txHash))?.status).toBe("mined");
+    } finally {
+      receiptStatus = null;
+    }
+  });
   it("a public input outside the field is refused before its notes are held: an encoding that threw held them until a restart (the audit round of 2026-10-16, c02)", async () => {
     const { req } = fixtureRequest();
     const i = PUBLIC_SIGNALS.indexOf("root");

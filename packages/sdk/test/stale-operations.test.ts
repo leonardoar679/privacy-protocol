@@ -127,6 +127,24 @@ describe("operations whose flow is gone", () => {
     expect(getOperation(submitting)!.state).toBe("AWAITING_SIGNATURE");
   });
 
+  it("a Send its page moved to RECOVERY_REQUIRED after a lost answer is settled from what it kept, never called 'nothing moved' while it may have been sent (audit round 2, r41)", async () => {
+    const relayer = "http://relayer.test";
+    const sent = record("send", "submitting", 30, T0, { nullifiers: ["301", "302"], relayerUrl: relayer });
+    // the retry was refused nullifier_in_flight and the relayer had not stored its job yet: an unknown outcome, the step dropped
+    applyEvent(sent, { type: "recovery-required", code: "nullifier_in_flight" }, session, T0);
+    expect(getOperation(sent)!.state).toBe("RECOVERY_REQUIRED");
+    expect(getOperation(sent)!.progress).toBeUndefined();
+    // still its page's: settled all the same — that flow is over
+    expect(await reconcileStaleOperations(chain({ jobs: { "301": 30 }, mined: [30], spends: { 30: ["301", "302"] } }), T0 + STALE_DROP_MS + 1)).toBe(1);
+    expect(getOperation(sent)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(30)] } });
+    // after a reload: the relayer does not know it, its notes are spent — sent, its transaction unknown here: left as it is
+    const spent = record("send", "submitting", 31, T0, { nullifiers: ["311", "312"], relayerUrl: relayer });
+    applyEvent(spent, { type: "recovery-required", code: "relayer_unreachable" }, session, T0);
+    resetOperationsMemory();
+    expect(await reconcileStaleOperations(chain({ spent: ["311"] }), T0 + STALE_DROP_MS + 1)).toBe(0);
+    expect(getOperation(spent)!.state, "never 'nothing moved: start it again'").toBe("RECOVERY_REQUIRED");
+  });
+
   it("a Protect waiting for the wallet when its page went away: its note, once the scan found it, completes it; none past the limit, nothing moved", async () => {
     const landed = record("protect", "submitting", 10, T0, { noteCounter: 42 });
     const unanswered = record("protect", "submitting", 11, T0, { noteCounter: 43 });

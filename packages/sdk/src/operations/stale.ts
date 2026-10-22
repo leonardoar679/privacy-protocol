@@ -14,7 +14,11 @@
 //   spends other notes is not this record's: never adopted, and a record already carrying it needs recovery
 //   (`not_this_spend`). What this module moves stays its own to move (c43).
 // A record a flow of this page still drives (store.ts `isLiveOperation`) and a swap (its runner moves it) are never
-// touched here.
+// touched here — but one its own page left in RECOVERY_REQUIRED is (audit round 2, r41): that flow is over, and the record
+// read "We are checking where your funds are" for good. A record that reached its submission is settled from what it kept
+// there (its nullifiers, its relayer, its note) whatever its state: a failure state drops its step, and such a record —
+// a lost answer, a retry refused — was failed as "nothing moved: start it again" at the next reload while the relayer had
+// sent it.
 import { decodeFunctionData, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
 import { clientFor, type Deployment } from "../chain";
 import { coreAbi } from "../privacyProtocol";
@@ -129,7 +133,7 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
 export async function reconcileStaleOperations(reads: StaleReads, now = Date.now(), s: WalletSession = defaultSession): Promise<number> {
   let moved = 0;
   for (const r of allOperations(s)) {
-    if (!SINGLE_TRANSACTION.has(r.kind) || !isOpen(r.state) || isDraft(r.state) || isLiveOperation(r.id)) continue;
+    if (!SINGLE_TRANSACTION.has(r.kind) || !isOpen(r.state) || isDraft(r.state) || (isLiveOperation(r.id) && r.state !== "RECOVERY_REQUIRED")) continue;
     const old = now - r.updatedAt > STALE_DROP_MS;
     let hash = r.refs.txHashes[r.refs.txHashes.length - 1] as Hex | undefined;
     let changed = false;
@@ -139,7 +143,8 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
     };
     try {
       if (!hash) {
-        const found = r.progress?.step === "submitting" ? await fromSubmission(r, reads, old) : [INTERRUPTED];
+        const reached = r.progress?.step === "submitting" || r.refs.nullifiers !== undefined || r.refs.noteCounter !== undefined;
+        const found = reached ? await fromSubmission(r, reads, old) : [INTERRUPTED];
         if (Array.isArray(found)) found.forEach(apply);
         else if (found !== null) {
           apply({ type: "submitted", txHash: found, by: "relayer" }); // the relayer's answer the page never got

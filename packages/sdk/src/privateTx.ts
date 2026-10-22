@@ -31,7 +31,7 @@ import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/pr
 import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
-import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo } from "./relayer";
+import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
 import { connectivity, whenOnline } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { poolStats } from "./wallet/poolStats";
 import { olderNotes, selectionOf } from "./wallet/privacyTiming";
@@ -384,6 +384,54 @@ function boundFee(terms: { info: RelayerInfo; fee: FeeTerms } | null, maxFee: bi
   terms.fee = { ...terms.fee, amount: feeWithinReview(terms.fee.amount, maxFee, { minimum, feePercentBps: terms.info.feePercentBps ?? 0 }, delivered) };
 }
 
+/**
+ * A retry refused after the first attempt's answer was lost, whose job the relayer could not name (audit round 2, r44):
+ * the first may still be on its way — the relayer stores a job only once it is sent, and refuses a re-priced fee or a rate
+ * before it checks the notes in flight —, so the outcome is unknown, never "not moved"; the chain settles it.
+ */
+export class AnswerLost extends Error {
+  readonly code = "relayer_unreachable";
+  constructor(readonly refusal: unknown) {
+    super(`the relayer's answer to this spend was lost and the retry was refused (${(refusal as Error)?.message ?? String(refusal)}): the first attempt may still be sent, and the chain is read before anything is sent again`);
+    this.name = "AnswerLost";
+  }
+}
+
+/**
+ * Hand a proven spend to the relayer. V6 Stage 15 (doc §75): nothing is submitted while offline; an attempt the network
+ * swallowed may have reached the relayer, so once back the state is verified — the relayer's job for these nullifiers —
+ * before anything is sent again, and a refused retry whose job it cannot name is AnswerLost. `io`: the relayer's calls.
+ */
+export async function submitToRelayer(
+  url: string,
+  body: RelayerSubmitRequest,
+  nullifiers: [bigint, bigint],
+  o: Progress = {},
+  io: { submit: typeof relayerSubmit; jobFor: typeof relayerJobFor } = { submit: relayerSubmit, jobFor: relayerJobFor },
+): Promise<{ txHash: Hex }> {
+  let unanswered = false;
+  for (let attempt = 1; ; attempt++) {
+    await whenOnline();
+    try {
+      return await io.submit(url, body);
+    } catch (e) {
+      if (isRefusal(e)) {
+        if (!unanswered) throw e; // the first attempt refused: nothing was sent
+        // after a lost answer the relayer refuses the same spend again (in flight, or already mined): its job is the answer
+        const known = await io.jobFor(url, nullifiers).catch(() => null);
+        if (known) return known;
+        throw new AnswerLost(e);
+      }
+      unanswered = true;
+      if (!connectivity.get().online) { attempt--; continue; } // offline: wait for the connection, the attempt does not count
+      if (attempt >= 3) throw e;
+      o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`);
+      o.onEvent?.({ type: "relayer-retry", attempt });
+      await new Promise((res) => setTimeout(res, 1500 * attempt));
+    }
+  }
+}
+
 /** V6 Stage 15 (spec v2.0 §8): proving and the submission are a critical section for the auto-lock. */
 async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Promise<Submitted> {
   const release = session.hold("spend");
@@ -410,29 +458,8 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
     o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url, ...(o.change ? { noteCounter: o.change.counter } : {}) });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
-    let r: { txHash: Hex } | undefined;
-    // V6 Stage 15 (doc §75): nothing is submitted while offline; an attempt the network swallowed may have reached the
-    // relayer, so once back the state is verified — the relayer's job for these nullifiers — before anything is resent
-    let unanswered = false;
-    for (let attempt = 1; ; attempt++) {
-      await whenOnline();
-      try { r = await relayerSubmit(url, body); break; }
-      catch (e) {
-        if (isRefusal(e)) {
-          // after a lost answer the relayer refuses the same spend again (in flight, or already mined): its job is the answer
-          if (unanswered) {
-            const known = await relayerJobFor(url, nullifiers).catch(() => null);
-            if (known) { r = known; break; }
-          }
-          throw e;
-        }
-        unanswered = true;
-        if (!connectivity.get().online) { attempt--; continue; } // offline: wait for the connection, the attempt does not count
-        if (attempt >= 3) throw e;
-        o.onStatus?.(`Relayer unreachable (attempt ${attempt}); retrying…`); o.onEvent?.({ type: "relayer-retry", attempt }); await new Promise((res) => setTimeout(res, 1500 * attempt));
-      }
-    }
-    txHash = r!.txHash;
+    const r = await submitToRelayer(url, body, nullifiers, o);
+    txHash = r.txHash;
     submittedBy = "relayer";
     o.onEvent?.({ type: "submitted", txHash, by: "relayer" });
   } else {
