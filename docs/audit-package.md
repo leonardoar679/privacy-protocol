@@ -350,6 +350,15 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     as well as the receiver (the job then ends with its own order), and a job that becomes watched each tick only once
     the order's escrow holds its funding (checked at the hand-over's registration, with the order's vouch), unfunded
     receipts kept in a short-lived tier of their own.
+51. **V6 — one wallet on two devices at once** (audit round 2, r45/r46; the owner deferred multi-device use in V3). Two
+    devices running the same wallet — the phrase restored on a second one, or a backup restored while the first keeps
+    running — share the seed's note counters: once each has seen the other's notes, they hand out the same next counter,
+    so a note secret and its public owner commitment (a deposit's, an order's refund note) can be used twice, which links
+    the two operations. A backup also carries the orders and campaign steps of its moment; since 2026-10-22 one the
+    executor already has is tracked rather than funded again (r45), while an order the other device handed to another
+    relayer is not known here. What would close the rest: a counter space per installation (a random range or tag that a
+    seed scan can enumerate), or random secrets for the notes an envelope carries, leaving counters to the seed-derived
+    refund and shield payloads.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

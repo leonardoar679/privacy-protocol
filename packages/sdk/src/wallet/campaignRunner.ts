@@ -428,6 +428,18 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (stored.fundedTx) { c = withTrancheState(c, t.index, "funded", now, {}, "already funded"); nextAt = now + 1000; break; }
         const bal = await io.escrowBalance(stored);
         if (bal !== null && bal >= BigInt(t.amount)) { c = withTrancheState(c, t.index, "funded", now, {}, "funded (the escrow already holds the amount)"); nextAt = now + 1000; break; }
+        // the executor already has this step's order (audit round 2, r45): another copy of this wallet — a backup restored
+        // while the first device kept running — funded and handed it over. Tracked from now on: never funded again, nor
+        // abandoned and planned again as a step whose escrow, executed, reads empty
+        if (!stored.fundingAttempt) {
+          const elsewhere = await io.job(stored).catch(() => null);
+          if (elsewhere) {
+            patchSwap(stored.orderId, { jobId: elsewhere.id, state: elsewhere.state }, s);
+            c = withTrancheState(c, t.index, "executing", now, { jobId: elsewhere.id, handedOverAt: now }, "already handed over by another copy of this wallet (reconciled from the executor)");
+            nextAt = now + TRACK_INTERVAL_MS;
+            break;
+          }
+        }
         // A funding already sent is never sent again before its fate is known (journaled before it was sent): a Resume after
         // an unknown outcome, or a reload, waits for it. A dead one is replaced only after the user resumed since it was
         // sent (plan §86: no automatic retry on money movement); a V6 follow-up of 2026-10-14.

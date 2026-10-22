@@ -364,6 +364,16 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
         return { step: "paused", stored: journaled(a.orderId, s)! };
       } else {
+        // The executor already has this order (audit round 2, r45): another copy of this wallet — a backup restored while the
+        // first device kept running — funded and handed it over, and this record never learned it. It is tracked from now
+        // on, never funded again: its escrow, executed, read empty, and a second funding swapped the amount twice
+        const elsewhere = await io.job(stored).catch(() => null);
+        if (elsewhere) {
+          patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
+          syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now);
+          tickAt(a.orderId, now + 1000, s, now);
+          return { step: "track", stored: journaled(a.orderId, s)! };
+        }
         // An order whose execution window has closed, or is about to, is never funded: its escrow could only refund, after
         // the funding's fees were paid for nothing. It stops unfunded (`order_expired`). A V6 follow-up of 2026-10-14: a
         // funding delayed for privacy runs at the next unlock, which can come after the window — it had funded such orders.

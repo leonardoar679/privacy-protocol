@@ -686,6 +686,20 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(w.signs, "only the first signing, which asked for the new minimum").toBe(1);
   });
 
+  it("an order the executor already has — another copy of this wallet funded and handed it over — is tracked, never funded again (audit round 2, r45)", async () => {
+    // a backup restored while the first device kept running: this record never learned of that funding, and its escrow,
+    // executed, reads empty
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.job = { id: "job-elsewhere", escrow: stored().endpoint as `0x${string}`, state: "executed", updatedAt: T0 } as SwapJob;
+    expect((await runOrderTick(pending()!, deps(io, T0)))?.step).toBe("track");
+    expect(w.funds, "never funded again").toBe(0);
+    expect(stored()).toMatchObject({ jobId: "job-elsewhere", state: "executed" });
+  });
+
   it("a hand-over whose answer was lost, or that another tab made, is found by orderId: never handed over twice", async () => {
     order({ fundedTx: "0xf00d", state: "funded" });
     session.update((j) => {

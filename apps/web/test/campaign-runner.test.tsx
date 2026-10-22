@@ -460,6 +460,21 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(world.calls.filter((x) => x.startsWith("fund:")), "never funded twice").toEqual(["fund:0"]);
   });
 
+  it("a committed step whose order the executor already has — another copy of this wallet funded and handed it over — is tracked, never funded or planned again (audit round 2, r45)", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    clock += 2000;
+    const stored = session.journal().swaps.find((x) => x.campaign?.id === c.id && x.campaign.index === 0)!;
+    // a backup restored while the first device kept running: that device funded, handed over and executed this order
+    world.jobs.set(stored.orderId, { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "executed", updatedAt: clock } as SwapJob);
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c).tranches[0].state).toBe("executing");
+    expect(world.calls.filter((x) => x.startsWith("fund:")), "never funded again").toEqual([]);
+    expect(world.calls.filter((x) => x.startsWith("commit:")), "never planned and committed again").toHaveLength(1);
+  });
+
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {
     const c = await fresh();
     world.breakerOpen = true;
