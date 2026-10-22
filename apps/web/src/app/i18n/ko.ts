@@ -409,6 +409,12 @@ export const ko: Record<MessageKey, string> = {
   "op.error.nullifier_in_flight.reason": "같은 노트를 사용하는 거래가 처리되고 있습니다. 다시 보내지 말고 기다려 주세요.",
   "op.error.unknown_nullifier.title": "릴레이어에 이 거래 기록이 없습니다",
   "op.error.unknown_nullifier.reason": "제출이 릴레이어에 도달하지 않아 아무것도 전송되지 않았습니다. 자금은 여전히 보호 잔액에 있습니다.",
+  "op.error.gas_too_high.title": "이 거래에 수수료가 감당하는 것보다 많은 가스가 필요합니다",
+  "op.error.gas_too_high.reason":
+    "받는 쪽이 받는 데 가스를 써서 릴레이어 수수료가 감당하는 양을 넘습니다. 아무것도 전송되지 않았습니다. 다른 받는 사람을 고르거나 연결된 지갑에서 보내세요.",
+  "op.error.reverted_before.title": "이 릴레이어에서 같은 자금의 직전 시도가 실패했습니다",
+  "op.error.reverted_before.reason":
+    "같은 자금을 쓰는 거래가 지난 하루 안에 이 릴레이어에서 체인 위에서 실패해서 그곳에서는 다시 보내지 않습니다. 아무것도 전송되지 않았습니다. 다른 릴레이어를 쓰거나 연결된 지갑에서 보내세요.",
   "op.error.simulation_failed.title": "이 거래는 되돌려질 것입니다",
   "op.error.simulation_failed.reason":
     "릴레이어의 시뮬레이션이 실패했습니다. 오래된 트리 루트나 이미 사용된 노트가 흔한 원인입니다. 아무것도 전송되지 않았습니다. 동기화한 뒤 다시 확인하세요.",

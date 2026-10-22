@@ -59,6 +59,13 @@ export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string
 /** How long a submitted transaction may be unknown to the node before its job counts as dropped (`monitor`). */
 export { DROP_AFTER_MS };
 
+/**
+ * How long the notes of a transaction that reverted on chain here are not sent again from this relayer (audit round 2, r40):
+ * a recipient that lets the simulation pass and reverts the transact on chain had the same body replayed at the relayer's
+ * gas, for free — the notes stay unspent.
+ */
+export const REVERTED_HOLD_MS = 24 * 3600 * 1000;
+
 /** An output's amount as the circuit proves it: Num2Bits(248) (circuits/transaction.circom). */
 const OUTPUT_AMOUNT_BOUND = 1n << 248n;
 
@@ -180,6 +187,7 @@ export class Relayer {
     if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of the ${pi.withdrawalAmount + feeWei} leaving the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
+    if (this.revertedWithin(nullifiers, Date.now())) throw new RelayerError("reverted_before", `a transaction spending these notes reverted on chain at this relayer in the last ${REVERTED_HOLD_MS / 3_600_000} h: it is not sent again from here`);
     // reserved in the same step as the check, before anything is awaited (a V6 follow-up of 2026-10-15): they were
     // reserved only after the simulation, so two requests spending one note, at once, both passed the check, both were
     // sent, and the second reverted on chain at the relayer's cost
@@ -187,10 +195,20 @@ export class Relayer {
     nullifiers.forEach((n) => this.inflight.add(n));
     let gas: bigint;
     try {
-      gas = await this.clients.publicClient.estimateGas({ account: this.account.address, to: this.cfg.core, data });
+      // at a real gas price, as the transaction will carry one (audit round 2, r40): at the node's default of none, a recipient
+      // that burns its gas only when tx.gasprice is set passed the simulation and then reverted the transact on chain
+      const gasPrice = await this.clients.publicClient.getGasPrice();
+      gas = await this.clients.publicClient.estimateGas({ account: this.account.address, to: this.cfg.core, data, gasPrice });
     } catch (e) {
       nullifiers.forEach((n) => this.inflight.delete(n));
       throw new RelayerError("simulation_failed", `transact would revert: ${String((e as Error).message).split("\n")[0].slice(0, 200)}`);
+    }
+    // never more gas than the fee pays for (audit round 2, r40): the minimum prices GAS_ESTIMATE with the margin, and a
+    // recipient that spends 20M gas receiving had the relayer pay ten times what it was paid
+    const paid = (this.cfg.gasEstimate * BigInt(10_000 + this.cfg.feeMarginBps)) / 10_000n;
+    if (gas > paid) {
+      nullifiers.forEach((n) => this.inflight.delete(n));
+      throw new RelayerError("gas_too_high", `this transaction needs ${gas} gas, more than the ${paid} its fee pays for (the recipient spends gas on receiving)`);
     }
     // one send of this account at a time; a broadcast whose answer was lost, the node holding it, is submitted (`monitor`
     // drops it if it never lands), and only one that never left or that the node refused is send_failed
@@ -264,6 +282,12 @@ export class Relayer {
     } catch {
       return null;
     }
+  }
+
+  /** Whether a transaction spending one of these nullifiers reverted on chain here within REVERTED_HOLD_MS (audit round 2, r40). */
+  private revertedWithin(nullifiers: readonly string[], now: number): boolean {
+    for (const j of this.jobs.values()) if (j.status === "reverted" && now - j.submittedAt < REVERTED_HOLD_MS && j.nullifiers.some((n) => nullifiers.includes(n))) return true;
+    return false;
   }
 
   /** Every submission, the fee notes' openings included: operator data (GET /jobs needs RELAYER_ADMIN_TOKEN, src/admin.ts). */

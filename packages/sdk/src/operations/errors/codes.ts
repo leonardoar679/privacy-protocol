@@ -32,6 +32,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   // V6 Stage 15 (doc §75): the relayer has no job spending these notes — after a lost answer, the submission never reached it
   unknown_nullifier: { source: "relayer", fundsClass: "still-protected", actions: ["review"] },
   simulation_failed: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
+  gas_too_high: { source: "relayer", fundsClass: "not-moved", actions: ["edit"] },
+  reverted_before: { source: "relayer", fundsClass: "not-moved", actions: ["check-settings"] },
   send_failed: { source: "relayer", fundsClass: "unknown", actions: ["resume-tracking"] },
   too_large: { source: "relayer", fundsClass: "not-moved", actions: ["new-quote"] },
   rate_limited: { source: "relayer", fundsClass: "not-moved", actions: ["wait"] },

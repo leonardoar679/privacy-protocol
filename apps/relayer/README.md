@@ -32,8 +32,11 @@ so the relayer can also rediscover the note from chain like any wallet.
    is awaited, and given back if the simulation fails. Two requests spending one note at once: one is sent, the other
    answers `nullifier_in_flight` (a V6 follow-up of 2026-10-15). Before, they were reserved after the simulation, so
    both passed the check and both were sent, the second to revert at the relayer's cost;
-7. `eth_estimateGas` from the relayer's address succeeds (proof, root and nullifier set are checked by
-   the contract; a reverting call never reaches the chain);
+7. `eth_estimateGas` from the relayer's address, at the current gas price, succeeds (proof, root and nullifier set are
+   checked by the contract; a reverting call never reaches the chain), and needs no more gas than the fee pays for —
+   `gasEstimate × (1 + margin)` — else `gas_too_high`; notes whose transaction reverted on chain here are not sent again
+   from here for `REVERTED_HOLD_MS` (24 h; `reverted_before`) — audit round 2, r40: a recipient that spends gas on
+   receiving, or reverts the transact only on chain, had the relayer pay for it, the second form over and over;
 8. optionally (`REQUIRE_READABLE_FEE_PAYLOAD=1`) the fee payload decrypts with the relayer's view key.
 
 ## Swap-order executor (private-swap spec v1.1 §11)

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createPublicClient, createWalletClient, http, keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
 import { utf8ToBytes } from "@noble/hashes/utils";
 import { privateKeyToAccount } from "viem/accounts";
-import { Relayer, RelayerError, relayerIdentity, type RelayerConfig, type SubmitRequest } from "../src/relayer";
+import { REVERTED_HOLD_MS, Relayer, RelayerError, relayerIdentity, type RelayerConfig, type SubmitRequest } from "../src/relayer";
 import { decodeTransact, encodeTransact, piFromStrings, PUBLIC_SIGNALS } from "../src/abi";
 import { FIELD } from "@privacy-wallet/protocol/field";
 import { encryptNoteData } from "@privacy-wallet/protocol/envelope";
@@ -26,6 +26,8 @@ let revertSimulation = false;
 let receiptStatus: "0x1" | "0x0" | null = null;
 let sendMode: "take" | "refuse" | "lose-answer" = "take";
 let lost = false; // the node took the transaction and the answer is lost on the way back (a proxy's 502)
+let estimateAnswer = "0x1b7740"; // 1.8M gas
+const estimates: { gasPrice?: string; maxFeePerGas?: string }[] = []; // what each simulation was asked
 const taken = new Set<Hex>();
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
 function handle(req: { id: number; method: string; params: any[] }) {
@@ -37,7 +39,9 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_gasPrice": return res("0x3b9aca00"); // 1 gwei
     case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x3");
-    case "eth_estimateGas": return revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: UnknownRoot()" } } : res("0x1b7740");
+    case "eth_estimateGas":
+      estimates.push(req.params[0] ?? {});
+      return revertSimulation ? { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: UnknownRoot()" } } : res(estimateAnswer);
     case "eth_sendRawTransaction": {
       if (sendMode === "refuse") return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "nonce too low" } };
       const h = keccak256(req.params[0]);
@@ -215,6 +219,44 @@ describe.skipIf(!have)("submission of the forge-verified transaction", () => {
       expect((await relayer.info()).inflight).toBe(0);
     } finally {
       sendMode = "take";
+    }
+  });
+  it("simulates at a real gas price, and sends nothing that needs more gas than its fee pays for (audit round 2, r40)", async () => {
+    // a recipient that burns its gas only when tx.gasprice is set passed a simulation at none; one that spends 20M gas
+    // receiving had the relayer pay ten times the 1.8M its fee priced
+    const { req } = fixtureRequest();
+    const sent = raws.length;
+    estimateAnswer = toHex((1_800_000n * 12_000n) / 10_000n + 1n); // one gas above what the minimum pays for
+    try {
+      await expect(relayer.submit(req)).rejects.toMatchObject({ code: "gas_too_high" });
+      const asked = estimates[estimates.length - 1];
+      expect(BigInt(asked.gasPrice ?? asked.maxFeePerGas ?? "0x0") > 0n, "simulated with the gas price the transaction carries").toBe(true);
+      expect((await relayer.info()).inflight, "its notes given back").toBe(0);
+      expect(raws.length, "nothing sent").toBe(sent);
+    } finally {
+      estimateAnswer = "0x1b7740";
+    }
+  });
+  it("a transaction that reverted on chain is not sent again from here for a day: replayed, it cost the relayer its gas each time (audit round 2, r40)", async () => {
+    const { req } = fixtureRequest();
+    taken.clear();
+    const first = await relayer.submit(req);
+    receiptStatus = "0x0";
+    try {
+      expect((await relayer.status(first.txHash))?.status).toBe("reverted");
+    } finally {
+      receiptStatus = null;
+    }
+    expect((await relayer.info()).inflight).toBe(0);
+    await expect(relayer.submit(req)).rejects.toMatchObject({ code: "reverted_before" });
+    const job = relayer.jobs_().find((j) => j.txHash === first.txHash)!;
+    job.submittedAt = Date.now() - REVERTED_HOLD_MS - 1; // a day later
+    const again = await relayer.submit(req);
+    receiptStatus = "0x1";
+    try {
+      expect((await relayer.status(again.txHash))?.status).toBe("mined");
+    } finally {
+      receiptStatus = null;
     }
   });
 });
