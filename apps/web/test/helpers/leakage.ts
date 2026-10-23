@@ -3,6 +3,7 @@
 // field names that must never travel. Shared by the leakage suite and the swap scenario.
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { session } from "@privacy-wallet/sdk/wallet/session";
+import { seedToPhrase } from "@privacy-wallet/sdk/wallet/keystore";
 import { secureStore } from "../../src/storage";
 
 const hex = (b: Uint8Array): string => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -23,10 +24,13 @@ export interface SecretSet { name: string; values: string[] }
  * journaled note's secret that is not a public deposit's (a shield's secret is on chain by design: it is listed apart),
  * the keystore's ciphertext and salt (no request should carry the stored blob either).
  */
-export function sessionSecrets(o: { password: string; phrase: string }): { secrets: SecretSet[]; shield: SecretSet } {
+export function sessionSecrets(o: { password: string; phrase?: string }): { secrets: SecretSet[]; shield: SecretSet } {
   const seed = session.state().seed!;
   const keys = deriveKeys(seed) as unknown as Record<string, unknown>;
-  const words = o.phrase.trim().split(/\s+/);
+  // the phrase is the seed's own words (audit round 2, n74): the pending one is gone once acknowledged, and the swap gates,
+  // handed "" for it, searched for none of its words
+  const words = (o.phrase || seedToPhrase(seed)).trim().split(/\s+/);
+  if (words.length < 12) throw new Error("the leakage gate needs the phrase's words to search for them");
   const triples = words.slice(0, -2).map((_, i) => words.slice(i, i + 3).join(" "));
   const secrets: SecretSet[] = [
     { name: "the seed", values: forms(seed) },

@@ -635,7 +635,8 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     const { orderId } = await confirmed();
     await tick(orderId);
     await tick(orderId);
-    const { secrets } = sessionSecrets({ password: "a strong password", phrase: session.state().pendingPhrase ?? "" });
+    const { secrets } = sessionSecrets({ password: "a strong password" });
+    expect(secrets.find((x) => x.name.startsWith("the phrase"))!.values.length, "the phrase's words are searched for (audit round 2, n74)").toBeGreaterThan(20);
     expect(requests.length).toBeGreaterThan(5);
     const hosts = [...new Set(requests.map((r) => new URL(r.url).hostname))];
     expect(hosts.filter((h) => !allowedHosts().includes(h))).toEqual([]);

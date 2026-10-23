@@ -176,7 +176,8 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     await committedAndFunded(container);
     await act(async () => { button(container, "2 · Confirm the swap")!.click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="checked-line"]')).toBeTruthy(), { timeout: 30_000 });
-    const { secrets } = sessionSecrets({ password: "a strong password", phrase: session.state().pendingPhrase ?? "" });
+    const { secrets } = sessionSecrets({ password: "a strong password" });
+    expect(secrets.find((x) => x.name.startsWith("the phrase"))!.values.length, "the phrase's words are searched for (audit round 2, n74)").toBeGreaterThan(20);
     expect(requests.length).toBeGreaterThan(5);
     const hosts = [...new Set(requests.map((r) => new URL(r.url).hostname))];
     expect(hosts.length, "the service, the relayer, the RPC endpoint, the THORNode gateways").toBeGreaterThanOrEqual(3);
