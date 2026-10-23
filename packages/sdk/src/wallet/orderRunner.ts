@@ -317,6 +317,17 @@ export interface OrderTickResult {
 /** One tick of an order: reconcile, then the one next step (fund, or sign and hand over, or track). */
 /** A funded order whose signing failed for a passing reason is tried again this soon, inside its window (unverified m40). */
 export const SIGN_RETRY_MS = 60_000;
+/** ...and never later than this: a long window's tries are spaced out (audit round 2, n17). */
+export const SIGN_RETRY_MAX_MS = 10 * 60_000;
+/**
+ * The next try of a funded order's signing: about thirty across what is left of its window, never under a minute nor over
+ * ten (audit round 2, n17). A 30-minute window keeps its minute; a window of 24–72 h ("Delay for more privacy") had tried
+ * every minute for all of it — 1,400 to 4,300 prepares, each a quote of the provider, through one outage.
+ */
+export function signRetryMs(stored: StoredSwap, now: number): number {
+  const left = windowEndOf(stored) - now;
+  return Number.isFinite(left) && left > 0 ? Math.min(SIGN_RETRY_MAX_MS, Math.max(SIGN_RETRY_MS, Math.floor(left / 30))) : SIGN_RETRY_MS;
+}
 
 export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise<OrderTickResult | null> {
   const s = deps.session ?? defaultSession;
@@ -528,8 +539,11 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       // the gateways did not answer (an outage, never an unsafe call), or the network failed before anything was signed: the
       // funded order tries again within the minute, inside its window — never the scheduler's backoff of 10 minutes, then
       // 20, which outran a 30-minute window and left the order only its refund (2026-10-17, the audit's unverified m40)
-      schedulerStatus.progress(`Swap: the execution could not be prepared yet (${m.split("\n")[0].slice(0, 120)}); trying again in a minute…`);
-      tickAt(a.orderId, now + SIGN_RETRY_MS, s, now);
+      const wait = signRetryMs(stored, now);
+      schedulerStatus.progress(
+        `Swap: the execution could not be prepared yet (${m.split("\n")[0].slice(0, 120)}); trying again in ${Math.max(1, Math.round(wait / 60_000))} min…`,
+      );
+      tickAt(a.orderId, now + wait, s, now);
       return { step: "waiting", stored: journaled(a.orderId, s)! };
     }
     if ("moved" in r) {

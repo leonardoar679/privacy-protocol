@@ -38,6 +38,8 @@ import {
   type OrderIo,
   ORDER_LATE_TRACK_MS,
   SIGN_RETRY_MS,
+  SIGN_RETRY_MAX_MS,
+  signRetryMs,
 } from "../src/wallet/orderRunner";
 
 const store = memoryStorage();
@@ -501,6 +503,28 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     outage = false;
     expect((await runOrderTick(pending()!, deps(io, T0 + 20_000)))?.step).toBe("handed-over");
     expect(w.handOvers).toBe(1);
+  });
+
+  it("a long window's signing tries are spaced out: about thirty across what is left, never under a minute nor over ten (audit round 2, n17)", async () => {
+    const S = Math.floor(T0 / 1000);
+    const day = order({ params: { amount: AMOUNT.toString(), executeDeadline: S + 24 * 3600 } } as Partial<StoredSwap>);
+    expect(signRetryMs(day, T0), "a day left: every ten minutes").toBe(SIGN_RETRY_MAX_MS);
+    expect(signRetryMs(day, T0 + 24 * 3600_000 - 60 * 60_000), "an hour left: every two minutes").toBe(120_000);
+    expect(signRetryMs(day, T0 + 24 * 3600_000 - 20 * 60_000), "twenty minutes left: every minute").toBe(SIGN_RETRY_MS);
+    expect(signRetryMs({ params: { amount: "1", executeDeadline: S + 1800 } } as unknown as StoredSwap, T0), "a 30-minute window keeps its minute").toBe(
+      SIGN_RETRY_MS,
+    );
+    // the runner plans its next try by it
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { io } = world();
+    io.sign = async () => {
+      throw new TypeError("fetch failed");
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step).toBe("waiting");
+    expect(pending()!.dueAt, "a day's window: in ten minutes").toBe(T0 + 2_000 + SIGN_RETRY_MAX_MS);
   });
 
   it("a network failure at a funded order's signing is tried again within the minute, inside its window (the audit's unverified m40)", async () => {
