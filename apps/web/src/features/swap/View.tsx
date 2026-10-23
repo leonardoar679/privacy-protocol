@@ -42,14 +42,17 @@ export interface SwapModel {
   /** V6 Stage 11: a cross-chain destination — typed, or the fresh address of this wallet — and its three checks */
   destination?: { value: string; fresh: boolean; checks: { valid: CheckState; network: CheckState; compatible: CheckState }; error?: string | null } | null;
   quote:
-    | { kind: "same-chain"; expected: Amount; minimum: Amount; protection: Level; why?: WhyLineView[]; feesUsdCents: bigint; eta: [number, number] }
+    /** `feesUsdCents` null: no price for the input asset — "—", the Review says them in units (audit round 2, r56) */
+    | { kind: "same-chain"; expected: Amount; minimum: Amount; protection: Level; why?: WhyLineView[]; feesUsdCents: bigint | null; eta: [number, number] }
     | {
         kind: "cross-chain";
         expected: Amount;
         minimum: Amount;
         protection: Level;
         why?: WhyLineView[];
-        fees: { privacyUsdCents: bigint; relayerUsdCents: bigint; providerUsdCents: bigint };
+        /** null: no price for the input asset — the fee is said in it (`feeAmounts`; audit round 2, r56) */
+        fees: { privacyUsdCents: bigint | null; relayerUsdCents: bigint | null; providerUsdCents: bigint };
+        feeAmounts?: { privacy: Amount; relayer: Amount };
         eta: [number, number];
       }
     | null;
@@ -304,9 +307,7 @@ export function SwapView({
                     </div>
                     <div className="ds-review-row" data-testid="swap-fees">
                       <dt>{t("screen.swap.fees")}</dt>
-                      <dd>
-                        <Usd cents={q.feesUsdCents} />
-                      </dd>
+                      <dd>{q.feesUsdCents !== null ? <Usd cents={q.feesUsdCents} /> : "—"}</dd>
                     </div>
                   </>
                 ) : (
@@ -314,13 +315,25 @@ export function SwapView({
                     <div className="ds-review-row" data-testid="swap-privacy-fee">
                       <dt>{t("swap.privacyFee")}</dt>
                       <dd>
-                        <Usd cents={q.fees.privacyUsdCents} />
+                        {q.fees.privacyUsdCents !== null ? (
+                          <Usd cents={q.fees.privacyUsdCents} />
+                        ) : q.feeAmounts ? (
+                          <Amt a={q.feeAmounts.privacy} rounding="up" />
+                        ) : (
+                          "—"
+                        )}
                       </dd>
                     </div>
                     <div className="ds-review-row" data-testid="swap-relayer-fee">
                       <dt>{t("swap.relayerFee")}</dt>
                       <dd>
-                        <Usd cents={q.fees.relayerUsdCents} />
+                        {q.fees.relayerUsdCents !== null ? (
+                          <Usd cents={q.fees.relayerUsdCents} />
+                        ) : q.feeAmounts ? (
+                          <Amt a={q.feeAmounts.relayer} rounding="up" />
+                        ) : (
+                          "—"
+                        )}
                       </dd>
                     </div>
                     <div className="ds-review-row" data-testid="swap-provider-fee">

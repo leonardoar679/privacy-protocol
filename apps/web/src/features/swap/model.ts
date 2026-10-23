@@ -117,7 +117,10 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   if (!quote) return null;
   const split = f.terms ? swapFunding(f.units, f.terms) : { privacy: 0n, network: 0n, delivered: f.units };
   const tip = BigInt(f.quotes.executorTip ?? "0");
-  const cents = (u: bigint) => (f.from.usd1e8 !== null ? centsOf(u, f.from.decimals, f.from.usd1e8) : 0n);
+  // no price, no dollars (audit round 2, r56): the card had read "Privacy fee $0.00 · Relayer/network $0.00" while 1 %, F and
+  // the tip were paid; it says them in the input asset instead, as the Review does
+  const cents = (u: bigint) => (f.from.usd1e8 !== null ? centsOf(u, f.from.decimals, f.from.usd1e8) : null);
+  const inAsset = (u: bigint) => amountOf(u, f.from.symbol, f.from.decimals);
   const providerUsd = (quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0);
   const providerCents = BigInt(Math.round(providerUsd * 100));
   const level: Level = f.privacy?.level ?? "medium";
@@ -127,14 +130,15 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   const expected = amountOf(BigInt(quote.toAmount) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
   const minimum = amountOf(BigInt(quote.toAmountMin) - shield, f.to.ref.symbol, f.to.ref.decimals, f.to.ref.chain);
   if (f.to.ref.chain === "ethereum") {
-    const shieldCents = shield > 0n && f.toUsd1e8 ? centsOf(shield, f.to.ref.decimals, f.toUsd1e8) : 0n;
+    // a shield tip of unknown value makes the total unknown too, never one tip short (r56)
+    const shieldCents = shield > 0n ? (f.toUsd1e8 ? centsOf(shield, f.to.ref.decimals, f.toUsd1e8) : null) : 0n;
     return {
       kind: "same-chain",
       expected,
       minimum,
       protection: level,
       ...(f.privacy ? { why: whyLines(f.privacy.reasons) } : {}),
-      feesUsdCents: cents(split.privacy) + cents(split.network + tip) + shieldCents + providerCents,
+      feesUsdCents: f.from.usd1e8 !== null && shieldCents !== null ? cents(split.privacy)! + cents(split.network + tip)! + shieldCents + providerCents : null,
       eta,
     };
   }
@@ -145,6 +149,7 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
     protection: level,
     ...(f.privacy ? { why: whyLines(f.privacy.reasons) } : {}),
     fees: { privacyUsdCents: cents(split.privacy), relayerUsdCents: cents(split.network + tip), providerUsdCents: providerCents },
+    feeAmounts: { privacy: inAsset(split.privacy), relayer: inAsset(split.network + tip) },
     eta,
   };
 }
