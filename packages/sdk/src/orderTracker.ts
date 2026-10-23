@@ -123,7 +123,9 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   // a partial fill whose rest came back (a V6 follow-up of 2026-10-16, audit c32): the refund note is the remainder, not the order —
   // read as Refunded, a campaign re-planned and swapped again what was already delivered
   const executed = !!(f.job?.executionTx ?? s.executionTx) || f.job?.state === "executed" || f.job?.state === "completed";
-  if (refundedToo && executed && unitsOf(t?.deliveredAmount) > 0n)
+  // the relayer's word that it re-shielded the rest counts as the refund note does (audit round 2, r14): read before the note
+  // was found, such an order read Refunded, and the order runner settled it there — a swap that delivered, called refunded
+  if ((refundedToo || f.job?.state === "refunded") && executed && unitsOf(t?.deliveredAmount) > 0n)
     return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of

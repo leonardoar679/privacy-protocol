@@ -100,6 +100,13 @@ describe("a partial fill whose rest came back (a V6 follow-up of 2026-10-16)", (
     const never = deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "1000000000000000000" }] }), facts({ refundFound: true, job: job("refunded") }));
     expect(never).toMatchObject({ state: "REFUNDED", label: "Refunded" });
   });
+  it("reads Partial when the relayer re-shielded the rest before its note is found (audit round 2, r14)", () => {
+    const f = order({ fundedTx: "0x1", state: "executing", jobId: "j" });
+    const reshielded = deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
+    expect(reshielded).toMatchObject({ state: "PARTIAL", label: "Partial", deliveredAmount: "0.02 BTC", refundedAmount: "0.3 ETH" });
+    // nothing delivered: the re-shielded escrow is a refund
+    expect(deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }) }))).toMatchObject({ state: "REFUNDED" });
+  });
 });
 
 describe("another token at the destination (the audit's unverified m60)", () => {
