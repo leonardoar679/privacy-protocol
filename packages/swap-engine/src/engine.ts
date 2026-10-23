@@ -145,6 +145,11 @@ export interface QuoteHint {
   mode?: ProtectionMode;
   /** High-Value Protection spec §3: the per-tranche execution window; buildOrder clamps it into the policy's delay budget */
   executeWindowSeconds?: number;
+  /**
+   * The tip an order already committed — a restore, a resume (audit round 2, r35): it is quoted net of that tip, never
+   * priced again. A fresh price above the escrow's 1 % (gas risen since) had refused the rebuild of a funded order.
+   */
+  executorTip?: bigint;
 }
 /** The shortest execution window a wallet can ask for: a quote refreshed at submission still needs a relayer tick (High-Value Protection spec §3). */
 export const EXECUTE_WINDOW_MIN_SECONDS = 600;
@@ -250,7 +255,7 @@ export class PrivateSwapEngine {
       if (!this.cfg.tips.shieldTipFor) throw new ProtectedDestinationError("this service cannot price a shield tip");
     }
     // V6 (spec v2.0 §3): the execution's gas at today's fees, in the order's asset; refused when the escrow could not pay it
-    const executorTip = await this.cfg.tips.tipFor(gross.from, gross.amount);
+    const executorTip = hint.executorTip ?? (await this.cfg.tips.tipFor(gross.from, gross.amount));
     const shieldTip = protectedDestination ? await this.cfg.tips.shieldTipFor!(gross.to) : undefined;
     const req = this.net(gross, executorTip);
     // phase 1: the fresh destination goes only to the chosen provider at prepare (whale spec §5)

@@ -13,6 +13,7 @@ import { ProviderHealthTracker, chainHalted, reliabilityScore } from "../src/hea
 import { PLACEHOLDER_BTC, PLACEHOLDER_EVM, PLACEHOLDER_SOL, placeholderDestination } from "../src/placeholders";
 import { NO_VALUER } from "../src/valuation";
 import { AdapterRefusal } from "../src/types";
+import { TipError } from "../src/tips";
 import type { AssetRef, Capabilities, Health, Ingress, POLICIES as _P, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "../src/types";
 import { POLICIES, isPolicy } from "../src/types";
 import { shareTips } from "./helpers/tips";
@@ -238,6 +239,13 @@ describe("the competition record, the time budget and the breaker (whale spec §
     const set = await e.quoteAll(req, "balanced");
     expect(set.competition.find((c) => c.provider === "uniswap-across")).toMatchObject({ outcome: "refused", reason: expect.stringContaining("counted in the asset delivered") });
     expect(set.errors["uniswap-across"]).not.toMatch(/skipped/);
+  });
+  it("an order rebuilt with its committed tip is quoted net of it, never priced again: gas risen past the escrow's 1 % refused a funded order's rebuild (audit round 2, r35)", async () => {
+    const tips = { tipFor: async () => { throw new TipError("amount_too_small", "executing costs 10 more than the escrow may pay from 100 (1 %)"); } };
+    const e = engine([new Stub("thorchain", "quote")], { tips });
+    await expect(e.quoteAll(req, "balanced"), "a new order: priced, and refused").rejects.toBeInstanceOf(TipError);
+    const set = await e.quoteAll(req, "balanced", { executorTip: 25n });
+    expect(set.quotes[0]?.executorTip).toBe(25n);
   });
   it("three outages open the breaker: the provider is skipped for a while and the competition says so", async () => {
     const thor = new Stub("thorchain", "quote"), lifi = new Stub("lifi", "outage");

@@ -25,6 +25,7 @@ import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId, reconcileOpenSwaps } from "../src/operations/swapRecords";
 import { swapService } from "../src/swapService";
+import { ApiError } from "../src/api/client";
 import type { Prepared } from "../src/swapService";
 import {
   acceptNewMinimum,
@@ -684,6 +685,26 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect((await runOrderTick(pending()!, deps(io, late)))?.step).toBe("paused");
     expect(stored().paused?.code).toBe("execution_window_closed");
     expect(w.signs, "only the first signing, which asked for the new minimum").toBe(1);
+  });
+
+  it("a refusal of the swap service at a funded order's signing is tried again, never an unsafe call — whatever its words name (audit round 2, r35)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    const sign = io.sign;
+    let refuse = true;
+    io.sign = async (st, reuse) => {
+      if (!refuse) return sign(st, reuse);
+      refuse = false;
+      throw new ApiError(400, "amount_too_small", "executing costs 10100000000000000 wei, more than the escrow may pay from 989000000000000000 (1 %)");
+    };
+    expect(await drive(io, 1)).toEqual(["funded"]);
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000)))?.step, "never stopped as unsafe").toBe("waiting");
+    expect(stored().paused).toBeUndefined();
+    expect((await runOrderTick(pending()!, deps(io, T0 + 2_000 + SIGN_RETRY_MS)))?.step).toBe("handed-over");
+    expect(w.handOvers).toBe(1);
   });
 
   it("an order the executor already has — another copy of this wallet funded and handed it over — is tracked, never funded again (audit round 2, r45)", async () => {

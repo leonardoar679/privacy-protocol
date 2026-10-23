@@ -407,7 +407,8 @@ export class SwapApi {
     // its operation, and one named with a refundAfter years away was never purged
     const horizon = Math.floor(this.d.now() / 1000) + RESTORE_HORIZON_SECONDS + this.engine.cfg.refundWindowSeconds;
     if (params.refundAfter > horizon) throw new BadRequest("params name a refund time further ahead than this service sets one");
-    const set = await this.engine.quoteAll(req, policyOf(b), hintsOf(b));
+    // the order's tip is fixed in its escrow: quoted net of it, never priced again (audit round 2, r35)
+    const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), executorTip: params.executorTip });
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote)
       return {

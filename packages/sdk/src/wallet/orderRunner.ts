@@ -17,6 +17,7 @@
 import type { Hex } from "viem";
 import type { Deployment } from "../chain";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
+import { ApiError } from "../api/client";
 import { trackOrder, type Tracked } from "../orderTracker";
 import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, type ShieldJob, type SwapJob } from "../relayer";
 import {
@@ -454,7 +455,9 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       if (!(e instanceof ProviderCallUnverified)) {
         // the swap service builds for another factory (read before the prepare since audit round 2, r02): it was a hand-over's pause
         if (/builds for/i.test(m)) return pause("execution_unavailable", m);
-        if (/receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
+        // the wallet's own checks of the call, never an answer of the swap service (audit round 2, r35): a refusal whose words
+        // named the escrow ("more than the escrow may pay") had stopped a funded order for good as an unsafe call
+        if (!(e instanceof ApiError) && /receiver|does not do what this wallet asked for|escrow|digest|not the one this wallet committed|pinned/i.test(m))
           return pause("unsafe_contract_call", m);
         // the service's price guard refused the hard quote (a route far below the best alternative): the user tries again or returns the funds
         if ((e as { code?: unknown })?.code === "price_guard" || /below the best alternative|price.?guard/i.test(m)) return pause("execution_unavailable", m);

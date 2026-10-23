@@ -26,6 +26,7 @@ import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderTo
 import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, patchSwap, windowEndOf, type FundingFate } from "../swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
+import { ApiError } from "../api/client";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
@@ -529,11 +530,12 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             const m = (e as Error)?.message ?? String(e);
             // the gateways did not answer: an outage, tried again at the next tick, never an unexpected destination
             if (e instanceof ProviderCallUnverified) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
-            if (/receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
+            const service = e instanceof ApiError; // an answer of the swap service is never the wallet's own check of the call (r35)
+            if (!service && /receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
             else if (/below the best alternative|price_guard/i.test(m)) {
               if (leftBehind) leftRefund = "its own route is refused against the better one";
               else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
-            } else if (/escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
+            } else if (!service && /escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
             else { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
           }
         }
