@@ -125,6 +125,16 @@ describe("another token at the destination (the audit's unverified m60)", () => 
     expect(other.detail).toBe("Delivered in USDC.e at the destination instead of BTC: the route gave another token.");
     expect(other.detail).not.toMatch(/came back|comes back/);
   });
+
+  it("with a leftover re-shielded too it stays Partial, never Refunded in full: the delivered step is not swapped again (audit round 2, n06)", () => {
+    const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", provider: "lifi" });
+    const track = { state: "partial", deliveredAsset: "USDC.e" } as const;
+    for (const fx of [facts({ job: job("completed", { executionTx: "0xee" }), track, refundFound: true }), facts({ job: job("refunded", { executionTx: "0xee" }), track })]) {
+      const other = deriveState(f, fx);
+      expect(other).toMatchObject({ state: "PARTIAL", label: "Partial" });
+      expect(other.detail).toMatch(/^Delivered in USDC\.e at the destination instead of BTC; .* came back to the escrow and was re-shielded into your private balance\.$/);
+    }
+  });
 });
 
 describe("trackOrder", () => {

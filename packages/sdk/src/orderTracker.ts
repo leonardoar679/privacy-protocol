@@ -128,12 +128,18 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const executed = !!(f.job?.executionTx ?? s.executionTx) || f.job?.state === "executed" || f.job?.state === "completed";
   // the relayer's word that it re-shielded the rest counts as the refund note does (audit round 2, r14): read before the note
   // was found, such an order read Refunded, and the order runner settled it there — a swap that delivered, called refunded
+  // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60) is read before
+  // a refund (audit round 2, n06): with a leftover re-shielded too it had read Refunded in full, and a campaign planned the
+  // delivered step's whole amount again
+  const otherToken = t?.state === "partial" && t.deliveredAmount === undefined && !!t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase();
+  if ((refundedToo || f.job?.state === "refunded") && executed && otherToken)
+    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t!.deliveredAsset} at the destination instead of ${to.symbol}; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if ((refundedToo || f.job?.state === "refunded") && executed && unitsOf(t?.deliveredAmount) > 0n)
     return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of
   // the output, and nothing said to have come back
-  if (t?.state === "partial" && t.deliveredAmount === undefined && t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase())
+  if (otherToken)
     return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t.deliveredAsset} at the destination instead of ${to.symbol}: the route gave another token.`, extras);
   const job = f.job?.state;
   // the executor stopped watching an executed order (`completed`: its late-refund watch ended with the escrow empty), and the
