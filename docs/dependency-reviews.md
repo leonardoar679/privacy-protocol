@@ -51,3 +51,8 @@ code.
   `W3mFrame`, no `cdp-sdk` in `apps/web/dist`); the bundle carries one zod, the wallet's own. The wallet's three schemas
   read alike under zod 4: the configuration, prefs and classic suites pass unchanged. Not cryptography-sensitive; no
   install script; locked with its sha512 integrity from the registry. The override can go once both packages accept zod 4.
+- 2026-10-23 (GHSA-27r3-jxmh-p828) — `body-parser@2.4.0` (MIT; apps/api, through `express@5.3.0`, whose range `^2.3.0`
+  takes it) and `qs@6.16.1` (BSD-3-Clause), which its raised range asks for. The advisory (high: a compressed request body
+  with trailing bytes threw an uncaught exception, a denial of service for anyone who can reach the API; every 2.x below
+  2.4.0) failed the audit gate on 2026-10-23. The API reads its bodies with `express.json` (64 KB). Not
+  cryptography-sensitive; no install script; locked with their sha512 integrity from the registry; nothing else moved.
