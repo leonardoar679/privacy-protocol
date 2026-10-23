@@ -3,6 +3,8 @@ import { formatEther, parseEther } from "viem";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
+import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { aiSession } from "../zkapi/aiSession";
@@ -34,6 +36,11 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   const [fundingIndex, setFundingIndex] = useState(() => (session.isUnlocked() ? session.journal().aiFunding?.index ?? 0 : 0));
   const [fundingMode, setFundingMode] = useState<"fresh" | "connected">("fresh");
   const [bucket, setBucket] = useState(CREDIT_BUCKETS_ETH[1]);
+  // the pool funding's relayer charge and privacy fee, said on the button, counted and bounded (audit round 2, r33): the
+  // button named the credit and the reserve only, and the withdrawal paid the fees on top, whatever the relayer asked by then
+  const fees = useFeeTerms(fundingMode === "fresh" && deployment ? deployment.ethVault : null);
+  const funding = fees.status === "ready" && fees.terms ? exactOutput(parseEther(bucket) + parseEther(FEE_RESERVE_ETH), fees.terms) : null;
+  const fundingReady = fees.status === "public" || (!!funding && !funding.tooSmall);
   const [models, setModels] = useState<{ id: string; name: string }[]>(DEFAULT_MODELS.map((id) => ({ id, name: id })));
   const [model, setModel] = useState(DEFAULT_MODELS[0]);
   const [tier, setTier] = useState<number>(Number(CHAT_SPENDING_TIER_USD?.[0] ?? 1));
@@ -100,9 +107,11 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   async function fundFromPool() {
     if (!deployment) { setStatus("No pool deployment configured (VITE_RPC_URL / VITE_CORE / VITE_ETH_VAULT)."); return; }
     const total = parseEther(bucket) + parseEther(FEE_RESERVE_ETH);
-    if (noteStore.balance(BigInt(deployment.ethVault)) < total) { setStatus(`Not enough shielded ETH for ${bucket} + ${FEE_RESERVE_ETH} fee reserve.`); return; }
+    if (!fundingReady) return;
+    const leaves = funding?.total ?? total;
+    if (noteStore.balance(BigInt(deployment.ethVault)) < leaves) { setStatus(`Not enough shielded ETH: ${formatEther(leaves)} ETH leaves your balance (${bucket} + ${FEE_RESERVE_ETH} fee reserve${funding ? ` + ${formatEther(funding.fee)} relayer and privacy fees` : ""}).`); return; }
     await run("Private withdrawal from the pool to the fresh funding address…", async () => {
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, onStatus: setStatus });
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), onStatus: setStatus });
       setStatus(`Fresh address ${fresh.address.slice(0, 10)}… funded with ${formatEther(total)} ETH (tx ${r.txHash.slice(0, 10)}…). Now deposit the credit.`);
     });
   }
@@ -212,7 +221,7 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
             {CREDIT_BUCKETS_ETH.map((b) => <option key={b} value={b}>{b} ETH</option>)}
           </select>
           <div className="tabs" style={{ marginTop: 8 }}>
-            {fundingMode === "fresh" && <button className="tab" onClick={fundFromPool} disabled={busy}>1 · Fund the fresh address from the pool ({bucket} + {FEE_RESERVE_ETH} ETH)</button>}
+            {fundingMode === "fresh" && <button className="tab" onClick={fundFromPool} disabled={busy || !fundingReady}>1 · Fund the fresh address from the pool ({funding ? `${formatEther(funding.total)} ETH with the relayer and privacy fees` : `${bucket} + ${FEE_RESERVE_ETH} ETH`})</button>}
             <button className="tab" onClick={depositCredit} disabled={busy}>{fundingMode === "fresh" ? "2 · " : ""}Deposit {bucket} ETH as credit</button>
             <button className="tab" onClick={withdrawCredit} disabled={busy || !note}>Withdraw unused credit</button>
           </div>

@@ -10,6 +10,9 @@ import { assertSecondFactor, verifyPassword, webauthnAvailable } from "@privacy-
 import { addAddress, approveAddress, challengeMessage, destinationCheck, methodsFor, overrideCoolingOff, relabelAddress, retireAddress, verifyAddress, verifySignedChallenge, type AddressBookEntry, type AddressChain, type VerificationMethod } from "@privacy-wallet/sdk/wallet/addressBook";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { HoldButton } from "@privacy-wallet/ui";
+import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { useFeeTerms } from "../../features/fees/useFeeTerms";
 import { holdMs } from "@privacy-wallet/sdk/tiers";
 import { useAddressBook, useSettings } from "../../hooks";
 
@@ -73,11 +76,18 @@ function TestTransaction({ entry, masterSeed, deployment, onVerified }: { entry:
   const piece = bucketsFor(asset.decimals)[0];
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  // what leaves the balance (the piece, the relayer's charge and the privacy fee), said before and paid no more (audit
+  // round 2, r33): the test said "0.001 ETH" and took the relayer's charge and the privacy fee on top, whatever it asked by then
+  const fees = useFeeTerms(asset.vault as Address);
+  const split = fees.status === "ready" && fees.terms ? exactOutput(piece, fees.terms) : null;
+  const ready = fees.status === "public" || (!!split && !split.tooSmall);
   async function send() {
     if (!deployment) { setStatus("No deployment configured."); return; }
+    if (!ready) return;
+    if (noteStore.balance(BigInt(asset.vault)) < (split?.total ?? piece)) { setStatus(`Not enough ${asset.symbol} in your private balance for the test and its fees.`); return; }
     setBusy(true);
     try {
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: piece, recipient: entry.normalized as Address, vault: asset.vault, onStatus: setStatus });
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: piece, recipient: entry.normalized as Address, vault: asset.vault, ...(split ? { maxFee: split.fee } : {}), onStatus: setStatus });
       setStatus(`Sent ${formatAmount(asset, piece)} ${asset.symbol} (tx ${r.txHash.slice(0, 10)}…). Check that it arrived where you expect; the address counts as verified.`);
       onVerified();
     } catch (e: any) { setStatus(e?.message ?? String(e)); } finally { setBusy(false); }
@@ -85,8 +95,11 @@ function TestTransaction({ entry, masterSeed, deployment, onVerified }: { entry:
   return (
     <div data-testid="verify-test">
       <p className="notice small">⚠ This test creates public transaction metadata: the amount, the address and the time become visible on the public side. Prefer the signed message when the destination can sign.</p>
-      <p className="muted small">Sends {formatAmount(asset, piece)} {asset.symbol} from your private balance to {groupAddress(entry.normalized)}.</p>
-      <div className="tabs" style={{ margin: 0 }}><button className="primary" onClick={send} disabled={busy} data-testid="verify-test-send">Send the test transaction</button></div>
+      <p className="muted small" data-testid="verify-test-cost">
+        Sends {formatAmount(asset, piece)} {asset.symbol} from your private balance to {groupAddress(entry.normalized)}
+        {split ? `: ${formatAmount(asset, split.total)} ${asset.symbol} leaves it, ${formatAmount(asset, split.fee)} of that the relayer's charge and the privacy fee.` : "."}
+      </p>
+      <div className="tabs" style={{ margin: 0 }}><button className="primary" onClick={send} disabled={busy || !ready} data-testid="verify-test-send">Send the test transaction</button></div>
       {status && <p className="muted small">{status}</p>}
     </div>
   );

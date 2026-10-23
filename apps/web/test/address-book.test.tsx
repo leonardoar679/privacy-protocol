@@ -28,16 +28,23 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { approveAddress, addAddress, bookOf, challengeMessage, destinationCheck, entryIdFor, findEntry, markAddressSettled, markAddressUsed, methodsFor, overrideCoolingOff, retireAddress, verifyAddress, verifySignedChallenge } from "@privacy-wallet/sdk/wallet/addressBook";
-import { OVERRIDE_PHRASE } from "../src/components/protection/AddressBook";
+import { OVERRIDE_PHRASE, VerifyEntry } from "../src/components/protection/AddressBook";
+import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
+import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { buildCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { Protection, QuoteSet } from "@privacy-wallet/sdk/swapService";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // the relayer's terms (Send quotes with them): read from the engine, never fetched here
+const withdrawals = vi.hoisted(() => [] as { amount: bigint; maxFee?: bigint }[]);
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
+  privateWithdrawal: async (o: { amount: bigint; maxFee?: bigint }) => {
+    withdrawals.push({ amount: o.amount, ...(o.maxFee !== undefined ? { maxFee: o.maxFee } : {}) });
+    return { txHash: "0x" + "77".repeat(32), proofMs: 1, verifiedLocally: false, spent: [0], submittedBy: "relayer" };
+  },
 }));
 beforeAll(() => { globalThis.fetch = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch; });
 let root: Root | null = null;
@@ -121,6 +128,26 @@ describe("the journaled address book (spec §12)", () => {
     session.lock();
     expect(await session.unlock("a strong password")).toBe(true);
     expect(bookOf(session.journal()).map((x) => x.id).sort()).toEqual([entryIdFor("bitcoin", fresh.address), entryIdFor("evm", EVM)].sort());
+  });
+
+  it("the test transaction says what leaves the balance — the piece, the relayer's charge and the privacy fee — and pays no more (audit round 2, r33)", async () => {
+    await unlocked();
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    const r = addAddress({ chain: "evm", address: EVM, label: "exchange" });
+    if (!r.ok) throw new Error(r.reason);
+    const c = await mount(
+      <Providers deployment={deployment}>
+        <VerifyEntry entry={r.entry} masterSeed={session.state().seed!} deployment={deployment} />
+      </Providers>,
+    );
+    await act(async () => { (c.querySelector('[data-method="test-transaction"]') as HTMLButtonElement).click(); });
+    // 0.001 ETH to arrive: the relayer's 0.001 minimum and 1 % of what leaves on top
+    await vi.waitFor(() => expect(c.querySelector('[data-testid="verify-test-cost"]')!.textContent).toMatch(/leaves it, .* of that the relayer's charge and the privacy fee/));
+    withdrawals.length = 0;
+    await act(async () => { (c.querySelector('[data-testid="verify-test-send"]') as HTMLButtonElement).click(); });
+    await vi.waitFor(() => expect(withdrawals).toHaveLength(1));
+    const piece = bucketsFor(18)[0];
+    expect(withdrawals[0], "the piece, and never more fee than it said").toEqual({ amount: piece, maxFee: exactOutput(piece, { minimum: 10n ** 15n, feePercentBps: 100 }).fee });
   });
 
   it("signed messages: an EVM signature recovers to the address, a Solana ed25519 signature verifies; the wrong key fails", async () => {
