@@ -22,6 +22,7 @@ import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
 import { CUSTODY_WORDS, GATE_WORDS, durationWords, hours, providerKind, refOf, settlementWords, type Target } from "./targets";
 import { netOfShield } from "./model";
+import { destinationStatusWords } from "../destinationWords";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 const fmt = (units: string | bigint, decimals: number) => fmtUnits(units, decimals);
@@ -76,7 +77,7 @@ const t0 = (c: SwapContext, k: MessageKey) => c.t(k);
 const destinationLine = (c: SwapContext, onDestAck: () => void, every: boolean): ReviewLine => ({
   id: "destination", label: c.t("swap.lines.destination"), ok: !c.destinationEdited || (c.parsedOk && c.destAck && (every ? (c.destCheck?.verified ?? false) : !c.destinationLocked)),
   meaning: c.destinationEdited
-    ? `${every ? c.t("swap.lines.destinationEveryStep") : c.t("swap.lines.destinationEntered")}${c.destCheck ? `; ${c.destCheck.status}` : ""}`
+    ? `${every ? c.t("swap.lines.destinationEveryStep") : c.t("swap.lines.destinationEntered")}${c.destCheck ? `; ${destinationStatusWords(c.t, c.destCheck)}` : ""}`
     : every ? c.t("swap.lines.destinationFreshPerStep") : c.t("swap.lines.destinationFresh"),
   ...(c.destinationEdited && !c.destAck ? { ack: { text: c.t("swap.lines.checkedGroups"), done: c.destAck, onAck: onDestAck } } : {}),
 });

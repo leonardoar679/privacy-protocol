@@ -13,7 +13,7 @@
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
 import { stepsAmountAtFixedPoint } from "./model";
-import { destinationWords } from "../destinationWords";
+import { destinationStatusWords, destinationWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
 import { availablePrice, formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -507,7 +507,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const routeHealthy = chosen ? providerHealthy(quotes?.risk?.[chosen.provider]).ok : false;
 
   return (
-    <Page title={pageTitle} back={onBack} testId="swap" primaryAction={quotes && chosen && !order ? <Button size="lg" full onClick={() => startCommit(chosen.provider)} disabled={!!busy || blocked || (destinationLocked && !campaignMode)} title={blocked ? t("send.acknowledgeFirst") : destinationLocked && !campaignMode ? destCheck?.status : undefined} data-testid="swap-review">{t("swap.reviewSwap")}</Button> : !order ? <Button size="lg" full onClick={() => void getQuotes()} disabled={!!busy || !destination || units <= 0n || !!destinationError} data-testid="swap-quote">{t("swap.getQuote")}</Button> : undefined}>
+    <Page title={pageTitle} back={onBack} testId="swap" primaryAction={quotes && chosen && !order ? <Button size="lg" full onClick={() => startCommit(chosen.provider)} disabled={!!busy || blocked || (destinationLocked && !campaignMode)} title={blocked ? t("send.acknowledgeFirst") : destinationLocked && !campaignMode && destCheck ? destinationStatusWords(t, destCheck) : undefined} data-testid="swap-review">{t("swap.reviewSwap")}</Button> : !order ? <Button size="lg" full onClick={() => void getQuotes()} disabled={!!busy || !destination || units <= 0n || !!destinationError} data-testid="swap-quote">{t("swap.getQuote")}</Button> : undefined}>
       <div className="ds-stack">
         {!order ? (
           <>

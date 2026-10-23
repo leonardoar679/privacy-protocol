@@ -9,7 +9,7 @@ import { approveEntry,
   addEntry, canUse, challengeMessage, markSettled, markUsed, overrideCooling, retire, selectable, useStatus as entryStatus, verifyEntry, verifySolanaMessage,
   type AddressBookEntry, type AddressChain, type VerificationMethod,
 } from "@privacy-wallet/protocol/wallet/addressBook";
-import { parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
+import { parseDestination, type ParsedDestination } from "@privacy-wallet/protocol/wallet/destinations";
 import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { JournalData } from "./journal";
 import { session as defaultSession, type WalletSession } from "./session";
@@ -39,10 +39,10 @@ export function findEntry(chain: AddressChain, address: string, s: WalletSession
   return entryById(entryIdFor(chain, p.normalized), s);
 }
 
-/** Add an entered address (the user's own, verified later) or return the existing entry; a malformed address is refused with the parser's reason. */
-export function addAddress(o: { chain: AddressChain; address: string; label?: string; asset?: string; now?: number }, s: WalletSession = defaultSession): { ok: true; entry: AddressBookEntry; existed: boolean } | { ok: false; reason: string } {
+/** Add an entered address (the user's own, verified later) or return the existing entry; a malformed address is refused with the parser's code and reason. */
+export function addAddress(o: { chain: AddressChain; address: string; label?: string; asset?: string; now?: number }, s: WalletSession = defaultSession): { ok: true; entry: AddressBookEntry; existed: boolean } | Extract<ParsedDestination, { ok: false }> {
   const p = parseDestination(o.chain, o.address);
-  if (!p.ok) return { ok: false, reason: p.reason };
+  if (!p.ok) return p;
   const id = entryIdFor(o.chain, p.normalized);
   const existing = entryById(id, s);
   if (existing) return { ok: true, entry: existing, existed: true };

@@ -19,7 +19,7 @@ import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wall
 import { atLeast, availablePrice, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { destinationWords } from "../destinationWords";
+import { destinationStatusWords, destinationWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -210,7 +210,7 @@ export function SendScreen(p: SendScreenProps) {
         : unreachable
           ? t("screen.send.chainUnsupported", { chain: dest.kind === "other-chain" ? dest.chain : "Bitcoin" })
           : null,
-    destinationNote: ownWallet ? t("screen.send.ownWallet") : destinationLocked ? (destCheck?.status ?? null) : null,
+    destinationNote: ownWallet ? t("screen.send.ownWallet") : destinationLocked && destCheck ? destinationStatusWords(t, destCheck) : null,
     notice: assessment && tier !== "standard" ? (assessment.failSafe ? t("send.largeNoticeFailSafe") : t("send.largeNotice")) : null,
   };
   if (model.amountError || destinationLocked || unreachable) model.canReview = false;
@@ -425,7 +425,9 @@ export function SendScreen(p: SendScreenProps) {
                 label: t("review.destinationVerified"),
                 ok: destinationKind === "fresh" || (destAck && !destinationLocked),
                 meaning:
-                  destinationKind === "entered" ? `${t("review.destinationEntered")}${destCheck ? `; ${destCheck.status}` : ""}` : t("review.destinationFresh"),
+                  destinationKind === "entered"
+                    ? `${t("review.destinationEntered")}${destCheck ? `; ${destinationStatusWords(t, destCheck)}` : ""}`
+                    : t("review.destinationFresh"),
                 ...(destinationKind === "entered" && !destAck
                   ? { ack: { text: t("review.checkedGroups"), done: destAck, onAck: () => setDestAck(true) } }
                   : {}),
