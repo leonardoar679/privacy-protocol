@@ -507,6 +507,8 @@ export const en = {
   "op.error.chain_mismatch.reason": "The connected wallet is not on this deployment's network. Nothing was sent; switch the network and confirm again.",
   "op.error.rpc_disagreement.title": "The RPC endpoints disagree",
   "op.error.rpc_disagreement.reason": "Your endpoints returned different views of the chain, so the wallet refused to act on either. Nothing was sent; check the endpoints in Advanced settings.",
+  "op.error.receipt_disputed.title": "Your RPC endpoints disagree about this transaction",
+  "op.error.receipt_disputed.reason": "One endpoint reports another outcome than the others. We're checking where your funds are: nothing is sent again until they agree.",
   "op.error.transport_refused.title": "A request to an unknown host was refused",
   "op.error.transport_refused.reason": "The wallet only talks to this deployment's endpoints. Nothing was sent.",
   "op.error.order_mismatch.title": "The service's order did not match your request",

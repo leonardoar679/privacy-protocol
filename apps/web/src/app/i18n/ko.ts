@@ -553,6 +553,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.wallet_disconnected.reason": "연결된 지갑을 더 이상 사용할 수 없습니다. 아무것도 전송되지 않았습니다. 다시 연결한 뒤 다시 확인하세요.",
   "op.error.chain_mismatch.title": "지갑이 다른 네트워크에 있습니다",
   "op.error.chain_mismatch.reason": "연결된 지갑이 이 배포의 네트워크에 있지 않습니다. 아무것도 전송되지 않았습니다. 네트워크를 전환한 뒤 다시 확인하세요.",
+  "op.error.receipt_disputed.title": "RPC 엔드포인트들이 이 거래에 대해 서로 다르게 답합니다",
+  "op.error.receipt_disputed.reason":
+    "엔드포인트 하나가 다른 엔드포인트들과 다른 결과를 알려 줍니다. 자금이 어디에 있는지 확인하고 있으며, 엔드포인트들이 일치할 때까지 아무것도 다시 보내지 않습니다.",
   "op.error.rpc_disagreement.title": "RPC 엔드포인트의 응답이 서로 다릅니다",
   "op.error.rpc_disagreement.reason":
     "엔드포인트들이 서로 다른 체인 상태를 반환해, 지갑이 어느 쪽으로도 진행하지 않았습니다. 아무것도 전송되지 않았습니다. 고급 설정에서 엔드포인트를 확인하세요.",

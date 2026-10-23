@@ -8,7 +8,7 @@
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
 import { publicClientFor } from "@privacy-wallet/privacy-engine/transport/chain";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
-import { getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, type Address, type Hex, type PublicClient } from "viem";
+import { getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { txDomain } from "@privacy-wallet/protocol/payload";
@@ -25,7 +25,8 @@ export { deploymentFromEnv } from "./env";
  * The wallet's RPC policy (plan §38, §64, Rule 6 on the wallet side): no API key anywhere (URLs come
  * from env), JSON-RPC batching so a sync is few round trips, no cookies and no cross-host redirects,
  * and — when more than one endpoint is configured — every view the wallet proves against is read
- * from ALL of them and must agree (a lying or stale endpoint cannot hand the wallet a wrong tree).
+ * from ALL of them and must agree (a lying or stale endpoint cannot hand the wallet a wrong tree), and so is every read
+ * that settles a transaction of ours (audit round 2, r23: `minedTx`, `outcomeReads`).
  * Reads are "fetch everything" (all NoteInserted events), never address-specific queries, so no
  * endpoint learns which notes are ours. Light-client verification is the native-host upgrade.
  */
@@ -33,6 +34,8 @@ export { deploymentFromEnv } from "./env";
 // privacy engine's transport, the wallet's only constructor of one
 export const clientFor = (d: Deployment): PublicClient => publicClientFor(d.rpcUrl);
 export const clientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls?.length ? d.rpcUrls : [d.rpcUrl]).map((u) => publicClientFor(u));
+/** The configured endpoints besides `clientFor`'s: each must give the receipt it gave (`minedTx`). */
+export const otherClientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls ?? []).filter((u) => u !== d.rpcUrl).map((u) => publicClientFor(u));
 
 export const txDomainOf = (d: Deployment): bigint => txDomain(BigInt(d.chainId), BigInt(d.core));
 
@@ -218,19 +221,97 @@ export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{
   return (await minedTx(client, hash)).inserted;
 }
 
+/** How long another endpoint is waited on for a receipt the first one gave: a node a few blocks behind (audit round 2, r23). */
+export const RECEIPT_AGREE_MS = 90_000;
+
+/**
+ * The endpoints do not agree on a transaction of ours after its submission (audit round 2, r23): one gave a receipt the
+ * others do not give — another status, another block, other notes or leaves, or none within RECEIPT_AGREE_MS. Its outcome
+ * is unknown (`receipt_disputed`), never "not moved": a delivered Send failed on one endpoint's fabricated receipt had
+ * been sent again, the recipient paid twice. The chain settles it once the endpoints agree.
+ */
+export class ReceiptDisputed extends Error {
+  readonly code = "receipt_disputed";
+  constructor(readonly hash: Hex, readonly views: string[]) {
+    super(`the RPC endpoints do not agree on transaction ${hash} (${views.join(" vs ")}): its outcome is not known yet`);
+  }
+}
+
+/** What endpoints must agree on in a receipt: its outcome, its block and the core's events in it. */
+const receiptKey = (r: { status: string; blockHash: Hex; logs: readonly { address: Address; topics: readonly Hex[]; data: Hex }[] }, core?: Address): string =>
+  `${r.status === "success" ? "mined" : "failed"}@${r.blockHash.slice(0, 10)}:` +
+  keccak256(toHex(r.logs.filter((l) => !core || l.address.toLowerCase() === core.toLowerCase()).map((l) => `${l.address.toLowerCase()}/${l.topics.join(",")}/${l.data}`).join("|"))).slice(0, 10);
+
 /** A mined transaction of ours: the notes it inserted and what it really cost (V6, spec v2.0 §3: gasUsed × effectiveGasPrice). */
 export async function minedTx(
   client: PublicClient,
   hash: Hex,
   /** the core: only its own events count (a V6 follow-up of 2026-10-17, audit c31) */
   core?: Address,
+  /** the deployment's other endpoints (`otherClientsFor`): each must give the same receipt, or ReceiptDisputed */
+  others: readonly PublicClient[] = [],
 ): Promise<{ inserted: { leafIndex: number; commitment: bigint }[]; costWei: bigint; /** the nullifier pairs its transact calls spent */ spends: [bigint, bigint][] }> {
   const receipt = await client.waitForTransactionReceipt({ hash });
+  if (others.length) {
+    const key = receiptKey(receipt, core);
+    const keys = await Promise.all(others.map((c) => c.waitForTransactionReceipt({ hash, timeout: RECEIPT_AGREE_MS }).then((r) => receiptKey(r, core), () => "none")));
+    if (keys.some((k) => k !== key)) throw new ReceiptDisputed(hash, [key, ...keys]);
+  }
   if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted`);
   const logs = core ? receipt.logs.filter((l) => l.address.toLowerCase() === core.toLowerCase()) : receipt.logs;
   const inserted = parseEventLogs({ abi: coreAbi, logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
   const spends = parseEventLogs({ abi: coreAbi, logs, eventName: "ShieldedTransaction" }).map((l) => [l.args.nullifier0, l.args.nullifier1] as [bigint, bigint]);
   return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends }; // an RPC that omits the price: no cost known
+}
+
+/**
+ * The reads that settle a transaction of ours after its submission — its receipt, whether a node knows it, a nullifier's
+ * spent bit —, from every configured endpoint (audit round 2, r23). The first endpoint alone had decided them: one lying
+ * or lagging endpoint failed a Send on its way as "not moved" and abandoned a funded order as "nothing left your private
+ * balance". A receipt and a spent bit must be the same on every endpoint, or the read throws (RpcDisagreement) and the
+ * caller acts on nothing until they agree; a transaction is known when any endpoint knows it.
+ */
+export interface OutcomeReads {
+  /** the receipt's status, or null while it is not mined; throws when it cannot be read or the endpoints disagree */
+  receipt(hash: Hex): Promise<"success" | "reverted" | null>;
+  /** some endpoint knows the transaction (pending or mined); throws when one cannot be read */
+  txKnown(hash: Hex): Promise<boolean>;
+  /** PrivacyCore's nullifier set; throws when it cannot be read or the endpoints disagree */
+  spent(nullifier: bigint): Promise<boolean>;
+}
+
+export function outcomeReads(d: Deployment, clients: readonly PublicClient[] = clientsFor(d)): OutcomeReads {
+  const agreed = async <T>(what: string, read: (c: PublicClient) => Promise<T>): Promise<T> => {
+    const all = await Promise.all(clients.map(read));
+    if (new Set(all.map(String)).size !== 1) throw new RpcDisagreement(what, all.map(String));
+    return all[0];
+  };
+  return {
+    receipt: (hash) =>
+      agreed(`the receipt of ${hash.slice(0, 10)}…`, async (c) => {
+        try {
+          return (await c.getTransactionReceipt({ hash })).status;
+        } catch (e) {
+          if (e instanceof TransactionReceiptNotFoundError) return null;
+          throw e;
+        }
+      }),
+    txKnown: async (hash) =>
+      (
+        await Promise.all(
+          clients.map(async (c) => {
+            try {
+              await c.getTransaction({ hash });
+              return true;
+            } catch (e) {
+              if (e instanceof TransactionNotFoundError) return false;
+              throw e;
+            }
+          }),
+        )
+      ).some(Boolean),
+    spent: (n) => agreed("a nullifier", async (c) => (await c.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean),
+  };
 }
 
 /** The connected account's public balance, read through the injected wallet's OWN provider (never our RPCs: no address ↔ endpoint link). */

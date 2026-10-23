@@ -3,10 +3,9 @@
 // tab, since the runner lives at the App level. Every check the Swap screen made stays here: the escrow
 // is recomputed from the wallet's own factory and the journaled params before a single note is spent,
 // and an order that is no longer open (abandoned, already funded) is never funded.
-import { recoverAddress, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex } from "viem";
-import { clientFor, type Deployment } from "./chain";
+import { recoverAddress, type Address, type Hex } from "viem";
+import { outcomeReads, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
-import { coreAbi } from "./privacyProtocol";
 import { RelayerRefusal, relayerInfo, relayerJobFor, relayerRunsFor, relayerShieldRegister, type RelayerInfo, type ShieldJob } from "./relayer";
 import { shieldJobRequest, shieldJobView } from "./shieldReceiver";
 import { swapService, type ServiceHealth } from "./swapService";
@@ -227,30 +226,14 @@ export interface FundingReads {
   txKnown(hash: Hex): Promise<boolean>;
 }
 
-/** The wallet's reads of a funding's fate: PrivacyCore through its RPC, the relayer by nullifier. */
+/**
+ * The wallet's reads of a funding's fate: PrivacyCore through every configured endpoint (audit round 2, r23: one
+ * endpoint's "reverted" and "unspent" had abandoned a funded order as "nothing left your private balance" — a
+ * disagreement is "unknown" now, and nothing is sent), the relayer by nullifier.
+ */
 export function fundingReads(d: Deployment): FundingReads {
-  const client = clientFor(d);
-  return {
-    spent: async (n) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean,
-    relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
-    receipt: async (hash) => {
-      try {
-        return (await client.getTransactionReceipt({ hash })).status;
-      } catch (e) {
-        if (e instanceof TransactionReceiptNotFoundError) return null;
-        throw e;
-      }
-    },
-    txKnown: async (hash) => {
-      try {
-        await client.getTransaction({ hash });
-        return true;
-      } catch (e) {
-        if (e instanceof TransactionNotFoundError) return false;
-        throw e;
-      }
-    },
-  };
+  const outcome = outcomeReads(d);
+  return { spent: outcome.spent, relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers), receipt: outcome.receipt, txKnown: outcome.txKnown };
 }
 
 export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now()): Promise<FundingFate> {

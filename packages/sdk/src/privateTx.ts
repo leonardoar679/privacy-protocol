@@ -28,7 +28,7 @@ import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
 import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
-import { clientFor, depositedLogsQuorum, minedTx, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
@@ -155,7 +155,7 @@ export async function trackShield(p: PreparedShield, txHash: Hex): Promise<numbe
 
 /** trackShield, with what the deposit really cost (V6, spec v2.0 §3). */
 export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{ leafIndex: number; costWei: bigint }> {
-  const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash);
+  const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment)); // every endpoint's receipt (audit round 2, r23)
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield", addedAt: Date.now() });
@@ -475,7 +475,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   }
   o.onStatus?.("Waiting for the transaction to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
-  const { inserted, costWei, spends } = await minedTx(client, txHash, o.deployment.core);
+  const { inserted, costWei, spends } = await minedTx(client, txHash, o.deployment.core, otherClientsFor(o.deployment)); // every endpoint's receipt (audit round 2, r23)
   // the notes are spent by this transaction, or by none the wallet knows of (c31)
   const [n0, n1] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
   if (!spends.some(([a, b]) => a === n0 && b === n1)) throw new NotThisSpend(txHash);

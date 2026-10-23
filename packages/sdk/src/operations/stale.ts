@@ -4,7 +4,8 @@
 // every such record is read from the chain instead:
 // - submitted, its transaction known: the receipt completes it, a revert fails it (nothing moved), and a transaction the
 //   node no longer knows STALE_DROP_MS after the record last moved fails it too (the relayer drops such a transaction
-//   after the same time);
+//   after the same time) — both only while the record's notes are unspent, and every one of these reads is every
+//   configured endpoint's (audit round 2, r23: one endpoint's word had failed a Send on its way as "nothing moved");
 // - stopped before "submitting" (in the proof, say): nothing was sent, so it fails, nothing moved;
 // - "submitting" with no answer yet: what it kept at that step decides. A Protect's note, once the scan found it, completes
 //   it. A Send's relayer, asked by the spend's nullifiers, supplies the transaction the page never got. Nullifiers still
@@ -19,8 +20,8 @@
 // there (its nullifiers, its relayer, its note) whatever its state: a failure state drops its step, and such a record —
 // a lost answer, a retry refused — was failed as "nothing moved: start it again" at the next reload while the relayer had
 // sent it.
-import { decodeFunctionData, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
-import { clientFor, type Deployment } from "../chain";
+import { decodeFunctionData, TransactionNotFoundError, type Hex } from "viem";
+import { clientFor, outcomeReads, type Deployment } from "../chain";
 import { coreAbi } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
 import { noteStore } from "../wallet/notes";
@@ -52,25 +53,11 @@ export interface StaleReads {
 /** The reads through the wallet's own RPC, and the relayer the spend went to. */
 export function staleReads(d: Deployment): StaleReads {
   const client = clientFor(d);
+  const outcome = outcomeReads(d); // every configured endpoint (audit round 2, r23)
   return {
-    receipt: async (hash) => {
-      try {
-        return (await client.getTransactionReceipt({ hash })).status;
-      } catch (e) {
-        if (e instanceof TransactionReceiptNotFoundError) return null;
-        throw e;
-      }
-    },
-    txKnown: async (hash) => {
-      try {
-        await client.getTransaction({ hash });
-        return true;
-      } catch (e) {
-        if (e instanceof TransactionNotFoundError) return false;
-        throw e;
-      }
-    },
-    spent: async (n) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [n] })) as boolean,
+    receipt: outcome.receipt,
+    txKnown: outcome.txKnown,
+    spent: outcome.spent,
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
     txSpends: async (hash) => {
       let tx;
@@ -100,6 +87,11 @@ async function spendsRecord(r: OperationRecord, hash: Hex, reads: StaleReads): P
   if (spends === null) return null;
   const [n0, n1] = [BigInt(r.refs.nullifiers[0]), BigInt(r.refs.nullifiers[1])];
   return spends.some(([a, b]) => a === n0 && b === n1);
+}
+
+/** Whether any note the record spends is spent on chain: a record whose notes are gone never reads "nothing moved" (r23). */
+async function notesSpent(r: OperationRecord, reads: StaleReads): Promise<boolean> {
+  return r.refs.nullifiers ? (await Promise.all(r.refs.nullifiers.map((n) => reads.spent(BigInt(n))))).some(Boolean) : false;
 }
 
 const INTERRUPTED: OperationEvent = { type: "submission-failed", code: "interrupted", detail: "the page was closed or reloaded before it was sent" };
@@ -156,8 +148,11 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
         const ours = status === null ? null : await spendsRecord(r, hash, reads);
         if (ours === false) apply({ type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` });
         else if (status === "success") apply({ type: "completed", ref: { txHash: hash } });
-        else if (status === "reverted") apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
-        else if (old && !(await reads.txKnown(hash)))
+        // "nothing moved" only while its notes are unspent, as the relayer judges its own jobs (audit round 2, r23): a node
+        // that never saw the relayer's pending transaction, or an endpoint's "reverted", had failed a Send on its way
+        else if (status === "reverted") {
+          if (!(await notesSpent(r, reads))) apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
+        } else if (old && !(await reads.txKnown(hash)) && !(await notesSpent(r, reads)))
           apply({ type: "submission-failed", code: "transaction_dropped", detail: `transaction ${hash} was dropped before it was mined` });
       }
     } catch {

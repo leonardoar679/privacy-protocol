@@ -118,6 +118,20 @@ describe("operations whose flow is gone", () => {
     expect(STALE_DROP_MS).toBe(600_000);
   });
 
+  it("'nothing moved' only while the notes are unspent: a reverted receipt or a forgotten transaction of a spend whose notes are spent is left as it is (audit round 2, r23)", async () => {
+    const reverted = record("send", "confirming", 41, T0, { nullifiers: ["411", "412"], relayerUrl: "http://relayer.test" });
+    const forgotten = record("withdraw", "confirming", 42, T0, { nullifiers: ["421", "422"], relayerUrl: "http://relayer.test" });
+    resetOperationsMemory(); // the page reloaded
+    // an endpoint's "reverted", a node that never saw the relayer's pending transaction: the notes are spent all the same
+    expect(await reconcileStaleOperations(chain({ reverted: [41], spent: ["411", "421"], spends: { 41: ["411", "412"] } }), T0 + STALE_DROP_MS + 1)).toBe(0);
+    expect(getOperation(reverted)!.state).toBe("CONFIRMING");
+    expect(getOperation(forgotten)!.state).toBe("CONFIRMING");
+    // unspent: nothing moved, as before
+    expect(await reconcileStaleOperations(chain({ reverted: [41], spends: { 41: ["411", "412"] } }), T0 + STALE_DROP_MS + 1)).toBe(2);
+    expect(getOperation(reverted)).toMatchObject({ state: "FAILED", reason: { code: "receipt_reverted" } });
+    expect(getOperation(forgotten)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped" } });
+  });
+
   it("one stopped before it was submitted fails with nothing moved; one submitting without its answer is left alone", async () => {
     const proof = record("send", "proof", 5);
     const submitting = record("send", "submitting", 6);

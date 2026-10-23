@@ -95,6 +95,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   wallet_disconnected: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   chain_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   rpc_disagreement: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings", "wait"] },
+  receipt_disputed: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },
   transport_refused: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   order_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   provider_call_mismatch: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
