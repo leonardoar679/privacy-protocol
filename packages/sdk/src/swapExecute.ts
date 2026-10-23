@@ -297,7 +297,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
     ...(refundTokens?.length ? { refundTokens, refundFloors } : {}),
     ...(fin.vouch?.execution ? { vouch: { execution: fin.vouch.execution as Hex } } : {}), // the relayer executes only a vouched call
   });
-  patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider }, s); // the provider's reference for tracking (NEAR Intents: the deposit address)
+  patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider, relayerUrl: i.submission.url }, s); // the provider's reference for tracking (NEAR Intents: the deposit address); the relayer it went to (r38)
   const r = stored.request as { to?: { chain?: string }; destination?: string };
   if (r.to?.chain && r.destination && !stored.shield) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
   return { job };
@@ -322,7 +322,7 @@ export async function returnOrderToBalance(i: { deployment: Deployment | null; s
     ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}),
     ...(stored.orderVouch ? { vouch: { order: stored.orderVouch as Hex } } : {}), // the relayer refunds only a vouched order
   });
-  patchSwap(stored.orderId, { jobId: job.id, state: job.state }, s);
+  patchSwap(stored.orderId, { jobId: job.id, state: job.state, relayerUrl: i.submission.url }, s);
   return job;
 }
 

@@ -19,7 +19,8 @@ import type { Deployment } from "../chain";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
 import { trackOrder, type Tracked } from "../orderTracker";
-import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, type ShieldJob, type SwapJob } from "../relayer";
+import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, RelayerTimeout, type ShieldJob, type SwapJob } from "../relayer";
+import { classify } from "../operations/errors/catalog";
 import {
   commitOrder,
   handOverSigned,
@@ -112,6 +113,10 @@ defaultSession.onLock(resetOrderRunnerMemory);
 
 export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | null; session: WalletSession; submission: Settings["submission"] }): OrderIo {
   const relayerUrl = d.submission.kind === "relayer" ? d.submission.url : null;
+  // the relayer an order was handed to, else the one Settings name (audit round 2, r38): an order handed to another relayer
+  // than today's was read from today's — unknown there, so a handed-over, executed order fell back to "Waiting for source"
+  // and was polled every 15 s for good, its refund and its shield job asked of a relayer that never had them
+  const relayerOf = (stored: StoredSwap): string | null => stored.relayerUrl ?? relayerUrl;
   const orderFor = async (stored: StoredSwap): Promise<ServiceOrder> => {
     const hit = orders.get(stored.orderId.toLowerCase());
     if (hit) return hit;
@@ -140,19 +145,39 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       }),
     handOver: async (stored, signed) =>
       handOverSigned({ deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), signed, submission: d.submission }),
-    job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
-    track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session }),
-    refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission }),
+    job: async (stored) => {
+      const own = relayerOf(stored);
+      if (!own) return null;
+      const found = await relayerSwapStatus(own, stored.orderId).catch(() => null);
+      // unknown at the order's own relayer: the one Settings name now may hold it (a hand-over whose answer was lost)
+      return found ?? (relayerUrl && relayerUrl !== own ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : null);
+    },
+    track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl: relayerOf(stored), session: d.session }),
+    // the relayer it was handed to takes its refund; when that one cannot be reached, the one Settings name now does (the
+    // escrow pays its refund to this wallet's own note, whoever asks, and only once). A lost answer is no such case: the
+    // first may hold the job
+    refund: async (stored) => {
+      const own = stored.relayerUrl;
+      if (!own || (d.submission.kind === "relayer" && own === d.submission.url))
+        return returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission });
+      try {
+        return await returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: { kind: "relayer", url: own } });
+      } catch (e) {
+        if (d.submission.kind !== "relayer" || e instanceof RelayerTimeout || classify(e).code !== "relayer_unreachable") throw e;
+        return returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission });
+      }
+    },
     shieldStatus: (stored) =>
-      relayerUrl && stored.shield
-        ? relayerShieldStatus(relayerUrl, stored.shield.params.receiptId).catch((e) => {
+      relayerOf(stored) && stored.shield
+        ? relayerShieldStatus(relayerOf(stored)!, stored.shield.params.receiptId).catch((e) => {
             if (e instanceof RelayerRefusal && e.status === 404) return null;
             throw e;
           })
         : Promise.resolve(null),
     registerShield: async (stored) => {
-      if (!relayerUrl) throw new Error("a swap into the protected balance needs a relayer to shield its delivery");
-      return relayerShieldRegister(relayerUrl, shieldJobRequest(stored));
+      const own = relayerOf(stored);
+      if (!own) throw new Error("a swap into the protected balance needs a relayer to shield its delivery");
+      return relayerShieldRegister(own, shieldJobRequest(stored));
     },
     recoverShield: async (stored) =>
       d.deployment && stored.shield

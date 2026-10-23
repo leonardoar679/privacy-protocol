@@ -168,6 +168,10 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
       default: return out("PROVIDER_EXECUTING", "Executing", [true, true, false, false], `The provider call is on chain (${executionTx ? executionTx.slice(0, 10) + "…" : "sent"}); the provider is executing${t?.progress ? ` (${t.progress.done} of ${t.progress.parts} parts)` : ""}.`, extras);
     }
   }
+  // handed over, its executor not read this time (down, or not the relayer it went to): never back to the funding phase
+  // (audit round 2, r38); the record says it waits for the executor's word
+  if (s.jobId && !f.job && funded)
+    return out("PROVIDER_EXECUTING", "Executing", [true, true, false, false], "The order was handed over; its executor did not answer this time, and is asked again at the next read.", extras);
   // no executor job yet
   if (funded) {
     if (f.escrowBalance !== null && f.escrowBalance >= amount) {

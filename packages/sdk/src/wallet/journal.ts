@@ -66,6 +66,8 @@ export interface StoredSwap {
   executionTx?: string;
   /** the provider's own reference for tracking (NEAR Intents: the deposit address the escrow paid), journaled at hand-over */
   executionRef?: string;
+  /** the relayer the order was handed to (audit round 2, r38): tracked, refunded and its shield job asked there, whatever Settings name since */
+  relayerUrl?: string;
   /** the last derived settlement state (sdk/orderTracker.ts) and what the tracker read; V6 (spec v2.0 §12.4): `settlement`, where the money is (optional) */
   track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; settlement?: string; at: number };
   /** every settlement transition with its time (spec §25) */

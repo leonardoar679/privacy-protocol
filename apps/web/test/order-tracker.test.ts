@@ -41,6 +41,13 @@ describe("deriveState", () => {
     expect(deriveState(order({ fundedTx: "0x1" }), facts({ escrowBalance: 10n ** 18n, now: NOW + 3 * 3600_000 }))).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
   });
 
+  it("handed over, its executor not read this time: never back to the funding phase (audit round 2, r38)", () => {
+    const f = order({ fundedTx: "0x1", state: "executed", jobId: "j" });
+    const unread = deriveState(f, facts({ job: null, escrowBalance: 0n }));
+    expect(unread).toMatchObject({ state: "PROVIDER_EXECUTING", label: "Executing" });
+    expect(steps(unread)).toBe("1100");
+  });
+
   it("executing: the executor's job, then the destination side from the tracker, partial fills with both amounts", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j" });
     expect(deriveState(f, facts({ job: job("executing") }))).toMatchObject({ state: "SOURCE_FINAL", label: "Executing" });
