@@ -6,14 +6,14 @@
 // journal (`campaigns?`, optional); nothing here is sent anywhere.
 import {
   createCampaign, exposure, planTranches, rateE18, replan, withCampaignState, withTrancheState, RATE_SCALE,
-  type Campaign, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type Tranche, type TranchePlan,
+  type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type Tranche, type TranchePlan,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Asset } from "../assets";
 import { mergeSchedule } from "./mergeSchedule";
 import type { AssetRef, Policy, Preference, Protection, QuoteSet, ServiceQuote } from "../swapService";
-import { withAlert } from "./alerts";
+import { MAX_ALERTS, withAlert } from "./alerts";
 import { activityId, recordActivity, updateActivity } from "./activity";
 import type { JournalData, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
@@ -233,8 +233,15 @@ export function cancelCampaign(id: string, s: WalletSession = defaultSession, no
  */
 export function keepDecisions(base: Campaign, latest: Campaign, tick: Campaign): Campaign {
   if (latest.decidedAt === undefined || Object.is(latest.decidedAt, base.decidedAt) || TERMINAL_STATES.includes(tick.state)) return tick;
-  const history = [...tick.history, ...latest.history.slice(base.history.length)].sort((a, b) => a.at - b.at);
-  const alerts = [...(tick.alerts ?? []), ...(latest.alerts ?? []).slice((base.alerts ?? []).length)].sort((a, b) => a.at - b.at);
+  // what the answer added, by identity (audit round 2, n16): by length, the answer's own alert was lost once the alerts were
+  // full (the cap drops the oldest, so the slice past the base's count was empty), and the entries this tick had journaled
+  // before the answer came back twice
+  const historyKey = (h: Campaign["history"][number]) => `${h.at}|${h.state}|${h.note ?? ""}`;
+  const alertKey = (a: CampaignAlert) => `${a.at}|${a.kind}|${a.text}|${a.trancheIndex ?? ""}`;
+  const tickHistory = new Set(tick.history.map(historyKey));
+  const history = [...tick.history, ...latest.history.filter((h) => !tickHistory.has(historyKey(h)))].sort((a, b) => a.at - b.at);
+  const tickAlerts = new Set((tick.alerts ?? []).map(alertKey));
+  const alerts = [...(tick.alerts ?? []), ...(latest.alerts ?? []).filter((a) => !tickAlerts.has(alertKey(a)))].sort((a, b) => a.at - b.at).slice(-MAX_ALERTS);
   let merged: Campaign = {
     ...tick,
     state: latest.state,

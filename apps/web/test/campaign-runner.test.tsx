@@ -19,7 +19,9 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings, healSettings, healProtection, DEFAULT_PROTECTION, PROTECTION_DEFAULTS } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction, schedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
 import { trancheMinimum } from "@privacy-wallet/protocol/wallet/campaign";
-import { acceptReroute, buildCampaign, campaignById, cancelCampaign, pauseCampaign, putCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
+import { acceptReroute, buildCampaign, campaignById, cancelCampaign, keepDecisions, pauseCampaign, putCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
+import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
+import { withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
 import { runCampaignTick, resetRunnerMemory, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
@@ -879,6 +881,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
       world.notesShaped = shaped;
       world.shaped = true;
     }
+  });
+
+  it("an answer's alert is kept when the alerts are full, and the tick's own entries never come back twice (audit round 2, n16)", async () => {
+    const c = await fresh();
+    let c0: Campaign = c;
+    for (let i = 0; i < MAX_ALERTS; i++) c0 = withAlert(c0, "step-settled", `step ${i + 1} settled`, clock + i);
+    expect(c0.alerts).toHaveLength(MAX_ALERTS);
+    // the tick journals a state of its own (its base stays the campaign it read), then the user pauses, then the tick goes on
+    const mid = withCampaignState(c0, "preparing-notes", clock + 1000, "shaping the notes for the pieces");
+    const answered = { ...withAlert(withCampaignState(mid, "paused", clock + 1500, "Paused by you", { pause: { reason: "user" as const, detail: "Paused by you", at: clock + 1500 } }), "paused", "Paused by you", clock + 1500), decidedAt: clock + 1500 };
+    const tickOwn = withCampaignState(mid, "running", clock + 2000, "the first step starts");
+    const merged = keepDecisions(c0, answered, tickOwn);
+    expect(merged.state).toBe("paused");
+    expect(merged.alerts).toHaveLength(MAX_ALERTS);
+    expect(merged.alerts!.some((a) => a.kind === "paused" && a.text === "Paused by you"), "the answer's alert").toBe(true);
+    expect(merged.history.filter((h) => h.note === "shaping the notes for the pieces"), "the tick's own entry, once").toHaveLength(1);
+    expect(merged.history.filter((h) => h.note === "Paused by you")).toHaveLength(1);
   });
 
   it("a step whose funding is on its way is never given up: not when the rest returns, not when the route changes (the audit round of 2026-10-16, c35)", async () => {

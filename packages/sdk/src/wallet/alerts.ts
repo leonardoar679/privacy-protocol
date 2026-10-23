@@ -34,7 +34,7 @@ export function alertKindFor(reason: PauseReason, detail = ""): AlertKind {
   }
 }
 
-const MAX_ALERTS = 200;
+export const MAX_ALERTS = 200;
 
 /** The campaign with one more alert (newest last; the oldest beyond MAX_ALERTS are dropped). */
 export function withAlert(c: Campaign, kind: AlertKind, text: string, at: number, trancheIndex?: number): Campaign {
