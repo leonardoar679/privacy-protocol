@@ -49,10 +49,9 @@ import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyT
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { buildCampaign, cancelCampaign, progressLine, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
-import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
-import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
+import { CATALOG, classify, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
@@ -904,15 +903,37 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   }
   const winding = c.state === "winding-down";
   if (c.state === "paused" || c.state === "rerouting") {
+    // the pause in the catalog's words (audit round 2, n87): its code's title and reason — the runner's own English detail under
+    // Advanced; a step that runs longer than expected reads as a delay, not an anomaly
+    const code = c.pause ? (c.pause.reason === "user" ? "user_pause" : c.pause.reason.replace(/-/g, "_")) : null;
+    const delayed = c.pause?.reason === "anomaly" && /longer than expected/i.test(c.pause.detail);
+    // a pause whose funds class is unknown (a funding sent and not confirmed, an anomaly, an unexpected destination) never says the
+    // funds are safe (audit round 2, p05): the funding may be on its way to its escrow
+    const unknownFunds = code !== null && CATALOG[code]?.fundsClass === "unknown";
     return (
       <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
         <Card padding="md" testId="swap-steps-paused">
-          <h2 className="ds-card-title">{c.pause ? ALERT_TITLES[alertKindFor(c.pause.reason, c.pause.detail)] : t("screen.swap.stepsRouteChanged")}</h2>
-          {c.pause?.detail ? <p className="ds-note">{c.pause.detail}</p> : null}
+          <h2 className="ds-card-title">{code ? t(delayed ? "op.delayed" : (titleKey(code) as MessageKey)) : t("screen.swap.stepsRouteChanged")}</h2>
+          {code ? (
+            <p className="ds-note" data-testid="swap-steps-reason">
+              {t(reasonKey(code) as MessageKey)}
+            </p>
+          ) : null}
+          {p.advanced && c.pause?.detail ? (
+            <p className="ds-note" data-testid="swap-steps-detail">
+              {c.pause.detail}
+            </p>
+          ) : null}
           {/* a step funded and not handed over waits for its swap or its refund time, never in the protected balance (the audit
               round of 2026-10-16, c51) */}
           <p className="ds-note" data-testid="swap-steps-safe">
-            {t(c.tranches.some((x) => ["funded", "signed", "failed", "refunding"].includes(x.state)) ? "screen.swap.stepsSafeHeld" : "screen.swap.stepsSafe")}
+            {t(
+              unknownFunds
+                ? "op.funds.unknown"
+                : c.tranches.some((x) => ["funded", "signed", "failed", "refunding"].includes(x.state))
+                  ? "screen.swap.stepsSafeHeld"
+                  : "screen.swap.stepsSafe",
+            )}
           </p>
           <div className="ds-actions">
             {c.state === "rerouting" ? (

@@ -16,6 +16,9 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { campaignById, campaignsOf, putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { loadCatalog } from "../src/app/i18n/catalogs";
+import { setLocale, t } from "../src/app/i18n/messages";
 import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
@@ -192,6 +195,53 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
         /a step already funded is held for its swap and returns to your protected balance after its refund time/,
       ),
     );
+  });
+
+  it("a pause reads in the catalog's words, the runner's own detail under Advanced; a funding not yet confirmed never reads as safe (audit round 2, n87, p05)", async () => {
+    world.protection = bandPlan;
+    await wallet();
+    const router = mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
+    fireEvent.click(screen.getByTestId("swap-review"));
+    await screen.findByTestId("review-view");
+    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+    await act(async () => {
+      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 120));
+    });
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+    const [c] = campaignsOf(session.journal());
+    const now = Date.now();
+    const pausedFor = (reason: "price-deviation" | "reconcile", detail: string) =>
+      withCampaignState(c, "paused", now, "paused", { pause: { reason, detail, at: now } });
+    const title = () => screen.getByTestId("swap-steps-paused").querySelector("h2")!.textContent;
+    act(() => putCampaign(pausedFor("price-deviation", "The market moved."), session));
+    await screen.findByTestId("swap-steps-paused");
+    expect(title()).toBe("Paused: the price moved");
+    expect(screen.getByTestId("swap-steps-reason").textContent).toBe(t("op.error.price_deviation.reason"));
+    expect(screen.queryByText("The market moved."), "the runner's own words: Advanced only").toBeNull();
+    // a funding sent and not confirmed (a reconcile pause): where the funds are is being checked — never "safe"
+    act(() => putCampaign(pausedFor("reconcile", "The funding of step 1 was sent and is not confirmed yet."), session));
+    await waitFor(() => expect(screen.getByTestId("swap-steps-safe").textContent).toBe("We are checking where your funds are."));
+    expect(title()).toBe("Reconciling");
+    // in Korean: the catalog's Korean, no English line
+    await loadCatalog("ko");
+    act(() => setLocale("ko"));
+    try {
+      await waitFor(() => expect(title()).toBe(t("op.error.reconcile.title", undefined, "ko")));
+      expect(screen.getByTestId("swap-steps-reason").textContent).toBe(t("op.error.reconcile.reason", undefined, "ko"));
+      expect(screen.getByTestId("swap-steps-safe").textContent).toBe(t("op.funds.unknown", undefined, "ko"));
+    } finally {
+      act(() => setLocale("en"));
+    }
+    // Advanced: the runner's detail too
+    act(() => settings.set({ advanced: true }));
+    try {
+      expect((await screen.findByTestId("swap-steps-detail")).textContent).toBe("The funding of step 1 was sent and is not confirmed yet.");
+    } finally {
+      settings.reset();
+    }
   });
 
   it("the quote follows the band: one fetched at the fail-safe band before the prices load is fetched again at the band they give (the audit's unverified m57)", async () => {
