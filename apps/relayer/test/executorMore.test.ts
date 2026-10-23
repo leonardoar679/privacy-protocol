@@ -35,7 +35,8 @@ const tokenBalances: Record<string, bigint> = {}; // per-token escrow balances (
 let escrowCode = "0x"; // eth_getCode of the escrow
 let refusedToken: string | null = null; // estimateGas reverts for refundToken(this token): its vault refuses it
 let estimateOutage = false; // estimateGas fails like an overloaded RPC (no revert)
-afterEach(() => { estimateOutage = false; }); // a test failing midway must not leave the outage on for the rest
+let gasPriceOutage = false; // eth_gasPrice fails the same way
+afterEach(() => { estimateOutage = false; gasPriceOutage = false; }); // a test failing midway must not leave an outage on for the rest
 const selRefundToken = toFunctionSelector("refundToken(address,bytes)");
 const selCore = toFunctionSelector("core()"), selVaultFactory = toFunctionSelector("VAULT_FACTORY()"), selVaultOf = toFunctionSelector("vaultOf(address)");
 const noVault = new Set<string>(); // tokens the refund vault's pool has no vault for
@@ -48,7 +49,8 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_chainId": return res(toHex(CHAIN_ID));
     case "eth_blockNumber": return res("0x10");
     case "eth_getBlockByNumber": return res(block);
-    case "eth_gasPrice": case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
+    case "eth_gasPrice": if (gasPriceOutage) return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "upstream request timeout" } }; return res("0x3b9aca00");
+    case "eth_maxPriorityFeePerGas": return res("0x3b9aca00");
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return res(toHex(ethBalance));
     case "eth_getCode": return res(escrowCode);
@@ -308,6 +310,25 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(String(d.args[0]).toLowerCase()).toBe(LISTED);
     expect(job.refundTokens, "the token with no vault stays listed: anyone may re-shield it").toEqual([LISTED, NOVAULT]);
     escrowCode = "0x"; noVault.clear(); delete tokenBalances[LISTED]; delete tokenBalances[NOVAULT]; receiptStatus = null; raws.length = 0;
+  });
+
+  it("a gas price that cannot be read while a re-shield is priced is that job's tick: later jobs still run, none ends its watch on it (audit round 2, n01)", async () => {
+    const ex = executorWith(undefined, DAY);
+    const reqA = makeRequest(("0x" + "3a".repeat(32)) as Hex, 1500), reqB = makeRequest(("0x" + "3b".repeat(32)) as Hex, 1500);
+    const a = await executed(ex, reqA);
+    const b = await executed(ex, reqB);
+    // the watch's last tick, a late refund in each escrow, and the gas price unreadable
+    clock = Number(reqA.params.refundAfter) + DAY; ethBalance = 5n * 10n ** 17n; gasPriceOutage = true;
+    await ex.tick();
+    expect([a.state, b.state], "neither ended its watch on a failed read").toEqual(["executed", "executed"]);
+    expect(b.error, "the job after the failure was still read").toMatch(/could not price a re-shield/);
+    expect(raws.length).toBe(0);
+    gasPriceOutage = false;
+    await ex.tick();
+    expect([a.state, b.state]).toEqual(["refunding", "refunding"]);
+    receiptStatus = "0x1";
+    await ex.tick();
+    receiptStatus = null; ethBalance = 0n; raws.length = 0;
   });
 
   it("an RPC failure while estimating a late re-shield neither ends the watch nor drops a listed token; it is retried next tick", async () => {

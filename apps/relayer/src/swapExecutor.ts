@@ -653,8 +653,15 @@ export class SwapExecutor {
         const deployed = foreign.length > 0 && ((await this.cfg.publicClient.getCode({ address: job.escrow }).catch(() => undefined)) ?? "0x") !== "0x";
         const budget = !job.executed || this.unpaidBudgetLeft(job);
         let acted = false;
-        if (deployed && budget) for (const f of foreign) if ((acted = await this.refundForeign(job, f))) break;
-        if (!acted && refundable > 0n && budget) acted = await this.refundOwn(job, refundable); // deploys it too
+        try {
+          if (deployed && budget) for (const f of foreign) if ((acted = await this.refundForeign(job, f))) break;
+          if (!acted && refundable > 0n && budget) acted = await this.refundOwn(job, refundable); // deploys it too
+        } catch (e) {
+          // a read that fails while a re-shield is priced (the gas price) is that job's tick, never the pass's (audit round 2,
+          // n01: it aborted every job after it), and never the end of its watch: the job is read again next tick
+          this.note(job, `could not price a re-shield: ${firstLine(e, 160)}; tried again next tick`);
+          continue;
+        }
         if (acted) continue;
         // never executed and nothing in the escrow a day past its window (audit c07): never funded, or its funds already
         // back — the job has ended, and no pass reads it again. So has one whose escrow holds less than its tip (audit round
