@@ -117,6 +117,9 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   // the shield receiver's fallback is published with the commit (sent to the swap service and the relayer, the receiver's
   // immutable, its deployment's calldata): never offered again as an unused fresh address (audit round 2, r32)
   if (i.shield) markAddressUsed("evm", i.shield.fallbackRecipient, stored.orderId, s, now);
+  // the destination goes to the swap service with this commit (audit round 2, n54): used from here, never offered again as an
+  // unused fresh address should the order stop before its hand-over — the service has it already
+  if (req.to?.chain && req.destination && !shield) markAddressUsed(chainKindOf(req.to.chain), req.destination, stored.orderId, s, now);
   recordActivity({ id: activityId("swap", stored.orderId), kind: "swap", asset: i.fromAsset.symbol, decimals: i.fromAsset.decimals, amount: req.amount, status: "committed", ref: stored.orderId, note: `→ ${req.to.symbol}${i.campaign ? ` · step ${i.campaign.index + 1}` : ""}` }, s);
   if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: stored.orderId, dueAt }, s);
   return { stored, order, key, refund, response };

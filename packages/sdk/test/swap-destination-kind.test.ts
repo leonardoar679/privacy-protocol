@@ -10,6 +10,8 @@ import { session } from "../src/wallet/session";
 import type { Deployment } from "../src/chain";
 import type { Asset } from "../src/assets";
 import type { StoredSwap } from "../src/wallet/journal";
+import { bookOf } from "../src/wallet/addressBook";
+import { consumeFreshAddress } from "../src/keys/chainKeys";
 
 vi.mock("../src/swapService", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/swapService")>();
@@ -87,6 +89,28 @@ describe("a swap's destination in its record (audit round 2, n60/n62)", () => {
     // an order journaled before the kind was: nothing verified is claimed
     const { destinationKind: _, ...older } = entered.request as Record<string, unknown>;
     expect(syncSwapRecord({ ...entered, request: older } as StoredSwap, null, null).destination.kind).toBe("entered");
+  });
+
+  it("a fresh destination is used in the book from its commit: an order stopped before its hand-over never gives it out again (audit round 2, n54)", async () => {
+    const dest = consumeFreshAddress(session.state().seed!, "bitcoin").address;
+    const entry = () => bookOf(session.journal()).find((e) => e.address.toLowerCase() === dest.toLowerCase());
+    expect(entry()?.lifecycle, "reserved: still unused").not.toBe("used");
+    await commitOrder({
+      masterSeed: session.state().seed!,
+      deployment,
+      request: {
+        from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" },
+        to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" },
+        amount: "1000000000000000000",
+        destination: dest,
+        slippageBps: 50,
+        destinationKind: "fresh",
+      },
+      policy: "balanced",
+      provider: "thorchain",
+      fromAsset: { symbol: "ETH", decimals: 18, vault: "0x00000000000000000000000000000000000000e1" } as unknown as Asset,
+    } as Parameters<typeof commitOrder>[0]);
+    expect(entry()).toMatchObject({ lifecycle: "used" });
   });
 
   it("into the protected balance: the user's own balance, never an empty label", async () => {
