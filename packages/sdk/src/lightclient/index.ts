@@ -71,8 +71,21 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   for (let walked = 0; lc.period < target; walked++) {
     if (walked >= (o.maxPeriods ?? 512)) throw new LightClientError(`light client: more than ${o.maxPeriods ?? 512} sync-committee periods to walk; start from a newer checkpoint`);
     const before = `${lc.period}|${lc.knowsNextCommittee}`;
-    await update(lc.knowsNextCommittee ? lc.period + 1 : lc.period);
-    if (`${lc.period}|${lc.knowsNextCommittee}` === before) throw new LightClientError(`light client: the update after period ${lc.period} did not advance the store`);
+    // a period's first minutes (audit round 2, r26): the clock is in P+1 while finality stays in P for 2–3 epochs. The store
+    // one period behind, its next committee known, is valid for these reads (the next period's update is not there yet, or
+    // it verified without rotating): the walk ends there, and the finality update moves its header as always. Every
+    // verified operation had failed for those minutes of every period
+    const boundary = lc.period === target - 1 && lc.knowsNextCommittee;
+    try {
+      await update(lc.knowsNextCommittee ? lc.period + 1 : lc.period);
+    } catch (e) {
+      if (boundary && e instanceof LightClientError && /no update for sync-committee period/.test(e.message)) break;
+      throw e;
+    }
+    if (`${lc.period}|${lc.knowsNextCommittee}` === before) {
+      if (boundary) break;
+      throw new LightClientError(`light client: the update after period ${lc.period} did not advance the store`);
+    }
   }
   // best effort: a finality update signed just after the period boundary needs the next committee
   if (!lc.knowsNextCommittee) await update(lc.period).catch(() => undefined);

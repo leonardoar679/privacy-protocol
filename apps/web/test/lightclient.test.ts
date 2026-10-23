@@ -13,6 +13,7 @@ import type { LightClientBootstrap, LightClientHeader, LightClientUpdate } from 
 import { beaconBlockHeaderRoot, computeDomain, executionPayloadHeaderDenebRoot, hashPair, merkleize, signingRoot, syncCommitteeRoot, uintChunk, type SyncCommittee } from "@privacy-wallet/sdk/lightclient/ssz";
 import { BLS_DST, DOMAIN_SYNC_COMMITTEE, type BeaconChainSpec } from "@privacy-wallet/sdk/lightclient/spec";
 import { mptGet, ProofError, verifyHeader, verifyStorage } from "@privacy-wallet/sdk/lightclient/execution";
+import { syncLightClient } from "@privacy-wallet/sdk/lightclient";
 
 const PERIOD_SLOTS = 8192;
 const spec: BeaconChainSpec = {
@@ -135,6 +136,38 @@ describe("light client store (synthetic chain, real BLS)", () => {
     expect(again.finalizedSlot).toBe(start + 150);
     expect(again.knowsNextCommittee).toBe(true);
     expect(() => again.applyUpdate(update({ attSlot: start + 120, finSlot: start + 100, signer: A }), "electra")).toThrow(/not newer/);
+  });
+});
+
+describe("a sync in a period's first minutes (audit round 2, r26)", () => {
+  const at = (period: number): BeaconChainSpec => ({ ...spec, genesisTime: Math.floor(Date.now() / 1000) - 12 * (period * PERIOD_SLOTS + 10) });
+  const start = P * PERIOD_SLOTS + 100;
+  /** a store of period P that knows its next committee */
+  const store = (s: BeaconChainSpec) => {
+    const b = bootstrap(start, A);
+    const lc = LightClient.fromBootstrap(s, b.root, b.data, "electra");
+    lc.applyUpdate(update({ attSlot: start + 200, finSlot: start + 150, signer: A, next: B }), "electra");
+    return lc.snapshot();
+  };
+  // signed in P+1 by the next committee, finalizing a block of P: it verifies and does not rotate
+  const late = update({ attSlot: (P + 1) * PERIOD_SLOTS + 2, finSlot: P * PERIOD_SLOTS + 8000, signer: B });
+  const beacon = (updates: LightClientUpdate[]) =>
+    (async (url: string) => {
+      if (url.includes("/light_client/updates")) return new Response(JSON.stringify(updates.map((data) => ({ version: "electra", data }))));
+      if (url.includes("/light_client/finality_update")) return new Response(JSON.stringify({ version: "electra", data: late }));
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+  it("the clock in P+1, finality still in P: the store one period behind, its next committee known, is kept — no update yet, or one that verified without rotating", async () => {
+    for (const updates of [[], [late]]) {
+      const s = at(P + 1);
+      const lc = await syncLightClient({ spec: s, snapshot: store(s), beaconUrls: ["http://beacon.test"], fetchFn: beacon(updates) });
+      expect(lc.period).toBe(P);
+      expect(lc.finalizedSlot, "the finality update moved its header").toBe(P * PERIOD_SLOTS + 8000);
+    }
+  });
+  it("still refused: a store two periods behind the clock", async () => {
+    const s = at(P + 2);
+    await expect(syncLightClient({ spec: s, snapshot: store(s), beaconUrls: ["http://beacon.test"], fetchFn: beacon([]) })).rejects.toThrow(/no update for sync-committee period/);
   });
 });
 
