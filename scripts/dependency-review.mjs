@@ -6,7 +6,9 @@
 //   node scripts/dependency-review.mjs --base HEAD~1   # against a revision (CI on push: the commit's own change)
 // Prints the added, removed and changed packages with their install scripts and licences. Exit 1 when a sensitive
 // package (@noble/*, @scure/*, snarkjs, ffjavascript, circomlibjs, viem, ox, @walletconnect/*) is added or changes
-// version and docs/dependency-reviews.md has no line naming `name@version`.
+// version and docs/dependency-reviews.md has no line naming `name@version` — and whenever a package keeps its name and
+// version but not its tarball (audit round 2, r49): the registry never changes a published version, so such an entry was
+// edited by hand, and the same `name@version` had read as no change at all.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -22,7 +24,14 @@ function packagesAt(text) {
   const out = new Map();
   for (const [key, e] of Object.entries(JSON.parse(text).packages ?? {})) {
     if (!key.includes("node_modules/") || e.link) continue;
-    out.set(key, { name: nameOf(key), version: e.version, license: e.license ?? "?", install: Boolean(e.hasInstallScript) });
+    out.set(key, {
+      name: nameOf(key),
+      version: e.version,
+      integrity: e.integrity ?? "",
+      resolved: e.resolved ?? "",
+      license: e.license ?? "?",
+      install: Boolean(e.hasInstallScript),
+    });
   }
   return out;
 }
@@ -40,7 +49,23 @@ try {
   process.exit(0);
 }
 const before = packagesAt(baseText);
-const after = packagesAt(readFileSync(join(root, "package-lock.json"), "utf8"));
+// `--lockfile <path>`: review a candidate lockfile instead of the working tree's
+const lockPath = argv.includes("--lockfile") ? argv[argv.indexOf("--lockfile") + 1] : join(root, "package-lock.json");
+const after = packagesAt(readFileSync(lockPath, "utf8"));
+
+// a version is its tarball: the same name@version with another integrity or source is refused outright
+const tarballs = new Map([...before.values()].map((p) => [`${p.name}@${p.version}`, p]));
+const swapped = [...after.values()].filter((p) => {
+  const b = tarballs.get(`${p.name}@${p.version}`);
+  return b && (b.integrity !== p.integrity || b.resolved !== p.resolved);
+});
+if (swapped.length) {
+  for (const p of swapped)
+    console.error(
+      `${p.name}@${p.version}: its tarball changed (${p.resolved}, ${p.integrity.slice(0, 19)}…) though its version did not — the registry never republishes a version`,
+    );
+  process.exit(1);
+}
 
 // compare by package name + version (a package moving between hoisting locations is no change)
 const versions = (m) => {

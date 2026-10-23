@@ -2,7 +2,9 @@
 // The lockfile check (V6 Stage 2; doc §69 "lockfile verification"): what `npm ci` will install is what the registry
 // published and nothing else. Run by verify-all and first in CI, before `npm ci`.
 //   - package-lock.json is lockfile v3 and lists exactly the workspaces of package.json;
-//   - every installed package resolves to https://registry.npmjs.org/ with a sha512 integrity;
+//   - every installed package resolves to https://registry.npmjs.org/ with a sha512 integrity, and to the registry's own
+//     tarball of its name and version (audit round 2, r49: another package's tarball with its own sha512 had installed
+//     under a trusted name and passed every gate);
 //   - every @privacy-wallet/* entry is a link to a workspace directory (no registry package can shadow one: the
 //     dependency-confusion path is closed);
 //   - no manifest of the workspaces asks for a file:, link:, git, github: or http(s) dependency;
@@ -23,7 +25,10 @@ const TOOL_LOCKFILES = new Set([
 const BAD_SPEC = /^(file|link|git|git\+[a-z]+|github|gitlab|bitbucket|https?):/;
 
 const problems = [];
-const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+// `--lockfile <path>`: check another file than the repository's (a candidate lockfile, before it replaces this one)
+const argv = process.argv.slice(2);
+const lockPath = argv.includes("--lockfile") ? argv[argv.indexOf("--lockfile") + 1] : join(root, "package-lock.json");
+const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 if (lock.lockfileVersion !== 3) problems.push(`package-lock.json: lockfileVersion ${lock.lockfileVersion}, expected 3`);
 
@@ -46,6 +51,13 @@ for (const [key, entry] of Object.entries(lock.packages)) {
   }
   if (entry.inBundle) continue; // shipped inside its parent's tarball, covered by the parent's integrity
   if (!entry.resolved?.startsWith(REGISTRY)) problems.push(`${key}: resolved from ${entry.resolved ?? "nowhere"} (only ${REGISTRY})`);
+  else {
+    // the registry's tarball of this very package and version: an alias names its real package in `name`
+    const real = entry.name ?? name;
+    const expected = `${REGISTRY}${real}/-/${real.slice(real.lastIndexOf("/") + 1)}-${entry.version}.tgz`;
+    if (entry.resolved !== expected)
+      problems.push(`${key}: resolved to ${entry.resolved}, not the registry's tarball of ${real}@${entry.version} (${expected})`);
+  }
   if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(entry.integrity ?? "")) problems.push(`${key}: no sha512 integrity`);
 }
 
