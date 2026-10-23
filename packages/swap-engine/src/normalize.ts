@@ -7,7 +7,7 @@
 import type { Health, ProviderId, Quote, QuoteRequest } from "./types";
 import type { RouteScore } from "./scoring";
 import { IMPACT_CAP_BPS } from "./scoring";
-import { chainHalted } from "./health";
+import { chainHalted, fileIncidents } from "./health";
 import { daysSinceIncident } from "./risk/security";
 import { riskDb, type RiskDb } from "./risk/riskDb";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
@@ -60,7 +60,7 @@ export function normalizeQuote(q: Quote, ctx: NormalizeContext): NormalizedQuote
     thinMarket: (q.impactBps ?? 0) > IMPACT_CAP_BPS,
     knownProvider: db.providerRisk(q.provider) !== null,
     chainHalted: ctx.health ? chainHalted(ctx.health, [ctx.req.from.chain, ctx.req.to.chain]) !== null || ctx.health.halted : false,
-    incidentWithinDays: daysSinceIncident(q.provider, now, db),
+    incidentWithinDays: daysSinceIncident(q.provider, now, db, fileIncidents(now)), // the operator's incidents too (audit round 2, r04)
     breakerOpen: !!ctx.breakerOpen,
     security: ctx.score.components.security,
   });

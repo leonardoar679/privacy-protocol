@@ -16,6 +16,7 @@ import { EXECUTE_WINDOW_MIN_SECONDS, DELAY_BUDGET, PrivateSwapEngine, executeWin
 import type { AssetRef, Health, ProviderId, Quote, QuoteRequest } from "../src/types";
 import type { RouteScore } from "../src/scoring";
 import { NO_VALUER } from "../src/valuation";
+import { normalizeQuote } from "../src/normalize";
 import { shareTips } from "./helpers/tips";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
@@ -209,6 +210,29 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     expect(p.reasons.join("\n")).toMatch(/one piece at a time/);
     expect(p.reasons.join("\n")).toMatch(/single venue/);
     expect(p.reasons.join("\n")).toMatch(/narrowed/); // the incident is within 90 days
+  });
+  it("an operator's incident in INCIDENTS_FILE, days old (its breaker closed again), makes the chosen route R4 at a 1 % cap — the recommendation and the normalized quote (audit round 2, r04)", () => {
+    const db = RiskDb.load(RISK_DB_DIR);
+    const dir = mkdtempSync(join(tmpdir(), "incidents-"));
+    const file = join(dir, "incidents.json");
+    writeFileSync(file, JSON.stringify([{ provider: "chainflip", date: new Date(NOW - 5 * 86_400_000).toISOString(), title: "operator: vault anomaly", lossUsd: 0, class: "bridge", halfLifeDays: 365, source: "ops" }]));
+    const before = process.env.INCIDENTS_FILE;
+    process.env.INCIDENTS_FILE = file;
+    try {
+      const amount = eth(375); // $1.5M at $4,000
+      const quote = q("chainflip", amount, { impactBps: 9 });
+      const p = recommendProtection({ set: setOf([quote]), req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
+      expect(p.exposureTier, p.exposureReasons.join("; ")).toBe("R4");
+      expect(p.exposureReasons.join("; ")).toMatch(/incident within 30 days/);
+      expect(p.capBps).toBe(100);
+      const s = score("chainflip");
+      const n = normalizeQuote(quote, { req: reqEthBtc(amount), score: { ...s, components: { ...s.components, security: 70 } }, linkPublic: false, db, now: NOW });
+      expect(n.routeRisk.exposureTier).toBe("R4");
+    } finally {
+      if (before === undefined) delete process.env.INCIDENTS_FILE;
+      else process.env.INCIDENTS_FILE = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("the band and the cap follow the tier and the mode; max-privacy sizes by bucket; max-safety gates everything at destination final", () => {
     expect(capBpsFor("high-value", "balanced")).toBe(250);

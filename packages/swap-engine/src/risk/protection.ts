@@ -94,7 +94,9 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const mine = risks[chosen.provider]!;
   const model = mine.model;
   const reasons: string[] = [];
-  const incidentDays = daysSinceIncident(chosen.provider, now, db);
+  // the operator's incidents too (audit round 2, r04): since c22 they reached the breaker (a day) and the risk view only, so a
+  // fresh one never made the chosen route R4 — its 1 % cap, its narrowed band — once the breaker had closed again
+  const incidentDays = daysSinceIncident(chosen.provider, now, db, fileIncidents(now));
   const failures = o.tracker?.failures(chosen.provider, now).windowCount ?? 0;
   const band0 = narrowedBand(model, { security: mine.security.total, breakerOpenedRecently: failures >= 3, incidentWithinDays: incidentDays });
   if (band0[1] < model.bandBps[1]) reasons.push("the band is narrowed to its lower edge: the provider's security score, breaker or a recent incident");
