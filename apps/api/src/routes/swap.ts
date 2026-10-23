@@ -412,7 +412,7 @@ export class SwapApi {
     // an order is its escrow, not its id (the audit's unverified m16, 2026-10-17): an order id is public once a relayer or the
     // chain names it, and other params under it replaced that order's stored order and were answered with its operation id
     if (known && !sameEscrow(known.escrow, order.endpoint)) return otherOrder;
-    if (known && !this.d.store.execution(known.id)) this.d.store.setBlob(known.id, encodeBlob({ order } satisfies Blob)); // finalized: never again
+    if (known && !this.d.store.execution(known.id)) this.d.store.setBlob(known.id, encodeBlob({ order, ...this.chosenOf(known.id) } satisfies Blob)); // finalized: never again
     const operationId = known?.id ?? this.record(order, null);
     return {
       status: 200,
@@ -483,7 +483,7 @@ export class SwapApi {
     const order = await this.rebuilt(b, request(b));
     if ("status" in order) return order;
     if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
-    if (!this.d.store.execution(id)) this.d.store.setBlob(id, encodeBlob({ order } satisfies Blob));
+    if (!this.d.store.execution(id)) this.d.store.setBlob(id, encodeBlob({ order, ...this.chosenOf(id) } satisfies Blob));
     return { status: 200, body: wire({ operationId: id, order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: order.policy }) };
   }
 
@@ -514,7 +514,7 @@ export class SwapApi {
     const guard = tier && atLeast(tier, "enhanced") ? await this.guardFor(blob.order, tier) : undefined;
     try {
       const prepared = await this.engine.prepareExecution(blob.order, adapter, guard, approvedMin);
-      this.d.store.setBlob(id, encodeBlob({ order: blob.order, prepared } satisfies Blob));
+      this.d.store.setBlob(id, encodeBlob({ order: blob.order, prepared, ...(blob.chosen ? { chosen: true } : {}) } satisfies Blob));
       return {
         status: 200,
         body: wire({
@@ -607,6 +607,15 @@ export class SwapApi {
    * (a caller's hint raises the tier), its escrow funded. Anyone's unfunded orders, on a provider of their choosing, had kept
    * any provider's breaker open for every user. The tracker counts each operation once.
    */
+  /**
+   * The stored order's `chosen` flag, kept through every rewrite of its blob (audit round 2, n05): a prepare's own write, a
+   * restore's and a resume's had dropped it, and a guard refusal on any later prepare never counted against the provider.
+   */
+  private chosenOf(id: string): { chosen?: true } {
+    const raw = this.d.store.blob(id);
+    return raw && decodeBlob<Blob>(raw).chosen ? { chosen: true } : {};
+  }
+
   private async divergenceCounts(blob: Blob): Promise<boolean> {
     if (!blob.chosen) return false;
     const own = await this.engine.assess(blob.order.request).catch(() => null);

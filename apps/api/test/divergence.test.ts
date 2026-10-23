@@ -5,7 +5,7 @@
 // the routes the engine would execute, and a refusal counts only for the route the engine itself chose at the commit, once per
 // operation, for an order the service values from the enhanced tier by its own read, its escrow funded.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { StubAdapter, harness, orderBody, type Harness } from "./helpers";
+import { StubAdapter, harness, orderBody, signedRestore, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
 let other: StubAdapter;
@@ -37,6 +37,28 @@ describe("a quote divergence, only where no caller's choice makes it", () => {
     expect(divergences("thorchain")).toBe(1);
     expect((await prepare(op)).status).toBe(409);
     expect(divergences("thorchain"), "prepared again: the same operation counts once").toBe(1);
+  });
+
+  it("the engine's choice is kept through a prepare's own write and a resume: a later refusal still counts (audit round 2, n05)", async () => {
+    h.script.balance = 10n ** 18n;
+    const op = await committed();
+    expect((await prepare(op)).status, "the first prepare passes the guard").toBe(200);
+    h.adapter.scale = 90n;
+    expect((await prepare(op)).status).toBe(409);
+    expect(divergences("thorchain"), "after the prepare's own write").toBe(1);
+    // a resume rewrites the stored order too
+    h.adapter.scale = 110n;
+    other.scale = 100n;
+    const c2 = await h.post("/v1/operations", orderBody({ policy: "best-price" }));
+    const second = c2.body.operationId as string;
+    const resumed = await h.post(
+      `/v1/operations/${second}/resume`,
+      signedRestore({ ...swapRequest({ policy: "best-price" }), provider: "thorchain", params: c2.body.order.params }),
+    );
+    expect(resumed.status).toBe(200);
+    h.adapter.scale = 90n;
+    expect((await prepare(second)).status).toBe(409);
+    expect(divergences("thorchain"), "after a resume").toBe(2);
   });
 
   it("an unfunded order counts nothing, nor a provider the caller named", async () => {
