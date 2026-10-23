@@ -29,7 +29,7 @@ import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
 import { controlsFor, holdMs, issuerLine } from "@privacy-wallet/sdk/tiers";
 import { downloadText } from "@privacy-wallet/sdk/download";
-import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
+import { destinationCheck, markAddressSettled, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
@@ -251,6 +251,9 @@ export function SendScreen(p: SendScreenProps) {
     navigate(`/send/progress/${rec.id}`, { replace: true });
     const onEvent = engineListener((ev) => {
       applyEvent(rec.id, ev);
+      // a public exit's recipient is used once it is sent (audit round 2, r32): Receive had offered a fresh address a
+      // withdrawal paid as unused, and an entered one never counted as reused
+      if (ev.type === "submitted" && dest.kind === "public") markAddressUsed("evm", recipient, rec.id);
     });
     try {
       if (dest.kind === "private") {
@@ -277,6 +280,7 @@ export function SendScreen(p: SendScreenProps) {
           onEvent,
         });
         setResult({ txHash: r.txHash, proofMs: r.proofMs, verifiedLocally: r.verifiedLocally });
+        markAddressSettled("evm", recipient); // paid: a fresh address retires, an entered one stays usable, its reuse warned (r32)
         if (destinationKind === "fresh") setReserved({ address: recipient, used: true }); // used: the next exit gets the next fresh address
       }
     } catch (e) {

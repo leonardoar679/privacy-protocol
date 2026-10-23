@@ -24,6 +24,7 @@ import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { bookOf } from "@privacy-wallet/sdk/wallet/addressBook";
 import { startMockCore } from "./helpers/mockRpc";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
@@ -242,6 +243,8 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(screen.getByTestId("send-done").textContent).toContain(`Withdrawn 0.989 ETH to ${fresh.slice(0, 6)}…`);
     expect(calls.withdraw).toEqual([{ amount: 989n * 10n ** 15n, recipient: fresh }]);
     expect(peekFreshAddress(seed, "evm").address, "the next withdrawal gets the next address").not.toBe(fresh);
+    // and the book says so: Receive never offers it again as unused (audit round 2, r32)
+    expect(bookOf(session.journal()).find((e) => e.address.toLowerCase() === fresh.toLowerCase())).toMatchObject({ lifecycle: "retired" });
     expect(finishedOperations()[0]).toMatchObject({
       kind: "withdraw",
       state: "COMPLETED",

@@ -114,6 +114,9 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });
+  // the shield receiver's fallback is published with the commit (sent to the swap service and the relayer, the receiver's
+  // immutable, its deployment's calldata): never offered again as an unused fresh address (audit round 2, r32)
+  if (i.shield) markAddressUsed("evm", i.shield.fallbackRecipient, stored.orderId, s, now);
   recordActivity({ id: activityId("swap", stored.orderId), kind: "swap", asset: i.fromAsset.symbol, decimals: i.fromAsset.decimals, amount: req.amount, status: "committed", ref: stored.orderId, note: `→ ${req.to.symbol}${i.campaign ? ` · step ${i.campaign.index + 1}` : ""}` }, s);
   if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: stored.orderId, dueAt }, s);
   return { stored, order, key, refund, response };
