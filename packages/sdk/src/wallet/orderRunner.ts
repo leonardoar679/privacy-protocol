@@ -31,6 +31,7 @@ import {
   type CommitInput,
   type Committed,
   type Signed,
+  minimumBeforeFunding,
 } from "../swapExecute";
 import { shieldJobRequest } from "../shieldReceiver";
 import { recoverShieldDelivery } from "../privateTx";
@@ -74,6 +75,8 @@ export interface OrderIo {
   job(stored: StoredSwap): Promise<SwapJob | null>;
   track(stored: StoredSwap): Promise<{ tracked: Tracked; job: SwapJob | null }>;
   refund(stored: StoredSwap): Promise<SwapJob>;
+  /** a delayed funding's fresh minimum, nothing signed (audit round 2, n58): null when it holds; absent, nothing is asked */
+  precheck?(stored: StoredSwap): Promise<MinimumMoved | null>;
   /** V6 Stage 12: the executor's shield job of a same-chain swap into the protected balance (null: it knows none) */
   shieldStatus(stored: StoredSwap): Promise<ShieldJob | null>;
   registerShield(stored: StoredSwap): Promise<ShieldJob>;
@@ -136,6 +139,15 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
       return escrowBalance(d.deployment, stored.endpoint as Hex, token && token !== "native" ? (token as Hex) : null).catch(() => null);
     },
+    precheck: async (stored) =>
+      minimumBeforeFunding({
+        masterSeed: d.masterSeed,
+        deployment: d.deployment,
+        session: d.session,
+        stored,
+        order: await orderFor(stored),
+        submission: d.submission,
+      }),
     sign: async (stored, reuse) =>
       prepareAndSign({
         masterSeed: d.masterSeed,
@@ -419,6 +431,21 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           const st = journaled(a.orderId, s)!;
           syncSwapRecord(st, null, null, now);
           return { step: "stopped", stored: st };
+        }
+        // a funding delayed for privacy asks a fresh minimum first (audit round 2, n58): 1–24 h after its Review the market can
+        // have moved, and a minimum found moved only once it was funded paused an escrow whose "Return funds" waited a day for
+        // its refund time, the fee note and the tip spent for nothing. Moved now, the order waits for the user unfunded; a check
+        // that cannot be made funds it as before, and the signing after the funding has its own pauses and retries
+        if (stored.runner?.delayUntil && io.precheck) {
+          schedulerStatus.progress("Swap: checking a fresh quote before funding…");
+          const moved = await io.precheck(stored).catch(() => null);
+          if (moved) {
+            patchSwap(a.orderId, { paused: { code: "minimum_moved", at: now, minOut: moved.minOut.toString(), approved: moved.approved.toString() } }, s);
+            const st = journaled(a.orderId, s)!;
+            syncSwapRecord(st, null, null, now);
+            cancelAction(a.id, s);
+            return { step: "paused", stored: st };
+          }
         }
         let sent = false;
         schedulerStatus.progress("Swap: funding the order from your protected balance…");

@@ -859,6 +859,51 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(pending(), "a tranche's tick is dropped").toBeUndefined();
   });
 
+  it("a delayed funding asks a fresh minimum first: moved, the order waits for the user unfunded; accepted, it is funded (audit round 2, n58)", async () => {
+    const delayUntil = T0 + 3 * 3600_000;
+    order({ runner: { confirmedAt: T0, delayUntil } });
+    session.update((j) => {
+      j.schedule = [action(delayUntil)];
+    });
+    const { w, io } = world({ minOut: 2_900_000n });
+    let asked = 0;
+    io.precheck = async (st) => {
+      asked++;
+      const approved = BigInt(st.approvedMin ?? "0");
+      return w.minOut < approved ? new MinimumMoved(w.minOut, approved) : null;
+    };
+    expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("paused");
+    expect([asked, w.funds], "nothing funded").toEqual([1, 0]);
+    expect(stored().paused).toMatchObject({ code: "minimum_moved", minOut: "2900000", approved: "2970000" });
+    expect(record()).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
+    expect(pending(), "no tick until the user decides").toBeUndefined();
+    expect(acceptNewMinimum(ORDER, session, delayUntil + 1000)).toBe(true);
+    expect((await runOrderTick(pending()!, deps(io, delayUntil + 1000)))?.step).toBe("funded");
+    expect([asked, w.funds]).toEqual([2, 1]);
+    // a check that cannot be made funds it as before
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action(delayUntil)];
+    });
+    order({ runner: { confirmedAt: T0, delayUntil } });
+    const b = world();
+    b.io.precheck = async () => {
+      throw new TypeError("fetch failed");
+    };
+    expect((await runOrderTick(action(delayUntil), deps(b.io, delayUntil)))?.step).toBe("funded");
+    // funded at once (no delay drawn), nothing is asked first
+    session.update((j) => {
+      j.swaps = [];
+      j.schedule = [action()];
+    });
+    order();
+    const c = world();
+    c.io.precheck = async () => {
+      throw new Error("not asked");
+    };
+    expect((await runOrderTick(action(), deps(c.io)))?.step).toBe("funded");
+  });
+
   it("'Delay for more privacy' from older notes: funded at once; when they no longer cover it, stopped unfunded — never paid from younger notes", async () => {
     order({ runner: { confirmedAt: T0, maxTiming: 0 } });
     session.update((j) => {

@@ -253,6 +253,21 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
 }
 
 /**
+ * A fresh hard quote's minimum against the approved one before a delayed funding (audit round 2, n58): nothing is signed and
+ * nothing has moved yet. Null when the minimum holds, the moved one otherwise. The call is checked as a signing would check
+ * it, and not kept: the signing after the funding prepares its own.
+ */
+export async function minimumBeforeFunding(i: PrepareInput): Promise<MinimumMoved | null> {
+  const s = i.session ?? defaultSession;
+  const { stored, order } = i;
+  if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
+  const deployment = i.deployment;
+  const prepared = await onOperation(deployment, stored, s, (id) => swapService.prepare(id), async (id) => swapService.prepare(id, undefined, await resumeRequestOf(stored, s, deployment)));
+  const gate = await checkBeforeSigning({ prepared, order, journaled: stored as unknown as JournaledOrder, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed });
+  return gate.ok ? null : gate.moved;
+}
+
+/**
  * No signed call is handed over closer than this to its deadline (audit round 2, r02): the relayer sends no execution in the
  * last EXECUTE_MARGIN_SECONDS (36 s) before it and refuses to take one, and the hand-over itself takes a few round trips.
  */
