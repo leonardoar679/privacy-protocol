@@ -20,7 +20,7 @@
 // there (its nullifiers, its relayer, its note) whatever its state: a failure state drops its step, and such a record —
 // a lost answer, a retry refused — was failed as "nothing moved: start it again" at the next reload while the relayer had
 // sent it.
-import { decodeFunctionData, TransactionNotFoundError, type Hex } from "viem";
+import { decodeFunctionData, parseEventLogs, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
 import { clientFor, outcomeReads, type Deployment } from "../chain";
 import { coreAbi } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
@@ -65,6 +65,17 @@ export function staleReads(d: Deployment): StaleReads {
     spent: outcome.spent,
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
     txSpends: async (hash) => {
+      // mined: the core's own ShieldedTransaction events (audit round 2, n12) — a spend sent through a smart-contract account (a
+      // 4337 bundle, a Safe) calls the core from another contract, its transaction's `to` not the core, and it had been read
+      // "not this spend" after a reload. A reverted or pending one keeps its own call's reading below
+      const receipt = await client.getTransactionReceipt({ hash }).catch((e: unknown) => {
+        if (e instanceof TransactionReceiptNotFoundError) return null;
+        throw e;
+      });
+      if (receipt?.status === "success") {
+        const logs = receipt.logs.filter((l) => l.address.toLowerCase() === d.core.toLowerCase());
+        return parseEventLogs({ abi: coreAbi, logs, eventName: "ShieldedTransaction" }).map((l) => [l.args.nullifier0, l.args.nullifier1] as [bigint, bigint]);
+      }
       let tx;
       try {
         tx = await client.getTransaction({ hash });
