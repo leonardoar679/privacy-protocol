@@ -15,6 +15,7 @@ import { prefs } from "../../storage/prefs";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { usePrefs, useSettings } from "../../hooks";
+import { downloadText } from "@privacy-wallet/sdk/download";
 
 const TIER_FIELDS: { key: keyof TierThresholds; label: MessageKey }[] = [
   { key: "large", label: "security.tier.large" }, { key: "largeProtected", label: "security.tier.largeProtected" }, { key: "enhanced", label: "security.tier.enhanced" },
@@ -23,13 +24,8 @@ const TIER_FIELDS: { key: keyof TierThresholds; label: MessageKey }[] = [
 const tiersOf = (t: TierThresholds): Record<keyof TierThresholds, string> => ({ large: String(t.large ?? TIER_DEFAULTS.large), largeProtected: String(t.largeProtected ?? TIER_DEFAULTS.largeProtected), enhanced: String(t.enhanced), highValue: String(t.highValue), highValueSecondary: String(t.highValueSecondary), institutional: String(t.institutional) });
 
 export function downloadBackup(): void {
-  const json = session.exportBackup();
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `privacy-wallet-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // the file stays readable while the browser asks where to save it (audit round 2, n37)
+  downloadText(`privacy-wallet-backup-${new Date().toISOString().slice(0, 10)}.json`, session.exportBackup());
   const current = prefs().get().backup ?? {};
   prefs().update({ backup: { ...current, exportedAt: Date.now() } });
 }

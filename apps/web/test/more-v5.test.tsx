@@ -8,7 +8,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import { Security } from "../src/features/more/Security";
+import { downloadBackup, Security } from "../src/features/more/Security";
+import { downloadText } from "@privacy-wallet/sdk/download";
 import { Wallet } from "../src/features/more/Wallet";
 import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";
 import { WhatStaysPrivate } from "../src/features/privacy-center/WhatStaysPrivate";
@@ -43,6 +44,26 @@ describe("More → Security (spec §3.12, §9)", () => {
     expect(screen.getByTestId("backup-badge").textContent).toContain("Recovery backup created");
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
     expect(session.state().status).toBe("locked");
+  });
+
+  it("a downloaded file stays readable while the browser asks where to save it (iOS Safari): its link revoked after a minute, not a second (audit round 2, n37)", async () => {
+    await session.create("a strong password");
+    const revoked: string[] = [];
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => "blob:file";
+    (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = (u: string) => { revoked.push(u); };
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      downloadBackup();
+      downloadText("order-review.json", "{}");
+      vi.advanceTimersByTime(30_000);
+      expect(revoked, "still readable while the browser asks").toEqual([]);
+      vi.advanceTimersByTime(30_000);
+      expect(revoked).toEqual(["blob:file", "blob:file"]);
+    } finally {
+      vi.useRealTimers();
+      click.mockRestore();
+    }
   });
 
   it("the phrase needs the password (a wrong one is refused) and marks the backup acknowledged; the thresholds are journaled and nonsense refused; Forget needs the typed word", async () => {
