@@ -3,6 +3,9 @@
 // payload). Wallet-level convention (the core knows only owner commitments): bech32m (BIP-350),
 // human-readable part "pp", data = version 0x01 ‖ ownerCommitment (32 bytes, big-endian) ‖ viewPub
 // (32 bytes). Typo-resistant (the checksum detects any 4 errors), case-insensitive, 113 characters.
+import { x25519 } from "@noble/curves/ed25519";
+import { FIELD } from "./field";
+
 const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
 const BECH32M_CONST = 0x2bc830a3;
@@ -68,10 +71,30 @@ export function encodePrivacyAddress(ownerCommitment: bigint, viewPub: Uint8Arra
   return bech32mEncode(ADDRESS_HRP, payload);
 }
 
+/** Any scalar: a low-order point times a clamped one is the identity, which X25519 reads as an all-zero secret. */
+const PROBE = new Uint8Array(32).fill(0x42);
+/** A view key a payment can be encrypted to: never a low-order point, whose shared secret is the same for every sender. */
+function contributory(viewPub: Uint8Array): boolean {
+  try {
+    return x25519.getSharedSecret(PROBE, viewPub).some((b) => b !== 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Refused at the decode (audit round 2, n29/n30): an owner commitment at or past the field, which the Rust decoder refuses
+ * (one recipient had two strings, and the web and native wallets disagreed on one address), and a view key no payment can
+ * be encrypted to privately — it failed only at the encryption, after the Send's merges had paid their fees.
+ */
 export function decodePrivacyAddress(s: string): { version: number; ownerCommitment: bigint; viewPub: Uint8Array } {
   const { hrp, bytes } = bech32mDecode(s.trim());
   if (hrp !== ADDRESS_HRP) throw new Error(`not a privacy address (hrp ${hrp})`);
   if (bytes.length !== 65) throw new Error("wrong length");
   if (bytes[0] !== ADDRESS_VERSION) throw new Error(`unsupported address version ${bytes[0]}`);
-  return { version: bytes[0], ownerCommitment: fromBe(bytes.subarray(1, 33)), viewPub: bytes.slice(33, 65) };
+  const ownerCommitment = fromBe(bytes.subarray(1, 33));
+  if (ownerCommitment >= FIELD) throw new Error("its owner commitment is not a field element");
+  const viewPub = bytes.slice(33, 65);
+  if (!contributory(viewPub)) throw new Error("its view key is a low-order point: no payment to it could be private");
+  return { version: bytes[0], ownerCommitment, viewPub };
 }

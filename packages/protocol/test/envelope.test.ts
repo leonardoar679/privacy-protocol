@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 import { decryptNoteData, dummyNoteData, encryptNoteData, ENVELOPE_VERSION, noteFromPayload, openPayload, viewKeyPair } from "../src/envelope";
 import { bech32mDecode, bech32mEncode, decodePrivacyAddress, encodePrivacyAddress } from "../src/address";
+import { FIELD } from "../src/field";
 import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteBody, noteCommitment, ownerCommitmentOf, type Note } from "../src/note";
 import { NOTE_DATA_BYTES, noteDataHash } from "../src/payload";
@@ -125,6 +126,15 @@ describe("privacy address (bech32m, hrp pp)", () => {
     const v2 = new Uint8Array(65); v2[0] = 2;
     expect(() => decodePrivacyAddress(bech32mEncode("pp", v2))).toThrow(/version/);
     expect(() => decodePrivacyAddress("pp1" + addr.slice(3, -1) + "Q")).toThrow(/mixed-case|checksum/);
+  });
+  it("refuses an owner commitment past the field and a low-order view key: one address per recipient, every payment private (audit round 2, n29/n30)", () => {
+    const oc = ownerCommitmentOf(alice.spendKey);
+    expect(decodePrivacyAddress(encodePrivacyAddress(FIELD - 1n, aliceView.publicKey)).ownerCommitment).toBe(FIELD - 1n);
+    expect(() => decodePrivacyAddress(encodePrivacyAddress(FIELD, aliceView.publicKey)), "the Rust decoder's NotInField").toThrow(/not a field element/);
+    expect(() => decodePrivacyAddress(encodePrivacyAddress(oc + FIELD, aliceView.publicKey))).toThrow(/not a field element/);
+    // the curve's low-order points (u = 0, u = 1, and one of order 8)
+    for (const low of ["00".repeat(32), "01" + "00".repeat(31), "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800"])
+      expect(() => decodePrivacyAddress(encodePrivacyAddress(oc, hexToBytes(low))), low).toThrow(/low-order/);
   });
   it("bech32m matches BIP-350's reference vector", () => {
     // BIP-350 test vector: hrp "a", empty data
