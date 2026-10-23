@@ -14,6 +14,11 @@ export interface KeyValueStorage {
   ready?: Promise<void>;
   /** re-reads what another tab of this browser may have written since (absent: nothing else writes it) */
   refresh?(): Promise<void>;
+  /**
+   * the device keeps nothing of this store past this tab: it refused it at hydrate (the web's secure store, m49) or refused a
+   * write since (r16); absent, it keeps what it is given
+   */
+  readonly refused?: boolean;
 }
 
 export { JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY } from "./storageKeys";

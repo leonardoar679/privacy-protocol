@@ -2,7 +2,7 @@
 // on an empty journal, persists nothing, reports the state — and is set aside (never deleted) only when
 // the user asks; the next journal write then persists. Every journal write notifies subscribers.
 import { describe, it, expect, beforeEach } from "vitest";
-import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { assertJournalSaved, JournalNotKept, WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
 import { decryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -61,6 +61,19 @@ describe("unreadable journal", () => {
     expect(s.journal().swaps, "nothing journaled in memory either").toEqual([]);
     s.discardUnreadableJournal(); // the user's choice: from here the session saves again
     await expect(commitOrder({ session: s } as never)).rejects.not.toMatchObject({ code: "journal_unreadable" });
+  });
+
+  it("while the browser keeps nothing past this tab, no swap is committed, started or funded: its record would die with the tab (audit round 2, n46)", async () => {
+    let refused = true;
+    const storage = Object.defineProperty(memoryStorage(), "refused", { get: () => refused });
+    const s = new WalletSession(storage, KDF);
+    await s.create("pw");
+    expect(() => assertJournalSaved(s)).toThrow(JournalNotKept);
+    await expect(commitOrder({ session: s } as never)).rejects.toMatchObject({ code: "journal_not_kept" });
+    expect(() => startCampaign({ session: s } as never)).toThrow(/not keeping the wallet's data/);
+    await expect(fundEscrow({ session: s, stored: {} } as never)).rejects.toMatchObject({ code: "journal_not_kept" });
+    refused = false; // a browser that keeps it
+    expect(() => assertJournalSaved(s)).not.toThrow();
   });
 
   it("a blob that is not even JSON-shaped is handled the same way; a readable journal never sets the flag", async () => {

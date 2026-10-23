@@ -315,6 +315,8 @@ export const en = {
   "journal.unreadableBody": "Nothing was overwritten. This session runs on an empty journal and saves nothing until you decide: restore a backup file (lock, then Restore), or set the unreadable journal aside and start fresh.",
   "journal.lockRestore": "Lock and restore a backup",
   "journal.setAside": "Set it aside and start fresh",
+  "op.error.journal_not_kept.title": "Swaps wait for a browser that keeps your data",
+  "op.error.journal_not_kept.reason": "This browser is not keeping the wallet's data, so a swap's record, the only way back for its funds until the executor has it, would be lost when this tab closes. Nothing was sent: free some space, or use a browser that keeps site data, then try again.",
   "storage.memoryTitle": "This browser is not keeping the wallet's data",
   "storage.memoryBody": "Your wallet and its activity are kept in this tab only and are gone when it closes. Keep your recovery phrase: it brings the wallet back.",
   "fees.total": "Total fees",

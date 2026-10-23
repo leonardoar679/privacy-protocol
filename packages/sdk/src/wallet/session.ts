@@ -40,9 +40,24 @@ export class JournalUnreadable extends Error {
   }
 }
 
-/** Throws JournalUnreadable while the session saves nothing (r47). */
+/**
+ * The device keeps nothing of this wallet past this tab (audit round 2, n46): it refused its storage at hydrate, or refused a
+ * write since (r16 says so on the screen). A swap's record holds its order's parameters, which nothing else keeps until the
+ * executor has the order: lost when the tab closes, its funded escrow had nothing to be returned by. Swaps and protected
+ * executions wait for a browser that keeps the wallet's data; Protect and Send, whose notes the phrase finds again, go on.
+ */
+export class JournalNotKept extends Error {
+  readonly code = "journal_not_kept";
+  constructor() {
+    super("this browser is not keeping the wallet's data: no swap is started or funded while a closed tab would lose its record");
+    this.name = "JournalNotKept";
+  }
+}
+
+/** Throws JournalUnreadable while the session saves nothing (r47), JournalNotKept while the device keeps nothing past this tab (n46). */
 export function assertJournalSaved(s: WalletSession): void {
   if (s.state().journalUnreadable) throw new JournalUnreadable();
+  if (s.storageRefused()) throw new JournalNotKept();
 }
 
 /**
@@ -125,6 +140,8 @@ export class WalletSession {
   }
   private get store(): KeyValueStorage { return typeof this.storageSource === "function" ? this.storageSource() : this.storageSource; }
   hasKeystore(): boolean { return this.store.get(KEYSTORE_KEY) !== null; }
+  /** the device keeps nothing of this wallet's store past this tab (n46; the web's secure store says so) */
+  storageRefused(): boolean { return this.store.refused === true; }
   isUnlocked(): boolean { return this.seed !== null; }
   subscribe(l: () => void): () => void { this.listeners.add(l); return () => this.listeners.delete(l); }
   private emit(): void {

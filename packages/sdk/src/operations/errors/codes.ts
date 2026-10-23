@@ -121,6 +121,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped
   interrupted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   journal_unreadable: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
+  journal_not_kept: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // a V6 follow-up of 2026-10-17 (audit c31/c42): the transaction a spend was handed back spends other notes
   not_this_spend: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking"] },
