@@ -63,19 +63,29 @@ const refusedForSize = (e: unknown): boolean => {
   return false;
 };
 
+/** The endpoints (by URL) that refused one request for the whole history: read in windows from then on (audit round 2, n13). */
+const WINDOWED = new Set<string>();
+
 /**
- * Logs from `fromBlock` to now (the audit round of 2026-10-16, c32). One request for the whole history, as before; an
- * endpoint that refuses it for its size — once the pool passes the providers' caps — is read in windows instead, each
- * halved again on a refusal, up to the block the first read saw. Before, a large pool left no spend, funding or scan able
- * to run.
+ * Logs from `fromBlock` to `upTo` (the latest block when omitted; the audit round of 2026-10-16, c32). One request for the
+ * whole history, as before; an endpoint that refuses it for its size — once the pool passes the providers' caps — is read in
+ * windows instead, each halved again on a refusal. Before, a large pool left no spend, funding or scan able to run. An
+ * endpoint that refused once is read in windows at once afterwards (audit round 2, n13): every sync had asked it the whole
+ * history first again. A refused window stays halved for the rest of the read: against a fixed range cap a window grown
+ * back would be refused again, one request more each time.
  */
-export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumber">, fromBlock: bigint, read: (from: bigint, to: bigint | "latest") => Promise<T[]>, window = LOG_WINDOW_BLOCKS): Promise<T[]> {
-  try {
-    return await read(fromBlock, "latest");
-  } catch (e) {
-    if (!refusedForSize(e)) throw e;
+export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumber">, fromBlock: bigint, read: (from: bigint, to: bigint | "latest") => Promise<T[]>, window = LOG_WINDOW_BLOCKS, upTo?: bigint): Promise<T[]> {
+  const url = (client as { transport?: { url?: unknown } }).transport?.url; // the endpoint, when the client names one (viem's http transport does)
+  const endpoint = typeof url === "string" ? url : undefined;
+  if (!endpoint || !WINDOWED.has(endpoint)) {
+    try {
+      return await read(fromBlock, upTo ?? "latest");
+    } catch (e) {
+      if (!refusedForSize(e)) throw e;
+      if (endpoint) WINDOWED.add(endpoint);
+    }
   }
-  const last = await client.getBlockNumber();
+  const last = upTo ?? (await client.getBlockNumber());
   const out: T[] = [];
   let from = fromBlock;
   let size = window;
@@ -92,9 +102,9 @@ export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumbe
   return out;
 }
 
-/** Every NoteInserted event the core emitted (leaf index, commitment, the 169-byte payload). */
-export async function noteInsertedLogs(client: PublicClient, d: Deployment): Promise<NoteInsertedLog[]> {
-  const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: d.core, event: noteInserted, fromBlock, toBlock }));
+/** Every NoteInserted event the core emitted (leaf index, commitment, the 169-byte payload), to `upTo` (the latest block when omitted). */
+export async function noteInsertedLogs(client: PublicClient, d: Deployment, upTo?: bigint): Promise<NoteInsertedLog[]> {
+  const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: d.core, event: noteInserted, fromBlock, toBlock }), LOG_WINDOW_BLOCKS, upTo);
   return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment!, noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
 }
 
@@ -102,10 +112,13 @@ export async function noteInsertedLogs(client: PublicClient, d: Deployment): Pro
 export interface RawView { logs: NoteInsertedLog[]; nextLeafIndex: number; onChainRoot: bigint }
 
 export async function readView(client: PublicClient, d: Deployment): Promise<RawView> {
+  // the events, the leaf count and the root at one block (audit round 2, n13): the windowed read had gone up to a block taken
+  // after the root's read, and an insert in between failed the sync as a stale view
+  const block = await client.getBlockNumber();
   const [logs, next, onChainRoot] = await Promise.all([
-    noteInsertedLogs(client, d),
-    client.readContract({ address: d.core, abi: coreAbi, functionName: "nextLeafIndex" }),
-    client.readContract({ address: d.core, abi: coreAbi, functionName: "currentRoot" }),
+    noteInsertedLogs(client, d, block),
+    client.readContract({ address: d.core, abi: coreAbi, functionName: "nextLeafIndex", blockNumber: block }),
+    client.readContract({ address: d.core, abi: coreAbi, functionName: "currentRoot", blockNumber: block }),
   ]);
   return { logs, nextLeafIndex: Number(next), onChainRoot: BigInt(onChainRoot as Hex) };
 }

@@ -3,7 +3,9 @@
 // spend, funding or scan could run. One request still serves an endpoint that takes it; one refused for its size is read
 // in windows, halved again on a refusal. Offline: a fake endpoint with a cap.
 import { describe, expect, it } from "vitest";
-import { logsInWindows } from "../src/chain";
+import type { PublicClient } from "viem";
+import { logsInWindows, readView } from "../src/chain";
+import type { Deployment } from "../src/chain";
 
 /** An endpoint holding one log per block from 0 to `head`, refusing a range of more than `cap` blocks as providers do. */
 function endpoint(head: bigint, cap: bigint | null, words = "query returned more than 10000 results") {
@@ -42,6 +44,58 @@ describe("fetch-all logs", () => {
       [100n, 10_099n],
       [100n, 5_099n],
     ]);
+  });
+
+  it("to a given block, whole or in windows: never past it (audit round 2, n13)", async () => {
+    const whole = endpoint(25_000n, null);
+    expect(await logsInWindows(whole.client, 100n, whole.read, 10_000n, 20_000n)).toHaveLength(19_901);
+    expect(whole.asked).toEqual([[100n, 20_000n]]);
+    const windowed = endpoint(25_000n, 3_000n);
+    const logs = await logsInWindows(windowed.client, 100n, windowed.read, 10_000n, 20_000n);
+    expect(logs).toHaveLength(19_901);
+    expect(logs.at(-1)).toBe(20_000n);
+  });
+
+  it("an endpoint that refused the whole history is read in windows at once afterwards (audit round 2, n13)", async () => {
+    const e = endpoint(25_000n, 3_000n);
+    const client = { ...e.client, transport: { url: "http://capped.example/rpc" } };
+    await logsInWindows(client, 100n, e.read, 10_000n);
+    expect(e.asked[0]).toEqual([100n, "latest"]);
+    e.asked.length = 0;
+    expect(await logsInWindows(client, 100n, e.read, 10_000n)).toHaveLength(24_901);
+    expect(e.asked[0], "no whole-history request again").not.toEqual([100n, "latest"]);
+  });
+
+  it("the tree's view is one block: the events, the leaf count and the root read at the same height (audit round 2, n13)", async () => {
+    // the head moves on between the reads: a NoteInserted at the next block must not join a view whose root is the block before
+    const asked: { reads: unknown[]; logsTo: unknown[] } = { reads: [], logsTo: [] };
+    let head = 50n;
+    const client = {
+      getBlockNumber: async () => head,
+      readContract: async (q: { functionName: string; blockNumber?: bigint }) => {
+        asked.reads.push(q.blockNumber);
+        head = 51n; // an insert lands while the view is read
+        return q.functionName === "nextLeafIndex" ? 4n : "0x" + "11".repeat(32);
+      },
+      getLogs: async (q: { toBlock: bigint | "latest" }) => {
+        await new Promise((r) => setTimeout(r, 0)); // answered after the contract reads
+        asked.logsTo.push(q.toBlock);
+        const to = q.toBlock === "latest" ? head : q.toBlock;
+        return [
+          { args: { leafIndex: 0, commitment: 7n, noteData: "0x" }, transactionHash: "0xaa", blockNumber: 40n },
+          ...(to >= 51n ? [{ args: { leafIndex: 4, commitment: 8n, noteData: "0x" }, transactionHash: "0xbb", blockNumber: 51n }] : []),
+        ];
+      },
+    } as unknown as PublicClient;
+    const d = { core: "0x00000000000000000000000000000000000000c0", fromBlock: 0n } as unknown as Deployment;
+    const view = await readView(client, d);
+    expect(asked.reads).toEqual([50n, 50n]);
+    expect(asked.logsTo).toEqual([50n]);
+    expect(
+      view.logs.map((l) => l.leafIndex),
+      "nothing past the root's block",
+    ).toEqual([0]);
+    expect(view.nextLeafIndex).toBe(4);
   });
 
   it("any other failure is the caller's: never read in windows", async () => {

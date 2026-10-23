@@ -28,6 +28,9 @@ describe("privacy posture", () => {
     expect(privacyPosture({ ...base, rpcEndpoints: 1 }).categories.find((c) => c.id === "rpc")!.level).toBe("Reduced");
     // what the endpoints see includes every swap's simulation, never only reads that are the same for every user (the audit's unverified m69)
     expect(privacyPosture(base).categories.find((c) => c.id === "rpc")!.why.join(" ")).toMatch(/simulates every swap you confirm: its escrow, amount and destination/);
+    // and the wallet's own reads: never "the same for every user" (audit round 2, n26)
+    expect(privacyPosture(base).categories.find((c) => c.id === "rpc")!.why.join(" ")).toMatch(/its own notes' spent state, its transactions' receipts and its swaps' escrows/);
+    expect(privacyPosture(base).categories.find((c) => c.id === "rpc")!.why.join(" ")).not.toMatch(/same for every user/);
     expect(privacyPosture({ ...base, privateSubmission: false }).overall).toBe("Reduced");
   });
 
