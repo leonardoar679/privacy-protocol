@@ -264,6 +264,9 @@ describe("Send (spec v2.0 §7.4)", () => {
       destination: { kind: "fresh", display: fresh },
       refs: { txHashes: [HASH2] },
     });
+    expect(finishedOperations()[0].fees, "its fee lines keep their keys: Activity says them in the language read then (audit round 2, n91)").toEqual(
+      expect.arrayContaining([expect.objectContaining({ labelKey: "screen.send.relayer" })]),
+    );
     fireEvent.click(screen.getByTestId("send-again"));
     expect((screen.getByTestId("address-input") as HTMLInputElement).value, "the used address is not offered again").toBe("");
     expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("");

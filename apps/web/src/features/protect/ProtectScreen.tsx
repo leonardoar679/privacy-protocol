@@ -186,7 +186,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
     const rec = newOperation({
       kind: "protect",
       amounts: { asset: asset.symbol, decimals: asset.decimals, input: units.toString(), ...(split ? { expectedOutput: split.net.toString() } : {}) },
-      destination: { kind: "privacy-address", display: t("protect.toBalance"), chain: "ethereum" },
+      // a code, not the words of the day: Activity says it in the language read then (audit round 2, n91)
+      destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" },
       tier,
     });
     applyEvent(rec.id, { type: "review" });

@@ -246,9 +246,25 @@ export function SendScreen(p: SendScreenProps) {
     if (destinationKind === "fresh") setReserved({ address: recipient, used: false });
     // the record's fee lines say what the page said: the privacy fee when there is one, the relayer's charge or who pays the network
     const feeLines = [
-      ...(split.privacy > 0n ? [{ label: t("screen.send.privacyFee"), value: `${formatAmount(asset, split.privacy)} ${asset.symbol}` }] : []),
-      { label: t("screen.send.relayer"), value: selfSubmitted ? t("screen.send.paidByWallet") : `${formatAmount(asset, split.network)} ${asset.symbol}` },
-      ...(mergeCount ? [{ label: t("screen.review.mergeFees", { n: mergeCount }), value: `${formatAmount(asset, mergeFees)} ${asset.symbol}` }] : []),
+      ...(split.privacy > 0n
+        ? [{ label: t("screen.send.privacyFee"), labelKey: "screen.send.privacyFee", value: `${formatAmount(asset, split.privacy)} ${asset.symbol}` }]
+        : []),
+      {
+        label: t("screen.send.relayer"),
+        labelKey: "screen.send.relayer",
+        value: selfSubmitted ? t("screen.send.paidByWallet") : `${formatAmount(asset, split.network)} ${asset.symbol}`,
+        ...(selfSubmitted ? { valueKey: "screen.send.paidByWallet" } : {}),
+      },
+      ...(mergeCount
+        ? [
+            {
+              label: t("screen.review.mergeFees", { n: mergeCount }),
+              labelKey: "screen.review.mergeFees",
+              labelVars: { n: mergeCount },
+              value: `${formatAmount(asset, mergeFees)} ${asset.symbol}`,
+            },
+          ]
+        : []),
     ];
     const rec = newOperation({
       kind: dest.kind === "private" ? "send" : "withdraw",

@@ -48,7 +48,11 @@ export type ProgressStep = "fee-terms" | "merging" | "syncing" | "verifying" | "
 export type OperationPhase = "funding" | "execution" | "settlement";
 export type DestinationKind = "fresh" | "entered" | "book" | "privacy-address" | "escrow";
 
-export interface FeeLine { label: string; value: string; hint?: string }
+/**
+ * A fee line as the page said it. `labelKey` / `labelVars` / `valueKey` (optional; audit round 2, n91): the catalog's keys, so
+ * Activity says the line in the language read now — `label` and `value` keep the words of the day for a record without them.
+ */
+export interface FeeLine { label: string; value: string; hint?: string; labelKey?: string; labelVars?: Record<string, string | number>; valueKey?: string }
 
 /**
  * V6 (Privacy Wallet Web spec v2.0 §3; doc §43): what the network part of an operation cost — the estimate shown before

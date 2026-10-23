@@ -26,6 +26,8 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { FIXTURES } from "../src/fixtures/registry";
 import { groupByDay, type ActivityRow } from "../src/features/activity/rows";
+import { detailModel } from "../src/features/activity/model";
+import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { LIMIT_KEYS } from "../src/features/privacy-center/View";
 import { renderApp } from "./helpers/render";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -733,6 +735,66 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
     expect(basisText(en, facts.privacyView)).toEqual(facts.privacyView.basis);
     // a service without the codes: its English reasons, as before
     expect(protectionReasons(kt, { ...protection, reasonCodes: undefined })).toEqual(protection.reasons);
+  });
+
+  it("a record's words follow the language read now, not the one it was made in: the fee lines by their keys, Protect's destination by its code (audit round 2, n91)", async () => {
+    await loadCatalog("ko");
+    const kt = (k: MessageKey, v?: Vars) => t(k, v, "ko");
+    const et = (k: MessageKey, v?: Vars) => t(k, v, "en");
+    const record = (o: Partial<OperationRecord>): OperationRecord => ({
+      id: "op_x",
+      kind: "send",
+      state: "COMPLETED",
+      createdAt: 1,
+      updatedAt: 2,
+      amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000", delivered: "989000000000000000" },
+      fees: [],
+      destination: { kind: "fresh", display: "0x0000000000000000000000000000000000000001", chain: "ethereum" },
+      refs: { txHashes: ["0xab"] },
+      tier: "standard",
+      history: [{ state: "COMPLETED", at: 2 }],
+      ...o,
+    });
+    const rowOf = (r: OperationRecord) =>
+      ({
+        id: r.id,
+        kind: r.kind,
+        at: 1,
+        title: "",
+        amount: "",
+        status: "",
+        tone: "ok",
+        ref: "0xab",
+        finished: true,
+        icon: "send",
+        record: r,
+      }) as unknown as ActivityRow;
+    // a Send made in Korean, read in English: the lines in English
+    const send = record({
+      fees: [
+        { label: kt("screen.send.privacyFee"), labelKey: "screen.send.privacyFee", value: "0.01 ETH" },
+        { label: kt("screen.send.relayer"), labelKey: "screen.send.relayer", value: kt("screen.send.paidByWallet"), valueKey: "screen.send.paidByWallet" },
+        { label: kt("screen.review.mergeFees", { n: 2 }), labelKey: "screen.review.mergeFees", labelVars: { n: 2 }, value: "0.002 ETH" },
+      ],
+    });
+    expect(detailModel(rowOf(send), et).fees).toEqual([
+      { label: en["screen.send.privacyFee"], value: { text: "0.01 ETH" } },
+      { label: en["screen.send.relayer"], value: { text: en["screen.send.paidByWallet"] } },
+      { label: et("screen.review.mergeFees", { n: 2 }), value: { text: "0.002 ETH" } },
+    ]);
+    expect(detailModel(rowOf(send), kt).fees.map((f) => f.label)).toEqual([
+      ko["screen.send.privacyFee"],
+      ko["screen.send.relayer"],
+      kt("screen.review.mergeFees", { n: 2 }),
+    ]);
+    // a record from before the keys keeps its words
+    expect(detailModel(rowOf(record({ fees: [{ label: "Relayer/network", value: "0.001 ETH" }] })), kt).fees).toEqual([
+      { label: "Relayer/network", value: { text: "0.001 ETH" } },
+    ]);
+    // Protect's destination: a code, said in the language read now
+    const protect = record({ kind: "protect", destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" } });
+    expect(detailModel(rowOf(protect), kt).destination?.label).toBe(ko["activity.protectedBalance"]);
+    expect(detailModel(rowOf(protect), et).destination?.label).toBe(en["activity.protectedBalance"]);
   });
 
   it("the wallet's limits are the protocol's, said in the reader's language", async () => {

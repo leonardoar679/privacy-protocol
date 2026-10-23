@@ -217,7 +217,13 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
     pay: amount,
     receive,
     destination,
-    fees: rec?.fees.length ? rec.fees.map((f) => ({ label: f.label, value: { text: f.value } })) : swapFees(r, t),
+    // a line's keys when the record kept them (audit round 2, n91): the language read now, not the one of the day
+    fees: rec?.fees.length
+      ? rec.fees.map((f) => ({
+          label: f.labelKey ? t(f.labelKey as MessageKey, f.labelVars) : f.label,
+          value: { text: f.valueKey ? t(f.valueKey as MessageKey) : f.value },
+        }))
+      : swapFees(r, t),
     steps: rec ? stepsOf(rec, t) : [],
     advanced,
     canRemove: r.finished && !!r.activity,
