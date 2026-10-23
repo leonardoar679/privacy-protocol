@@ -230,11 +230,25 @@ export class WalletSession {
     if (!this.data || !this.key) return;
     await this.store.refresh?.();
     const key = this.key;
+    if (!this.data || this.key !== key) return;
+    // this wallet is gone from the device (audit round 2, n27): forgotten in another tab — the session locks, never writing
+    // its journal back to a device that let it go
+    if (this.store.get(KEYSTORE_KEY) === null) {
+      this.lock();
+      return;
+    }
     const blob = this.store.get(JOURNAL_KEY);
-    if (!blob || !this.data || this.key !== key) return;
+    if (!blob) return;
     let journal: JournalData | null = null;
     try { journal = decryptJournal(key, JSON.parse(blob) as EncryptedJournal); } catch { journal = null; }
-    if (!journal) return;
+    // ...or replaced by a wallet whose journal this seed does not open (forgotten, then another made): locked too, never
+    // written over it. A session whose own stored journal never opened (the unreadable state) stays as it is
+    if (!journal) {
+      if (!this.unreadable) this.lock();
+      return;
+    }
+    // it opens now — the other tab set the unreadable one aside and replaced it (n22): this session saves again
+    this.unreadable = false;
     this.data = journal;
     noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
     if (journal.settings) settings.set(journal.settings as Partial<Settings>);
