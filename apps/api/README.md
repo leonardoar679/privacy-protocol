@@ -50,6 +50,11 @@ schedule (`src/db.ts` `RETENTION`):
   `API_VOUCHER_PREVIOUS` lists (`deployment.previousVouchers`; `docs/deployment.md`), and the status says whether the
   relayer it reads lists its current address (`deployment.relayerAcceptsVoucher`, from that relayer's `/info`). `npm run voucher-address` prints
   a key's address from `API_VOUCH_KEY` before the API runs with it, never the key (`src/cli/voucherAddress.ts`).
+- **Restores** (audit round 2, r05; `src/routes/swap.ts`, `test/routes.test.ts`). An order is rebuilt from its params — a
+  commit with `params`, a resume, a prepare with `restore` — only when the order's one-time key signed the request it
+  names (`restoreSignature` over `restoreDigest`: the pair, the destination, the provider), checked before any provider
+  is asked; `403 restore_unsigned` otherwise, with no operation id and nothing stored. The params are public once an
+  execution is tried, and the escrow commits to them alone.
 - **Logs.** One JSON line per event, with keys among {at, level, event, operationId, provider, state, errorClass,
   network}. A value without its field's shape is redacted, so an address, a hash, an amount or a Bitcoin or Solana
   string never appears (`test/logs.test.ts`).

@@ -33,6 +33,7 @@ import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wall
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import { redactUrls, redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
+import { predictEscrow, recoverExecutionSigner, restoreDigest, restoreRequestText } from "@privacy-wallet/swap-engine/endpoints";
 import type { Voucher } from "../vouch";
 import { predictReceiver, receiverParamsOf, receiverParamsProblem, type ReceiverParams, type ReceiverParamsJson } from "@privacy-wallet/contracts";
 import { decodeBlob, encodeBlob, wire } from "../blob";
@@ -66,6 +67,31 @@ export function guestStatus(s: TrackStatus["state"]): UserStatus {
 export class BadRequest extends Error {}
 
 const otherOrder: Answer = { status: 409, body: { error: "these params are another order's", code: "order_mismatch" } };
+const restoreUnsigned: Answer = {
+  status: 403,
+  body: { error: "an order is rebuilt only for its own key: sign the request with it", code: "restore_unsigned" },
+};
+
+/**
+ * Whether the order's one-time key signed this restore's request (audit round 2, r05; `restoreDigest`). The escrow commits to
+ * the params only, and they are public once an execution is tried (its calldata, the relayer's job): a restore under them
+ * with another destination or provider was answered with the operation's id, then stored a prepared call paying that party,
+ * which the wallet's re-sign met for good. The text is built from the body as sent, the wallet's own journaled request.
+ */
+function restoreSigned(chainId: bigint, b: Record<string, unknown>, params: OrderParams, escrow: string): boolean {
+  const sig = b.restoreSignature;
+  if (typeof sig !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(sig)) return false;
+  const side = (x: unknown) => ({
+    chain: String((x as { chain?: unknown } | null)?.chain ?? ""),
+    asset: String((x as { asset?: unknown } | null)?.asset ?? ""),
+  });
+  const text = restoreRequestText({ from: side(b.from), to: side(b.to), destination: String(b.destination ?? ""), provider: String(b.provider ?? "") });
+  try {
+    return recoverExecutionSigner(restoreDigest(chainId, escrow, text), sig as `0x${string}`).toLowerCase() === params.orderSigner.toLowerCase();
+  } catch {
+    return false;
+  }
+}
 const sameEscrow = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 /** How far ahead a restored order's refund may be, besides the refund window: the longest delay budget (72 h) and a day. */
@@ -407,6 +433,9 @@ export class SwapApi {
     // its operation, and one named with a refundAfter years away was never purged
     const horizon = Math.floor(this.d.now() / 1000) + RESTORE_HORIZON_SECONDS + this.engine.cfg.refundWindowSeconds;
     if (params.refundAfter > horizon) throw new BadRequest("params name a refund time further ahead than this service sets one");
+    // only for the order's own key, and before any provider is asked (audit round 2, r05)
+    if (!restoreSigned(this.engine.cfg.chainId, b, params, predictEscrow(this.engine.cfg.factory, this.engine.cfg.escrowCreationCode, params)))
+      return restoreUnsigned;
     // the order's tip is fixed in its escrow: quoted net of it, never priced again (audit round 2, r35)
     const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), executorTip: params.executorTip });
     const quote = set.quotes.find((q) => q.provider === provider);

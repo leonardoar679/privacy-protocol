@@ -13,7 +13,7 @@ import type { Asset } from "./assets";
 import { simulateExecution, type Simulation } from "./simulate";
 import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ResumeRequest, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
 import { ApiError } from "./api/client";
-import { checkOrder, OrderMismatch, predictEscrow } from "./swapGuard";
+import { checkOrder, OrderMismatch, predictEscrow, restoreDigest, restoreRequestText } from "./swapGuard";
 import { shieldTipCeiling, tipCeiling } from "./executionCost";
 import { buildShieldReceipt, shieldJobRequest, shieldJobView } from "./shieldReceiver";
 import { checkBeforeSigning, type JournaledOrder, type SignCheck } from "./swapSign";
@@ -124,7 +124,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
  * and purges after its retention): the same params give the same escrow, checked here; the operation id is journaled.
  */
 export async function resumeOrder(deployment: Deployment | null, stored: StoredSwap, session: WalletSession = defaultSession): Promise<ServiceOrder> {
-  const out = await swapService.resume(resumeRequestOf(stored), operationIdOf(stored, session));
+  const out = await swapService.resume(await resumeRequestOf(stored, session, deployment), operationIdOf(stored, session));
   const predicted = predictEscrow(swapFactoryOf(deployment), stored.params as any);
   if (out.order.endpoint.toLowerCase() !== predicted.toLowerCase() || out.order.orderId.toLowerCase() !== stored.orderId.toLowerCase()) throw new OrderMismatch("endpoint", "the resumed order is not the one this wallet committed");
   if (out.operationId && out.operationId !== operationIdOf(stored, session)) patchSwap(stored.orderId, { operationId: out.operationId }, session);
@@ -137,11 +137,24 @@ function operationIdOf(stored: StoredSwap, s: WalletSession): string | undefined
   return now?.operationId ?? stored.operationId;
 }
 
-/** The journaled order as the API rebuilds it. */
-const resumeRequestOf = (stored: StoredSwap): ResumeRequest => ({
-  request: stored.request as any, policy: stored.policy as Policy, provider: stored.provider, params: stored.params as any,
-  ...(stored.tier ? { tier: stored.tier as ServiceTier } : {}), ...(stored.preference ? { preference: stored.preference as Preference } : {}),
-});
+/**
+ * The journaled order as the API rebuilds it, signed by the order's one-time key over the request it names (audit round 2,
+ * r05): the API rebuilds an order and answers its operation only for that key — the params are public once an execution is
+ * tried, and anyone had named them with another destination, planting a call the wallet's re-sign met for good.
+ */
+async function resumeRequestOf(stored: StoredSwap, s: WalletSession, deployment: Deployment | null): Promise<ResumeRequest> {
+  const seed = s.state().seed;
+  if (!seed) throw new Error("the wallet is locked: an order is restored only with its own key");
+  if (!deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
+  const request = stored.request as ResumeRequest["request"];
+  const text = restoreRequestText({ from: request.from, to: request.to, destination: String(request.destination ?? ""), provider: stored.provider });
+  const key = deriveOrderKey(seed, stored.attemptId as Hex);
+  return {
+    request, policy: stored.policy as Policy, provider: stored.provider, params: stored.params as any,
+    ...(stored.tier ? { tier: stored.tier as ServiceTier } : {}), ...(stored.preference ? { preference: stored.preference as Preference } : {}),
+    restoreSignature: await signExecutionDigest(key.privateKey, restoreDigest(BigInt(deployment.chainId), stored.endpoint as Address, text)),
+  };
+}
 
 /**
  * A call on the order's operation. An order without an operation (journaled before the API, or purged) is resumed first;
@@ -198,7 +211,7 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
   const orderKey = deriveOrderKey(i.masterSeed, stored.attemptId as Hex);
   const deployment = i.deployment;
   i.onStatus?.(i.reuse ? "Checking the call whose minimum you accepted…" : "Re-quoting with the escrow as sender, then checking the call…");
-  const fresh = () => onOperation(deployment, stored, s, (id) => swapService.prepare(id), (id) => swapService.prepare(id, undefined, resumeRequestOf(stored)));
+  const fresh = () => onOperation(deployment, stored, s, (id) => swapService.prepare(id), async (id) => swapService.prepare(id, undefined, await resumeRequestOf(stored, s, deployment)));
   // the swap service builds for this wallet's factory, read before the prepare (audit round 2, r02): a call can be valid for a
   // minute only (LI.FI), and this status read can take the providers' 25-s health budget — read between the prepare and the
   // hand-over, it left the relayer a call too close to its deadline to send. A reused call's order was read at its first signing

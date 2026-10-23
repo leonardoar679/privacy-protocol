@@ -6,7 +6,7 @@ import type { Server } from "node:http";
 import { BYTECODE } from "@privacy-wallet/contracts";
 import { createLogger } from "@privacy-wallet/server-kit";
 import { PrivateSwapEngine } from "@privacy-wallet/swap-engine/engine";
-import { orderSignerAddress, signExecution } from "@privacy-wallet/swap-engine/endpoints";
+import { orderSignerAddress, predictEscrow, restoreDigest, restoreRequestText, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 import { NO_VALUER } from "@privacy-wallet/swap-engine/valuation";
 import type { Capabilities, Health, Ingress, ProviderAdapter, ProviderId, Quote, QuoteRequest, TrackStatus } from "@privacy-wallet/swap-engine/types";
 import { createApp } from "../src/app";
@@ -24,6 +24,8 @@ export const ORDER_KEY = new Uint8Array(32).fill(7);
 export const ORDER_SIGNER = orderSignerAddress(ORDER_KEY);
 export const REFUND_SECRET = "987654321987654321";
 export const TIP = 25n * 10n ** 14n;
+/** the engine's SwapOrderFactory */
+export const FACTORY = "0x00000000000000000000000000000000000000f1";
 /** a same-chain swap into the protected balance (spec v2.0 §11.2): the token, its vault, the receiver factory, the shield tip */
 export const USDC = { chain: "ethereum", asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6, symbol: "USDC" } as const;
 export const USDC_VAULT = "0x00000000000000000000000000000000000000e8";
@@ -132,7 +134,7 @@ export async function harness(
   const adapter = new StubAdapter();
   const engine = new PrivateSwapEngine({
     adapters: [adapter, ...(o.extraAdapters ?? [])],
-    factory: "0x00000000000000000000000000000000000000f1",
+    factory: FACTORY,
     escrowCreationCode: BYTECODE.swapOrderEscrow,
     chainId: 1n,
     refundVaults: { native: "0x00000000000000000000000000000000000000e7", ...(o.protectedDestinations ? { [USDC.asset]: USDC_VAULT } : {}) },
@@ -212,3 +214,24 @@ export const orderBody = (over: Record<string, unknown> = {}) => ({
 });
 
 export const sign = (digest: `0x${string}`): `0x${string}` => signExecution(ORDER_KEY, digest);
+
+/** The escrow a body's params determine at the harness's factory, as the API recomputes it. */
+export const escrowOf = (p: Record<string, unknown>): string =>
+  predictEscrow(FACTORY, BYTECODE.swapOrderEscrow, {
+    ...p,
+    assetType: Number(p.assetType),
+    amount: BigInt(p.amount as string),
+    executeDeadline: Number(p.executeDeadline),
+    refundAfter: Number(p.refundAfter),
+    refundOwnerCommitment: BigInt(p.refundOwnerCommitment as string),
+    refundNoteSecret: BigInt(p.refundNoteSecret as string),
+    executorTip: BigInt(p.executorTip as string),
+  } as never);
+
+/** A restore's body signed by the order's key (or another) over the request it names, as the wallet signs its journaled one (audit round 2, r05). */
+export const signedRestore = <T extends { params: Record<string, unknown> }>(body: T, key: Uint8Array = ORDER_KEY): T & { restoreSignature: `0x${string}` } => {
+  const b = body as unknown as Record<string, unknown>;
+  const side = (x: unknown) => x as { chain: string; asset: string };
+  const text = restoreRequestText({ from: side(b.from), to: side(b.to), destination: String(b.destination ?? ""), provider: String(b.provider ?? "") });
+  return { ...body, restoreSignature: signExecution(key, restoreDigest(1n, escrowOf(body.params), text)) };
+};

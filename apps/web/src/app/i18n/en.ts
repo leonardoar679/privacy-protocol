@@ -491,6 +491,8 @@ export const en = {
   "op.error.route_filtered.reason": "The provider's health, security or liquidity did not pass. Nothing left your protected balance; another route is quoted.",
   "op.error.unknown_provider.title": "The provider is not known to the service",
   "op.error.unknown_provider.reason": "The route named a provider the service does not run. Nothing left your protected balance.",
+  "op.error.restore_unsigned.title": "The service rebuilds an order only for its own key",
+  "op.error.restore_unsigned.reason": "This wallet's request to rebuild the order was not signed with the order's key. Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
   "op.error.unknown_order.title": "The service no longer knows this order",
   "op.error.unknown_order.reason": "The order was not found at the service (it may have restarted). Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
   "op.error.order_not_prepared.title": "The order was not prepared",

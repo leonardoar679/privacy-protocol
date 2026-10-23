@@ -84,6 +84,21 @@ export const EXECUTION_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-
 /** a same-chain swap's shield receipt (its receiver's address commits to the factory and every parameter) */
 export const SHIELD_VOUCH_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-vouch/shield"));
 
+/**
+ * A restore of an order at the API — POST /v1/operations with its params, a resume, a prepare rebuilt from them — is signed
+ * by the order's one-time key over the request it names (audit round 2, r05): the escrow commits to the params only, and
+ * they are public once an execution is tried (its calldata, the relayer's job), so anyone could name them with another
+ * destination or provider. The tag keeps it apart from an execution's digest: a restore's signature moves nothing.
+ */
+export const RESTORE_TAG = keccak_256(new TextEncoder().encode("privacy-wallet/v6/api-restore"));
+/** The request a restore names, as one text the wallet and the API build alike: the pair, the destination, the provider. */
+export const restoreRequestText = (r: { from: { chain: string; asset: string }; to: { chain: string; asset: string }; destination: string; provider: string }): string =>
+  JSON.stringify([r.from.chain, r.from.asset, r.to.chain, r.to.asset, r.destination, r.provider]);
+/** keccak256(abi.encode(RESTORE_TAG, chainId, escrow, keccak256(requestText))) */
+export function restoreDigest(chainId: bigint, escrow: string, requestText: string): `0x${string}` {
+  return hex(keccak_256(Buffer.concat([Buffer.from(RESTORE_TAG), word(chainId), addrWord(escrow), Buffer.from(keccak_256(new TextEncoder().encode(requestText)))])));
+}
+
 /** keccak256(abi.encode(ORDER_VOUCH_TAG, chainId, escrow)) */
 export function orderVouchDigest(chainId: bigint, escrow: string): `0x${string}` {
   return hex(keccak_256(Buffer.concat([Buffer.from(ORDER_VOUCH_TAG), word(chainId), addrWord(escrow)])));

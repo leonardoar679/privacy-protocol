@@ -81,6 +81,15 @@ export const ORDER_VOUCH_TAG = keccak256(stringToBytes("privacy-wallet/v6/api-vo
 export const orderVouchDigest = (chainId: bigint, escrow: Address): Hex =>
   keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }], [ORDER_VOUCH_TAG, chainId, escrow]));
 
+/** The tag of a restore's signature by the order's one-time key (audit round 2, r05): the engine's RESTORE_TAG. */
+export const RESTORE_TAG = keccak256(stringToBytes("privacy-wallet/v6/api-restore"));
+/** The request a restore names, as one text the wallet and the API build alike: the engine's restoreRequestText. */
+export const restoreRequestText = (r: { from: { chain: string; asset: string }; to: { chain: string; asset: string }; destination: string; provider: string }): string =>
+  JSON.stringify([r.from.chain, r.from.asset, r.to.chain, r.to.asset, r.destination, r.provider]);
+/** keccak256(abi.encode(RESTORE_TAG, chainId, escrow, keccak256(requestText))): the engine's restoreDigest, byte for byte (both pinned by tests) */
+export const restoreDigest = (chainId: bigint, escrow: Address, requestText: string): Hex =>
+  keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" }], [RESTORE_TAG, chainId, escrow, keccak256(stringToBytes(requestText))]));
+
 /** Throws OrderMismatch unless the order is exactly the one this wallet asked for, at the escrow its params determine. */
 export function checkOrder(order: ServiceOrder, e: OrderExpectation): void {
   const p = order.params;

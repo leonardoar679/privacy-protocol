@@ -537,6 +537,9 @@ export const ko: Record<MessageKey, string> = {
     "제공자의 상태, 보안 또는 유동성이 기준을 통과하지 못했습니다. 보호 잔액에서 빠져나간 것은 없습니다. 다른 경로로 견적을 받습니다.",
   "op.error.unknown_provider.title": "서비스가 알지 못하는 제공자입니다",
   "op.error.unknown_provider.reason": "경로가 서비스에서 운영하지 않는 제공자를 지정했습니다. 보호 잔액에서 빠져나간 것은 없습니다.",
+  "op.error.restore_unsigned.title": "서비스는 주문 자체의 키로만 주문을 다시 만듭니다",
+  "op.error.restore_unsigned.reason":
+    "주문을 다시 만들라는 이 지갑의 요청에 주문 키의 서명이 없었습니다. 자금은 에스크로 또는 보호 잔액에 있으며, 지갑이 자체 기록에서 다시 이어 갑니다.",
   "op.error.unknown_order.title": "서비스가 더 이상 이 주문을 알지 못합니다",
   "op.error.unknown_order.reason":
     "서비스에서 주문을 찾지 못했습니다(재시작되었을 수 있습니다). 자금은 에스크로나 보호 잔액에 있으며, 지갑은 자체 기록에서 이어서 진행합니다.",

@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OPERATION_ID, QUOTE_ID } from "../src/ids";
-import { harness, orderBody, sign, swapRequest, type Harness } from "./helpers";
+import { harness, orderBody, sign, signedRestore, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
 beforeEach(async () => {
@@ -103,7 +103,7 @@ describe("operations", () => {
     const id = body.operationId as string;
     const p = await h.post(`/v1/operations/${id}/prepare`, {});
     await h.post(`/v1/operations/${id}/finalize`, { signature: sign(p.body.digest) });
-    const journaled = { ...swapRequest(), provider: "thorchain", params: body.order.params };
+    const journaled = signedRestore({ ...swapRequest(), provider: "thorchain", params: body.order.params });
     const r = await h.post(`/v1/operations/${id}/resume`, journaled);
     expect(r.status).toBe(200);
     expect(r.body.operationId).toBe(id);
@@ -124,12 +124,36 @@ describe("operations", () => {
     expect(mismatch.body.code).toBe("order_mismatch");
     expect((await h.post(`/v1/operations/op_${"a".repeat(26)}/resume`, journaled)).status, "an unknown operation: the wallet restores").toBe(404);
     // the order's id with other params (another escrow) is another order (the audit's unverified m16): never its operation
-    const forged = { ...journaled, params: { ...journaled.params, refundNoteSecret: "777" } };
+    const forged = signedRestore({ ...journaled, params: { ...journaled.params, refundNoteSecret: "777" } }); // the key's holder, other params
     const taken = await h.post("/v1/operations", forged);
     expect(taken.status).toBe(409);
     expect(taken.body.code).toBe("order_mismatch");
     expect(JSON.stringify(taken.body), "and its operation id is not given away").not.toContain(id);
     expect((await h.post(`/v1/operations/${id}/prepare`, { restore: forged })).status, "nor rebuilt from them").toBe(409);
+  });
+  it("an order is rebuilt only for its own key: a restore, a resume or a rebuilt prepare under its public params with another destination is refused — no operation id, no call stored (audit round 2, r05)", async () => {
+    const { body } = await h.post("/v1/operations", orderBody());
+    const id = body.operationId as string;
+    const planted = { ...swapRequest({ destination: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" }), provider: "thorchain", params: body.order.params };
+    const before = h.store.blob(id);
+    // before the finalize, unsigned and signed by another key: the wallet's order stays, its id is not given away
+    for (const attempt of [planted, signedRestore(planted, new Uint8Array(32).fill(9))]) {
+      const r = await h.post("/v1/operations", attempt);
+      expect(r.status).toBe(403);
+      expect(r.body.code).toBe("restore_unsigned");
+      expect(JSON.stringify(r.body)).not.toContain(id);
+    }
+    expect(h.store.blob(id), "the wallet's order is still the one kept").toBe(before);
+    const p = await h.post(`/v1/operations/${id}/prepare`, {});
+    await h.post(`/v1/operations/${id}/finalize`, { signature: sign(p.body.digest) });
+    // after it: no prepared call stored from the params, no resume
+    expect((await h.post(`/v1/operations/${id}/prepare`, { restore: planted })).status).toBe(403);
+    expect(h.store.blob(id)).toBeNull();
+    expect((await h.post(`/v1/operations/${id}/resume`, planted)).status).toBe(403);
+    // the wallet's own request, signed by the order's key: its operation, and its re-sign
+    const own = signedRestore({ ...swapRequest(), provider: "thorchain", params: body.order.params });
+    expect((await h.post("/v1/operations", own)).body.operationId).toBe(id);
+    expect((await h.post(`/v1/operations/${id}/prepare`, { restore: own })).status).toBe(200);
   });
   it("no listing, and an order id is never an id: only op_ ids resolve", async () => {
     const { body } = await h.post("/v1/operations", orderBody());

@@ -79,6 +79,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   unknown_provider: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   unknown_order: { source: "service", fundsClass: "still-protected", actions: ["resume-tracking", "start-refund"] },
   order_not_prepared: { source: "service", fundsClass: "still-protected", actions: ["new-quote"] },
+  restore_unsigned: { source: "service", fundsClass: "still-protected", actions: ["resume-tracking"] },
   service_rejected: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   invalid_request: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   destination_not_protectable: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },

@@ -75,7 +75,16 @@ export interface Prepared { digest: Hex; provider: Address; value: string; calld
 export interface ServiceExecution { provider: Address; value: string; providerCalldata: Hex; deadline: number; signature: Hex }
 export interface ServiceHealth { deployment: { chainId: string | number; factory: Address; nativeVault: Address; /** the address its vouches are signed with (a V6 follow-up of 2026-10-16); null: it vouches for nothing */ voucher?: Address | null; /** the former addresses whose commit vouches its finalize still honors while its key rotates */ previousVouchers?: Address[] }; providers: Record<string, { reachable: boolean; halted: boolean; note?: string }> }
 /** Everything the service needs to rebuild an order it forgot (the wallet keeps it in its encrypted journal). */
-export interface ResumeRequest { request: Omit<SwapRequest, "policy" | "preference" | "tier">; policy: Policy; provider: string; params: ServiceOrderParams; tier?: Tier; preference?: Preference }
+export interface ResumeRequest {
+  request: Omit<SwapRequest, "policy" | "preference" | "tier">;
+  policy: Policy;
+  provider: string;
+  params: ServiceOrderParams;
+  tier?: Tier;
+  preference?: Preference;
+  /** the order's one-time key over the request (swapGuard.ts `restoreDigest`; audit round 2, r05): the API rebuilds an order only for its key */
+  restoreSignature?: string;
+}
 export interface TrackResult { track: { state: string; destinationTxHash?: string; deliveredAmount?: string; deliveredAsset?: string; refundedAmount?: string; progress?: { parts: number; done: number } }; status: string }
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the user is asked again. */
@@ -89,7 +98,15 @@ export interface Committed { operationId: string; order: ServiceOrder; scores: R
 export interface Resumed { operationId: string; order: ServiceOrder; status: string; tier?: Tier }
 
 /** What the API rebuilds an order from: the request, the policy, the provider and the on-chain params. */
-const resumeBody = (req: ResumeRequest) => ({ ...req.request, policy: req.policy, provider: req.provider, params: req.params, ...(req.tier ? { tier: req.tier } : {}), ...(req.preference ? { preference: req.preference } : {}) });
+const resumeBody = (req: ResumeRequest) => ({
+  ...req.request,
+  policy: req.policy,
+  provider: req.provider,
+  params: req.params,
+  ...(req.tier ? { tier: req.tier } : {}),
+  ...(req.preference ? { preference: req.preference } : {}),
+  ...(req.restoreSignature ? { restoreSignature: req.restoreSignature } : {}),
+});
 
 /** `operation`: the order's operation, named when the wallet suspects a stalled settlement — the API times it itself */
 // the order's decimals go with it (c25): THORChain tracks in its own 1e8 units, which the API converts with them

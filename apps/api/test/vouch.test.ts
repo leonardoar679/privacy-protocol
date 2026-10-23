@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { executionVouchDigest, orderVouchDigest, shieldVouchDigest, vouchedBy } from "@privacy-wallet/swap-engine/endpoints";
 import { predictReceiver, receiverParamsJson, type ReceiverParams } from "@privacy-wallet/contracts";
 import { makeVoucher, voucherAddress, voucherFrom } from "../src/vouch";
-import { harness, orderBody, sign, SHIELD_FACTORY, SHIELD_TIP, USDC, type Harness } from "./helpers";
+import { harness, orderBody, sign, signedRestore, SHIELD_FACTORY, SHIELD_TIP, USDC, type Harness } from "./helpers";
 
 const KEY = ("0x" + "5a".repeat(32)) as `0x${string}`;
 const VOUCHER = makeVoucher(KEY).address;
@@ -48,7 +48,7 @@ describe("the API's vouches", () => {
   it("an order rebuilt from params gets no vouch: a restore answers none, and its call is vouched for only with the commit's", async () => {
     h = await harness({ vouchKey: KEY });
     const c = await h.post("/v1/operations", orderBody());
-    const restored = await h.post("/v1/operations", { ...orderBody(), provider: "thorchain", params: c.body.order.params });
+    const restored = await h.post("/v1/operations", signedRestore({ ...orderBody(), provider: "thorchain", params: c.body.order.params }));
     expect(restored.status).toBe(200);
     expect(restored.body.vouch, "a restore vouches for nothing").toBeUndefined();
   });

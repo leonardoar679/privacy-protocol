@@ -4,7 +4,7 @@
 // would have counted against the provider's health for every user. Now each answers 400 `invalid_request`, and no
 // provider is asked.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { harness, orderBody, swapRequest, type Harness } from "./helpers";
+import { harness, orderBody, signedRestore, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
 let asked = 0;
@@ -107,8 +107,8 @@ describe("the request bodies, checked at the edge", () => {
     }
     expect(asked).toBe(0);
     expect(h.lines.some((l) => l.includes('"http.error"'))).toBe(false);
-    // the well-formed params still restore the order
-    const restored = await h.post("/v1/operations", { ...swapRequest(), provider: "thorchain", params });
+    // the well-formed params still restore the order, signed by its key (audit round 2, r05)
+    const restored = await h.post("/v1/operations", signedRestore({ ...swapRequest(), provider: "thorchain", params }));
     expect(restored.status).toBe(200);
     expect(restored.body.operationId).toBe(committed.operationId);
   });

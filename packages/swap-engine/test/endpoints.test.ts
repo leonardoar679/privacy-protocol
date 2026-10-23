@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { encodeOrderParams, executionDigest, executionVouchDigest, initCodeHash, orderSignerAddress, orderVouchDigest, predictEscrow, shieldVouchDigest, signExecution, vouchedBy, word } from "../src/endpoints";
+import { encodeOrderParams, executionDigest, executionVouchDigest, initCodeHash, orderSignerAddress, orderVouchDigest, predictEscrow, recoverExecutionSigner, restoreDigest, restoreRequestText, shieldVouchDigest, signExecution, vouchedBy, word } from "../src/endpoints";
 import type { OrderParams } from "../src/types";
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
@@ -105,6 +105,15 @@ describe("the API's vouches (a V6 follow-up of 2026-10-16)", () => {
       "0xc6668c4a6ed881c69b81de98a5a143f669818322cd508fec047da1d316fd840e",
       "0x9c316836b195e491f3dee9a05058179c60215b9d6bf4c5b878e6a93191af490d",
     ]);
+  });
+  it("a restore's digest is its own, names the request, and its bytes are pinned: the wallet signs what the API recovers (audit round 2, r05)", () => {
+    const text = restoreRequestText({ from: { chain: "ethereum", asset: "native" }, to: { chain: "bitcoin", asset: "native" }, destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", provider: "thorchain" });
+    const restore = restoreDigest(1n, escrow, text);
+    // packages/sdk/test/restore-signature.test.ts pins the same bytes for the same inputs (viem)
+    expect(restore).toBe("0x2eb2ec945fe04cd872bb62a315e6abfe0593766b1adfbef29307372888474916");
+    expect([orderVouchDigest(1n, escrow), executionDigest(1n, escrow, "0x" + "00".repeat(32), provider, 0n, "0x", 0)], "no other digest's").not.toContain(restore);
+    expect(restoreDigest(1n, escrow, text.replace("bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")), "the destination is in it").not.toBe(restore);
+    expect(recoverExecutionSigner(restore, signExecution(key, restore))).toBe(orderSignerAddress(key));
   });
   it("a vouch is the voucher's over its own digest only: another key's, another digest's, a malformed or missing one are not", () => {
     const order = orderVouchDigest(1n, escrow);
