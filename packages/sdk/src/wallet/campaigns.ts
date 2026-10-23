@@ -86,6 +86,11 @@ export interface StartCampaignInput {
    * protected execution quotes the whole funding and runs a smaller steps amount, each step paying its own fee note
    */
   quotedAmount?: bigint;
+  /**
+   * What may leave the protected balance: the amount the user typed, the steps' own fee notes included (audit round 2, r18).
+   * The Activity line had shown the steps' total alone beside the typed amount's value, the fees that left shown nowhere.
+   */
+  leaves?: bigint;
   tier: Tier;
   mode: ProtectionMode;
   preference: Preference;
@@ -162,7 +167,7 @@ export function startCampaign(i: StartCampaignInput): Campaign {
   assertJournalSaved(s); // its record would be lost at the next lock (audit round 2, r47)
   const c = buildCampaign(i);
   s.update((j) => { j.campaigns = [...(j.campaigns ?? []), c]; });
-  recordActivity({ id: activityId("campaign", c.id), kind: "campaign", asset: i.from.symbol, decimals: i.from.decimals, amount: i.amount.toString(), status: c.state, ref: c.id, note: `→ ${i.to.symbol} · ${progressLine(c)}` }, s);
+  recordActivity({ id: activityId("campaign", c.id), kind: "campaign", asset: i.from.symbol, decimals: i.from.decimals, amount: (i.leaves ?? i.amount).toString(), status: c.state, ref: c.id, note: `→ ${i.to.symbol} · ${progressLine(c)}` }, s);
   scheduleTick(c.id, i.now ?? Date.now(), s);
   return c;
 }

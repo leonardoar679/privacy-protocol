@@ -132,6 +132,8 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
     expect(session.journal().swaps, "no single order: the steps are the campaign's").toHaveLength(0);
     const [c] = campaignsOf(session.journal());
     expect(c.tier).toBe("large-protected");
+    // its Activity line names what may leave the protected balance: the 32 ETH typed, the steps' fee notes included (audit round 2, r18)
+    expect(session.journal().activity?.find((x) => x.id === `campaign:${c.id.toLowerCase()}`)?.amount).toBe((32n * ETH).toString());
     expect(
       c.tranches.map((t) => BigInt(t.amount)),
       "four equal quarters",

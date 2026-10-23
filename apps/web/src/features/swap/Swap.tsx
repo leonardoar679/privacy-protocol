@@ -353,7 +353,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     const amount = funding ? stepsAmountAtFixedPoint(units, funding.terms, countFor).amount : units;
     if (amount <= 0n) { setError(t("swap.tooSmallForFees")); return; }
     const c = await run(t("swap.startingProtected"), async () => startCampaign({
-      ...base, amount, quotedAmount: escrowAmount,
+      ...base, amount, quotedAmount: escrowAmount, leaves: units, // what may leave, the steps' fee notes included (audit round 2, r18)
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
       confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
       reviewHoldUntil: [controls.reviewHold ? now + reviewHoldMinutes() * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,
