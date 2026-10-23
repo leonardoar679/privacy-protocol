@@ -661,6 +661,32 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
 });
 
 describe("a refund a few seconds before the chain's clock reaches refundAfter (a V6 follow-up of 2026-10-16)", () => {
+  it("a refund payload that holds TooEarlyToRefund's four bytes is not read as early when it reverts for its own reason: the revert counts (audit round 2, n03)", async () => {
+    // the node's message echoes the call's calldata, the payload in it: the selector anywhere in the words had read "too early"
+    const selector = toFunctionSelector("TooEarlyToRefund()").slice(2);
+    const noteData = ("0x" + "cd".repeat(40) + selector + "cd".repeat(125)) as Hex;
+    const params = { ...request.params, orderId: ("0x" + "0f".repeat(32)) as Hex, refundNoteDataHash: keccak256(noteData) };
+    const escrow = predictEscrow(request.factory, creationCode, { ...params, assetType: 0, amount: BigInt(params.amount), refundOwnerCommitment: BigInt(params.refundOwnerCommitment), refundNoteSecret: BigInt(params.refundNoteSecret), executorTip: BigInt(params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, params.orderId, request.execution.provider, BigInt(request.execution.value), request.execution.providerCalldata, request.execution.deadline);
+    const late: SwapJobRequest = { ...request, params, refundNoteData: noteData, execution: { ...request.execution, signature: signExecution(ORDER_KEY, digest) } };
+    clock = 1000; escrowBalance = 0n; receiptStatus = null;
+    const job = executor.add(vouched(late, CHAIN_ID, creationCode));
+    escrowBalance = BigInt(late.params.amount);
+    clock = Number(late.params.refundAfter) + 60;
+    const saved = revertError;
+    revertError = { code: 3, message: "execution reverted" };
+    revertSimulation = true;
+    try {
+      await executor.tick();
+      expect(job.error, "a revert of its own reason, counted").toMatch(/would revert/);
+      expect(job.error).not.toMatch(/has not reached refundAfter yet/);
+      expect(job.refundReverts).toBe(1);
+    } finally {
+      revertSimulation = false;
+      revertError = saved;
+    }
+  });
+
   it("is tried again next tick, never taken as its fate: the job is not refund-failed, and the refund goes once the chain is there", async () => {
     // the executor goes by its own clock and the latest block can be seconds behind: the estimate reverts TooEarlyToRefund, as a
     // node answers a custom error (generic words, the selector in the data). That revert had made the job refund-failed for good

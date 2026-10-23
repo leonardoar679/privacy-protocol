@@ -102,19 +102,23 @@ export const MAX_REFUND_REVERTS = 3;
 
 /** Whether an estimateGas failure is the call reverting (an answer), not the RPC failing (retried next tick). */
 const reverted = (e: unknown) => /revert/i.test(String((e as Error)?.message ?? e));
-/** TooEarlyToRefund() (SwapOrderTypes.sol): by name, or by its selector in the revert data a node returns. */
-const TOO_EARLY = toFunctionSelector("TooEarlyToRefund()").slice(2);
+/** TooEarlyToRefund() (SwapOrderTypes.sol): by name, or by its selector at the head of the revert data a node returns. */
+const TOO_EARLY = toFunctionSelector("TooEarlyToRefund()").toLowerCase();
 /**
  * A refund estimated a little before the chain's clock reached refundAfter (a V6 follow-up of 2026-10-16): the executor goes
  * by its own clock, and the latest block can still be seconds behind it. That revert is not the refund's fate — it was taken
  * as final (refund-failed, or a listed token dropped), leaving the escrow to whoever called deployAndRefund — and is tried
  * again next tick. (The executor keeps its own clock: an idle devnet mints no block until a transaction asks.)
  */
+// The selector is read at the head of the revert data only, never anywhere in the words (audit round 2, n03): a message
+// echoes the call's own calldata, and a refund payload holding those four bytes made every revert of that refund read as
+// "too early" — tried every tick, never counted, the job never ended. The name is the node's or viem's decoding.
 const tooEarly = (e: unknown): boolean => {
   for (let x: unknown = e, depth = 0; x && depth < 8; x = (x as { cause?: unknown }).cause, depth++) {
     const o = x as { message?: unknown; data?: unknown; details?: unknown; shortMessage?: unknown };
-    const words = [o.message, o.data, o.details, o.shortMessage].map((w) => String(w ?? "")).join(" ");
-    if (/TooEarlyToRefund/.test(words) || words.toLowerCase().includes(TOO_EARLY)) return true;
+    const words = [o.message, o.details, o.shortMessage].map((w) => String(w ?? "")).join(" ");
+    if (/TooEarlyToRefund/.test(words)) return true;
+    if (typeof o.data === "string" && o.data.toLowerCase().startsWith(TOO_EARLY)) return true;
   }
   return false;
 };
