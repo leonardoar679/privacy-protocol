@@ -231,6 +231,10 @@ export class LifiAdapter implements ProviderAdapter {
     // ranked only if what can come back to the escrow re-shields (PP-S08; prepareIngress checks it again with the rest)
     const bd = decodeLifiCall(call).bridgeData;
     if (bd.hasSourceSwaps && !escrowCanReshield(req.from, bd.sendingAssetId)) throw new Error(`LI.FI routed ${req.from.symbol} through a swap into ${bd.sendingAssetId} before bridging (${q.tool}): an unfilled deposit or the swap surplus would come back to the escrow in that token, which it cannot re-shield (the pool has no vault for it): not offered`);
+    // every check prepareIngress makes, but against the quote's own addresses, which are placeholders until the commit (audit
+    // round 2, n08): a quote failing the floors — the bridged token not the one delivered, a minimum the bridged amount does
+    // not back — was ranked, chosen and funded, and its execution could not be prepared: the escrow waited for its refund time
+    verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q);
     const est = q.estimate;
     const toAmount = BigInt(est.toAmount), toAmountMin = BigInt(est.toAmountMin);
     // the claimed minimum must be consistent with the slippage we asked for (a lowered min-out is a changed quote)
