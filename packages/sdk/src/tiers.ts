@@ -76,7 +76,9 @@ export function planWords(plan: ExecutionPlan | undefined): string {
 
 /** Issuer-controlled tokens (plan §71): the issuer line names the fact, the isolated vault the protection. */
 const ISSUER_TOKENS: Record<string, string> = { USDC: "Circle", USDT: "Tether" };
-export const issuerLine = (symbol: string): string | null => (ISSUER_TOKENS[symbol.toUpperCase()] ? "Issuer: centralized · Freeze risk: present · Vault: isolated" : null);
+/** The token is issuer-controlled: the Review shows the issuer line (the app words it, audit round 2, r55). */
+export const issuerControlled = (symbol: string): boolean => !!ISSUER_TOKENS[symbol.toUpperCase()];
+export const issuerLine = (symbol: string): string | null => (issuerControlled(symbol) ? "Issuer: centralized · Freeze risk: present · Vault: isolated" : null);
 
 /** Plan §72: a route is native-to-native when neither side is an issuer-controlled token and no leg is wrapped. */
 export const routeKind = (from: AssetRef, to: AssetRef, nativeAssets: boolean | undefined): "Native-to-native" | "Issuer-dependent" =>

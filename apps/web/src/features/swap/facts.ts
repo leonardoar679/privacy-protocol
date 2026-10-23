@@ -9,20 +9,22 @@ import { unacknowledgedBlocks, type LintItem } from "@privacy-wallet/protocol/wa
 import { formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
-import { formatCount } from "../../app/i18n/intl";
+import { formatCount, formatUsdCompact } from "../../app/i18n/intl";
 import { formatAmount, isBucketFor, type Asset } from "@privacy-wallet/sdk/assets";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import type { Policy, Preference, Protection, ProviderRiskView, QuoteSet, RouteScore, ServiceQuote, ServiceOrder, AssetRef } from "@privacy-wallet/sdk/swapService";
 import type { Signed } from "@privacy-wallet/sdk/swapExecute";
-import { IMPACT_CAP_BPS, planWords } from "@privacy-wallet/sdk/tiers";
-import { feeSummary, planLabel } from "@privacy-wallet/sdk/swapService";
+import { IMPACT_CAP_BPS } from "@privacy-wallet/sdk/tiers";
+import { feeSummary } from "@privacy-wallet/sdk/swapService";
 import { buildCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
-import { CUSTODY_WORDS, GATE_WORDS, durationWords, hours, providerKind, refOf, settlementWords, type Target } from "./targets";
+import { CUSTODY_WORDS, GATE_WORDS, durationWords, providerKind, refOf, settlementWords, type Target } from "./targets";
 import { netOfShield } from "./model";
 import { destinationStatusWords } from "../destinationWords";
+import { planDetail, planText } from "../review/words";
+import { hoursText } from "../../app/i18n/duration";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 const fmt = (units: string | bigint, decimals: number) => fmtUnits(units, decimals);
@@ -60,7 +62,7 @@ export interface SwapContext {
 export const usdOfUnits = (c: Pick<SwapContext, "usd" | "units" | "fromAsset">, x: bigint): string | null => {
   if (c.usd === null || c.units <= 0n) return null;
   const usdPer = c.usd / (Number(c.units) / 10 ** c.fromAsset.decimals);
-  return formatUsd(usdPer * (Number(x) / 10 ** c.fromAsset.decimals), { compact: true });
+  return formatUsdCompact(usdPer * (Number(x) / 10 ** c.fromAsset.decimals));
 };
 export const amountWords = (c: Pick<SwapContext, "usd" | "units" | "fromAsset">, x: bigint): string => `${formatAmount(c.fromAsset, x)} ${c.fromAsset.symbol}${usdOfUnits(c, x) ? ` (≈ ${usdOfUnits(c, x)})` : ""}`;
 export const liveQuotesOf = (q: QuoteSet): number => (q.competition ? q.competition.filter((x) => x.outcome === "quoted").length : q.quotes.length);
@@ -99,7 +101,7 @@ export function commitDetails(c: SwapContext, prov: string, quote: ServiceQuote,
   return { provider: prov, mode: quote.plan?.mode ?? "single", parts: quote.plan?.parts, fees: feeSummary(quote), expectedOutput: `${fmt(quote.toAmount, dec)} ${sym}`, settlement: settlementWords(prov), alternatives: alternativesOf(c.quotes, prov), score: `${score.total}`, linkEvidence: c.quotes.links?.[prov]?.evidence };
 }
 
-export const commitExecution = (c: SwapContext, quote: ServiceQuote) => ({ words: planWords(quote.plan), detail: quote.plan && quote.plan.mode !== "single" ? planLabel(quote.plan) : undefined, eta: `~${hours(quote.etaSeconds)}${c.policy !== "fastest" ? c.t("swap.afterFunding") : ""}` });
+export const commitExecution = (c: SwapContext, quote: ServiceQuote) => ({ words: planText(c.t, quote.plan), detail: quote.plan && quote.plan.mode !== "single" ? planDetail(c.t, quote.plan) : undefined, eta: `~${hoursText(c.t, quote.etaSeconds)}${c.policy !== "fastest" ? c.t("swap.afterFunding") : ""}` });
 
 /** The execute moment (spec §24): the checked call, the simulation, the lint read against the call. */
 export function executeLines(t: T, s: Signed, stored: StoredSwap | null, to: AssetRef, dest: string, signLint: LintItem[] | null): ReviewLine[] {

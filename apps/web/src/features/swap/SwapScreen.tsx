@@ -35,7 +35,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
 import { feeTerms, maxSpendable } from "@privacy-wallet/sdk/privateTx";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
-import { controlsFor, holdMs, issuerLine, routeKind } from "@privacy-wallet/sdk/tiers";
+import { controlsFor, holdMs, issuerControlled, routeKind } from "@privacy-wallet/sdk/tiers";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { walletLint, topBucket } from "@privacy-wallet/sdk/wallet/lintFacts";
@@ -718,7 +718,7 @@ export function SwapScreen(p: SwapScreenProps) {
               () => setRouteAck(true),
               () => setDestAck(true),
             )}
-            issuer={issuerLine(fromAsset.symbol) ?? issuerLine(to.ref.symbol)}
+            issuer={issuerControlled(fromAsset.symbol) || issuerControlled(to.ref.symbol)}
             routeKind={routeKind(refOf(fromAsset), to.ref, quote.nativeAssets)}
             crossChain={crossChain}
             details={commitDetails(ctx, chosen.provider, quote, score)}

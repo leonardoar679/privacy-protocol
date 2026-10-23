@@ -16,7 +16,7 @@ import { stepsAmountAtFixedPoint } from "./model";
 import { destinationStatusWords, destinationWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
-import { availablePrice, formatUsd, higherTier, TIERS, tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import { availablePrice, formatUsd, higherTier, TIERS, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
@@ -24,9 +24,9 @@ import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { formatDateTime } from "../../app/i18n/intl";
-import { feeSummary, planLabel, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
+import { feeSummary, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
 import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "@privacy-wallet/sdk/swapExecute";
-import { controlsFor, exportOrderReview, issuerLine, planWords, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
+import { controlsFor, exportOrderReview, issuerControlled, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
 import { downloadText } from "@privacy-wallet/sdk/download";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { swapFunding, type FeeSplit, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
@@ -68,7 +68,9 @@ import { Wizard } from "./Wizard";
 import { alternativesOf, campaignFacts, campaignLines, commitDetails, commitExecution, commitLines, executeLines, liveQuotesOf, orderTarget, rerouteLines, usdOfUnits, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy, strictQuote } from "./protectedChecks";
 import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
-import { TARGETS, durationWords, hours, refOf, settlementWords, type Target } from "./targets";
+import { TARGETS, durationWords, refOf, settlementWords, type Target } from "./targets";
+import { planDetail, planText, TIER_WORDS } from "../review/words";
+import { hoursText } from "../../app/i18n/duration";
 import { useOperation, useSession, useSettings } from "../../hooks";
 
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
@@ -379,7 +381,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
         moment: "commit", tier, controls, usd: usd !== null ? formatUsd(usd) : null, amount: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}`, from: t("swap.fromProtected", { symbol: fromAsset.symbol }),
         to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: `${fmtUnits(quote.toAmountMin, dec)} ${sym}`, execution: commitExecution(ctx, quote),
         privacy: { level: levelOf(score.components.privacy), score: score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: commitLines(ctx, prov, quote, () => setRouteAck(true), () => setDestAck(true)),
-        issuer: issuerLine(fromAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(fromAsset), to.ref, quote.nativeAssets), crossChain: to.ref.chain !== refOf(fromAsset).chain, details: commitDetails(ctx, prov, quote, score),
+        issuer: issuerControlled(fromAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(fromAsset), to.ref, quote.nativeAssets), crossChain: to.ref.chain !== refOf(fromAsset).chain, details: commitDetails(ctx, prov, quote, score),
         advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined, secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
         secondDevice: controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
         tradeCheck: tradeCheckFor(prov, quote, score, q.links?.[prov]?.public, lintItems, units, to.ref), busy, error, protectedExecution: controls.protectedExecution,
@@ -395,9 +397,9 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
         moment: "execute", tier: storedTier, controls: executeControls, usd: stored?.value && typeof stored.value === "object" && "usd" in (stored.value as object) ? formatUsd((stored.value as { usd: number }).usd) : usd !== null ? formatUsd(usd) : null,
         amount: `${formatAmount(orderAsset, BigInt((stored?.params as { amount?: string })?.amount ?? "0"))} ${orderAsset.symbol}`, from: t("swap.fromEscrow"),
         to: { network: orderTarget(stored, to, TARGETS).network, asset: sym, address: dest, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: s.call.minOut !== null ? `${fmtUnits(s.call.minOut.toString(), dec)} ${sym}` : null,
-        execution: { words: planWords(s.prepared.plan ?? (stored?.plan as ExecutionPlan | undefined)), detail: s.prepared.plan && s.prepared.plan.mode !== "single" ? planLabel(s.prepared.plan) : undefined, eta: `~${hours(quote.etaSeconds ?? 0)}` },
+        execution: { words: planText(t, s.prepared.plan ?? (stored?.plan as ExecutionPlan | undefined)), detail: s.prepared.plan && s.prepared.plan.mode !== "single" ? planDetail(t, s.prepared.plan) : undefined, eta: `~${hoursText(t, quote.etaSeconds ?? 0)}` },
         privacy: { level: levelOf(order?.privacy.score ?? 0), score: order?.privacy.score }, lint: signLint ?? [], onAcknowledgeLint: ack, lines: executeLines(t, s, stored, tgt, dest, signLint),
-        issuer: issuerLine(orderAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(orderAsset), tgt, quote.nativeAssets), crossChain: tgt.chain !== refOf(orderAsset).chain,
+        issuer: issuerControlled(orderAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(orderAsset), tgt, quote.nativeAssets), crossChain: tgt.chain !== refOf(orderAsset).chain,
         details: { provider: s.call.provider, mode: s.prepared.plan?.mode ?? "single", parts: s.prepared.plan?.parts, fees: t("swap.feesAsQuoted"), expectedOutput: quote.toAmount ? `${fmtUnits(quote.toAmount, dec)} ${sym}` : t("swap.asQuoted"), settlement: settlementWords(s.call.provider), alternatives: quotes ? alternativesOf(quotes, s.call.provider) : [] },
         advanced, onExport: executeControls.export && stored ? () => downloadText(`privacy-wallet-order-${stored.orderId.slice(2, 10)}.json`, exportOrderReview(stored, { simulation: s.sim, lint: signLint })) : undefined, secondFactor: executeControls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
         secondDevice: executeControls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
@@ -412,9 +414,9 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       props = {
         moment: "campaign", tier, controls, usd: usd !== null ? formatUsd(usd) : null, amount: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}`, from: t("swap.fromProtectedSteps", { symbol: fromAsset.symbol, n: f.steps }),
         to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: t("swap.receiveMinProRata", { amount: `${fmtUnits(f.quote.toAmountMin, dec)} ${sym}` }),
-        execution: { words: t("swap.protectedExecution"), detail: t("swap.stepsEach", { n: f.steps, words: planWords(f.quote.plan).toLowerCase() }), eta: t("swap.facts.about", { duration: t("swap.durationOf", { duration: f.details.duration }) }).replace(/^about about /, "about ") },
+        execution: { words: t("swap.protectedExecution"), detail: t("swap.stepsEach", { n: f.steps, words: planText(t, f.quote.plan).toLowerCase() }), eta: t("swap.facts.about", { duration: t("swap.durationOf", { duration: f.details.duration }) }).replace(/^about about /, "about ") },
         privacy: { level: f.verdict.privacy, score: f.score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: campaignLines(ctx, f, () => setRouteAck(true), () => setDestAck(true)),
-        issuer: issuerLine(fromAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets), maximumLoss: f.maximumLoss, verdict: f.verdict, protectionDetails: f.details, crossChain: to.ref.chain !== refOf(fromAsset).chain,
+        issuer: issuerControlled(fromAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets), maximumLoss: f.maximumLoss, verdict: f.verdict, protectionDetails: f.details, crossChain: to.ref.chain !== refOf(fromAsset).chain,
         details: { provider: review.provider, mode: f.quote.plan?.mode ?? "single", parts: f.quote.plan?.parts, fees: feeSummary(f.quote), expectedOutput: t("swap.expectedWhole", { amount: `${fmtUnits(f.quote.toAmount, dec)} ${sym}` }), settlement: settlementWords(review.provider), alternatives: alternativesOf(q, review.provider), score: `${f.score.total}` },
         advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined,
         secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null, secondDevice: controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
@@ -500,7 +502,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   };
   const quoteView: QuoteView | null = chosen && chosenQuote ? {
     pay: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}${usd !== null ? ` · ≈ ${formatUsd(usd)}` : ""}`, receive: `≈ ${fmtUnits(chosenQuote.toAmount, to.ref.decimals)} ${to.ref.symbol}`, minimum: `≈ ${fmtUnits(chosenQuote.toAmountMin, to.ref.decimals)} ${to.ref.symbol}`,
-    fees: feeSummary(chosenQuote), time: `~${hours(chosenQuote.etaSeconds)}${policy !== "fastest" ? t("swap.afterFunding") : ""}`, protection: levelOf(chosen.components.privacy) === "Reduced" ? "Reduced" : "High", route: advanced ? `${t("swap.bestRoute")} · ${chosen.provider}` : t("swap.bestProtectedRoute"),
+    fees: feeSummary(chosenQuote), time: `~${hoursText(t, chosenQuote.etaSeconds)}${policy !== "fastest" ? t("swap.afterFunding") : ""}`, protection: levelOf(chosen.components.privacy) === "Reduced" ? "Reduced" : "High", route: advanced ? `${t("swap.bestRoute")} · ${chosen.provider}` : t("swap.bestProtectedRoute"),
   } : null;
   const swapFeeView = chosenQuote && order === null ? swapFees({ amount: units, terms: funding && funding.amount === units ? funding.terms : { minimum: 0n, feePercentBps: 0 }, executorTip: BigInt(quotes?.executorTip ?? "0"), toAmount: BigInt(chosenQuote.toAmount), toAmountMin: BigInt(chosenQuote.toAmountMin), providerUsd: chosenQuote.fees?.reduce((s, f) => s + (f.usd ?? 0), 0) || null, networkUsd: null, unvalued: feeSummary(chosenQuote), usdPerUnit: usdPerUnitOf(), formatFrom: (u) => `${formatAmount(fromAsset, u)} ${fromAsset.symbol}`, formatTo: (u) => `${fmtUnits(u, to.ref.decimals)} ${to.ref.symbol}`, formatUsd: (x) => formatUsd(x), t }) : null;
   const crossChain = to.ref.chain !== refOf(fromAsset).chain;
@@ -518,7 +520,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
             </Card>
             <AmountInput id="swap-amount" label={t("swap.amount")} asset={fromAsset} value={amount} onChange={(v) => { setAmount(v); setQuotes(null); reset(); }} usd={usd !== null ? `≈ ${formatUsd(usd)}` : null} testId="swap-amount"
               hint={units > 0n && !isBucketFor(fromAsset, units) ? <>{t("send.exactFingerprint")} {bucket ? <button type="button" className="ds-chip" onClick={() => { setAmount(formatAmount(fromAsset, bucket)); setQuotes(null); reset(); }} data-testid="swap-use-bucket">{t("swap.useBucket", { amount: formatAmount(fromAsset, bucket), symbol: fromAsset.symbol })}</button> : t("swap.chooseLarger")}</> : undefined} />
-            {assessment && assessment.tier !== "standard" ? <p className="ds-note-warn" data-testid="swap-large">{assessment.failSafe ? t("swap.largeFailSafe") : `${tierLabel[assessment.tier]}: `}{t("swap.largeNotice")}</p> : null}
+            {assessment && assessment.tier !== "standard" ? <p className="ds-note-warn" data-testid="swap-large">{assessment.failSafe ? t("swap.largeFailSafe") : `${t(TIER_WORDS[assessment.tier])}: `}{t("swap.largeNotice")}</p> : null}
             <AddressInput id="swap-destination" label={destinationEdited ? t("swap.receiveAtOwn") : t("swap.receiveAtFresh")} value={destination} onChange={changeDestination} checks={checks} error={destinationError || undefined} placeholder={t("swap.destinationPlaceholder")} pasteLabel={t("send.paste")} testId="swap-destination"
               status={destinationEdited ? (
                 <>
@@ -527,7 +529,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
                 </>
               ) : null} />
             {destinationError ? <p className="ds-field-error" data-testid="destination-error">{destinationError}</p> : null}
-            <p className="ds-note">{window[1] === 0 ? t("swap.fundedNoDelay") : t("swap.fundedWithin", { lo: hours(window[0]), hi: hours(window[1]) })}</p>
+            <p className="ds-note">{window[1] === 0 ? t("swap.fundedNoDelay") : t("swap.fundedWithin", { lo: hoursText(t, window[0]), hi: hoursText(t, window[1]) })}</p>
             {busy ? <p className="ds-note" data-testid="swap-busy">{busy}</p> : null}
             {error ? <p className="ds-note-warn" data-testid="swap-error">{error}</p> : null}
           </>

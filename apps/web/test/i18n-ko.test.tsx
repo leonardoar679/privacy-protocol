@@ -5,7 +5,8 @@
 // units; the picker under More → Language (Automatic, English, 한국어) writes the preference, and the catalog, the
 // document's lang and Intl follow — English chosen on a Korean device stays English. The safety steps of a large payment
 // read in Korean too (audit round 2, r55): the address book's status under a typed destination, its way forward, the
-// verification and the immediate use; the privacy check, every sentence of the lint by its code.
+// verification and the immediate use; the privacy check, every sentence of the lint by its code; the Review of a large
+// payment, its tier, privacy level, issuer line, route, execution and verdict.
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +19,7 @@ import { en } from "../src/app/i18n/en";
 import { ko } from "../src/app/i18n/ko";
 import { catalogReady, loadCatalog } from "../src/app/i18n/catalogs";
 import { getLocale, setLocale, t } from "../src/app/i18n/messages";
-import { formatCount, formatDate, intlLocale } from "../src/app/i18n/intl";
+import { formatCount, formatDate, formatUsdCompact, intlLocale } from "../src/app/i18n/intl";
 import { applyLocale } from "../src/app/i18n/locale";
 import { prefs } from "../src/storage/prefs";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -50,6 +51,12 @@ import { AddressBookPanel, DestinationStatus } from "../src/components/protectio
 import { destinationStatusWords } from "../src/features/destinationWords";
 import { LINT_CODES, lint, type LintFacts } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { PrivacyLint, lintWords } from "../src/components/PrivacyLint";
+import { Review, type ReviewProps } from "../src/features/review/ReviewScreen";
+import { amountWords, commitExecution, commitLines, type SwapContext } from "../src/features/swap/facts";
+import { controlsFor } from "@privacy-wallet/sdk/tiers";
+import type { QuoteSet, ServiceQuote } from "@privacy-wallet/sdk/swapService";
+import type { MessageKey } from "../src/app/i18n/en";
+import type { Vars } from "../src/app/i18n/messages";
 
 // the relayer's terms (Send quotes with them): read from the engine, never fetched here
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
@@ -426,6 +433,154 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
       expect(korean, i.id).toMatch(/[가-힣]/);
       expect(englishOf(korean), i.id).toEqual([]);
     }
+  });
+
+  it("the Review of a large payment reads in Korean: the tier, the privacy level, the issuer line, the route, the execution and the verdict (audit round 2, r55)", async () => {
+    await loadCatalog("ko");
+    prefs().update({ locale: "ko", localeChosen: true });
+    expect(applyLocale()).toBe("ko");
+    const kt = (k: MessageKey, v?: Vars) => t(k, v, "ko");
+    const quote = {
+      provider: "thorchain",
+      category: "C",
+      toAmount: "300000000",
+      toAmountMin: "298000000",
+      etaSeconds: 2400,
+      impactBps: 40,
+      nativeAssets: false,
+      plan: { mode: "streaming", parts: 5, intervalBlocks: 10, expectedSeconds: 1800 },
+    } as unknown as ServiceQuote;
+    const ctx = {
+      t: kt,
+      policy: "best",
+      quotes: { quotes: [quote], scores: [] } as unknown as QuoteSet,
+      to: { id: "BTC", ref: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, network: "Bitcoin" },
+      controls: controlsFor("high-value"),
+      destinationEdited: false,
+      parsedOk: true,
+      destAck: false,
+      routeAck: false,
+      destCheck: null,
+      destinationLocked: false,
+      lintItems: null,
+    } as unknown as SwapContext;
+    const lintItems = lint({
+      action: "swap",
+      tier: "high-value",
+      sourceIsPool: true,
+      destinationKind: "fresh",
+      destinationIsPublicWallet: false,
+      linkPublic: true,
+      providerIdentityDetached: true,
+      delaySeconds: 0,
+      amountIsBucket: false,
+      minOutVerified: null,
+      privateSubmission: true,
+      rpcEndpoints: 2,
+      lightClient: true,
+      largePiece: null,
+    });
+    const base: ReviewProps = {
+      moment: "commit",
+      tier: "high-value",
+      controls: controlsFor("high-value"),
+      usd: "$150,000",
+      amount: "50 ETH",
+      from: kt("swap.fromProtected", { symbol: "ETH" }),
+      to: { network: "Bitcoin", asset: "BTC", address: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", kind: "fresh" },
+      receiveMin: "2.98 BTC",
+      execution: commitExecution(ctx, quote),
+      privacy: { level: "Reduced" },
+      lint: lintItems,
+      onAcknowledgeLint: () => undefined,
+      lines: commitLines(
+        ctx,
+        "thorchain",
+        quote,
+        () => undefined,
+        () => undefined,
+      ),
+      issuer: true,
+      routeKind: "Issuer-dependent",
+      crossChain: true,
+      verdict: {
+        security: "Review",
+        privacy: "Reduced",
+        why: kt("swap.facts.reliability", { reliability: 80 }),
+        execution: "Only route",
+        executionWhy: kt("swap.facts.onlyRoute"),
+      },
+      onConfirm: () => undefined,
+      onCancel: () => undefined,
+    };
+    // the maximum-loss figures as the facts write them: 400 ETH at $1M
+    const ETH1 = 10n ** 18n;
+    const sized = { usd: 1_000_000, units: 400n * ETH1, fromAsset: { symbol: "ETH", decimals: 18 } } as unknown as SwapContext;
+    expect(amountWords(sized, 10n * ETH1)).toBe("10 ETH (≈ $2.5만)");
+    expect([formatUsdCompact(25_000, "en"), formatUsdCompact(1_000_000, "en"), formatUsdCompact(1_000_000, "ko")]).toEqual(["$25K", "$1M", "$100만"]);
+    const cases: [string, Partial<ReviewProps>][] = [
+      ["a swap's commit, high-value", {}],
+      [
+        "a withdrawal, enhanced",
+        {
+          moment: "withdraw",
+          tier: "enhanced",
+          controls: controlsFor("enhanced"),
+          privacy: { level: "Good" },
+          to: { network: "Ethereum", asset: "USDC", address: TYPED, kind: "entered" },
+          execution: null,
+          verdict: null,
+          routeKind: null,
+          crossChain: false,
+          lines: [],
+        },
+      ],
+      [
+        "a protected execution, institutional",
+        {
+          moment: "campaign",
+          tier: "institutional",
+          controls: controlsFor("institutional"),
+          privacy: { level: "Excellent" },
+          routeKind: "Native-to-native",
+          verdict: {
+            security: "Safe to execute",
+            privacy: "Excellent",
+            why: kt("swap.facts.noIncident"),
+            execution: "Best available",
+            executionWhy: kt("swap.facts.wonOnWeights", { n: 3, provider: "THORChain" }),
+          },
+          maximumLoss: {
+            order: amountWords(sized, 400n * ETH1),
+            cap: amountWords(sized, 10n * ETH1),
+            maxExposure: amountWords(sized, 10n * ETH1),
+            protected: amountWords(sized, 390n * ETH1),
+            preparation: kt("swap.facts.prepLive", { n: 40 }),
+          },
+          protectedExecution: true,
+        },
+      ],
+      [
+        "an execution that must not run",
+        { moment: "execute", privacy: { level: "Good" }, verdict: { security: "Do not execute", privacy: "Good", why: kt("swap.facts.thinMarket") } },
+      ],
+    ];
+    const leaks: string[] = [];
+    for (const [id, over] of cases) {
+      const view = render(<Review {...base} {...over} />);
+      const english = englishWords(view.container);
+      if (english.length) leaks.push(`${id}: ${english.join(", ")}`);
+      view.unmount();
+    }
+    expect(leaks).toEqual([]);
+    expect(commitExecution(ctx, quote)).toMatchObject({ words: "비공개 분할 경로", detail: "약 30분에 걸친 5개 부분" });
+    // in English, the words as before
+    setLocale("en");
+    const english = render(<Review {...base} {...cases[2][1]} />);
+    expect(english.container).toHaveTextContent("Institutional transfer.");
+    expect(english.container).toHaveTextContent("Issuer: centralized · Freeze risk: present · Vault: isolated");
+    expect(screen.getByTestId("verdict-security")).toHaveTextContent("Safe to execute");
+    expect(screen.getByTestId("verdict-execution")).toHaveTextContent("Best available ✓");
   });
 
   it("the wallet's limits are the protocol's, said in the reader's language", async () => {

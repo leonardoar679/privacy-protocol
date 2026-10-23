@@ -27,7 +27,7 @@ import { HousekeepingNeeded, privateTransfer, privateWithdrawal, maxSpendable } 
 import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
-import { controlsFor, holdMs, issuerLine } from "@privacy-wallet/sdk/tiers";
+import { controlsFor, holdMs, issuerControlled } from "@privacy-wallet/sdk/tiers";
 import { downloadText } from "@privacy-wallet/sdk/download";
 import { destinationCheck, markAddressSettled, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
@@ -480,7 +480,7 @@ export function SendScreen(p: SendScreenProps) {
             lint={lint ?? []}
             onAcknowledgeLint={(id) => setAcknowledged((a) => [...a, id])}
             lines={lines}
-            issuer={issuerLine(asset.symbol)}
+            issuer={issuerControlled(asset.symbol)}
             advanced={advanced}
             onExport={exportReview}
             secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null}

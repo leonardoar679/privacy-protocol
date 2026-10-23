@@ -6,11 +6,12 @@
 // block: the security verdict is never shown without the privacy level), the route details under Advanced, the trade
 // check on Private AI. A tap below the `large-protected` band, the hold from it, the second factor from
 // high-value-secondary, the separate device at institutional (no password fallback), the review hold and the export
-// at institutional. Same props and test ids as the V2–V4 screen; the words come from the message catalog.
+// at institutional. Same props and test ids as the V2–V4 screen; the words come from the message catalog, the values too (the
+// tier, the privacy level, the issuer line, the route kind, the verdict — audit round 2, r55; ./words.ts).
 import { useState, type ReactNode } from "react";
 import type { Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
-import { tierLabel, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, Collapsible, HoldButton, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
@@ -19,6 +20,7 @@ import { holdMs, type Controls } from "@privacy-wallet/sdk/tiers";
 import type { TradeCheck } from "../../zkapi/tradeCheck";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
+import { EXECUTION_WORDS, LEVEL_WORDS, ROUTE_KIND_WORDS, SECURITY_WORDS, TIER_WORDS } from "./words";
 
 export interface ReviewLine { id: "price" | "route" | "destination" | "slippage" | "privacy" | "exposure" | "security"; label: string; ok: boolean; meaning: string; /** the line is ok only once the user acknowledges this */ ack?: { text: string; done: boolean; onAck: () => void } }
 export interface RouteDetails { provider: string; mode: string; parts?: number; fees: string; expectedOutput: string; settlement: string; alternatives: { provider: string; outcome: string; reason?: string }[]; score?: string; linkEvidence?: string }
@@ -43,7 +45,8 @@ export interface ReviewProps {
   lint: LintItem[];
   onAcknowledgeLint: (id: LintId) => void;
   lines: ReviewLine[];
-  issuer?: string | null;
+  /** the token is issuer-controlled (sdk issuerControlled): the issuer line, in the catalog's words */
+  issuer?: boolean | null;
   routeKind?: "Native-to-native" | "Issuer-dependent" | null;
   details?: RouteDetails | null;
   advanced?: boolean;
@@ -134,7 +137,7 @@ export function Review(p: ReviewProps) {
   return (
     <div className="ds-card ds-elev-1 ds-pad-md ds-review" data-testid="review" data-moment={p.moment}>
       <h2 className="ds-review-title">{title}</h2>
-      <p className="ds-note">{what} {tierLabel[p.tier]}.</p>
+      <p className="ds-note">{what} {t(TIER_WORDS[p.tier])}.</p>
       <div className="ds-numeral ds-review-usd" data-testid="review-usd">{p.usd ?? "—"}</div>
       <div className="ds-review-amount-v5">{p.amount}</div>
       <Row label={t("review.from")}>{p.from}</Row>
@@ -147,10 +150,10 @@ export function Review(p: ReviewProps) {
         </>
       ) : null}
       {p.crossChain ? <p className="ds-note-warn" data-testid="non-atomic">{t("review.nonAtomic")}</p> : null}
-      <Row label={t("review.privacy")}><span className={levelClass(p.privacy.level)}>{p.privacy.level}{p.advanced && p.privacy.score !== undefined ? ` (${p.privacy.score}/100)` : ""}</span></Row>
+      <Row label={t("review.privacy")}><span className={levelClass(p.privacy.level)}>{t(LEVEL_WORDS[p.privacy.level])}{p.advanced && p.privacy.score !== undefined ? ` (${p.privacy.score}/100)` : ""}</span></Row>
       {p.protectedExecution ? <Row label={t("review.protection")} testId="review-protection">{t("review.protectionPrivate")}</Row> : null}
-      {p.issuer ? <Row label={t("review.token")}>{p.issuer}</Row> : null}
-      {p.routeKind ? <Row label={t("review.route")}>{p.routeKind}</Row> : null}
+      {p.issuer ? <Row label={t("review.token")}>{t("review.issuerLine")}</Row> : null}
+      {p.routeKind ? <Row label={t("review.route")}>{t(ROUTE_KIND_WORDS[p.routeKind])}</Row> : null}
       <PrivacyLint items={p.lint} onAcknowledge={p.onAcknowledgeLint} compact />
       {p.maximumLoss ? (
         <div className="ds-review-block" data-testid="maximum-loss">
@@ -164,9 +167,9 @@ export function Review(p: ReviewProps) {
       ) : null}
       {p.verdict ? (
         <div className="ds-review-block" data-testid="verdict">
-          <Row label={t("review.verdict.security")}><span className={p.verdict.security === "Safe to execute" ? "ds-level ds-level-Excellent" : p.verdict.security === "Review" ? "ds-level ds-level-Reduced" : "ds-level ds-level-danger"} data-testid="verdict-security">{p.verdict.security}</span></Row>
-          <Row label={t("review.verdict.privacy")}><span className={levelClass(p.verdict.privacy)} data-testid="verdict-privacy">{p.verdict.privacy}</span></Row>
-          {p.verdict.execution ? <Row label={t("review.verdict.execution")}><span className={p.verdict.execution === "Best available" ? "ds-level ds-level-Excellent" : p.verdict.execution === "Only route" ? "ds-level ds-level-Good" : "ds-level ds-level-Reduced"} data-testid="verdict-execution">{p.verdict.execution}{p.verdict.execution === "Best available" ? " ✓" : ""}</span></Row> : null}
+          <Row label={t("review.verdict.security")}><span className={p.verdict.security === "Safe to execute" ? "ds-level ds-level-Excellent" : p.verdict.security === "Review" ? "ds-level ds-level-Reduced" : "ds-level ds-level-danger"} data-testid="verdict-security">{t(SECURITY_WORDS[p.verdict.security])}</span></Row>
+          <Row label={t("review.verdict.privacy")}><span className={levelClass(p.verdict.privacy)} data-testid="verdict-privacy">{t(LEVEL_WORDS[p.verdict.privacy])}</span></Row>
+          {p.verdict.execution ? <Row label={t("review.verdict.execution")}><span className={p.verdict.execution === "Best available" ? "ds-level ds-level-Excellent" : p.verdict.execution === "Only route" ? "ds-level ds-level-Good" : "ds-level ds-level-Reduced"} data-testid="verdict-execution">{t(EXECUTION_WORDS[p.verdict.execution])}{p.verdict.execution === "Best available" ? " ✓" : ""}</span></Row> : null}
           <div className="ds-note">{p.verdict.why}{p.verdict.executionWhy ? ` · ${p.verdict.executionWhy}` : ""}</div>
         </div>
       ) : null}
