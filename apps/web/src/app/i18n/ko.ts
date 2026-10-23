@@ -267,6 +267,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.privacyFee": "프라이버시 수수료",
   "screen.review.relayerFee": "릴레이어/네트워크",
   "screen.review.providerFee": "스왑/제공자",
+  "screen.review.mergeFees": "먼저 노트 합치기 ({n} × 릴레이어 수수료)",
   "screen.review.totalFees": "총 수수료",
   "screen.review.confirm": "확인",
   "screen.review.hold": "길게 눌러 확인",

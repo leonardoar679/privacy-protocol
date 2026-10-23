@@ -15,7 +15,10 @@ import { Amt, Usd, type Amount } from "../viewKit";
 
 export type Level = "high" | "medium" | "low";
 export interface ReviewFee {
-  kind: "privacy" | "relayer" | "provider";
+  /** `merges`: the merges a spend of three notes or more needs first, each paying the relayer (audit round 2, r43) */
+  kind: "privacy" | "relayer" | "provider" | "merges";
+  /** how many merges */
+  count?: number;
   usdCents: bigint | null;
   amount?: Amount;
   /** a part in another asset, shown after the amount when no price joins them (V6 Stage 12: a same-chain swap's shield tip) */
@@ -48,6 +51,7 @@ const FEE: Record<ReviewFee["kind"], MessageKey> = {
   privacy: "screen.review.privacyFee",
   relayer: "screen.review.relayerFee",
   provider: "screen.review.providerFee",
+  merges: "screen.review.mergeFees",
 };
 const LEVEL: Record<Level, MessageKey> = { high: "screen.swap.protectionHigh", medium: "screen.swap.protectionMedium", low: "screen.swap.protectionLow" };
 /** The second line of "We stopped this transaction": the blocker in words (spec v2.0 §7.9). */
@@ -139,7 +143,7 @@ export function ReviewView({
       title: t("screen.review.fees"),
       testId: "review-fees",
       rows: [
-        ...m.fees.map((f) => ({ label: t(FEE[f.kind]), value: fee(f), testId: `review-fee-${f.kind}` })),
+        ...m.fees.map((f) => ({ label: t(FEE[f.kind], { n: f.count ?? 1 }), value: fee(f), testId: `review-fee-${f.kind}` })),
         { label: t("screen.review.totalFees"), value: m.totalFeesUsdCents !== null ? <Usd cents={m.totalFeesUsdCents} /> : "—", testId: "review-total-fees" },
       ],
     },

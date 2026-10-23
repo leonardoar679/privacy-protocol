@@ -130,6 +130,35 @@ describe("the fee the Review showed bounds the spend's", () => {
     expect(await withdraw()).toBeInstanceOf(FeeMoved);
   });
 
+  it("a merge whose fee rose above the Review's stops the spend before anything is proved; a spend that needs no merge is not stopped by it (audit round 2, r43)", async () => {
+    const note = (leafIndex: number) => ({
+      note: { vaultId: BigInt(VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: BigInt(40 + leafIndex) },
+      leafIndex,
+      noteData: "0x" as const,
+      spent: false,
+    });
+    for (const i of [0, 1, 2]) noteStore.add(note(i));
+    relayer.fee = 7_000n; // the merge's fee now; the Review showed 5,000
+    const withdraw = (amount: bigint) =>
+      privateWithdrawal({
+        masterSeed: seed,
+        deployment,
+        amount,
+        recipient: "0x00000000000000000000000000000000000000b0",
+        vault: VAULT,
+        submission: relayed,
+        maxFee: 10n ** 16n, // the spend's own fee is within its Review
+        maxMergeFee: 5_000n,
+      }).catch((e) => e);
+    // 2.5 ETH from three 1 ETH notes: one merge first, at a fee above the Review's
+    const moved = await withdraw(25n * 10n ** 17n);
+    expect(moved).toBeInstanceOf(FeeMoved);
+    expect((moved as FeeMoved).now).toBe(7_000n);
+    expect(noteStore.unspent(BigInt(VAULT)), "nothing was merged").toHaveLength(3);
+    // 0.5 ETH needs no merge: the merges' bound never stops it (this offline wallet then fails on the chain, not on the fee)
+    expect(await withdraw(5n * 10n ** 17n)).not.toBeInstanceOf(FeeMoved);
+  });
+
   it("a private transfer whose fee rose stops too", async () => {
     relayer.fee = 9_000n;
     const { encodePrivacyAddress } = await import("@privacy-wallet/protocol/address");

@@ -32,6 +32,7 @@ import { downloadText } from "@privacy-wallet/sdk/download";
 import { destinationCheck, markAddressSettled, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { mergeSchedule } from "@privacy-wallet/sdk/wallet/mergeSchedule";
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
@@ -146,6 +147,18 @@ export function SendScreen(p: SendScreenProps) {
   const ownWallet = dest.kind === "public" && !!p.account && dest.address.toLowerCase() === p.account.toLowerCase();
   const balance = asset ? noteStore.balance(BigInt(asset.vault)) : 0n;
   const total = split?.total ?? units;
+  // the merges a spend of three notes or more needs first, each paying the relayer's minimum (audit round 2, r43): named on
+  // the Review, counted in what leaves and in the balance check, and bounded at the confirmation — they had been none of these
+  const mergeEach = terms.status === "ready" && terms.terms ? terms.terms.minimum : 0n;
+  const mergeCount =
+    asset && split && mergeEach > 0n
+      ? mergeSchedule(
+          noteStore.unspent(BigInt(asset.vault)).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })),
+          split.total,
+          mergeEach,
+        ).pairs.length
+      : 0;
+  const mergeFees = BigInt(mergeCount) * mergeEach;
   const lint =
     asset && units > 0n && relayed && (controls.lint || dest.kind === "public")
       ? walletLint({
@@ -190,7 +203,7 @@ export function SendScreen(p: SendScreenProps) {
     }),
     balance: asset ? amountOf(balance, asset.symbol, asset.decimals) : null,
     amountUsd: usd,
-    amountError: asset && relayed && units > 0n && split && balance < total ? t("send.notEnough", { symbol: asset.symbol }) : null,
+    amountError: asset && relayed && units > 0n && split && balance < total + mergeFees ? t("send.notEnough", { symbol: asset.symbol }) : null,
     addressError:
       dest.kind === "invalid"
         ? destinationWords(t, dest)
@@ -220,7 +233,7 @@ export function SendScreen(p: SendScreenProps) {
       setStatus(t("protect.noDeployment"));
       return;
     }
-    if (balance < split.total) {
+    if (balance < split.total + mergeFees) {
       setStatus(t("send.notEnough", { symbol: asset.symbol }));
       return;
     }
@@ -232,6 +245,7 @@ export function SendScreen(p: SendScreenProps) {
     const feeLines = [
       ...(split.privacy > 0n ? [{ label: t("screen.send.privacyFee"), value: `${formatAmount(asset, split.privacy)} ${asset.symbol}` }] : []),
       { label: t("screen.send.relayer"), value: selfSubmitted ? t("screen.send.paidByWallet") : `${formatAmount(asset, split.network)} ${asset.symbol}` },
+      ...(mergeCount ? [{ label: t("screen.review.mergeFees", { n: mergeCount }), value: `${formatAmount(asset, mergeFees)} ${asset.symbol}` }] : []),
     ];
     const rec = newOperation({
       kind: dest.kind === "private" ? "send" : "withdraw",
@@ -264,6 +278,7 @@ export function SendScreen(p: SendScreenProps) {
           recipient,
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (the audit round of 2026-10-16, c46)
+          ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (audit round 2, r43)
           onStatus: setStatus,
           onEvent,
         });
@@ -276,6 +291,7 @@ export function SendScreen(p: SendScreenProps) {
           recipient: recipient as Address,
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (c46)
+          ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (r43)
           onStatus: setStatus,
           onEvent,
         });
@@ -477,16 +493,20 @@ export function SendScreen(p: SendScreenProps) {
     }
     const cents = (u: bigint) => (price ? centsOf(u, asset.decimals, price.usd1e8) : null);
     const privacyCents = cents(split.privacy),
-      relayerCents = cents(split.network);
+      relayerCents = cents(split.network),
+      mergeCents = mergeCount ? cents(mergeFees) : 0n;
     const review: ReviewModel = {
       kind: "send",
-      pay: { usdCents: cents(split.total), amount: amountOf(split.total, asset.symbol, asset.decimals) },
+      pay: { usdCents: cents(split.total + mergeFees), amount: amountOf(split.total + mergeFees, asset.symbol, asset.decimals) },
       receive: { amount: amountOf(split.delivered, asset.symbol, asset.decimals), approx: false },
       fees: [
         ...(split.privacy > 0n ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, asset.symbol, asset.decimals) }] : []),
         ...(split.network > 0n ? [{ kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network, asset.symbol, asset.decimals) }] : []),
+        ...(mergeCount
+          ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeFees, asset.symbol, asset.decimals) }]
+          : []),
       ],
-      totalFeesUsdCents: privacyCents !== null && relayerCents !== null ? privacyCents + relayerCents : null,
+      totalFeesUsdCents: privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents : null,
       destination: {
         label: dest.kind === "private" ? short(dest.address) : destinationKind === "fresh" ? t("send.freshEntry") : short(dest.address),
         verified: dest.kind === "private" || destinationKind === "fresh" || destAck,

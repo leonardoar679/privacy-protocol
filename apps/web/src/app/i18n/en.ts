@@ -260,6 +260,7 @@ export const en = {
   "screen.review.privacyFee": "Privacy fee",
   "screen.review.relayerFee": "Relayer/network",
   "screen.review.providerFee": "Swap/provider",
+  "screen.review.mergeFees": "Merging notes first ({n} × relayer fee)",
   "screen.review.totalFees": "Total fees",
   "screen.review.confirm": "Confirm",
   "screen.review.hold": "Hold to Confirm",

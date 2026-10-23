@@ -29,7 +29,10 @@ import { startMockCore } from "./helpers/mockRpc";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const HASH2 = ("0x" + "cd".repeat(32)) as `0x${string}`;
-const calls: { transfer: { amount: bigint; recipient: string }[]; withdraw: { amount: bigint; recipient: string }[] } = { transfer: [], withdraw: [] };
+const calls: { transfer: { amount: bigint; recipient: string; maxMergeFee?: bigint }[]; withdraw: { amount: bigint; recipient: string }[] } = {
+  transfer: [],
+  withdraw: [],
+};
 let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" = "ok";
 let feeReads = 0; // the relayer's terms read (audit round 2, r09: "Back to review" reads them again)
 let maxReads = 0; // what a spend of every note leaves after its merges, asked (audit round 2, r08)
@@ -64,10 +67,10 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
       maxReads++;
       return 2_997n * 10n ** 15n; // three 1 ETH notes less the fees of the merge and of the spend
     },
-    privateTransfer: async (o: { amount: bigint; recipient: string; onEvent?: (e: EngineEvent) => void }) => {
+    privateTransfer: async (o: { amount: bigint; recipient: string; maxMergeFee?: bigint; onEvent?: (e: EngineEvent) => void }) => {
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
       if (behaviour === "fee-moved") throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
-      calls.transfer.push({ amount: o.amount, recipient: o.recipient });
+      calls.transfer.push({ amount: o.amount, recipient: o.recipient, ...(o.maxMergeFee !== undefined ? { maxMergeFee: o.maxMergeFee } : {}) });
       emit(o.onEvent, HASH, 5);
       return { txHash: HASH, proofMs: 1234, verifiedLocally: true, recipientNote: { leafIndex: 5 }, spent: [0], submittedBy: "relayer" };
     },
@@ -335,6 +338,29 @@ describe("Send (spec v2.0 §7.4)", () => {
     fireEvent.click(screen.getByTestId("amount-max"));
     await waitFor(() => expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("2.997"));
     expect(maxReads, "never the whole balance of 3").toBe(1);
+  });
+
+  it("a spend of three notes merges first: the Review names the merge and its fee, counts it in what leaves, and bounds it (audit round 2, r43)", async () => {
+    await unlocked(10n ** 18n);
+    for (const leafIndex of [1, 2])
+      noteStore.add({
+        note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: BigInt(20 + leafIndex) },
+        leafIndex,
+        noteData: "0x",
+        spent: false,
+      });
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "2.5");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    // two notes cannot cover 2.5 ETH and its fee: one merge first, at the relayer's minimum
+    expect(screen.getByTestId("review-fee-merges").textContent).toContain("0.001");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await waitFor(() => expect(calls.transfer).toHaveLength(1));
+    expect(calls.transfer[0].maxMergeFee, "the merge pays no more than the Review showed").toBe(10n ** 15n);
   });
 
   it("an address that is not one is refused with its reason; the connected wallet's own address is flagged; more than the protected balance is refused", async () => {

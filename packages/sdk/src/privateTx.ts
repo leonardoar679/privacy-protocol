@@ -578,7 +578,7 @@ export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]):
 /** Perform one split on chain (private self-transfer) and record both notes. */
 export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
 
-async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint } & Progress): Promise<Submitted> {
+async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint } & Progress): Promise<Submitted> {
   await guardDeployment(o.deployment);
   // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
   // this deployment or of one of its tokens) — refused before anything is proved or sent
@@ -645,13 +645,14 @@ export class HousekeepingNeeded extends Error {
 }
 
 /** Perform one merge on chain (private self-transfer) and record the merged note. */
-async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote } & Progress): Promise<Submitted & { merged: OwnedNote }> {
+async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote; /** the merge fee the Review showed: a higher one stops it (FeeMoved; audit round 2, r43) */ mergeFee?: bigint } & Progress): Promise<Submitted & { merged: OwnedNote }> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.a.note.vaultId;
   if (o.b.note.vaultId !== vaultId) throw new Error("cannot merge notes of different assets");
   const vault = ("0x" + vaultId.toString(16).padStart(40, "0")) as Address;
   const terms = await feeTerms(o.deployment, submission, vault);
+  boundFee(terms, o.mergeFee, vault, 0n);
   o.onStatus?.(`Merging two notes (${o.a.leafIndex} + ${o.b.leafIndex}) privately…`);
   const tree = await syncTreeQuorum(o.deployment);
   o.onEvent?.({ type: "verifying" });
@@ -678,11 +679,21 @@ export async function maxSpendable(deployment: Deployment, vault: Address, submi
 }
 
 /** Merge until two notes cover `needed` (+ the fee of each merge and of the final spend). Returns the number of merges performed. */
-async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address; /** the fee of the spend these merges are for (its p + F); read for `needed` when absent */ finalFee?: bigint } & Progress): Promise<number> {
+async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address; /** the fee of the spend these merges are for (its p + F); read for `needed` when absent */ finalFee?: bigint; /** each merge's fee as the Review showed it (audit round 2, r43) */ maxMergeFee?: bigint } & Progress): Promise<number> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   const vaultId = BigInt(vault);
   const terms = await feeTerms(o.deployment, submission, vault); // a merge's own fee: the minimum (a self-transfer)
+  // the merges' fee the Review showed bounds each of them (audit round 2, r43): unshown and unbounded, a gas spike during the
+  // merges — minutes apart, each needing a proof — was paid in full, before the spend itself was refused for its fee. Only a
+  // merge that is needed is refused for it (and mergeNotesInTurn bounds each one again, at its own read of the terms)
+  let moved: FeeMoved | null = null;
+  try {
+    boundFee(terms, o.maxMergeFee, vault, 0n);
+  } catch (e) {
+    if (!(e instanceof FeeMoved)) throw e;
+    moved = e;
+  }
   const feePerTx = terms?.fee.amount ?? 0n;
   // the spend these merges are for pays the percentage of what it delivers besides the minimum (the audit round of
   // 2026-10-16, c33): planned for the minimum alone, an amount just under a note pair's sum was never merged for, and the
@@ -695,11 +706,12 @@ async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: De
     if (!sched.ok && sched.reason === "too-many-merges") throw new HousekeepingNeeded(notes.length, 8, assetByVault(o.deployment, vault)?.symbol ?? "private");
     if (!sched.ok) throw new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs");
     if (!sched.pairs.length) return done;
+    if (moved) throw moved;
     const [ia, ib] = sched.pairs[0];
     const a = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ia)!, b = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ib)!;
     o.onStatus?.(`${sched.pairs.length} merge(s) needed before this spend; merging notes ${a.leafIndex} + ${b.leafIndex}…`);
     o.onEvent?.({ type: "merging", i: done + 1, n: done + sched.pairs.length });
-    await mergeNotesInTurn({ ...o, a, b, submission });
+    await mergeNotesInTurn({ ...o, a, b, submission, ...(o.maxMergeFee !== undefined ? { mergeFee: o.maxMergeFee } : {}) });
     done++;
   }
 }
@@ -753,7 +765,7 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  * of a transaction. Outputs: the recipient's note (their owner commitment, payload encrypted to
  * their view key — they find it by rescanning), our change, the relayer's fee note or a dummy.
  */
-async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
+async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
