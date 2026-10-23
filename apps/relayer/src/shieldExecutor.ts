@@ -185,7 +185,8 @@ export class ShieldExecutor {
    * committed one, a canonical vault for the asset. The same receipt again is the same job (a wallet retrying a lost
    * answer); the same receipt id with other parameters is refused.
    */
-  async add(req: ShieldJobRequest): Promise<ShieldJob> {
+  /** `full`: the open shield jobs fill MAX_SWAP_JOBS — a new receipt is refused `capacity`, one already watched is still answered */
+  async add(req: ShieldJobRequest, o: { full?: boolean } = {}): Promise<ShieldJob> {
     if (!req || !isHex(req.factory, 20) || !req.params || typeof req.params !== "object")
       throw new ShieldJobError("bad_request", "factory, params, noteData and deliverBy are required");
     if (req.factory.toLowerCase() !== this.cfg.factory.toLowerCase())
@@ -218,6 +219,9 @@ export class ShieldExecutor {
         throw new ShieldJobError("receipt_conflict", "another receipt with this id is already watched");
       return existing;
     }
+    // at capacity only after that lookup (audit round 2, r13): the hand-over registers its receipt again, and the cap refused it
+    // before the lookup — a funded same-chain swap whose job was taken was not handed over, until its window closed
+    if (o.full) throw new ShieldJobError("capacity", "too many open shield jobs");
     const { vaultFactory } = await this.poolOf();
     const vault = (await this.cfg.publicClient.readContract({
       address: vaultFactory,

@@ -29,6 +29,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { ABI, predictReceiver, receiverParamsJson, receiverParamsOf, type ReceiverParams } from "@privacy-wallet/contracts";
 import { ESTIMATE_RETRY_SECONDS, MAX_REVERTED_SHIELDS, ShieldExecutor, ShieldJobError, type ShieldJobRequest } from "../src/shieldExecutor";
 import { DROP_AFTER_MS } from "../src/sender";
+import { errorAnswer } from "../src/answers";
 import { orderSignerAddress, shieldVouchDigest, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 import { VOUCHER, VOUCH_KEY } from "./vouch";
 import vector from "../../../contracts/test/periphery/vectors/shield.json";
@@ -284,6 +285,15 @@ describe("job admission", () => {
     expect(job.receiver).toBe(RECEIVER);
     expect(job.state).toBe("waiting-delivery");
     expect(await x.add(request())).toBe(job);
+  });
+  it("at capacity the receipt it already watches is still answered, a new one refused 'capacity' (503): the hand-over registers it again (audit round 2, r13)", async () => {
+    const x = executor();
+    const job = await x.add(request());
+    expect(await x.add(request(), { full: true })).toBe(job);
+    const other = request({ params: { ...receiverParamsJson(params), receiptId: ("0x" + "77".repeat(32)) as Hex } });
+    await expect(x.add(other, { full: true })).rejects.toMatchObject({ code: "capacity" });
+    expect(errorAnswer(new ShieldJobError("capacity", "too many open shield jobs")).status).toBe(503);
+    expect((await x.add(other)).state, "below the cap: accepted").toBe("waiting-delivery");
   });
   it("refuses another factory, a payload of another hash, a tip above 1 % of the minimum, a past deadline, no vault, a conflicting receipt", async () => {
     const x = executor();

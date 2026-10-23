@@ -167,7 +167,8 @@ the relayer's cost: an escrow executes once and refunds what it holds, and a rec
 
 ## Abuse limits
 Per-caller token bucket (`RATE_PER_MINUTE`, default 60, burst ≤ 20; `429` + `retry-after`), a cap on
-open swap jobs (`MAX_SWAP_JOBS`, default 1000; `503`), 1 MB bodies, JSON only on POST (`415`). Nothing
+open swap jobs and open shield jobs (`MAX_SWAP_JOBS`, default 1000; `503` — a shield receipt already watched is
+answered at the cap too: audit round 2, r13), 1 MB bodies, JSON only on POST (`415`). Nothing
 about a caller is logged. A public relayer should still sit behind its own front proxy.
 
 ## Trust

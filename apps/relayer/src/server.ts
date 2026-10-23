@@ -115,8 +115,8 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/shield") {
       if (!shields || !apiVoucher) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
-      if (shields.open() >= MAX_SWAP_JOBS) return send(503, { error: "too many open shield jobs", code: "capacity" });
-      const job = await shields.add((await readJson(req, 100_000)) as never);
+      // a receipt it already watches is answered at capacity too (audit round 2, r13): the hand-over registers it again
+      const job = await shields.add((await readJson(req, 100_000)) as never, { full: shields.open() >= MAX_SWAP_JOBS });
       shields.tick().catch(() => {}); // shield at once if the delivery is already there
       return send(200, job);
     }

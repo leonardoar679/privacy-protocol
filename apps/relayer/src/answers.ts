@@ -16,7 +16,8 @@ export interface ErrorAnswer {
 export function errorAnswer(e: unknown): ErrorAnswer {
   if (e instanceof RelayerError)
     return { status: e.code === "simulation_failed" || e.code === "nullifier_in_flight" ? 409 : 400, body: { error: redactUrls(e.message), code: e.code } };
-  if (e instanceof SwapJobError || e instanceof ShieldJobError) return { status: 400, body: { error: redactUrls(e.message), code: e.code } };
+  if (e instanceof SwapJobError || e instanceof ShieldJobError)
+    return { status: e.code === "capacity" ? 503 : 400, body: { error: redactUrls(e.message), code: e.code } };
   return { status: 500, body: { error: "internal error", code: "internal" } };
 }
 
