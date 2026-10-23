@@ -137,11 +137,14 @@ describe("trackOrder", () => {
     expect(j.history?.map((h) => h.state)).toEqual(["DESTINATION_SUBMITTED"]);
     expect(j.state).toBe("executed");
     expect(s.journal().activity![0].note).toBe("→ BTC · Waiting for destination");
-    // the same facts again: no new history entry; the execution tx is never overwritten
-    const b = await trackOrder(s.journal().swaps[0], { ...deps("executed", { state: "destination-submitted" }), readers: { ...deps("executed", null).readers, job: async () => job("executed", { executionTx: "0x" + "ff".repeat(32) }), track: async () => ({ state: "destination-submitted" }) } });
+    // the same facts again: no new history entry; the job names another execution — a copy of the relayer's call that
+    // executed the escrow first, its own reverted (audit round 2, r01): the journal follows it, and the provider is tracked by it
+    const tracked: string[] = [];
+    const b = await trackOrder(s.journal().swaps[0], { ...deps("executed", { state: "destination-submitted" }), readers: { ...deps("executed", null).readers, job: async () => job("executed", { executionTx: "0x" + "ff".repeat(32) }), track: async (_o: StoredSwap, tx: string) => { tracked.push(tx); return { state: "destination-submitted" }; } } });
     expect(b.tracked.state).toBe("DESTINATION_SUBMITTED");
+    expect(tracked).toEqual(["0x" + "ff".repeat(32)]);
     j = s.journal().swaps[0];
-    expect(j.executionTx).toBe("0x" + "ee".repeat(32));
+    expect(j.executionTx).toBe("0x" + "ff".repeat(32));
     expect(j.history).toHaveLength(1);
     // a transition adds one entry with its time and label
     const c = await trackOrder(j, { ...deps("completed", { state: "completed", deliveredAmount: "3000000" }), now: NOW + 60_000 });

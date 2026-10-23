@@ -28,7 +28,7 @@
 // the floor the wallet stated for it); a token goes only into a vault its pool already has. What is
 // left stays re-shieldable by anyone: refund() and refundToken() are permissionless.
 import { BYTECODE } from "@privacy-wallet/contracts";
-import { encodeFunctionData, keccak256, parseAbi, toFunctionSelector, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { encodeFunctionData, keccak256, parseAbi, parseAbiItem, toFunctionSelector, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
 import { DROP_AFTER_MS, Sender, unknownToTheNode, type SentTx } from "./sender";
@@ -47,6 +47,11 @@ const factoryConfigAbi = parseAbi(["function WRAPPED_NATIVE() view returns (addr
 export const escrowAbi = parseAbi(["function refundToken(address token, bytes noteData)"]);
 /** The escrow's own record of its execution: deployAndExecute is anyone's to send with the signed execution (SwapOrderEscrow.sol). */
 const escrowStateAbi = parseAbi(["function executed() view returns (bool)"]);
+/** SwapOrderEscrow's event of its execution: the transaction that carries it executed the escrow (audit round 2, r01). */
+const executedEvent = parseAbiItem("event Executed(address indexed provider, uint256 value, bytes32 calldataHash, address executor)");
+/** The blocks one log read covers, and how many windows back it looks for an escrow's execution. */
+const EXECUTED_LOG_WINDOW = 5_000n;
+const EXECUTED_LOG_WINDOWS = 20;
 const vaultLinkAbi = parseAbi(["function core() view returns (address)", "function VAULT_FACTORY() view returns (address)", "function vaultOf(address asset) view returns (address)"]);
 /** How long an executed order is watched after `refundAfter` for a provider's late refund (PP-S11). */
 export const LATE_REFUND_WATCH_SECONDS = 24 * 3600;
@@ -463,11 +468,35 @@ export class SwapExecutor {
     }
   }
 
+  /**
+   * The transaction that executed this escrow (audit round 2, r01): its Executed event, looked for backwards from `upTo` (the
+   * block of this executor's own reverted receipt) or the latest block, in windows an endpoint serves; unknown when none is.
+   */
+  private async executedBy(job: SwapJob, upTo?: bigint): Promise<Hex | undefined> {
+    try {
+      let to = upTo ?? (await this.cfg.publicClient.getBlockNumber());
+      for (let i = 0; i < EXECUTED_LOG_WINDOWS; i++) {
+        const from = to >= EXECUTED_LOG_WINDOW ? to - EXECUTED_LOG_WINDOW + 1n : 0n;
+        const logs = await this.cfg.publicClient.getLogs({ address: job.escrow, event: executedEvent, fromBlock: from, toBlock: to });
+        if (logs.length) return logs[logs.length - 1].transactionHash ?? undefined;
+        if (from === 0n) break;
+        to = from - 1n;
+      }
+    } catch {
+      // the chain did not answer: the transaction stays unknown
+    }
+    return undefined;
+  }
+
   /** The order was executed by another transaction: the job goes on as executed (the late-refund watch, the unpaid re-shield budget). */
-  private markExecutedElsewhere(job: SwapJob): void {
+  private async markExecutedElsewhere(job: SwapJob, upTo?: bigint): Promise<void> {
     job.executed = true;
     job.state = "executed";
     job.sent = undefined;
+    // the transaction that executed it, never this executor's own, which reverted (audit round 2, r01): the wallet tracks the
+    // provider by this hash — none had seen the reverted one, so the swap read "the provider is executing" for a day — and the
+    // API's stall rule compares it, which counted a stall against the honest provider
+    job.executionTx = await this.executedBy(job, upTo);
     job.error = "executed by another transaction, a copy of this executor's own: its tip went to that sender";
     job.updatedAt = Date.now();
     this.persist();
@@ -497,7 +526,7 @@ export class SwapExecutor {
       if (!reverted(e)) { this.note(job, `could not estimate: ${firstLine(e, 200)}; retried next tick`); return; }
       if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return; }
       // an execution that would revert because another transaction executed the escrow first: the order is executed
-      if (failed === "execute-failed" && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); return; }
+      if (failed === "execute-failed" && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job); return; }
       // one reverted refund was final (the audit's unverified m07): it is tried again later, and final only at the last
       if (failed === "refund-failed" && this.refundRevertedOnce(job)) { this.note(job, `would revert: ${firstLine(e, 160)}; tried again in ${REFUND_RETRY_SECONDS / 60} min`); return; }
       job.state = failed; job.error = `would revert: ${firstLine(e, 200)}`; job.updatedAt = Date.now();
@@ -587,7 +616,7 @@ export class SwapExecutor {
         job.gasUsed = receipt.gasUsed.toString();
         job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
         // our execution reverted because a copy of it landed first: the order is executed all the same (audit c08/c30)
-        if (job.state === "executing" && !ok && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); continue; }
+        if (job.state === "executing" && !ok && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job, receipt.blockNumber); continue; }
         if (job.state === "executing" && ok) job.executed = true;
         job.state = job.state === "executing" ? (ok ? "executed" : "execute-failed") : (ok ? "refunded" : "refund-failed");
         job.updatedAt = Date.now();
@@ -612,7 +641,7 @@ export class SwapExecutor {
       if (now >= Number(p.refundAfter)) {
         // an order this executor did not execute may have been executed by a copy of its call (audit c08/c30): then it is an
         // executed order, under the watch and the budget of one
-        if (!job.executed && (await this.executedElsewhere(job))) { this.markExecutedElsewhere(job); continue; }
+        if (!job.executed && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job); continue; }
         const foreign = await this.foreignHeld(job);
         const deployed = foreign.length > 0 && ((await this.cfg.publicClient.getCode({ address: job.escrow }).catch(() => undefined)) ?? "0x") !== "0x";
         const budget = !job.executed || this.unpaidBudgetLeft(job);

@@ -213,7 +213,9 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const now = deps.now ?? Date.now();
   const r = deps.readers ?? {};
   const job = await (r.job ? r.job(stored) : stored.jobId && deps.relayerUrl ? relayerSwapStatus(deps.relayerUrl, stored.jobId).catch(() => null) : Promise.resolve(null));
-  const executionTx = stored.executionTx ?? job?.executionTx;
+  // the job's, once it is read (audit round 2, r01): the relayer names the transaction that executed the escrow — a copy of
+  // its own call that landed first replaces the one it had sent, which reverted and which no provider saw
+  const executionTx = job ? job.executionTx : stored.executionTx;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const balance = await (r.balance ? r.balance(stored) : fundedOf(stored) && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
   const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...decimalsOf(stored), ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
@@ -223,7 +225,10 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
     s.update((j) => {
       const x = j.swaps.find((y) => y.orderId.toLowerCase() === stored.orderId.toLowerCase());
       if (!x) return;
-      if (!x.executionTx && executionTx) x.executionTx = executionTx;
+      if (job && x.executionTx !== job.executionTx) {
+        if (job.executionTx) x.executionTx = job.executionTx;
+        else delete x.executionTx;
+      }
       x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
       const last = x.history?.[x.history.length - 1];
       if (!last || last.state !== tracked.state) x.history = [...(x.history ?? []), { state: tracked.state, at: now, note: tracked.label }];

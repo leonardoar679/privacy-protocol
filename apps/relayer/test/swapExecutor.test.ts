@@ -12,7 +12,7 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPublicClient, createWalletClient, decodeFunctionData, http, keccak256, parseTransaction, recoverTransactionAddress, toFunctionSelector, toHex, type Hex } from "viem";
+import { createPublicClient, createWalletClient, decodeFunctionData, encodeAbiParameters, encodeEventTopics, http, keccak256, parseAbiItem, parseTransaction, recoverTransactionAddress, toFunctionSelector, toHex, type Hex } from "viem";
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
@@ -40,6 +40,9 @@ let revertError: { code: number; message: string; data?: string } = { code: 3, m
 let escrowCode: Hex = "0x";
 let escrowExecuted = false;
 const SEL_EXECUTED = toFunctionSelector("executed()");
+// the transaction that executed an escrow first, as its Executed event names it (audit round 2, r01); null: no such log
+let copyTx: Hex | null = null;
+const EXECUTED_EVENT = parseAbiItem("event Executed(address indexed provider, uint256 value, bytes32 calldataHash, address executor)");
 // a token the escrow holds that is not the order's (audit round 2, r00): its balanceOf answers `foreignBalance`
 const FOREIGN = "0x00000000000000000000000000000000000f0e19";
 let foreignBalance = 0n;
@@ -58,6 +61,13 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_getTransactionCount": return res("0x1");
     case "eth_getBalance": return balanceDownFor && String(req.params[0]).toLowerCase() === balanceDownFor ? { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "header not found" } } : res(toHex(escrowBalance));
     case "eth_getCode": return res(escrowCode);
+    case "eth_getLogs": {
+      const f = req.params[0] ?? {};
+      if (!copyTx) return res([]);
+      const topics = encodeEventTopics({ abi: [EXECUTED_EVENT], eventName: "Executed", args: { provider: "0x00000000000000000000000000000000000000ad" } });
+      const data = encodeAbiParameters([{ type: "uint256" }, { type: "bytes32" }, { type: "address" }], [1n, ("0x" + "00".repeat(32)) as Hex, "0x00000000000000000000000000000000000000c0"]);
+      return res([{ address: f.address, topics, data, blockNumber: "0x10", blockHash: "0x" + "11".repeat(32), transactionHash: copyTx, transactionIndex: "0x0", logIndex: "0x0", removed: false }]);
+    }
     case "eth_call":
       if (String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_EXECUTED)) return res("0x" + (escrowExecuted ? "1" : "0").padStart(64, "0"));
       if (String(req.params[0]?.to ?? "").toLowerCase() === FOREIGN && String(req.params[0]?.data ?? req.params[0]?.input ?? "").startsWith(SEL_BALANCE_OF)) return res(toHex(foreignBalance, { size: 32 }));
@@ -533,7 +543,7 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
     return vouched(r, CHAIN_ID, creationCode);
   };
   const reset = () => {
-    escrowCode = "0x"; escrowExecuted = false; revertSimulation = false; receiptStatus = null; escrowBalance = 0n; foreignBalance = 0n; clock = 1000;
+    escrowCode = "0x"; escrowExecuted = false; revertSimulation = false; receiptStatus = null; escrowBalance = 0n; foreignBalance = 0n; copyTx = null; clock = 1000;
   };
   // an executor of its own on the same chain: the mocked escrow answers for every address, and the shared executor's jobs
   // must not see it
@@ -550,11 +560,15 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
       await own.tick();
       expect(job.state).toBe("executing");
       // the copy executed the escrow; ours reverted (AlreadyExecuted)
-      escrowCode = "0x6080"; escrowExecuted = true; escrowBalance = 0n; receiptStatus = "0x0";
+      const ours = job.txHash;
+      escrowCode = "0x6080"; escrowExecuted = true; escrowBalance = 0n; receiptStatus = "0x0"; copyTx = ("0x" + "c0".repeat(32)) as Hex;
       await own.tick();
       expect(job.state).toBe("executed");
       expect(job.executed).toBe(true);
       expect(job.error).toMatch(/another transaction/);
+      // the execution is the copy's, never ours that reverted (audit round 2, r01): the wallet tracks the provider by it
+      expect(job.executionTx).toBe(copyTx);
+      expect(job.executionTx).not.toBe(ours);
     } finally {
       reset();
     }
@@ -569,6 +583,7 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
       await own.tick();
       expect(job.state).toBe("executed");
       expect(job.executed).toBe(true);
+      expect(job.executionTx, "no Executed log found: unknown, never a hash of ours (audit round 2, r01)").toBeUndefined();
     } finally {
       reset();
     }
