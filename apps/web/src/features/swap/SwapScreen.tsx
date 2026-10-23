@@ -47,7 +47,8 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
-import { buildCampaign, cancelCampaign, progressLine, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { buildCampaign, cancelCampaign, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { campaignLineText } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
@@ -551,7 +552,7 @@ export function SwapScreen(p: SwapScreenProps) {
                   <ListRow
                     key={c.id}
                     title={`${c.request.from.symbol} → ${c.request.to.symbol}`}
-                    subtitle={progressLine(c, advanced)}
+                    subtitle={campaignLineText(t, c, advanced)}
                     trailing={
                       <Button
                         variant="secondary"

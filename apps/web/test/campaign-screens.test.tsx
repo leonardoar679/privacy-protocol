@@ -30,6 +30,8 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { ADDRESS_LIKE, tradeSummary } from "../src/zkapi/tradeCheck";
+import { loadCatalog } from "../src/app/i18n/catalogs";
+import { setLocale } from "../src/app/i18n/messages";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { Protection } from "@privacy-wallet/sdk/swapService";
 
@@ -302,6 +304,29 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
     expect(rows).toHaveLength(4);
     const advancedDetail = await mount(<MemoryRouter><Detail id={`campaign:${c0.id}`} onBack={() => {}} /></MemoryRouter>);
     expect(advancedDetail.querySelector('[data-testid="activity-campaign"]')!.textContent, "plan §100").toMatch(/^Execution: .+ · Protection: \$200K max exposure · Privacy: Good · Duration: \d+[hm] /);
+  });
+  it("the detail's status and line read in the reader's language: a running execution's line, a returned one's status (audit round 2, n84, n93)", async () => {
+    await session.create("pw"); session.acknowledgePhrase();
+    const c0 = campaign();
+    putCampaign(c0);
+    recordActivity({ id: `campaign:${c0.id}`, kind: "campaign", asset: "ETH", decimals: 18, amount: eth(2500).toString(), status: "running", ref: c0.id, note: "→ BTC" });
+    await loadCatalog("ko");
+    act(() => setLocale("ko"));
+    try {
+      let detail = await mount(<MemoryRouter><Detail id={`campaign:${c0.id}`} onBack={() => {}} /></MemoryRouter>);
+      let line = detail.querySelector('[data-testid="campaign-line"] p')!.textContent!;
+      expect(line).toContain("● 처리 중");
+      expect(line).toContain("보호된 단계로 실행 중 · 완료 100 ETH · 진행 중 50 ETH · 보호됨 2350 ETH");
+      expect(line, "no English word of the line").not.toMatch(/Processing|Executing|completed|in flight|protected/);
+      // returned with delivered steps: the m58 words, in Korean
+      putCampaign(withCampaignState(c0, "cancelled", T0 + 9000));
+      detail = await mount(<MemoryRouter><Detail id={`campaign:${c0.id}`} onBack={() => {}} /></MemoryRouter>);
+      line = detail.querySelector('[data-testid="campaign-line"] p')!.textContent!;
+      expect(line).toContain("✓ 반환됨");
+      expect(line).not.toContain("Returned");
+    } finally {
+      act(() => setLocale("en"));
+    }
   });
   it("Settings → Protected execution: the mode, the exposure fraction inside 2–3 %, the switch, notifications, the separate device registered cross-platform", async () => {
     await session.create("pw"); session.acknowledgePhrase();

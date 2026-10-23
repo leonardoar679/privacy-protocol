@@ -1054,6 +1054,13 @@ export const en = {
   "campaign.title": "Protected swap · {from} → {to}",
   "campaign.stepOf": "Step {step} of ~{total}",
   "campaign.executing": "Executing in protected steps",
+  // a protected execution's status and line in the reader's words (audit round 2, n84, n93)
+  "campaign.status.protected": "Protected",
+  "campaign.status.review": "Review",
+  "campaign.status.processing": "Processing",
+  "campaign.status.completed": "Completed",
+  "campaign.status.returned": "Returned",
+  "campaign.lineAmounts": "{completed} {symbol} completed · {inFlight} {symbol} in flight · {protected} {symbol} protected",
   "campaign.headline": "Your {usd} swap is being completed in protected steps.",
   "campaign.everySettled": "Every step settled.",
   "campaign.restReturned": "The rest returned to your private balance.",

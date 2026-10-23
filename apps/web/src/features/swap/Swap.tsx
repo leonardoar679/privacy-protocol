@@ -52,7 +52,7 @@ import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity"
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { completeAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
-import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, progressLine, resumeCampaign, startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, resumeCampaign, startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
@@ -71,6 +71,7 @@ import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swa
 import { TARGETS, refOf, settlementWords, type Target } from "./targets";
 import { planDetail, planText, TIER_WORDS } from "../review/words";
 import { durationText, hoursText } from "../../app/i18n/duration";
+import { campaignLineText } from "./protected/words";
 import { useOperation, useSession, useSettings } from "../../hooks";
 
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
@@ -562,7 +563,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
           <Card testId="protected-swaps">
             <p className="ds-kv-label">{t("swap.yourProtectedSwaps")}</p>
             {activeCampaigns().map((c) => (
-              <ListRow key={c.id} title={`${c.request.from.symbol} → ${c.request.to.symbol}`} subtitle={`${progressLine(c, advanced)} · ${c.state}`} trailing={<Button variant="secondary" onClick={() => setCampaignView(c.id)}>{t("swap.open")}</Button>} />
+              <ListRow key={c.id} title={`${c.request.from.symbol} → ${c.request.to.symbol}`} subtitle={`${campaignLineText(t, c, advanced)} · ${c.state}`} trailing={<Button variant="secondary" onClick={() => setCampaignView(c.id)}>{t("swap.open")}</Button>} />
             ))}
           </Card>
         ) : null}

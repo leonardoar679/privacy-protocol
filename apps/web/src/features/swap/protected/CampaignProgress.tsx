@@ -13,6 +13,7 @@ import { formatTime } from "../../../app/i18n/intl";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
 import { ExposureDashboard } from "./ExposureDashboard";
+import { campaignStatusWords } from "./words";
 
 export type CampaignStatus = { mark: "✓" | "⚠" | "●"; word: "Protected" | "Review" | "Processing" | "Completed" | "Returned" };
 
@@ -65,7 +66,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
     <div className="ds-stack-sm" data-testid="campaign-progress" data-state={c.state} data-status={status.word}>
       <div className="ds-kv">
         <b>{t("campaign.title", { from: sym, to: c.request.to.symbol })}</b>
-        <b className={statusClass} data-testid="campaign-status">{status.mark} {status.word}</b>
+        <b className={statusClass} data-testid="campaign-status">{status.mark} {campaignStatusWords(t, status)}</b>
       </div>
       <div className="ds-review-amount-v5" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? t("campaign.stepOf", { step, total }) : t("campaign.executing")}</div>
       {valued !== null && !terminal ? <p className="ds-note" data-testid="campaign-headline">{t("campaign.headline", { usd: formatUsd(valued) })}</p> : null}

@@ -10,13 +10,14 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
 import { returnOrderToBalance } from "@privacy-wallet/sdk/swapExecute";
 import { deleteActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { campaignById, progressLine } from "@privacy-wallet/sdk/wallet/campaigns";
+import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { needsAttention } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
 import { syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { campaignStatus } from "../swap/protected/CampaignProgress";
+import { campaignLineText, campaignStatusWords } from "../swap/protected/words";
 import { buildRows, type ActivityRow } from "./rows";
 import { detailModel } from "./model";
 import { DetailView } from "./View";
@@ -86,9 +87,9 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
         return (
           <p>
             <b>
-              {st.mark} {st.word}
+              {st.mark} {campaignStatusWords(t, st)}
             </b>{" "}
-            · {t("home.protectedSwap", { from: campaign.request.from.symbol, to: campaign.request.to.symbol, line: progressLine(campaign, advanced) })}
+            · {t("home.protectedSwap", { from: campaign.request.from.symbol, to: campaign.request.to.symbol, line: campaignLineText(t, campaign, advanced) })}
           </p>
         );
       })()}
