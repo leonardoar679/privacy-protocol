@@ -35,6 +35,11 @@ const SINGLE_TRANSACTION: ReadonlySet<OperationKind> = new Set<OperationKind>(["
 
 /** How long a transaction the node no longer knows is waited for before its record fails (the relayer's DROP_AFTER_MS). */
 export const STALE_DROP_MS = 10 * 60_000;
+/**
+ * ...and one the wallet's own connection sent, no relayer named (audit round 2, n66): a wallet sending through a private
+ * mempool shows the RPC nothing until it is mined, and "dropped, send it again" after ten minutes had a Send paid twice.
+ */
+export const STALE_DROP_WALLET_MS = 60 * 60_000;
 
 export interface StaleReads {
   /** the receipt's status, or null while the transaction is not mined; throws when it cannot be read */
@@ -89,6 +94,9 @@ async function spendsRecord(r: OperationRecord, hash: Hex, reads: StaleReads): P
   return spends.some(([a, b]) => a === n0 && b === n1);
 }
 
+/** What the record's submission made shows: the note it makes found by the scan (a Protect's deposit, a Send's change; n66). */
+const noteFound = (r: OperationRecord): boolean => r.refs.noteCounter !== undefined && noteStore.all().some((n) => n.counter === r.refs.noteCounter);
+
 /** Whether any note the record spends is spent on chain: a record whose notes are gone never reads "nothing moved" (r23). */
 async function notesSpent(r: OperationRecord, reads: StaleReads): Promise<boolean> {
   return r.refs.nullifiers ? (await Promise.all(r.refs.nullifiers.map((n) => reads.spent(BigInt(n))))).some(Boolean) : false;
@@ -126,7 +134,7 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
   let moved = 0;
   for (const r of allOperations(s)) {
     if (!SINGLE_TRANSACTION.has(r.kind) || !isOpen(r.state) || isDraft(r.state) || (isLiveOperation(r.id) && r.state !== "RECOVERY_REQUIRED")) continue;
-    const old = now - r.updatedAt > STALE_DROP_MS;
+    const old = now - r.updatedAt > (r.refs.relayerUrl ? STALE_DROP_MS : STALE_DROP_WALLET_MS);
     let hash = r.refs.txHashes[r.refs.txHashes.length - 1] as Hex | undefined;
     let changed = false;
     const apply = (ev: OperationEvent) => {
@@ -152,7 +160,7 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
         // that never saw the relayer's pending transaction, or an endpoint's "reverted", had failed a Send on its way
         else if (status === "reverted") {
           if (!(await notesSpent(r, reads))) apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
-        } else if (old && !(await reads.txKnown(hash)) && !(await notesSpent(r, reads)))
+        } else if (old && !(await reads.txKnown(hash)) && !noteFound(r) && !(await notesSpent(r, reads)))
           apply({ type: "submission-failed", code: "transaction_dropped", detail: `transaction ${hash} was dropped before it was mined` });
       }
     } catch {

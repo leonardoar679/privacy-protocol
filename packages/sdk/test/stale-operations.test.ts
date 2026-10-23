@@ -9,7 +9,7 @@ import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
 import { applyEvent, getOperation, newOperation, resetOperationsMemory } from "../src/operations/store";
-import { reconcileStaleOperations, STALE_DROP_MS, type StaleReads } from "../src/operations/stale";
+import { reconcileStaleOperations, STALE_DROP_MS, STALE_DROP_WALLET_MS, type StaleReads } from "../src/operations/stale";
 import { noteStore } from "../src/wallet/notes";
 import type { OperationKind } from "../src/wallet/operationRecord";
 
@@ -104,7 +104,7 @@ describe("operations whose flow is gone", () => {
     const mined = record("send", "confirming", 1);
     const reverted = record("send", "confirming", 2);
     const pending = record("protect", "confirming", 3);
-    const forgotten = record("withdraw", "confirming", 4);
+    const forgotten = record("withdraw", "confirming", 4, T0, { relayerUrl: "http://relayer.test" });
     resetOperationsMemory(); // the page reloaded
     const reads = chain({ mined: [1], reverted: [2], known: [3] });
     expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(2);
@@ -174,7 +174,8 @@ describe("operations whose flow is gone", () => {
     expect(await reconcileStaleOperations(chain(), T0 + 60_000)).toBe(1);
     expect(getOperation(landed)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 7, txHashes: [hash(42)] } });
     expect(getOperation(unanswered)!.state, "the wallet may still be asking: waited for").toBe("AWAITING_SIGNATURE");
-    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1)).toBe(1);
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1), "its own wallet's: waited for an hour (audit round 2, n66)").toBe(0);
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
     expect(getOperation(unanswered)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
   });
 
@@ -232,6 +233,27 @@ describe("operations whose flow is gone", () => {
     // no reload: the transaction is mined at the next scan
     expect(await reconcileStaleOperations(chain({ jobs: { "401": 40 }, mined: [40], spends: { 40: ["401", "402"] } }), T0 + 120_000)).toBe(1);
     expect(getOperation(id)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(40)] } });
+  });
+
+  it("a transaction the wallet's own connection sent waits an hour before it reads dropped, and never while what it made shows (audit round 2, n66)", async () => {
+    const send = record("send", "confirming", 50, T0, { nullifiers: ["501", "502"] });
+    const protect = record("protect", "confirming", 51, T0, { noteCounter: 88 });
+    resetOperationsMemory();
+    // a private mempool: the RPC sees nothing of either until it is mined
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1), "ten minutes: waited for").toBe(0);
+    // an hour on, the Protect's note found by the scan (it landed, the RPC still blind): never "dropped, send it again"
+    noteStore.add({
+      note: { vaultId: 1n, amount: 990n, ownerCommitment: 2n, noteSecret: 3n },
+      leafIndex: 8,
+      noteData: "0x",
+      counter: 88,
+      spent: false,
+      txHash: hash(51),
+    });
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
+    expect(getOperation(protect)!.state).toBe("CONFIRMING");
+    expect(getOperation(send)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped" } });
+    expect(STALE_DROP_WALLET_MS).toBe(3_600_000);
   });
 
   it("a record this page still drives, a swap, an unread chain: nothing moves", async () => {
