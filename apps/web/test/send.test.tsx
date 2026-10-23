@@ -34,6 +34,7 @@ const calls: { transfer: { amount: bigint; recipient: string; maxMergeFee?: bigi
   withdraw: [],
 };
 let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" = "ok";
+const ENGINE_LINE = "Proof ready in 1.2 s; handing it to the relayer (your address never touches the chain)…";
 let feeReads = 0; // the relayer's terms read (audit round 2, r09: "Back to review" reads them again)
 let maxReads = 0; // what a spend of every note leaves after its merges, asked (audit round 2, r08)
 function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string}`, leafIndex?: number) {
@@ -67,9 +68,18 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
       maxReads++;
       return 2_997n * 10n ** 15n; // three 1 ETH notes less the fees of the merge and of the spend
     },
-    privateTransfer: async (o: { amount: bigint; recipient: string; maxMergeFee?: bigint; onEvent?: (e: EngineEvent) => void }) => {
+    privateTransfer: async (o: {
+      amount: bigint;
+      recipient: string;
+      maxMergeFee?: bigint;
+      onEvent?: (e: EngineEvent) => void;
+      onStatus?: (s: string) => void;
+    }) => {
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
-      if (behaviour === "fee-moved") throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
+      if (behaviour === "fee-moved") {
+        o.onStatus?.(ENGINE_LINE); // the engine's own English progress line, before it stops
+        throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
+      }
       calls.transfer.push({ amount: o.amount, recipient: o.recipient, ...(o.maxMergeFee !== undefined ? { maxMergeFee: o.maxMergeFee } : {}) });
       emit(o.onEvent, HASH, 5);
       return { txHash: HASH, proofMs: 1234, verifiedLocally: true, recipientNote: { leafIndex: 5 }, spent: [0], submittedBy: "relayer" };
@@ -503,10 +513,30 @@ describe("Send (spec v2.0 §7.4)", () => {
     });
     const error = await screen.findByTestId("operation-progress-error");
     expect(error.textContent).toContain("The relayer's fee went up");
+    // the engine's own line stays under Advanced (audit round 2, n85): not on the stopped page, nor as the Review's error
+    expect(screen.queryByText(ENGINE_LINE)).toBeNull();
+    expect(screen.queryByTestId("send-progress-line")).toBeNull();
     const before = feeReads;
     fireEvent.click(screen.getByTestId("send-back-review"));
     expect(path()).toBe("/send/review");
     await waitFor(() => expect(feeReads, "the terms read again").toBeGreaterThan(before));
+    expect(screen.queryByText(ENGINE_LINE), "the Review does not show the engine's line as its error").toBeNull();
+  });
+
+  it("under Advanced, a stopped Send shows the engine's last progress line (audit round 2, n85)", async () => {
+    await unlocked();
+    behaviour = "fee-moved";
+    act(() => settings.set({ advanced: true }));
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("operation-progress-error");
+    expect(screen.getByTestId("send-progress-line")).toHaveTextContent(ENGINE_LINE);
   });
 
   it("failures: before the signature the balance is untouched and consolidation is offered; after the submission a lost relayer answer is a recovery with 'We are checking where your funds are.'", async () => {

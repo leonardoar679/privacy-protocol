@@ -89,6 +89,9 @@ export function SendScreen(p: SendScreenProps) {
   const [holders, setHolders] = useState<number | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [status, setStatus] = useState("");
+  // the engine's own progress lines (English, "Proof ready in 3.1 s…"): under Advanced only, never as the page's status or
+  // the Review's error (audit round 2, n85) — Simple had shown the last one on a stopped Send and after Back to review
+  const [progress, setProgress] = useState("");
   const [consolidate, setConsolidate] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -257,6 +260,7 @@ export function SendScreen(p: SendScreenProps) {
     applyEvent(rec.id, { type: "review" });
     applyEvent(rec.id, { type: "confirm" });
     setStatus("");
+    setProgress("");
     setConsolidate(false);
     setResult(null);
     setBusy(true);
@@ -279,7 +283,7 @@ export function SendScreen(p: SendScreenProps) {
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (the audit round of 2026-10-16, c46)
           ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (audit round 2, r43)
-          onStatus: setStatus,
+          onStatus: setProgress,
           onEvent,
         });
         setResult({ txHash: r.txHash, proofMs: r.proofMs, verifiedLocally: r.verifiedLocally, leafIndex: r.recipientNote.leafIndex });
@@ -292,7 +296,7 @@ export function SendScreen(p: SendScreenProps) {
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (c46)
           ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (r43)
-          onStatus: setStatus,
+          onStatus: setProgress,
           onEvent,
         });
         setResult({ txHash: r.txHash, proofMs: r.proofMs, verifiedLocally: r.verifiedLocally });
@@ -556,6 +560,7 @@ export function SendScreen(p: SendScreenProps) {
           <SendProgress
             result={result}
             status={status}
+            progress={progress}
             advanced={advanced}
             consolidate={consolidate}
             onConsolidate={() => {
@@ -587,7 +592,10 @@ export function SendScreen(p: SendScreenProps) {
 
 interface ProgressProps {
   result: Result | null;
+  /** the page's own words (the catalog's): shown to everyone */
   status: string;
+  /** the engine's last progress line: Advanced only */
+  progress: string;
   advanced: boolean;
   consolidate: boolean;
   onConsolidate: () => void;
@@ -690,15 +698,20 @@ function SendProgress(p: ProgressProps) {
             {p.status}
           </p>
         ) : null}
+        {p.advanced && p.progress ? (
+          <p className="ds-note" data-testid="send-progress-line">
+            {p.progress}
+          </p>
+        ) : null}
       </Page>
     );
   }
   return (
     <div data-state={record.state} data-testid="send-progress">
       <ProgressView model={progressModelOf(record, furthest)} />
-      {p.advanced && p.status ? (
-        <p className="ds-note" data-testid="send-status">
-          {p.status}
+      {p.advanced && p.progress ? (
+        <p className="ds-note" data-testid="send-progress-line">
+          {p.progress}
         </p>
       ) : null}
     </div>
