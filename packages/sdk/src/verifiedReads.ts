@@ -63,14 +63,25 @@ async function provenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Pr
   if (snapshot && periodAtSlot(currentSlot(spec)) - periodAtSlot(Number(snapshot.finalized.beacon.slot)) > MAX_SNAPSHOT_AGE_PERIODS) snapshot = undefined;
   // the light client (BLS pairing, SSZ, trie walking) is its own chunk, loaded on the first verification
   const lcm = o.sync && o.prover ? null : await import("./lightclient");
-  let lc: LightClient;
-  if (live?.chainId === spec.chainId && Date.now() - live.syncedAt < LC_REUSE_MS) lc = live.lc;
-  else {
-    lc = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: beaconUrls(), checkpoint: lcCheckpoint(), snapshot, fetchFn: o.fetchFn });
-    live = { chainId: spec.chainId, lc, syncedAt: Date.now() };
-    if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: lc.snapshot() }; });
+  const sync = async (): Promise<LightClient> => {
+    const fresh = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: beaconUrls(), checkpoint: lcCheckpoint(), snapshot, fetchFn: o.fetchFn });
+    live = { chainId: spec.chainId, lc: fresh, syncedAt: Date.now() };
+    if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: fresh.snapshot() }; });
+    return fresh;
+  };
+  const reused = live?.chainId === spec.chainId && Date.now() - live.syncedAt < LC_REUSE_MS;
+  let lc: LightClient = reused ? live!.lc : await sync();
+  let p: Awaited<ReturnType<typeof ProvenStorage>>;
+  try {
+    p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, slots, o.fetchFn);
+  } catch (e) {
+    // a reused client's finalized block ages about five blocks a minute (audit round 2, r25): past the endpoints' proof window
+    // (128 blocks on a geth full node) every proof was refused until the reuse ended — every spend and scan failed for a third
+    // to two thirds of each 20 minutes. Synced again once, at the latest finalized block
+    if (!reused) throw e;
+    lc = await sync();
+    p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, slots, o.fetchFn);
   }
-  const p = await (o.prover ?? lcm!.provenStorage)(lc, d.rpcUrls, d.core, slots, o.fetchFn);
   return { blockNumber: p.header.number, slot: lc.finalizedSlot, values: p.values };
 }
 

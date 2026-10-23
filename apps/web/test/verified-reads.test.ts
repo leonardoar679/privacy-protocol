@@ -71,6 +71,25 @@ describe("verifyTree in the spend flows", () => {
     for (let i = 0; i < 3; i++) await verifyTree(dep(1), t, undefined, { sync, prover: stubProver(12n, await rootOf(12)) });
     expect(syncs).toBe(1);
   });
+  it("a reused client whose finalized block aged past the endpoints' proof window is synced again once, never failing every proof until the reuse ends (audit round 2, r25)", async () => {
+    let syncs = 0;
+    const sync = (async (...a: any[]) => { syncs++; return stubSync(15_000_000 + syncs)(...a); }) as any;
+    const t = await tree(12);
+    const good = stubProver(12n, await rootOf(12));
+    await verifyTree(dep(1), t, undefined, { sync, prover: good });
+    // minutes later the endpoints no longer serve state at the first sync's block
+    const window = (async (lc: { finalizedSlot: number }, ...rest: unknown[]) => {
+      if (lc.finalizedSlot === 15_000_001) throw new Error("no RPC answered eth_getProof: distance to target block exceeds maximum proof window");
+      return (good as any)(lc, ...rest);
+    }) as any;
+    await expect(verifyTree(dep(1), t, undefined, { sync, prover: window })).resolves.toMatchObject({ kind: "verified" });
+    expect(syncs, "synced again once").toBe(2);
+    // a failure of a fresh client's proof is a failure
+    resetLightClient();
+    const down = (async () => { throw new Error("no RPC answered eth_getProof: fetch failed"); }) as any;
+    await expect(verifyTree(dep(1), t, undefined, { sync, prover: down })).rejects.toThrow(/eth_getProof/);
+    expect(syncs).toBe(3);
+  });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);
   });
