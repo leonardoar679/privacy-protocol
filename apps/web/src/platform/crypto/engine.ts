@@ -23,6 +23,13 @@ export interface CoreModule {
   open_note_payloads?(viewKey: Uint8Array, ownerCommitment: Uint8Array, leafIndexes: Uint32Array, commitments: Uint8Array, payloads: Uint8Array): Uint8Array;
 }
 export type Post = (m: CryptoResponse, transfer?: Transferable[]) => void;
+/**
+ * An artifact download that goes silent this long — no answer, or no new bytes — ends (audit round 2, n35): a stalled one had
+ * held the spend's turn and its auto-lock hold until a reload, every later private spend of the page waiting behind it. A
+ * slow download goes on: only silence ends it.
+ */
+export const ARTIFACT_STALL_MS = 60_000;
+
 export interface EngineDeps {
   /** the core's loader: the WASM package from this origin, or null for the reference */
   loadCore: (base: string) => Promise<CoreModule | null>;
@@ -31,7 +38,9 @@ export interface EngineDeps {
   /** snarkjs, imported at the first proof */
   snarkjs: () => Promise<SnarkjsLike>;
   /** an artifact's bytes from its host (the transport's policy) */
-  fetchBytes?: (url: string) => Promise<Response>;
+  fetchBytes?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** how long a download may go silent before it ends (tests); ARTIFACT_STALL_MS otherwise */
+  stallMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
 }
@@ -125,7 +134,50 @@ export function openTs(r: Extract<CryptoRequest, { op: "open" }>): Uint8Array {
 
 export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest, post: Post): Promise<void> } {
   const now = deps.now ?? (() => performance.now());
-  const fetchBytes = deps.fetchBytes ?? ((url: string) => secureFetch(url, {}, "artifacts"));
+  const fetchBytes = deps.fetchBytes ?? ((url: string, init?: RequestInit) => secureFetch(url, init ?? {}, "artifacts"));
+
+  /** An artifact's bytes, read as they come; ended when its host goes silent for the stall limit (n35). */
+  async function download(name: string, url: string): Promise<Uint8Array<ArrayBuffer>> {
+    const limit = deps.stallMs ?? ARTIFACT_STALL_MS;
+    const ctl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => ctl.abort(new Error(`${name}: no bytes from ${url} for ${Math.round(limit / 1000)} s; try again`)), limit);
+    };
+    const aborted = new Promise<never>((_, reject) => ctl.signal.addEventListener("abort", () => reject(ctl.signal.reason), { once: true }));
+    aborted.catch(() => undefined); // read below; never an unhandled rejection
+    arm();
+    try {
+      const r = await Promise.race([fetchBytes(url, { signal: ctl.signal }), aborted]);
+      if (!r.ok) throw new Error(`${name}: HTTP ${r.status} from ${url}`);
+      if (!r.body) return new Uint8Array(await Promise.race([r.arrayBuffer(), aborted]));
+      const reader = r.body.getReader();
+      const parts: Uint8Array[] = [];
+      let size = 0;
+      try {
+        for (;;) {
+          arm();
+          const { done, value } = await Promise.race([reader.read(), aborted]);
+          if (done) break;
+          parts.push(value);
+          size += value.length;
+        }
+      } catch (e) {
+        await reader.cancel().catch(() => undefined);
+        throw e;
+      }
+      const bytes = new Uint8Array(size);
+      let at = 0;
+      for (const p of parts) {
+        bytes.set(p, at);
+        at += p.length;
+      }
+      return bytes;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
 
   async function openCache(pin: string | undefined): Promise<Cache | null> {
     if (!pin) return null;
@@ -160,9 +212,7 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
         await store.delete(key).catch(() => false); // unreadable: dropped if it can be, fetched again below
       }
     }
-    const r = await fetchBytes(url);
-    if (!r.ok) throw new Error(`${name}: HTTP ${r.status} from ${url}`);
-    const bytes = new Uint8Array(await r.arrayBuffer());
+    const bytes = await download(name, url);
     const verdict = enforce(name, verdictOf(want, await sha256Hex(bytes)), { production, warn: deps.warn ?? ((m) => console.warn(m)) });
     if (store && verdict === "match") {
       try {

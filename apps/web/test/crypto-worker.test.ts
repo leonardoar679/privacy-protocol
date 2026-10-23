@@ -157,7 +157,16 @@ describe("the proof in the worker", () => {
     spec = planWithdrawal(seed, layers, BigInt(VAULT), 4n * 10n ** 17n, 0xb0b0n, txDomain(31337n, BigInt("0x5FbDB2315678afecb367f032d93F642f64180aa3"))).spec;
   });
 
-  function harness(o: { production?: boolean; pinned?: boolean; vkey?: boolean; cache?: Parameters<typeof memoryCaches>[0] } = {}) {
+  function harness(
+    o: {
+      production?: boolean;
+      pinned?: boolean;
+      vkey?: boolean;
+      cache?: Parameters<typeof memoryCaches>[0];
+      fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+      stallMs?: number;
+    } = {},
+  ) {
     const fetches: string[] = [];
     let verified = 0;
     const caches = memoryCaches(o.cache);
@@ -189,10 +198,13 @@ describe("the proof in the worker", () => {
       loadCore: async () => null,
       caches: async () => caches.storage,
       snarkjs: async () => snarkjs,
-      fetchBytes: async (url) => {
-        fetches.push(url);
-        return new Response(url.endsWith(".wasm") ? WASM : url.endsWith(".json") ? VKEY : ZKEY);
-      },
+      fetchBytes:
+        o.fetch ??
+        (async (url) => {
+          fetches.push(url);
+          return new Response(url.endsWith(".wasm") ? WASM : url.endsWith(".json") ? VKEY : ZKEY);
+        }),
+      ...(o.stallMs !== undefined ? { stallMs: o.stallMs } : {}),
       warn: () => {},
     });
     const prove = (id: number) =>
@@ -267,6 +279,46 @@ describe("the proof in the worker", () => {
     expect(vkeyFetches(), "cached under its pin: no request at the next proof").toBe(1);
     expect(h.verified(), "each proof checked with it").toBe(2);
     expect((await harness().prove(42)).at(-1), "none named: no local check").toMatchObject({ type: "proved", verifiedLocally: false });
+  });
+
+  it("a download whose host goes silent ends at the stall limit, never holding the spend's turn; a slow one goes on (audit round 2, n35)", async () => {
+    // no answer at all
+    const silent = harness({
+      stallMs: 40,
+      fetch: (_url, init) => new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason))),
+    });
+    expect((await silent.prove(50)).at(-1)).toMatchObject({ type: "error", error: expect.stringMatching(/no bytes from .* for/) });
+    // an answer whose body stops after its first bytes
+    const stalled = harness({
+      stallMs: 40,
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(new Uint8Array([1, 2, 3]));
+            },
+          }),
+        ),
+    });
+    expect((await stalled.prove(51)).at(-1)).toMatchObject({ type: "error", error: expect.stringMatching(/no bytes from/) });
+    // slow but never silent for the limit: proved
+    const slow = harness({
+      stallMs: 40,
+      fetch: async (url) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async start(c) {
+              const b = url.endsWith(".wasm") ? WASM : ZKEY;
+              for (let i = 0; i < b.length; i += 8) {
+                c.enqueue(b.slice(i, i + 8));
+                await new Promise((r) => setTimeout(r, 5));
+              }
+              c.close();
+            },
+          }),
+        ),
+    });
+    expect((await slow.prove(52)).at(-1)).toMatchObject({ type: "proved" });
   });
 
   it("an older pin of an artifact leaves the cache when a new one is stored", async () => {
