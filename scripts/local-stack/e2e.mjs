@@ -178,6 +178,14 @@ async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a po
   }
 }
 /** the Review's confirmation: a hold from the protected band, a tap below it (V6 Stage 10: the V6 Review's tap or the V2–V4 one) */
+/**
+ * A payee's figure as the page shows it, against what arrived (audit round 2, c7b): rounded down, so never more than arrived,
+ * and less by under one display unit (six decimals here). Nearest rounding had shown 0.195624 for 0.195623999…
+ */
+function roundedDown(got, shown) {
+  const d = got - shown;
+  return d > -1e-9 && d < 1e-6 + 1e-9;
+}
 async function confirmReview(page) {
   if (await byId(page, "hold-to-confirm").count()) return hold(page);
   const tap = (await byId(page, "review-confirm").count()) ? byId(page, "review-confirm") : byId(page, "confirm-tap");
@@ -735,7 +743,7 @@ try {
   await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got1 = await balanceEth(recipient1);
-  check("the fresh recipient received the page's \"Recipient receives\" (to its six shown decimals) from the vault, submitted by the relayer", Math.abs(got1 - receive1) <= 5e-7, `${recipient1}: ${got1} ETH (shown ${receive1})`);
+  check("the fresh recipient received the page's \"Recipient receives\" (to its six shown decimals) from the vault, submitted by the relayer", roundedDown(got1, receive1), `${recipient1}: ${got1} ETH (shown ${receive1})`);
   await snap(page, "sent-1k");
 
   // 4. a $120K public send: the enhanced Review --------------------------------------------------------------------------
@@ -754,7 +762,7 @@ try {
   await confirmReview(page);
   await byId(page, "send-done").waitFor({ timeout: PROOF_TIMEOUT });
   const got2 = await balanceEth(recipient2);
-  check("the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals)", Math.abs(got2 - receive2) <= 5e-7 && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (shown ${receive2})`);
+  check("the second fresh recipient received the page's figure (28 ETH minus the fees, to its six shown decimals)", roundedDown(got2, receive2) && got2 > 27 && got2 < 28, `${recipient2}: ${got2} ETH (shown ${receive2})`);
   await snap(page, "sent-120k");
 
   // 5. the $850K swap with ONE confirmation (V6 Stage 11, spec v2.0 §7.5–§7.7; a $1M+ order is a protected execution:
@@ -1169,7 +1177,7 @@ try {
     await context.unroute(`${RELAYER}/submit`);
     const gotOff = await balanceEth(rOff);
     const newJobs = (await jobsOf()) - jobsBefore;
-    check("back online: the one transaction is found by its nullifier — one relayer job, the recipient paid once (doc §74–§75)", newJobs === 1 && Math.abs(gotOff - receiveOff) <= 5e-7, `${newJobs} job(s); ${gotOff} ETH (shown ${receiveOff})`);
+    check("back online: the one transaction is found by its nullifier — one relayer job, the recipient paid once (doc §74–§75)", newJobs === 1 && roundedDown(gotOff, receiveOff), `${newJobs} job(s); ${gotOff} ETH (shown ${receiveOff})`);
     check("the banner is gone once the state is verified", (await byId(page, "offline-banner").count()) === 0);
     await snap(page, "offline-send-done");
 

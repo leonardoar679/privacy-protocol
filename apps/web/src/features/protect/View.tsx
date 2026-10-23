@@ -76,7 +76,7 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
               {m.source.account ? <AddressChip address={m.source.account} /> : null}
               {m.source.balance ? (
                 <span>
-                  {t("screen.protect.balance")} <Amt a={m.source.balance} />
+                  {t("screen.protect.balance")} <Amt a={m.source.balance} rounding="down" />
                 </span>
               ) : null}
               {a.onMax && m.source.balance ? (
@@ -103,7 +103,7 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
           label: t("screen.protect.to"),
           asset: { symbol: m.asset.symbol },
           network: t("screen.protect.protected"),
-          children: m.quote ? <Amt a={m.quote.receive} bare /> : "—",
+          children: m.quote ? <Amt a={m.quote.receive} bare rounding="down" /> : "—",
           testId: "protect-to",
         }}
       />
@@ -124,7 +124,7 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
       {m.quote ? (
         <Card padding="md">
           <FeeLines
-            receive={{ label: t("screen.protect.youReceive"), value: <Amt a={m.quote.receive} />, testId: "protect-receive" }}
+            receive={{ label: t("screen.protect.youReceive"), value: <Amt a={m.quote.receive} rounding="down" />, testId: "protect-receive" }}
             lines={[
               {
                 label: t("screen.protect.privacyFee"),

@@ -95,7 +95,7 @@ export function SendView({ model: m, actions: a, addressStatus }: { model: SendM
               {m.balance ? (
                 <>
                   {" · "}
-                  <Amt a={m.balance} />
+                  <Amt a={m.balance} rounding="down" />
                 </>
               ) : null}
               {a.onAsset ? (
@@ -168,7 +168,7 @@ export function SendView({ model: m, actions: a, addressStatus }: { model: SendM
       {m.quote ? (
         <Card padding="md">
           <FeeLines
-            receive={{ label: t("screen.send.recipientReceives"), value: <Amt a={m.quote.receive} />, testId: "send-receive" }}
+            receive={{ label: t("screen.send.recipientReceives"), value: <Amt a={m.quote.receive} rounding="down" />, testId: "send-receive" }}
             lines={[
               ...(m.quote.privacyFee.units > 0n
                 ? [

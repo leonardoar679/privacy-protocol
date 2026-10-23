@@ -123,7 +123,11 @@ export function ReviewView({
     {
       testId: "review-receive",
       rows: [
-        { label: t("screen.review.youReceive"), value: <Amt a={m.receive.amount} approx={m.receive.approx} />, testId: "review-expected" },
+        {
+          label: t("screen.review.youReceive"),
+          value: <Amt a={m.receive.amount} approx={m.receive.approx} rounding={m.receive.approx ? undefined : "down"} />,
+          testId: "review-expected",
+        },
         ...(m.minimum ? [{ label: t("screen.review.minimum"), value: <Amt a={m.minimum} rounding="down" />, testId: "review-minimum" }] : []),
         {
           label: t("screen.review.destination"),

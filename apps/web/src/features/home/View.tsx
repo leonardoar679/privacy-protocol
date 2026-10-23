@@ -86,7 +86,7 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
     <AssetRow
       key={x.amount.symbol}
       asset={{ symbol: x.amount.symbol, name: x.name }}
-      amount={<Amt a={x.amount} />}
+      amount={<Amt a={x.amount} rounding="down" />}
       usd={x.usdCents !== null ? <Usd cents={x.usdCents} /> : null}
       testId="asset-row"
     />

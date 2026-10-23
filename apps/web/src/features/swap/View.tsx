@@ -220,7 +220,7 @@ export function SwapView({
                     {m.pay.usd ? <span data-testid="swap-amount-usd">{m.pay.usd}</span> : null}
                     {m.pay.balance ? (
                       <span>
-                        {t("screen.protect.balance")} <Amt a={m.pay.balance} />
+                        {t("screen.protect.balance")} <Amt a={m.pay.balance} rounding="down" />
                       </span>
                     ) : null}
                     {a.onMax && m.pay.balance ? (
@@ -238,7 +238,7 @@ export function SwapView({
               network: cross ? m.receive.chain : t("screen.swap.protectedBalance"),
               onAsset: a.onReceiveAsset,
               assetLabel: t("screen.swap.chooseReceive"),
-              children: q ? q.kind === "cross-chain" ? <Amt a={q.minimum} bare /> : <Amt a={q.expected} approx bare /> : "—",
+              children: q ? q.kind === "cross-chain" ? <Amt a={q.minimum} bare rounding="down" /> : <Amt a={q.expected} approx bare /> : "—",
               testId: "swap-to",
             }}
           />
