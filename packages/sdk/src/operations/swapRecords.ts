@@ -71,8 +71,11 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
     },
     fees: prev?.fees ?? [],
     destination: {
-      kind: stored.campaign ? "fresh" : (stored.request as { destinationKind?: string }).destinationKind === "entered" ? "entered" : "fresh",
-      display: stored.shield ? "" : (req.destination ?? ""), // V6 Stage 12: into the protected balance — the one-time receiver is no address of the user's
+      // the kind the commit journaled (audit round 2, n60): it was dropped, and every swap — a typed-in address too, a campaign's
+      // always — read as fresh, "Verified" in Activity; an order from before claims nothing verified. Into the protected balance
+      // (V6 Stage 12): the one-time receiver is no address of the user's, the balance is theirs (n62: an empty label before)
+      kind: stored.shield ? "privacy-address" : (stored.request as { destinationKind?: string }).destinationKind === "fresh" ? "fresh" : "entered",
+      display: stored.shield ? "Your protected balance" : (req.destination ?? ""),
       chain: req.to?.chain ?? "ethereum",
     },
     refs: {

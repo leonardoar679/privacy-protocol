@@ -104,7 +104,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   const sampled = i.schedule ? (orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy], now)) : undefined;
   const dueAt = i.schedule ? (reviewHoldUntil !== undefined ? Math.max(sampled ?? 0, reviewHoldUntil) : sampled) : undefined;
   const stored: StoredSwap = {
-    orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps, ...(req.destinationType ? { destinationType: req.destinationType } : {}) },
+    orderId: order.orderId, operationId: response.operationId, attemptId, refundCounter, provider: order.quote.provider, policy: orderPolicy, request: { from: req.from, to: req.to, amount: req.amount, destination: req.destination, slippageBps: req.slippageBps, ...(req.destinationType ? { destinationType: req.destinationType } : {}), ...(req.destinationKind ? { destinationKind: req.destinationKind } : {}) },
     params: order.params, endpoint: order.endpoint, quote: order.quote, approvedMin: (i.shown ?? order.quote).toAmountMin, createdAt: now, dueAt, state: "committed", refundNoteData: refund.noteData, // the random payload is journaled (encrypted); the key is re-derived from attemptId
     ...(response.vouch?.order ? { orderVouch: response.vouch.order } : {}), // the API's vouch for this order (audit gap 47)
     preference: i.preference, tier: journaledTier, value: order.value ?? response.value, plan: order.plan ?? i.shown?.plan, ...(i.competition ? { competition: i.competition } : {}), ...(reviewHoldUntil !== undefined ? { reviewHoldUntil } : {}),
