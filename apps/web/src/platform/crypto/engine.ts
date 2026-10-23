@@ -184,12 +184,21 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
     post({ id, type: "progress", phase: "key" });
     const wasm = await artifact("transaction.wasm", a.wasmUrl, a.pins?.wasm, a.production);
     const zkey = await artifact("transaction_final.zkey", a.zkeyUrl, a.pins?.zkey, a.production);
+    // the verification key from the same pinned cache (audit round 2, r21): fetched on the main thread at every proof, uncached,
+    // it told the artifact host when each private spend began. It serves the local check only: without it, none
+    let verificationKey: unknown;
+    if (a.vkeyUrl)
+      try {
+        verificationKey = JSON.parse(new TextDecoder().decode((await artifact("verification_key.json", a.vkeyUrl, a.pins?.vkey, a.production)).bytes));
+      } catch {
+        verificationKey = undefined;
+      }
     const t1 = now();
     post({ id, type: "progress", phase: "proving" });
     const { layers, ...rest } = plan;
     const spec: TxSpec = { ...rest, ...(layers ? { tree: MerkleLayers.fromLayers(rest.leaves, layers.upper, layers.levels) } : {}) };
     const inputs = buildTxInputs(spec); // throws when a note does not open its leaf or the value is not conserved
-    const call = await proveInputs(await deps.snarkjs(), inputs, { wasm: wasm.bytes, zkey: zkey.bytes, verificationKey: a.verificationKey });
+    const call = await proveInputs(await deps.snarkjs(), inputs, { wasm: wasm.bytes, zkey: zkey.bytes, verificationKey });
     const t2 = now();
     post({
       id,
@@ -201,6 +210,7 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
       proveMs: t2 - t1,
       keyCached: wasm.cached && zkey.cached,
       pins: { zkey: zkey.verdict, wasm: wasm.verdict },
+      verifiedLocally: verificationKey !== undefined,
     });
   }
 

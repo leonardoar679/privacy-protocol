@@ -8,7 +8,6 @@
 import type { Hex } from "viem";
 import { publicInputsFromSignals } from "@privacy-wallet/protocol/prover";
 import type { TxSpec } from "@privacy-wallet/protocol/txInputs";
-import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import { config, type CoreBackend, type ProofResult, type ProveStatus } from "@privacy-wallet/sdk/config";
 import { CORE_PATH } from "@privacy-wallet/sdk/core";
 import { recordProof } from "@privacy-wallet/sdk/wallet/proofStats";
@@ -124,27 +123,18 @@ export function planMessage(spec: TxSpec): PlanMessage {
 /** The SDK's prover port: the plan to the worker; the device's timings to the journal. */
 export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<ProofResult> {
   const at = locks; // a lock while this waits for its own requests ends it (audit round 2, r19)
-  let verificationKey: unknown;
-  try {
-    const r = await secureFetch(artifactUrls().verificationKey, {}, "artifacts");
-    if (r.ok) verificationKey = await r.json();
-  } catch {
-    /* no local verification; the chain verifies anyway */
-  }
   const pins = await loadPins();
   if (locks !== at) throw interrupted();
   const urls = artifactUrls();
+  // the verification key is the worker's to fetch, from the pinned cache (audit round 2, r21): never a request per proof
   const r = await call(
-    { op: "prove", plan: planMessage(spec), artifacts: { wasmUrl: urls.wasm, zkeyUrl: urls.zkey, verificationKey, pins, production: config().production } },
+    {
+      op: "prove",
+      plan: planMessage(spec),
+      artifacts: { wasmUrl: urls.wasm, zkeyUrl: urls.zkey, vkeyUrl: urls.verificationKey, pins, production: config().production },
+    },
     [],
-    (phase) =>
-      onStatus?.(
-        phase === "key"
-          ? "Fetching the proving key (kept on this device after the first time)…"
-          : verificationKey
-            ? "Proving locally in a Web Worker (the proof is verified locally before submission)…"
-            : "Proving locally in a Web Worker…",
-      ),
+    (phase) => onStatus?.(phase === "key" ? "Fetching the proving key (kept on this device after the first time)…" : "Proving locally in a Web Worker…"),
   );
   if (r.type !== "proved") throw new Error("the crypto worker answered out of turn");
   recordProof({ keyMs: r.keyMs, proveMs: r.proveMs, keyCached: r.keyCached });
@@ -154,7 +144,7 @@ export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<
     publicInputs: publicInputsFromSignals(publicSignals),
     publicSignals,
     ms: r.ms,
-    verifiedLocally: verificationKey !== undefined,
+    verifiedLocally: r.verifiedLocally,
     pins: r.pins,
   };
 }

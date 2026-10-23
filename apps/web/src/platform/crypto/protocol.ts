@@ -13,7 +13,8 @@ export type PlanMessage = Omit<TxSpec, "tree"> & { layers?: { levels: number; up
 export interface ArtifactRequest {
   wasmUrl: string;
   zkeyUrl: string;
-  verificationKey?: unknown;
+  /** the verification key, fetched here from the pinned cache for the local check (audit round 2, r21): none, no local check */
+  vkeyUrl?: string;
   pins?: ArtifactPins;
   production: boolean;
 }
@@ -60,6 +61,8 @@ export type CryptoResponse =
       proveMs: number;
       keyCached: boolean;
       pins: { zkey: string; wasm: string };
+      /** the proof was checked here with the verification key before it is submitted */
+      verifiedLocally: boolean;
     }
   | { id: number; type: "error"; error: string };
 

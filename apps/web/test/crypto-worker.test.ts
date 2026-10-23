@@ -30,6 +30,7 @@ const ours: Note = { vaultId: BigInt(VAULT), amount: 10n ** 18n, ownerCommitment
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const WASM = utf8ToBytes("the witness generator");
 const ZKEY = utf8ToBytes("the proving key");
+const VKEY = utf8ToBytes(JSON.stringify({ protocol: "groth16", curve: "bn128", nPublic: 9 }));
 
 /** An in-memory Cache API. */
 function memoryCaches(override: { match?: () => Promise<never>; put?: () => Promise<never> } = {}) {
@@ -156,8 +157,9 @@ describe("the proof in the worker", () => {
     spec = planWithdrawal(seed, layers, BigInt(VAULT), 4n * 10n ** 17n, 0xb0b0n, txDomain(31337n, BigInt("0x5FbDB2315678afecb367f032d93F642f64180aa3"))).spec;
   });
 
-  function harness(o: { production?: boolean; pinned?: boolean; cache?: Parameters<typeof memoryCaches>[0] } = {}) {
+  function harness(o: { production?: boolean; pinned?: boolean; vkey?: boolean; cache?: Parameters<typeof memoryCaches>[0] } = {}) {
     const fetches: string[] = [];
+    let verified = 0;
     const caches = memoryCaches(o.cache);
     const seen: CircuitInputs[] = [];
     const snarkjs: SnarkjsLike = {
@@ -177,7 +179,10 @@ describe("the proof in the worker", () => {
             publicSignals: expectedPublicSignals(input).map(String),
           };
         },
-        verify: async () => true,
+        verify: async () => {
+          verified++;
+          return true;
+        },
       },
     };
     const engine = createCryptoEngine({
@@ -186,7 +191,7 @@ describe("the proof in the worker", () => {
       snarkjs: async () => snarkjs,
       fetchBytes: async (url) => {
         fetches.push(url);
-        return new Response(url.endsWith(".wasm") ? WASM : ZKEY);
+        return new Response(url.endsWith(".wasm") ? WASM : url.endsWith(".json") ? VKEY : ZKEY);
       },
       warn: () => {},
     });
@@ -199,10 +204,11 @@ describe("the proof in the worker", () => {
           wasmUrl: "/artifacts/transaction.wasm",
           zkeyUrl: "/artifacts/transaction_final.zkey",
           production: o.production ?? false,
-          ...(o.pinned === false ? {} : { pins: { wasm: sha(WASM), zkey: sha(ZKEY) } }),
+          ...(o.vkey ? { vkeyUrl: "/artifacts/verification_key.json" } : {}),
+          ...(o.pinned === false ? {} : { pins: { wasm: sha(WASM), zkey: sha(ZKEY), vkey: sha(VKEY) } }),
         },
       });
-    return { engine, fetches, caches, seen, prove };
+    return { engine, fetches, caches, seen, prove, verified: () => verified };
   }
 
   it("the inputs are built in the engine from the plan (its layers crossed as arrays); progress, then the proof", async () => {
@@ -250,6 +256,17 @@ describe("the proof in the worker", () => {
     expect((await full.prove(19)).at(-1)).toMatchObject({ type: "proved", keyCached: false, pins: { zkey: "match", wasm: "match" } });
     const unreadable = harness({ cache: { match: async () => Promise.reject(new DOMException("The operation failed.", "UnknownError")) } });
     expect((await unreadable.prove(20)).at(-1)).toMatchObject({ type: "proved", keyCached: false });
+  });
+
+  it("the verification key comes from the same pinned cache: fetched once, never at every proof, and each proof checked with it (audit round 2, r21)", async () => {
+    const h = harness({ vkey: true });
+    expect((await h.prove(40)).at(-1)).toMatchObject({ type: "proved", verifiedLocally: true });
+    const vkeyFetches = () => h.fetches.filter((u) => u.endsWith("verification_key.json")).length;
+    expect(vkeyFetches()).toBe(1);
+    expect((await h.prove(41)).at(-1)).toMatchObject({ type: "proved", verifiedLocally: true });
+    expect(vkeyFetches(), "cached under its pin: no request at the next proof").toBe(1);
+    expect(h.verified(), "each proof checked with it").toBe(2);
+    expect((await harness().prove(42)).at(-1), "none named: no local check").toMatchObject({ type: "proved", verifiedLocally: false });
   });
 
   it("an older pin of an artifact leaves the cache when a new one is stored", async () => {

@@ -3,7 +3,8 @@
 // worker hashes what it fetched before proving with it. A mismatch is a refusal in a production build and a warning in
 // dev (where the circuit may have been rebuilt without re-pinning); no pin at all is "unpinned" — allowed in dev,
 // refused in production. Pure: the decision is a function, so the gate can test it without a worker.
-export interface ArtifactPins { zkey?: string; wasm?: string }
+/** `vkey`: the verification key, read from the same pinned cache for the local check (audit round 2, r21) */
+export interface ArtifactPins { zkey?: string; wasm?: string; vkey?: string }
 
 export type PinVerdict = "match" | "unpinned" | "mismatch";
 
@@ -34,5 +35,5 @@ export function enforce(name: string, verdict: PinVerdict, o: { production: bool
 /** The pins of a build, from the served pin file's shape ({ files: { "<name>": { sha256 } } }). */
 export function pinsFromManifest(manifest: unknown): ArtifactPins {
   const files = (manifest as { files?: Record<string, { sha256?: string }> } | null)?.files ?? {};
-  return { zkey: files["transaction_final.zkey"]?.sha256, wasm: files["transaction.wasm"]?.sha256 };
+  return { zkey: files["transaction_final.zkey"]?.sha256, wasm: files["transaction.wasm"]?.sha256, vkey: files["verification_key.json"]?.sha256 };
 }
