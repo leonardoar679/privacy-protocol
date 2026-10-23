@@ -427,7 +427,8 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
               code === "relayer_not_ready" ||
               code === "service_key_changed" ||
               code === "order_outdated" ||
-              code === "fee_moved")
+              code === "fee_moved" ||
+              code === "tip_stale")
           ) {
             // "Delay for more privacy": the older notes the Review showed no longer cover the order and nothing was sent —
             // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes. Or the relayer

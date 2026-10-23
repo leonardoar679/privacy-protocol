@@ -551,6 +551,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.restore_unsigned.title": "서비스는 주문 자체의 키로만 주문을 다시 만듭니다",
   "op.error.restore_unsigned.reason":
     "주문을 다시 만들라는 이 지갑의 요청에 주문 키의 서명이 없었습니다. 자금은 에스크로 또는 보호 잔액에 있으며, 지갑이 자체 기록에서 다시 이어 갑니다.",
+  "op.error.tip_stale.title": "이 스왑에는 새 견적이 필요합니다",
+  "op.error.tip_stale.reason":
+    "설정된 뒤로 네트워크 수수료가 올라 실행자가 오늘의 가스 가격으로는 이 스왑을 실행하지 않습니다. 자금 투입 전에 중지되어 아무것도 전송되지 않았고 자금도 움직이지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.unknown_order.title": "서비스가 더 이상 이 주문을 알지 못합니다",
   "op.error.unknown_order.reason":
     "서비스에서 주문을 찾지 못했습니다(재시작되었을 수 있습니다). 자금은 에스크로나 보호 잔액에 있으며, 지갑은 자체 기록에서 이어서 진행합니다.",

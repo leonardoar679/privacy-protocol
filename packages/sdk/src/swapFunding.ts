@@ -4,6 +4,8 @@
 // is recomputed from the wallet's own factory and the journaled params before a single note is spent,
 // and an order that is no longer open (abandoned, already funded) is never funded.
 import { recoverAddress, type Address, type Hex } from "viem";
+import { executionUnits, type GasFees } from "@privacy-wallet/contracts";
+import { feesOf } from "./executionCost";
 import { outcomeReads, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { RelayerRefusal, relayerInfo, relayerJobFor, relayerRunsFor, relayerShieldRegister, type RelayerInfo, type ShieldJob } from "./relayer";
@@ -257,6 +259,37 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
   return now - a.at < FUNDING_SETTLE_MS ? "pending" : "dead";
 }
 
+/**
+ * An ETH order whose tip no longer pays its execution at today's gas price (audit round 2, p04): the tip is fixed in the
+ * escrow at the commit — hours before a delayed funding —, and a base fee risen since left the relayer waiting rather than
+ * execute below cost, the call expiring and the escrow waiting for its refund time, the fees lost. Stopped before funding.
+ */
+export class TipStale extends Error {
+  readonly code = "tip_stale";
+  constructor(readonly tip: bigint, readonly cost: bigint) {
+    super(`the order's executor tip (${tip} wei) no longer pays its execution at today's gas price (about ${cost} wei); it was stopped before funding`);
+    this.name = "TipStale";
+  }
+}
+
+/**
+ * Today's cost of an ETH order's execution, with room for the base fee to rise half again before it runs, against its tip
+ * (p04). An ERC-20 order's tip is in the token and never re-valued by the executor; without a fee read the relayer's own
+ * check stands.
+ */
+async function checkTipCovers(d: Deployment, stored: StoredSwap, readFees: (d: Deployment) => Promise<GasFees>): Promise<void> {
+  const p = stored.params as { assetType?: number | string; executorTip?: string };
+  if (Number(p.assetType) !== 0 || p.executorTip === undefined) return;
+  let fees: GasFees;
+  try {
+    fees = await readFees(d);
+  } catch {
+    return;
+  }
+  const cost = executionUnits(false) * ((fees.baseFeePerGas * 3n) / 2n + fees.priorityFeePerGas);
+  if (BigInt(p.executorTip) < cost) throw new TipStale(BigInt(p.executorTip), cost);
+}
+
 export async function fundEscrow(o: {
   masterSeed: Uint8Array;
   deployment: Deployment | null;
@@ -269,6 +302,8 @@ export async function fundEscrow(o: {
   replaceDead?: boolean;
   /** the reads of a journaled funding's fate (tests); the deployment's own otherwise */
   reads?: FundingReads;
+  /** today's gas fees (tests); this wallet's own RPC otherwise */
+  fees?: (d: Deployment) => Promise<GasFees>;
   now?: number;
 }): Promise<Submitted> {
   const s = o.session ?? defaultSession;
@@ -303,6 +338,7 @@ export async function fundEscrow(o: {
     patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
   }
   if ((o.now ?? Date.now()) + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();
+  await checkTipCovers(o.deployment, stored, o.fees ?? feesOf);
   await checkFundingReady(o);
   // a same-chain swap's shield job is accepted before anything is funded (c12)
   await registerShieldBeforeFunding(o.relayerUrl ?? null, stored, s);

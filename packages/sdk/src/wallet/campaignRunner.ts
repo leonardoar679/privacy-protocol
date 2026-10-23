@@ -476,6 +476,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + 1000;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
+          // a step whose tip no longer pays its execution at today's gas price (audit round 2, p04) is committed afresh, its new
+          // tip priced now — never funded to wait out its refund time at the relayer
+          if (!sent && (e as { code?: unknown })?.code === "tip_stale") {
+            abandonSwap(stored.orderId, s);
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's executor tip no longer paid its execution at today's gas price: the order is abandoned unfunded and the step planned again");
+            nextAt = now + 1000;
+            break;
+          }
           if (!sent && (e as { code?: unknown })?.code === "order_outdated") {
             // an order an older build committed under the privacy address's owner commitment (the audit round of 2026-10-16,
             // c18) is never funded: abandoned with nothing sent, and the step planned again under its own owner commitments

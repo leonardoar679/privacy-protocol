@@ -10,7 +10,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, FundingAlreadySent, isOpenSwap, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, FundingAlreadySent, isOpenSwap, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
@@ -44,6 +44,35 @@ describe("swap funding", () => {
     noteStore.clear(); settings.reset();
     s = new WalletSession(memoryStorage(), KDF);
     await s.create("pw");
+  });
+
+  it("an ETH order whose tip no longer pays its execution at today's gas price is stopped before funding; an ERC-20 order's is not re-valued (audit round 2, p04)", async () => {
+    const GWEI = 10n ** 9n;
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const params = {
+      orderId: ("0x" + "ad".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: (2_000_000n * GWEI).toString(),
+    };
+    const committed: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [committed]; });
+    withdrawals.calls.length = 0;
+    // a 2M-gas tip priced at 1 gwei; the base fee is 4 gwei now
+    const risen = async () => ({ baseFeePerGas: 4n * GWEI, priorityFeePerGas: GWEI / 10n });
+    const e = await fundEscrow({ masterSeed: seed, deployment, stored: committed, session: s, relayerUrl: "http://relayer.test", fees: risen }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(TipStale);
+    expect(withdrawals.calls, "nothing withdrawn").toHaveLength(0);
+    // fees as at the commit: the tip pays — the funding goes on to its next checks
+    const calm = async () => ({ baseFeePerGas: GWEI / 2n, priorityFeePerGas: GWEI / 10n });
+    expect(await fundEscrow({ masterSeed: seed, deployment, stored: committed, session: s, relayerUrl: "http://relayer.test", fees: calm }).catch((x: unknown) => x)).not.toBeInstanceOf(TipStale);
+    // an ERC-20 order's tip is never re-valued here
+    const tokenParams = { ...params, orderId: ("0x" + "ae".repeat(32)) as `0x${string}`, assetType: 1 };
+    const token: StoredSwap = { ...order(tokenParams.orderId), params: tokenParams, endpoint: predictEscrow(FACTORY, tokenParams) };
+    s.update((j) => { j.swaps = [...j.swaps, token]; });
+    expect(await fundEscrow({ masterSeed: seed, deployment, stored: token, session: s, relayerUrl: "http://relayer.test", fees: risen }).catch((x: unknown) => x)).not.toBeInstanceOf(TipStale);
+    withdrawals.calls.length = 0; // the funded ones: nothing of them reaches the next case
   });
 
   it("abandoning an order removes its scheduled funding and marks its Activity line; the runner drops actions of closed or funded orders", async () => {
