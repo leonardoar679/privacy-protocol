@@ -96,8 +96,11 @@ class World implements CampaignIo {
   lastStall: { since: number; expected: number } | undefined;
   constructor(readonly s: WalletSession, readonly now: () => number) {}
   private stored(orderId: string): StoredSwap { return this.s.journal().swaps.find((x) => x.orderId === orderId)!; }
+  /** thrown once by the next commit (audit round 2, r07: the counters held after a restore) */
+  commitThrows: Error | null = null;
   async commit(c: Campaign, t: Tranche, destination: string) {
     this.calls.push(`commit:${t.index}:${c.provider}`);
+    if (this.commitThrows) { const e = this.commitThrows; this.commitThrows = null; throw e; }
     if (this.gate) await this.gate;
     const orderId = ("0x" + (++this.n).toString(16).padStart(64, "0")) as `0x${string}`;
     const q = quote(this.sizeChosen ?? c.provider ?? "thorchain", BigInt(t.amount));
@@ -485,6 +488,19 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("fund");
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "bounds", trancheIndex: 0 } });
     expect(current(c).pause?.detail).toMatch(/nothing was sent/);
+  });
+
+  it("a step refused by the wallet's own hold after a restore waits for the note scan: never a pause that blames the provider (audit round 2, r07)", async () => {
+    const c = await fresh();
+    world.commitThrows = Object.assign(new Error("the wallet is still looking for its notes after a restore: no new note until one complete scan of the pool"), { code: "notes_loading" });
+    const r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    expect(current(c).state, "running, never paused").not.toBe("paused");
+    expect(current(c).tranches[0].state, "still ready: committed at the next tick").toBe("ready");
+    expect(notes.map((n) => n.kind), "no alert").toEqual([]);
+    clock += 61_000;
+    expect((await tick(c))?.action.kind, "committed once the hold has passed").toBe("commit");
+    expect(current(c).tranches[0].state).toBe("committed");
   });
 
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {

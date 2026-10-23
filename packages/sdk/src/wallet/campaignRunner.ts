@@ -35,7 +35,7 @@ import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
 import { cancelAction, sampleDueAt, schedulerStatus } from "./schedule";
-import { scheduleDiscovery } from "./discovery";
+import { HELD_SCAN_RETRY_MS, scheduleDiscovery } from "./discovery";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -381,6 +381,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         try { r = await io.commit(c, c.tranches[t.index], dest.address); }
         catch (e) {
           const m = (e as Error)?.message ?? String(e);
+          // the wallet's own hold after a restore (audit round 2, r07): no new note before one complete scan — the step waits
+          // for it, never a pause that blamed the provider and asked the user to resume
+          if ((e as { code?: unknown })?.code === "notes_loading") { nextAt = now + HELD_SCAN_RETRY_MS; break; }
           c = withTrancheState(c, t.index, "planned", now, {}, `commit failed: ${m}`);
           c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index);
           break;

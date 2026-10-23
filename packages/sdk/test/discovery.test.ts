@@ -7,6 +7,7 @@ import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
 import { session, WalletSession } from "../src/wallet/session";
 import { recordActivity } from "../src/wallet/activity";
+import { noteStore } from "../src/wallet/notes";
 import type { Deployment } from "../src/chain";
 
 const scan = vi.hoisted(() => ({ calls: 0, received: [] as { leafIndex: number; vaultId: bigint; amount: bigint; txHash: string }[], fails: false }));
@@ -23,6 +24,7 @@ import {
   DISCOVERY_ID,
   DISCOVERY_INTERVAL_MS,
   DISCOVERY_MIN_GAP_MS,
+  HELD_SCAN_RETRY_MS,
   discoverSoon,
   discoveryWanted,
   resetDiscoveryMemory,
@@ -57,6 +59,7 @@ afterEach(() => {
   scan.calls = 0;
   scan.received = [];
   scan.fails = false;
+  noteStore.releaseCounters(0); // a restore's hold (the first-launch test's) never leaks into the next test
   resetDiscoveryMemory();
 });
 
@@ -126,5 +129,18 @@ describe("note discovery", () => {
     expect(scan.calls, "nothing to look in").toBe(1);
     scan.fails = true;
     await expect(runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment })).rejects.toThrow(/fetch failed/);
+  });
+
+  it("a scan that fails while the counters are held (after a restore) is tried again within the minute, never the scheduler's backoff (audit round 2, r06)", async () => {
+    scheduleDiscovery(T0);
+    noteStore.holdCounters();
+    scan.fails = true;
+    try {
+      await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 });
+      expect(action()!.dueAt, "planned again a minute on, under the same id").toBe(T0 + HELD_SCAN_RETRY_MS);
+      expect(action()!.done).toBeFalsy();
+    } finally {
+      noteStore.releaseCounters(0);
+    }
   });
 });

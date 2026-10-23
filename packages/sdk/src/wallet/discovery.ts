@@ -26,6 +26,12 @@ export const DISCOVERY_ID = "discovery:pool";
 export const DISCOVERY_INTERVAL_MS = 10 * 60_000;
 /** Activity's opening asks for a scan at most this often. */
 export const DISCOVERY_MIN_GAP_MS = 60_000;
+/**
+ * A scan that failed while the counters are held (after a restore) is tried again this soon (audit round 2, r06): every new
+ * note waits for one complete scan, and the scheduler's backoff — 10 minutes doubling to 6 hours — had refused every Protect,
+ * swap and Send with change that long, the words saying "try again in a moment".
+ */
+export const HELD_SCAN_RETRY_MS = 60_000;
 
 let lastRunAt = 0;
 /** Tests: forget when the last scan ran. */
@@ -70,7 +76,15 @@ export async function runDiscovery(
   if (!o.deployment) return; // no pool configured: nothing to look in
   schedulerStatus.start(a.id, "Looking for your notes in the pool…");
   try {
-    const r = await scanNotes({ masterSeed: o.masterSeed, deployment: o.deployment, onStatus: (line) => schedulerStatus.progress(line) });
+    let r: Awaited<ReturnType<typeof scanNotes>>;
+    try {
+      r = await scanNotes({ masterSeed: o.masterSeed, deployment: o.deployment, onStatus: (line) => schedulerStatus.progress(line) });
+    } catch (e) {
+      if (!noteStore.countersHeld() || !s.isUnlocked()) throw e; // the scheduler's backoff
+      schedulerStatus.progress(`The pool could not be read (${(e as Error)?.message ?? String(e)}); looking again in a minute…`);
+      scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now() + HELD_SCAN_RETRY_MS }, s); // the same id: kept pending
+      return;
+    }
     lastRunAt = now();
     if (!s.isUnlocked()) return; // locked during the scan: the next unlock scans again
     // the operations whose own flow is gone (a reload, a closed tab): the chain moves them now (../operations/stale.ts)
