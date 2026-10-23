@@ -124,10 +124,12 @@ them saw (`docs/deployment.md`); a POST that is not JSON answers `415`. Every co
 ```
 cd apps/relayer && npm install && npm test
 RPC_URL=http://127.0.0.1:8545 CHAIN_ID=31337 CORE=0x… FEE_VAULT=0x… \
-RELAYER_PRIVATE_KEY=0x… RELAYER_SEED="relayer wallet seed" npm run serve      # http://127.0.0.1:8790
+RELAYER_PRIVATE_KEY=0x… RELAYER_SEED=0x$(openssl rand -hex 32) npm run serve      # http://127.0.0.1:8790
 ```
 The gas key only ever holds gas. The seed is the relayer's own wallet (it spends fee notes with the
-same wallet software as any user: rescan with the view key, withdraw with a proof). **Journals are
+same wallet software as any user: rescan with the view key, withdraw with a proof): 32 random bytes, `0x` and 64 hex
+digits, and nothing else — its privacy address is published on `GET /info`, so a phrase could be tried offline against
+it; the relayer refuses to start with one (audit round 2, r50). Keep the seed with the journals. **Journals are
 durable**: `RELAYER_JOURNAL_DIR` (default `journal/`, gitignored) holds `submissions.json`,
 `swap-jobs.json` and `shield-jobs.json`, rewritten on every change: written whole to a temporary file, flushed to the
 disk, then renamed over the journal, so a crash leaves the old file or the new one. A journal that cannot be read

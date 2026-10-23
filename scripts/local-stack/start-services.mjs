@@ -58,7 +58,7 @@ start("relayer", "apps/relayer", ["tsx", "src/server.ts"], {
   CORE: stack.core,
   FEE_VAULT: stack.ethVault,
   RELAYER_PRIVATE_KEY: stack.keys.relayer,
-  RELAYER_SEED: "local stack relayer seed (devnet only)",
+  RELAYER_SEED: "0xd68e7498939594f9a669d65fa70ce4891b6b4c2703b3eae29268438e9e8cd28d", // keccak256("local stack relayer seed (devnet only)"): 32 bytes, as the relayer requires
   MIN_FEE_WEI: "0",
   GAS_ESTIMATE: "1800000",
   FEE_MARGIN_BPS: "2000",

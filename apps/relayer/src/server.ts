@@ -24,13 +24,13 @@ import { addressListSetting, bigintSetting, intSetting } from "@privacy-wallet/s
 import { edge } from "./edge";
 import { errorAnswer, infoAnswer, readJson, statusAnswer } from "./answers";
 import { adminAuthorized } from "./admin";
+import { relayerSeed } from "./seed";
 import { join } from "node:path";
 
 const env = (k: string, d?: string): string => { const v = process.env[k] ?? d; if (v === undefined) throw new Error(`missing env ${k}`); return v; };
 // every number is read strictly: a malformed one stops the start, naming it (a V6 follow-up of 2026-10-15)
 const int = (k: string, d: number, min: number, max: number): number => intSetting(process.env, k, d, { min, max });
 const DAY = 86_400;
-const seed = (s: string): Uint8Array => (s.startsWith("0x") ? Uint8Array.from(s.slice(2).match(/../g)!.map((x) => parseInt(x, 16))) : new TextEncoder().encode(s));
 
 /** FEE_VAULTS='{"0xvault":{"symbol":"USDC","decimals":6,"minFee":"2000000"}}' → lowercase vault -> fixed terms */
 function feeVaults(): RelayerConfig["feeVaults"] {
@@ -43,7 +43,7 @@ function feeVaults(): RelayerConfig["feeVaults"] {
 const cfg: RelayerConfig = {
   chainId: int("CHAIN_ID", 31337, 1, Number.MAX_SAFE_INTEGER), core: env("CORE") as Hex, feeVault: env("FEE_VAULT") as Hex, feeVaults: feeVaults(),
   minFeeWei: bigintSetting(process.env, "MIN_FEE_WEI", 0n), gasEstimate: bigintSetting(process.env, "GAS_ESTIMATE", 1_800_000n), feeMarginBps: int("FEE_MARGIN_BPS", 2000, 0, 100_000),
-  privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: seed(env("RELAYER_SEED")), rpcUrl: env("RPC_URL"),
+  privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: relayerSeed(process.env.RELAYER_SEED) /* 32 random bytes only (audit round 2, r50) */, rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",
   journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json")),
   feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 9_999), // 10000 passed and answered every withdrawal 500 (the fee rule takes [0, 10000); unverified m03) // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100

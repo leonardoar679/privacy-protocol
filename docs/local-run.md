@@ -57,7 +57,7 @@ CHAIN_ID=1 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> RPC_URLS=<rpc> RELAYER
 # a test token: ERC20_VAULTS=<token>:<vault>:USDC:6 — the symbol and decimals the wallet names it with; an order in a
 # token is built only so (its tip is valued in it), and USDC and USDT on mainnet need neither
 
-cd apps/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (+ FEE_VAULTS for ERC-20 fee notes, SHIELD_FACTORY for same-chain swaps)
+cd apps/relayer && cp .env.example .env         # RPC_URL, CHAIN_ID, CORE, FEE_VAULT, a funded RELAYER_PRIVATE_KEY, RELAYER_SEED (0x + 64 hex digits: `openssl rand -hex 32`) (+ FEE_VAULTS for ERC-20 fee notes, SHIELD_FACTORY for same-chain swaps)
 npm install && npm run serve                        # http://127.0.0.1:8790 (private submission + swap executor)
 curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's pp1… address
 ```
