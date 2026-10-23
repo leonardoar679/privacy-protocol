@@ -536,6 +536,8 @@ export const en = {
   "op.error.journal_unreadable.reason": "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
+  "op.error.payout_held.title": "The recipient's address did not take the payment",
+  "op.error.payout_held.reason": "The funds left your protected balance, but the address refused them, so the vault holds them for it. They can be claimed to that address later; an address that can never accept them leaves them there.",
   "op.error.not_this_spend.title": "We're checking where this transaction went",
   "op.error.not_this_spend.reason": "The transaction we were given back does not spend these funds. Nothing is counted as sent: the wallet reads the chain to find out.",
   "op.error.no_relayer.title": "No relayer could take this transaction",

@@ -40,6 +40,8 @@ export const otherClientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls ?? 
 export const txDomainOf = (d: Deployment): bigint => txDomain(BigInt(d.chainId), BigInt(d.core));
 
 const noteInserted = parseAbiItem("event NoteInserted(uint32 indexed leafIndex, uint256 commitment, bytes noteData)");
+/** IAssetVault: a payout its recipient refused, held by the vault as that address's claim (audit round 2, r42) */
+const claimCreated = parseAbiItem("event WithdrawalClaimCreated(address indexed recipient, uint256 amount)");
 
 export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: number; /** NoteInserted events = notes in the pool (the anonymity set) */ notes: number; /** every layer over `leaves`: authentication paths are lookups */ layers: MerkleLayers }
 
@@ -250,7 +252,14 @@ export async function minedTx(
   core?: Address,
   /** the deployment's other endpoints (`otherClientsFor`): each must give the same receipt, or ReceiptDisputed */
   others: readonly PublicClient[] = [],
-): Promise<{ inserted: { leafIndex: number; commitment: bigint }[]; costWei: bigint; /** the nullifier pairs its transact calls spent */ spends: [bigint, bigint][] }> {
+): Promise<{
+  inserted: { leafIndex: number; commitment: bigint }[];
+  costWei: bigint;
+  /** the nullifier pairs its transact calls spent */
+  spends: [bigint, bigint][];
+  /** payouts a recipient refused, each held by its vault as that address's claim (audit round 2, r42) */
+  claims: { vault: Address; recipient: Address; amount: bigint }[];
+}> {
   const receipt = await client.waitForTransactionReceipt({ hash });
   if (others.length) {
     const key = receiptKey(receipt, core);
@@ -261,7 +270,8 @@ export async function minedTx(
   const logs = core ? receipt.logs.filter((l) => l.address.toLowerCase() === core.toLowerCase()) : receipt.logs;
   const inserted = parseEventLogs({ abi: coreAbi, logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
   const spends = parseEventLogs({ abi: coreAbi, logs, eventName: "ShieldedTransaction" }).map((l) => [l.args.nullifier0, l.args.nullifier1] as [bigint, bigint]);
-  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends }; // an RPC that omits the price: no cost known
+  const claims = parseEventLogs({ abi: [claimCreated], logs: receipt.logs }).map((l) => ({ vault: getAddress(l.address), recipient: getAddress(l.args.recipient), amount: l.args.amount }));
+  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends, claims }; // an RPC that omits the price: no cost known
 }
 
 /**

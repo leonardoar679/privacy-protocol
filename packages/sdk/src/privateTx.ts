@@ -432,6 +432,19 @@ export async function submitToRelayer(
   }
 }
 
+/**
+ * A withdrawal mined whose payout its recipient refused (audit round 2, r42; a contract that takes no ETH, a token's
+ * blacklisted holder): the vault holds it as that address's claim. `claim(recipient)` pays it there later, and an address
+ * that can never take it leaves it in the vault. The notes are spent. The Send had read "sent" while nothing arrived.
+ */
+export class PayoutHeld extends Error {
+  readonly code = "payout_held";
+  constructor(readonly recipient: Address, readonly amount: bigint, readonly vault: Address, readonly txHash: Hex) {
+    super(`the recipient ${recipient} did not take the payment: the vault holds it as that address's claim (transaction ${txHash})`);
+    this.name = "PayoutHeld";
+  }
+}
+
 /** V6 Stage 15 (spec v2.0 §8): proving and the submission are a critical section for the auto-lock. */
 async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Promise<Submitted> {
   const release = session.hold("spend");
@@ -441,7 +454,7 @@ async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Pr
     release();
   }
 }
-async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number } } & Progress): Promise<Submitted> {
+async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
   o.onEvent?.({ type: "proving" });
   // V6 Stage 15 (spec v2.0 §14.3): the plan goes to the prover, which builds the circuit inputs where it proves (the
@@ -475,7 +488,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   }
   o.onStatus?.("Waiting for the transaction to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
-  const { inserted, costWei, spends } = await minedTx(client, txHash, o.deployment.core, otherClientsFor(o.deployment)); // every endpoint's receipt (audit round 2, r23)
+  const { inserted, costWei, spends, claims } = await minedTx(client, txHash, o.deployment.core, otherClientsFor(o.deployment)); // every endpoint's receipt (audit round 2, r23)
   // the notes are spent by this transaction, or by none the wallet knows of (c31)
   const [n0, n1] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
   if (!spends.some(([a, b]) => a === n0 && b === n1)) throw new NotThisSpend(txHash);
@@ -497,6 +510,10 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   // V6 (spec v2.0 §3): the real cost beside what the relayer charged for it (its F; for the ETH vault also the estimate shown)
   const charged = submittedBy === "relayer" ? o.network : undefined;
   o.onEvent?.({ type: "costs", actualWei: costWei, ...(charged ? { charged, ...(charged.asset === "ETH" && charged.decimals === 18 ? { estimatedWei: charged.amount } : {}) } : {}) });
+  // its payout refused by the recipient (audit round 2, r42): held by the vault as that address's claim, never "sent"
+  const payout = o.payout;
+  const held = payout ? (claims ?? []).find((c) => c.vault.toLowerCase() === payout.vault.toLowerCase() && c.recipient.toLowerCase() === payout.recipient.toLowerCase()) : undefined;
+  if (held) throw new PayoutHeld(held.recipient, held.amount, held.vault, txHash);
   // V5 (spec §12): the record's COMPLETED needs the settlement reference — the mined transaction and the leaf of the note it left (the recipient's, else the change)
   o.onEvent?.({ type: "mined", txHash, ...(extraLeaf !== undefined ? { leafIndex: extraLeaf } : change ? { leafIndex: change.leafIndex } : {}) });
   return { txHash, proofMs: proof.ms, verifiedLocally: proof.verifiedLocally, change, spent: o.spent.map((n) => n.leafIndex), submittedBy, feeWei: o.fee?.note.amount, extraLeaf };
@@ -583,7 +600,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const from = o.maxTiming !== undefined ? olderInputs(vault, o.maxTiming, needed) : undefined;
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee, from);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee, payout: { vault, recipient: o.recipient } });
   if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
   return r;
 }

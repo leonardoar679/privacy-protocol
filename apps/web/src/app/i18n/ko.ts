@@ -595,6 +595,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",
   "op.error.transaction_dropped.reason": "전송되었지만 처리되기 전에 누락되어 아무것도 이동하지 않았습니다. 다시 보내세요.",
+  "op.error.payout_held.title": "받는 주소가 결제를 받지 않았습니다",
+  "op.error.payout_held.reason":
+    "자금은 보호 잔액에서 나갔지만 그 주소가 받기를 거부해 볼트가 그 주소 몫으로 보관하고 있습니다. 나중에 그 주소로 청구할 수 있으며, 끝내 받을 수 없는 주소라면 볼트에 그대로 남습니다.",
   "op.error.not_this_spend.title": "이 거래가 어디로 갔는지 확인하고 있습니다",
   "op.error.not_this_spend.reason": "돌려받은 거래는 이 자금을 사용하지 않습니다. 보낸 것으로 계산하지 않으며, 지갑이 체인을 읽어 확인합니다.",
   "op.error.no_relayer.title": "이 거래를 처리할 릴레이어가 없습니다",
