@@ -15,9 +15,22 @@ export interface WalletNotification {
   operationId?: string;
   tone?: "info" | "success" | "warn";
   read?: boolean;
+  /** a protected execution's alert by its catalog words, the app's to say in the reader's language (audit round 2, r57) */
+  words?: AlertWords;
 }
 
+/** A protected execution's alerts, named for the app's catalog (`notification.campaign.<key>.title/.body`, with `vars`). */
+export interface AlertWords { key: "paused" | "route-changed" | "route-review" | "cancelled" | "completed"; vars?: Record<string, string> }
+
 export const GENERIC_TEXT = "Your private operation has updated";
+/**
+ * The system notification's words: the app gives its catalog's (audit round 2, r57) — it had always read "Privacy Wallet —
+ * Your private operation has updated", in English, whatever the language the reader chose.
+ */
+let systemWords = (): { app: string; generic: string } => ({ app: "Privacy Wallet", generic: GENERIC_TEXT });
+export function setSystemNotificationWords(words: () => { app: string; generic: string }): void {
+  systemWords = words;
+}
 const MAX_KEPT = 50;
 
 class NotificationStore {
@@ -54,12 +67,15 @@ function browserSystem(title: string, body: string): void {
 }
 
 /** Deliver one notification by the user's settings: in-app when allowed; the system one only when enabled and the tab is hidden, generic unless amounts are allowed. */
-export function notify(n: { kind: AlertKind | "info"; title: string; body: string; campaignId?: string; operationId?: string; tone?: WalletNotification["tone"] }, deps: NotifyDeps = {}): WalletNotification | null {
+export function notify(n: { kind: AlertKind | "info"; title: string; body: string; campaignId?: string; operationId?: string; tone?: WalletNotification["tone"]; words?: AlertWords }, deps: NotifyDeps = {}): WalletNotification | null {
   const s = deps.settings ?? defaultSettings.get().protection.notifications;
   const hidden = deps.hidden ?? (typeof document !== "undefined" ? document.hidden : false);
   let shown: WalletNotification | null = null;
-  if (s.inApp) shown = notifications.push({ kind: n.kind, title: n.title, body: n.body, campaignId: n.campaignId, ...(n.operationId ? { operationId: n.operationId } : {}), ...(n.tone ? { tone: n.tone } : {}), at: deps.now });
-  if (s.system && hidden) (deps.system ?? browserSystem)("Privacy Wallet", s.generic ? GENERIC_TEXT : n.body);
+  if (s.inApp) shown = notifications.push({ kind: n.kind, title: n.title, body: n.body, campaignId: n.campaignId, ...(n.operationId ? { operationId: n.operationId } : {}), ...(n.tone ? { tone: n.tone } : {}), ...(n.words ? { words: n.words } : {}), at: deps.now });
+  if (s.system && hidden) {
+    const w = systemWords();
+    (deps.system ?? browserSystem)(w.app, s.generic ? w.generic : n.body);
+  }
   return shown;
 }
 

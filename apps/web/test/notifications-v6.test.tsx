@@ -7,10 +7,12 @@ import { act, render, screen } from "@testing-library/react";
 import { ToastProvider } from "@privacy-wallet/ui";
 import { NOTIFICATION_KINDS, type OperationNotification } from "@privacy-wallet/sdk/operations/notify";
 import { newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
-import { notifications } from "@privacy-wallet/sdk/wallet/notifications";
+import { notifications, notify } from "@privacy-wallet/sdk/wallet/notifications";
+import { setLocale } from "../src/app/i18n/messages";
+import { loadCatalog } from "../src/app/i18n/catalogs";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { en } from "../src/app/i18n/en";
-import { NotificationToasts, notificationWords, startOperationNotifications } from "../src/app/notifications";
+import { NotificationToasts, notificationWords, shownWords, startOperationNotifications } from "../src/app/notifications";
 
 afterEach(() => {
   session.forget();
@@ -35,6 +37,47 @@ describe("operation notifications (doc §76)", () => {
       amounts: { input: { asset: "USDC", decimals: 6, value: "8000000000" }, output: { asset: "ETH", decimals: 18, value: "3100307000000000000" } },
     });
     expect(shown.body).toMatch(/^8,000 USDC → 3\.1\d* ETH\. Your transaction is complete\.$/);
+  });
+
+  it("in the reader's language: the system notification's app name and generic text, and a protected execution's alert (audit round 2, r57)", async () => {
+    await loadCatalog("ko");
+    setLocale("ko");
+    try {
+      await session.create("pw");
+      session.acknowledgePhrase();
+      const off = startOperationNotifications();
+      const shown: [string, string][] = [];
+      notify(
+        {
+          kind: "cancelled",
+          title: "Protected swap cancelled",
+          body: "The rest returned to your private balance.",
+          campaignId: "c1",
+          words: { key: "cancelled" },
+        },
+        { settings: { inApp: true, system: true, generic: true }, hidden: true, system: (title, body) => void shown.push([title, body]) },
+      );
+      expect(shown).toEqual([["프라이버시 지갑", "비공개 작업이 업데이트되었습니다"]]);
+      expect(shownWords(notifications.all()[0])).toEqual({ title: "보호된 스왑이 취소되었습니다", body: "나머지는 비공개 잔액으로 돌아갔습니다." });
+      // a route change names its provider; a pause keeps the runner's own reason
+      expect(
+        shownWords({
+          id: "x",
+          at: 0,
+          kind: "route-changed",
+          title: "Route changed",
+          body: "The route changed to chainflip.",
+          words: { key: "route-changed", vars: { provider: "chainflip" } },
+        }).body,
+      ).toBe("경로가 chainflip(으)로 바뀌었습니다.");
+      expect(shownWords({ id: "y", at: 0, kind: "paused", title: "Protected swap paused", body: "the provider failed", words: { key: "paused" } })).toEqual({
+        title: "보호된 스왑이 일시 중지되었습니다",
+        body: "the provider failed",
+      });
+      off();
+    } finally {
+      setLocale("en");
+    }
   });
 
   it("a transition while unlocked lands in the in-app list, without an amount, and shows once as a toast", async () => {

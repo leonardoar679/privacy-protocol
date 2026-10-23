@@ -5,7 +5,7 @@
 import { useEffect, useRef } from "react";
 import { useToast, type ToastKind } from "@privacy-wallet/ui";
 import { watchOperationNotifications, type NotifiedAmount, type OperationNotification } from "@privacy-wallet/sdk/operations/notify";
-import { notifications, notify } from "@privacy-wallet/sdk/wallet/notifications";
+import { notifications, notify, setSystemNotificationWords, type WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { t, type MessageKey } from "./i18n/messages";
 import { amountFrom, displayAmount } from "../features/amounts";
@@ -30,8 +30,21 @@ export function notificationWords(n: OperationNotification): { title: string; bo
   return { title, body: t("notification.withAmounts", { amounts, body }) };
 }
 
+/**
+ * A notification in the reader's language (audit round 2, r57): a protected execution's alert by its catalog words — a pause
+ * keeps the runner's own reason —, any other as given.
+ */
+export function shownWords(n: WalletNotification): { title: string; body: string } {
+  if (!n.words) return { title: n.title, body: n.body };
+  const title = t(`notification.campaign.${n.words.key}.title` as MessageKey, n.words.vars);
+  const body = n.words.key === "paused" ? n.body : t(`notification.campaign.${n.words.key}.body` as MessageKey, n.words.vars);
+  return { title, body };
+}
+
 /** Starts the watcher (the Background does, while unlocked); amounts only when the user turned generic text off. */
 export function startOperationNotifications(): () => void {
+  // the system notification's words in the reader's language (audit round 2, r57)
+  setSystemNotificationWords(() => ({ app: t("app.name"), generic: t("notification.generic") }));
   return watchOperationNotifications(
     (n) => {
       const w = notificationWords(n);
@@ -51,7 +64,7 @@ export function NotificationToasts() {
       if (n.read || shown.current.has(n.id)) continue;
       shown.current.add(n.id);
       const kind: ToastKind = n.tone ?? "info";
-      toast({ kind, title: n.title, body: n.body });
+      toast({ kind, ...shownWords(n) });
       notifications.markRead(n.id);
     }
   }, [list, toast]);

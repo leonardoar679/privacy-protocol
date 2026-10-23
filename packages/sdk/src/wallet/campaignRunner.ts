@@ -393,12 +393,12 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (c.provider && q.provider !== c.provider) {
           if (adoptsRoutes(c, cfg)) {
             c = withAlert(withCampaignState(c, "running", now, `the route for this step is ${q.provider} (adopted automatically below the second-confirmation size)`, { provider: q.provider }), "route-changed", `The route changed to ${q.provider} for the steps of this size (adopted automatically, as you allowed).`, now, t.index);
-            send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${q.provider}.`, campaignId: c.id });
+            send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${q.provider}.`, campaignId: c.id, words: { key: "route-changed", vars: { provider: q.provider } } });
           } else {
             abandonSwap(r.stored.orderId, s); // never funded: nothing left the private balance
             c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the competition at this size chose ${q.provider}: waiting for your review`);
             c = withAlert(withCampaignState(c, "rerouting", now, `the route changed to ${q.provider}: waiting for your review`, { pendingReroute: { provider: q.provider, protection: r.protection ?? null, at: now } }), "route-changed", `The route for the steps of this size is ${q.provider}, not ${c.provider}; review it before the operation continues.`, now, t.index);
-            send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${q.provider}.`, campaignId: c.id });
+            send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${q.provider}.`, campaignId: c.id, words: { key: "route-review", vars: { provider: q.provider } } });
             break;
           }
         }
@@ -592,7 +592,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       }
       case "pause": {
         c = pauseWith(c, action.reason, action.detail, now, action.index);
-        send({ kind: alertKindFor(action.reason, action.detail), title: "Protected swap paused", body: action.detail, campaignId: c.id });
+        send({ kind: alertKindFor(action.reason, action.detail), title: "Protected swap paused", body: action.detail, campaignId: c.id, words: { key: "paused" } });
         nextAt = now + PAUSED_TRACK_INTERVAL_MS;
         break;
       }
@@ -613,10 +613,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           c = withCampaignState(c, "running", now, `requoted: ${chosen} still carries the route`, { riskSnapshot: snapshot, pause: undefined });
         } else if (adoptsRoutes(c, cfg)) {
           c = withAlert(withCampaignState(c, "running", now, `rerouted to ${chosen} (automatic below the second-confirmation tier)`, { provider: chosen, riskSnapshot: snapshot, pause: undefined }), "route-changed", `The route changed to ${chosen} (adopted automatically, as you allowed).`, now);
-          send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${chosen}.`, campaignId: c.id });
+          send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${chosen}.`, campaignId: c.id, words: { key: "route-changed", vars: { provider: chosen } } });
         } else {
           c = withAlert(withCampaignState(c, "rerouting", now, `the route changed to ${chosen}: waiting for your review`, { pendingReroute: { provider: chosen, protection: set.protection ?? null, at: now }, riskSnapshot: snapshot }), "route-changed", `The route changed to ${chosen}; review it before the operation continues.`, now);
-          send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${chosen}.`, campaignId: c.id });
+          send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${chosen}.`, campaignId: c.id, words: { key: "route-review", vars: { provider: chosen } } });
         }
         // the next release waits for the cadence again
         const planned = c.tranches.find((x) => x.state === "planned");
@@ -662,13 +662,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       case "complete": {
         const cancelled = c.state === "winding-down";
         c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? "The rest returned to your private balance." : "Every step settled.", now);
-        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : "Protected swap completed", body: cancelled ? "The rest returned to your private balance." : "Every step settled.", campaignId: c.id });
+        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : "Protected swap completed", body: cancelled ? "The rest returned to your private balance." : "Every step settled.", campaignId: c.id, words: { key: cancelled ? "cancelled" : "completed" } });
         stop();
         break;
       }
     }
     if (c.state === "paused" && action.kind !== "pause" && c0.state !== "paused") {
-      send({ kind: c.pause ? alertKindFor(c.pause.reason, c.pause.detail) : "paused", title: "Protected swap paused", body: c.pause?.detail ?? "Paused.", campaignId: c.id });
+      send({ kind: c.pause ? alertKindFor(c.pause.reason, c.pause.detail) : "paused", title: "Protected swap paused", body: c.pause?.detail ?? "Paused.", campaignId: c.id, words: { key: "paused" } });
       nextAt = now + PAUSED_TRACK_INTERVAL_MS;
     }
     c = putCampaign(c, s);
