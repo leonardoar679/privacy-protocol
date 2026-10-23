@@ -322,6 +322,10 @@ export async function returnOrderToBalance(i: { deployment: Deployment | null; s
     ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}),
     ...(stored.orderVouch ? { vouch: { order: stored.orderVouch as Hex } } : {}), // the relayer refunds only a vouched order
   });
+  // a relayer that keeps a completed job closed (one from before audit round 2, r36) re-shields nothing: said, never journaled
+  // as closed — the order stays open, its escrow read
+  if (job.state === "completed")
+    throw new Error("The executor no longer watches this order's escrow and re-shields nothing there now. Anyone can call deployAndRefund on the factory to return it to your private balance; the wallet keeps reading the escrow.");
   patchSwap(stored.orderId, { jobId: job.id, state: job.state, relayerUrl: i.submission.url }, s);
   return job;
 }

@@ -55,7 +55,11 @@ export const ACCEPTED_CALL_MARGIN_MS = 120_000;
 /** A withdrawal's status line once its submission started: after it, a failure's outcome is unknown (the reconcile boundary). */
 export const SENT_LINE = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
 const TERMINAL_TRACK = ["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED"];
-const TERMINAL_JOB = ["completed", "refunded"];
+// a `completed` job settles an order only with a settled reading (audit round 2, r36): the executor's watch ending with the
+// escrow empty is not the provider's word, and a refund it held past the watch lands later
+const TERMINAL_JOB = ["refunded"];
+/** An order the executor no longer watches, not settled yet, is read this often: for the provider's word, or a late refund. */
+export const ORDER_LATE_TRACK_MS = 10 * 60_000;
 
 /** Everything the runner reads or moves, behind one interface: the wallet's modules by default, fakes in the tests. */
 export interface OrderIo {
@@ -335,13 +339,17 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       const r = await io.track(stored);
       const st = journaled(a.orderId, s) ?? stored;
       syncSwapRecord(st, r.tracked, r.job, now);
-      if (TERMINAL_TRACK.includes(r.tracked.state) || (r.job && TERMINAL_JOB.includes(r.job.state))) {
+      if (
+        TERMINAL_TRACK.includes(r.tracked.state) ||
+        (r.job && TERMINAL_JOB.includes(r.job.state)) ||
+        (r.job?.state === "completed" && r.tracked.state === "PARTIAL")
+      ) {
         // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
         if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
         cancelAction(a.id, s);
         return { step: "settled", stored: st };
       }
-      tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
+      tickAt(a.orderId, now + (r.job?.state === "completed" ? ORDER_LATE_TRACK_MS : ORDER_TRACK_MS), s, now);
       return { step: "track", stored: st };
     }
     // 2. a pause that waits for the user: nothing moves until they choose (the choice plans the next tick)

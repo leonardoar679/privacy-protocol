@@ -592,6 +592,8 @@ export const en = {
   "op.error.partial_delivery.reason": "Part of the amount arrived at the destination; the remainder came back to the escrow and returns to your protected balance.",
   "op.error.needs_attention.title": "This operation needs attention",
   "op.error.needs_attention.reason": "The tracker could not settle where the funds are. The wallet keeps checking; a refund can be started.",
+  "op.error.late_refund.title": "Your funds came back",
+  "op.error.late_refund.reason": "The provider returned this swap's funds late, after the executor had stopped watching for them. They wait in your one-time escrow: return them to your protected balance.",
   "op.error.price_deviation.title": "Paused: the price moved",
   "op.error.price_deviation.reason": "The rate left the bounds you confirmed. The steps already handed over finish; the rest waits for a fresh quote.",
   "op.error.provider_error.title": "Paused: the provider failed",

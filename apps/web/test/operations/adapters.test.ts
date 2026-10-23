@@ -12,7 +12,7 @@ import type { OrderState } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJobState } from "@privacy-wallet/sdk/relayer";
 import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
-const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED"];
+const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED", "LATE_REFUND"];
 const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed", "lapsed"];
 const TRANCHE_STATES: TrancheState[] = ["planned", "ready", "committed", "funded", "signed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "settled", "partial", "refunding", "refunded", "failed", "skipped"];
 const PAUSES: PauseReason[] = ["price-deviation", "provider-error", "chain-congestion", "route-degraded", "unexpected-destination", "security-incident", "anomaly", "reconcile", "bounds", "user", "wallet-pause", "velocity"];
@@ -42,6 +42,8 @@ describe("the mapping table", () => {
     expect(ORDER_STATE_MAP.EXPIRED).toMatchObject({ state: "QUOTE_EXPIRED", code: "order_expired" });
     expect(ORDER_STATE_MAP.REFUND_PENDING.state).toBe("REFUNDING");
     expect(ORDER_STATE_MAP.CANCELLED.state).toBe("CANCELLED");
+    // a refund back after the executor's watch (audit round 2, r36): the wallet's to return, its funds still protected
+    expect(ORDER_STATE_MAP.LATE_REFUND).toMatchObject({ state: "RECOVERY_REQUIRED", phase: "settlement", code: "late_refund" });
   });
   it("every SwapJobState of the executor has a row; a journaled order's own state is read the same way", () => {
     expect(Object.keys(SWAP_JOB_MAP).sort()).toEqual([...JOB_STATES].sort());

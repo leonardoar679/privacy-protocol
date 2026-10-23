@@ -39,6 +39,13 @@ export const nextSettlement = (prev: SettlementState | null | undefined, legs: S
   legs ? settlementOf(legs) : (prev ?? null);
 
 /**
+ * Whether the escrow of an executed order the executor no longer watches holds a refund worth returning (audit round 2,
+ * r36): at least the 1 % of the order an unpaid re-shield of its own asset moves (the relayer's floor,
+ * apps/relayer/src/swapExecutor.ts `OWN_FLOOR_BPS`); dust below it stays where it is.
+ */
+export const lateRefundHeld = (balance: bigint, amount: bigint): boolean => balance > 0n && balance * 100n >= amount;
+
+/**
  * The relayer's swap job states (apps/relayer/src/swapExecutor.ts; the wallet's packages/sdk/src/relayer.ts). `lapsed` (a
  * V6 follow-up of 2026-10-16): never executed, and the escrow held nothing a day past its window — never funded, or its
  * funds already back, which the refund note then shows.
@@ -117,19 +124,24 @@ export function legsFrom(f: LegFacts): SettlementLegs | null {
   if (f.fundingSent === false) return { funded: false, executed: false, refundable: false };
   if (f.jobUnread) return null; // the executor's job was not read
   const t = f.track?.state;
-  const executed = job === "completed" || job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? f.executionTx));
-  if (
-    job === "refunding" ||
-    job === "refund-only" ||
-    job === "expired" ||
-    job === "lapsed" ||
-    (executed && job !== "completed" && (t === "refunded" || t === "failed"))
-  )
+  // the executor's late-refund watch ended with the escrow empty (`completed`): delivered only on the provider's word (audit
+  // round 2, r36) — a refund the provider held past the watch (a chain halt, an outbound queue) lands where no pass reads
+  // again, and only a refund-only job, the wallet's "Return funds", re-shields it
+  if (job === "completed") {
+    if (f.escrowBalance !== null && lateRefundHeld(f.escrowBalance, f.amount))
+      return { funded: true, executed: true, provider: "refunded-to-escrow", refundable: true };
+    if (t === "completed" || t === "destination-final" || t === "partial") return { funded: true, executed: true, provider: "delivered", refundable: false };
+    if (f.escrowBalance === null || !f.track) return null; // the escrow's balance or the provider's side was not read
+    const provider = t === "destination-submitted" ? "destination-submitted" : t === "refunded" || t === "failed" ? "refunded-to-escrow" : "pending";
+    return { funded: true, executed: true, provider, refundable: false };
+  }
+  const executed = job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? f.executionTx));
+  if (job === "refunding" || job === "refund-only" || job === "expired" || job === "lapsed" || (executed && (t === "refunded" || t === "failed")))
     return { funded: true, executed, refund: "pending", refundable: false };
   if (executed) {
-    if (job !== "completed" && !f.track) return null; // the provider's side was not read
+    if (!f.track) return null; // the provider's side was not read
     const provider =
-      job === "completed" || t === "completed" || t === "destination-final"
+      t === "completed" || t === "destination-final"
         ? "delivered"
         : t === "partial"
           ? "partial"

@@ -56,6 +56,17 @@ describe("reconcile — the legs of doc §82", () => {
       execution_tx: EXEC,
     });
   });
+  it("a job the executor stopped watching is completed only on the provider's word; a refund back after its watch is the wallet's to return (audit round 2, r36)", async () => {
+    h.script.job = { state: "completed", executionTx: EXEC };
+    h.script.balance = 0n;
+    h.adapter.track_ = { state: "destination-submitted", destinationTxHash: "dest-tx-1" };
+    let r = await reconcile();
+    expect(r.body).toMatchObject({ state: "SETTLING", settlement: "DESTINATION_PENDING" });
+    expect(h.store.getOperation(id)!.terminalAt, "still open").toBeNull();
+    h.script.balance = amount / 2n; // the provider's refund lands days later
+    r = await reconcile();
+    expect(r.body).toMatchObject({ state: "RECOVERY_REQUIRED", settlement: "REFUND_AVAILABLE", reason: { code: "late_refund" } });
+  });
   it("the relayer unreachable: the state and the settlement are kept, never downgraded", async () => {
     h.script.job = { state: "executed", executionTx: EXEC };
     await reconcile();

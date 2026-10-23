@@ -155,6 +155,13 @@ function mergeRefunds(job: Pick<SwapJob, "refundTokens" | "refundFloors"> | unde
 
 /** States in which a newer execution (re-signed with a fresh quote) may replace the stored one, or a refund-only request drop it. */
 const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-failed", "refund-only", "lapsed"];
+/**
+ * A refund-only request also reopens an executed order whose late-refund watch ended (`completed`; audit round 2, r36): a
+ * provider's refund held past the watch — a chain halt, an outbound queue — lands in an escrow no pass reads again, and only
+ * the wallet sees it. Reopened, it keeps an executed order's unpaid budget and floors, and an escrow still empty (or holding
+ * only dust) ends it again at the next pass.
+ */
+const REOPENED_BY_REFUND: SwapJobState[] = [...REPLACEABLE, "completed"];
 
 export class SwapExecutor {
   private jobs = new Map<string, SwapJob>();
@@ -238,7 +245,7 @@ export class SwapExecutor {
     const id = p.orderId.toLowerCase();
     const existing = this.jobs.get(id);
     if (existing) {
-      if (REPLACEABLE.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
+      if (REOPENED_BY_REFUND.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
         const merged = mergeRefunds(existing, req);
         existing.execution = undefined; existing.state = "refund-only"; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
         Object.assign(existing, merged);
@@ -666,7 +673,8 @@ export class SwapExecutor {
         }
         if (!budget && (foreign.length || refundable > 0n)) this.note(job, `the ${this.cfg.maxUnpaidRefunds ?? MAX_UNPAID_REFUNDS} re-shields after execution that no tip pays for are used: what arrives now stays in the escrow, where anyone can re-shield it`);
         else if (!deployed && foreign.length && refundable === 0n) this.note(job, "foreign tokens at an escrow that was never deployed: nothing here deploys it");
-        if (job.state === "executed" && now >= watchEnd) { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); } // dust below its floor stays
+        // dust below its floor stays; so does a reopened executed order's (r36), its job ended again
+        if ((job.state === "executed" || (job.state === "refund-only" && job.executed)) && now >= watchEnd) { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); }
         continue;
       }
       if (job.state === "waiting-funding" && job.execution) {

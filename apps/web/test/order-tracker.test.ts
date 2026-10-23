@@ -203,3 +203,41 @@ describe("trackOrder", () => {
     expect(s.journal().swaps[0].history).toHaveLength(1);
   });
 });
+
+describe("an executed order the executor stopped watching (audit round 2, r36)", () => {
+  const ended = (track: TrackFacts["track"], escrowBalance: bigint | null = 0n, over: Partial<StoredSwap> = {}) =>
+    deriveState(order({ fundedTx: "0x1", state: "executed", jobId: "j", executionTx: "0xee", ...over }), facts({ job: job("completed", { executionTx: "0xee" }), escrowBalance, track }));
+
+  it("is completed only on the provider's word; a refund that came back after the watch is the wallet's to return", () => {
+    // a chain halt holds the provider's outbound: its track still says the destination transaction is on its way
+    expect(ended({ state: "destination-submitted" })).toMatchObject({ state: "DESTINATION_SUBMITTED", label: "Waiting for destination", settlement: "DESTINATION_PENDING" });
+    expect(ended({ state: "executing" })).toMatchObject({ state: "PROVIDER_EXECUTING", settlement: "PROVIDER_PENDING" });
+    expect(ended(null).state, "an unread track is no delivery").toBe("PROVIDER_EXECUTING");
+    expect(ended({ state: "refunded" })).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
+    // the refund lands days later: 1 % of the order or more waits for the wallet's return
+    const back = ended({ state: "destination-submitted" }, 4n * 10n ** 17n);
+    expect(back).toMatchObject({ state: "LATE_REFUND", label: "Needs attention", settlement: "REFUND_AVAILABLE" });
+    expect(back.detail).toMatch(/0\.4 ETH back to the one-time escrow/);
+    expect(ended({ state: "completed", deliveredAmount: "3000000" }, 10n ** 15n).state, "dust below 1 % is no refund").toBe("COMPLETED");
+    // delivered on the provider's word
+    expect(ended({ state: "destination-final", deliveredAmount: "3000000" })).toMatchObject({ state: "COMPLETED", settlement: "COMPLETED" });
+    // a protected swap: the shield job's or the provider's word
+    const shield = { params: { receiptId: "0x01" }, receiver: "0x" + "5e".repeat(20) } as unknown as StoredSwap["shield"];
+    expect(ended({ state: "executing" }, 0n, { shield }).state).toBe("DESTINATION_SUBMITTED");
+    expect(ended({ state: "completed" }, 0n, { shield }).state).toBe("DESTINATION_FINAL");
+  });
+
+  it("keeps the order open meanwhile: journaled executed, closed once the provider confirms", async () => {
+    const s = new WalletSession(memoryStorage(), { N: 1 << 12, r: 8, p: 1 });
+    await s.create("pw");
+    const o = order({ fundedTx: "0x1", jobId: "j", state: "executed", executionTx: "0xee" });
+    s.update((j) => { j.swaps = [o]; });
+    let track: { state: string } = { state: "destination-submitted" };
+    const deps = { deployment: null, session: s, now: NOW, readers: { job: async () => job("completed", { executionTx: "0xee" }), balance: async () => 0n, track: async () => track as any } };
+    expect((await trackOrder(o, deps)).tracked.state).toBe("DESTINATION_SUBMITTED");
+    expect(s.journal().swaps[0].state, "open: its next reads and its return still reach it").toBe("executed");
+    track = { state: "completed" };
+    expect((await trackOrder(s.journal().swaps[0], deps)).tracked.state).toBe("COMPLETED");
+    expect(s.journal().swaps[0].state).toBe("completed");
+  });
+});

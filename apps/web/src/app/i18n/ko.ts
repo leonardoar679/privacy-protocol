@@ -659,6 +659,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.partial_delivery.reason": "금액의 일부는 목적지에 도착했고, 나머지는 에스크로로 돌아와 보호 잔액으로 반환됩니다.",
   "op.error.needs_attention.title": "이 작업에 확인이 필요합니다",
   "op.error.needs_attention.reason": "추적기가 자금의 위치를 확정하지 못했습니다. 지갑이 계속 확인하며, 환불을 시작할 수 있습니다.",
+  "op.error.late_refund.title": "자금이 돌아왔습니다",
+  "op.error.late_refund.reason":
+    "실행기가 확인을 마친 뒤에 제공자가 이 스왑의 자금을 늦게 돌려보냈습니다. 자금은 일회용 에스크로에 있습니다. 보호 잔액으로 반환하세요.",
   "op.error.price_deviation.title": "일시 중지됨: 가격 변동",
   "op.error.price_deviation.reason": "환율이 확인한 범위를 벗어났습니다. 이미 넘겨진 단계는 마무리되고, 나머지는 새 견적을 기다립니다.",
   "op.error.provider_error.title": "일시 중지됨: 제공자 오류",

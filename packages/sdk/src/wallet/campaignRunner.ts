@@ -189,7 +189,8 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   // re-planned the delivered part and swapped it again
   const partialBack = s === "REFUNDED" && deliveredOut !== undefined && deliveredOut > 0n;
   if (s === "REFUNDED" && !partialBack) return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: t.amount } }, note: "the escrow returned to the private balance" };
-  if (s === "FAILED") return { state: "failed", patch, note: tracked.detail };
+  // a refund that came back after the executor stopped watching (audit round 2, r36) waits, like a failed step, for the return
+  if (s === "FAILED" || s === "LATE_REFUND") return { state: "failed", patch, note: tracked.detail };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
   if (s === "PARTIAL" || partialBack) {

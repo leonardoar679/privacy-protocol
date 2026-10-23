@@ -36,6 +36,7 @@ import {
   retryOrder,
   runOrderTick,
   type OrderIo,
+  ORDER_LATE_TRACK_MS,
   SIGN_RETRY_MS,
 } from "../src/wallet/orderRunner";
 
@@ -235,6 +236,23 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
       record()!.history.map((h) => h.state),
       "journaled without confirmOrder here: the record starts at the funding",
     ).toEqual(["SUBMITTED", "EXECUTING", "COMPLETED"]);
+  });
+
+  it("a job the executor stopped watching settles the order only on a settled reading, read every 10 minutes till then (audit round 2, r36)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    expect(await drive(io, 3)).toEqual(["funded", "handed-over", "track"]);
+    // the executor's late-refund watch ended with the escrow empty; the provider has not confirmed the delivery
+    w.job = { ...w.job!, state: "completed" };
+    const T1 = T0 + 26 * 3600_000;
+    expect((await runOrderTick(pending()!, deps(io, T1)))?.step).toBe("track");
+    expect(pending()?.dueAt, "read again, at the slower cadence").toBe(T1 + ORDER_LATE_TRACK_MS);
+    w.track = "COMPLETED";
+    expect((await runOrderTick(pending()!, deps(io, T1 + ORDER_LATE_TRACK_MS)))?.step).toBe("settled");
+    expect(pending()).toBeUndefined();
   });
 
   it("a moved minimum waits for the user — QUOTE_EXPIRED, nothing signed at the lower minimum —; accepting it signs once at the new minimum", async () => {

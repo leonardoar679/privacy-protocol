@@ -29,6 +29,7 @@ export const ORDER_STATE_MAP: Record<OrderState, Mapped> = {
   EXPIRED: { state: "QUOTE_EXPIRED", phase: "funding", code: "order_expired" },
   CANCELLED: { state: "CANCELLED", phase: "funding" },
   FAILED: { state: "RECOVERY_REQUIRED", phase: "execution", code: "needs_attention" },
+  LATE_REFUND: { state: "RECOVERY_REQUIRED", phase: "settlement", code: "late_refund" },
 };
 
 /** A journaled order's own `state` (sdk/swapExecute.ts, swapFunding.ts) when the tracker has not read yet. */

@@ -160,6 +160,39 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     factoryWrappedNative = null;
   });
 
+  it("a refund-only request reopens an order completed at its watch's end: a refund held past the watch re-shields, an empty escrow ends it again (audit round 2, r36)", async () => {
+    const ex = executorWith(undefined, DAY);
+    const req = makeRequest(("0x" + "2a".repeat(32)) as Hex, 1500);
+    const job = await executed(ex, req);
+    const after = Number(req.params.refundAfter);
+    clock = after + DAY;
+    await ex.tick();
+    expect(job.state).toBe("completed");
+    // the refund a chain halt held lands days later: no pass reads a completed job
+    clock = after + 3 * DAY; ethBalance = 5n * 10n ** 17n;
+    await ex.tick();
+    expect(raws.length, "nothing is sent on its own").toBe(0);
+    // the wallet's "Return funds"
+    expect(ex.addRefund(refundOf(req)).state).toBe("refund-only");
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[0]).data! }).functionName).toBe("deployAndRefund");
+    receiptStatus = "0x1";
+    await ex.tick();
+    expect(job.state).toBe("refunded");
+    receiptStatus = null; ethBalance = 0n; raws.length = 0;
+    // reopened with nothing there: it ends again at the next pass, nothing sent
+    const req2 = makeRequest(("0x" + "2b".repeat(32)) as Hex, 1500);
+    const job2 = await executed(ex, req2);
+    clock = after + DAY;
+    await ex.tick();
+    expect(job2.state).toBe("completed");
+    expect(ex.addRefund(refundOf(req2)).state).toBe("refund-only");
+    await ex.tick();
+    expect(job2.state).toBe("completed");
+    expect(raws.length).toBe(0);
+  });
+
   it("a listed foreign token re-shields through the escrow's refundToken before the order's asset; a token its vault refuses is dropped, never blocking", async () => {
     const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7", ODD = "0x00000000000000000000000000000000000000dd";
     const ex = executorWith(undefined, DAY);

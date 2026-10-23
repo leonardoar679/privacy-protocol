@@ -4,7 +4,7 @@
 // that fails keeps the last settlement and never downgrades the state; a terminal state is final (I-O1). The wallet's own
 // reads win when they disagree. A relayer cost above 1.5 × the committed tip of an ETH order is logged once as
 // `fee.deviation`, without amounts.
-import { SWAP_JOB_MAP, legsFrom, nextSettlement, type SwapJobState } from "@privacy-wallet/protocol/wallet/settlement";
+import { SWAP_JOB_MAP, lateRefundHeld, legsFrom, nextSettlement, type SwapJobState } from "@privacy-wallet/protocol/wallet/settlement";
 import { TERMINAL_STATES, type OperationState, type SettlementState } from "@privacy-wallet/protocol-types";
 import type { OperationRow, Store } from "./store";
 
@@ -47,10 +47,18 @@ export function stateFrom(
   track: { state: string } | null,
   funded: boolean | null,
   nowS: number,
+  /** the escrow holds a refund that came back after the executor's watch (lateRefundHeld) */
+  lateRefund = false,
 ): { state: OperationState; code?: string; delayed?: true } {
   const j = job?.state;
   if (j === "refunded") return { state: "REFUNDED" };
-  if (j === "completed") return track?.state === "partial" ? { state: "RECOVERY_REQUIRED", code: "partial_delivery" } : { state: "COMPLETED" };
+  // completed only on the provider's word (audit round 2, r36): the executor's watch ending with the escrow empty is none, and
+  // a refund held past it waits for the wallet's return
+  if (j === "completed") {
+    if (lateRefund) return { state: "RECOVERY_REQUIRED", code: "late_refund" };
+    if (track?.state === "partial") return { state: "RECOVERY_REQUIRED", code: "partial_delivery" };
+    return track?.state === "completed" || track?.state === "destination-final" ? { state: "COMPLETED" } : { state: "SETTLING" };
+  }
   if (j === "refunding" || j === "refund-only" || j === "expired") return { state: "REFUNDING" };
   if (j === "execute-failed" || j === "refund-failed") return { state: SWAP_JOB_MAP[j].state, ...(SWAP_JOB_MAP[j].code ? { code: SWAP_JOB_MAP[j].code } : {}) };
   if (j === "executing" || j === "executed") {
@@ -121,7 +129,9 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
   const settlement = nextSettlement(row.settlement, legs);
   const funded = balance === null ? null : balance >= BigInt(row.amount);
   const derived: { state: OperationState; code?: string; delayed?: true } =
-    TERMINAL_STATES.includes(row.state) || jobRead === null ? { state: row.state } : stateFrom(row, job, trackRead, funded, nowS);
+    TERMINAL_STATES.includes(row.state) || jobRead === null
+      ? { state: row.state }
+      : stateFrom(row, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)));
   store.updateState(row.id, { state: derived.state, settlement });
   if (derived.state !== row.state)
     store.event({ event: "operation.reconciled", operationId: row.id, provider: row.provider, state: derived.state, network: row.network });

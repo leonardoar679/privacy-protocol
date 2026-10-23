@@ -79,7 +79,10 @@ No pass reads a lapsed job again and it no longer counts toward `MAX_SWAP_JOBS`;
 A provider can pay back after `refundAfter` (Across refunds an unfilled deposit with the settlement
 bundle after its fill deadline, 2 h after the quote): an **executed order stays watched** for
 `LATE_REFUND_WATCH_SECONDS` (24 h) past the window, everything that arrives re-shields, and only an
-escrow still empty then is `completed` (PP-S11). A route that swapped first pays back in the swapped
+escrow still empty then is `completed` (PP-S11). A refund-only request reopens a completed job (audit round 2, r36): a
+provider's refund held past the watch (a chain halt, an outbound queue) lands where no pass reads, and the wallet asks
+for its return; reopened, the job keeps the unpaid budget and the floors below, and an escrow still empty ends it again at
+the next pass. A route that swapped first pays back in the swapped
 token: the wallet lists it (`refundTokens`, at most four, never the order's asset; `address(0)` is an
 ERC-20 order's escrow ETH) and the executor calls the escrow's **`refundToken`** for each one held, before
 the order's asset (an ERC-20 order's WETH and ETH re-shield as ETH); a token its vault refuses is

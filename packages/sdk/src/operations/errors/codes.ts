@@ -146,6 +146,7 @@ export const CATALOG: Record<string, CatalogRow> = {
   refund_failed: { source: "tracker", fundsClass: "unknown", actions: ["continue-monitoring", "start-refund"] },
   partial_delivery: { source: "tracker", fundsClass: "still-protected", actions: ["continue-monitoring"] },
   needs_attention: { source: "tracker", fundsClass: "unknown", actions: ["continue-monitoring", "start-refund"] },
+  late_refund: { source: "tracker", fundsClass: "still-protected", actions: ["continue-monitoring", "start-refund"] },
   price_deviation: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring", "review"] },
   provider_error: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring"] },
   chain_congestion: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring"] },
