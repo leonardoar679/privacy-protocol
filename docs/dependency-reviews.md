@@ -40,3 +40,14 @@ code.
   devDependency). The API's HTTP layer only: it holds no key, signs nothing, and serves JSON to the wallet. None is
   cryptography-sensitive; none has an install script; each locked with its sha512 integrity from the registry; the audit
   finds no advisory in it. `node:sqlite` is Node's own (24.x), no package.
+- 2026-10-23 (audit round 2 follow-up: GHSA-mrhx-c7xc-m3w5) — `zod@4.6.7` (MIT), one copy for the whole tree. The advisory
+  (high: memory exhausted while validating oversized constrained collections, every zod below 4.6.6) failed the audit gate
+  on 2026-10-23. The wallet's own dependency (apps/web: the configuration, the `prefs` store, the classic relayer's
+  answers) moved from `^3.25.76` to `^4.6.7`, and the root `overrides` sets `^4.6.7` for every other copy: viem's
+  `abitype@1.2.3` (an optional peer, used by `abitype/zod` only), `eslint-plugin-react-hooks` and `zod-validation-error`
+  (both accept `^4`), and two that declare zod 3 — `@coinbase/cdp-sdk@1.58.0` (`^3.25.76`, under `@reown/appkit-utils` →
+  `@base-org/account`) and `@reown/appkit-wallet@1.8.19` (`3.22.4`, exact). No release of WalletConnect's modal moves past
+  zod 3 yet (`@reown/appkit-wallet@1.8.24` still pins 3.22.4). Neither package's zod code is in the shipped bundle (no
+  `W3mFrame`, no `cdp-sdk` in `apps/web/dist`); the bundle carries one zod, the wallet's own. The wallet's three schemas
+  read alike under zod 4: the configuration, prefs and classic suites pass unchanged. Not cryptography-sensitive; no
+  install script; locked with its sha512 integrity from the registry. The override can go once both packages accept zod 4.
