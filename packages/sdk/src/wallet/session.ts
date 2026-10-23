@@ -75,6 +75,8 @@ export class WalletSession {
   private unreadable = false;
   private firstLaunch = false;
   private readyFlag = false;
+  /** the last create() kept the journal its seed opened (n45): its counters are known, nothing to hold */
+  private keptJournal = false;
   private snapshot: SessionState | null = null;
   private readyPromise: Promise<void> | null = null;
   private holdList = new Map<number, Hold>();
@@ -138,14 +140,30 @@ export class WalletSession {
     if (this.hasKeystore() && isConfigured()) settings.reset();
     const own = seed.slice(); // the session owns (and later zeroes) its own copy
     const ks = await createKeystore(own, password, typeof this.kdf === "function" ? this.kdf() : this.kdf);
+    // the journal this very seed opens stays (audit round 2, n45/n69): it is encrypted under the seed, never the password, so
+    // a restore of this device's own phrase — the forgotten-password path — had deleted the open orders and campaigns, the
+    // address book and the fresh-address counters it still opened
+    const kept = this.journalOf(own);
     this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
-    this.store.remove(JOURNAL_KEY);
+    if (!kept) this.store.remove(JOURNAL_KEY);
+    this.keptJournal = !!kept;
     this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
-    this.open(own, emptyJournal());
+    this.open(own, kept ?? emptyJournal());
     this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
     this.firstLaunch = true;
     return this.pendingPhrase;
+  }
+
+  /** The stored journal, when this seed opens it; null otherwise (none, another wallet's, unreadable). */
+  private journalOf(seed: Uint8Array): JournalData | null {
+    const blob = this.store.get(JOURNAL_KEY);
+    if (!blob) return null;
+    try {
+      return decryptJournal(journalKey(seed), JSON.parse(blob) as EncryptedJournal);
+    } catch {
+      return null;
+    }
   }
 
   /** What the store holds now (another tab may have created a wallet since this page opened): a wallet there is replaced only with `replace`. */
@@ -226,7 +244,7 @@ export class WalletSession {
   async restoreFromPhrase(phrase: string, password: string, opts: { replace?: boolean } = {}): Promise<void> {
     const seed = phraseToSeed(phrase);
     await this.create(password, seed, opts);
-    noteStore.holdCounters();
+    if (!this.keptJournal) noteStore.holdCounters(); // its own journal kept: the counters it used are known
     this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
   }
 
