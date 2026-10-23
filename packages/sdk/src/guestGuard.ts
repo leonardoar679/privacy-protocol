@@ -56,6 +56,9 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   const [, asset, dest, limit] = m!;
   if (asset !== thorAsset(e.to) && asset !== thorAssetShort(e.to)) fail("memo asset", `${asset} is not ${thorAsset(e.to)}`);
   const evmDest = /^0x[0-9a-fA-F]{40}$/.test(e.destination);
+  // an Ethereum target is paid to an Ethereum address only (audit round 2, r34): another chain's address, as typed, passed
+  // the comparison of the two strings, and THORChain refunded the swap minus its fees
+  if (e.to.chain === "ethereum" && !evmDest) fail("receiver", "an Ethereum asset is paid to an Ethereum address only");
   if (evmDest ? dest.toLowerCase() !== e.destination.toLowerCase() : dest !== e.destination) fail("receiver", "the memo pays another address than the one you typed");
   const minOut = from1e8(BigInt(limit), e.to.decimals);
   if (minOut < e.approvedMin) throw new MinimumMoved(minOut, e.approvedMin);

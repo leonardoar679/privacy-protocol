@@ -41,6 +41,10 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   const destError = parsedDest && !parsedDest.ok ? parsedDest.reason : "";
   const request = () => ({ from, to, amount: units(), destination, slippageBps: 100, policy: "best-price" });
 
+  /** An input changed (audit round 2, r34): the quote and an instruction on screen were for the old one — they go. Before, an
+   *  instruction for a destination since corrected stayed, saying "the memo pays the address you typed". */
+  const edited = () => { setQuotes(null); setInstruction(null); setChecked(null); setMoved(null); setStatus(null); };
+
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError("");
     try { return await fn(); } catch (e: any) { setError(e?.message ?? String(e)); } finally { setBusy(""); }
@@ -84,17 +88,17 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
       <h3>Swap without a wallet</h3>
       <p className="muted" style={{ fontSize: 13 }}>Send from any wallet to a one-time deposit address; the swap delivers to the address you choose. Nothing is stored and no account is created. This path is NOT private on the source side: the sending address is yours.</p>
       <label>Sell</label>
-      <select value={source} onChange={(e: any) => { setSource(e.target.value); setQuotes(null); setInstruction(null); }}>
+      <select value={source} onChange={(e: any) => { setSource(e.target.value); edited(); }}>
         {Object.keys(SOURCES).map((k) => <option key={k} value={k}>{k}</option>)}
       </select>
       <label>Amount</label>
-      <input value={amount} onChange={(e: any) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+      <input value={amount} onChange={(e: any) => { setAmount(e.target.value.replace(/[^0-9.]/g, "")); edited(); }} />
       <label>Receive</label>
-      <select value={target} onChange={(e: any) => { setTarget(e.target.value); setQuotes(null); setInstruction(null); }}>
+      <select value={target} onChange={(e: any) => { setTarget(e.target.value); edited(); }}>
         {Object.keys(TARGETS).map((k) => <option key={k} value={k}>{k}</option>)}
       </select>
       <label>Destination address{freshDestination ? " (a fresh address of your wallet)" : ""}</label>
-      <input value={destination} onChange={(e: any) => setDestination(e.target.value.trim())} placeholder="0x…" />
+      <input value={destination} onChange={(e: any) => { setDestination(e.target.value.trim()); edited(); }} placeholder="0x…" />
       {destError && <p className="error" style={{ fontSize: 13, marginTop: -4 }} data-testid="destination-error">Destination: {destError}.</p>}
       <div className="tabs">
         <button className="primary" onClick={getQuote} disabled={!!busy || !destination || !!destError}>Get a quote</button>
@@ -110,7 +114,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
               <div className="row"><span className="muted">At least</span><b>{fmt(thor.toAmountMin, to.decimals)} {to.symbol}</b></div>
               <div className="row"><span className="muted">Estimated</span><b>~{Math.round(thor.etaSeconds / 60)} min</b></div>
               <DestinationCard network="Ethereum" asset={to.symbol} address={destination} amount={`at least ${fmt(thor.toAmountMin, to.decimals)}`} kind="entered" title="Receive at" />
-              <button className="primary" onClick={() => getInstruction()} disabled={!!busy}>Show my deposit instruction</button>
+              <button className="primary" onClick={() => getInstruction()} disabled={!!busy || !!destError}>Show my deposit instruction</button>
               <p className="muted" style={{ fontSize: 12 }}>The instruction comes from THORChain, the native-chain route whose deposit address this browser verifies against independent gateways before showing it.</p>
             </>
           ) : <p className="muted">No verifiable deposit route right now{quotes.errors.thorchain ? ` (THORChain: ${quotes.errors.thorchain})` : ""}.</p>}

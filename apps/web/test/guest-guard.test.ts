@@ -73,6 +73,11 @@ describe("the browser checks a guest's deposit instruction before showing it", (
     await refused(p, /vault/);
     expect(((await p.catch((e: Error) => e)) as Error).message, "a guest must have nothing to copy").not.toContain("attacker");
   });
+  it("an Ethereum asset is paid to an Ethereum address only: another chain's address in the memo is refused, though it is the one typed (audit round 2, r34)", async () => {
+    const btcDest = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
+    const memo = buildMemo("ETH.ETH", btcDest, LIMIT);
+    await expect(checkGuestInstruction(instruction({ memo }), expectation({ destination: btcDest }))).rejects.toThrow(/Ethereum address only/);
+  });
   it("a lower minimum is reported against the quote the guest saw, for consent", async () => {
     const p = checkGuestInstruction(instruction({ memo: buildMemo("ETH.ETH", DEST, LIMIT - 1n) }), expectation());
     await expect(p).rejects.toBeInstanceOf(MinimumMoved);

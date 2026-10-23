@@ -63,6 +63,20 @@ describe("walletless deposit instruction, checked in the browser (happy-dom)", (
     expect(container.textContent).not.toContain("the service says so"); // the service's own claims are not what is shown
     expect(calls.filter((c) => c.endsWith("/thorchain/inbound_addresses")).length).toBe(3);
   });
+  it("an instruction on screen goes once the destination or the amount is edited: it was for the old one (audit round 2, r34)", async () => {
+    for (const edit of ["destination", "amount"] as const) {
+      const container = document.createElement("div");
+      await quoted(container);
+      await act(async () => { button(container, "Show my deposit instruction")!.click(); });
+      await vi.waitFor(() => expect(container.querySelector('[data-testid="guest-checked"]')).toBeTruthy());
+      const input = edit === "destination" ? (container.querySelector('input[placeholder="0x…"]') as HTMLInputElement) : ([...container.querySelectorAll("input")][0] as HTMLInputElement);
+      await act(async () => { setValue(input, edit === "destination" ? getAddress("0x1111111111111111111111111111111111111111") : "0.02"); });
+      expect(container.querySelector('[data-testid="guest-checked"]'), `${edit} edited: the old instruction is gone`).toBeNull();
+      expect(button(container, "Show my deposit instruction"), "and its quote").toBeFalsy();
+      act(() => root!.unmount());
+      root = null;
+    }
+  });
   it("an instruction naming another address is never shown", async () => {
     const container = document.createElement("div");
     await quoted(container);
