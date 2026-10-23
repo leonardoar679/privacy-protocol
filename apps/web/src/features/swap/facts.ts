@@ -24,6 +24,13 @@ import { CUSTODY_WORDS, GATE_WORDS, durationWords, hours, providerKind, refOf, s
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 const fmt = (units: string | bigint, decimals: number) => fmtUnits(units, decimals);
+/**
+ * A protected execution's per-step price bound in whole units of the output per whole unit of the input (audit round 2, r37):
+ * the bound is a 1e18 rate of output base units per input base unit, and formatted as 18 decimals it read "0.000000 BTC per
+ * ETH" — 10^10 too small — and a hundred times too much BTC per USDC.
+ */
+export const boundPerUnit = (rateE18: string | bigint, fromDecimals: number, toDecimals: number): string =>
+  fmtUnits((BigInt(rateE18) * 10n ** BigInt(fromDecimals)) / 10n ** 18n, toDecimals, toDecimals);
 
 export interface SwapContext {
   t: T;
@@ -155,7 +162,7 @@ export function campaignLines(c: SwapContext, f: CampaignFacts, onRouteAck: () =
   const dec = c.to.ref.decimals, sym = c.to.ref.symbol;
   const live = liveQuotesOf(c.quotes);
   return [
-    { id: "price", label: c.t("swap.lines.priceProtected"), ok: BigInt(f.quote.toAmountMin) > 0n, meaning: `${c.t("swap.lines.priceCampaign", { minimum: `${fmt(f.draft.bounds.minimumOutput, 18)} ${sym}`, from: c.fromAsset.symbol })}; ${c.t("swap.lines.priceGuardAgain")}` },
+    { id: "price", label: c.t("swap.lines.priceProtected"), ok: BigInt(f.quote.toAmountMin) > 0n, meaning: `${c.t("swap.lines.priceCampaign", { minimum: `${boundPerUnit(f.draft.bounds.minimumOutput, c.fromAsset.decimals, dec)} ${sym}`, from: c.fromAsset.symbol })}; ${c.t("swap.lines.priceGuardAgain")}` },
     routeLine(c, live, onRouteAck),
     destinationLine(c, onDestAck, true),
     { id: "slippage", label: c.t("swap.lines.slippage"), ok: f.quote.impactBps === undefined || (f.p.trancheImpactBps ?? 0) <= IMPACT_CAP_BPS, meaning: f.p.trancheImpactBps !== null && f.p.trancheImpactBps !== undefined ? c.t("swap.lines.slippagePerStep", { bps: f.p.trancheImpactBps, cap: IMPACT_CAP_BPS }) : c.t("swap.lines.slippageNoFigure") },

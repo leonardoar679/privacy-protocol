@@ -231,6 +231,8 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(container.querySelector('[data-testid="non-atomic"]')!.textContent, "V4 (plan §69)").toContain("Cross-chain settlement is not atomic");
     expect(line(container, "exposure").getAttribute("data-ok")).toBe("1");
     expect(line(container, "security").getAttribute("data-ok")).toBe("1");
+    // the per-step bound in whole units: ≈ 0.0297 BTC per ETH at 0.03 (audit round 2, r37) — it had read "0.000000 BTC"
+    expect(line(container, "price").textContent).toMatch(/at least 0\.029\d+ BTC per ETH/);
     expect(line(container, "route").getAttribute("data-ok"), "a single quote must be acknowledged").toBe("0");
     await act(async () => { button(container, "I accept the single quote")!.click(); });
     await act(async () => { button(container, "Advanced details")!.click(); });
