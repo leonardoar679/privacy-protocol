@@ -128,6 +128,7 @@ describe("the shell", () => {
     const other = new WalletSession(memoryStorage());
     await other.create("the other tab's password");
     const theirs = JSON.stringify((JSON.parse(other.exportBackup()) as { keystore: unknown }).keystore);
+    await secureStore().flush(); // the last test's Forget queued a delete of the keystore: landed first, never after this write
     await idbPut("secure", KEYSTORE_KEY, theirs);
     const [pw, confirm] = [...document.querySelectorAll('input[type="password"]')] as HTMLInputElement[];
     type(pw, "another password");
@@ -140,6 +141,7 @@ describe("the shell", () => {
   }, 60_000);
 
   it("creating a wallet over an existing one needs the typed confirmation", async () => {
+    prefs().update({ backup: { exportedAt: 1_700_000_000_000 } }); // the replaced wallet's backup
     const { pathname } = await mountUnlocked();
     await openSettings();
     await lock();
@@ -156,5 +158,6 @@ describe("the shell", () => {
     fireEvent.click(screen.getByTestId("create"));
     await screen.findByTestId("recovery-phrase", {}, { timeout: 20_000 });
     expect(secureStore().get("pp.keystore")).not.toBe(keystoreBefore);
+    expect(prefs().get().backup, "the backup status was the replaced wallet's (audit round 2, r29)").toBeUndefined();
   }, 60_000);
 });

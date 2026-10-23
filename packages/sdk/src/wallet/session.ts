@@ -10,7 +10,7 @@ import { decryptJournal, emptyJournal, encryptJournal, journalKey, type Encrypte
 import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "./storage";
 import { noteStore } from "./notes";
 import { settings, type Settings } from "./settings";
-import { config } from "../config";
+import { config, isConfigured } from "../config";
 
 export type SessionStatus = "none" | "locked" | "unlocked";
 export interface SessionState {
@@ -124,6 +124,8 @@ export class WalletSession {
    *  here only with `replace` (the user's typed REPLACE): WalletExists otherwise. */
   async create(password: string, seed: Uint8Array = generateMasterSeed(), opts: { replace?: boolean } = {}): Promise<string> {
     await this.guardExisting(opts.replace);
+    // over a wallet already here (the typed REPLACE): its settings are not the new one's either (r30)
+    if (this.hasKeystore() && isConfigured()) settings.reset();
     const own = seed.slice(); // the session owns (and later zeroes) its own copy
     const ks = await createKeystore(own, password, typeof this.kdf === "function" ? this.kdf() : this.kdf);
     this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
@@ -298,6 +300,9 @@ export class WalletSession {
     this.store.remove(KEYSTORE_KEY);
     this.store.remove(JOURNAL_KEY);
     this.store.remove(UNREADABLE_JOURNAL_KEY);
+    // the next wallet of this tab starts from the defaults (audit round 2, r30): one created or restored after this one was
+    // forgotten had kept its settings (its submission, its reads, its protection) and journaled them at its first write
+    if (isConfigured()) settings.reset();
     this.emit();
   }
 

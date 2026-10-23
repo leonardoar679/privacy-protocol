@@ -142,7 +142,10 @@ export function Security({ onBack }: { onBack?: () => void }) {
         </Collapsible>
         <Modal open={forgetOpen} onClose={() => { setForgetOpen(false); setForget(""); }} title={t("security.forget.title")} description={t("security.forget.body")} danger testId="forget-modal">
           <Field label={t("security.forget.typeWord")} htmlFor="forget-word"><Input id="forget-word" value={forget} onChange={(e) => setForget(e.target.value)} placeholder="FORGET" autoComplete="off" data-testid="forget-input" /></Field>
-          <Button variant="destructive" full disabled={forget !== "FORGET"} onClick={() => session.forget()} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
+          <Button variant="destructive" full disabled={forget !== "FORGET"} onClick={() => {
+                prefs().update({ backup: undefined }); // it was this wallet's backup (audit round 2, r29)
+                session.forget();
+              }} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
         </Modal>
       </div>
     </Page>

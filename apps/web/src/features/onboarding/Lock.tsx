@@ -8,6 +8,11 @@ import { session, WalletExists } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks/core";
 import { lockedElsewhere } from "../../platform/autoLock";
 import { StorageNotice } from "../../app/StorageNotice";
+import { prefs } from "../../storage/prefs";
+
+/** A new keystore in place: the device's backup status was the previous wallet's (audit round 2, r29). It read "✓ Recovery
+ *  backup created" for a wallet never backed up, and the Protect Review's backup prompt never showed. */
+const newWallet = () => void prefs().update({ backup: undefined });
 
 export type LockMode = "unlock" | "create" | "restore";
 
@@ -86,7 +91,7 @@ export function Create() {
   const ok = password.length >= 8 && password === confirm && (!replacing || replace === "REPLACE");
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (ok) void run(() => session.create(password, undefined, { replace: replacing }).then(() => undefined, (x: unknown) => { throw worded(x, t); }));
+    if (ok) void run(() => session.create(password, undefined, { replace: replacing }).then(newWallet, (x: unknown) => { throw worded(x, t); }));
   };
   return (
     <main className="ds-main">
@@ -123,11 +128,12 @@ export function Restore() {
   const okFile = password.length > 0 && file.trim().length > 0 && confirmed;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (kind === "phrase" && okPhrase) void run(() => session.restoreFromPhrase(phrase, password, { replace: replacing }).catch((x: unknown) => { throw worded(x, t); }));
+    if (kind === "phrase" && okPhrase) void run(() => session.restoreFromPhrase(phrase, password, { replace: replacing }).then(newWallet, (x: unknown) => { throw worded(x, t); }));
     if (kind === "file" && okFile)
       void run(async () => {
         const restored = await session.restoreFromBackup(file, password, { replace: replacing }).catch((x: unknown) => { throw worded(x, t); });
         if (!restored) throw new Error(t("lock.wrongBackupPassword"));
+        newWallet();
       });
   };
   return (

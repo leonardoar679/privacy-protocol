@@ -16,7 +16,7 @@ import { FRESH_WINDOW_MS, freshDestinations } from "../src/features/privacy-cent
 import { listedPurposes, privacyCenterModel } from "../src/features/privacy-center/model";
 import { addAddress, findEntry, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { session } from "@privacy-wallet/sdk/wallet/session";
-import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { defaultSettings, settings } from "@privacy-wallet/sdk/wallet/settings";
 import { prefs } from "../src/storage/prefs";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -73,6 +73,11 @@ describe("More → Security (spec §3.12, §9)", () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     expect(session.state().status).toBe("none");
+    // nothing of the forgotten wallet stays for the next one (audit round 2, r29/r30): its backup status, its settings
+    expect(prefs().get().backup, "the backup was the forgotten wallet's").toBeUndefined();
+    await session.create("another password");
+    expect(settings.get().tiers.enhanced, "the new wallet starts from the defaults").toBe(defaultSettings().tiers.enhanced);
+    expect((session.journal().settings as { tiers?: { enhanced: number } } | undefined)?.tiers?.enhanced ?? defaultSettings().tiers.enhanced).toBe(defaultSettings().tiers.enhanced);
   }, 60_000);
 });
 
