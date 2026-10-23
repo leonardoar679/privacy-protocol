@@ -5,7 +5,7 @@
 // units; the picker under More → Language (Automatic, English, 한국어) writes the preference, and the catalog, the
 // document's lang and Intl follow — English chosen on a Korean device stays English. The safety steps of a large payment
 // read in Korean too (audit round 2, r55): the address book's status under a typed destination, its way forward, the
-// verification and the immediate use.
+// verification and the immediate use; the privacy check, every sentence of the lint by its code.
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +48,8 @@ import {
 import { consumeFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { AddressBookPanel, DestinationStatus } from "../src/components/protection/AddressBook";
 import { destinationStatusWords } from "../src/features/destinationWords";
+import { LINT_CODES, lint, type LintFacts } from "@privacy-wallet/protocol/wallet/privacyLint";
+import { PrivacyLint, lintWords } from "../src/components/PrivacyLint";
 
 // the relayer's terms (Send quotes with them): read from the engine, never fetched here
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
@@ -346,6 +348,84 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
       destinationStatusWords((k, v) => t(k, v, "ko"), states[3][1], states[3][2]),
       "the hours of the cooling-off",
     ).toContain("23시간");
+  });
+
+  it("the privacy check reads in Korean: its header, its categories, its acknowledgements and every sentence of the lint — the English being the lint's own (audit round 2, r55)", async () => {
+    await loadCatalog("ko");
+    prefs().update({ locale: "ko", localeChosen: true });
+    expect(applyLocale()).toBe("ko");
+    // facts that reach every sentence
+    const base: LintFacts = {
+      action: "swap",
+      tier: "high-value",
+      sourceIsPool: true,
+      destinationKind: "entered",
+      destinationIsPublicWallet: false,
+      linkPublic: true,
+      providerIdentityDetached: false,
+      delaySeconds: 2 * 3600,
+      amountIsBucket: false,
+      minOutVerified: false,
+      privateSubmission: false,
+      rpcEndpoints: 1,
+      lightClient: false,
+      largePiece: { inAlphabet: false, holders: 3 },
+    };
+    const clean = { sizing: "bucket", consecutiveSameSize: false, destinationPerTranche: true, cadenceFixed: false, destinationCooling: false } as const;
+    const facts: LintFacts[] = [
+      base,
+      {
+        ...base,
+        action: "withdraw",
+        sourceIsPool: false,
+        destinationKind: "fresh",
+        destinationIsPublicWallet: true,
+        delaySeconds: 7 * 3600,
+        amountIsBucket: true,
+        privateSubmission: true,
+        rpcEndpoints: 2,
+        lightClient: true,
+        largePiece: { inAlphabet: true, holders: null },
+      },
+      { ...base, action: "transfer", destinationKind: "privacy-address", largePiece: { inAlphabet: false, holders: null } },
+      {
+        ...base,
+        linkPublic: null,
+        providerIdentityDetached: null,
+        minOutVerified: null,
+        delaySeconds: 0,
+        largePiece: { inAlphabet: false, holders: 40 },
+        campaign: clean,
+      },
+      {
+        ...base,
+        linkPublic: false,
+        providerIdentityDetached: true,
+        minOutVerified: true,
+        privateSubmission: true,
+        lightClient: true,
+        largePiece: { inAlphabet: false, holders: 1 },
+        campaign: { sizing: "varied", consecutiveSameSize: true, destinationPerTranche: false, cadenceFixed: true, destinationCooling: true },
+      },
+      { ...base, campaign: { ...clean, sizing: "varied" } },
+    ];
+    // on a screen: the header, the categories, a block to acknowledge and one acknowledged
+    const view = render(<PrivacyLint items={lint({ ...base, acknowledged: ["minimum-protected"] })} onAcknowledge={() => undefined} />);
+    expect(screen.getByTestId("privacy-lint")).toHaveTextContent("프라이버시 점검");
+    expect(englishWords(view.container)).toEqual([]);
+    view.unmount();
+    // every sentence: the lint's own English in English, Korean words in Korean
+    const items = facts.flatMap((f) => lint(f));
+    expect([...new Set(items.map((i) => i.words?.code))].sort()).toEqual([...LINT_CODES].sort());
+    for (const i of items) {
+      expect(
+        lintWords((k, v) => t(k, v, "en"), i),
+        i.id,
+      ).toBe(i.text);
+      const korean = lintWords((k, v) => t(k, v, "ko"), i);
+      expect(korean, i.id).toMatch(/[가-힣]/);
+      expect(englishOf(korean), i.id).toEqual([]);
+    }
   });
 
   it("the wallet's limits are the protocol's, said in the reader's language", async () => {

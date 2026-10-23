@@ -1,7 +1,8 @@
 // The privacy lint (whale spec §18): the eleven items with their categories, block only at tier ≥ high-value
-// (a warning with the same text below), acknowledgements, the large-piece rule, and the wording rule.
+// (a warning with the same text below), acknowledgements, the large-piece rule, and the wording rule; every sentence by its
+// code and values for the app's catalog (audit round 2, r55).
 import { describe, it, expect } from "vitest";
-import { HOLDERS_FLOOR, lint, lintSummary, unacknowledgedBlocks, type LintFacts } from "../src/wallet/privacyLint";
+import { HOLDERS_FLOOR, LINT_CODES, lint, lintSummary, unacknowledgedBlocks, type LintFacts } from "../src/wallet/privacyLint";
 
 const base: LintFacts = {
   action: "swap", tier: "standard", sourceIsPool: true, destinationKind: "fresh", destinationIsPublicWallet: false, linkPublic: true, providerIdentityDetached: true,
@@ -82,5 +83,23 @@ describe("privacy lint", () => {
     expect(byId(lint({ ...base, tier: "enhanced", campaign: { ...clean, cadenceFixed: true } }))["exact-cadence"].level).toBe("warn"); // below high-value a block is a warning
     expect(lint({ ...base, tier: "institutional" }).some((i) => i.id.startsWith("tranche") || i.id === "exact-cadence" || i.id === "destination-cooling" || i.id === "same-size-consecutive")).toBe(false);
     for (const i of lint({ ...base, tier: "institutional", campaign: clean })) expect(i.text.toLowerCase()).not.toMatch(/anonymous|100 ?%|atomic/);
+  });
+
+  it("every item names its sentence by its code, with the values the sentence needs, for the app's catalog (audit round 2, r55)", () => {
+    const facts: LintFacts[] = [
+      { ...base, destinationKind: "entered", delaySeconds: 2 * 3600, amountIsBucket: false, privateSubmission: false, rpcEndpoints: 1, largePiece: { inAlphabet: false, holders: 3 } },
+      { ...base, action: "transfer", destinationKind: "privacy-address", largePiece: { inAlphabet: false, holders: 40 } },
+      { ...base, tier: "high-value", campaign: { sizing: "bucket", consecutiveSameSize: false, destinationPerTranche: true, cadenceFixed: false, destinationCooling: false } },
+    ];
+    for (const i of facts.flatMap((f) => lint(f))) {
+      expect(LINT_CODES, i.id).toContain(i.words?.code);
+      if (i.words?.code === "timing-delayed" || i.words?.code === "timing-short") expect(i.words.delaySeconds, i.id).toBeGreaterThan(0);
+      if (i.words?.code === "piece-covered" || i.words?.code === "piece-rare") expect(i.words.holders, i.id).toBeGreaterThan(0);
+    }
+    const m = byId(lint(facts[0]));
+    expect(m["network"].words).toEqual({ code: "network-gaps", gaps: ["wallet-submits", "one-endpoint"] });
+    expect(m["timing"].words).toEqual({ code: "timing-short", delaySeconds: 7200 });
+    expect(m["large-piece"].words).toEqual({ code: "piece-rare", holders: 3 });
+    expect(byId(lint(facts[1]))["large-piece"].words).toEqual({ code: "piece-covered", holders: 40 });
   });
 });
