@@ -23,6 +23,7 @@ import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journ
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
+import { staleReads } from "./operations/stale";
 import { escrowBalance } from "./orderTracker";
 
 export const CLOSED_STATES = ["completed", "refunded", "abandoned", "lapsed"];
@@ -227,6 +228,8 @@ export interface FundingReads {
   receipt(hash: Hex): Promise<"success" | "reverted" | null>;
   /** the node knows the transaction (pending or mined); false when it does not; throws when it cannot be read */
   txKnown(hash: Hex): Promise<boolean>;
+  /** the nullifier pairs the transaction's core call spends; null while the node does not know it (absent: not read) */
+  txSpends?(hash: Hex): Promise<[bigint, bigint][] | null>;
 }
 
 /**
@@ -236,7 +239,7 @@ export interface FundingReads {
  */
 export function fundingReads(d: Deployment): FundingReads {
   const outcome = outcomeReads(d);
-  return { spent: outcome.spent, relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers), receipt: outcome.receipt, txKnown: outcome.txKnown };
+  return { spent: outcome.spent, relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers), receipt: outcome.receipt, txKnown: outcome.txKnown, txSpends: staleReads(d).txSpends };
 }
 
 export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now()): Promise<FundingFate> {
@@ -247,7 +250,11 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
     // its transaction (the journaled one, else the one the relayer sent for these notes): mined and reverted, it never lands;
     // mined, it landed (the nullifier read lagged)
     const hash = (a.txHash as Hex | undefined) ?? job?.txHash;
-    if (hash) {
+    // its fate only from a transaction that spends this attempt's notes (audit round 2, n11 — the c31/c42 rule): a hash the
+    // relayer named that spends others, mined, had read as this funding landed — the order journaled funded, nothing moved
+    const spends = hash && reads.txSpends ? await reads.txSpends(hash) : null;
+    const ours = !spends || spends.length === 0 || spends.some(([x, y]) => x === BigInt(a.nullifiers[0]) && y === BigInt(a.nullifiers[1])); // none read: unknown, as before
+    if (hash && ours) {
       const r = await reads.receipt(hash);
       if (r === "reverted") return "dead";
       if (r === "success") return "landed";

@@ -10,7 +10,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, FundingAlreadySent, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, FundingAlreadySent, fundingFate, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
 import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
@@ -75,6 +75,21 @@ describe("swap funding", () => {
     s.update((j) => { j.swaps = [...j.swaps, token]; });
     expect(await fundEscrow({ masterSeed: seed, deployment, stored: token, session: s, relayerUrl: "http://relayer.test", fees: risen }).catch((x: unknown) => x)).not.toBeInstanceOf(TipStale);
     withdrawals.calls.length = 0; // the funded ones: nothing of them reaches the next case
+  });
+
+  it("a funding is read landed only from a spend of its own notes: a hash the relayer named that spends others is not it (audit round 2, n11)", async () => {
+    const NOW = 1_900_000_000_000;
+    const attempt = { nullifiers: ["7", "8"], by: "relayer" as const, relayerUrl: "http://relayer.test", at: NOW - 1000 };
+    const reads = (spends: [bigint, bigint][] | null): FundingReads => ({
+      spent: async () => false, // the nullifier read lags
+      relayerJob: async () => ({ txHash: ("0x" + "ee".repeat(32)) as `0x${string}` }),
+      receipt: async () => "success",
+      txKnown: async () => true,
+      txSpends: async () => spends,
+    });
+    expect(await fundingFate(attempt, reads([[7n, 8n]]), NOW)).toBe("landed");
+    expect(await fundingFate(attempt, reads([[71n, 81n]]), NOW), "another spend, mined: this funding is still on its way").toBe("pending");
+    expect(await fundingFate(attempt, reads(null), NOW), "not read: as before").toBe("landed");
   });
 
   it("abandoning an order removes its scheduled funding and marks its Activity line; the runner drops actions of closed or funded orders", async () => {
