@@ -387,6 +387,59 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(screen.getByTestId("hold-to-confirm")).toBeTruthy();
   });
 
+  it("institutional: the separate device is asked after the second factor — none registered refuses the Send, never the password alone (audit round 2, r28)", async () => {
+    const mock = await startMockCore({
+      core: CORE,
+      events: {},
+      nextLeafIndex: 0,
+      root: 0n,
+      feeds: { [ETH_FEED]: { description: "ETH / USD", answer: 2_500_00000000n, updatedAt: Math.floor(Date.now() / 1000) - 60, roundId: 3n } },
+    });
+    closers.push(mock.close);
+    passThrough = mock.url;
+    const priced: Deployment = { ...deployment, chainId: 1, rpcUrl: mock.url, rpcUrls: [mock.url] };
+    settings.set({ tiers: { enhanced: 100_000, highValue: 110_000, highValueSecondary: 120_000, institutional: 130_000 } });
+    await unlocked(100n * 10n ** 18n);
+    await priceStore.refresh(priced, { force: true });
+    const get = vi.fn(async (o: { publicKey: { allowCredentials: { id: Uint8Array }[] } }) => ({ rawId: o.publicKey.allowCredentials[0].id.buffer }));
+    Object.defineProperty(navigator, "credentials", { value: { get, create: vi.fn() }, configurable: true });
+    (globalThis as { PublicKeyCredential?: unknown }).PublicKeyCredential = class {};
+    const hold = async () => {
+      const b = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+      expect(b.disabled).toBe(false);
+      await act(async () => {
+        b.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 120));
+      });
+    };
+    try {
+      mount({}, priced);
+      typeTo(otherWallet());
+      type(screen.getByTestId("amount-input"), "60");
+      await waitFor(() => expect(screen.getByTestId("amount-usd").textContent).toContain("$150,000"));
+      await waitFor(() => expect(reviewButton().disabled).toBe(false));
+      fireEvent.click(reviewButton());
+      for (const b of screen.queryAllByRole("button", { name: "I understand" })) fireEvent.click(b);
+      await hold();
+      // no platform authenticator registered: the password is the second factor; then the device, which has no fallback
+      const box = await screen.findByTestId("second-factor-password");
+      fireEvent.change(box.querySelector("input")!, { target: { value: "a strong password" } });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm with the password" }));
+      await waitFor(() => expect(screen.getByTestId("second-device-error").textContent).toContain("no password fallback"), { timeout: 20_000 });
+      expect(calls.transfer, "nothing sent").toHaveLength(0);
+      expect(get).not.toHaveBeenCalled();
+      // the device registered: asked with its own credential, then the Send
+      act(() => settings.set({ protection: { ...settings.get().protection, secondDevice: { enabled: true, credentialId: "BAUG" } } }));
+      await hold();
+      await waitFor(() => expect(calls.transfer).toHaveLength(1), { timeout: 20_000 });
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(Array.from(get.mock.calls[0][0].publicKey.allowCredentials[0].id)).toEqual([4, 5, 6]);
+    } finally {
+      delete (navigator as { credentials?: unknown }).credentials;
+      delete (globalThis as { PublicKeyCredential?: unknown }).PublicKeyCredential;
+    }
+  });
+
   it("a fee that moved past the Review's: nothing was sent, and 'Back to review' reads the relayer's terms again so the Review shows the new fee (audit round 2, r09)", async () => {
     await unlocked();
     behaviour = "fee-moved";

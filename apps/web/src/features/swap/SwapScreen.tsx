@@ -713,6 +713,7 @@ export function SwapScreen(p: SwapScreenProps) {
             details={commitDetails(ctx, chosen.provider, quote, score)}
             advanced={advanced}
             secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+            secondDevice={controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null}
             busy={busy ? t("swap.committing") : undefined}
             error={
               !busy

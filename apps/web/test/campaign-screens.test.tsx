@@ -154,6 +154,19 @@ describe("the Review's campaign moment (spec §15)", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(c.querySelector('[data-testid="second-factor-password"]'), "no password box for the device").toBeNull();
   });
+  it("institutional: the device is the tier's rule, asked even when the caller passed none (a Send, a one-order swap) — never confirmed after the platform factor alone (audit round 2, r28)", async () => {
+    const onConfirm = vi.fn();
+    await session.create("pw"); session.acknowledgePhrase();
+    const get = vi.fn(async (o: any) => ({ rawId: o.publicKey.allowCredentials[0].id.buffer }));
+    Object.defineProperty(navigator, "credentials", { value: { get, create: vi.fn() }, configurable: true });
+    (globalThis as any).PublicKeyCredential = class {};
+    const c = await mount(<Review {...reviewProps({ moment: "send", tier: "institutional", controls: controlsFor("institutional"), secondFactor: { credentialId: "AQID" }, onConfirm })} />);
+    expect(c.textContent).toContain("second confirmation next");
+    await hold(c);
+    await vi.waitFor(() => expect(c.querySelector('[data-testid="second-device-error"]')?.textContent).toContain("no password fallback"));
+    expect(onConfirm, "refused: no device was registered").not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledTimes(1); // the platform factor only
+  });
 });
 
 describe("the campaign progress panel (spec §15)", () => {

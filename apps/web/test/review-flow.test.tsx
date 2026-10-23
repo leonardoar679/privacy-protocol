@@ -249,7 +249,11 @@ describe("the high-value Review (happy-dom, real engine)", () => {
   });
 
   it("institutional: the review hold schedules the funding no earlier than the cancel window, Fund now waits, and the order exports as JSON", async () => {
-    settings.set({ tiers: { enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 2_000_000, institutional: 3_000_000 } });
+    // the separate device registered and asked after the password (audit round 2, r28: this Review had never asked it)
+    settings.set({ tiers: { enhanced: 100_000, highValue: 1_000_000, highValueSecondary: 2_000_000, institutional: 3_000_000 }, protection: { ...settings.get().protection, secondDevice: { enabled: true, credentialId: "BAUG" } } });
+    const get = vi.fn(async (o: any) => ({ rawId: o.publicKey.allowCredentials[0].id.buffer }));
+    Object.defineProperty(navigator, "credentials", { value: { get, create: vi.fn() }, configurable: true });
+    (globalThis as any).PublicKeyCredential = class {};
     const container = document.createElement("div");
     await quotedLarge(container);
     await act(async () => { button(container, "Review Swap")!.click(); });
@@ -262,6 +266,8 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     await act(async () => { setValue(container.querySelector('[data-testid="second-factor-password"] input') as HTMLInputElement, "a strong password"); });
     await act(async () => { button(container, "Confirm with the password")!.click(); });
     await vi.waitFor(() => expect(session.journal().swaps).toHaveLength(1), { timeout: 20_000 });
+    expect(get, "the separate device, after the password").toHaveBeenCalledTimes(1);
+    expect(Array.from((get.mock.calls[0] as any[])[0].publicKey.allowCredentials[0].id)).toEqual([4, 5, 6]);
     const s = session.journal().swaps[0];
     expect(s.tier).toBe("institutional");
     expect(s.reviewHoldUntil).toBeGreaterThanOrEqual(before + REVIEW_HOLD_MINUTES * 60_000);

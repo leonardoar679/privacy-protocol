@@ -70,7 +70,7 @@ const short = (a: string) => (a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}
 export function SendScreen(p: SendScreenProps) {
   const t = useT();
   const navigate = useNavigate();
-  const { submission, advanced, verifyReads, secondFactor } = useSettings();
+  const { submission, advanced, verifyReads, secondFactor, protection } = useSettings();
   const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
   const book = useAddressBook();
   const prices = usePrices();
@@ -460,6 +460,7 @@ export function SendScreen(p: SendScreenProps) {
             advanced={advanced}
             onExport={exportReview}
             secondFactor={controls.secondFactor ? { credentialId: secondFactor.credentialId } : null}
+            secondDevice={controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null}
             busy={busy ? status : undefined}
             error={!busy && status ? status : undefined}
             onConfirm={() => void run()}

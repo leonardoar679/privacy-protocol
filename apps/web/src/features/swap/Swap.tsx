@@ -381,6 +381,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
         privacy: { level: levelOf(score.components.privacy), score: score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: commitLines(ctx, prov, quote, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerLine(fromAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(fromAsset), to.ref, quote.nativeAssets), crossChain: to.ref.chain !== refOf(fromAsset).chain, details: commitDetails(ctx, prov, quote, score),
         advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined, secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
+        secondDevice: controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
         tradeCheck: tradeCheckFor(prov, quote, score, q.links?.[prov]?.public, lintItems, units, to.ref), busy, error, protectedExecution: controls.protectedExecution,
       };
       onConfirm = () => commit(prov);
@@ -399,6 +400,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
         issuer: issuerLine(orderAsset.symbol) ?? issuerLine(sym), routeKind: routeKind(refOf(orderAsset), tgt, quote.nativeAssets), crossChain: tgt.chain !== refOf(orderAsset).chain,
         details: { provider: s.call.provider, mode: s.prepared.plan?.mode ?? "single", parts: s.prepared.plan?.parts, fees: t("swap.feesAsQuoted"), expectedOutput: quote.toAmount ? `${fmtUnits(quote.toAmount, dec)} ${sym}` : t("swap.asQuoted"), settlement: settlementWords(s.call.provider), alternatives: quotes ? alternativesOf(quotes, s.call.provider) : [] },
         advanced, onExport: executeControls.export && stored ? () => downloadText(`privacy-wallet-order-${stored.orderId.slice(2, 10)}.json`, exportOrderReview(stored, { simulation: s.sim, lint: signLint })) : undefined, secondFactor: executeControls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
+        secondDevice: executeControls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null,
         tradeCheck: tradeCheckFor(s.call.provider, quote.toAmount ? { plan: s.prepared.plan, etaSeconds: quote.etaSeconds ?? 0, impactBps: quote.impactBps, nativeAssets: quote.nativeAssets ?? true, toAmountMin: stored?.approvedMin ?? "0" } : undefined, undefined, undefined, signLint, BigInt((stored?.params as { amount?: string })?.amount ?? "0"), tgt),
         busy, error, protectedExecution: executeControls.protectedExecution,
       };

@@ -51,7 +51,7 @@ export interface ReviewProps {
   reviewHold?: { minutes: number } | null;
   onExport?: () => void;
   secondFactor?: { credentialId?: string } | null;
-  /** institutional (spec §14): the separate device asked after the second factor; absent credential: the confirmation is refused, there is no password fallback */
+  /** institutional (spec §14): the registered separate device, asked after the second factor whenever `controls.secondDevice` is set; absent credential: the confirmation is refused, there is no password fallback */
   secondDevice?: { credentialId?: string } | null;
   maximumLoss?: MaximumLoss | null;
   verdict?: Verdict | null;
@@ -91,7 +91,9 @@ export function Review(p: ReviewProps) {
   const pendingLines = p.lines.filter((l) => !l.ok);
   const ready = blocks.length === 0 && pendingLines.length === 0 && !p.busy;
   const needsFactor = p.controls.secondFactor && factor !== "passed";
-  const needsDevice = !!p.secondDevice && device !== "passed";
+  // the tier's own rule (audit round 2, r28): a Review whose caller passed no device — a Send, a one-order swap — had confirmed
+  // an institutional operation after the platform factor alone, the separate device never asked
+  const needsDevice = (p.controls.secondDevice || !!p.secondDevice) && device !== "passed";
 
   /** After the second factor (or without one): the separate device at institutional, then the confirmation. */
   async function afterFactor() {
