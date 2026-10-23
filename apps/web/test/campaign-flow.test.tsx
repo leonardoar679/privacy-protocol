@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters, getAddress } from "viem";
 import { Swap } from "../src/features/swap/Swap";
+import { OrderPanel } from "../src/features/swap/OrderPanel";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
@@ -306,6 +307,60 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(container.querySelector('[data-testid="campaign-amounts"]')!.textContent).toContain("In progress");
   }, 60_000);
 
+  it("the quote card says the minimum as what it is, guaranteed — never '≈'; the expected amount stays an estimate (audit round 2, n89)", async () => {
+    const container = document.createElement("div");
+    await quoted(container, "400");
+    expect(container.querySelector('[data-testid="quote-minimum"]')!.textContent).not.toMatch(/≈/);
+    expect(container.querySelector('[data-testid="quote-receive"]')!.textContent).toMatch(/^≈ /);
+  });
+  it("a funded order whose minimum moved: nothing is said to return on its own — only a return sends it back (audit round 2, n88)", async () => {
+    await session.create("a strong password");
+    session.acknowledgePhrase();
+    const container = document.createElement("div");
+    const order = {
+      orderId: "0x" + "0e".repeat(32),
+      state: "funded",
+      endpoint: "0x" + "ee".repeat(20),
+      params: { refundAfter: Math.floor(Date.now() / 1000) + 3 * 3600, executorTip: "0" },
+      quote: { provider: "thorchain", toAmount: "1000000" },
+      privacy: { score: 80, delaySeconds: [0, 0] },
+    };
+    if (root) act(() => root!.unmount());
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <OrderPanel
+          order={order as never}
+          stored={null}
+          orderAsset={{ symbol: "ETH", decimals: 18 } as never}
+          target={{ id: "BTC", ref: BTC, network: "Bitcoin" }}
+          destination="bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+          destinationEdited={false}
+          job={null}
+          tracked={null}
+          record={null}
+          signed={null}
+          checked={null}
+          moved={{ minOut: 990000n, approved: 1000000n } as never}
+          refundLine=""
+          signLint={null}
+          advanced={false}
+          busy=""
+          submission={{ kind: "relayer", url: "http://relayer.test" }}
+          holdActive={false}
+          canExport={false}
+          onFundNow={() => {}}
+          onSign={() => {}}
+          onReturn={() => {}}
+          onExport={() => {}}
+          onMonitor={() => {}}
+        />,
+      );
+    });
+    const moved = container.querySelector('[data-testid="minimum-moved"]')!;
+    expect(moved.textContent).toContain("Nothing returns on its own");
+    expect(moved.textContent).not.toMatch(/never confirmed returns to your private balance/);
+  });
   it("$5M: the authenticator is asked after the hold and the confirmation is journaled with the campaign", async () => {
     settings.set({ secondFactor: { enabled: true, credentialId: "AQID" } });
     const get = vi.fn(async (o: any) => ({ rawId: o.publicKey.allowCredentials[0].id.buffer }));

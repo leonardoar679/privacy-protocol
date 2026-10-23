@@ -1316,7 +1316,7 @@ export const en = {
   "order.returnHint": "The order is not executed; its escrow re-shields into your private balance once the window opens",
   "order.return": "Return to my private balance",
   "order.priceMoved": "The price moved. This route now guarantees at least {min}; you approved {approved} (−{drop} %). Nothing has been signed.",
-  "order.priceMovedNote": "Confirm at the new minimum, or wait and confirm later against a fresh quote. An order that is never confirmed returns to your private balance after {time}.",
+  "order.priceMovedNote": "Confirm at the new minimum, or wait and confirm later against a fresh quote. Nothing returns on its own: the funds wait in the order's one-time escrow until you confirm or return them, and a return reaches your private balance after {time}.",
   "order.confirmNewMinimum": "Confirm at the new minimum",
   "order.returnInstead": "Return it to my private balance instead",
   "order.checked": "Checked by this wallet before signing: pays your fresh address{minimum}; {refund}.",

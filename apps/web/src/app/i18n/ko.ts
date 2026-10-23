@@ -1392,7 +1392,7 @@ export const ko: Record<MessageKey, string> = {
   "order.return": "비공개 잔액으로 반환",
   "order.priceMoved": "가격이 변했습니다. 이제 이 경로의 보장 최소 수령액은 {min}입니다(승인한 금액: {approved}, −{drop} %). 아무것도 서명하지 않았습니다.",
   "order.priceMovedNote":
-    "새 최소 수령액으로 확인하거나, 기다렸다가 나중에 새 견적으로 확인하세요. 끝내 확인하지 않은 주문은 {time} 이후 비공개 잔액으로 반환됩니다.",
+    "새 최소 수령액으로 확인하거나, 기다렸다가 나중에 새 견적으로 확인하세요. 저절로 돌아오지는 않습니다. 확인하거나 반환할 때까지 자금은 주문의 일회용 에스크로에서 기다리며, 반환하면 {time} 이후 비공개 잔액에 도착합니다.",
   "order.confirmNewMinimum": "새 최소 수령액으로 확인",
   "order.returnInstead": "대신 비공개 잔액으로 반환",
   "order.checked": "서명 전에 이 지갑이 확인함: 새 주소로 지불{minimum}; {refund}.",
