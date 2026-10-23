@@ -336,6 +336,9 @@ export async function fundEscrow(o: {
     // scheduled", then "nothing left your private balance", and offered only Abandon — while its amount sat in the escrow
     if (fate === "landed") patchSwap(stored.orderId, { state: "funded", ...(stored.fundingAttempt.txHash ? { fundedTx: stored.fundingAttempt.txHash } : {}) }, s);
     if (fate !== "dead" || !o.replaceDead) throw new FundingAlreadySent(fate);
+    // a dead funding sent again is a new funding (audit round 2, n10): never one of an order an older build committed under the
+    // privacy address's owner commitment (c18), which the check above lets through once a funding has been tried
+    if (committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
     patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
   }
   if ((o.now ?? Date.now()) + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();

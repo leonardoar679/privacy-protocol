@@ -10,7 +10,9 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, FundingAlreadySent, isOpenSwap, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, FundingAlreadySent, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
+import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
@@ -227,6 +229,24 @@ describe("swap funding", () => {
     // the user's word replaces a dead funding, once
     await fundEscrow({ ...relayed, stored: sent, reads: reads("dead"), replaceDead: true });
     expect(withdrawals.calls).toHaveLength(1);
+  });
+
+  it("a dead funding sent again is a new funding: never one of an order an older build committed under the privacy address (audit round 2, n10)", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const NOW = 1_900_000_000_000;
+    const params = {
+      orderId: ("0x" + "40".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: mainOwnerCommitment(deriveKeys(seed)).toString(), refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const sent: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params), fundingAttempt: { nullifiers: ["7", "8"], by: "relayer", relayerUrl: "http://relayer.test", txHash: "0x" + "ee".repeat(32), at: NOW - 1000 } };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [sent]; });
+    withdrawals.calls.length = 0;
+    const dead: FundingReads = { spent: async () => false, relayerJob: async () => null, receipt: async () => "reverted", txKnown: async () => false };
+    await expect(fundEscrow({ masterSeed: seed, deployment, session: s, relayerUrl: "http://relayer.test", now: NOW, stored: sent, reads: dead, replaceDead: true })).rejects.toBeInstanceOf(OrderOutdated);
+    expect(withdrawals.calls, "nothing sent").toHaveLength(0);
   });
 
   it("a funding that landed while its page was gone is journaled: the order funded, its transaction kept, nothing sent again (audit round 2, r10)", async () => {
