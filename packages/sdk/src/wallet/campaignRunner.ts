@@ -369,6 +369,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       case "shape-notes": {
         if (c.state !== "preparing-notes") c = withCampaignState(c, "preparing-notes", now, "shaping the notes for the pieces");
         c = putCampaign(c, s);
+        // the user answered while this tick ran (a Pause, Return the rest): no merge is paid for it, as no other money step
+        // starts after it (audit round 2, n15) — the next tick acts on the answer
+        if (decided || answeredMeanwhile()) break;
         schedulerStatus.progress("Protected swap: shaping your private balance for the pieces…");
         await io.shape(c, needed, (l) => schedulerStatus.progress(l));
         nextAt = now + 1000;

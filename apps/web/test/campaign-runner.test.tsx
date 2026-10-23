@@ -19,7 +19,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings, healSettings, healProtection, DEFAULT_PROTECTION, PROTECTION_DEFAULTS } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction, schedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
 import { trancheMinimum } from "@privacy-wallet/protocol/wallet/campaign";
-import { acceptReroute, buildCampaign, campaignById, cancelCampaign, pauseCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
+import { acceptReroute, buildCampaign, campaignById, cancelCampaign, pauseCampaign, putCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
@@ -862,6 +862,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     world.escrowBalance = facts;
     expect(world.calls.filter((x) => x.startsWith("fund:")).length, "not funded after the pause").toBe(funds);
     expect(current(d)).toMatchObject({ state: "paused", pause: { reason: "user" } });
+  });
+
+  it("a Pause given while a tick reads the facts stops that tick's note shaping: no merge is paid after the answer (audit round 2, n15)", async () => {
+    const c = await fresh();
+    putCampaign({ ...c, plan: { ...c.plan, shapeNotes: true } }, session); // the pieces need notes shaped first
+    world.shaped = false;
+    const shaped = world.notesShaped.bind(world);
+    world.notesShaped = () => { pauseCampaign(c.id, session, clock); return shaped(); }; // the answer, during the tick's reads
+    try {
+      const r = await tick(c);
+      expect(world.calls, "no merge after the Pause").not.toContain("shape");
+      expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "user" } });
+      expect(r?.nextAt, "acted on at once").toBe(clock);
+    } finally {
+      world.notesShaped = shaped;
+      world.shaped = true;
+    }
   });
 
   it("a step whose funding is on its way is never given up: not when the rest returns, not when the route changes (the audit round of 2026-10-16, c35)", async () => {
