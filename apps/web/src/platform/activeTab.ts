@@ -8,7 +8,9 @@
 //   does this tab show the wallet and run its scheduler.
 // - The tab unlocked last wins: a tab granted the lock after another asked steps aside in turn.
 // - A tab granted the lock reads the journal again before anything of it runs (a V6 follow-up of 2026-10-16, audit c40):
-//   it opened the journal at its unlock, and the other tab kept writing until it stepped aside.
+//   it opened the journal at its unlock, and the other tab kept writing until it stepped aside. A tab gives the lock back
+//   only once its writes have reached the store, waiting 5 s at most (audit round 2, r17): a put still queued was read
+//   past, then overwritten.
 // - Without Web Locks (an old browser) nothing changes; without BroadcastChannel a waiting tab waits for the other to lock.
 import { useSyncExternalStore } from "react";
 import type { WalletSession } from "@privacy-wallet/sdk/wallet/session";
@@ -17,6 +19,8 @@ import type { WalletSession } from "@privacy-wallet/sdk/wallet/session";
 export type TabState = "active" | "checking" | "waiting";
 export const ACTIVE_LOCK = "privacy-wallet:active";
 export const TAB_CHANNEL = "privacy-wallet";
+/** the longest a locked tab waits for its writes before it gives the lock back anyway: a store that never answers holds no tab out */
+export const FLUSH_WAIT_MS = 5_000;
 
 interface Channel {
   postMessage(m: unknown): void;
@@ -54,6 +58,10 @@ export function startActiveTab(d: {
   store?: TabStateStore;
   /** what else is read again when this tab takes the wallet over: the preferences (the audit's unverified m46) */
   refresh?: () => Promise<void>;
+  /** this tab's writes on their way to the store (the secure store's flush): awaited before the lock is given back (r17) */
+  flush?: () => Promise<void>;
+  /** how long at most (FLUSH_WAIT_MS) */
+  flushWaitMs?: number;
 }): () => void {
   const store = d.store ?? activeTab;
   const locks = d.locks === undefined ? (typeof navigator !== "undefined" ? (navigator.locks ?? null) : null) : d.locks;
@@ -72,10 +80,11 @@ export function startActiveTab(d: {
 
   const hold = (): Promise<void> =>
     new Promise<void>((resolve) => {
-      release = () => {
-        release = null;
+      const mine = () => {
+        if (release === mine) release = null;
         resolve();
       };
+      release = mine;
       store.set("active");
       if (laterAsker !== null) d.stepAside(); // another tab was unlocked after this one asked: it wins
     });
@@ -126,7 +135,15 @@ export function startActiveTab(d: {
 
   const onSession = () => {
     if (d.session.isUnlocked()) return acquire();
-    release?.();
+    // given back once this tab's writes reached the store, or after FLUSH_WAIT_MS (audit round 2, r17): the tab it goes to
+    // reads the journal at its grant, and a put still queued here landed after that read — that tab's next write overwrote it
+    const r = release;
+    release = null;
+    if (r) {
+      const written = Promise.resolve(d.flush?.()).catch(() => undefined);
+      const waited = new Promise((x) => setTimeout(x, d.flushWaitMs ?? FLUSH_WAIT_MS));
+      void Promise.race([written, waited]).then(() => r());
+    }
     queued?.abort();
     queued = null;
     store.set("active"); // a locked tab waits for nothing

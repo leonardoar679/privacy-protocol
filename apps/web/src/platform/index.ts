@@ -6,9 +6,14 @@ import { startActiveTab } from "./activeTab";
 import { stepAside, startAutoLock } from "./autoLock";
 import { startConnectivity } from "./connectivity";
 import { prefs } from "../storage/prefs";
+import { secureStore } from "../storage/secureStore";
 
 export function startPlatform(): () => void {
-  const stops = [startAutoLock(), startConnectivity(), startActiveTab({ session, stepAside, refresh: () => prefs().reload() })];
+  const stops = [
+    startAutoLock(),
+    startConnectivity(),
+    startActiveTab({ session, stepAside, refresh: () => prefs().reload(), flush: () => secureStore().flush() }),
+  ];
   return () => {
     for (const s of stops) s();
   };

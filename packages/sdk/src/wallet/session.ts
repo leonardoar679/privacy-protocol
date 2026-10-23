@@ -62,6 +62,10 @@ export class WalletExists extends Error {
 /** A critical section that defers an automatic lock (spec v2.0 §8; ../session/autoLock.ts). */
 export interface Hold { reason: string; since: number }
 
+/** JSON with every object's keys sorted: settings equal in content compare equal, whatever order a heal built their keys in */
+const sortedJson = (v: unknown): string =>
+  JSON.stringify(v, (_k, x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+
 export class WalletSession {
   private seed: Uint8Array | null = null;
   private key: Uint8Array | null = null;
@@ -96,7 +100,13 @@ export class WalletSession {
       if (j.noteCounter === s.noteCounter && !!j.countersHeld === !!s.countersHeld && JSON.stringify(j.notes) === JSON.stringify(s.notes)) return;
       this.update((x) => { x.notes = s.notes; x.noteCounter = s.noteCounter; if (s.countersHeld) x.countersHeld = true; else delete x.countersHeld; });
     });
-    settings.subscribe(() => this.update((j) => { j.settings = { ...settings.get() }; }));
+    // the settings too, when they changed (audit round 2, r17): an unlock's load gives the journal its own settings back, and
+    // journaling them again wrote this tab's copy over another tab's newer journal
+    settings.subscribe(() => {
+      const now = { ...settings.get() };
+      if (this.data && sortedJson(this.data.settings) === sortedJson(now)) return;
+      this.update((j) => { j.settings = now; });
+    });
   }
 
   /** The first read: the platform has configured the engine by now; the store is resolved and its hydration awaited. */
@@ -159,6 +169,8 @@ export class WalletSession {
     if (!raw) return false;
     const seed = await unlockKeystore(JSON.parse(raw) as Keystore, password);
     if (!seed) return false;
+    // and again after the derivation (audit round 2, r17): it takes 0.5–2 s, and the tab that holds the wallet journals meanwhile
+    await this.store.refresh?.();
     const key = journalKey(seed);
     const blob = this.store.get(JOURNAL_KEY);
     let journal: JournalData | null = null;

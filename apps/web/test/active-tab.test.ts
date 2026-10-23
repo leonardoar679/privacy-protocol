@@ -3,9 +3,10 @@
 // Web Lock manager and an in-memory BroadcastChannel, with tabs sharing one store as a browser's tabs share IndexedDB:
 // the tab unlocked first holds the wallet; one unlocked next waits and asks it to step aside; the tab unlocked last wins;
 // a tab that locks while it waits leaves the line; without Web Locks nothing changes.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { memoryStorage, type KeyValueStorage } from "@privacy-wallet/sdk/wallet/storage";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { ACTIVE_LOCK, startActiveTab, TabStateStore } from "../src/platform/activeTab";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
@@ -128,6 +129,46 @@ async function mirroredBrowser() {
     const stop = startActiveTab({ session, stepAside: () => (stepAside ? stepAside(session) : session.lock()), locks, channel, store });
     return { session, store, stop };
   };
+  return { tab, mirrorOf };
+}
+
+/** The same, with each tab's writes reaching the shared store a moment later and in order, as IndexedDB puts do (`flush` awaits them). */
+async function queuedBrowser(o: { stuck?: boolean } = {}) {
+  const backing = new Map<string, string>();
+  const locks = new FakeLocks() as unknown as LockManager;
+  const channel = bus();
+  const mirrorOf = () => {
+    const m = new Map(backing);
+    let queue: Promise<void> = Promise.resolve();
+    const later = (f: () => void) => {
+      queue = queue.then(() => new Promise<void>((r) => setTimeout(() => (f(), r()), 5)));
+    };
+    return {
+      get: (k: string) => m.get(k) ?? null,
+      set: (k: string, v: string) => void (m.set(k, v), later(() => backing.set(k, v))),
+      remove: (k: string) => void (m.delete(k), later(() => backing.delete(k))),
+      refresh: async () => {
+        m.clear();
+        for (const [k, v] of backing) m.set(k, v);
+      },
+      flush: () => queue,
+    };
+  };
+  const created = mirrorOf();
+  const first = new WalletSession(created, KDF);
+  await first.create("pw");
+  first.acknowledgePhrase();
+  first.lock();
+  await created.flush();
+  const tab = (stepAside?: (s: WalletSession) => void) => {
+    const mirror = mirrorOf();
+    const session = new WalletSession(mirror, KDF);
+    const store = new TabStateStore();
+    // `stuck`: a store whose writes never answer — the lock is given back after the wait all the same
+    const flush = o.stuck ? () => new Promise<void>(() => undefined) : () => mirror.flush();
+    const stop = startActiveTab({ session, stepAside: () => (stepAside ? stepAside(session) : session.lock()), locks, channel, store, flush, flushWaitMs: 50 });
+    return { session, store, stop };
+  };
   return { tab };
 }
 
@@ -169,6 +210,76 @@ describe("a tab's journal is the newest one (a V6 follow-up of 2026-10-16, audit
     await settle();
     expect([a.session.isUnlocked(), b.store.get()]).toEqual([false, "active"]);
     expect(b.session.journal().chainIndexes.evm).toBe(3);
+  });
+
+  it("an unlock reads the journal as it is after its key derivation, and loading its own settings writes nothing back (audit round 2, r17)", async () => {
+    const { tab, mirrorOf } = await mirroredBrowser();
+    const a = tab();
+    expect(await a.session.unlock("pw")).toBe(true);
+    await settle();
+    // another tab unlocks while this one journals: what it reads is the journal after its derivation. The holding tab's
+    // write lands right after the unlock's first read of the store, as one does during the derivation's 0.5–2 s
+    let writes = 0;
+    let reads = 0;
+    const m = mirrorOf();
+    const b = new WalletSession(
+      {
+        ...m,
+        set: (k: string, v: string) => (writes++, m.set(k, v)),
+        refresh: async () => {
+          await m.refresh();
+          if (++reads === 1)
+            a.session.update((j) => {
+              j.chainIndexes.evm = 9;
+            });
+        },
+      },
+      KDF,
+    );
+    expect(await b.unlock("pw")).toBe(true);
+    expect(b.journal().chainIndexes.evm, "read after the derivation").toBe(9);
+    // the journal's own settings loaded again (a reload, a takeover) write nothing; a change is journaled
+    b.update((j) => {
+      j.settings = { ...settings.get() };
+    });
+    writes = 0;
+    settings.set({ ...settings.get() });
+    expect(writes, "the same settings: nothing written").toBe(0);
+    settings.set({ advanced: !settings.get().advanced });
+    expect(writes).toBeGreaterThan(0);
+    b.lock();
+    a.session.lock();
+    settings.reset();
+  });
+
+  it("a tab gives the wallet back only once its writes reached the store: the next reads its last change (audit round 2, r17)", async () => {
+    const { tab } = await queuedBrowser();
+    const a = tab((s) => {
+      s.update((j) => {
+        j.chainIndexes.evm = 4; // its last tick journals as it steps aside: a put still on its way
+      });
+      s.lock();
+    });
+    const b = tab();
+    expect(await a.session.unlock("pw")).toBe(true);
+    await settle();
+    expect(await b.session.unlock("pw")).toBe(true);
+    await vi.waitFor(() => expect(b.store.get()).toBe("active"));
+    expect(a.session.isUnlocked()).toBe(false);
+    expect(b.session.journal().chainIndexes.evm).toBe(4);
+    b.session.lock();
+  });
+
+  it("a store that never answers holds no tab out: the lock is given back after the wait (audit round 2, r17)", async () => {
+    const { tab } = await queuedBrowser({ stuck: true });
+    const a = tab();
+    const b = tab();
+    expect(await a.session.unlock("pw")).toBe(true);
+    await settle();
+    expect(await b.session.unlock("pw")).toBe(true);
+    await vi.waitFor(() => expect(b.store.get()).toBe("active"));
+    expect(a.session.isUnlocked()).toBe(false);
+    b.session.lock();
   });
 
   it("a tab that journals again while it takes the wallet over stays the one that holds it (a new wallet's first write)", async () => {
