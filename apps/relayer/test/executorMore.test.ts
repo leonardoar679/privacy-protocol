@@ -34,6 +34,7 @@ let factoryWrappedNative: string | null = null; // null: the factory has no WRAP
 const tokenBalances: Record<string, bigint> = {}; // per-token escrow balances (foreign tokens a provider paid back in)
 let escrowCode = "0x"; // eth_getCode of the escrow
 let refusedToken: string | null = null; // estimateGas reverts for refundToken(this token): its vault refuses it
+let pausedToken: string | null = null; // estimateGas reverts for refundToken(this token): the token is paused, for now
 let estimateOutage = false; // estimateGas fails like an overloaded RPC (no revert)
 let gasPriceOutage = false; // eth_gasPrice fails the same way
 afterEach(() => { estimateOutage = false; gasPriceOutage = false; }); // a test failing midway must not leave an outage on for the rest
@@ -67,6 +68,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
       if (estimateOutage) return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "upstream request timeout" } };
       const d = String(req.params[0].data ?? "").toLowerCase();
       if (refusedToken && d.startsWith(selRefundToken) && d.slice(10, 74).endsWith(refusedToken.slice(2).toLowerCase())) return { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: UnsupportedTokenBehavior()" } };
+      if (pausedToken && d.startsWith(selRefundToken) && d.slice(10, 74).endsWith(pausedToken.slice(2).toLowerCase())) return { jsonrpc: "2.0", id: req.id, error: { code: 3, message: "execution reverted: Pausable: paused" } };
       return res("0x7a120");
     }
     case "eth_sendRawTransaction": raws.push(req.params[0]); return res(keccak256(req.params[0]));
@@ -221,6 +223,26 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(job.state).toBe("refunding");
     expect(decodeFunctionData({ abi: factoryAbi, data: parseTransaction(raws[1]).data! }).functionName).toBe("deployAndRefund");
     escrowCode = "0x"; delete tokenBalances[USDT]; delete tokenBalances[ODD]; refusedToken = null; ethBalance = 0n; receiptStatus = null;
+  });
+
+  it("a listed token whose refund reverts for its own reasons now (paused) is kept and re-shielded once it answers; only a final refusal drops it (audit round 2, n02)", async () => {
+    const USDC = TOKEN.toLowerCase();
+    const ex = executorWith(undefined, DAY);
+    const req = { ...makeRequest(("0x" + "3c".repeat(32)) as Hex, 1500), refundTokens: [USDC] as any };
+    const job = await executed(ex, req);
+    escrowCode = "0x6080"; tokenBalances[USDC] = 2_500_000_000n; pausedToken = USDC;
+    clock = Number(req.params.refundAfter);
+    await ex.tick();
+    expect(job.refundTokens, "kept").toEqual([USDC]);
+    expect(job.error).toMatch(/reverts now/);
+    expect(raws.length).toBe(0);
+    pausedToken = null; // the pause lifts
+    await ex.tick();
+    expect(job.state).toBe("refunding");
+    expect(decodeFunctionData({ abi: escrowAbi, data: parseTransaction(raws[0]).data! }).functionName).toBe("refundToken");
+    receiptStatus = "0x1";
+    await ex.tick();
+    escrowCode = "0x"; delete tokenBalances[USDC]; receiptStatus = null; raws.length = 0;
   });
 
   it("refundTokens: at most four addresses, never the order's own asset; address(0), the escrow's ETH, only for an ERC-20 order", () => {

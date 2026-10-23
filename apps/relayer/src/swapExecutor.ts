@@ -118,6 +118,21 @@ const tooEarly = (e: unknown): boolean => {
   }
   return false;
 };
+/**
+ * The reverts that make a listed token's refund final (audit round 2, n02): the payload, the order's own asset, its vault's
+ * refusal — by name in the error's words, or by selector in its revert data only (never in the calldata a message echoes).
+ */
+const FINAL_REFUND_TOKEN = ["NoteDataMismatch", "NotAForeignToken", "UnsupportedTokenBehavior"];
+const FINAL_SELECTORS = FINAL_REFUND_TOKEN.map((n) => toFunctionSelector(`${n}()`).toLowerCase());
+const finalRefusal = (e: unknown): boolean => {
+  for (let x: unknown = e, depth = 0; x && depth < 8; x = (x as { cause?: unknown }).cause, depth++) {
+    const o = x as { message?: unknown; data?: unknown; details?: unknown; shortMessage?: unknown };
+    const words = [o.message, o.details, o.shortMessage].map((w) => String(w ?? "")).join(" ");
+    if (FINAL_REFUND_TOKEN.some((n) => words.includes(n))) return true;
+    if (typeof o.data === "string" && FINAL_SELECTORS.some((sel) => (o.data as string).toLowerCase().startsWith(sel))) return true;
+  }
+  return false;
+};
 const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).split("\n")[0].slice(0, n);
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 /** The states a job ends in: no pass looks at it again (but a refunded executed order's late-refund watch), and it is not open. */
@@ -390,6 +405,9 @@ export class SwapExecutor {
       // an RPC failure says nothing about the token: kept, and retried next tick; so is a refund a few seconds early
       if (!reverted(e)) { this.note(job, `could not estimate refundToken(${f.token}): ${firstLine(e, 160)}; retried next tick`); return false; }
       if (tooEarly(e)) { this.note(job, "the chain's clock has not reached refundAfter yet; retried next tick"); return false; }
+      // only a final refusal drops the token (n02): one that reverts for its own reasons now — paused, a blocklist that lifts —
+      // is kept and estimated again next tick; dropped, it stayed in the escrow for good, its refund never re-shielded
+      if (!finalRefusal(e)) { this.note(job, `refundToken(${f.token}) reverts now: ${firstLine(e, 160)}; tried again next tick`); return false; }
       job.refundTokens = (job.refundTokens ?? []).filter((t) => t.toLowerCase() !== f.token.toLowerCase());
       job.error = `${f.token} cannot be re-shielded: ${firstLine(e, 160)}`;
       job.updatedAt = Date.now();
