@@ -27,6 +27,9 @@ import { priceStore } from "@privacy-wallet/sdk/prices";
 import { resetOrderRunnerMemory, runOrderTick } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { getOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
+import { loadCatalog } from "../src/app/i18n/catalogs";
+import { setLocale } from "../src/app/i18n/messages";
+import { prefs } from "../src/storage/prefs";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
 import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
@@ -269,6 +272,39 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     const done = await screen.findByTestId("swap-done");
     expect(done.textContent).toContain("Swap complete.");
     expect(done.textContent, "the minimum is not what arrived").not.toMatch(/delivered/);
+  }, 60_000);
+
+  it("the tracker's settlement label reads in the reader's language (audit round 2, n86)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    const stored = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    syncSwapRecord(
+      stored,
+      {
+        state: "DESTINATION_SUBMITTED",
+        label: "Waiting for destination",
+        steps: [true, true, true, false],
+        detail: "The provider sent the destination transaction.",
+      } as never,
+      { id: orderId, escrow: stored.endpoint, state: "executed", updatedAt: Date.now() } as never,
+    );
+    // the track as the tracker journals it: its label is the tracker's English code
+    patchSwap(orderId, { track: { state: "DESTINATION_SUBMITTED", label: "Waiting for destination", at: Date.now() } } as never);
+    cleanup();
+    await loadCatalog("ko");
+    prefs().update({ locale: "ko", localeChosen: true }); // what the app applies on mount
+    setLocale("ko");
+    try {
+      mount(`/swap/progress/${swapRecordId(orderId)}`);
+      const line = await screen.findByTestId("swap-settlement");
+      expect(line.textContent).toBe("목적지 도착 대기 중");
+    } finally {
+      prefs().reset();
+      setLocale("en");
+    }
+    cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    expect((await screen.findByTestId("swap-settlement")).textContent, "in English, the tracker's own words").toBe("Waiting for destination");
   }, 60_000);
 
   it("a call paying someone else is stopped with nothing signed; Return funds sends the refund-only job", async () => {

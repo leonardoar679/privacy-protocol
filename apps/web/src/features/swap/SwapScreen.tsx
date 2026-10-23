@@ -29,6 +29,8 @@ import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import type { MessageKey } from "../../app/i18n/en";
+import type { SettlementLabel } from "@privacy-wallet/sdk/orderTracker";
 import { formatDateTime } from "../../app/i18n/intl";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -950,6 +952,23 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   );
 }
 
+/**
+ * The tracker's settlement label (its English code, journaled with the track as a string) in the reader's words (audit round 2,
+ * n86); every label the tracker writes has its words, a label it does not know is shown as it is.
+ */
+const SETTLEMENT_WORDS: Record<string, MessageKey | undefined> = {
+  Preparing: "settlement.preparing",
+  "Waiting for source": "settlement.waitingSource",
+  Executing: "settlement.executing",
+  "Waiting for destination": "settlement.waitingDestination",
+  Partial: "settlement.partial",
+  Refunding: "settlement.refunding",
+  Refunded: "settlement.refunded",
+  Completed: "settlement.completed",
+  "Not started": "settlement.notStarted",
+  "Needs attention": "settlement.needsAttention",
+} satisfies Record<SettlementLabel, MessageKey>;
+
 /** /swap/progress/:opId — the operation's lines while it runs, the paused order's choice, the result. */
 function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null; onDone: () => void; onNew: () => void }) {
   const t = useT();
@@ -1111,7 +1130,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       ) : null}
       {stored?.track?.label ? (
         <p className="ds-note" data-testid="swap-settlement">
-          {stored.track.label}
+          {((words) => (words ? t(words) : stored.track!.label))(SETTLEMENT_WORDS[stored.track.label])}
         </p>
       ) : null}
       {waiting ? (
