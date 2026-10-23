@@ -905,6 +905,29 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     world.tracked.delete(t.orderId!);
   });
 
+  it("a partial fill whose rest came back short re-plans what came back, never the expected rate's equivalent (audit round 2, n19)", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    world.delivered.set(first, ((OUT * eth(30)) / AMOUNT).toString()); // 30 of 50 ETH worth delivered, at the expected rate
+    clock += 15_000;
+    await tick(c);
+    // 15 ETH came back, not the 20 the expected rate leaves: the fill took more than its output was worth there
+    const vault = String((session.journal().swaps.find((y) => y.orderId === first)!.params as { refundVault: string }).refundVault);
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === first)!;
+      x.refunds = [{ leafIndex: 9, vault, amount: eth(15).toString() }, { leafIndex: 10, vault: "0x" + "dd".repeat(20), amount: eth(99).toString() }];
+    });
+    world.jobs.get(first)!.state = "completed";
+    clock += 60_000;
+    await tick(c);
+    expect(current(c).tranches[0], "another asset's refund is not counted").toMatchObject({ state: "settled", amount: eth(35).toString(), outcome: { refunded: eth(15).toString() } });
+    expect(exposure(current(c))).toMatchObject({ completed: eth(35), inFlight: 0n, remaining: eth(2465) });
+    world.tracked.delete(first);
+    world.delivered.delete(first);
+  });
+
   it("a refunded tranche is re-planned; a partial fill pauses, then settles for what was delivered once the rest is back", async () => {
     const c = await fresh();
     await toInFlight(c);

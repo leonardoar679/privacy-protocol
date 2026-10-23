@@ -197,9 +197,15 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
     const refundBack = partialBack || job?.state === "completed" || (stored.refunds?.length ?? 0) > 0;
     const outcome = { ...t.outcome, ...(deliveredOut !== undefined ? { deliveredOut: deliveredOut.toString(), delivered: sourceEquivalent(deliveredOut, rate).toString() } : {}) };
     if (refundBack && outcome.delivered !== undefined) {
-      // the rest came back: the tranche settles for what was delivered and the remainder returns to `remaining` (re-planned, §7)
-      const delivered = BigInt(outcome.delivered) > BigInt(t.amount) ? t.amount : outcome.delivered;
-      return { state: "settled", patch: { ...patch, amount: delivered, outcome: { ...outcome, refunded: (BigInt(t.amount) - BigInt(delivered)).toString() }, settledAt: now }, note: "partial fill: the rest returned to the private balance" };
+      // the rest came back: the tranche settles for what was delivered and the remainder returns to `remaining` (re-planned, §7).
+      // What came back is the refund the scan found, in the order's own asset, when it has (audit round 2, n19): the expected
+      // rate's equivalent of the delivery had re-planned more than returned when the fill came in below that rate
+      const vault = String((stored.params as { refundVault?: string }).refundVault ?? "").toLowerCase();
+      const back = (stored.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + big(x.amount), 0n);
+      const cap = (x: bigint) => (x > big(t.amount) ? big(t.amount) : x);
+      const refunded = back > 0n ? cap(back) : big(t.amount) - cap(big(outcome.delivered));
+      const delivered = (big(t.amount) - refunded).toString();
+      return { state: "settled", patch: { ...patch, amount: delivered, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: "partial fill: the rest returned to the private balance" };
     }
     return { state: "partial", patch: { ...patch, outcome }, note: tracked.detail };
   }
