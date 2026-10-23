@@ -63,7 +63,17 @@ import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
 import { CompareRoutes } from "./CompareRoutes";
 import { Swap, type SwapPrefill } from "./Swap";
 import { SwapView } from "./View";
-import { chosenQuoteOf, confirmBlockers, destinationChecks, expiresInOf, protectedStepsAmount, quoteLines, routeDetails, shieldTipOf } from "./model";
+import {
+  chosenQuoteOf,
+  confirmBlockers,
+  destinationChecks,
+  expiresInOf,
+  netOfShield,
+  protectedStepsAmount,
+  quoteLines,
+  routeDetails,
+  shieldTipOf,
+} from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
 import { TARGETS, refOf, riskWord, sameChainTargets } from "./targets";
@@ -1025,14 +1035,16 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   }
   const paused = stored?.paused;
   if (paused?.code === "minimum_moved" && paused.minOut && paused.approved) {
+    // as the Review said them: net of a protected delivery's shield tip (audit round 2, r39)
+    const tip = stored?.shield ? BigInt(stored.shield.params.shieldTip) : 0n;
     return (
       <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
         <Card padding="md" testId="swap-minimum-moved">
           <h2 className="ds-card-title">{t("op.error.minimum_moved.title")}</h2>
           <p className="ds-note">
             {t("screen.swap.minimumMoved", {
-              now: displayAmount(amountFrom(paused.minOut, sym, outDecimals)),
-              approved: displayAmount(amountFrom(paused.approved, sym, outDecimals)),
+              now: displayAmount(amountFrom(netOfShield(paused.minOut, tip).toString(), sym, outDecimals)),
+              approved: displayAmount(amountFrom(netOfShield(paused.approved, tip).toString(), sym, outDecimals)),
               symbol: sym,
             })}
           </p>

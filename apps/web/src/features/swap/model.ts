@@ -63,6 +63,15 @@ export interface QuoteFacts {
 
 /** V6 Stage 12: a protected destination's shield tip, in the output's base units (0 elsewhere). */
 export const shieldTipOf = (q: QuoteSet | null): bigint => BigInt(q?.shieldTip ?? "0");
+/**
+ * An output minimum as the user sees it (audit round 2, r39): a delivery into the protected balance pays its shield tip out
+ * of what arrives, so the Review showed the minimum net of it, while the journaled minimum — the one the call is checked
+ * against — is gross: "minimum moved" and the commit's price line said figures one tip above what the user approved.
+ */
+export const netOfShield = (gross: string | bigint, shieldTip: bigint): bigint => {
+  const g = BigInt(gross);
+  return g > shieldTip ? g - shieldTip : 0n;
+};
 
 /**
  * V6 Stage 13 (spec v2.0 §3, §13.5): a protected execution's amount — what its `n` steps' withdrawals deliver once each pays

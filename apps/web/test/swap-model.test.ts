@@ -11,6 +11,7 @@ import {
   expiresInOf,
   FUNDING_SECONDS,
   fundingSeconds,
+  netOfShield,
   quoteLines,
   routeDetails,
 } from "../src/features/swap/model";
@@ -150,6 +151,11 @@ describe("the quote's lines (spec v2.0 §3)", () => {
       privacy: null,
     });
     expect(tipUnpriced?.kind === "same-chain" ? tipUnpriced.feesUsdCents : "?").toBeNull();
+  });
+  it("an output minimum as the user saw it: net of a protected delivery's shield tip, never below nothing (audit round 2, r39)", () => {
+    expect(netOfShield("3100000000000000000", 5_000_000_000_000_000n)).toBe(3_095_000_000_000_000_000n);
+    expect(netOfShield(3n, 0n)).toBe(3n);
+    expect(netOfShield(3n, 5n)).toBe(0n);
   });
   it("no chosen route, no lines; the countdown from the quote's expiry; the route's facts under Advanced", () => {
     expect(quoteLines({ quotes: { ...set, chosen: undefined }, terms: null, units: 1n, from: ETH, to: TARGETS.BTC, privacy: null })).toBeNull();

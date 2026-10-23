@@ -21,6 +21,7 @@ import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
 import { CUSTODY_WORDS, GATE_WORDS, durationWords, hours, providerKind, refOf, settlementWords, type Target } from "./targets";
+import { netOfShield } from "./model";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 const fmt = (units: string | bigint, decimals: number) => fmtUnits(units, decimals);
@@ -84,7 +85,7 @@ const destinationLine = (c: SwapContext, onDestAck: () => void, every: boolean):
 export function commitLines(c: SwapContext, prov: string, quote: ServiceQuote, onRouteAck: () => void, onDestAck: () => void): ReviewLine[] {
   const dec = c.to.ref.decimals, sym = c.to.ref.symbol;
   return [
-    { id: "price", label: c.t("swap.lines.price"), ok: BigInt(quote.toAmountMin) > 0n, meaning: c.t("swap.lines.priceCommit", { amount: `${fmt(quote.toAmountMin, dec)} ${sym}` }) },
+    { id: "price", label: c.t("swap.lines.price"), ok: BigInt(quote.toAmountMin) > 0n, meaning: c.t("swap.lines.priceCommit", { amount: `${fmt(netOfShield(quote.toAmountMin, c.to.protected ? BigInt(c.quotes.shieldTip ?? "0") : 0n), dec)} ${sym}` }) },
     routeLine(c, liveQuotesOf(c.quotes), onRouteAck),
     destinationLine(c, onDestAck, false),
     { id: "slippage", label: c.t("swap.lines.slippage"), ok: quote.impactBps === undefined || quote.impactBps <= IMPACT_CAP_BPS, meaning: quote.impactBps === undefined ? c.t("swap.lines.slippageNoFigure") : c.t("swap.lines.slippageImpact", { bps: quote.impactBps, cap: IMPACT_CAP_BPS }) },
