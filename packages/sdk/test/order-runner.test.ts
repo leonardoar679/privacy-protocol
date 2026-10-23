@@ -18,7 +18,7 @@ import { CallTooClose, HAND_OVER_MARGIN_SECONDS, handOverSigned, prepareAndSign,
 import type { Deployment } from "../src/chain";
 import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
-import { OrderOutdated, RelayerNotReady, ServiceKeyChanged, TipStale } from "../src/swapFunding";
+import { OrderOutdated, OrderWindowClosed, RelayerNotReady, ServiceKeyChanged, TipStale } from "../src/swapFunding";
 import { FeeMoved } from "../src/privateTx";
 import { FUNDING_MARGIN_MS, patchSwap, swapFactoryOf, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
@@ -108,6 +108,7 @@ function world(
       | "order-outdated"
       | "fee-moved"
       | "tip-stale"
+      | "window-closed"
       | "dropped";
     handOver?: "ok" | "lost";
   } = {},
@@ -144,6 +145,7 @@ function world(
       if (w.fund === "order-outdated") throw new OrderOutdated();
       if (w.fund === "fee-moved") throw new FeeMoved(5_000n, 7_000n);
       if (w.fund === "tip-stale") throw new TipStale(1_000n, 9_000n);
+      if (w.fund === "window-closed") throw new OrderWindowClosed();
       onStatus("Withdrawing privately: handing it to the relayer…");
       if (w.fund === "dropped") throw new Error("Timed out while waiting for the transaction to be confirmed"); // sent, never mined
       w.escrow = AMOUNT;
@@ -927,6 +929,19 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(stored().fundedTx).toBeUndefined();
     expect(pending(), "no tick is planned: nothing retries it with other notes").toBeUndefined();
     expect(record()).toMatchObject({ state: "CANCELLED", phase: "funding", reason: { code: "older_notes_unavailable", fundsClass: "not-moved" } });
+  });
+
+  it("a window that closes between the tick's check and the funding's own stops the order unfunded at once, never on the backoff (audit round 2, n20)", async () => {
+    order({ runner: { confirmedAt: T0 } });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world({ fund: "window-closed" });
+    const r = await runOrderTick(action(), deps(io));
+    expect(r?.step).toBe("stopped");
+    expect([w.funds, w.escrow, w.signs], "asked once; nothing sent or signed").toEqual([1, 0n, 0]);
+    expect(stored()).toMatchObject({ state: "abandoned", paused: { code: "order_expired" } });
+    expect(pending(), "nothing retries it").toBeUndefined();
   });
 
   it.each([

@@ -463,13 +463,15 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
               code === "service_key_changed" ||
               code === "order_outdated" ||
               code === "fee_moved" ||
-              code === "tip_stale")
+              code === "tip_stale" ||
+              code === "order_expired")
           ) {
             // "Delay for more privacy": the older notes the Review showed no longer cover the order and nothing was sent —
             // it is stopped unfunded (its escrow's window cannot wait 1–24 h), never paid from younger notes. Or the relayer
             // that would execute it does not run it, or the swap service no longer takes its vouch (a V6 follow-up of
-            // 2026-10-16), or an older build committed it under the privacy address's owner commitment (c18): stopped before
-            // anything moved
+            // 2026-10-16), or an older build committed it under the privacy address's owner commitment (c18), or its window
+            // closed between this tick's check and the funding's own (audit round 2, n20; it waited out the scheduler's
+            // backoff): stopped before anything moved
             patchSwap(a.orderId, { paused: { code, detail: (e as Error).message, at: now } }, s);
             abandonSwap(a.orderId, s);
             cancelAction(a.id, s);
