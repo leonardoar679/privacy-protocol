@@ -3,6 +3,7 @@
 // worker same-origin, WalletConnect's relay only when a project id is set, the zkAPI profile's hosts when its assets
 // ship; the plugin prepends the meta tag; the headers a server must send; a built index.html (when present) carries it.
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, DEFAULT_BEACON_APIS, DEFAULT_THORNODE_GATEWAYS, originOf, SECURITY_HEADERS, zkapiHosts } from "../scripts/csp.mjs";
 import { DEFAULTS } from "@privacy-wallet/sdk/config";
 import { MAINNET, SEPOLIA } from "@privacy-wallet/sdk/lightclient/spec";
@@ -65,5 +66,20 @@ describe("the content security policy (spec §20)", () => {
     expect(SECURITY_HEADERS["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
     expect(SECURITY_HEADERS["Referrer-Policy"]).toBe("no-referrer");
     expect(SECURITY_HEADERS["X-Content-Type-Options"]).toBe("nosniff");
+  });
+  it("the deployment doc's nginx recipe sends them on every response: each location that sets a header of its own includes them again (audit round 2, r51)", () => {
+    const doc = readFileSync(new URL("../../../docs/deployment.md", import.meta.url), "utf8");
+    const nginx = doc.slice(doc.indexOf("## nginx"), doc.indexOf("## Caddy"));
+    const blocks = [...nginx.matchAll(/```nginx\n([\s\S]*?)```/g)].map((m) => m[1]);
+    const snippet = blocks.find((b) => b.includes("snippets/privacy-wallet-headers.conf:"))!;
+    const server = blocks.find((b) => b.startsWith("server {"))!;
+    // the snippet holds every header a server must send, Cache-Control aside (it differs by path)
+    for (const h of Object.keys(SECURITY_HEADERS).filter((k) => k !== "Cache-Control")) expect(snippet, h).toMatch(new RegExp(`^add_header ${h} .+ always;$`, "m"));
+    expect(server).toMatch(/^ {2}include snippets\/privacy-wallet-headers\.conf;$/m);
+    // a location with an add_header of its own drops the server's: it must include them too
+    const locations = [...server.matchAll(/location [^{]+\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(locations.length).toBeGreaterThanOrEqual(4);
+    for (const body of locations) if (body.includes("add_header")) expect(body, body).toContain("include snippets/privacy-wallet-headers.conf;");
+    expect(server, "no header set outside the snippet but Cache-Control").not.toMatch(/add_header (?!Cache-Control)/);
   });
 });

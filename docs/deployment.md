@@ -44,6 +44,23 @@ The headers (`SECURITY_HEADERS` in `csp.mjs`):
 
 ## nginx
 
+nginx sends a level's `add_header` lines only when that level sets none of its own: a `location` that adds
+`Cache-Control` drops every header of the `server` block. The wallet page, reached through `try_files` and the internal
+redirect to `/index.html`, and every file under `/assets/` set their own, so the headers live in one file that the
+`server` block and each such `location` include (audit round 2, r51: the recipe had served the page with no
+frame-ancestors and no X-Frame-Options — any site could frame it — and the crypto worker with no policy at all).
+
+```nginx
+# /etc/nginx/snippets/privacy-wallet-headers.conf: every response of the wallet sends these
+add_header Content-Security-Policy $csp always;
+add_header X-Frame-Options DENY always;
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy no-referrer always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
+add_header Cross-Origin-Opener-Policy same-origin always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+```
+
 ```nginx
 server {
   listen 443 ssl http2;
@@ -51,19 +68,22 @@ server {
   root /srv/privacy-wallet/dist;
   # the policy of this build is in dist/index.html's meta tag; repeat it here and add frame-ancestors
   set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests";
-  add_header Content-Security-Policy $csp always;
-  add_header X-Frame-Options DENY always;
-  add_header X-Content-Type-Options nosniff always;
-  add_header Referrer-Policy no-referrer always;
-  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
-  add_header Cross-Origin-Opener-Policy same-origin always;
-  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+  include snippets/privacy-wallet-headers.conf;
   types { application/wasm wasm; application/manifest+json webmanifest; }
-  location = /index.html { add_header Cache-Control "no-store" always; }
-  location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable" always; }
-  location /artifacts/ { add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
-  location / { try_files $uri /index.html; }   # the client-side routes (/send, /more/privacy, …)
+  location = /index.html { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "no-store" always; }
+  location /assets/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }
+  location /artifacts/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
+  location / { try_files $uri /index.html; }   # the client-side routes (/send, /more/privacy, …): the server's headers
 }
+```
+
+Before a release, check that the headers reach every kind of response — the page, a client route and the crypto
+worker, which takes its policy from its own response, never from the page's meta tag:
+
+```sh
+for p in / /send "/assets/$(ls dist/assets | grep -m1 '^worker-')"; do
+  curl -sI "https://wallet.example$p" | grep -ci -E '^(content-security-policy|x-frame-options|x-content-type-options|referrer-policy|permissions-policy|cross-origin-opener-policy|strict-transport-security):'
+done   # 7 for each
 ```
 
 ## Caddy
