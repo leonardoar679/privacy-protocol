@@ -102,6 +102,22 @@ describe("swap funding", () => {
     expect(pendingActions(s)).toEqual([]);
   });
 
+  it("a scheduled funding whose escrow already holds the order journals it funded and sends nothing (audit round 2, n36)", async () => {
+    s.update((j) => { j.swaps = [order("0xd")]; });
+    scheduleAction({ kind: "fund-escrow", orderId: "0xd", dueAt: 0 }, s);
+    withdrawals.calls.length = 0;
+    // a funding that landed with nothing journaled: the escrow holds the order's amount
+    await runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment: null, session: s, escrowBalance: async () => 500000000000000000n });
+    expect(withdrawals.calls, "never sent a second time").toHaveLength(0);
+    expect(s.journal().swaps[0].state).toBe("funded");
+    expect(pendingActions(s), "its action done").toEqual([]);
+    // an escrow short of it, or unread: the funding goes on (here, with no deployment, it says why it cannot)
+    s.update((j) => { j.swaps = [order("0xe")]; });
+    scheduleAction({ kind: "fund-escrow", orderId: "0xe", dueAt: 0 }, s);
+    await expect(runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment: null, session: s, escrowBalance: async () => 1n })).rejects.toThrow(/No deployment configured/);
+    await expect(runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment: null, session: s, escrowBalance: async () => null })).rejects.toThrow(/No deployment configured/);
+  });
+
   it("fundEscrow refuses closed, funded and unconfigured orders before touching a note", async () => {
     await expect(fundEscrow({ masterSeed: seed, deployment: null, stored: order("0x1"), session: s })).rejects.toThrow(/No deployment configured/);
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [] } as any;

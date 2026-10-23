@@ -23,6 +23,7 @@ import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journ
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
+import { escrowBalance } from "./orderTracker";
 
 export const CLOSED_STATES = ["completed", "refunded", "abandoned", "lapsed"];
 export const isOpenSwap = (s: Pick<StoredSwap, "state">): boolean => !CLOSED_STATES.includes(s.state);
@@ -377,7 +378,10 @@ export async function fundEscrow(o: {
  * The scheduler's runner for a `fund-escrow` action: funds the order if it is still open and unfunded;
  * an order that was abandoned or funded by hand has its action cancelled instead of failing forever.
  */
-export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Uint8Array; deployment: Deployment | null; session?: WalletSession }): Promise<void> {
+export async function runScheduledAction(
+  a: ScheduledAction,
+  o: { masterSeed: Uint8Array; deployment: Deployment | null; session?: WalletSession; /** the escrow's balance (tests); the deployment's endpoints otherwise */ escrowBalance?: (stored: StoredSwap) => Promise<bigint | null> },
+): Promise<void> {
   const s = o.session ?? defaultSession;
   if (a.kind === "housekeeping") {
     // private balance maintenance (plan V2 §73): one step per scheduled action; the step schedules the next under a new id
@@ -391,6 +395,16 @@ export async function runScheduledAction(a: ScheduledAction, o: { masterSeed: Ui
   const stored = s.journal().swaps.find((x) => x.orderId === a.orderId);
   // funded already — by hand, or a funding that landed while its page was gone (r10) —, closed, or a tranche (its campaign funds it)
   if (!stored || stored.fundedTx || stored.state === "funded" || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; }
+  // an escrow that already holds the order is funded (audit round 2, n36): a funding that landed with nothing journaled — a
+  // write another tab's lock discarded, a backup's copy — was sent a second time here, where the runners read the escrow first
+  const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
+  const read = o.escrowBalance ?? ((st: StoredSwap) => (o.deployment ? escrowBalance(o.deployment, st.endpoint as Address, token && token !== "native" ? (token as Address) : null) : Promise.resolve(null)));
+  const held = await read(stored).catch(() => null);
+  if (held !== null && held >= BigInt((stored.params as { amount: string }).amount)) {
+    patchSwap(stored.orderId, { state: "funded" }, s);
+    cancelAction(a.id, s);
+    return;
+  }
   const asset = assetOfStored(o.deployment, stored);
   schedulerStatus.start(a.id, `Funding the scheduled swap (${asset.symbol}) from your private balance…`);
   try {
