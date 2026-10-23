@@ -1,6 +1,7 @@
 // The wizard before a protected execution (High-Value Protection spec §14–§15; plan V3 §44 screen states): risk
 // analysis → privacy analysis → destination check, then the Review. Nothing is journaled here. The first-time
-// explanation (plan §127) is shown once and remembered in Settings.
+// explanation (plan §127) is shown once and remembered in Settings. Every word is the catalog's (audit round 2, r55): the
+// verdict, the custody and the gate, the plan's reasons, the privacy basis, the durations; a provider by its name.
 import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
 import type { LintId, LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -13,7 +14,9 @@ import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { amountWords, type CampaignFacts, type SwapContext } from "./facts";
-import { CUSTODY_WORDS, GATE_WORDS, durationWords } from "./targets";
+import { basisText, custodyWords, gateWords, protectionReasons, providerName } from "./targets";
+import { LEVEL_WORDS, SECURITY_WORDS } from "../review/words";
+import { durationText } from "../../app/i18n/duration";
 
 export interface WizardProps {
   step: 0 | 1 | 2;
@@ -47,21 +50,21 @@ export function Wizard(p: WizardProps) {
         {p.step === 0 && !p.introSeen ? <p className="ds-note-warn" data-testid="protection-intro">{t("wizard.intro")}</p> : null}
         {p.step === 0 ? (
           <div className="ds-stack-sm ds-note" data-testid="wizard-risk">
-            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.route")}</span><b className="ds-kv-value">{p.provider} · {t("wizard.classWord", { cls: f.p.riskClass })}{f.p.flags.length ? ` (+ ${f.p.flags.join(", ")})` : ""} · {CUSTODY_WORDS[f.p.custody] ?? f.p.custody}</b></div>
-            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.security")}</span><b className="ds-kv-value">{f.verdict.security === "Safe to execute" ? "✓" : "⚠"} {f.verdict.security}</b></div>
+            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.route")}</span><b className="ds-kv-value">{providerName(p.provider)} · {t("wizard.classWord", { cls: f.p.riskClass })}{f.p.flags.length ? ` (+ ${f.p.flags.join(", ")})` : ""} · {custodyWords(t, f.p.custody)}</b></div>
+            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.security")}</span><b className="ds-kv-value">{f.verdict.security === "Safe to execute" ? "✓" : "⚠"} {t(SECURITY_WORDS[f.verdict.security])}</b></div>
             <div>{f.verdict.why}</div>
-            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.steps")}</span><b className="ds-kv-value">{t("wizard.stepsLine", { n: f.steps, piece: amountWords(p.ctx, BigInt(f.draft.tranches[0]?.amount ?? "0")), orSo: f.steps > 1 ? t("wizard.orSo") : "", concurrency: f.p.concurrency === "sequential" ? t("swap.oneStepAtATime") : t("swap.upToAtATime", { n: f.p.maxParallel }), gate: GATE_WORDS[f.p.gate] ?? f.p.gate })}</b></div>
+            <div className="ds-kv"><span className="ds-kv-label">{t("wizard.steps")}</span><b className="ds-kv-value">{t("wizard.stepsLine", { n: f.steps, piece: amountWords(p.ctx, BigInt(f.draft.tranches[0]?.amount ?? "0")), orSo: f.steps > 1 ? t("wizard.orSo") : "", concurrency: f.p.concurrency === "sequential" ? t("swap.oneStepAtATime") : t("swap.upToAtATime", { n: f.p.maxParallel }), gate: gateWords(t, f.p.gate) })}</b></div>
             <div className="ds-kv"><span className="ds-kv-label">{t("wizard.atRisk")}</span><b className="ds-kv-value">{amountWords(p.ctx, maximumLossModel(f.draft).cap)} ({f.draft.plan.capBps / 100} %{t("wizard.ofOrder")})</b></div>
             <div className="ds-kv"><span className="ds-kv-label">{t("review.protection.elpf")}</span><b className="ds-kv-value">{f.details.elpf}</b></div>
             <div className="ds-kv"><span className="ds-kv-label">{t("review.protection.concentration")}</span><b className="ds-kv-value">{f.details.concentration}</b></div>
-            {f.p.reasons.length > 0 ? <ul className="ds-plain-list">{f.p.reasons.map((r) => <li key={r}>{r}</li>)}</ul> : null}
+            {f.p.reasons.length > 0 ? <ul className="ds-plain-list">{protectionReasons(t, f.p).map((r) => <li key={r}>{r}</li>)}</ul> : null}
           </div>
         ) : null}
         {p.step === 1 ? (
           <div className="ds-stack-sm ds-note" data-testid="wizard-privacy">
-            <div className="ds-kv"><span className="ds-kv-label">{t("review.privacy")}</span><b className={`ds-level ds-level-${f.verdict.privacy}`}>{f.verdict.privacy}</b></div>
-            <ul className="ds-plain-list" data-testid="privacy-basis">{f.privacyView.basis.map((b) => <li key={b}>{b}</li>)}</ul>
-            <p className="ds-note">{t("wizard.reveals", { n: f.steps, duration: durationWords(f.p.estimatedSeconds), cadence: f.cadence, destination: p.ctx.destinationEdited ? t("wizard.revealsEntered") : t("wizard.revealsFresh") })}</p>
+            <div className="ds-kv"><span className="ds-kv-label">{t("review.privacy")}</span><b className={`ds-level ds-level-${f.verdict.privacy}`}>{t(LEVEL_WORDS[f.verdict.privacy])}</b></div>
+            <ul className="ds-plain-list" data-testid="privacy-basis">{basisText(t, f.privacyView).map((b) => <li key={b}>{b}</li>)}</ul>
+            <p className="ds-note">{t("wizard.reveals", { n: f.steps, duration: durationText(t, f.p.estimatedSeconds), cadence: f.cadence, destination: p.ctx.destinationEdited ? t("wizard.revealsEntered") : t("wizard.revealsFresh") })}</p>
             {p.lintItems ? <PrivacyLint items={p.lintItems} onAcknowledge={p.onAck} /> : null}
           </div>
         ) : null}

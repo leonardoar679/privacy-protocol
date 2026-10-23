@@ -6,7 +6,7 @@
 // document's lang and Intl follow — English chosen on a Korean device stays English. The safety steps of a large payment
 // read in Korean too (audit round 2, r55): the address book's status under a typed destination, its way forward, the
 // verification and the immediate use; the privacy check, every sentence of the lint by its code; the Review of a large
-// payment, its tier, privacy level, issuer line, route, execution and verdict.
+// payment, its tier, privacy level, issuer line, route, execution and verdict; the protected execution's wizard.
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,11 +52,14 @@ import { destinationStatusWords } from "../src/features/destinationWords";
 import { LINT_CODES, lint, type LintFacts } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { PrivacyLint, lintWords } from "../src/components/PrivacyLint";
 import { Review, type ReviewProps } from "../src/features/review/ReviewScreen";
-import { amountWords, commitExecution, commitLines, type SwapContext } from "../src/features/swap/facts";
+import { amountWords, campaignFacts, commitExecution, commitLines, type SwapContext } from "../src/features/swap/facts";
 import { controlsFor } from "@privacy-wallet/sdk/tiers";
 import type { QuoteSet, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { MessageKey } from "../src/app/i18n/en";
 import type { Vars } from "../src/app/i18n/messages";
+import { Wizard } from "../src/features/swap/Wizard";
+import { basisText, protectionReasons } from "../src/features/swap/targets";
+import type { Protection } from "@privacy-wallet/sdk/swapService";
 
 // the relayer's terms (Send quotes with them): read from the engine, never fetched here
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
@@ -84,7 +87,7 @@ afterEach(() => {
 
 const placeholders = (s: string) => new Set(s.match(/\{\w+\}/g) ?? []);
 /** Names, symbols and units a Korean screen keeps as they are (proper names of networks, assets and services). */
-const NAMES = ["USD Coin", "Tether USD", "Wrapped Ether"];
+const NAMES = ["USD Coin", "Tether USD", "Wrapped Ether", "NEAR Intents", "Uniswap + Across", "Mayan"];
 const KEPT = new Set([
   "IP",
   "Tor",
@@ -123,6 +126,11 @@ const KEPT = new Set([
   "tx",
   "REPLACE",
   "FORGET",
+  // the risk model's codes and names (R0–R6 are codes, as a symbol is)
+  "MPC",
+  "OTC",
+  "CCTP",
+  "Circle",
 ]);
 
 /** The English words of a text beyond names, symbols and units (an address, its 0x prefix or a host name is not a word). */
@@ -130,6 +138,7 @@ function englishOf(text: string): string[] {
   let s = text
     .replace(/0x[0-9a-fA-F]*(…[0-9a-fA-F]+)?/g, " ")
     .replace(/\b(bc1|tb1)[0-9a-z…]+/g, " ")
+    .replace(/\bR[0-6]\b/g, " ")
     .replace(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\b/g, " ");
   for (const name of NAMES) s = s.split(name).join(" ");
   return (s.match(/[A-Za-z][A-Za-z.]*[A-Za-z]|[A-Za-z]/g) ?? []).filter((w) => !KEPT.has(w));
@@ -581,6 +590,149 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
     expect(english.container).toHaveTextContent("Issuer: centralized · Freeze risk: present · Vault: isolated");
     expect(screen.getByTestId("verdict-security")).toHaveTextContent("Safe to execute");
     expect(screen.getByTestId("verdict-execution")).toHaveTextContent("Best available ✓");
+  });
+
+  it("the protected execution's wizard reads in Korean: the risk, the privacy and the destination steps — the plan's reasons, the custody, the basis and the durations (audit round 2, r55)", async () => {
+    await loadCatalog("ko");
+    prefs().update({ locale: "ko", localeChosen: true });
+    expect(applyLocale()).toBe("ko");
+    await session.create("a strong password");
+    session.acknowledgePhrase();
+    const kt = (k: MessageKey, v?: Vars) => t(k, v, "ko");
+    const BTC_REF = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" } as const;
+    const amount = 2500n * 10n ** 18n; // $10M at $4,000
+    const protection: Protection = {
+      provider: "thorchain",
+      riskClass: "R5",
+      flags: [],
+      custody: "tss-vaults",
+      bandBps: [200, 200],
+      capBps: 200,
+      sizing: "varied",
+      concurrency: "sequential",
+      maxParallel: 1,
+      gate: "destination-final",
+      cadenceSeconds: [600, 5400],
+      providerShareCapBps: 10000,
+      executeWindowSeconds: 7200,
+      estimatedTranches: 50,
+      estimatedSeconds: 250_000,
+      trancheUsd: [200_000, 200_000],
+      capUsd: 200_000,
+      trancheImpactBps: 0.18,
+      thinMarket: false,
+      maxPieceUnits: null,
+      concentration: { providers: [{ id: "thorchain", shareBps: 10000 }], singleVenue: true, capBps: 10000 },
+      elpf: { prior: 0.02, pFailure: 0.02, perTrancheUsd: 4000, perCampaignUsd: 4000 },
+      staged: false,
+      reasons: [
+        "an unknown or high-risk route (a security incident within 30 days): the exposure is capped at 1 %",
+        "a bridge / MPC / counterparty route runs one piece at a time (sequential safety mode)",
+        "single venue: only one provider quotes this size, so nothing is diversified for appearance",
+      ],
+      reasonCodes: [{ code: "high-risk-route", risks: ["recent-incident"] }, { code: "sequential" }, { code: "single-venue" }],
+    };
+    const quote = {
+      provider: "thorchain",
+      category: "A",
+      toAmount: "9000000000",
+      toAmountMin: "8955000000",
+      fees: [],
+      etaSeconds: 1400,
+      expiresAt: Math.floor(Date.now() / 1000) + 600,
+      nativeAssets: true,
+      minOutEncoded: true,
+      hops: [],
+      plan: { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 },
+      impactBps: 9,
+    } as unknown as ServiceQuote;
+    const score = { provider: "thorchain", total: 80, components: { price: 80, security: 69, privacy: 70, latency: 60, liquidity: 80, reliability: 100 } };
+    const quotes = {
+      quotes: [quote],
+      scores: [score],
+      errors: {},
+      chosen: score,
+      links: {},
+      tier: "institutional",
+      policy: "privacy-execution",
+      competition: [{ provider: "thorchain", outcome: "quoted", ms: 100 }],
+      protection,
+    } as unknown as QuoteSet;
+    const seed = session.state().seed!;
+    const ctx = {
+      t: kt,
+      quotes,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: getAddress("0x00000000000000000000000000000000000000e7") },
+      to: { id: "BTC", ref: BTC_REF, network: "Bitcoin" },
+      units: amount,
+      usd: 10_000_000,
+      tier: "institutional",
+      controls: controlsFor("institutional"),
+      policy: "privacy-execution",
+      preference: "balanced",
+      destination: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
+      destinationEdited: true,
+      parsedOk: true,
+      destAck: false,
+      routeAck: false,
+      destCheck: null,
+      destinationLocked: false,
+      lintItems: null,
+      protection: { mode: "balanced" },
+      relayerFee: null,
+    } as unknown as SwapContext;
+    const facts = campaignFacts(ctx, "thorchain");
+    const lintItems = lint({
+      action: "swap",
+      tier: "institutional",
+      sourceIsPool: true,
+      destinationKind: "entered",
+      destinationIsPublicWallet: false,
+      linkPublic: true,
+      providerIdentityDetached: true,
+      delaySeconds: 600,
+      amountIsBucket: false,
+      minOutVerified: null,
+      privateSubmission: true,
+      rpcEndpoints: 2,
+      lightClient: true,
+      largePiece: null,
+      campaign: { sizing: "varied", consecutiveSameSize: false, destinationPerTranche: false, cadenceFixed: false, destinationCooling: true },
+    });
+    const leaks: string[] = [];
+    for (const step of [0, 1, 2] as const) {
+      const view = render(
+        <Wizard
+          step={step}
+          provider="thorchain"
+          facts={facts}
+          ctx={ctx}
+          introSeen={false}
+          lintItems={lintItems}
+          onAck={() => undefined}
+          destAck={false}
+          onDestAck={() => undefined}
+          destCheck={null}
+          chain="bitcoin"
+          tier="institutional"
+          masterSeed={seed}
+          deployment={null}
+          onNext={() => undefined}
+          onBack={() => undefined}
+        />,
+      );
+      expect(screen.getByTestId("campaign-wizard")).toHaveAttribute("data-step", String(step));
+      const english = englishWords(view.container);
+      if (english.length) leaks.push(`step ${step}: ${english.join(", ")}`);
+      view.unmount();
+    }
+    expect(leaks).toEqual([]);
+    // in English, the service's own reasons and the assessment's own basis
+    const en = (k: MessageKey, v?: Vars) => t(k, v, "en");
+    expect(protectionReasons(en, protection)).toEqual(protection.reasons);
+    expect(basisText(en, facts.privacyView)).toEqual(facts.privacyView.basis);
+    // a service without the codes: its English reasons, as before
+    expect(protectionReasons(kt, { ...protection, reasonCodes: undefined })).toEqual(protection.reasons);
   });
 
   it("the wallet's limits are the protocol's, said in the reader's language", async () => {

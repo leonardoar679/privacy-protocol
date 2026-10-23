@@ -68,9 +68,9 @@ import { Wizard } from "./Wizard";
 import { alternativesOf, campaignFacts, campaignLines, commitDetails, commitExecution, commitLines, executeLines, liveQuotesOf, orderTarget, rerouteLines, usdOfUnits, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy, strictQuote } from "./protectedChecks";
 import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
-import { TARGETS, durationWords, refOf, settlementWords, type Target } from "./targets";
+import { TARGETS, refOf, settlementWords, type Target } from "./targets";
 import { planDetail, planText, TIER_WORDS } from "../review/words";
-import { hoursText } from "../../app/i18n/duration";
+import { durationText, hoursText } from "../../app/i18n/duration";
 import { useOperation, useSession, useSettings } from "../../hooks";
 
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
@@ -414,7 +414,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       props = {
         moment: "campaign", tier, controls, usd: usd !== null ? formatUsd(usd) : null, amount: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}`, from: t("swap.fromProtectedSteps", { symbol: fromAsset.symbol, n: f.steps }),
         to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: t("swap.receiveMinProRata", { amount: `${fmtUnits(f.quote.toAmountMin, dec)} ${sym}` }),
-        execution: { words: t("swap.protectedExecution"), detail: t("swap.stepsEach", { n: f.steps, words: planText(t, f.quote.plan).toLowerCase() }), eta: t("swap.facts.about", { duration: t("swap.durationOf", { duration: f.details.duration }) }).replace(/^about about /, "about ") },
+        execution: { words: t("swap.protectedExecution"), detail: t("swap.stepsEach", { n: f.steps, words: planText(t, f.quote.plan).toLowerCase() }), eta: f.details.duration },
         privacy: { level: f.verdict.privacy, score: f.score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: campaignLines(ctx, f, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerControlled(fromAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets), maximumLoss: f.maximumLoss, verdict: f.verdict, protectionDetails: f.details, crossChain: to.ref.chain !== refOf(fromAsset).chain,
         details: { provider: review.provider, mode: f.quote.plan?.mode ?? "single", parts: f.quote.plan?.parts, fees: feeSummary(f.quote), expectedOutput: t("swap.expectedWhole", { amount: `${fmtUnits(f.quote.toAmount, dec)} ${sym}` }), settlement: settlementWords(review.provider), alternatives: alternativesOf(q, review.provider), score: `${f.score.total}` },
@@ -434,7 +434,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       props = {
         moment: "reroute", tier: c.tier, controls: controlsFor(c.tier), usd: c.value && typeof c.value === "object" && "usd" in (c.value as object) ? formatUsd((c.value as { usd: number }).usd) : null, amount: t("swap.wholeOrder", { amount: fmtFrom(c.request.amount) }), from: t("swap.fromProtectedSteps", { symbol: c.request.from.symbol, n: c.tranches.length }),
         to: { network: to.network, asset: c.request.to.symbol, address: c.bounds.destination.kind === "fresh-per-tranche" ? t("swap.freshPerStep") : c.bounds.destination.address, kind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered" },
-        execution: { words: t("swap.protectedExecution"), detail: t("swap.continuesWith", { provider: pr.provider }), eta: np ? t("swap.aboutForRest", { duration: t("swap.durationOf", { duration: `${Math.round(np.estimatedSeconds / 60)} min` }) }) : t("swap.asBefore") },
+        execution: { words: t("swap.protectedExecution"), detail: t("swap.continuesWith", { provider: pr.provider }), eta: np ? t("swap.aboutForRest", { duration: t("unit.minutesShort", { n: Math.round(np.estimatedSeconds / 60) }) }) : t("swap.asBefore") },
         privacy: { level }, lint: [], onAcknowledgeLint: () => {}, lines: rerouteLines(t, c, np, pr.provider, fmtFrom),
         verdict: { security: !np || np.riskClass !== "R6" ? "Review" : "Do not execute", privacy: level, why: t("swap.rerouteWhy", { provider: pr.provider }) },
         advanced, crossChain: c.request.to.chain !== c.request.from.chain, secondFactor: controlsFor(c.tier).secondFactor ? { credentialId: secondFactor.credentialId } : null, secondDevice: controlsFor(c.tier).secondDevice ? { credentialId: protection.secondDevice.credentialId } : null, busy, error, protectedExecution: true,
@@ -544,7 +544,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
                 <div className="ds-kv"><span className="ds-kv-label">{t("swap.privacy")}</span><span className={`ds-level ds-level-${levelOf(chosen.components.privacy)}`} data-testid="swap-privacy">{levelOf(chosen.components.privacy)}</span></div>
                 {crossChain ? <div className="ds-checks-line" data-testid="cross-chain-checklist"><span data-check="source" data-ok="1">✓ {t("swap.sourceIsolated")}</span><span data-check="destination" data-ok={!destinationEdited || (destCheck?.verified ?? false) ? "1" : "0"}>{!destinationEdited || (destCheck?.verified ?? false) ? "✓" : "⚠"} {t("swap.destinationVerified")}</span><span data-check="route" data-ok={routeHealthy ? "1" : "0"}>{routeHealthy ? "✓" : "⚠"} {t("swap.routeHealthy")}</span></div> : null}
                 {campaignMode && protectionPlan ? (() => { const cap = lineDraft ? BigInt(lineDraft.bounds.maxExternalExposure) : (units * BigInt(protectionPlan.capBps)) / 10000n; const piece = lineDraft ? lineDraft.tranches.reduce((m, x) => (BigInt(x.amount) > m ? BigInt(x.amount) : m), 0n) : (units * BigInt(protectionPlan.bandBps[1])) / 10000n; const steps = lineDraft ? lineDraft.tranches.length : protectionPlan.estimatedTranches; return (
-                  <p className="ds-note-warn" data-testid="protection-line">{t("swap.protectionLine", { steps, piece: usdOfUnits(ctx, piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`, concurrency: protectionPlan.concurrency === "sequential" ? t("swap.oneAtATime") : t("swap.upToAtATime", { n: protectionPlan.maxParallel }), cap: usdOfUnits(ctx, cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`, duration: durationWords(protectionPlan.estimatedSeconds) })}</p>
+                  <p className="ds-note-warn" data-testid="protection-line">{t("swap.protectionLine", { steps, piece: usdOfUnits(ctx, piece) ?? `${formatAmount(fromAsset, piece)} ${fromAsset.symbol}`, concurrency: protectionPlan.concurrency === "sequential" ? t("swap.oneAtATime") : t("swap.upToAtATime", { n: protectionPlan.maxParallel }), cap: usdOfUnits(ctx, cap) ?? `${formatAmount(fromAsset, cap)} ${fromAsset.symbol}`, duration: durationText(t, protectionPlan.estimatedSeconds) })}</p>
                 ); })() : null}
                 {protectionPlan && !protection.enabled && controls.campaign ? <p className="ds-note-warn" data-testid="protection-off">{t("swap.protectionOff")}</p> : null}
                 {quotedOnly === 1 ? <p className="ds-note-warn">{t("swap.onlyOneQuoted")}</p> : null}

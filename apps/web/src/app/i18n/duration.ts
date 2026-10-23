@@ -12,3 +12,11 @@ export const hoursText = (t: T, seconds: number): string =>
     : seconds >= 60
       ? t("unit.minutesShort", { n: Math.round(seconds / 60) })
       : t("unit.secondsShort", { n: seconds });
+
+/** Days from two days, hours from an hour, else minutes (a protected execution's duration and cadence). */
+export const durationText = (t: T, seconds: number): string =>
+  seconds >= 2 * 86400
+    ? t("unit.days", { n: Math.round(seconds / 86400) })
+    : seconds >= 3600
+      ? t("unit.hoursShort", { n: Math.round(seconds / 3600) })
+      : t("unit.minutesShort", { n: Math.round(seconds / 60) });

@@ -53,6 +53,10 @@ describe("exposureTierOf (plan §6)", () => {
     expect(exposureTierOf({ class: "R6" }).tier).toBe("R4");
     const r = exposureTierOf({ class: "R5" }, { thinMarket: true, breakerOpen: true, incidentWithinDays: 3 });
     expect(r.reasons).toHaveLength(3);
+    // the same reasons by their codes, for the app's catalog (audit round 2, r55)
+    expect(r.codes).toEqual(["thin-market", "recent-incident", "breaker-open"]);
+    expect(exposureTierOf({ class: "R6" }, { knownProvider: false, chainHalted: true, security: 40 }).codes).toEqual(["unknown-provider", "chain-halted", "low-security", "counterparty"]);
+    expect(exposureTierOf({ class: "R5" }, { planMode: "streaming" }).codes).toBeUndefined();
   });
 });
 

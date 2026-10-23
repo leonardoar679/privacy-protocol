@@ -1,7 +1,7 @@
 // The privacy assessment (contract §3.11; plan §52, §112, §114): six linkabilities measured from stated facts, the score
 // and the level, the basis sentences, and the plan's §112 pattern flagged on amount and timing together.
 import { describe, it, expect } from "vitest";
-import { assessPrivacy, assessSwapPrivacy, crossChainEffectiveSet, timingOfFunding, type PrivacyAssessmentFacts } from "../src/wallet/privacyAssessment";
+import { BASIS_CODES, assessPrivacy, assessSwapPrivacy, crossChainEffectiveSet, timingOfFunding, type PrivacyAssessmentFacts } from "../src/wallet/privacyAssessment";
 
 const good: PrivacyAssessmentFacts = { sourceIsPool: true, amount: { kind: "bucket" }, delaySeconds: 6 * 3600, destination: "fresh-per-tranche", steps: 40, provider: { linkPublic: true, kind: "deposit-address", coverPerHour: 40, etaSeconds: 1200 }, crossChain: true };
 
@@ -54,6 +54,24 @@ describe("assessPrivacy", () => {
     const deep = assessPrivacy({ ...good, provider: { ...good.provider, coverPerHour: 2000 } }).components.crossChain;
     expect(deep).toBeLessThan(thin);
     expect(crossChainEffectiveSet({ coverPerHour: 2000, etaSeconds: 1200 }, true)).toBeGreaterThan(crossChainEffectiveSet({ coverPerHour: 1, etaSeconds: 1200 }, true));
+  });
+
+  it("each basis sentence names its code and values, for the app's catalog (audit round 2, r55)", () => {
+    const a = assessPrivacy(good);
+    expect(a.basisWords).toHaveLength(a.basis.length);
+    expect(a.basisWords!.map((w) => w.code)).toEqual(["source-pool", "amount-bucket", "timing-delayed", "dest-fresh-per-step", "provider-public", "crosschain-public"]);
+    expect(a.basisWords![2]).toEqual({ code: "timing-delayed", hours: 6 });
+    expect(a.basisWords![5].set).toBe(a.basis[5].match(/effective set of ([\d.]+)\./)![1]);
+    const facts: PrivacyAssessmentFacts[] = [
+      { ...good, sourceIsPool: false, amount: { kind: "pair" }, delaySeconds: 2 * 3600, destination: "entered", steps: 1, provider: { linkPublic: null }, crossChain: false },
+      { ...good, amount: { kind: "exact" }, delaySeconds: 0, destination: "entered", provider: { linkPublic: false, kind: "deposit-address" }, cadenceFixed: true, sameSizeConsecutive: true },
+      { ...good, destination: "privacy-address", provider: { linkPublic: false }, delaySeconds: 60 },
+      { ...good, destination: "fresh", steps: 1 },
+      { ...good, destination: "public-wallet" },
+      { ...good, provider: { linkPublic: false } },
+    ];
+    const codes = new Set([assessPrivacy(good), ...facts.map((f) => assessPrivacy(f))].flatMap((x) => x.basisWords!.map((w) => w.code)));
+    expect([...codes].sort()).toEqual([...BASIS_CODES].sort());
   });
 });
 

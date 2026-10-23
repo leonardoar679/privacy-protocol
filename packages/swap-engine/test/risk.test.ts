@@ -210,6 +210,8 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
     expect(p.reasons.join("\n")).toMatch(/one piece at a time/);
     expect(p.reasons.join("\n")).toMatch(/single venue/);
     expect(p.reasons.join("\n")).toMatch(/narrowed/); // the incident is within 90 days
+    // the same reasons by their codes, for the wallet's catalog (audit round 2, r55)
+    expect(p.reasonCodes).toEqual([{ code: "band-narrowed" }, { code: "sequential" }, { code: "single-venue" }]);
   });
   it("an operator's incident in INCIDENTS_FILE, days old (its breaker closed again), makes the chosen route R4 at a 1 % cap — the recommendation and the normalized quote (audit round 2, r04)", () => {
     const db = RiskDb.load(RISK_DB_DIR);
@@ -224,6 +226,8 @@ describe("the protection recommendation (spec §4, §6, §10, §14)", () => {
       const p = recommendProtection({ set: setOf([quote]), req: reqEthBtc(amount), amount, tier: "high-value", mode: "balanced", usdPerUnit: ETH_USD, db, now: NOW, rng: () => 0.5 })!;
       expect(p.exposureTier, p.exposureReasons.join("; ")).toBe("R4");
       expect(p.exposureReasons.join("; ")).toMatch(/incident within 30 days/);
+      expect(p.reasonCodes).toContainEqual({ code: "high-risk-route", risks: ["recent-incident"] });
+      expect(p.reasonCodes).toHaveLength(p.reasons.length);
       expect(p.capBps).toBe(100);
       const s = score("chainflip");
       const n = normalizeQuote(quote, { req: reqEthBtc(amount), score: { ...s, components: { ...s.components, security: 70 } }, linkPublic: false, db, now: NOW });

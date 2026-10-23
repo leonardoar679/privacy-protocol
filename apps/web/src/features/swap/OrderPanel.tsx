@@ -23,7 +23,8 @@ import { PrivacyLint } from "../../components/PrivacyLint";
 import { SettlementLine } from "../../components/SettlementLine";
 import { needsAttention } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
-import { OPEN_FOR_RESIGN, canReturn, hours, type Target } from "./targets";
+import { OPEN_FOR_RESIGN, canReturn, type Target } from "./targets";
+import { hoursText } from "../../app/i18n/duration";
 
 export interface OrderPanelProps {
   order: ServiceOrder;
@@ -65,7 +66,7 @@ export function OrderPanel(p: OrderPanelProps) {
       <div className="ds-stack-sm" data-order={p.order.orderId} data-state={p.stored?.state ?? p.order.state}>
         <DestinationCard network={p.target.network} asset={to.symbol} address={p.destination} amount={fmtUnits(p.order.quote.toAmount, to.decimals)} kind={p.destinationEdited ? "entered" : "fresh"} />
         <div className="ds-kv"><span className="ds-kv-label">{t("review.privacy")}</span><b className={`ds-level ds-level-${levelOf(p.order.privacy.score)}`}>{levelOf(p.order.privacy.score)}{p.advanced ? ` (${p.order.privacy.score}/100)` : ""}</b></div>
-        <div className="ds-kv"><span className="ds-kv-label">{funded ? t("order.funded") : dueAt ? t("order.fundingScheduled") : t("order.funding")}</span><b className="ds-kv-value">{funded ? t("order.fundedTx", { hash: `${p.stored!.fundedTx!.slice(0, 10)}…` }) : dueAt ? t("order.scheduledAt", { time: formatDateTime(dueAt), lo: hours(p.order.privacy.delaySeconds[0]), hi: hours(p.order.privacy.delaySeconds[1]) }) : t("order.notYet")}</b></div>
+        <div className="ds-kv"><span className="ds-kv-label">{funded ? t("order.funded") : dueAt ? t("order.fundingScheduled") : t("order.funding")}</span><b className="ds-kv-value">{funded ? t("order.fundedTx", { hash: `${p.stored!.fundedTx!.slice(0, 10)}…` }) : dueAt ? t("order.scheduledAt", { time: formatDateTime(dueAt), lo: hoursText(t, p.order.privacy.delaySeconds[0]), hi: hoursText(t, p.order.privacy.delaySeconds[1]) }) : t("order.notYet")}</b></div>
         {p.holdActive ? <p className="ds-note-warn" data-testid="review-hold">{t("order.reviewHold", { time: formatTime(p.stored!.reviewHoldUntil!) })}</p> : null}
         <div className="ds-kv"><span className="ds-kv-label">{t("order.returnsBy")}</span><b className="ds-kv-value">{refundAfter}</b></div>
         {p.advanced ? (

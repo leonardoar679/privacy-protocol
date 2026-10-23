@@ -45,17 +45,28 @@ export interface ExposureFacts {
   security?: number;
 }
 
+/** Why a route is R4, by codes (the app's catalog words each one, audit round 2, r55). */
+export type ExposureReason = "thin-market" | "unknown-provider" | "chain-halted" | "recent-incident" | "breaker-open" | "low-security" | "counterparty";
+/** Why a protected execution's plan is as it is, by codes: the high-risk route names its exposure reasons. */
+export type ProtectionReasonCode = "band-narrowed" | "high-risk-route" | "sequential" | "instant-limit" | "thin-market" | "single-venue" | "staged";
+export interface ProtectionReason { code: ProtectionReasonCode; risks?: ExposureReason[] }
+
 /** The exposure tier of a route (contract §2.2): derived from the V3 risk class and the live facts, never stored as policy. */
-export function exposureTierOf(model: { class: RiskClass }, f: ExposureFacts = {}): { tier: ExposureTier; reasons: string[] } {
+export function exposureTierOf(model: { class: RiskClass }, f: ExposureFacts = {}): { tier: ExposureTier; reasons: string[]; /** an R4 route's reasons by their codes */ codes?: ExposureReason[] } {
   const reasons: string[] = [];
-  if (f.thinMarket) reasons.push("low liquidity for this size");
-  if (f.knownProvider === false) reasons.push("no record of this provider in the risk database");
-  if (f.chainHalted) reasons.push("a chain of this route is halted");
-  if (f.incidentWithinDays !== null && f.incidentWithinDays !== undefined && f.incidentWithinDays <= 30) reasons.push("a security incident within 30 days");
-  if (f.breakerOpen) reasons.push("the provider's circuit breaker is open");
-  if (f.security !== undefined && f.security < 60) reasons.push("the security score is below 60");
-  if (model.class === "R6") reasons.push("a counterparty (OTC) route");
-  if (reasons.length) return { tier: "R4", reasons };
+  const codes: ExposureReason[] = [];
+  const because = (code: ExposureReason, text: string) => {
+    codes.push(code);
+    reasons.push(text);
+  };
+  if (f.thinMarket) because("thin-market", "low liquidity for this size");
+  if (f.knownProvider === false) because("unknown-provider", "no record of this provider in the risk database");
+  if (f.chainHalted) because("chain-halted", "a chain of this route is halted");
+  if (f.incidentWithinDays !== null && f.incidentWithinDays !== undefined && f.incidentWithinDays <= 30) because("recent-incident", "a security incident within 30 days");
+  if (f.breakerOpen) because("breaker-open", "the provider's circuit breaker is open");
+  if (f.security !== undefined && f.security < 60) because("low-security", "the security score is below 60");
+  if (model.class === "R6") because("counterparty", "a counterparty (OTC) route");
+  if (reasons.length) return { tier: "R4", reasons, codes };
   if (model.class === "R1") return { tier: "R0", reasons: ["same-chain atomic execution"] };
   if (model.class === "R2" && f.signedHardQuote) return { tier: "R1", reasons: ["a signed hard quote inside strict bounds"] };
   if (model.class === "R5" && (f.planMode === "streaming" || f.planMode === "dca")) return { tier: "R2", reasons: ["a provider-controlled stream on a bridge / MPC route"] };

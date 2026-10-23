@@ -7,6 +7,7 @@
 // competition record; prepare keeps the approved minimum; track reads the destination side of an executed order.
 import type { Address, Hex } from "viem";
 import { fmtUnits } from "./format";
+import type { ProtectionReason } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import { api, apiUrl, ApiError, ApiMinimumMoved, type ApiQuote, type ReconcileView } from "./api/client";
 
 /** The API's base URL (the configuration's `swapService`, V6 Stage 3). */
@@ -43,6 +44,8 @@ export interface Protection {
   concentration: { providers: { id: string; shareBps: number }[]; singleVenue: boolean; capBps: number };
   elpf: { prior: number; pFailure: number; perTrancheUsd: number | null; perCampaignUsd: number | null };
   staged: boolean; reasons: string[];
+  /** the reasons by their codes, for the app's catalog (audit round 2, r55); absent from an older service, whose English reasons are shown */
+  reasonCodes?: ProtectionReason[];
   /** V4 (contract §2.2–§2.3, §3.4); optional for a service older than V4 */
   exposureTier?: "R0" | "R1" | "R2" | "R3" | "R4"; exposureReasons?: string[];
   impactRemedy?: "none" | "reduce-tranche" | "rfq" | "streaming" | "other-venue";

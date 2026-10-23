@@ -20,11 +20,11 @@ import { buildCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
-import { CUSTODY_WORDS, GATE_WORDS, durationWords, providerKind, refOf, settlementWords, type Target } from "./targets";
+import { custodyWords, gateWords, protectionReasons, providerKind, providerName, refOf, settlementWords, type Target } from "./targets";
 import { netOfShield } from "./model";
 import { destinationStatusWords } from "../destinationWords";
 import { planDetail, planText } from "../review/words";
-import { hoursText } from "../../app/i18n/duration";
+import { durationText, hoursText } from "../../app/i18n/duration";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
 const fmt = (units: string | bigint, decimals: number) => fmtUnits(units, decimals);
@@ -146,15 +146,15 @@ export function campaignFacts(c: SwapContext, provider: string, now = Date.now()
   const privacyView = assessPrivacy({ sourceIsPool: true, amount: { kind: pieces.every((x) => isBucketFor(c.fromAsset, x)) ? "bucket" : "pair" }, delaySeconds: p.cadenceSeconds[0], destination: c.destinationEdited ? "entered" : "fresh-per-tranche", steps, provider: { linkPublic: q.links?.[provider]?.public ?? null, kind: providerKind(provider), etaSeconds: quote.etaSeconds }, crossChain: c.to.ref.chain !== refOf(c.fromAsset).chain, sameSizeConsecutive: p.sizing === "varied" && pieces.some((x, i) => i > 0 && x === pieces[i - 1]), cadenceFixed: false });
   const liveQuotes = liveQuotesOf(q) || q.quotes.length;
   const execution: NonNullable<Verdict["execution"]> = liveQuotes >= 2 ? (q.chosen?.provider === provider ? "Best available" : "Review") : "Only route";
-  const executionWhy = liveQuotes >= 2 ? (execution === "Best available" ? c.t("swap.facts.wonOnWeights", { n: liveQuotes, provider }) : c.t("swap.facts.chosenOverWinner", { n: liveQuotes, provider, winner: q.chosen?.provider ?? "" })) : c.t("swap.facts.onlyRoute");
+  const executionWhy = liveQuotes >= 2 ? (execution === "Best available" ? c.t("swap.facts.wonOnWeights", { n: liveQuotes, provider: providerName(provider) }) : c.t("swap.facts.chosenOverWinner", { n: liveQuotes, provider: providerName(provider), winner: providerName(q.chosen?.provider ?? "") })) : c.t("swap.facts.onlyRoute");
   const verdict: Verdict = { security: verdictSecurity, privacy: privacyView.level, why, execution, executionWhy };
-  const cadence = c.t("swap.facts.cadence", { lo: durationWords(p.cadenceSeconds[0]), hi: durationWords(p.cadenceSeconds[1]) });
+  const cadence = c.t("swap.facts.cadence", { lo: durationText(c.t, p.cadenceSeconds[0]), hi: durationText(c.t, p.cadenceSeconds[1]) });
   const details: ProtectionDetails = {
-    riskClass: p.riskClass + (p.flags.length ? ` + ${p.flags.join(", ")}` : ""), custody: CUSTODY_WORDS[p.custody] ?? p.custody, band: `${p.bandBps[0] / 100}–${p.bandBps[1] / 100} %`, cap: `${draft.plan.capBps / 100} %`,
-    gate: GATE_WORDS[p.gate] ?? p.gate, steps: `${steps} (${p.concurrency === "sequential" ? c.t("swap.oneAtATime") : c.t("swap.upToAtATime", { n: p.maxParallel })})`, duration: c.t("swap.facts.about", { duration: durationWords(p.estimatedSeconds) }), cadence,
+    riskClass: p.riskClass + (p.flags.length ? ` + ${p.flags.join(", ")}` : ""), custody: custodyWords(c.t, p.custody), band: `${p.bandBps[0] / 100}–${p.bandBps[1] / 100} %`, cap: `${draft.plan.capBps / 100} %`,
+    gate: gateWords(c.t, p.gate), steps: `${steps} (${p.concurrency === "sequential" ? c.t("swap.oneAtATime") : c.t("swap.upToAtATime", { n: p.maxParallel })})`, duration: c.t("swap.facts.about", { duration: durationText(c.t, p.estimatedSeconds) }), cadence,
     elpf: p.elpf.perCampaignUsd !== null ? c.t("swap.facts.elpf", { step: formatUsd(p.elpf.perTrancheUsd ?? 0), operation: formatUsd(p.elpf.perCampaignUsd), prior: (p.elpf.prior * 100).toFixed(1) }) : c.t("swap.facts.elpfPrior", { prior: (p.elpf.prior * 100).toFixed(1) }),
     concentration: p.concentration.singleVenue ? c.t("swap.facts.singleVenue") : c.t("swap.facts.venues", { n: p.concentration.providers.length, cap: p.concentration.capBps / 100 }),
-    ...((q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")?.provider ? { alternative: (q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")!.provider } : {}),
+    ...((q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")?.provider ? { alternative: providerName((q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")!.provider) } : {}),
   };
   const prep = c.relayerFee !== null ? c.t("swap.facts.prepValued", { n: steps, eth: fmt((c.relayerFee * BigInt(steps)).toString(), 18) }) : c.t("swap.facts.prepLive", { n: steps });
   const maximumLoss: MaximumLoss = { order: amountWords(c, loss.order), cap: amountWords(c, loss.cap), maxExposure: amountWords(c, loss.maxExposure), protected: amountWords(c, loss.protected), preparation: prep };
@@ -180,9 +180,9 @@ export function campaignLines(c: SwapContext, f: CampaignFacts, onRouteAck: () =
 /** The reroute Review (spec §8): a route change on a large operation is confirmed, never adopted quietly. */
 export function rerouteLines(t: T, c: Campaign, np: Protection | null, provider: string, fmtFrom: (u: string) => string): ReviewLine[] {
   return [
-    { id: "route", label: t("swap.lines.route"), ok: true, meaning: t("swap.lines.rerouteRoute", { provider, before: c.provider ?? "—" }) },
+    { id: "route", label: t("swap.lines.route"), ok: true, meaning: t("swap.lines.rerouteRoute", { provider: providerName(provider), before: c.provider ? providerName(c.provider) : "—" }) },
     { id: "exposure", label: t("swap.lines.exposure"), ok: true, meaning: t("swap.lines.rerouteExposure", { cap: fmtFrom(c.bounds.maxExternalExposure) }) },
-    { id: "security", label: t("swap.lines.security"), ok: !np || np.riskClass !== "R6", meaning: np ? `${provider}: ${t("swap.lines.rerouteSecurity", { cls: np.riskClass, custody: CUSTODY_WORDS[np.custody] ?? np.custody, gate: GATE_WORDS[np.gate] ?? np.gate })}${np.reasons.length ? `; ${np.reasons.join("; ")}` : ""}` : t("swap.lines.rerouteNoView") },
+    { id: "security", label: t("swap.lines.security"), ok: !np || np.riskClass !== "R6", meaning: np ? `${providerName(provider)}: ${t("swap.lines.rerouteSecurity", { cls: np.riskClass, custody: custodyWords(t, np.custody), gate: gateWords(t, np.gate) })}${np.reasons.length ? `; ${protectionReasons(t, np).join("; ")}` : ""}` : t("swap.lines.rerouteNoView") },
     { id: "privacy", label: t("swap.lines.privacy"), ok: true, meaning: t("swap.lines.reroutePrivacy") },
   ];
 }
