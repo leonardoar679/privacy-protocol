@@ -26,7 +26,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { resetOrderRunnerMemory, runOrderTick } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { getOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
-import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
+import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { allowedHosts } from "@privacy-wallet/privacy-engine/transport/http";
 import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { fieldNames, FORBIDDEN_FIELDS, leaks, sessionSecrets } from "./helpers/leakage";
@@ -252,6 +252,23 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(await tick(orderId)).toBe("handed-over");
     expect(funding.count, "never funded twice").toBe(1);
     expect(calls.filter((c) => c === "127.0.0.1:8790/swap/execute")).toHaveLength(1);
+  }, 60_000);
+
+  it("a completed swap whose provider reports no amount says so, never its minimum as delivered (audit round 2, r54)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    const stored = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    // the executor's job ended and the provider (Across, Mayan) reported completion without an amount
+    syncSwapRecord(
+      stored,
+      { state: "COMPLETED", label: "Completed", steps: [true, true, true, true], detail: "Delivered at your fresh address." } as never,
+      { id: orderId, escrow: stored.endpoint, state: "completed", updatedAt: Date.now() } as never,
+    );
+    cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    const done = await screen.findByTestId("swap-done");
+    expect(done.textContent).toContain("Swap complete.");
+    expect(done.textContent, "the minimum is not what arrived").not.toMatch(/delivered/);
   }, 60_000);
 
   it("a call paying someone else is stopped with nothing signed; Return funds sends the refund-only job", async () => {

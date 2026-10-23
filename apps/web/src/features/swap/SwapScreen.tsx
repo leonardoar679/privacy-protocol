@@ -993,7 +993,9 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     );
   }
   if (record.state === "COMPLETED" || record.state === "REFUNDED" || record.state === "CANCELLED") {
-    const delivered = record.amounts.delivered ?? record.amounts.minimumOutput;
+    // what arrived, or no amount: never the minimum in its place (audit round 2, r54) — a provider that reports no amount
+    // (Across, Mayan) had its worst case named as delivered, and a Mayan refund paid to the destination as the swap
+    const delivered = record.amounts.delivered;
     const title =
       record.state === "COMPLETED"
         ? delivered
