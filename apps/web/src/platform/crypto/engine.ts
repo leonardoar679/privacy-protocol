@@ -12,7 +12,7 @@ import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { buildTxInputs, type TxSpec } from "@privacy-wallet/protocol/txInputs";
 import { bytesToHex0x, proveInputs, type SnarkjsLike } from "@privacy-wallet/protocol/prover";
 import { noteFromPayload, openPayload, viewKeyPair } from "@privacy-wallet/protocol/envelope";
-import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
+import { allowHosts, secureFetch, setStrict } from "@privacy-wallet/privacy-engine/transport/http";
 import { enforce, sha256Hex, verdictOf } from "../../prover/pins";
 import { ARTIFACT_CACHE, artifactCacheKey, type ArtifactRequest, type CoreEngine, type CryptoRequest, type CryptoResponse, type PlanMessage } from "./protocol";
 
@@ -230,6 +230,12 @@ export function createCryptoEngine(deps: EngineDeps): { handle(r: CryptoRequest,
   }
 
   async function prove(id: number, plan: PlanMessage, a: ArtifactRequest, post: Post): Promise<void> {
+    // the page's transport policy, in this worker's own instance of the transport (audit round 2, n34): a production build's
+    // allowlist had never reached the worker, whose downloads went to any host the request named
+    if (a.transport) {
+      setStrict(a.transport.strict);
+      allowHosts(...a.transport.hosts);
+    }
     const t0 = now();
     post({ id, type: "progress", phase: "key" });
     const wasm = await artifact("transaction.wasm", a.wasmUrl, a.pins?.wasm, a.production);

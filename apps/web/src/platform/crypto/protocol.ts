@@ -17,6 +17,8 @@ export interface ArtifactRequest {
   vkeyUrl?: string;
   pins?: ArtifactPins;
   production: boolean;
+  /** the page's transport policy, applied by the worker's own instance of the transport (audit round 2, n34) */
+  transport?: { strict: boolean; hosts: string[] };
 }
 
 export type CryptoRequest =

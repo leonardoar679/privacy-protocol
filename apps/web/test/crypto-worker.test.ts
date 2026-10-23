@@ -5,6 +5,7 @@
 //     layers crossing as arrays;
 //   - the proving key and the witness generator cached under their pinned SHA-256, read back checked, a tampered entry
 //     fetched again, an unpinned artifact never cached, a production build refusing one that is not its pin.
+import { setStrict } from "@privacy-wallet/privacy-engine/transport/http";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { utf8ToBytes } from "@noble/hashes/utils";
@@ -319,6 +320,33 @@ describe("the proof in the worker", () => {
         ),
     });
     expect((await slow.prove(52)).at(-1)).toMatchObject({ type: "proved" });
+  });
+
+  it("the page's transport policy holds in the worker: a production build's allowlist refuses a download from another host (audit round 2, n34)", async () => {
+    const engine = createCryptoEngine({
+      loadCore: async () => null,
+      caches: async () => null,
+      snarkjs: async () => {
+        throw new Error("never reached");
+      },
+      warn: () => {},
+    });
+    try {
+      const msgs = await run(engine, {
+        id: 60,
+        op: "prove",
+        plan: planMessage(spec),
+        artifacts: {
+          wasmUrl: "https://elsewhere.example/transaction.wasm",
+          zkeyUrl: "https://elsewhere.example/transaction_final.zkey",
+          production: true,
+          transport: { strict: true, hosts: ["localhost"] },
+        },
+      });
+      expect(msgs.at(-1)).toMatchObject({ type: "error", error: expect.stringMatching(/refused a request to elsewhere\.example/) });
+    } finally {
+      setStrict(false);
+    }
   });
 
   it("an older pin of an artifact leaves the cache when a new one is stored", async () => {

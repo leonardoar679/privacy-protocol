@@ -13,6 +13,7 @@ import { CORE_PATH } from "@privacy-wallet/sdk/core";
 import { recordProof } from "@privacy-wallet/sdk/wallet/proofStats";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { artifactUrls, loadPins } from "../../prover/client";
+import { allowedHosts, isStrict } from "@privacy-wallet/privacy-engine/transport/http";
 import type { CryptoRequest, CryptoResponse, PlanMessage, ProvePhase } from "./protocol";
 
 type Req = CryptoRequest extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
@@ -131,7 +132,14 @@ export async function proveSpend(spec: TxSpec, onStatus?: ProveStatus): Promise<
     {
       op: "prove",
       plan: planMessage(spec),
-      artifacts: { wasmUrl: urls.wasm, zkeyUrl: urls.zkey, vkeyUrl: urls.verificationKey, pins, production: config().production },
+      artifacts: {
+        wasmUrl: urls.wasm,
+        zkeyUrl: urls.zkey,
+        vkeyUrl: urls.verificationKey,
+        pins,
+        production: config().production,
+        transport: { strict: isStrict(), hosts: allowedHosts() }, // the page's policy, held in the worker too (audit round 2, n34)
+      },
     },
     [],
     (phase) => onStatus?.(phase === "key" ? "Fetching the proving key (kept on this device after the first time)…" : "Proving locally in a Web Worker…"),
