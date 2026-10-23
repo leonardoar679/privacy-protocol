@@ -40,6 +40,16 @@ const EnvSchema = z.object({
   VITE_HOLD_MS: int(1, 60_000).optional(),
   VITE_REVIEW_HOLD_MINUTES: int(1, 24 * 60).optional(),
   VITE_KDF_LOG2N: int(12, 20).optional(),
+  // the deployment's own (audit round 2, r52): a malformed one had read as absent — a VITE_PROTECT_ROUTER typo shipped a build
+  // whose every protect went straight into the vault with no fee, and fingerprinted every user's deployment without it; a
+  // factory's turned swaps off without a word, and a chain id read as NaN
+  VITE_CHAIN_ID: int(1, Number.MAX_SAFE_INTEGER).optional(),
+  VITE_CORE: address.optional(),
+  VITE_ETH_VAULT: address.optional(),
+  VITE_FROM_BLOCK: z.string().regex(/^\d+$/, "a block number").optional(),
+  VITE_SWAP_FACTORY: address.optional(),
+  VITE_PROTECT_ROUTER: address.optional(),
+  VITE_SHIELD_FACTORY: address.optional(),
 });
 
 /** The configuration a build's environment describes (throws, naming the variable, on a malformed value). */

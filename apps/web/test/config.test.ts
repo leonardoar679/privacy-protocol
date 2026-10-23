@@ -83,6 +83,14 @@ describe("configFromEnv", () => {
     expect(() => configFromEnv({ VITE_SWAP_SERVICE: "not a url" })).toThrow(/VITE_SWAP_SERVICE/);
     expect(() => configFromEnv({ VITE_RPC_URLS: "https://ok.example, nope" })).toThrow(/"nope" is not a URL/);
     expect(() => configFromEnv({ VITE_PRICE_FEEDS: "[{}]" })).toThrow();
+    // the deployment's addresses and numbers too (audit round 2, r52): a typo had read as absent — no router, no fee
+    expect(() => configFromEnv({ VITE_PROTECT_ROUTER: "0x" + "ab".repeat(19) + "a" })).toThrow(/VITE_PROTECT_ROUTER/);
+    expect(() => configFromEnv({ VITE_SWAP_FACTORY: "0xnot" })).toThrow(/VITE_SWAP_FACTORY/);
+    expect(() => configFromEnv({ VITE_SHIELD_FACTORY: "shield" })).toThrow(/VITE_SHIELD_FACTORY/);
+    expect(() => configFromEnv({ VITE_CORE: "0x1" })).toThrow(/VITE_CORE/);
+    expect(() => configFromEnv({ VITE_ETH_VAULT: "0x1" })).toThrow(/VITE_ETH_VAULT/);
+    expect(() => configFromEnv({ VITE_CHAIN_ID: "mainnet" })).toThrow(/VITE_CHAIN_ID/);
+    expect(() => configFromEnv({ VITE_FROM_BLOCK: "-1" })).toThrow(/VITE_FROM_BLOCK/);
   });
 });
 
