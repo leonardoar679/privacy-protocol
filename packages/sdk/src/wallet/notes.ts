@@ -85,6 +85,11 @@ export class NoteStore {
     for (const n of this.notes) if (leafIndexes.includes(n.leafIndex)) n.spent = true;
     this.emit();
   }
+  /** Forget the notes at these leaves: the pool proven at the latest finalized block holds other commitments there (audit round 2, r24). */
+  drop(leafIndexes: number[]): void {
+    this.notes = this.notes.filter((n) => !leafIndexes.includes(n.leafIndex));
+    this.emit();
+  }
   unspent(vaultId?: bigint): OwnedNote[] {
     return this.notes.filter((n) => !n.spent && (vaultId === undefined || n.note.vaultId === vaultId));
   }

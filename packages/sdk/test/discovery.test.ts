@@ -10,13 +10,28 @@ import { recordActivity } from "../src/wallet/activity";
 import { noteStore } from "../src/wallet/notes";
 import type { Deployment } from "../src/chain";
 
-const scan = vi.hoisted(() => ({ calls: 0, received: [] as { leafIndex: number; vaultId: bigint; amount: bigint; txHash: string }[], fails: false }));
+const scan = vi.hoisted(() => ({
+  calls: 0,
+  received: [] as { leafIndex: number; vaultId: bigint; amount: bigint; txHash: string }[],
+  pending: [] as { leafIndex: number; vaultId: bigint; amount: bigint; txHash: string }[],
+  proven: null as number | null,
+  fails: false,
+}));
 vi.mock("../src/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/privateTx")>()),
   scanNotes: async () => {
     scan.calls++;
     if (scan.fails) throw new TypeError("fetch failed");
-    return { scanned: 10, found: scan.received.length, added: scan.received.length, spent: 0, refunds: 0, received: scan.received };
+    return {
+      scanned: 10,
+      found: scan.received.length,
+      added: scan.received.length,
+      spent: 0,
+      refunds: 0,
+      received: scan.received,
+      pending: scan.pending,
+      proven: scan.proven,
+    };
   },
 }));
 
@@ -25,6 +40,7 @@ import {
   DISCOVERY_INTERVAL_MS,
   DISCOVERY_MIN_GAP_MS,
   HELD_SCAN_RETRY_MS,
+  NOT_IN_POOL,
   discoverSoon,
   discoveryWanted,
   resetDiscoveryMemory,
@@ -58,6 +74,8 @@ afterEach(() => {
   });
   scan.calls = 0;
   scan.received = [];
+  scan.pending = [];
+  scan.proven = null;
   scan.fails = false;
   noteStore.releaseCounters(0); // a restore's hold (the first-launch test's) never leaks into the next test
   resetDiscoveryMemory();
@@ -97,6 +115,43 @@ describe("note discovery", () => {
     // the same note found again (a later scan reports it only when it is new; even so, its line is not doubled)
     await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 + DISCOVERY_INTERVAL_MS });
     expect(session.journal().activity).toHaveLength(1);
+  });
+
+  it("a transfer received past the proven pool: its line is pending until a scan proves it, and failed when the proven leaf holds no note of this wallet (audit round 2, r24)", async () => {
+    const transfer = (leafIndex: number) => ({ leafIndex, vaultId: BigInt(VAULT), amount: 5n * 10n ** 18n, txHash: "0x" + "ab".repeat(32) });
+    const line = (id: string) => session.journal().activity?.find((x) => x.id === id);
+    try {
+      scan.pending = [transfer(41)];
+      scan.proven = 41;
+      scheduleDiscovery(T0);
+      await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 });
+      expect(line("receive:41")).toMatchObject({ kind: "receive", amount: "5000000000000000000", status: "pending" });
+      // a later scan proves its leaf and adds the note: completed
+      scan.pending = [];
+      scan.received = [transfer(41)];
+      scan.proven = 50;
+      noteStore.add({
+        note: { vaultId: BigInt(VAULT), amount: 5n * 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n },
+        leafIndex: 41,
+        noteData: "0x",
+        spent: false,
+      });
+      await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 + DISCOVERY_INTERVAL_MS });
+      expect(line("receive:41")!.status).toBe("completed");
+      // one the proven pool does not hold: failed, said so; the proven one stays completed
+      scan.received = [];
+      scan.pending = [transfer(60)];
+      scan.proven = 60;
+      await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 + 2 * DISCOVERY_INTERVAL_MS });
+      expect(line("receive:60")!.status).toBe("pending");
+      scan.pending = [];
+      scan.proven = 70;
+      await runDiscovery(action()!, { masterSeed: new Uint8Array(32), deployment, now: () => T0 + 3 * DISCOVERY_INTERVAL_MS });
+      expect(line("receive:60")).toMatchObject({ status: "failed", note: NOT_IN_POOL });
+      expect(line("receive:41")!.status).toBe("completed");
+    } finally {
+      noteStore.clear();
+    }
   });
 
   it("a first launch stays request-free until the wallet holds something; a later unlock and a phrase restore look at once", async () => {

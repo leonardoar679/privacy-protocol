@@ -776,7 +776,9 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
  * On a chain the light client serves (plan §38), the tree the payloads came from must contain the
  * pool proven at the latest finalized block (a forged event cannot add a note there), and each found
  * note's spent status is also proven at that block: an endpoint that calls a spent note unspent is
- * refused; a spend after that block still counts.
+ * refused; a spend after that block still counts. A transfer received past that pool waits, out of the
+ * balance, until a scan proves its leaf, and a stored note its proven leaf contradicts is dropped (audit
+ * round 2, r24: an endpoint quorum could invent a received note in the tail, and it stayed for good).
  */
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
@@ -864,7 +866,13 @@ function journalRefunds(refunds: RecoveredRefund[]): void {
   });
 }
 
-export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[] }> {
+/**
+ * What a scan found: the transfers received it added, those it holds back past the proven pool (`pending`, audit round 2,
+ * r24), and how many leaves the light client proved (null where none applies: the reads rest on the RPC quorum).
+ */
+export interface ScanResult { scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[]; pending: ReceivedNote[]; proven: number | null }
+
+export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<ScanResult> {
   // a lock during the scan empties the store: nothing found afterwards goes into it, nor raises the next wallet's counter
   let locked = false;
   const off = session.onLock(() => {
@@ -877,11 +885,12 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   }
 }
 
-async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress, locked: () => boolean): Promise<{ scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[] }> {
+async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress, locked: () => boolean): Promise<ScanResult> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs } = await syncPoolQuorum(o.deployment);
-  await verifyTree(o.deployment, tree, o.onStatus);
+  const verified = await verifyTree(o.deployment, tree, o.onStatus);
+  const proven = verified.kind === "verified" ? verified.proof.nextLeafIndex : null;
   poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
   const byLeaf = new Map(logs.map((l) => [l.leafIndex, l]));
   const opened = await openNotePayloads(keys, logs.map((l) => ({ leafIndex: l.leafIndex, commitment: l.commitment, noteData: hexToBytes(l.noteData) })), (done, total) => o.onStatus?.(`Scanning ${done} / ${total} payloads…`));
@@ -902,19 +911,29 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? allRefundClaims(o.masterSeed, journaledRefundClaims(), upTo));
   for (const r of refunds) if (!found.some((f) => f.leafIndex === r.leafIndex)) found.push(refundFound(r));
   if (locked()) throw new Error("the wallet locked during the scan");
-  const { addedNotes, ...r } = await recordFound(o.deployment, keys, found, locked);
+  // a note this wallet's seed did not make (no counter), made out to the privacy address (only this wallet derives a
+  // deposited note's own owner commitment), and that is no swap's refund or delivery: someone sent it here
+  const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
+  const isReceived = (f: FoundNote) => f.counter === undefined && !refundLeaves.has(f.leafIndex) && f.note.ownerCommitment === main;
+  // one received past the proven pool waits for the scan whose proof covers its leaf (audit round 2, r24): there an endpoint
+  // quorum can invent a note made out to a published privacy address, and it entered the balance as received for good
+  const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && isReceived(f) && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
+  const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, locked);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
   if (o.refunds === undefined) noteStore.releaseCounters(COUNTER_RESERVE);
-  // a note this wallet's seed did not make (no counter), made out to the privacy address (only this wallet derives a
-  // deposited note's own owner commitment), and that is no swap's refund or delivery: someone sent it here
-  const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
-  const received: ReceivedNote[] = addedNotes
-    .filter((f) => f.counter === undefined && !refundLeaves.has(f.leafIndex) && f.note.ownerCommitment === main)
-    .map((f) => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash }));
-  o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}).`);
-  return { scanned: logs.length, ...r, refunds: refunds.length, received };
+  // the notes the proven pool contradicts (audit round 2, r24): an unspent note at a proven leaf that holds another
+  // commitment — found in an endpoint's tail before, or recorded at the leaf a receipt named — was never in the pool there,
+  // and every spend that picked it failed until a restore
+  if (proven !== null && !locked()) {
+    const contradicted = noteStore.all().filter((n) => !n.spent && n.leafIndex < proven && tree.leaves[n.leafIndex] !== noteCommitment(noteBody(n.note), BigInt(n.leafIndex)));
+    if (contradicted.length) noteStore.drop(contradicted.map((n) => n.leafIndex));
+  }
+  const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });
+  const received = addedNotes.filter(isReceived).map(asReceived);
+  o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}${waiting.length ? `, ${waiting.length} received waiting for finality` : ""}).`);
+  return { scanned: logs.length, ...r, refunds: refunds.length, received, pending: waiting.map(asReceived), proven };
 }
 
 /** V6 Stage 12: the delivered note of a same-chain swap into the protected balance, once the executor reports a shield. */

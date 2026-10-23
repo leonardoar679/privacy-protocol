@@ -10,12 +10,13 @@
 // spend, and nothing runs offline. A first launch stays request-free (spec v2.0 §10): the session that created the wallet
 // on this device scans only once the wallet holds something; a restore scans at once.
 // A note found that this wallet's seed did not make (no counter) and that is not a swap's refund or delivery is a private
-// transfer received: it gets its Activity line.
+// transfer received: it gets its Activity line. Past the pool the light client proved, it is pending — out of the balance
+// — until a scan proves its leaf; one the proven leaf does not hold reads failed (audit round 2, r24).
 import type { Deployment } from "../chain";
 import { assetByVault } from "../assets";
 import { scanNotes } from "../privateTx";
 import { reconcileStaleOperations, staleReads } from "../operations/stale";
-import { activityId, recordActivity } from "./activity";
+import { activityId, recordActivity, updateActivity } from "./activity";
 import { noteStore } from "./notes";
 import type { ScheduledAction } from "./journal";
 import { kickScheduler, scheduleAction, schedulerStatus } from "./schedule";
@@ -24,6 +25,9 @@ import { session as defaultSession, type WalletSession } from "./session";
 export const DISCOVERY_ID = "discovery:pool";
 /** While unlocked, the next scan this long after the last. */
 export const DISCOVERY_INTERVAL_MS = 10 * 60_000;
+/** A received transfer's line that the proven pool contradicts (audit round 2, r24). */
+export const NOT_IN_POOL =
+  "not received: the pool proven at the latest finalized block does not hold this transfer — an RPC endpoint showed a note the chain does not have";
 /** Activity's opening asks for a scan at most this often. */
 export const DISCOVERY_MIN_GAP_MS = 60_000;
 /**
@@ -104,6 +108,29 @@ export async function runDiscovery(
         s,
       );
     }
+    // received past the proven pool: pending, out of the balance, until a scan proves its leaf (audit round 2, r24)
+    for (const n of r.pending ?? []) {
+      const a = assetByVault(o.deployment, n.vaultId);
+      recordActivity(
+        {
+          id: activityId("receive", String(n.leafIndex)),
+          kind: "receive",
+          asset: a?.symbol ?? "units",
+          decimals: a?.decimals ?? 0,
+          amount: n.amount.toString(),
+          status: "pending",
+          ref: n.txHash,
+        },
+        s,
+      );
+    }
+    // a receive whose leaf is proven now and holds no note of this wallet: the chain does not hold that transfer
+    const proven = r.proven ?? null;
+    if (proven !== null)
+      for (const x of s.journal().activity ?? []) {
+        const leaf = x.kind === "receive" && x.status !== "failed" ? Number(x.id.slice("receive:".length)) : NaN;
+        if (leaf < proven && !noteStore.all().some((n) => n.leafIndex === leaf)) updateActivity(x.id, { status: "failed", note: NOT_IN_POOL }, s);
+      }
   } finally {
     schedulerStatus.finish();
   }

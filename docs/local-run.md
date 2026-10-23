@@ -109,7 +109,9 @@ The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the sa
    note and the relayer's fee note are on chain; the relayer's `GET /jobs` (with its operator token) shows the
    submission mined.
    A note shielded in the last ~13 minutes is newer than finality: it is spendable, but proven only once
-   its block is final.
+   its block is final. A private transfer received there waits — Activity shows it pending, out of the balance —
+   until a scan proves its leaf (within about half an hour); one the proven pool does not hold reads failed, and a
+   stored note its proven leaf contradicts is dropped (audit round 2, r24).
 3. **Send** to a second wallet's `pp1…` address (its **Receive** screen shows it with a QR) → the transfer stays inside
    the pool; the recipient's wallet finds the note by itself — within ten minutes while unlocked, at once when it opens
    Activity or Receive, or at its next unlock — and Activity shows it as `Private Receive`.

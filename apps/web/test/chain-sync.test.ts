@@ -168,6 +168,8 @@ describe("note discovery from chain (spec §12 envelope)", () => {
       spent: 0,
       refunds: 0,
       received: [{ leafIndex: 5, vaultId: BigInt(VAULT), amount: 3n * 10n ** 17n, txHash: "0x" + "33".repeat(31) + "05" }],
+      pending: [], // no light client on this chain: nothing waits for a proof (audit round 2, r24)
+      proven: null,
     });
     const mine = noteStore.all().slice(before);
     expect(mine.map((n) => n.leafIndex)).toEqual([0, 5]);
@@ -178,7 +180,7 @@ describe("note discovery from chain (spec §12 envelope)", () => {
     expect(mine[1].counter, "the sender's secret: no counter of ours").toBeUndefined();
     expect(noteStore.balance(BigInt(VAULT))).toBe(13n * 10n ** 17n);
     const again = await scanNotes({ masterSeed: seed, deployment });
-    expect(again).toEqual({ scanned: 4, found: 2, added: 0, spent: 0, refunds: 0, received: [] });
+    expect(again).toEqual({ scanned: 4, found: 2, added: 0, spent: 0, refunds: 0, received: [], pending: [], proven: null });
     expect(noteStore.all().length).toBe(before + 2);
   });
   it("marks a discovered note spent when the core's nullifier set says so; another wallet finds nothing", async () => {
@@ -192,6 +194,6 @@ describe("note discovery from chain (spec §12 envelope)", () => {
       spentFlag = false;
     }
     const other = await scanNotes({ masterSeed: utf8ToBytes("someone else"), deployment });
-    expect(other).toEqual({ scanned: 4, found: 0, added: 0, spent: 0, refunds: 0, received: [] });
+    expect(other).toEqual({ scanned: 4, found: 0, added: 0, spent: 0, refunds: 0, received: [], pending: [], proven: null });
   });
 });

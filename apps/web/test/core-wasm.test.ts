@@ -82,6 +82,8 @@ async function syncPlanScan(label: string) {
     spent: 0,
     refunds: 0,
     received: [{ leafIndex: 8, vaultId: BigInt(VAULT), amount: 3n * 10n ** 17n, txHash: "0x" + "33".repeat(31) + "08" }], // the transfer to us (no counter of ours)
+    pending: [], // no light client on this chain: nothing waits for a proof (audit round 2, r24)
+    proven: null,
   });
   const mine = noteStore.all();
   expect(mine.map((n) => n.leafIndex)).toEqual([0, 8]);
