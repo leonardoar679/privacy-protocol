@@ -1,7 +1,7 @@
 # The offline gates on every push to main and every pull request (V6 Stage 2; Privacy Wallet Web spec v2.0 §17, doc
 # §69 and §83): the lockfile check, `npm ci`, then `scripts/verify-all.mjs --ci` — the typecheck of every workspace,
 # lint, import case, documentation paths, the unit suites, the privacy-leakage gate, the build with its pins, forge, the
-# dependency audit and the dependency review against the parent commit.
+# dependency audit and the dependency review against what the push or the pull request started from.
 # Not here, by design (they run on a workstation through verify-all): the Rust core (--rust: an offline vendored crate
 # set), the live suites (--live: provider quota and keys), the screenshot harness (--browser: baselines are per
 # platform) and the local-stack browser run (a devnet, the services, a browser).
@@ -17,7 +17,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # a push to main is never cancelled by the next one (audit round 2, r53): its dependency review is the only one of its commits
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
@@ -26,10 +27,13 @@ jobs:
     env:
       # the Private AI SDK is a separate clone (docs/private-ai.md): without it the build carries the stub that says so
       ZKAPI_SDK_DIR: /nonexistent
+      # the dependency review compares the lockfile with what the push or the pull request started from (audit round 2, r53):
+      # with the parent commit alone, a lockfile change in any earlier commit of a push was never compared
+      DEPENDENCY_BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2 # the dependency review compares the lockfile with the parent commit
+          fetch-depth: 0 # the dependency review reads the lockfile at DEPENDENCY_BASE
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

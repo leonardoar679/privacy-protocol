@@ -36,6 +36,14 @@ const cargo = process.env.CARGO ?? "cargo";
 const circuitsBuilt = existsSync(join(root, "circuits/build/setup/transaction_final.zkey")) && existsSync(join(root, "circuits/build/transaction_js/transaction.wasm"));
 const ledgerFile = argv.includes("--ledger") ? argv[argv.indexOf("--ledger") + 1] : null;
 const ci = argv.includes("--ci");
+// the dependency review's base (audit round 2, r53): in CI the push's own `before`, or the pull request's base (ci.yml sets
+// DEPENDENCY_BASE; HEAD~1 had seen a push's last commit only); on a workstation the last pushed state, so every commit not
+// pushed yet is reviewed with the working tree (HEAD had seen the uncommitted change only). A base this clone cannot read (a
+// new branch's zero SHA, a commit a force-push dropped) falls back to the parent: the review then compares something, never
+// "nothing to compare"
+const hasRef = (ref) => spawnSync("git", ["rev-parse", "--verify", "--quiet", ref], { cwd: root, stdio: "ignore" }).status === 0;
+const givenBase = process.env.DEPENDENCY_BASE;
+const dependencyBase = givenBase && hasRef(`${givenBase}^{commit}`) ? givenBase : ci ? "HEAD~1" : hasRef("origin/main") ? "origin/main" : "HEAD";
 // V6 Stage 2: Prettier checks the code V6 adds (the earlier passes keep their style until a one-shot reformat); each stage
 // appends its new files and directories here
 const PRETTIER_FILES = [".github/workflows/ci.yml", ".prettierrc.json", "tsconfig.base.json", "scripts/check-lockfile.mjs", "scripts/dependency-review.mjs", "scripts/check-import-case.mjs", "scripts/check-doc-paths.mjs", "apps/web/src/zkapi/unavailable.ts", "packages/sdk/src/wallet/discovery.ts", "apps/web/src/platform/activeTab.ts", "apps/web/test/active-tab.test.ts",
@@ -91,7 +99,7 @@ const steps = [
   // V6 Stage 2 (spec v2.0 §17; doc §69): what npm ci installs is what the registry published; relative imports keep their
   // exact case (the CI runner's file system is case-sensitive); every TypeScript workspace typechecks
   { name: "lockfile (v3; every package from the npm registry with a sha512 integrity; @privacy-wallet/* only as workspace links; no file: / git / http dependency; nested lockfiles only in the tool directories)", cwd: ".", cmd: process.execPath, args: ["scripts/check-lockfile.mjs"] },
-  { name: `dependency review (the lockfile against ${ci ? "the parent commit" : "HEAD"}: added, changed and removed packages; a cryptography-sensitive package or an install script needs a dated line in docs/dependency-reviews.md)`, cwd: ".", cmd: process.execPath, args: ["scripts/dependency-review.mjs", "--base", ci ? "HEAD~1" : "HEAD"] },
+  { name: `dependency review (the lockfile against ${dependencyBase}: added, changed and removed packages; a cryptography-sensitive package or an install script needs a dated line in docs/dependency-reviews.md)`, cwd: ".", cmd: process.execPath, args: ["scripts/dependency-review.mjs", "--base", dependencyBase] },
   { name: "import case (every relative import of apps/, packages/, tests/ and scripts/ names its file with the exact case)", cwd: ".", cmd: process.execPath, args: ["scripts/check-import-case.mjs"] },
   // V6 Stage 4 (spec v2.0 §4): no relative import crosses a workspace; a package never imports an app; an engine never imports
   // React or the UI; the UI never imports an engine; every @privacy-wallet/* import declared, the graph acyclic; one viem client
