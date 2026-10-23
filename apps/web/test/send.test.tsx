@@ -31,6 +31,7 @@ const HASH2 = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { transfer: { amount: bigint; recipient: string }[]; withdraw: { amount: bigint; recipient: string }[] } = { transfer: [], withdraw: [] };
 let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" = "ok";
 let feeReads = 0; // the relayer's terms read (audit round 2, r09: "Back to review" reads them again)
+let maxReads = 0; // what a spend of every note leaves after its merges, asked (audit round 2, r08)
 function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string}`, leafIndex?: number) {
   for (const e of [
     { type: "fee-terms" },
@@ -57,6 +58,10 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
         info: { feePercentBps: 100 },
         fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n },
       };
+    },
+    maxSpendable: async () => {
+      maxReads++;
+      return 2_997n * 10n ** 15n; // three 1 ETH notes less the fees of the merge and of the spend
     },
     privateTransfer: async (o: { amount: bigint; recipient: string; onEvent?: (e: EngineEvent) => void }) => {
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
@@ -311,6 +316,22 @@ describe("Send (spec v2.0 §7.4)", () => {
     } finally {
       act(() => setLocale("en"));
     }
+  });
+
+  it("Max pressed before the destination (the amount field comes first) leaves room for the merges a spend of three notes pays (audit round 2, r08)", async () => {
+    await unlocked(10n ** 18n);
+    for (const leafIndex of [1, 2])
+      noteStore.add({
+        note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: BigInt(10 + leafIndex) },
+        leafIndex,
+        noteData: "0x",
+        spent: false,
+      });
+    mount();
+    maxReads = 0;
+    fireEvent.click(screen.getByTestId("amount-max"));
+    await waitFor(() => expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("2.997"));
+    expect(maxReads, "never the whole balance of 3").toBe(1);
   });
 
   it("an address that is not one is refused with its reason; the connected wallet's own address is flagged; more than the protected balance is refused", async () => {

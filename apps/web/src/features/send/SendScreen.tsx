@@ -329,9 +329,11 @@ export function SendScreen(p: SendScreenProps) {
           ...(assets.length > 1 ? { onAsset: () => setPicking(true) } : {}),
           ...(balance > 0n
             ? {
-                // the merges a spend of every note needs are paid out of it (the audit's unverified m55)
+                // the merges a spend of every note needs are paid out of it (the audit's unverified m55), whatever the destination
+                // (audit round 2, r08): the amount field comes first, and a Max pressed before it was the whole balance —
+                // refused at the confirmation for the merges a spend of three notes or more pays
                 onMax: () => {
-                  if (noteStore.unspent(BigInt(asset.vault)).length <= 2 || !p.deployment || !relayed) return setAmount(formatAmount(asset, balance));
+                  if (noteStore.unspent(BigInt(asset.vault)).length <= 2 || !p.deployment) return setAmount(formatAmount(asset, balance));
                   void maxSpendable(p.deployment, asset.vault).then(
                     (m) => setAmount(formatAmount(asset, m)),
                     () => setAmount(formatAmount(asset, balance)),
