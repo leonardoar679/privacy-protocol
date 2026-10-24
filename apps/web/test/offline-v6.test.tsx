@@ -9,7 +9,8 @@ import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/sched
 import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useConnectivity, useScheduler } from "../src/hooks";
-import { PROBE_MS, probe, startConnectivity } from "../src/platform/connectivity";
+import { PROBE_MS, probe, startConnectivity, SWAP_CLOSED_STATES } from "../src/platform/connectivity";
+import { CLOSED_STATES } from "@privacy-wallet/sdk/swapFunding";
 import { FAILURES_TO_OFFLINE } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { en } from "../src/app/i18n/en";
 
@@ -64,6 +65,10 @@ describe("offline (doc §75)", () => {
       if (url.endsWith("/info")) throw new TypeError("Failed to fetch"); // the relayer is down
       return new Response("{}", { status: 200 });
     });
+    // a swap under way: the swap service is one this wallet uses (audit round 2, n21)
+    session.update((j) => {
+      j.swaps = [{ orderId: "0x" + "01".repeat(32), state: "funded" } as never];
+    });
     try {
       await probe();
       expect(
@@ -94,6 +99,43 @@ describe("offline (doc §75)", () => {
       ).toBe(false);
     } finally {
       settings.reset();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a wallet with no swap under way never tells the swap service it is open (audit round 2, n21)", async () => {
+    expect(SWAP_CLOSED_STATES, "the closed states the module keeps are swapFunding's").toEqual(CLOSED_STATES);
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      asked.push(String(input instanceof Request ? input.url : input));
+      throw new TypeError("Failed to fetch");
+    });
+    try {
+      for (let i = 0; i < FAILURES_TO_OFFLINE; i++) connectivity.unreachable();
+      await probe();
+      expect(
+        asked.some((u) => u.endsWith("/v1/status")),
+        "no swap: the swap service is not asked",
+      ).toBe(false);
+      session.update((j) => {
+        j.swaps = [{ orderId: "0x" + "02".repeat(32), state: "completed" } as never];
+      });
+      asked.length = 0;
+      await probe();
+      expect(
+        asked.some((u) => u.endsWith("/v1/status")),
+        "a closed swap only: still not",
+      ).toBe(false);
+      session.update((j) => {
+        j.campaigns = [{ id: "c1", state: "running" } as never];
+      });
+      asked.length = 0;
+      await probe();
+      expect(
+        asked.some((u) => u.endsWith("/v1/status")),
+        "a protected execution under way: asked",
+      ).toBe(true);
+    } finally {
       fetchSpy.mockRestore();
     }
   });
