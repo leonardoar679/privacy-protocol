@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ADDRESS_LIKE, assertSanitized, checkTrade, parseTradeCheck, roundSignificant, tradeCheckMessages, tradeSummary, type TradeSummary } from "../src/zkapi/tradeCheck";
 import type { InferenceAccess } from "../src/zkapi/policy";
+import { onRequest, type RequestRecord } from "@privacy-wallet/privacy-engine/transport/http";
 
 const score = { provider: "thorchain", total: 80, components: { price: 80, security: 90, privacy: 70, latency: 60, liquidity: 80, reliability: 90 } };
 const summary = () => tradeSummary({
@@ -65,6 +66,25 @@ describe("the trade summary", () => {
     for (const text of [body.messages[0].content]) expect(text.toLowerCase()).toMatch(/never use the words atomic or anonymous/);
   });
 
+  it("without a fetch of the caller's it goes through the inference transport: announced, under the policy (audit round 2, n51/n73)", async () => {
+    const heard: RequestRecord[] = [];
+    const off = onRequest((r) => heard.push(r));
+    const real = globalThis.fetch;
+    const asked: RequestInit[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      asked.push(init ?? {});
+      return new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    try {
+      const access: InferenceAccess = { mode: "ephemeral-key", apiKey: "k", baseUrl: "https://inference.example/v1", spendingLimitUsd: 1, headers: { authorization: "Bearer k" }, release: () => {} };
+      await checkTrade(access, "openai/gpt-4o-mini", summary());
+      expect(heard.map((r) => [r.purpose, r.host])).toEqual([["inference", "inference.example"]]);
+      expect(asked[0]).toMatchObject({ credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
+    } finally {
+      globalThis.fetch = real;
+      off();
+    }
+  });
   it("the AI module imports nothing that signs or submits (plan §78)", () => {
     const src = readFileSync(fileURLToPath(new URL("../src/zkapi/tradeCheck.ts", import.meta.url)), "utf8");
     const imports = [...src.matchAll(/^import\s+(type\s+)?[^;]*?from\s+"([^"]+)";/gm)].map((m) => ({ typeOnly: !!m[1], from: m[2] }));

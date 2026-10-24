@@ -21,6 +21,16 @@ const FORBIDDEN = "\\b(anonymous|anonymity|mixer|untraceable|undetectable)\\b";
 const forbiddenWord = (selector) => ({ selector, message: "Spec §18: the wallet never says anonymous, mixer, untraceable or undetectable; say private, protected, shielded, reduced public linkage." });
 const RADIX = { group: ["@radix-ui/*"], message: "Spec §5: Radix is wrapped once, in the UI package's primitives (packages/ui/src/primitives)." };
 const PURE = "Spec v2.0 §7: a View is pure — a view-model in, callbacks out; the screen's model.ts reads the engine and the stores.";
+// fetch handed on as a value (a default parameter, an argument, a variable, a property) or called on a global — the call rule
+// alone had let `fetchImpl: typeof fetch = fetch` past it (audit round 2, n73)
+const FETCH_VALUE = {
+  selector: ':matches(AssignmentPattern > Identifier.right, CallExpression > Identifier.arguments, VariableDeclarator > Identifier.init, Property > Identifier.value)[name="fetch"]',
+  message: "Spec §7: fetch is never handed on either — pass fetchFor(purpose) from the privacy engine's transport.",
+};
+const FETCH_GLOBAL = {
+  selector: 'CallExpression > MemberExpression.callee[property.name="fetch"][object.name=/^(globalThis|window|self)$/]',
+  message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts).",
+};
 const ETHEREUM_RULE = { selector: 'MemberExpression[property.name="ethereum"]', message: "Spec §7: the injected wallet is read only by the wallet engine (packages/wallet-engine/src/injected.ts)." };
 
 export default tseslint.config(
@@ -47,6 +57,8 @@ export default tseslint.config(
         { selector: 'MemberExpression[object.name="window"][property.name=/^(localStorage|sessionStorage)$/]', message: "Spec §8: only src/storage touches the browser's storage." },
         ETHEREUM_RULE,
         { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
+        FETCH_VALUE,
+        FETCH_GLOBAL,
       ],
     },
   },
@@ -82,6 +94,8 @@ export default tseslint.config(
         { selector: 'JSXAttribute[name.name="style"]', message: "Spec §5: a screen composes the design system and carries no inline style." },
         { selector: "JSXText[value=/[A-Za-z]{3,}/]", message: "Spec §19: user-facing text comes from the message catalog (useT)." },
         { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
+        FETCH_VALUE,
+        FETCH_GLOBAL,
       ],
     },
   },
@@ -97,6 +111,8 @@ export default tseslint.config(
         { selector: "JSXText[value=/[A-Za-z]{3,}/]", message: "Spec §19: user-facing text comes from the message catalog (useT)." },
         { selector: 'MemberExpression[object.name="window"][property.name=/^(localStorage|sessionStorage)$/]', message: "Spec §8: only src/storage touches the browser's storage." },
         { selector: 'CallExpression[callee.name="fetch"]', message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts)." },
+        FETCH_VALUE,
+        FETCH_GLOBAL,
       ],
     },
   },

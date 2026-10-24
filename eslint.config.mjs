@@ -51,6 +51,16 @@ const FETCH = {
   selector: 'CallExpression[callee.name="fetch"]',
   message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts).",
 };
+// fetch handed on as a value or called on a global (audit round 2, n73): the call rule alone had let a default parameter past
+const FETCH_VALUE = {
+  selector:
+    ':matches(AssignmentPattern > Identifier.right, CallExpression > Identifier.arguments, VariableDeclarator > Identifier.init, Property > Identifier.value)[name="fetch"]',
+  message: "Spec §7: fetch is never handed on either — pass fetchFor(purpose) from the privacy engine's transport.",
+};
+const FETCH_GLOBAL = {
+  selector: 'CallExpression > MemberExpression.callee[property.name="fetch"][object.name=/^(globalThis|window|self)$/]',
+  message: "Spec §7: every request goes through the privacy engine's transport (packages/privacy-engine/src/transport/http.ts).",
+};
 const ETHEREUM = {
   selector: 'MemberExpression[property.name="ethereum"]',
   message: "Spec §7: the injected wallet is read only by the wallet engine (packages/wallet-engine/src/injected.ts).",
@@ -91,7 +101,7 @@ export default tseslint.config(
           ],
         },
       ],
-      "no-restricted-syntax": ["error", forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`), STORAGE_MEMBER, FETCH],
+      "no-restricted-syntax": ["error", forbiddenWord(`TemplateElement[value.cooked=/${FORBIDDEN}/i]`), STORAGE_MEMBER, FETCH, FETCH_VALUE, FETCH_GLOBAL],
     },
   },
   {
@@ -124,6 +134,8 @@ export default tseslint.config(
         STORAGE_MEMBER,
         ETHEREUM,
         FETCH,
+        FETCH_VALUE,
+        FETCH_GLOBAL,
       ],
     },
   },

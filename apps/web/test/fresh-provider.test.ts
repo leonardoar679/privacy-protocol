@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import { keccak256, parseTransaction, recoverTransactionAddress, toHex, type Hex } from "viem";
 import { deriveFundingKey, freshAccountProvider } from "../src/zkapi/freshAccountProvider";
+import { onRequest, type RequestRecord } from "@privacy-wallet/privacy-engine/transport/http";
 
 const CHAIN_ID = 11155111;
 const raws: Hex[] = [];
@@ -87,6 +88,18 @@ describe("fresh funding provider (EIP-1193 over a local key)", () => {
     expect(tx.nonce).toBe(7);
     expect(tx.chainId).toBe(CHAIN_ID);
     expect((await recoverTransactionAddress({ serializedTransaction: raws[0] })).toLowerCase()).toBe(key.address.toLowerCase());
+  });
+  it("reads and broadcasts through the privacy engine's transport: every request announced as rpc (audit round 2, n51)", async () => {
+    const heard: RequestRecord[] = [];
+    const off = onRequest((r) => heard.push(r));
+    try {
+      const p = freshAccountProvider(key.privateKey, rpcUrl, CHAIN_ID);
+      expect(await p.request({ method: "eth_getBalance", params: [key.address, "latest"] })).toBe("0xde0b6b3a7640000");
+      expect(heard.length, "announced").toBeGreaterThan(0);
+      expect(heard.every((r) => r.purpose === "rpc" && r.host === "127.0.0.1")).toBe(true);
+    } finally {
+      off();
+    }
   });
   it("forwards reads to the pinned RPC and refuses other senders and message signing", async () => {
     const p = freshAccountProvider(key.privateKey, rpcUrl, CHAIN_ID);

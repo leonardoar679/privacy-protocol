@@ -3,8 +3,9 @@
 // pool). The zkAPI SDK talks to "the connected wallet" through EIP-1193; this is a minimal provider
 // over a locally derived key: it answers accounts / chain, signs and broadcasts transactions with
 // viem's local account, and forwards every read to the pinned public RPC. No extension involved.
-import { createPublicClient, createWalletClient, http, keccak256, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, keccak256, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { viemTransport } from "@privacy-wallet/privacy-engine/transport/http";
 
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const enc = new TextEncoder();
@@ -31,7 +32,9 @@ export interface FreshAccountProvider {
 export function freshAccountProvider(privateKey: Hex, rpcUrl: string, chainId: number): FreshAccountProvider {
   const account = privateKeyToAccount(privateKey);
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } } as const;
-  const transport = http(rpcUrl, { fetchOptions: { credentials: "omit", redirect: "error" } });
+  // the privacy engine's transport (audit round 2, n51): viem's plain http transport had read and broadcast outside the
+  // policy — no allowlist, no announcement, no no-referrer
+  const transport = viemTransport(rpcUrl);
   const reads = createPublicClient({ chain, transport });
   const signer = createWalletClient({ account, chain, transport });
   const listeners = new Map<string, Set<(...a: unknown[]) => void>>();

@@ -93,8 +93,12 @@ export function parseTradeCheck(text: string): TradeCheck {
   return { ...empty, bestRoute: text.trim() };
 }
 
-/** Send the sanitized summary to the private session and read the structured answer. */
-export async function checkTrade(access: InferenceAccess, model: string, summary: TradeSummary, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<TradeCheck> {
+/**
+ * Send the sanitized summary to the private session and read the structured answer — through the inference transport unless a
+ * caller hands its own fetch (audit round 2, n51/n73): the global fetch had been the default, outside the policy (no allowlist,
+ * no announcement for the leakage gate, no no-store or no-referrer).
+ */
+export async function checkTrade(access: InferenceAccess, model: string, summary: TradeSummary, signal?: AbortSignal, fetchImpl?: typeof fetch): Promise<TradeCheck> {
   assertSanitized(summary);
   let text = "";
   for await (const chunk of chatStream(access, model, tradeCheckMessages(summary), signal, fetchImpl)) text += chunk;
