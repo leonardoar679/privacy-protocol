@@ -1041,6 +1041,10 @@ export const ko: Record<MessageKey, string> = {
   "receive.new": "새 주소",
   "receive.yourAddress": "내 주소",
   "receive.generate": "비공개 수신 주소 만들기",
+  "fresh.unreadable":
+    "새 주소는 활동 기록을 기다립니다. 기록을 읽을 수 없어서 지금 예약한 주소는 다음 잠금 후 다시 제공됩니다. 먼저 백업을 복원하거나 기록을 따로 보관하세요.",
+  "fresh.notKept":
+    "새 주소는 데이터를 보관하는 브라우저를 기다립니다. 이 브라우저가 지갑의 데이터를 보관하지 않아 지금 예약한 주소는 이 탭을 닫으면 다시 제공됩니다. 공간을 확보하거나 사이트 데이터를 보관하는 브라우저를 사용하세요.",
   // V5 Stage 8: the Review, the Swap screen, the protected execution's progress and wizard, the recovery screen
   "review.moment.commit.title": "스왑 검토",
   "review.moment.commit.what": "확인하면 주문이 확정되고, 일회용 에스크로에 자금을 넣을 비공개 출금이 예약됩니다.",

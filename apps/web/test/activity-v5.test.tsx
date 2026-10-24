@@ -84,6 +84,22 @@ describe("the screens (spec §3.10)", () => {
     render(<Receive masterSeed={session.state().seed!} />);
     expect(session.journal().schedule.find((a) => a.kind === "discovery")!.dueAt).toBeLessThanOrEqual(Date.now());
   });
+  it("Receive reserves no address this browser would not keep, and says why: it would be handed out again (audit round 2, n48)", () => {
+    const refused = vi.spyOn(session, "storageRefused").mockReturnValue(true);
+    try {
+      render(<Receive masterSeed={session.state().seed!} />);
+      fireEvent.click(screen.getByTestId("receive-evm"));
+      fireEvent.click(screen.getByTestId("receive-generate"));
+      expect(screen.getByTestId("receive-unsaved").textContent).toBe(t("fresh.notKept"));
+      expect(screen.queryByTestId("receive-address"), "no address shown").toBeNull();
+      expect(session.journal().chainIndexes.evm ?? 0, "nothing reserved").toBe(0);
+    } finally {
+      refused.mockRestore();
+    }
+    fireEvent.click(screen.getByTestId("receive-generate"));
+    expect(screen.getByTestId("receive-address").textContent).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(screen.queryByTestId("receive-unsaved")).toBeNull();
+  });
   it("a V6 follow-up: opening Activity looks for notes (at most once a minute); a transfer received has its row; a scan that failed raises no funding warning", () => {
     resetDiscoveryMemory();
     recordActivity({ id: "receive:41", kind: "receive", asset: "ETH", decimals: 18, amount: (25n * 10n ** 16n).toString(), status: "completed", ref: HASH, at: NOW - 1000 });

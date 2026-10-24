@@ -19,7 +19,7 @@ import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wall
 import { atLeast, availablePrice, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { destinationStatusWords, destinationWords } from "../destinationWords";
+import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -240,9 +240,17 @@ export function SendScreen(p: SendScreenProps) {
       setStatus(t("send.notEnough", { symbol: asset.symbol }));
       return;
     }
-    // the fresh address is reserved at the first confirmation and kept for a retry of this send
-    const recipient =
-      destinationKind !== "fresh" ? dest.address : reservedFor(dest.address) ? reserved!.address : consumeFreshAddress(p.masterSeed, "evm").address;
+    // the fresh address is reserved at the first confirmation and kept for a retry of this send; never one the journal cannot
+    // keep (audit round 2, n48): it would be handed out again after the next lock
+    let recipient: string;
+    try {
+      recipient = destinationKind !== "fresh" ? dest.address : reservedFor(dest.address) ? reserved!.address : consumeFreshAddress(p.masterSeed, "evm").address;
+    } catch (e) {
+      const words = unsavedAddressWords(e);
+      if (!words) throw e;
+      setStatus(t(words));
+      return;
+    }
     if (destinationKind === "fresh") setReserved({ address: recipient, used: false });
     // the record's fee lines say what the page said: the privacy fee when there is one, the relayer's charge or who pays the network
     const feeLines = [

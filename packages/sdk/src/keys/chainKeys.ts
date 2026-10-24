@@ -4,7 +4,7 @@
 // Bitcoin and Solana have their own. Keys are re-derived on demand and never persisted.
 import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { seedToPhrase } from "../wallet/keystore";
-import { session as defaultSession, type WalletSession } from "../wallet/session";
+import { assertJournalSaved, session as defaultSession, type WalletSession } from "../wallet/session";
 import { recordFreshAddress } from "../wallet/addressBook";
 
 const seeds = new WeakMap<Uint8Array, { of: Uint8Array; seed64: Uint8Array }>();
@@ -29,8 +29,13 @@ export function peekFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: Wa
   return accountFor(chain, chainSeed(masterSeed), nextIndex(chain, s));
 }
 
-/** Reserve and return a fresh address: the journal's counter advances, so it is never handed out again. */
+/**
+ * Reserve and return a fresh address: the journal's counter advances, so it is never handed out again. Refused while the
+ * journal is not saved — unreadable, or a browser keeping nothing past this tab (audit round 2, n48): the counter went back
+ * at the next lock, and the address out again, to another payer.
+ */
 export function consumeFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: WalletSession = defaultSession): ChainAccount {
+  assertJournalSaved(s);
   const index = nextIndex(chain, s);
   s.update((j) => { j.chainIndexes[chain] = index + 1; });
   const acct = accountFor(chain, chainSeed(masterSeed), index);

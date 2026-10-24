@@ -12,6 +12,7 @@ import { consumeFreshAddress, lastFreshAddress } from "@privacy-wallet/sdk/keys/
 import { findEntry } from "@privacy-wallet/sdk/wallet/addressBook";
 import { discoverSoon } from "@privacy-wallet/sdk/wallet/discovery";
 import { DestinationCard } from "../../components/DestinationCard";
+import { unsavedAddressWords } from "../destinationWords";
 import { useAddressBook } from "../../hooks";
 
 type Kind = "private-eth" | "bitcoin" | "solana" | "evm";
@@ -27,6 +28,7 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
   const [kind, setKind] = useState<Kind>("private-eth");
   const [shown, setShown] = useState<Partial<Record<ChainKind, ChainAccount>>>({});
   const [copied, setCopied] = useState(false);
+  const [unsaved, setUnsaved] = useState("");
   useAddressBook();
   // a V6 follow-up: whoever shows the address to be paid looks for the transfer — a scan now (at most once a minute),
   // then every ten minutes; a first launch stays request-free (spec v2.0 §10) until the wallet holds something
@@ -44,7 +46,17 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
 
   function generate() {
     if (!chain) return;
-    const acct = consumeFreshAddress(masterSeed, chain);
+    // never an address the journal cannot keep (audit round 2, n48): it would be handed out again after the next lock
+    let acct: ChainAccount;
+    try {
+      acct = consumeFreshAddress(masterSeed, chain);
+    } catch (e) {
+      const words = unsavedAddressWords(e);
+      if (!words) throw e;
+      setUnsaved(t(words));
+      return;
+    }
+    setUnsaved("");
     setShown((s) => ({ ...s, [chain]: acct }));
     setCopied(false);
   }
@@ -77,6 +89,7 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
         ) : (
           <Button size="lg" full onClick={generate} data-testid="receive-generate">{t("receive.generate")}</Button>
         )}
+        {unsaved ? <p className="ds-note-warn" data-testid="receive-unsaved">{unsaved}</p> : null}
       </div>
     </Page>
   );

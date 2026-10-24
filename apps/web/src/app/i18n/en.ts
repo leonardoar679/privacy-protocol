@@ -969,6 +969,8 @@ export const en = {
   "receive.new": "New address",
   "receive.yourAddress": "Your address",
   "receive.generate": "Generate a private receiving address",
+  "fresh.unreadable": "A new address waits for your activity record: it could not be read, so an address reserved now would be handed out again after the next lock. Restore a backup, or set the record aside, first.",
+  "fresh.notKept": "A new address waits for a browser that keeps your data: this one is not keeping the wallet's data, so an address reserved now would be handed out again once this tab closes. Free some space, or use a browser that keeps site data.",
   // V5 Stage 8: the Review, the Swap screen, the protected execution's progress and wizard, the recovery screen
   "review.moment.commit.title": "Review the swap",
   "review.moment.commit.what": "Confirming commits the order and schedules the private withdrawal that funds its one-time escrow.",

@@ -13,7 +13,7 @@
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
 import { stepsAmountAtFixedPoint } from "./model";
-import { destinationStatusWords, destinationWords } from "../destinationWords";
+import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
 import { availablePrice, formatUsd, higherTier, TIERS, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -227,7 +227,15 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   async function commit(provider?: string) {
     try { swapFactoryOf(deployment); } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
     const shown = quotes?.quotes.find((q) => q.provider === (provider ?? quotes.chosen?.provider)); // the minimum the user saw and approved
-    const dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chain).address; // reserve the fresh address now
+    let dest: string;
+    try {
+      dest = destinationEdited ? destination : consumeFreshAddress(masterSeed, chain).address; // reserve the fresh address now
+    } catch (e) {
+      const words = unsavedAddressWords(e); // never one the journal cannot keep (audit round 2, n48)
+      if (!words) throw e;
+      setError(t(words));
+      return;
+    }
     const req = { ...request(), destination: dest };
     const committedLint = lintItems, competition = quotes?.competition;
     const reviewHoldUntil = controls.reviewHold ? Date.now() + reviewHoldMinutes() * 60_000 : undefined; // institutional (spec §24)

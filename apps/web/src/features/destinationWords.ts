@@ -5,6 +5,7 @@ import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { CHAIN_NAMES } from "@privacy-wallet/protocol/wallet/destinations";
 import type { ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import type { MessageKey } from "../app/i18n/messages";
+import { JournalNotKept, JournalUnreadable } from "@privacy-wallet/sdk/wallet/session";
 import type { useT } from "../app/i18n/useT";
 
 const WORDS: Record<DestinationCode, MessageKey> = {
@@ -53,3 +54,7 @@ export function destinationWords(t: ReturnType<typeof useT>, r: { code: Destinat
     symbol: r.symbol ?? "",
   });
 }
+
+/** Why no fresh address was reserved: the journal cannot keep it (audit round 2, n48); null for any other error. */
+export const unsavedAddressWords = (e: unknown): MessageKey | null =>
+  e instanceof JournalNotKept ? "fresh.notKept" : e instanceof JournalUnreadable ? "fresh.unreadable" : null;

@@ -11,6 +11,7 @@ import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { commitOrder } from "@privacy-wallet/sdk/swapExecute";
 import { startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { fundEscrow } from "@privacy-wallet/sdk/swapFunding";
+import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 
@@ -63,6 +64,22 @@ describe("unreadable journal", () => {
     await expect(commitOrder({ session: s } as never)).rejects.not.toMatchObject({ code: "journal_unreadable" });
   });
 
+  it("while it is unreadable, no fresh address is reserved: the counter would go back at the next lock, the address out again (audit round 2, n48)", async () => {
+    const storage = memoryStorage();
+    const s = new WalletSession(storage, KDF);
+    await s.create("pw");
+    const seed = s.state().seed!.slice();
+    const first = consumeFreshAddress(seed, "evm", s);
+    s.lock();
+    storage.set(JOURNAL_KEY, JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "22".repeat(64) }));
+    expect(await s.unlock("pw")).toBe(true);
+    expect(peekFreshAddress(seed, "evm", s).address, "the empty journal in memory would hand out the first one again").toBe(first.address);
+    expect(() => consumeFreshAddress(seed, "evm", s)).toThrow(/journal could not be read/);
+    expect(s.journal().chainIndexes, "nothing reserved").toEqual({});
+    s.discardUnreadableJournal();
+    expect(consumeFreshAddress(seed, "bitcoin", s).index, "saved again: reserved").toBe(0);
+  });
+
   it("while the browser keeps nothing past this tab, no swap is committed, started or funded: its record would die with the tab (audit round 2, n46)", async () => {
     let refused = true;
     const storage = Object.defineProperty(memoryStorage(), "refused", { get: () => refused });
@@ -72,6 +89,7 @@ describe("unreadable journal", () => {
     await expect(commitOrder({ session: s } as never)).rejects.toMatchObject({ code: "journal_not_kept" });
     expect(() => startCampaign({ session: s } as never)).toThrow(/not keeping the wallet's data/);
     await expect(fundEscrow({ session: s, stored: {} } as never)).rejects.toMatchObject({ code: "journal_not_kept" });
+    expect(() => consumeFreshAddress(s.state().seed!, "evm", s), "nor a fresh address (n48)").toThrow(JournalNotKept);
     refused = false; // a browser that keeps it
     expect(() => assertJournalSaved(s)).not.toThrow();
   });
