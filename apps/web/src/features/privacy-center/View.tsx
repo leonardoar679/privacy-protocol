@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Card, Collapsible, Page, ProtectionBadge, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { en, type MessageKey } from "../../app/i18n/en";
+import { hoursText } from "../../app/i18n/duration";
 
 export type CenterLevel = "high" | "medium" | "low";
 export type SectionId = "protection" | "wallet" | "network" | "transaction" | "stored" | "sent" | "advanced";
@@ -32,7 +33,15 @@ export interface CenterSection {
 export interface PostureView {
   /** the posture's overall word (V4: Excellent / Good / Reduced), mapped to the V6 levels here */
   overall: "Excellent" | "Good" | "Reduced" | null;
-  categories: { id: string; label: string; score: number | null; level: string | null; why: string[] }[];
+  /** `whyCodes`: each line's code and values, for the reader's language (audit round 2, n92); `why` is the English */
+  categories: {
+    id: string;
+    label: string;
+    score: number | null;
+    level: string | null;
+    why: string[];
+    whyCodes?: { code: string; vars?: Record<string, number> }[];
+  }[];
   limits: string[];
 }
 export interface PrivacyCenterModel {
@@ -97,6 +106,10 @@ function Row({ r }: { r: CenterRow }) {
   );
 }
 
+/** A line's values for the catalog: a delay window's ends as durations in the reader's units, the rest as they are. */
+const whyVars = (t: ReturnType<typeof useT>, vars: Record<string, number> | undefined): Record<string, string | number> | undefined =>
+  vars && Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, k === "from" || k === "to" ? hoursText(t, v) : v]));
+
 export function PrivacyCenterView({
   model: m,
   actions: a,
@@ -123,7 +136,7 @@ export function PrivacyCenterView({
                   {m.categories.map((c) => (
                     <div key={c.id} className="ds-stack-sm" data-category={c.id}>
                       <div className="ds-kv">
-                        <span>{c.label}</span>
+                        <span>{t(`privacyCenter.category.${c.id}` as MessageKey)}</span>
                         <span>
                           <span className="ds-note">{c.score === null ? "—" : `${c.score}/100`} </span>
                           <button type="button" className="ds-chip" aria-expanded={open === c.id} onClick={() => setOpen((v) => (v === c.id ? null : c.id))}>
@@ -133,7 +146,8 @@ export function PrivacyCenterView({
                       </div>
                       {open === c.id ? (
                         <ul className="ds-plain-list ds-note">
-                          {c.why.map((w, i) => (
+                          {/* the lines in the reader's language by their codes (audit round 2, n92); the English of a model without them */}
+                          {(c.whyCodes?.map((w) => t(`privacyCenter.why.${w.code}` as MessageKey, whyVars(t, w.vars))) ?? c.why).map((w, i) => (
                             <li key={i}>{w}</li>
                           ))}
                         </ul>

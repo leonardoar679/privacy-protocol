@@ -14,7 +14,7 @@ import { getAddress } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { resetLabels } from "@privacy-wallet/ui";
-import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
+import { LIMITS, privacyPosture } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { en } from "../src/app/i18n/en";
 import { ko } from "../src/app/i18n/ko";
 import { catalogReady, loadCatalog } from "../src/app/i18n/catalogs";
@@ -28,7 +28,9 @@ import { FIXTURES } from "../src/fixtures/registry";
 import { groupByDay, type ActivityRow } from "../src/features/activity/rows";
 import { detailModel } from "../src/features/activity/model";
 import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
-import { LIMIT_KEYS } from "../src/features/privacy-center/View";
+import { LIMIT_KEYS, PrivacyCenterView } from "../src/features/privacy-center/View";
+import { PRIVACY_CENTER_FIXTURES } from "../src/features/privacy-center/fixtures";
+import { hoursText } from "../src/app/i18n/duration";
 import { renderApp } from "./helpers/render";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { Providers } from "../src/app/Providers";
@@ -795,6 +797,49 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
     const protect = record({ kind: "protect", destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" } });
     expect(detailModel(rowOf(protect), kt).destination?.label).toBe(ko["activity.protectedBalance"]);
     expect(detailModel(rowOf(protect), et).destination?.label).toBe(en["activity.protectedBalance"]);
+  });
+
+  it("the Privacy Center's categories and their reasons in the reader's language; the English is the protocol's (audit round 2, n92)", async () => {
+    await loadCatalog("ko");
+    const kt = (k: MessageKey, v?: Vars) => t(k, v, "ko");
+    const et = (k: MessageKey, v?: Vars) => t(k, v, "en");
+    // every code the model gives has its English, equal to the protocol's sentence, and its Korean
+    const facts = (o: Partial<Parameters<typeof privacyPosture>[0]>) =>
+      privacyPosture({
+        poolSize: 1284,
+        delayWindow: [3600, 86_400],
+        privateSubmission: true,
+        rpcEndpoints: 2,
+        lightClient: true,
+        freshDestinations: true,
+        ...o,
+      });
+    const all = [
+      facts({}),
+      facts({ poolSize: null, delayWindow: [0, 0], privateSubmission: false, rpcEndpoints: 1, lightClient: false, freshDestinations: false }),
+      facts({ crossChain: { privacy: 80, linkPublic: true } }),
+      facts({ crossChain: { privacy: 80, linkPublic: false } }),
+    ];
+    for (const p of all)
+      for (const c of p.categories) {
+        expect(en[`privacyCenter.category.${c.id}` as MessageKey], c.id).toBe(c.label);
+        expect(ko[`privacyCenter.category.${c.id}` as MessageKey], c.id).toMatch(/[가-힣]/);
+        c.whyCodes!.forEach((w, i) => {
+          const vars = w.vars && Object.fromEntries(Object.entries(w.vars).map(([k, v]) => [k, k === "from" || k === "to" ? hoursText(et, v) : v]));
+          expect(et(`privacyCenter.why.${w.code}` as MessageKey, vars), w.code).toBe(c.why[i]);
+          expect(ko[`privacyCenter.why.${w.code}` as MessageKey], w.code).toMatch(/[가-힣]/);
+        });
+      }
+    // and the screen, every reason open, has no English word
+    setLocale("ko");
+    try {
+      render(<PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.protected} actions={{}} defaultAdvanced />);
+      for (const b of screen.getAllByRole("button", { name: kt("privacyCenter.why") })) fireEvent.click(b);
+      const words = englishWords(screen.getByTestId("privacy-categories"));
+      expect(words).toEqual([]);
+    } finally {
+      setLocale("en");
+    }
   });
 
   it("the wallet's limits are the protocol's, said in the reader's language", async () => {

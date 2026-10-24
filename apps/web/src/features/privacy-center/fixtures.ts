@@ -110,6 +110,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "The pool holds 1284 notes; with bucketed amounts and your delay window the effective set is about 369.",
           "Private transfers inside the pool show nothing but a transaction; only what leaves it has a public side.",
         ],
+        whyCodes: [{ code: "financial.pool", vars: { notes: 1284, set: 369 } }, { code: "financial.inside" }],
       },
       {
         id: "addresses",
@@ -120,6 +121,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "Every withdrawal, swap and receipt uses a fresh address of this wallet; your privacy address is shared only with people who pay you.",
           "An address you type by hand is yours to keep separate: the wallet warns when it is reused.",
         ],
+        whyCodes: [{ code: "addresses.fresh" }, { code: "addresses.typed" }],
       },
       {
         id: "network",
@@ -130,6 +132,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "A relayer submits your private transactions and is paid by a private fee note; your address never sends them.",
           "The relayer still sees your IP address (the web build cannot hide it).",
         ],
+        whyCodes: [{ code: "network.relayer" }, { code: "network.ip" }],
       },
       {
         id: "rpc",
@@ -141,6 +144,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "An Ethereum light client proves the pool before every transaction.",
           "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
+        whyCodes: [{ code: "rpc.quorum", vars: { n: 2 } }, { code: "rpc.lightClient" }, { code: "rpc.reads" }],
       },
       {
         id: "timing",
@@ -148,6 +152,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         score: 83,
         level: "Good",
         why: ["Swaps are funded at a random moment inside 1 h–24 h; a patient observer still sees when money moves."],
+        whyCodes: [{ code: "timing.window", vars: { from: 3600, to: 86400 } }],
       },
       {
         id: "crossChain",
@@ -158,6 +163,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "A swap pays from a one-time escrow to a fresh address of this wallet; the provider sees the escrow, the destination and the amount, never your permanent address.",
           "The route is chosen by its privacy score among live quotes; the Swap screen shows the level of the chosen one.",
         ],
+        whyCodes: [{ code: "crossChain.default" }, { code: "crossChain.route" }],
       },
     ],
     overallWord: "Good",
@@ -275,6 +281,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "The pool holds 1284 notes; with bucketed amounts and your delay window the effective set is about 369.",
           "Private transfers inside the pool show nothing but a transaction; only what leaves it has a public side.",
         ],
+        whyCodes: [{ code: "financial.pool", vars: { notes: 1284, set: 369 } }, { code: "financial.inside" }],
       },
       {
         id: "addresses",
@@ -282,6 +289,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         score: 40,
         level: "Reduced",
         why: ["Destinations are entered by hand: whoever knows an address knows the payments to it."],
+        whyCodes: [{ code: "addresses.entered" }],
       },
       {
         id: "network",
@@ -292,6 +300,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "A relayer submits your private transactions and is paid by a private fee note; your address never sends them.",
           "The relayer still sees your IP address (the web build cannot hide it).",
         ],
+        whyCodes: [{ code: "network.relayer" }, { code: "network.ip" }],
       },
       {
         id: "rpc",
@@ -303,6 +312,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "An Ethereum light client proves the pool before every transaction.",
           "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
+        whyCodes: [{ code: "rpc.single" }, { code: "rpc.lightClient" }, { code: "rpc.reads" }],
       },
       {
         id: "timing",
@@ -310,6 +320,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         score: 83,
         level: "Good",
         why: ["Swaps are funded at a random moment inside 1 h–24 h; a patient observer still sees when money moves."],
+        whyCodes: [{ code: "timing.window", vars: { from: 3600, to: 86400 } }],
       },
       {
         id: "crossChain",
@@ -320,6 +331,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
           "A swap pays from a one-time escrow to a fresh address of this wallet; the provider sees the escrow, the destination and the amount, never your permanent address.",
           "The route is chosen by its privacy score among live quotes; the Swap screen shows the level of the chosen one.",
         ],
+        whyCodes: [{ code: "crossChain.default" }, { code: "crossChain.route" }],
       },
     ],
     overallWord: "Reduced",
