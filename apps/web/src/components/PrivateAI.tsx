@@ -7,6 +7,7 @@ import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
+import { creditWalletProvider } from "../zkapi/creditWallet";
 import { aiSession } from "../zkapi/aiSession";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
@@ -89,12 +90,11 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   async function enable() {
     await run("Initializing the private credit wallet…", async () => {
       configureZkapi({ requestTestnetPassword });
-      if (fundingMode === "fresh") {
-        if (!cfg) throw new Error("browser-config.json not loaded");
-        zkapiClient.setWalletProvider(freshAccountProvider(fresh.privateKey, cfg.trusted_deployment.rpc_url, Number(cfg.trusted_deployment.chain_id)));
-      } else {
-        zkapiClient.setWalletProvider(null); // the injected wallet: its address funds the credit (not private)
-      }
+      if (fundingMode === "fresh" && !cfg) throw new Error("browser-config.json not loaded");
+      // the connected wallet is the one the connection chose; its address funds the credit (not private)
+      zkapiClient.setWalletProvider(
+        creditWalletProvider(fundingMode, () => freshAccountProvider(fresh.privateKey, cfg!.trusted_deployment.rpc_url, Number(cfg!.trusted_deployment.chain_id))),
+      );
       await zkapiClient.init();
       zkapiClient.subscribe((s: any) => setSnapshot(s));
       setSnapshot(zkapiClient.snapshot());
