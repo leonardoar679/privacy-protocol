@@ -245,8 +245,9 @@ export function SwapScreen(p: SwapScreenProps) {
   const expiresIn = expiresInOf(routeQuotes, now);
   const expired = !!quote && expiresIn !== null && expiresIn <= 0;
   const timing = fromAsset ? fundingTiming(BigInt(fromAsset.vault), units, now) : { ageSeconds: null, depositsSince: null };
-  const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol) : null;
-  const priceTo = availablePrice(prices.prices, to.ref.symbol);
+  // the USD lines' prices at the time of use (audit round 2, n18): one kept after failed refreshes is stale by then
+  const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol, Math.floor(now / 1000)) : null;
+  const priceTo = availablePrice(prices.prices, to.ref.symbol, Math.floor(now / 1000));
   const protectionPlan = quotes?.protection ?? null;
   // V6 Stage 13: the $50K band's protected execution runs here, automatically (no checkbox, no mode to choose; V4's
   // deliberate opt-out is under Advanced); above $100K the V3/V4 screens take a staged order. A swap into the protected

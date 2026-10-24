@@ -505,8 +505,10 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     { label: t("checks.formatValid"), state: !destination.trim() ? "idle" : destinationError ? "fail" : "ok" },
   ];
   const usdPerUnitOf = (): { from: number; to: number } | null => {
-    const from = availablePrice(priceStore.state().prices, fromAsset.symbol);
-    const toPrice = availablePrice(priceStore.state().prices, to.ref.symbol);
+    // usable at the time of use (audit round 2, n18): a price kept after failed refreshes is stale by then
+    const nowSec = Math.floor(Date.now() / 1000);
+    const from = availablePrice(priceStore.state().prices, fromAsset.symbol, nowSec);
+    const toPrice = availablePrice(priceStore.state().prices, to.ref.symbol, nowSec);
     return from && toPrice ? { from: Number(from.usd1e8) / 1e8 / 10 ** fromAsset.decimals, to: Number(toPrice.usd1e8) / 1e8 / 10 ** to.ref.decimals } : null;
   };
   const quoteView: QuoteView | null = chosen && chosenQuote ? {

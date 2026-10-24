@@ -107,10 +107,15 @@ const assetOf = (deployment: Deployment | null, c: Campaign): Asset => {
   return assets.find((a) => (a.token ?? "native").toLowerCase() === c.request.from.asset.toLowerCase()) ?? assets[0];
 };
 
-/** The Chainlink cross-rate (destination base units per source base unit, 1e18) from the price store, when both feeds are usable. */
-export function crossRateFromPrices(c: Campaign): bigint | null {
+/**
+ * The Chainlink cross-rate (destination base units per source base unit, 1e18) from the price store, when both feeds are
+ * usable at the time of use (audit round 2, n18): a price kept after failed refreshes is stale by then though its read was
+ * fresh, and the price-deviation pause had compared the market with it.
+ */
+export function crossRateFromPrices(c: Campaign, nowMs = Date.now()): bigint | null {
   const p = priceStore.state().prices;
-  const from = availablePrice(p, c.request.from.symbol), to = availablePrice(p, c.request.to.symbol);
+  const now = Math.floor(nowMs / 1000);
+  const from = availablePrice(p, c.request.from.symbol, now), to = availablePrice(p, c.request.to.symbol, now);
   if (!from || !to || to.usd1e8 <= 0n) return null;
   return (from.usd1e8 * 10n ** BigInt(c.request.to.decimals) * RATE_SCALE) / (to.usd1e8 * 10n ** BigInt(c.request.from.decimals));
 }
