@@ -10,6 +10,7 @@ import { Button, Card, Field, Page, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
+import { config } from "@privacy-wallet/sdk/config";
 import { registerSecondDevice, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
 import { forgetDeployment } from "@privacy-wallet/sdk/deploymentGuard";
 import { requestSystemNotifications } from "@privacy-wallet/sdk/wallet/notifications";
@@ -17,6 +18,9 @@ import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type Pr
 import { AddressBookPanel } from "../../components/protection/AddressBook";
 import { useStatusLines } from "./statusLines";
 import { useDeploymentFingerprint, useSettings } from "../../hooks";
+
+/** The relayers the build names (its first, then its list): the only ones a production build can reach. */
+const buildRelayers = (): string[] => [...new Set([config().relayer.url, ...config().relayer.fallbacks])];
 
 export function Advanced({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {
   const t = useT();
@@ -101,7 +105,22 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
               </select>
             </Field>
             {s.submission.kind === "relayer" ? (
-              <Field label={t("advanced.relayerUrl")} htmlFor="relayer-url"><Input id="relayer-url" value={s.submission.url} onChange={(e) => settings.set({ submission: { kind: "relayer", url: e.target.value } })} data-testid="relayer-url" /></Field>
+              // a production build reaches only the relayers it names (audit round 2, n79): its transport and its content security
+              // policy refuse any other, so the field offers those — a free URL only in a development build
+              config().production ? (
+                <Field label={t("advanced.relayerChoice")} htmlFor="relayer-url">
+                  <select id="relayer-url" className="ds-input" value={s.submission.url} onChange={(e) => settings.set({ submission: { kind: "relayer", url: e.target.value } })} data-testid="relayer-url">
+                    {buildRelayers().map((u) => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                    {buildRelayers().includes(s.submission.url) ? null : (
+                      <option value={s.submission.url} disabled>{`${s.submission.url} — ${t("advanced.relayerUnreachable")}`}</option>
+                    )}
+                  </select>
+                </Field>
+              ) : (
+                <Field label={t("advanced.relayerUrl")} htmlFor="relayer-url"><Input id="relayer-url" value={s.submission.url} onChange={(e) => settings.set({ submission: { kind: "relayer", url: e.target.value } })} data-testid="relayer-url" /></Field>
+              )
             ) : null}
           </div>
         </Card>

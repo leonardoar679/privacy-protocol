@@ -1578,6 +1578,8 @@ export const ko: Record<MessageKey, string> = {
   "advanced.submission.relayer": "릴레이어 (비공개: 비공개 수수료 노트로 지불하며, 내 주소로 제출하지 않음)",
   "advanced.submission.wallet": "연결된 지갑 (공개: 거래가 내 주소에서 전송됨)",
   "advanced.relayerUrl": "릴레이어 URL (어떤 릴레이어든 가능, 직접 제출이 대체 수단)",
+  "advanced.relayerChoice": "릴레이어 (이 빌드는 지정된 릴레이어에만 연결합니다. 직접 제출이 대체 수단)",
+  "advanced.relayerUnreachable": "이 빌드에서 연결할 수 없음",
   "advanced.maintenanceTitle": "보호 잔액 관리",
   "advanced.maintenanceToggle": "큰 잔액을 흔한 크기의 조각으로 유지 (한가한 시간에 비공개 자기 전송)",
   "advanced.feeCap": "일일 수수료 한도 (ETH)",

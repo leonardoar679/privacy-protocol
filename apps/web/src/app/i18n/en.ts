@@ -1490,6 +1490,8 @@ export const en = {
   "advanced.submission.relayer": "Relayer (private: paid by a private fee note; your address never submits)",
   "advanced.submission.wallet": "Connected wallet (public: the transaction is sent from your address)",
   "advanced.relayerUrl": "Relayer URL (any relayer; self-submission is the fallback)",
+  "advanced.relayerChoice": "Relayer (this build reaches the relayers it names; self-submission is the fallback)",
+  "advanced.relayerUnreachable": "not reachable from this build",
   "advanced.maintenanceTitle": "Protected balance maintenance",
   "advanced.maintenanceToggle": "Keep large balances in common-sized pieces (private self-transfers at quiet times)",
   "advanced.feeCap": "Daily fee cap (ETH)",
