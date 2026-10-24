@@ -73,8 +73,33 @@ function swapFees(r: ActivityRow, t: T): DetailModel["fees"] {
   ];
 }
 
-/** The amount a row shows: the record's input (a funded swap's with its fee note: what left), else the activity line's. */
+/**
+ * What a Protect put in the protected balance (audit round 2, n65): its input less the 1 % the router kept, exact — the note
+ * is made for it. Null for another kind, or a record from before that kept no such amount.
+ */
+function protectedNet(r: ActivityRow): bigint | null {
+  const rec = r.record;
+  if (rec?.kind !== "protect" || !rec.amounts.expectedOutput || !DIGITS.test(rec.amounts.expectedOutput) || !DIGITS.test(rec.amounts.input)) return null;
+  const net = BigInt(rec.amounts.expectedOutput);
+  return net <= BigInt(rec.amounts.input) ? net : null;
+}
+
+/** A Protect's fee lines, as its Review showed them: the privacy fee the router kept, and the network the connected wallet paid. */
+function protectFees(r: ActivityRow, net: bigint, t: T): DetailModel["fees"] {
+  const { asset, decimals, input } = r.record!.amounts;
+  return [
+    { label: t("screen.review.privacyFee"), value: amountFrom((BigInt(input) - net).toString(), asset, decimals) },
+    { label: t("screen.review.relayerFee"), value: { text: t("screen.send.paidByWallet") } },
+  ];
+}
+
+/**
+ * The amount a row shows: the record's input (a funded swap's with its fee note: what left; a Protect's net: what it
+ * protected — its row had read the gross, n65), else the activity line's.
+ */
 function rowAmount(r: ActivityRow): Amount {
+  const net = protectedNet(r);
+  if (r.record && net !== null) return amountFrom(net.toString(), r.record.amounts.asset, r.record.amounts.decimals);
   if (r.record) {
     const note = swapFeeNote(r);
     const input = note !== null ? (BigInt(r.record.amounts.input) + note).toString() : r.record.amounts.input;
@@ -169,13 +194,19 @@ export function stepsOf(r: OperationRecord, t: T): DetailStep[] {
 export function detailModel(r: ActivityRow, t: T): DetailModel {
   const rec = r.record;
   const amount = rowAmount(r);
-  const receive = rec?.amounts.outputAsset
-    ? rec.amounts.delivered
-      ? { amount: amountFrom(rec.amounts.delivered, rec.amounts.outputAsset, rec.amounts.outputDecimals ?? 18), approx: false }
-      : rec.amounts.expectedOutput
-        ? { amount: amountFrom(rec.amounts.expectedOutput, rec.amounts.outputAsset, rec.amounts.outputDecimals ?? 18), approx: true }
-        : null
-    : null;
+  const net = protectedNet(r);
+  // a Protect paid its input and received its net, exact (audit round 2, n65)
+  const pay = rec && net !== null ? amountFrom(rec.amounts.input, rec.amounts.asset, rec.amounts.decimals) : amount;
+  const receive =
+    rec && net !== null
+      ? { amount, approx: false }
+      : rec?.amounts.outputAsset
+        ? rec.amounts.delivered
+          ? { amount: amountFrom(rec.amounts.delivered, rec.amounts.outputAsset, rec.amounts.outputDecimals ?? 18), approx: false }
+          : rec.amounts.expectedOutput
+            ? { amount: amountFrom(rec.amounts.expectedOutput, rec.amounts.outputAsset, rec.amounts.outputDecimals ?? 18), approx: true }
+            : null
+        : null;
   const dest = rec?.destination;
   const destination = dest
     ? {
@@ -217,7 +248,7 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
     amount,
     usdCents: quotedCents(r),
     status: rowStatus(r),
-    pay: amount,
+    pay,
     receive,
     destination,
     // a line's keys when the record kept them (audit round 2, n91): the language read now, not the one of the day
@@ -226,7 +257,9 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
           label: f.labelKey ? t(f.labelKey as MessageKey, f.labelVars) : f.label,
           value: { text: f.valueKey ? t(f.valueKey as MessageKey) : f.value },
         }))
-      : swapFees(r, t),
+      : net !== null
+        ? protectFees(r, net, t)
+        : swapFees(r, t),
     steps: rec ? stepsOf(rec, t) : [],
     advanced,
     canRemove: r.finished && !!r.activity,

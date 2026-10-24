@@ -10,6 +10,8 @@ import { Activity } from "../src/features/activity/Activity";
 import { Detail } from "../src/features/activity/Detail";
 import { Receive } from "../src/features/wallet/Receive";
 import { buildRows, groupByDay } from "../src/features/activity/rows";
+import { rowView } from "../src/features/activity/model";
+import { displayAmount } from "../src/features/amounts";
 import { getOperation, newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
@@ -197,6 +199,21 @@ describe("the screens (spec §3.10)", () => {
     // the 1 % of what left (0.9995 ETH), and the rest of the note the funding paid
     expect(row("Privacy fee")).toContain("0.009995 ETH");
     expect(row("Relayer/network")).toContain("0.000505 ETH");
+  });
+  it("a Protect's row reads what it protected; its detail what it paid, the fee the router kept and who paid the network (audit round 2, n65)", () => {
+    const U = 10n ** 6n;
+    const protect = record({ id: "protect:65", kind: "protect", state: "COMPLETED", createdAt: NOW - 1000, updatedAt: NOW - 500, amounts: { asset: "USDC", decimals: 6, input: (5000n * U).toString(), expectedOutput: (4950n * U).toString() }, destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" }, refs: { txHashes: [HASH] }, history: [{ state: "COMPLETED", at: NOW - 500 }] });
+    putOperation(protect);
+    // the row as Activity shows it: what entered the protected balance, not the gross
+    const view = rowView(buildRows(session.journal(), [protect], false, t, NOW)[0], t);
+    expect(view.title).toBe("Protected USDC");
+    expect(`${displayAmount(view.amount)} ${view.amount.symbol}`).toBe("4,950 USDC");
+    render(<Detail id="protect:65" onBack={() => {}} />);
+    const row = (label: string) => screen.getByText(label).closest(".ds-review-row")?.textContent ?? "";
+    expect(row(t("activity.youPay"))).toContain("5,000 USDC");
+    expect(screen.getByTestId("detail-receive").textContent).toContain("4,950 USDC");
+    expect(row("Privacy fee")).toContain("50 USDC");
+    expect(row("Relayer/network")).toContain("Paid by your connected wallet");
   });
   it("a swap needing attention shows the recovery card in its detail: the refund hands a refund-only job to the executor, never a retry", async () => {
     const stored = storedSwap();
