@@ -48,18 +48,42 @@ export function createPrefsStore(): PrefsStore {
   const useIdb = hasIndexedDb();
   let queue: Promise<void> = Promise.resolve();
   const emit = () => { for (const l of listeners) l(); };
-  const persist = () => { if (!useIdb) return; const snapshot = JSON.stringify(current); queue = queue.then(() => idbPut("prefs", PREFS_KEY, snapshot), () => idbPut("prefs", PREFS_KEY, snapshot)).catch(() => undefined); };
+  // a store never read is never written (audit round 2, n24): a first read that failed had left the defaults in memory, and the
+  // next change wrote them over the stored backup times, experience and language once IndexedDB answered again. Until a read
+  // succeeds, this page's changes wait in `pending`; a write reads the store first and puts them on what it holds.
+  let loaded = !useIdb;
+  let pending: Partial<Prefs> = {};
+  let replace = false; // a reset not yet written: what is stored is not merged under it
+  const persist = () => {
+    if (!useIdb) return;
+    queue = queue
+      .then(async () => {
+        if (!loaded) await load();
+        if (!loaded) return; // still unreadable: the changes stay in memory and pending
+        const written = pending;
+        pending = {};
+        try {
+          await idbPut("prefs", PREFS_KEY, JSON.stringify(current));
+          replace = false;
+        } catch (e) {
+          pending = { ...written, ...pending };
+          throw e;
+        }
+      })
+      .catch(() => undefined);
+  };
   const load = async (): Promise<void> => {
     if (!useIdb) return;
     try {
       const raw = await idbGet("prefs", PREFS_KEY);
+      loaded = true;
       if (raw !== undefined) {
         const parsed = PrefsSchema.safeParse(JSON.parse(raw));
         // the screens hear only of a change: a read that finds what this page holds says nothing (a takeover's reload had
-        // re-applied a locale the page's URL no longer named)
-        if (parsed.success) { const changed = JSON.stringify(parsed.data) !== JSON.stringify(current); current = parsed.data; if (changed) emit(); } else persist(); // an unreadable preference is replaced by the defaults
+        // re-applied a locale the page's URL no longer named); this page's changes not yet written stay on top
+        if (parsed.success) { const next = PrefsSchema.parse({ ...(replace ? {} : parsed.data), ...pending, v: 1 }); const changed = JSON.stringify(next) !== JSON.stringify(current); current = next; if (changed) emit(); } else persist(); // an unreadable preference is replaced by the defaults
       }
-    } catch { /* what this page holds stands */ }
+    } catch { /* what this page holds stands; not read: nothing is written until a read succeeds */ }
   };
   const ready = load();
   return {
@@ -69,11 +93,12 @@ export function createPrefsStore(): PrefsStore {
     update: (patch) => {
       const next = PrefsSchema.parse({ ...current, ...patch, v: 1 }); // refuses an unknown key or a bad value before anything changes
       current = next;
+      pending = { ...pending, ...patch };
       persist();
       emit();
       return next;
     },
-    reset: () => { current = { ...DEFAULT_PREFS }; persist(); emit(); },
+    reset: () => { current = { ...DEFAULT_PREFS }; pending = { ...DEFAULT_PREFS }; replace = true; persist(); emit(); },
     subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
     flush: () => queue,
     reload: () => (queue = queue.then(load, load)),

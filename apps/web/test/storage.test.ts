@@ -119,6 +119,35 @@ describe("the secure store (spec §8)", () => {
     await r.ready;
     expect(r.get().experience, "an unreadable preference falls back to the defaults").toBe("simple");
   });
+  it("prefs: a first read that failed never writes the defaults over what is stored; the page's own change joins it (audit round 2, n24)", async () => {
+    const a = createPrefsStore();
+    await a.ready;
+    a.update({ experience: "advanced", locale: "ko", backup: { exportedAt: 1700000000000 } });
+    await a.flush();
+    // the next page's first read fails (IndexedDB busy for a moment)
+    const get = IDBObjectStore.prototype.get;
+    let fail = true;
+    IDBObjectStore.prototype.get = function (this: IDBObjectStore, key: IDBValidKey | IDBKeyRange) {
+      if (fail && this.name === "prefs") {
+        fail = false;
+        throw new DOMException("busy for a moment", "UnknownError");
+      }
+      return get.call(this, key);
+    };
+    try {
+      const b = createPrefsStore();
+      await b.ready;
+      expect(b.get().experience, "not read: the defaults in memory").toBe("simple");
+      b.update({ theme: "dark" });
+      await b.flush();
+      expect(b.get(), "read before it wrote: the stored values and its own change").toMatchObject({ experience: "advanced", locale: "ko", theme: "dark" });
+    } finally {
+      IDBObjectStore.prototype.get = get;
+    }
+    const r = createPrefsStore();
+    await r.ready;
+    expect(r.get()).toMatchObject({ experience: "advanced", locale: "ko", theme: "dark", backup: { exportedAt: 1700000000000 } });
+  });
   it("prefs: a page reads again what another page wrote, before it writes (the audit's unverified m46)", async () => {
     const a = createPrefsStore();
     const b = createPrefsStore();
