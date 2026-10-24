@@ -37,7 +37,9 @@ export type VerifyStatus =
   | { kind: "verified"; proof: PoolProof; leaves: number }
   | { kind: "unavailable"; reason: string }
   | { kind: "off" }
-  | { kind: "idle" };
+  | { kind: "idle" }
+  /** the last check failed, and why (audit round 2, n42) */
+  | { kind: "failed"; reason: string };
 
 class StatusStore {
   private s: VerifyStatus = { kind: "idle" };
@@ -118,9 +120,16 @@ export async function verifyTree(d: Deployment, tree: TreeState, onStatus?: (s: 
   else if (!specForChain(d.chainId)) s = { kind: "unavailable", reason: `no light client for chain ${d.chainId}: reads rest on the RPC quorum` };
   else {
     onStatus?.("Verifying the pool with the Ethereum light client…");
-    const proof = await provenPool(d, o);
-    await checkTreeAgainstProof(tree, proof);
-    s = { kind: "verified", proof, leaves: tree.nextLeafIndex };
+    try {
+      const proof = await provenPool(d, o);
+      await checkTreeAgainstProof(tree, proof);
+      s = { kind: "verified", proof, leaves: tree.nextLeafIndex };
+    } catch (e) {
+      // a failed check is what the status says (audit round 2, n42): only a success set it, and More → Advanced kept the last
+      // one's "Verified at finalized block …" after a refusal (the reason's first line, as the error names it)
+      verifyStatus.set({ kind: "failed", reason: (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 240) });
+      throw e;
+    }
   }
   verifyStatus.set(s);
   return s;

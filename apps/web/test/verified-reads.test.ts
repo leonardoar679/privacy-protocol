@@ -10,6 +10,7 @@ import { settings, defaultSettings } from "@privacy-wallet/sdk/wallet/settings";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
+import { readsLineOf } from "../src/features/more/statusLines";
 
 const leaves = (n: number) => Array.from({ length: n }, (_, i) => (i % 4 === 3 ? ZERO_LEAF : BigInt(1000 + i)));
 async function tree(n: number): Promise<TreeState> { const ls = leaves(n); const layers = await treeLayers(ls, TX_LEVELS); return { leaves: ls, root: layers.root, nextLeafIndex: n, notes: n, layers }; }
@@ -52,6 +53,11 @@ describe("verifyTree in the spend flows", () => {
     expect(session.journal().lightClient).toMatchObject({ chainId: "1" });
     // a lying RPC quorum: the proven pool has a different root
     await expect(verifyTree(dep(1), t, undefined, { sync: stubSync(15_000_001), prover: stubProver(12n, 999n) })).rejects.toThrow(TreeNotProven);
+    // and the status says so: the success before it no longer stands (audit round 2, n42)
+    expect(verifyStatus.get()).toMatchObject({ kind: "failed", reason: expect.stringMatching(/does not hash to the root/) });
+    const line = readsLineOf(true, dep(1), verifyStatus.get());
+    expect(line).toMatch(/^The last check failed: the RPC endpoints' tree does not hash to the root proven at finalized block 26000000 — refusing to act on it\. Every transaction checks again first/);
+    expect(line).not.toMatch(/Verified at/);
   });
   it("proves spent status at keccak256(nullifier ‖ 8), and stays off the network when off or on a devnet", async () => {
     const nf = 0xbeefn;
@@ -89,6 +95,7 @@ describe("verifyTree in the spend flows", () => {
     const down = (async () => { throw new Error("no RPC answered eth_getProof: fetch failed"); }) as any;
     await expect(verifyTree(dep(1), t, undefined, { sync, prover: down })).rejects.toThrow(/eth_getProof/);
     expect(syncs).toBe(3);
+    expect(verifyStatus.get(), "a proof that never came is a failed check too (n42)").toMatchObject({ kind: "failed", reason: "no RPC answered eth_getProof: fetch failed" });
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);
