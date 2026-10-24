@@ -568,6 +568,8 @@ export const en = {
   "op.error.not_this_spend.reason": "The transaction we were given back does not spend these funds. Nothing is counted as sent: the wallet reads the chain to find out.",
   "op.error.no_relayer.title": "No relayer could take this transaction",
   "op.error.no_relayer.reason": "None of the relayers in Settings answered for this asset, so nothing was sent. Check the relayer in Settings, or try again later.",
+  "op.error.verification_failed.title": "We couldn't verify the network",
+  "op.error.verification_failed.reason": "Before every transaction the wallet checks the pool against Ethereum itself. That check did not pass, so nothing was sent. Try again in a moment; if it keeps failing, check the endpoints in Advanced settings.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",
   "op.error.funding_unconfirmed.reason": "Its funding was sent but never landed, and a funding is never sent twice on its own. Your funds are still in your protected balance. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",

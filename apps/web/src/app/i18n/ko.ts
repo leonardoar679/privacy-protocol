@@ -630,6 +630,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.no_relayer.title": "이 거래를 처리할 릴레이어가 없습니다",
   "op.error.no_relayer.reason":
     "설정의 릴레이어 중 이 자산에 응답한 곳이 없어 아무것도 보내지 않았습니다. 설정에서 릴레이어를 확인하거나 나중에 다시 시도하세요.",
+  "op.error.verification_failed.title": "네트워크를 검증하지 못했습니다",
+  "op.error.verification_failed.reason":
+    "지갑은 모든 거래 전에 풀을 이더리움과 직접 대조합니다. 이 확인을 통과하지 못해 아무것도 보내지 않았습니다. 잠시 후 다시 시도하고, 계속 실패하면 고급 설정에서 엔드포인트를 확인하세요.",
   "op.error.funding_unconfirmed.title": "자금 투입이 확인되지 않아 스왑이 중단되었습니다",
   "op.error.funding_unconfirmed.reason":
     "자금 투입이 전송되었지만 처리되지 않았고, 자금 투입은 저절로 두 번 전송되지 않습니다. 자금은 보호 잔액에 그대로 있습니다. 스왑을 다시 검토하세요.",

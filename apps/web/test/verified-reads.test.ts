@@ -3,7 +3,8 @@
 // the light client and the storage prover are stubbed here (both run live in test/live/lightclient).
 import { describe, it, expect, afterEach } from "vitest";
 import { treeLayers } from "@privacy-wallet/sdk/core";
-import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, verifyStatus, verifyTree, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
+import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, VerificationUnavailable, verifyStatus, verifyTree, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
+import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { encodeAbiParameters, keccak256 } from "viem";
 import type { Deployment, TreeState } from "@privacy-wallet/sdk/chain";
 import { settings, defaultSettings } from "@privacy-wallet/sdk/wallet/settings";
@@ -96,6 +97,22 @@ describe("verifyTree in the spend flows", () => {
     await expect(verifyTree(dep(1), t, undefined, { sync, prover: down })).rejects.toThrow(/eth_getProof/);
     expect(syncs).toBe(3);
     expect(verifyStatus.get(), "a proof that never came is a failed check too (n42)").toMatchObject({ kind: "failed", reason: "no RPC answered eth_getProof: fetch failed" });
+  });
+  it("any failure of the light client is a check that failed before anything was proved, in its own words (audit round 2, n38)", async () => {
+    const t = await tree(12);
+    // a beacon API that never answered: it had read as an unreachable relayer, "We are checking where your funds are"
+    const unreachable = (async () => { throw new TypeError("fetch failed"); }) as any;
+    const e = await verifyTree(dep(1), t, undefined, { sync: unreachable, prover: stubProver(12n, await rootOf(12)) }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(VerificationUnavailable);
+    expect((e as Error).message).toBe("fetch failed");
+    expect(classify(e)).toMatchObject({ code: "verification_failed", fundsClass: "not-moved" });
+    // a proof that does not verify, and the endpoints' tree against the proven pool
+    const badProof = (async () => { throw new Error("eth_getProof answered for another address"); }) as any;
+    await expect(verifyTree(dep(1), t, undefined, { sync: stubSync(15_000_000), prover: badProof })).rejects.toThrow(VerificationUnavailable);
+    resetLightClient();
+    const lying = await verifyTree(dep(1), t, undefined, { sync: stubSync(15_000_001), prover: stubProver(12n, 999n) }).catch((x: unknown) => x);
+    expect(lying).toBeInstanceOf(TreeNotProven);
+    expect(classify(lying)).toMatchObject({ code: "verification_failed", fundsClass: "not-moved" });
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);

@@ -135,6 +135,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   relayer_unreachable: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },
   // no relayer of Settings serves the asset (the audit's unverified m56, 2026-10-17): refused before anything was sent
   no_relayer: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
+  // the light client's check failed before anything was proved (audit round 2, n38): a beacon API's refusal, a proof that
+  // does not verify, the endpoints' tree against the proven pool — it had read as unknown, "We are checking where your funds are"
+  verification_failed: { source: "wallet", fundsClass: "not-moved", actions: ["wait", "check-settings"] },
   quote_expired: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   order_expired: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   receipt_reverted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

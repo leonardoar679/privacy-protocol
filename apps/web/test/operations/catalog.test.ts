@@ -17,6 +17,7 @@ import { MinimumMoved, ProviderCallMismatch } from "@privacy-wallet/sdk/provider
 import { RelayerRefusal } from "@privacy-wallet/sdk/relayer";
 import { OrderMismatch } from "@privacy-wallet/sdk/swapGuard";
 import { NoRelayer } from "@privacy-wallet/sdk/privateTx";
+import { TreeNotProven, VerificationUnavailable } from "@privacy-wallet/sdk/verifiedReads";
 import { ServiceMinimumMoved } from "@privacy-wallet/sdk/swapService";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -94,6 +95,10 @@ describe("classify", () => {
     expect(classify(new TypeError("fetch failed"))).toMatchObject({ code: "relayer_unreachable", fundsClass: "unknown" });
     // no relayer serves the asset: nothing was sent, whatever words its answers carry (the audit's unverified m56)
     expect(classify(new NoRelayer(["http://relayer.example: unreachable or another chain / core"]))).toMatchObject({ code: "no_relayer", fundsClass: "not-moved", actions: ["check-settings"] });
+    // the light client's check failed before anything was proved: nothing moved, whatever its words (audit round 2, n38)
+    expect(classify(new TreeNotProven("the RPC endpoints show 3 leaves; the chain had 5 at finalized block 9 — they are hiding notes"))).toMatchObject({ code: "verification_failed", fundsClass: "not-moved" });
+    expect(classify(new VerificationUnavailable("beacon API https://beacon.example: HTTP 429 for /eth/v1/beacon/light_client/updates"))).toMatchObject({ code: "verification_failed", fundsClass: "not-moved", actions: ["wait", "check-settings"] });
+    expect(classify(new VerificationUnavailable("fetch failed")).code, "not an unreachable relayer").toBe("verification_failed");
     expect(classify(new Error("the quote expired")).code).toBe("quote_expired");
     expect(classify(new Error("something else entirely"))).toMatchObject({ code: "unknown", fundsClass: "unknown", detail: "something else entirely" });
     expect(classify("a string").code).toBe("unknown");

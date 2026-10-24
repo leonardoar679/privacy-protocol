@@ -32,7 +32,14 @@ export const beaconUrls = (): string[] => list(config().beaconUrls.join(","));
 export const lcCheckpoint = (): Hex | undefined => config().lcCheckpoint;
 
 export interface PoolProof { blockNumber: bigint; slot: number; nextLeafIndex: number; root: bigint }
-export class TreeNotProven extends Error {}
+/** The endpoints' view does not match the proven pool: refused before anything is proved, so nothing moved (its catalog row, n38). */
+export class TreeNotProven extends Error {
+  readonly code = "verification_failed";
+}
+/** The light client could not check (its sync, a beacon API, a proof); the cause's words are its own (audit round 2, n38). */
+export class VerificationUnavailable extends Error {
+  readonly code = "verification_failed";
+}
 export type VerifyStatus =
   | { kind: "verified"; proof: PoolProof; leaves: number }
   | { kind: "unavailable"; reason: string }
@@ -56,8 +63,21 @@ export const resetLightClient = () => { live = null; };
 
 type ProofOptions = { fetchFn?: typeof fetch; sync?: typeof SyncLightClient; prover?: typeof ProvenStorage };
 
-/** Storage words of the core at the light client's latest finalized block, proven (the client is synced and its store journaled first). */
+/**
+ * Storage words of the core at the light client's latest finalized block, proven (the client is synced and its store journaled
+ * first). Any failure is a `VerificationUnavailable` with the cause's words (audit round 2, n38): a beacon API that refused or
+ * never answered, an update or a proof that does not verify — each before anything is proved, so nothing moved. They had read
+ * as unknown, or as an unreachable relayer ("fetch failed"): "We are checking where your funds are" for a Send that never left.
+ */
 async function provenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Promise<{ blockNumber: bigint; slot: number; values: bigint[] }> {
+  try {
+    return await readProvenCoreWords(d, slots, o);
+  } catch (e) {
+    throw new VerificationUnavailable(e instanceof Error ? e.message : String(e), { cause: e });
+  }
+}
+
+async function readProvenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions): Promise<{ blockNumber: bigint; slot: number; values: bigint[] }> {
   const spec = specForChain(d.chainId);
   if (!spec) throw new Error(`no light client for chain ${d.chainId}`);
   const saved = session.isUnlocked() ? (session.journal().lightClient as { chainId: string; snapshot: StoreSnapshot } | undefined) : undefined;
