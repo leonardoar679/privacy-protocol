@@ -100,6 +100,12 @@ describe.skipIf(!wasm)("WASM core == TypeScript reference (build: node privacy-c
     const leaves = concat(...tree.leaves.map(be32));
     expect(fromBe(wasm.merkle_root(leaves, 10))).toBe(tree.root);
     expect(fromBe(wasm.merkle_root(new Uint8Array(0), 10))).toBe(new MerkleTree(10).root);
+    // at the protocol's own depth (audit round 2, p02): a 32-bit usize had wrapped 1 << 32 to 1, every insert "tree full"
+    const deep = new MerkleTree(32);
+    deep.insertLeaf(123n);
+    deep.insertGroup([4n, 5n, 6n, ZERO_LEAF]);
+    expect(fromBe(wasm.merkle_root(concat(...deep.leaves.map(be32)), 32))).toBe(deep.root);
+    expect(() => wasm.merkle_root(new Uint8Array(0), 33)).toThrow(/levels out of range/);
   });
 
   it("builds every tree layer in one call (the sync batch) with the reference's layers and paths", () => {

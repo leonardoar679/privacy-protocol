@@ -20,6 +20,8 @@ pub enum AddressError {
     WrongLength(usize),
     UnsupportedVersion(u8),
     NotInField,
+    /// the view key is a low-order point: nothing paid to it could be private (audit round 2, n28)
+    LowOrderViewKey,
 }
 
 fn polymod(values: impl IntoIterator<Item = u8>) -> u32 {
@@ -177,5 +179,10 @@ pub fn decode_privacy_address(s: &str) -> Result<PrivacyAddress, AddressError> {
     oc.copy_from_slice(&bytes[1..33]);
     let mut vp = [0u8; 32];
     vp.copy_from_slice(&bytes[33..65]);
-    Ok(PrivacyAddress { version: bytes[0], owner_commitment: fr_from_be32_checked(&oc).ok_or(AddressError::NotInField)?, view_pub: vp })
+    let owner_commitment = fr_from_be32_checked(&oc).ok_or(AddressError::NotInField)?;
+    // as the web wallet's decoder refuses it (audit round 2, n29/n28): a native payer had encrypted to it in the clear
+    if !super::envelope::is_contributory_view_key(&vp) {
+        return Err(AddressError::LowOrderViewKey);
+    }
+    Ok(PrivacyAddress { version: bytes[0], owner_commitment, view_pub: vp })
 }

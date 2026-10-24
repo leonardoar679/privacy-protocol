@@ -17,8 +17,15 @@ export const KDF_DEFAULT: KdfParams = { N: 1 << 16, r: 8, p: 1 };
 export const SEED_BYTES = 32;
 const AAD = utf8ToBytes("privacy-protocol/v1/keystore");
 
+/**
+ * The most a keystore may ask of scrypt (audit round 2, n31): N up to 2^20, r up to 32, p up to 16, and N·r·p up to 2^23 (the
+ * default's sixteen-fold). A backup file with r = 1 and p near 2^23 had run scrypt for hours to days, within noble's memory cap.
+ */
+const KDF_MAX = { N: 1 << 20, r: 32, p: 16, work: 2 ** 23 };
+
 async function deriveKey(password: string, salt: Uint8Array, p: KdfParams): Promise<Uint8Array> {
-  if (!(p.N >= 1 << 10 && Number.isInteger(Math.log2(p.N)) && p.r >= 1 && p.p >= 1)) throw new Error("unsafe KDF parameters");
+  const bounded = Number.isInteger(p.r) && Number.isInteger(p.p) && p.N <= KDF_MAX.N && p.r <= KDF_MAX.r && p.p <= KDF_MAX.p && p.N * p.r * p.p <= KDF_MAX.work;
+  if (!(p.N >= 1 << 10 && Number.isInteger(Math.log2(p.N)) && p.r >= 1 && p.p >= 1 && bounded)) throw new Error("unsafe KDF parameters");
   return scryptAsync(utf8ToBytes(password.normalize("NFKD")), salt, { N: p.N, r: p.r, p: p.p, dkLen: 32 });
 }
 

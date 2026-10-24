@@ -50,6 +50,47 @@ fn keystore_opens_the_web_wallets_backup_and_reproduces_it() {
     assert_eq!(phrase_to_seed(&k["phrase"].as_str().unwrap().to_uppercase()).unwrap(), seed);
 }
 
+/// The backup wallet.json pins, its password and its seed.
+fn pinned_backup() -> (Keystore, String, [u8; 32]) {
+    let w = json("packages/protocol/test/vectors/wallet.json");
+    let k = &w["keystore"];
+    (serde_json::from_value(k["keystore"].clone()).unwrap(), k["password"].as_str().unwrap().to_string(), arr(&k["seed"]))
+}
+
+#[test]
+fn a_runaway_scrypt_cost_is_refused_before_scrypt_runs() {
+    // audit round 2, n31. r = 33 first: without the bounds it runs at once and fails on the wrong key, before r = 1 with
+    // p = 2^23 would run for hours
+    let (pinned, password, _) = pinned_backup();
+    for (n, r, p) in [(1 << 10, 33, 1), (1 << 20, 8, 2), (1 << 21, 8, 1), (1 << 10, 1, 1 << 23)] {
+        let mut slow = pinned.clone();
+        (slow.kdf.n, slow.kdf.r, slow.kdf.p) = (n, r, p);
+        assert_eq!(unlock_keystore(&slow, &password), Err(KeystoreError::UnsafeParams), "N={n} r={r} p={p}");
+    }
+}
+
+#[test]
+fn a_malformed_field_is_a_format_error_never_a_panic() {
+    // audit round 2, p01: a multi-byte character in a hex field, a journal nonce of another length
+    let (pinned, password, _) = pinned_backup();
+    let mut odd = pinned.clone();
+    odd.salt = "a\u{e9}b".to_string();
+    assert_eq!(unlock_keystore(&odd, &password), Err(KeystoreError::BadFormat));
+    let short = EncryptedJournal { v: 1, nonce: "00".to_string(), ct: "00".repeat(40) };
+    assert_eq!(decrypt_journal(&[7u8; 32], &short), None, "a short nonce: unopenable, not a panic");
+}
+
+#[test]
+fn a_phrase_is_split_on_the_whitespace_the_web_wallet_splits_on() {
+    // audit round 2, n32: a byte-order mark is whitespace, U+0085 is not
+    let (_, _, seed) = pinned_backup();
+    let w = json("packages/protocol/test/vectors/wallet.json");
+    let phrase = w["keystore"]["phrase"].as_str().unwrap();
+    assert_eq!(phrase_to_seed(&format!("\u{feff}{phrase}")).unwrap(), seed);
+    assert_eq!(phrase_to_seed(&phrase.replacen(' ', "\u{feff}", 1)).unwrap(), seed);
+    assert!(phrase_to_seed(&phrase.replacen(' ', "\u{85}", 1)).is_err());
+}
+
 #[test]
 fn owner_keys_match_the_web_wallets_vectors() {
     // the owner key a deposited note is made out to (the audit round of 2026-10-16, c18), byte for byte as the web wallet

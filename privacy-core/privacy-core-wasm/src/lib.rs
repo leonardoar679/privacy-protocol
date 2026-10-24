@@ -90,7 +90,9 @@ pub fn view_public_key(view_key: &[u8]) -> Result<Vec<u8>, JsError> {
 #[wasm_bindgen]
 pub fn encrypt_note_data(view_pub: &[u8], amount: &[u8], note_secret: &[u8], vault_id: &[u8], ephemeral_secret: &[u8], nonce: &[u8]) -> Result<Vec<u8>, JsError> {
     let plain = NotePlaintext { amount: fr(amount)?, note_secret: fr(note_secret)?, vault_id: fr(vault_id)? };
-    Ok(core_encrypt(&arr::<32>(view_pub, "view public key")?, &plain, arr::<32>(ephemeral_secret, "ephemeral secret")?, arr::<24>(nonce, "nonce")?).to_vec())
+    Ok(core_encrypt(&arr::<32>(view_pub, "view public key")?, &plain, arr::<32>(ephemeral_secret, "ephemeral secret")?, arr::<24>(nonce, "nonce")?)
+        .map_err(|e| JsError::new(&format!("view public key: {e:?}")))?
+        .to_vec())
 }
 
 /// amount ‖ noteSecret ‖ vaultId (96 bytes) when the payload opens with this view key, else undefined.
@@ -115,6 +117,10 @@ pub fn tx_domain(chain_id: u32, core_address: &[u8]) -> Result<Vec<u8>, JsError>
 pub fn merkle_root(leaves: &[u8], levels: u32) -> Result<Vec<u8>, JsError> {
     if leaves.len() % 128 != 0 {
         return Err(JsError::new("leaves must be whole groups of four 32-byte words"));
+    }
+    // an error, not a trap, as merkle_layers answers it (p02)
+    if !(3..=32).contains(&levels) {
+        return Err(JsError::new("levels out of range"));
     }
     let mut tree = MerkleTree::new(levels as usize);
     for g in leaves.chunks(128) {

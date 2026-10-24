@@ -132,7 +132,9 @@ pub struct NotePlaintext {
 #[uniffi::export]
 pub fn encrypt_note_data(view_pub: Vec<u8>, plain: NotePlaintext, ephemeral_secret: Vec<u8>, nonce: Vec<u8>) -> Result<Vec<u8>, CoreError> {
     let p = privacy_core::envelope::NotePlaintext { amount: fr(&plain.amount, "amount")?, note_secret: fr(&plain.note_secret, "note secret")?, vault_id: fr(&plain.vault_id, "vault id")? };
-    Ok(privacy_core::envelope::encrypt_note_data(&fixed::<32>(&view_pub, "view public key")?, &p, fixed::<32>(&ephemeral_secret, "ephemeral secret")?, fixed::<24>(&nonce, "nonce")?).to_vec())
+    Ok(privacy_core::envelope::encrypt_note_data(&fixed::<32>(&view_pub, "view public key")?, &p, fixed::<32>(&ephemeral_secret, "ephemeral secret")?, fixed::<24>(&nonce, "nonce")?)
+        .map_err(|e| invalid(format!("view public key: {e:?}")))?
+        .to_vec())
 }
 
 /// The opening of a payload encrypted to this view key, or None (someone else's, a dummy, tampered).

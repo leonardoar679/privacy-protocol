@@ -23,6 +23,13 @@ describe("keystore", () => {
     expect(await unlockKeystore(flipped, "correct horse")).toBeNull();
     expect(await unlockKeystore({ ...ks, v: 2 } as unknown as Keystore, "correct horse")).toBeNull();
     expect(await unlockKeystore({ ...ks, kdf: { ...ks.kdf, N: 16 } }, "correct horse")).toBeNull(); // unsafe params refused
+    // and a runaway cost, refused before scrypt runs (audit round 2, n31): r = 1 with p near 2^23 had run for hours, within
+    // noble's memory cap. A refusal and a wrong key both read null, so the time tells them apart: r = 1 with p = 2^16 runs for
+    // tens of seconds without the bounds
+    const t0 = Date.now();
+    for (const kdf of [{ N: 1 << 10, r: 1, p: 2 ** 16 }, { N: 1 << 10, r: 1, p: 2 ** 23 }, { N: 1 << 21, r: 8, p: 1 }, { N: 1 << 10, r: 33, p: 1 }, { N: 1 << 20, r: 8, p: 2 }])
+      expect(await unlockKeystore({ ...ks, kdf: { ...ks.kdf, ...kdf } }, "correct horse"), JSON.stringify(kdf)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2000);
     await expect(createKeystore(seed.slice(0, 31), "x", KDF)).rejects.toThrow(/32 bytes/);
     await expect(createKeystore(seed, "", KDF)).rejects.toThrow(/password/);
   });

@@ -55,8 +55,18 @@ pub enum KeystoreError {
 /// The web wallet's default: 64 MiB, about a second in a browser.
 pub const KDF_DEFAULT: KdfParams = KdfParams { name: String::new(), n: 1 << 16, r: 8, p: 1, dk_len: 32 };
 
+/// The most a keystore may ask of scrypt (audit round 2, n31): N up to 2^20, r up to 32, p up to 16, and N·r·p up to 2^23 (the
+/// default's sixteen-fold). A backup file with r = 1 and p near 2^23 had run scrypt for hours to days, within the memory cap.
+const MAX_LOG_N: u32 = 20;
+const MAX_R: u32 = 32;
+const MAX_P: u32 = 16;
+const MAX_WORK: u64 = 1 << 23;
+
 fn derive_key(password: &str, salt: &[u8], p: &KdfParams) -> Result<[u8; 32], KeystoreError> {
-    if p.name != "scrypt" || p.dk_len != 32 || p.n < 1 << 10 || !p.n.is_power_of_two() || p.r < 1 || p.p < 1 {
+    if p.name != "scrypt" || p.dk_len != 32 || p.n < 1 << 10 || p.n > 1 << MAX_LOG_N || !p.n.is_power_of_two() || p.r < 1 || p.r > MAX_R || p.p < 1 || p.p > MAX_P {
+        return Err(KeystoreError::UnsafeParams);
+    }
+    if u64::from(p.n) * u64::from(p.r) * u64::from(p.p) > MAX_WORK {
         return Err(KeystoreError::UnsafeParams);
     }
     let log_n = p.n.trailing_zeros() as u8;
@@ -71,7 +81,8 @@ fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
-    if s.len() % 2 != 0 {
+    // ASCII only (audit round 2, p01): a multi-byte character at an even offset had panicked on the slice's char boundary
+    if s.len() % 2 != 0 || !s.is_ascii() {
         return Err(KeystoreError::BadFormat);
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| KeystoreError::BadFormat)).collect()
@@ -125,6 +136,10 @@ pub fn decrypt_journal(key: &[u8; 32], blob: &EncryptedJournal) -> Option<String
     }
     let nonce = unhex(&blob.nonce).ok()?;
     let ct = unhex(&blob.ct).ok()?;
+    // a nonce of another length is a journal it cannot open (p01): XNonce::from_slice had panicked on it
+    if nonce.len() != 24 {
+        return None;
+    }
     let pt = XChaCha20Poly1305::new(key.into()).decrypt(XNonce::from_slice(&nonce), Payload { msg: &ct, aad: JOURNAL_AAD }).ok()?;
     String::from_utf8(pt).ok()
 }

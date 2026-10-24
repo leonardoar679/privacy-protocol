@@ -4,7 +4,7 @@
 use ark_ff::Zero;
 use privacy_core::address::{bech32m_decode, bech32m_encode, decode_privacy_address, encode_privacy_address, AddressError};
 use privacy_core::domains;
-use privacy_core::envelope::{decrypt_note_data, dummy_note_data, encrypt_note_data, view_key_pair, NotePlaintext};
+use privacy_core::envelope::{decrypt_note_data, dummy_note_data, encrypt_note_data, view_key_pair, EnvelopeError, NotePlaintext};
 use privacy_core::field::{fr_from_dec, fr_to_be32, fr_to_dec, Fr};
 use privacy_core::keys::{derive_keys, derive_note_secret, derive_owner_key};
 use privacy_core::merkle::{fold_path, layers, layers_root, merkle_proof, proof_from_layers, zero_hashes, zero_leaf, MerkleTree};
@@ -151,7 +151,7 @@ fn envelope_and_address_vectors() {
         let mut nonce = [0u8; 24];
         nonce.copy_from_slice(&hexb(&case["nonce"]));
         let plain = NotePlaintext { amount: dec(&case["amount"]), note_secret: dec(&case["noteSecret"]), vault_id: dec(&case["vaultId"]) };
-        let note_data = encrypt_note_data(&view.public, &plain, eph, nonce);
+        let note_data = encrypt_note_data(&view.public, &plain, eph, nonce).unwrap();
         assert_eq!(hex::encode(note_data), case["noteData"].as_str().unwrap(), "pinned envelope bytes");
         assert_eq!(note_data_hash(&note_data).unwrap(), dec(&case["noteDataHash"]));
         assert_eq!(decrypt_note_data(&view, &note_data), Some(plain));
@@ -182,6 +182,12 @@ fn envelope_and_address_vectors() {
         let mut typo = addr.clone().into_bytes();
         typo[40] = if typo[40] == b'q' { b'p' } else { b'q' };
         assert_eq!(decode_privacy_address(std::str::from_utf8(&typo).unwrap()), Err(AddressError::BadChecksum));
+        // a low-order view key (audit round 2, n28): refused by the decoder and by the encryption, as the web wallet refuses it
+        for low in ["00".repeat(32), format!("01{}", "00".repeat(31)), "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800".to_string()] {
+            let vp: [u8; 32] = (0..32).map(|i| u8::from_str_radix(&low[i * 2..i * 2 + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
+            assert_eq!(decode_privacy_address(&encode_privacy_address(&oc, &vp)), Err(AddressError::LowOrderViewKey), "{low}");
+            assert_eq!(encrypt_note_data(&vp, &plain, [0x42u8; 32], [0x24u8; 24]), Err(EnvelopeError::LowOrderViewKey), "{low}");
+        }
     }
     // dummies: same shape, open for nobody
     let keys = derive_keys(EXAMPLE_SEED);
@@ -275,12 +281,12 @@ fn scan_payloads_finds_exactly_the_notes_that_open_their_leaf_for_us() {
     let plain = |n: &Note| NotePlaintext { amount: n.amount, note_secret: n.note_secret, vault_id: n.vault_id };
     // leaf 4: ours. leaf 5: someone else's (their view key). leaf 6: decrypts for us but the leaf holds another
     // commitment (a payload that lies). leaf 7: a dummy. leaf 8: ours again at a different index.
-    let p4 = encrypt_note_data(&view.public, &plain(&mine), eph, nonce);
-    let p5 = encrypt_note_data(&view_key_pair(&other.view_key).public, &plain(&mine), eph, nonce);
-    let p6 = encrypt_note_data(&view.public, &plain(&mine), [0x33u8; 32], nonce);
+    let p4 = encrypt_note_data(&view.public, &plain(&mine), eph, nonce).unwrap();
+    let p5 = encrypt_note_data(&view_key_pair(&other.view_key).public, &plain(&mine), eph, nonce).unwrap();
+    let p6 = encrypt_note_data(&view.public, &plain(&mine), [0x33u8; 32], nonce).unwrap();
     let p7 = dummy_note_data([0x44u8; NOTE_DATA_BYTES]);
     let again = Note { amount: Fr::from(9u64), ..mine };
-    let p8 = encrypt_note_data(&view.public, &plain(&again), [0x55u8; 32], nonce);
+    let p8 = encrypt_note_data(&view.public, &plain(&again), [0x55u8; 32], nonce).unwrap();
     let items: Vec<(u32, Fr, &[u8])> = vec![
         (4, note_commitment(&note_body(&mine), 4), &p4[..]),
         (5, note_commitment(&note_body(&Note { owner_commitment: owner_commitment_of(&other.spend_key), ..mine }), 5), &p5[..]),
@@ -308,11 +314,11 @@ fn open_payloads_opens_every_payload_for_our_view_key_and_says_which_reproduce()
     let plain = |n: &Note| NotePlaintext { amount: n.amount, note_secret: n.note_secret, vault_id: n.vault_id };
     // leaf 4: ours, made out to the privacy address. 5: encrypted to someone else's view key. 6: opens for us, but the leaf
     // holds another commitment (a payload that lies). 7: a dummy. 8: a deposited note of ours.
-    let p4 = encrypt_note_data(&view.public, &plain(&mine), [0x11u8; 32], nonce);
-    let p5 = encrypt_note_data(&view_key_pair(&other.view_key).public, &plain(&mine), [0x11u8; 32], nonce);
-    let p6 = encrypt_note_data(&view.public, &plain(&mine), [0x33u8; 32], nonce);
+    let p4 = encrypt_note_data(&view.public, &plain(&mine), [0x11u8; 32], nonce).unwrap();
+    let p5 = encrypt_note_data(&view_key_pair(&other.view_key).public, &plain(&mine), [0x11u8; 32], nonce).unwrap();
+    let p6 = encrypt_note_data(&view.public, &plain(&mine), [0x33u8; 32], nonce).unwrap();
     let p7 = dummy_note_data([0x44u8; NOTE_DATA_BYTES]);
-    let p8 = encrypt_note_data(&view.public, &plain(&deposited), [0x55u8; 32], nonce);
+    let p8 = encrypt_note_data(&view.public, &plain(&deposited), [0x55u8; 32], nonce).unwrap();
     let items: Vec<(u32, Fr, &[u8])> = vec![
         (4, note_commitment(&note_body(&mine), 4), &p4[..]),
         (5, note_commitment(&note_body(&mine), 5), &p5[..]),

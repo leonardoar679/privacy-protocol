@@ -75,7 +75,8 @@ impl MerkleTree {
     /// Append one aligned group; returns the index of its first leaf.
     pub fn insert_group(&mut self, group: &[Fr; GROUP_SIZE]) -> usize {
         let first = self.next_index;
-        assert!(first + GROUP_SIZE < (1usize << self.levels), "tree full");
+        // in u64 (audit round 2, p02): on wasm32 a usize is 32 bits, and 1 << 32 wrapped to 1 — every insert was "tree full"
+        assert!((first as u64) + (GROUP_SIZE as u64) < (1u64 << self.levels), "tree full");
         let mut h = hash2(hash2(group[0], group[1]), hash2(group[2], group[3]));
         let mut cur = first / GROUP_SIZE;
         for i in 2..self.levels {

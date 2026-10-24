@@ -63,11 +63,31 @@ fn envelope_key(shared: &[u8; 32], eph_pub: &[u8; 32], view_pub: &[u8; 32]) -> [
     sha256(&[ENVELOPE_KEY_TAG, shared, eph_pub, view_pub])
 }
 
-/// Encrypt a note's opening to the recipient's view public key with a caller-supplied ephemeral secret and nonce.
-pub fn encrypt_note_data(recipient_view_pub: &[u8; 32], plain: &NotePlaintext, ephemeral_secret: [u8; 32], nonce: [u8; 24]) -> [u8; NOTE_DATA_BYTES] {
+/// Why a payload could not be made (audit round 2, n28).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnvelopeError {
+    /// The recipient's view key is a low-order point: the shared secret is the same for every sender.
+    LowOrderViewKey,
+}
+
+/// Whether a view public key can be paid privately: never a low-order point (a low-order point times any clamped scalar, a
+/// multiple of the cofactor, is the identity, which X25519 returns as an all-zero secret).
+pub fn is_contributory_view_key(view_pub: &[u8; 32]) -> bool {
+    StaticSecret::from(clamp([1u8; 32])).diffie_hellman(&PublicKey::from(*view_pub)).was_contributory()
+}
+
+/// Encrypt a note's opening to the recipient's view public key with a caller-supplied ephemeral secret and nonce. A low-order
+/// view key is refused (audit round 2, n28): its shared secret is all zero whatever the sender's secret, so the envelope's
+/// key, sha256(tag ‖ 0³² ‖ ephPub ‖ viewPub), is public data, and anyone reads the payment's amount, note secret and vault.
+/// The TypeScript refuses it too (noble's zero-result check).
+pub fn encrypt_note_data(recipient_view_pub: &[u8; 32], plain: &NotePlaintext, ephemeral_secret: [u8; 32], nonce: [u8; 24]) -> Result<[u8; NOTE_DATA_BYTES], EnvelopeError> {
     let eph = StaticSecret::from(clamp(ephemeral_secret));
     let eph_pub = PublicKey::from(&eph).to_bytes();
-    let shared = eph.diffie_hellman(&PublicKey::from(*recipient_view_pub)).to_bytes();
+    let shared = eph.diffie_hellman(&PublicKey::from(*recipient_view_pub));
+    if !shared.was_contributory() {
+        return Err(EnvelopeError::LowOrderViewKey);
+    }
+    let shared = shared.to_bytes();
     let mut out = [0u8; NOTE_DATA_BYTES];
     out[0] = ENVELOPE_VERSION;
     out[EPH_OFF..NONCE_OFF].copy_from_slice(&eph_pub);
@@ -77,7 +97,7 @@ pub fn encrypt_note_data(recipient_view_pub: &[u8; 32], plain: &NotePlaintext, e
     let ct = cipher.encrypt(XNonce::from_slice(&nonce), Payload { msg: &pack_plaintext(&plain.amount, &plain.note_secret, &plain.vault_id), aad: &aad }).expect("XChaCha20-Poly1305 never fails on a 96-byte message");
     debug_assert_eq!(ct.len(), CT_LEN);
     out[CT_OFF..].copy_from_slice(&ct);
-    out
+    Ok(out)
 }
 
 /// Try to open a payload with this view key: the plaintext, or None (wrong recipient, tampered, other version).
