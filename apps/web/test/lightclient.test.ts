@@ -171,6 +171,37 @@ describe("a sync in a period's first minutes (audit round 2, r26)", () => {
   });
 });
 
+describe("a configured checkpoint past the age limit (audit round 2, n43)", () => {
+  const NOW = P + 14; // the clock: fourteen periods after the checkpoint's, past the twelve a saved store may be
+  const s: BeaconChainSpec = { ...spec, genesisTime: Math.floor(Date.now() / 1000) - 12 * (NOW * PERIOD_SLOTS + 10) };
+  const old = bootstrap(P * PERIOD_SLOTS + 100, A);
+  const recent = bootstrap(NOW * PERIOD_SLOTS + 2, C); // the finalized root every beacon API reports
+  const fu = update({ attSlot: NOW * PERIOD_SLOTS + 5, finSlot: NOW * PERIOD_SLOTS + 3, signer: C });
+  const answer = (v: unknown) => new Response(JSON.stringify(v));
+  const beacon = (asked: string[]) =>
+    (async (url: string) => {
+      asked.push(url);
+      if (url.includes("/headers/finalized")) return answer({ data: { root: recent.root, header: { message: { slot: String(NOW * PERIOD_SLOTS + 2) } } } });
+      if (url.includes(`/bootstrap/${old.root}`)) return answer({ version: "electra", data: old.data });
+      if (url.includes(`/bootstrap/${recent.root}`)) return answer({ version: "electra", data: recent.data });
+      if (url.includes("/light_client/updates")) return answer([]);
+      if (url.includes("/light_client/finality_update")) return answer({ version: "electra", data: fu });
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+  it("is not walked from: the beacon APIs' agreed finalized root is the start, as with no checkpoint", async () => {
+    const asked: string[] = [];
+    const lc = await syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked), maxCheckpointAgePeriods: 12 });
+    expect(lc.period).toBe(NOW);
+    expect(lc.finalizedSlot).toBe(NOW * PERIOD_SLOTS + 3);
+    expect(asked.some((u) => u.includes(`start_period=${P}&`)), "no walk across the retired committees").toBe(false);
+  });
+  it("within the limit it is the start, as before; without the limit an aged one is walked from", async () => {
+    const asked: string[] = [];
+    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked) })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
+    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked), maxCheckpointAgePeriods: 14 })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
+  });
+});
+
 describe("execution proofs on hand-built tries", () => {
   const hp = (nibs: number[], leaf: boolean): Hex => { // hex-prefix encoding
     const odd = nibs.length % 2;

@@ -86,7 +86,8 @@ async function readProvenCoreWords(d: Deployment, slots: Hex[], o: ProofOptions)
   // the light client (BLS pairing, SSZ, trie walking) is its own chunk, loaded on the first verification
   const lcm = o.sync && o.prover ? null : await import("./lightclient");
   const sync = async (): Promise<LightClient> => {
-    const fresh = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: beaconUrls(), checkpoint: lcCheckpoint(), snapshot, fetchFn: o.fetchFn });
+    // the age limit holds for the configured checkpoint too (audit round 2, n43)
+    const fresh = await (o.sync ?? lcm!.syncLightClient)({ spec, beaconUrls: beaconUrls(), checkpoint: lcCheckpoint(), snapshot, fetchFn: o.fetchFn, maxCheckpointAgePeriods: MAX_SNAPSHOT_AGE_PERIODS });
     live = { chainId: spec.chainId, lc: fresh, syncedAt: Date.now() };
     if (session.isUnlocked()) session.update((j) => { j.lightClient = { chainId: String(spec.chainId), snapshot: fresh.snapshot() }; });
     return fresh;

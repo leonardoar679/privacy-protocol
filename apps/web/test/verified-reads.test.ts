@@ -3,7 +3,7 @@
 // the light client and the storage prover are stubbed here (both run live in test/live/lightclient).
 import { describe, it, expect, afterEach } from "vitest";
 import { treeLayers } from "@privacy-wallet/sdk/core";
-import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, VerificationUnavailable, verifyStatus, verifyTree, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
+import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, VerificationUnavailable, verifyStatus, verifyTree, MAX_SNAPSHOT_AGE_PERIODS, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { encodeAbiParameters, keccak256 } from "viem";
 import type { Deployment, TreeState } from "@privacy-wallet/sdk/chain";
@@ -113,6 +113,15 @@ describe("verifyTree in the spend flows", () => {
     const lying = await verifyTree(dep(1), t, undefined, { sync: stubSync(15_000_001), prover: stubProver(12n, 999n) }).catch((x: unknown) => x);
     expect(lying).toBeInstanceOf(TreeNotProven);
     expect(classify(lying)).toMatchObject({ code: "verification_failed", fundsClass: "not-moved" });
+  });
+  it("a sync holds the configured checkpoint to the age limit a saved store has (audit round 2, n43)", async () => {
+    let asked: { maxCheckpointAgePeriods?: number } | undefined;
+    const sync = (async (o: { maxCheckpointAgePeriods?: number }) => {
+      asked = o;
+      return stubSync(15_000_000)();
+    }) as any;
+    await verifyTree(dep(1), await tree(12), undefined, { sync, prover: stubProver(12n, await rootOf(12)) });
+    expect(asked?.maxCheckpointAgePeriods).toBe(MAX_SNAPSHOT_AGE_PERIODS);
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);

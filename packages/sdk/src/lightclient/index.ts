@@ -1,6 +1,7 @@
 // Trustless reads for the wallet (plan §38): an Ethereum light client that ends in proven contract storage.
 //   1. start from a trusted beacon block root — configured (VITE_LC_CHECKPOINT), the wallet's own saved
-//      store, or, on first use, a finalized root every configured beacon API reports identically;
+//      store, or, on first use, a finalized root every configured beacon API reports identically (a store and a
+//      configured checkpoint only within the age limit: ../verifiedReads.ts MAX_SNAPSHOT_AGE_PERIODS);
 //   2. follow the sync committees period by period and accept the latest finalized header only with a
 //      2/3 sync-committee signature (beacon.ts);
 //   3. take that header's execution block, fetch its header from any RPC and accept it only if it hashes
@@ -29,6 +30,8 @@ export interface SyncOptions {
   fetchFn?: typeof fetch;
   /** at most this many sync-committee periods are walked in one sync (≈ 27 h each) */
   maxPeriods?: number;
+  /** a checkpoint more periods behind the clock than this is not walked from (audit round 2, n43): the agreed finalized root is the start */
+  maxCheckpointAgePeriods?: number;
 }
 
 /** A finalized block root that every reachable configured beacon API reports for the same slot (trust on first use, cross-checked). */
@@ -54,11 +57,18 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
     throw last;
   };
   let lc: LightClient;
+  const fromRoot = async (root: Hex): Promise<LightClient> => {
+    const b = await api<Versioned<LightClientBootstrap>>(`/eth/v1/beacon/light_client/bootstrap/${root}`);
+    return LightClient.fromBootstrap(o.spec, root, b.data, b.version);
+  };
   if (o.snapshot) lc = LightClient.fromSnapshot(o.spec, o.snapshot);
   else {
-    const root = o.checkpoint ?? (await agreedFinalizedRoot(urls, o.fetchFn));
-    const b = await api<Versioned<LightClientBootstrap>>(`/eth/v1/beacon/light_client/bootstrap/${root}`);
-    lc = LightClient.fromBootstrap(o.spec, root, b.data, b.version);
+    lc = await fromRoot(o.checkpoint ?? (await agreedFinalizedRoot(urls, o.fetchFn)));
+    // a configured checkpoint past the age limit is replaced as a saved store is (audit round 2, n43): a store discarded for its
+    // age had been replaced by the checkpoint even when that was older still — walked across the long-retired committees the
+    // limit keeps out, or failing once the beacon APIs no longer served that range
+    if (o.checkpoint && o.maxCheckpointAgePeriods !== undefined && periodAtSlot(currentSlot(o.spec)) - lc.period > o.maxCheckpointAgePeriods)
+      lc = await fromRoot(await agreedFinalizedRoot(urls, o.fetchFn));
   }
   // walk the committees: while the next one is unknown, the store's own period's update teaches it;
   // then each following period's update (signed by that committee) moves the store into it
