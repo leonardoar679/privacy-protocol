@@ -113,9 +113,11 @@ describe("the relayer's own look at its submissions", () => {
     const both = job(12, NOW - DROP_AFTER_MS - 1);
     const w = relayerOver([half, both], { spent: new Set(["110", "120", "121"]) });
     await w.relayer.monitor(NOW);
-    expect(w.journal.load().map((j) => j.status)).toEqual(["dropped", "dropped"]);
-    expect(w.inflight().size, "note 111 can be spent again here").toBe(0);
-    expect(relayerOver(w.journal.load(), {}).inflight().size, "nor after a restart").toBe(0);
+    // both spent: perhaps by its own transaction, mined where the node has not seen it — kept and named (audit round 2, n00)
+    expect(w.journal.load().map((j) => j.status)).toEqual(["dropped", "submitted"]);
+    expect(w.relayer.jobByNullifier("120"), "the wallet still finds the spend this relayer made").toEqual({ txHash: hash(12), status: "submitted" });
+    expect([...w.inflight()].sort(), "note 111 can be spent again here").toEqual(["120", "121"]);
+    expect([...relayerOver(w.journal.load(), {}).inflight()].sort(), "nor after a restart").toEqual(["120", "121"]);
   });
 
   it("a job whose receipt a GET /status found while the monitor read its nullifiers stays mined, never dropped (the audit's unverified m00)", async () => {

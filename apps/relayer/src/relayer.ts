@@ -267,6 +267,11 @@ export class Relayer {
         if (now - job.submittedAt < DROP_AFTER_MS || !(await unknownToTheNode(this.clients.publicClient, job.txHash))) continue;
         const spent = await Promise.all(job.nullifiers.map((n) => this.nullifierSpent(BigInt(n))));
         if (spent.some((s) => s === null)) continue; // unread: watched again
+        // both spent: perhaps by this very transaction, mined where the node that answered has not seen it (a load-balanced
+        // RPC): kept, as before c04 (audit round 2, n00) — its receipt settles it, and /jobs/by-nullifier keeps naming it for
+        // the wallet; it had been dropped, and the lookup answered 404 for a spend this relayer made. A spent note is never
+        // spent twice, so holding its nullifiers costs nothing
+        if (spent.every((s) => s === true)) continue;
         // a GET /status that found its receipt while these reads were out settled it: mined is never overwritten (the
         // audit's unverified m00, 2026-10-17)
         if (job.status !== "submitted") continue;
