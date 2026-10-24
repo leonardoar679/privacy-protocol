@@ -282,6 +282,34 @@ describe("a tab's journal is the newest one (a V6 follow-up of 2026-10-16, audit
     b.session.lock();
   });
 
+  it("a takeover whose reads never answer gives the lock back and locks its tab: no tab is held out (audit round 2, n23)", async () => {
+    const locks = new FakeLocks() as unknown as LockManager;
+    const channel = bus();
+    const storage = memoryStorage();
+    const first = new WalletSession(storage, KDF);
+    await first.create("pw");
+    first.lock();
+    const stuck = new WalletSession(storage, KDF);
+    startActiveTab({
+      session: stuck,
+      stepAside: () => stuck.lock(),
+      locks,
+      channel,
+      store: new TabStateStore(),
+      refresh: () => new Promise<void>(() => {}),
+      takeoverWaitMs: 50,
+    });
+    expect(await stuck.unlock("pw")).toBe(true);
+    await vi.waitFor(() => expect(stuck.isUnlocked(), "locked once its reads did not answer in time").toBe(false));
+    const next = new WalletSession(storage, KDF);
+    const nextStore = new TabStateStore();
+    startActiveTab({ session: next, stepAside: () => next.lock(), locks, channel, store: nextStore });
+    expect(await next.unlock("pw")).toBe(true);
+    await vi.waitFor(() => expect(nextStore.get(), "the lock was given back: another tab opens the wallet").toBe("active"));
+    expect(next.isUnlocked()).toBe(true);
+    next.lock();
+  });
+
   it("a tab that journals again while it takes the wallet over stays the one that holds it (a new wallet's first write)", async () => {
     // the local stack's run: a wallet created in its only tab showed "The wallet is open in another tab" — the second
     // journal write asked for the lock again while the tab, granted it, was still reading its journal

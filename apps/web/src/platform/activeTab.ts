@@ -21,6 +21,12 @@ export const ACTIVE_LOCK = "privacy-wallet:active";
 export const TAB_CHANNEL = "privacy-wallet";
 /** the longest a locked tab waits for its writes before it gives the lock back anyway: a store that never answers holds no tab out */
 export const FLUSH_WAIT_MS = 5_000;
+/**
+ * How long a takeover waits for its reads — the journal, the preferences — before it gives the lock back and locks its tab
+ * (audit round 2, n23): a read that never answered kept the tab on the Splash with the lock held, and no tab could open the
+ * wallet. An unlock tries again.
+ */
+export const TAKEOVER_READ_MS = 15_000;
 
 interface Channel {
   postMessage(m: unknown): void;
@@ -62,6 +68,8 @@ export function startActiveTab(d: {
   flush?: () => Promise<void>;
   /** how long at most (FLUSH_WAIT_MS) */
   flushWaitMs?: number;
+  /** how long a takeover's reads may take (TAKEOVER_READ_MS) */
+  takeoverWaitMs?: number;
 }): () => void {
   const store = d.store ?? activeTab;
   const locks = d.locks === undefined ? (typeof navigator !== "undefined" ? (navigator.locks ?? null) : null) : d.locks;
@@ -92,11 +100,22 @@ export function startActiveTab(d: {
   // the journal as the store holds it when this tab takes the wallet over: what the other tab wrote last
   const takeOver = async (): Promise<void> => {
     taking = true;
+    let read = false;
     try {
-      await d.session.reload().catch(() => undefined);
-      await d.refresh?.().catch(() => undefined);
+      const reads = (async () => {
+        await d.session.reload().catch(() => undefined);
+        await d.refresh?.().catch(() => undefined);
+        return true;
+      })();
+      // bounded (n23): unread in time, this tab never acts on a journal it could not read again — it locks, and the lock goes
+      // back with the callback; a read answering later finds the session locked and changes nothing
+      read = await Promise.race([reads, new Promise<false>((r) => setTimeout(() => r(false), d.takeoverWaitMs ?? TAKEOVER_READ_MS))]);
     } finally {
       taking = false;
+    }
+    if (!read) {
+      d.session.lock();
+      return;
     }
     if (d.session.isUnlocked()) return hold();
   };
