@@ -88,6 +88,8 @@ export class WalletSession {
   private listeners = new Set<() => void>();
   private pendingPhrase: string | null = null;
   private unreadable = false;
+  /** a journal is being loaded into the stores: the mirrors write nothing back (audit round 2, n47) */
+  private loading = false;
   private firstLaunch = false;
   private readyFlag = false;
   /** the last create() kept the journal its seed opened (n45): its counters are known, nothing to hold */
@@ -112,7 +114,7 @@ export class WalletSession {
     // an older tab's unlock had written its old journal over a newer one that way, audit c40)
     noteStore.subscribe(() => {
       const j = this.data;
-      if (!j) return;
+      if (!j || this.loading) return;
       const s = noteStore.serialize();
       if (j.noteCounter === s.noteCounter && !!j.countersHeld === !!s.countersHeld && JSON.stringify(j.notes) === JSON.stringify(s.notes)) return;
       this.update((x) => { x.notes = s.notes; x.noteCounter = s.noteCounter; if (s.countersHeld) x.countersHeld = true; else delete x.countersHeld; });
@@ -120,6 +122,7 @@ export class WalletSession {
     // the settings too, when they changed (audit round 2, r17): an unlock's load gives the journal its own settings back, and
     // journaling them again wrote this tab's copy over another tab's newer journal
     settings.subscribe(() => {
+      if (this.loading) return;
       const now = { ...settings.get() };
       if (this.data && sortedJson(this.data.settings) === sortedJson(now)) return;
       this.update((j) => { j.settings = now; });
@@ -250,8 +253,7 @@ export class WalletSession {
     // it opens now — the other tab set the unreadable one aside and replaced it (n22): this session saves again
     this.unreadable = false;
     this.data = journal;
-    noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
-    if (journal.settings) settings.set(journal.settings as Partial<Settings>);
+    this.loadStores(journal);
     this.emit();
   }
 
@@ -387,9 +389,25 @@ export class WalletSession {
     this.seed = seed;
     this.key = journalKey(seed);
     this.data = journal;
-    noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld }); // triggers a journal write (same content)
-    if (journal.settings) settings.set(journal.settings as Partial<Settings>);
+    this.loadStores(journal);
     this.emit();
+  }
+
+  /**
+   * A journal's notes and settings into the in-memory stores, writing nothing (audit round 2, n47): the settings a load heals
+   * (a key this build added, a value out of range) stay in memory and go out with the next write. The settings mirror had
+   * journaled them at once — an unlock or a takeover wrote the whole journal as this tab had just read it, over a write of
+   * the other tab in between.
+   */
+  private loadStores(journal: JournalData): void {
+    this.loading = true;
+    try {
+      noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
+      if (journal.settings) settings.set(journal.settings as Partial<Settings>);
+    } finally {
+      this.loading = false;
+    }
+    if (journal.settings) journal.settings = { ...settings.get() };
   }
 }
 
