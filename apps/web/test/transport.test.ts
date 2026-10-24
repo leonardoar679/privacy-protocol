@@ -35,6 +35,9 @@ describe("the transport policy (spec §7)", () => {
     expect(() => checkUrl("https://rpc.example/anything")).not.toThrow();
     expect(() => checkUrl("/artifacts/transaction.wasm")).not.toThrow();
     expect(() => checkUrl("https://evil.example/collect")).toThrow(TransportRefusal);
+    // the machine's own services are no endpoint of a production build unless it names them (audit round 2, n77)
+    expect(() => checkUrl("http://127.0.0.1:631/printers")).toThrow(TransportRefusal);
+    expect(() => checkUrl("http://localhost:9222/json")).toThrow(TransportRefusal);
     await expect(secureFetch("https://evil.example/collect")).rejects.toThrow(/not an endpoint of this deployment/);
     expect(fetchSpy, "refused before any network I/O").not.toHaveBeenCalled();
     expect(records).toEqual([]);

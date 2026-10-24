@@ -112,5 +112,8 @@ export function viemTransport(url: string): HttpTransport {
   });
 }
 
-// the deployment's own endpoints come from the configuration (apps/web/src/config.ts applyConfig; spec §7)
-allowHosts("127.0.0.1", "localhost"); // the local stack's defaults (sdk/relayer.ts, sdk/swapService.ts)
+// the deployment's own endpoints come from the configuration (apps/web/src/config.ts applyConfig; spec §7), and nothing
+// else is allowed in strict mode (audit round 2, n77): the loopback hosts had been, on any port, so a production build's
+// relayer or swap service set in Advanced could reach a service on the user's own machine, with only the content security
+// policy in the way. A build whose endpoints are on loopback (the local stack's) names them, and the development build is
+// not strict.
