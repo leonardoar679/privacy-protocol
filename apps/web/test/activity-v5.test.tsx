@@ -165,6 +165,23 @@ describe("the screens (spec §3.10)", () => {
     expect(row("Privacy fee")).toContain("0.01 ETH");
     expect(row("Relayer/network")).toContain("0.001 ETH");
   });
+  it("a funded swap's fee lines say what its funding paid, not the Review's bound: a relayer asking less paid less (audit round 2, n25)", () => {
+    const E = 10n ** 18n;
+    const F = 10n ** 15n;
+    const p = E / 100n;
+    const W = E - p - F;
+    const paid = p + F / 2n; // the funding's relayer asked half the Review's F
+    const stored: StoredSwap = { ...storedSwap(), request: { ...storedSwap().request, amount: W.toString() }, params: { amount: W.toString(), executorTip: "0" }, reviewedFee: (p + F).toString(), fundedFee: paid.toString() };
+    session.update((j) => { j.swaps = [stored]; });
+    recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: W.toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
+    render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
+    const row = (label: string) => screen.getByText(label).closest(".ds-review-row")?.textContent ?? "";
+    expect(row("You pay"), "what left: the escrow and the fee note paid").toContain("0.9995 ETH");
+    // the 1 % of what left (0.9995 ETH), and the rest of the note the funding paid
+    expect(row("Privacy fee")).toContain("0.009995 ETH");
+    expect(row("Relayer/network")).toContain("0.000505 ETH");
+  });
   it("a swap needing attention shows the recovery card in its detail: the refund hands a refund-only job to the executor, never a retry", async () => {
     const stored = storedSwap();
     session.update((j) => { j.swaps = [stored]; });

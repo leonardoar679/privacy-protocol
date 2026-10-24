@@ -17,7 +17,7 @@ import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
 // the private withdrawal has its own suites: here what the funding hands it is recorded
-const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[], events: [] as unknown[], afterEach: undefined as ((e: unknown) => void) | undefined }));
+const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[], events: [] as unknown[], afterEach: undefined as ((e: unknown) => void) | undefined, feeWei: undefined as bigint | undefined }));
 // the relayer's /info: a relayer that names nothing (an older one), so the funding's own rules are what is tested here
 vi.mock("@privacy-wallet/sdk/relayer", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/relayer")>()),
@@ -29,7 +29,7 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
     withdrawals.calls.push(o);
     const on = o.onEvent as ((e: unknown) => void) | undefined;
     for (const e of withdrawals.events) { on?.(e); withdrawals.afterEach?.(e); }
-    return { txHash: "0x" + "33".repeat(32) };
+    return { txHash: "0x" + "33".repeat(32), ...(withdrawals.feeWei !== undefined ? { feeWei: withdrawals.feeWei } : {}) };
   },
 }));
 
@@ -165,6 +165,15 @@ describe("swap funding", () => {
     await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s, relayerUrl: "http://relayer.test" });
     expect(withdrawals.calls[1]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint });
     expect(withdrawals.calls[1]).not.toHaveProperty("maxTiming");
+    // the fee note the funding paid is journaled with it (audit round 2, n25): a relayer asking less than the Review's bound
+    withdrawals.feeWei = 5_500_000_000_000_000n;
+    try {
+      s.update((j) => { j.swaps = [stored({ confirmedAt: 0 })]; });
+      await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s, relayerUrl: "http://relayer.test" });
+      expect(s.journal().swaps[0]).toMatchObject({ state: "funded", fundedFee: "5500000000000000" });
+    } finally {
+      withdrawals.feeWei = undefined;
+    }
   });
 
   it("a swap into the protected balance is funded only once its relayer took the shield job (the audit round of 2026-10-16, c12)", async () => {

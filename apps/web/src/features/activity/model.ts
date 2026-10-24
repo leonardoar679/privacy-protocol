@@ -40,15 +40,18 @@ const DIGITS = /^[0-9]+$/;
 
 /**
  * The fee note a funded swap paid besides its escrow (2026-10-17, the audit's unverified m54): a swap record's input is the
- * escrow amount W, and the fee note p(A) + F that also left was shown nowhere. It is the Review's fee (`reviewedFee`: the
- * funding never pays more); null for an order never funded, one sent through the connected wallet, or one from before.
+ * escrow amount W, and the fee note p(A) + F that also left was shown nowhere. It is the one the funding paid, as journaled
+ * (`fundedFee`; audit round 2, n25 — a relayer asking less paid less, and the Review's bound overstated it), else the
+ * Review's (`reviewedFee`: the funding never pays more); null for an order never funded, one sent through the connected
+ * wallet, or one from before.
  */
 function swapFeeNote(r: ActivityRow): bigint | null {
   const rec = r.record;
   const s = r.swap;
   if (!rec || !s || (rec.kind !== "swap" && rec.kind !== "cross-chain")) return null;
-  if (!s.fundedTx || !s.reviewedFee || !DIGITS.test(s.reviewedFee) || !DIGITS.test(rec.amounts.input)) return null;
-  return BigInt(s.reviewedFee);
+  const paid = s.fundedFee !== undefined && DIGITS.test(s.fundedFee) ? s.fundedFee : s.reviewedFee;
+  if (!s.fundedTx || !paid || !DIGITS.test(paid) || !DIGITS.test(rec.amounts.input)) return null;
+  return BigInt(paid);
 }
 
 /**

@@ -380,7 +380,7 @@ export async function fundEscrow(o: {
     // never a fee above the one the Review showed (c46): a higher one stops the order unfunded (fee_moved)
     ...(stored.reviewedFee !== undefined && /^[0-9]+$/.test(stored.reviewedFee) ? { maxFee: BigInt(stored.reviewedFee) } : {}),
   }); // V6 (spec v2.0 §3): the fee note pays the percentage like any withdrawal
-  patchSwap(stored.orderId, { fundedTx: w.txHash, state: "funded" }, s);
+  patchSwap(stored.orderId, { fundedTx: w.txHash, state: "funded", ...(w.feeWei !== undefined ? { fundedFee: w.feeWei.toString() } : {}) }, s);
   return w;
 }
 
