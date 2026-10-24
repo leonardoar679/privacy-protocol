@@ -3,7 +3,7 @@
 // the light client and the storage prover are stubbed here (both run live in test/live/lightclient).
 import { describe, it, expect, afterEach } from "vitest";
 import { treeLayers } from "@privacy-wallet/sdk/core";
-import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, TreeNotProven, VerificationUnavailable, verifyStatus, verifyTree, MAX_SNAPSHOT_AGE_PERIODS, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
+import { checkTreeAgainstProof, nullifierSlot, provenPool, provenSpent, resetLightClient, PROOF_BATCH_SLOTS, TreeNotProven, VerificationUnavailable, verifyStatus, verifyTree, MAX_SNAPSHOT_AGE_PERIODS, POOL_SLOTS } from "@privacy-wallet/sdk/verifiedReads";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { encodeAbiParameters, keccak256 } from "viem";
 import type { Deployment, TreeState } from "@privacy-wallet/sdk/chain";
@@ -122,6 +122,18 @@ describe("verifyTree in the spend flows", () => {
     }) as any;
     await verifyTree(dep(1), await tree(12), undefined, { sync, prover: stubProver(12n, await rootOf(12)) });
     expect(asked?.maxCheckpointAgePeriods).toBe(MAX_SNAPSHOT_AGE_PERIODS);
+  });
+  it("proves spent status 32 slots per request, in order: a long-lived wallet's notes never in one request (audit round 2, n44)", async () => {
+    const sizes: number[] = [];
+    const prover = (async (_lc: unknown, _r: string[], _c: string, slots: string[]) => {
+      sizes.push(slots.length);
+      return { header: { number: 99n + BigInt(sizes.length) }, account: {}, values: slots.map((s) => BigInt(s) % 2n) };
+    }) as any;
+    const nfs = Array.from({ length: 70 }, (_, i) => BigInt(i + 1));
+    const r = await provenSpent(dep(1), nfs, { sync: stubSync(15_000_000), prover });
+    expect(sizes).toEqual([PROOF_BATCH_SLOTS, PROOF_BATCH_SLOTS, 6]);
+    expect(r!.spent).toEqual(nfs.map((nf) => BigInt(nullifierSlot(nf)) % 2n === 1n));
+    expect(r!.blockNumber, "the latest of the batches' blocks").toBe(102n);
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);

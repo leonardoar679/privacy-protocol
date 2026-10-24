@@ -824,13 +824,18 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
   const found = keyed.map((k) => k.f);
   const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
   const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
-  const proven = await provenSpent(d, nullifiers);
+  // only what the endpoint calls unspent is proven, a batch at a time (audit round 2, n44): the proof catches an endpoint hiding
+  // a spend, and one eth_getProof over every note ever found — spent ones included — grew with the wallet's history past the
+  // endpoints' response limits and the 20 s timeout, failing every scan of a long-lived wallet
+  const unspent = rpcSpent.flatMap((s, i) => (s ? [] : [i]));
+  const proven = await provenSpent(d, unspent.map((i) => nullifiers[i]));
+  const provenSpentAt = new Set(proven ? unspent.filter((_, j) => proven.spent[j]) : []);
   if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
   for (const [i, f] of found.entries()) {
-    if (proven?.spent[i] && !rpcSpent[i]) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven.blockNumber}`);
-    const spent = rpcSpent[i] || !!proven?.spent[i];
+    if (provenSpentAt.has(i)) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven!.blockNumber}`);
+    const spent = rpcSpent[i];
     if (spent) spentCount++;
     const known = noteStore.all().find((n) => n.leafIndex === f.leafIndex);
     if (known) {

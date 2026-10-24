@@ -19,14 +19,17 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { startMockCore } from "./helpers/mockRpc";
 
 /** The leaves the light client proves at the latest finalized block (null: no light client for this chain). */
-const proof = vi.hoisted(() => ({ leaves: null as number | null }));
+const proof = vi.hoisted(() => ({ leaves: null as number | null, asked: [] as number[] }));
 vi.mock("@privacy-wallet/sdk/verifiedReads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/verifiedReads")>()),
   verifyTree: async () =>
     proof.leaves === null
       ? { kind: "unavailable", reason: "no light client for this chain" }
       : { kind: "verified", proof: { blockNumber: 1n, slot: 1, nextLeafIndex: proof.leaves, root: 0n }, leaves: proof.leaves },
-  provenSpent: async () => null,
+  provenSpent: async (_d: unknown, nullifiers: bigint[]) => {
+    proof.asked.push(nullifiers.length);
+    return null;
+  },
 }));
 
 const CORE = getAddress("0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9");
@@ -86,6 +89,21 @@ describe("notes past the pool the light client proved (audit round 2, r24)", () 
     expect(leaves()).toEqual([0, 4]);
     expect(r.received).toEqual([expect.objectContaining({ leafIndex: 4 })]);
     expect(r).toMatchObject({ pending: [], proven: null });
+  });
+
+  it("a scan proves only the notes the endpoint calls unspent: the spent ones of a wallet's history are not proven again (audit round 2, n44)", async () => {
+    proof.leaves = 8;
+    await scanNotes({ masterSeed: seed, deployment: deployment() });
+    expect(proof.asked.at(-1), "both unspent: both proven").toBe(2);
+    noteStore.clear();
+    mock.state.spent = true;
+    try {
+      await scanNotes({ masterSeed: seed, deployment: deployment() });
+      expect(proof.asked.at(-1), "both spent: none").toBe(0);
+      expect(noteStore.all().every((n) => n.spent)).toBe(true);
+    } finally {
+      mock.state.spent = false;
+    }
   });
 
   it("a stored note at a proven leaf that holds another commitment is dropped; one past the proven pool is left", async () => {

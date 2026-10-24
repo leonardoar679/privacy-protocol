@@ -120,11 +120,23 @@ export const nullifierSlot = (nf: bigint): Hex => {
   return keccak256(`0x${hex(nf)}${hex(BigInt(POOL_SLOTS.spentNullifierMapping))}` as Hex);
 };
 
-/** Whether each nullifier was spent as of the latest finalized block, proven; null when no light client applies (off, or a chain it does not serve). */
+/** At most this many storage slots per eth_getProof (audit round 2, n44): the endpoints cap a response's size and time. */
+export const PROOF_BATCH_SLOTS = 32;
+
+/**
+ * Whether each nullifier was spent as of the latest finalized block, proven, `PROOF_BATCH_SLOTS` per request (the block named
+ * is the latest of the batches'); null when no light client applies (off, or a chain it does not serve).
+ */
 export async function provenSpent(d: Deployment, nullifiers: bigint[], o: ProofOptions = {}): Promise<{ blockNumber: bigint; spent: boolean[] } | null> {
   if (settings.get().verifyReads === false || !specForChain(d.chainId) || !nullifiers.length) return null;
-  const p = await provenCoreWords(d, nullifiers.map(nullifierSlot), o);
-  return { blockNumber: p.blockNumber, spent: p.values.map((v) => v !== 0n) };
+  let blockNumber = 0n;
+  const spent: boolean[] = [];
+  for (let i = 0; i < nullifiers.length; i += PROOF_BATCH_SLOTS) {
+    const p = await provenCoreWords(d, nullifiers.slice(i, i + PROOF_BATCH_SLOTS).map(nullifierSlot), o);
+    if (p.blockNumber > blockNumber) blockNumber = p.blockNumber;
+    spent.push(...p.values.map((v) => v !== 0n));
+  }
+  return { blockNumber, spent };
 }
 
 /** The tree's first `proof.nextLeafIndex` leaves must hash to the proven root; the RPCs may know more leaves, never fewer. */
