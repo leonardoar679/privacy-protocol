@@ -164,20 +164,28 @@ export class WalletSession {
     // a restore of this device's own phrase — the forgotten-password path — had deleted the open orders and campaigns, the
     // address book and the fresh-address counters it still opened
     const kept = this.journalOf(own);
+    // a journal set aside as unreadable (audit round 2, n49/n70): this seed's — set aside while another wallet was here — is
+    // its journal again when the stored one is not; another wallet's goes with that wallet, as a forget removes it (m44). It
+    // had stayed on the device after a create or a restore over it, and a restore of the seed that wrote it never read it
+    const aside = this.store.get(UNREADABLE_JOURNAL_KEY) !== null;
+    const asideJournal = aside ? this.journalOf(own, UNREADABLE_JOURNAL_KEY) : null;
+    const journal = kept ?? asideJournal;
     this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
     if (!kept) this.store.remove(JOURNAL_KEY);
-    this.keptJournal = !!kept;
+    if (aside && !asideJournal) this.store.remove(UNREADABLE_JOURNAL_KEY);
+    this.keptJournal = !!journal;
     this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
-    this.open(own, kept ?? emptyJournal());
+    this.open(own, journal ?? emptyJournal());
     this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
+    if (!kept && asideJournal) this.store.remove(UNREADABLE_JOURNAL_KEY); // stored as the journal just now
     this.firstLaunch = true;
     return this.pendingPhrase;
   }
 
-  /** The stored journal, when this seed opens it; null otherwise (none, another wallet's, unreadable). */
-  private journalOf(seed: Uint8Array): JournalData | null {
-    const blob = this.store.get(JOURNAL_KEY);
+  /** A stored journal (the journal, or `key`: one set aside), when this seed opens it; null otherwise (none, another wallet's, unreadable). */
+  private journalOf(seed: Uint8Array, key: string = JOURNAL_KEY): JournalData | null {
+    const blob = this.store.get(key);
     if (!blob) return null;
     try {
       return decryptJournal(journalKey(seed), JSON.parse(blob) as EncryptedJournal);
@@ -296,6 +304,8 @@ export class WalletSession {
     await this.guardExisting(opts.replace);
     const seed = await unlockKeystore(b.keystore, password);
     if (!seed) return false;
+    // a journal set aside as unreadable goes unless this seed opens it (audit round 2, n49): another wallet's had stayed
+    if (this.store.get(UNREADABLE_JOURNAL_KEY) !== null && !this.journalOf(seed, UNREADABLE_JOURNAL_KEY)) this.store.remove(UNREADABLE_JOURNAL_KEY);
     this.store.set(KEYSTORE_KEY, JSON.stringify(b.keystore));
     if (b.journal) this.store.set(JOURNAL_KEY, JSON.stringify(b.journal)); else this.store.remove(JOURNAL_KEY);
     const ok = await this.unlock(password);

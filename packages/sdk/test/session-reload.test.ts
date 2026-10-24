@@ -6,7 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { configure, defaultConfig } from "../src/config";
 import { WalletSession } from "../src/wallet/session";
 import { settings } from "../src/wallet/settings";
-import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, type KeyValueStorage } from "../src/wallet/storage";
+import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "../src/wallet/storage";
+import { generateMasterSeed } from "../src/keys/wallet";
+import { seedToPhrase } from "../src/wallet/keystore";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 
@@ -95,5 +97,49 @@ describe("an unlock and a takeover write nothing (audit round 2, n47)", () => {
     } finally {
       settings.reset();
     }
+  });
+});
+
+describe("a journal set aside as unreadable, at a create or a restore (audit round 2, n49/n70)", () => {
+  const CORRUPT = JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "22".repeat(64) });
+
+  it("another wallet's goes with it: a create or a restore over it leaves none on the device", async () => {
+    for (const how of ["create", "phrase", "backup"] as const) {
+      const store = memoryStorage();
+      const a = new WalletSession(store, KDF);
+      await a.create("pw");
+      const backup = a.exportBackup();
+      store.set(UNREADABLE_JOURNAL_KEY, CORRUPT); // set aside earlier: no seed opens it
+      a.lock();
+      const b = new WalletSession(store, KDF);
+      if (how === "create") await b.create("another", undefined, { replace: true });
+      else if (how === "phrase") await b.restoreFromPhrase(seedToPhrase(generateMasterSeed()), "another", { replace: true });
+      else expect(await b.restoreFromBackup(backup, "pw", { replace: true })).toBe(true);
+      expect(store.get(UNREADABLE_JOURNAL_KEY), how).toBeNull();
+      b.lock();
+    }
+  });
+
+  it("this seed's is its journal again: a restore of the seed that wrote it reads it", async () => {
+    const store = memoryStorage();
+    const a = new WalletSession(store, KDF);
+    const phrase = await a.create("pw");
+    a.update((j) => {
+      j.chainIndexes.evm = 7;
+    });
+    // another wallet replaced it here, and its unlock set this one's journal aside
+    const own = store.get(JOURNAL_KEY)!;
+    a.lock();
+    const other = new WalletSession(store, KDF);
+    await other.create("other", undefined, { replace: true });
+    other.lock();
+    store.set(UNREADABLE_JOURNAL_KEY, own);
+    const back = new WalletSession(store, KDF);
+    await back.restoreFromPhrase(phrase, "new password", { replace: true });
+    expect(back.journal().chainIndexes.evm, "its journal again").toBe(7);
+    expect(store.get(UNREADABLE_JOURNAL_KEY), "no longer set aside").toBeNull();
+    back.lock();
+    expect(await back.unlock("new password")).toBe(true);
+    expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(7);
   });
 });
