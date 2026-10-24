@@ -533,6 +533,8 @@ export const en = {
   "op.error.wallet_disconnected.reason": "The connected wallet is no longer available. Nothing was sent; reconnect and confirm again.",
   "op.error.chain_mismatch.title": "The wallet is on another network",
   "op.error.chain_mismatch.reason": "The connected wallet is not on this deployment's network. Nothing was sent; switch the network and confirm again.",
+  "op.error.account_changed.title": "The connected wallet changed accounts",
+  "op.error.account_changed.reason": "The connected wallet now uses another account than the one this was read for, so nothing was sent. Read it again for this account.",
   "op.error.rpc_disagreement.title": "The RPC endpoints disagree",
   "op.error.rpc_disagreement.reason": "Your endpoints returned different views of the chain, so the wallet refused to act on either. Nothing was sent; check the endpoints in Advanced settings.",
   "op.error.receipt_disputed.title": "Your RPC endpoints disagree about this transaction",

@@ -28,6 +28,7 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
 const USDC = getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 const USDC_VAULT = getAddress("0x00000000000000000000000000000000000ca5de");
 const OWNER = getAddress("0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
+const OTHER = getAddress("0x00000000000000000000000000000000000b0b00");
 const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: getAddress("0x00000000000000000000000000000000000000e7"), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: parseErc20Vaults(`USDC:${USDC}:${USDC_VAULT}:6`) };
 let root: Root | null = null;
 afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } session.forget(); settings.reset(); delete (window as any).ethereum; connection.reset(); });
@@ -37,13 +38,19 @@ const button = (c: ParentNode, text: string) => [...c.querySelectorAll("button")
 function provider(allowance: bigint) {
   const calls: { method: string; params: any[] }[] = [];
   let current = allowance;
+  const listeners: Record<string, ((...a: any[]) => void)[]> = {};
   const eth = {
     calls,
     /** the wallet's network (the deployment's is chain 1) */
     chain: "0x1",
+    /** the wallet's account (audit round 2, n53: it can change) */
+    account: OWNER as string,
+    on: (event: string, l: (...a: any[]) => void) => void (listeners[event] ??= []).push(l),
+    removeListener: (event: string, l: (...a: any[]) => void) => void (listeners[event] = (listeners[event] ?? []).filter((x) => x !== l)),
+    emit: (event: string, ...a: any[]) => (listeners[event] ?? []).forEach((l) => l(...a)),
     request: async ({ method, params }: { method: string; params?: any[] }) => {
       calls.push({ method, params: params ?? [] });
-      if (method === "eth_accounts" || method === "eth_requestAccounts") return [OWNER];
+      if (method === "eth_accounts" || method === "eth_requestAccounts") return [eth.account];
       if (method === "eth_chainId") return eth.chain;
       if (method === "eth_call") {
         const d = decodeFunctionData({ abi: erc20Abi, data: params![0].data });
@@ -80,6 +87,11 @@ describe("allowances through the injected wallet", () => {
     await expect(revokeAllowance(USDC, USDC_VAULT, deployment.chainId), "a wallet on another network revokes nothing").rejects.toMatchObject({ code: "chain_mismatch" });
     expect(eth.calls.filter((c) => c.method === "eth_sendTransaction").length).toBe(sentBefore);
     eth.chain = "0x1";
+    // nor one that changed accounts since the allowance was read (audit round 2, n53)
+    eth.account = OTHER;
+    await expect(revokeAllowance(USDC, USDC_VAULT, deployment.chainId, OWNER)).rejects.toMatchObject({ code: "account_changed" });
+    expect(eth.calls.filter((c) => c.method === "eth_sendTransaction").length).toBe(sentBefore);
+    eth.account = OWNER;
     expect(tx).toBe("0x" + "ab".repeat(32));
     const sent = eth.calls.find((c) => c.method === "eth_sendTransaction")!;
     expect(sent.params[0].to).toBe(USDC);
@@ -111,6 +123,13 @@ describe("allowances through the injected wallet", () => {
     await act(async () => { (line.querySelector('[data-testid="revoke-allowance"]') as HTMLButtonElement).click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="allowances"]')!.textContent).toContain("Revoked"));
     expect(eth.calls.filter((c) => c.method === "eth_sendTransaction")).toHaveLength(1);
+    // revoked: no second approve(0) offered (audit round 2, n53)
+    expect(container.querySelector('[data-testid="revoke-allowance"]')).toBeNull();
+    expect(container.querySelector('[data-testid="allowance-line"]')!.textContent).toContain("0 USDC");
+    // another account: the list read for the first is not this one's
+    await act(async () => { eth.account = OTHER; eth.emit("accountsChanged", [OTHER]); });
+    expect(container.querySelector('[data-testid="allowance-line"]'), "the list read for the other account is gone").toBeNull();
+    await act(async () => { eth.account = OWNER; eth.emit("accountsChanged", [OWNER]); });
     expect(eth.calls.every((c) => c.method !== "eth_getBalance")).toBe(true);
     // the Protect screen: the deposit failed after the approval → the leftover is read and can be revoked
     const eth2 = provider(100_000_000n);

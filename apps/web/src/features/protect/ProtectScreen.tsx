@@ -6,7 +6,7 @@
 // progress route reads the journaled operation. The §23 flow is ./model.ts (pure); the engine is sdk/privateTx.ts
 // (shieldNative / shieldERC20: an ERC-20 asks the wallet to approve the router for exactly the amount, then to protect —
 // two prompts, one operation). A failed ERC-20 deposit may leave its approval behind: it is read and can be revoked.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { formatUnits } from "viem";
 import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
@@ -153,6 +153,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
   }));
 
   const router = p.deployment?.protectRouter;
+  const leftoverOwner = useRef<`0x${string}` | null>(null);
   const checkLeftover = useCallback(async () => {
     if (!asset?.token) return;
     const provider = activeProvider();
@@ -163,11 +164,12 @@ export function ProtectScreen(p: ProtectScreenProps) {
     }
     const a = await readAllowance(asset.token, from, router ?? asset.vault); // V6: the router pulls a protect's tokens
     setLeftover(a === null ? "unknown" : a);
+    leftoverOwner.current = from; // revoked from this account only (audit round 2, n53)
   }, [asset, router]);
   async function revokeLeftover() {
     if (!asset?.token || !p.deployment) return;
     try {
-      const tx = await revokeAllowance(asset.token, router ?? asset.vault, p.deployment.chainId);
+      const tx = await revokeAllowance(asset.token, router ?? asset.vault, p.deployment.chainId, leftoverOwner.current ?? undefined);
       setRevoked(tx);
       setLeftover(0n);
     } catch (e) {

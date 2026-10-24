@@ -212,16 +212,30 @@ export class WalletOnOtherChain extends Error {
   }
 }
 
+/** The connected wallet uses another account than the one a transaction was prepared for (audit round 2, n53): nothing was sent. */
+export class WalletOtherAccount extends Error {
+  readonly code = "account_changed";
+  constructor(
+    readonly expected: string,
+    readonly actual: string | null,
+  ) {
+    super(`the connected wallet uses account ${actual ?? "none"}, not ${expected}; nothing was sent`);
+    this.name = "WalletOtherAccount";
+  }
+}
+
 /**
  * A transaction through the connected wallet, on the deployment's chain only (a V6 follow-up of 2026-10-16): the wallet's
  * network is read just before every send, and the transaction names its chain, which a wallet that checks it holds to
  * even if the network is switched in between. Before, a wallet left on another network (or switched there between a
  * protect's approval and its deposit) sent the deposit's value to the same address on that chain.
  */
-export async function sendViaInjectedWallet(tx: TxRequest, chainId: number): Promise<Hex> {
+export async function sendViaInjectedWallet(tx: TxRequest, chainId: number, expectFrom?: string): Promise<Hex> {
   const eth = activeProvider();
   if (!eth) throw new Error("no injected wallet to submit with");
   const [from] = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+  // `expectFrom`: the account it was prepared for — never sent from whichever one the wallet has now (audit round 2, n53)
+  if (expectFrom && from?.toLowerCase() !== expectFrom.toLowerCase()) throw new WalletOtherAccount(expectFrom, from ?? null);
   const raw = await eth.request({ method: "eth_chainId" });
   const actual = typeof raw === "string" && /^0x[0-9a-fA-F]+$/.test(raw) ? parseInt(raw, 16) : typeof raw === "number" ? raw : null;
   if (actual !== chainId) throw new WalletOnOtherChain(chainId, actual);

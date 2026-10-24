@@ -95,6 +95,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   wallet_disconnected: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   chain_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
+  // the connected wallet changed accounts since the allowance was read (audit round 2, n53): refused before anything was sent
+  account_changed: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   rpc_disagreement: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings", "wait"] },
   receipt_disputed: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },
   transport_refused: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
