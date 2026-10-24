@@ -74,6 +74,8 @@ server {
   location /assets/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }
   location /artifacts/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
   location / { try_files $uri /index.html; }   # the client-side routes (/send, /more/privacy, …): the server's headers
+  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
+  location /zkapi-deployment/ { proxy_pass https://zkapi-sepolia.openanonymity.ai/; proxy_ssl_server_name on; include snippets/privacy-wallet-headers.conf; }
 }
 ```
 
@@ -105,6 +107,12 @@ wallet.example {
   header @index Cache-Control no-store
   header /assets/* Cache-Control "public, max-age=31536000, immutable"
   header /artifacts/* Cache-Control "public, max-age=31536000, immutable"
+  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
+  handle_path /zkapi-deployment/* {
+    reverse_proxy https://zkapi-sepolia.openanonymity.ai {
+      header_up Host {upstream_hostport}
+    }
+  }
   try_files {path} /index.html
   file_server
 }
@@ -135,7 +143,11 @@ record; serving it is harmless, but a host may leave `/.vite/` out.
   longer matches is dropped and fetched again, a new pin replaces the old entry, and an unpinned artifact is never
   cached, so the 31 MB key is downloaded once per device and per ceremony, not once per proof. `node scripts/check-artifact-pins.mjs` checks the pins against
   the files on the build machine and, when `dist/` exists, that `index.html` carries the policy and ships the pin file.
-- `/zkapi/*` (Private AI): `npm run zkapi:assets` and `npm run zkapi:pins` (docs/zkapi-integration-spec.md).
+- `/zkapi/*` (Private AI): `npm run zkapi:assets` and `npm run zkapi:pins` (docs/zkapi-integration-spec.md). The SDK
+  reads its deployment behind the same-origin rewrite `/zkapi-deployment/`, to the pinned protocol server of the network
+  the assets were built for (`https://zkapi-sepolia.openanonymity.ai` or `https://zkapi-mainnet.openanonymity.ai`, as the
+  dev server proxies it): the `location` and `handle_path` blocks above. Without it the client-route fallback answered the
+  SDK with `index.html` (audit round 2, n76).
 
 ## The API and the relayer
 
