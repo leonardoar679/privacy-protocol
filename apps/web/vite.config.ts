@@ -114,7 +114,14 @@ function fixturesOnly(mode: string): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+/**
+ * The component preview (/__preview) and its chunk: the dev server's and the screenshot fixtures' only (audit round 2, n78).
+ * Every other build leaves it out — `mode !== "production"` had kept it in `vite build --mode staging`, a build with PROD
+ * true (the strict transport, the floors) that check-dist, which inspects the default build, never saw.
+ */
+export const previewIncluded = (command: string, mode: string): boolean => command === "serve" || mode === "fixtures";
+
+export default defineConfig(({ mode, command }) => {
   const root = fileURLToPath(new URL(".", import.meta.url));
   // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
   const env = loadEnv(mode, root, "VITE_");
@@ -132,7 +139,7 @@ export default defineConfig(({ mode }) => {
       dedupe: ["react", "react-dom"],
     },
     // __PREVIEW__: the component preview (/__preview) and its chunk exist in every mode but a production build (spec v2.0 §6)
-    define: { __ZKAPI__: JSON.stringify(zkapi.bundled), __PREVIEW__: JSON.stringify(mode !== "production") },
+    define: { __ZKAPI__: JSON.stringify(zkapi.bundled), __PREVIEW__: JSON.stringify(previewIncluded(command, mode)) },
     // the fixtures build has a second entry; every other build has the wallet's page only
     // V6 Stage 16 (spec v2.0 §19): the manifest is what scripts/check-budget.mjs reads (the first route and Home, gzipped)
     ...(mode === "fixtures" ? { build: { outDir: "dist-fixtures", rollupOptions: { input: { main: join(root, "index.html"), fixtures: join(root, "fixtures.html") } } } } : { build: { manifest: true } }),
