@@ -16,6 +16,7 @@ import { EXECUTE_WINDOW_MIN_SECONDS, DELAY_BUDGET, PrivateSwapEngine, executeWin
 import type { AssetRef, Health, ProviderId, Quote, QuoteRequest } from "../src/types";
 import type { RouteScore } from "../src/scoring";
 import { NO_VALUER } from "../src/valuation";
+import { incidentSpan } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { normalizeQuote } from "../src/normalize";
 import { shareTips } from "./helpers/tips";
 
@@ -169,6 +170,19 @@ describe("the breaker's new triggers and the half-open probe (spec §10)", () =>
     u.recordIncident("chainflip", t0 - 3_600_000, t0);
     expect(u.breakerOpen("chainflip", t0 + 1)).toMatch(/a security incident reported in the last 24 hours/);
     expect(u.state("chainflip", t0 + 1).lastIncidentAt).toBe(t0 - 3_600_000);
+  });
+
+  it("an incident dated by day is fresh through the day after it, from its own day — never before it (audit round 2, n07)", () => {
+    const day = incidentSpan("2026-10-22")!;
+    const at = (iso: string) => {
+      const t = new ProviderHealthTracker();
+      t.recordIncident("chainflip", day, Date.parse(iso));
+      return t.breakerOpen("chainflip", Date.parse(iso));
+    };
+    expect(at("2026-10-22T23:30:00Z"), "late on its day: it had been fresh only until midnight").toMatch(/security incident/);
+    expect(at("2026-10-23T08:00:00Z"), "recorded the day after: it had never opened").toMatch(/security incident/);
+    expect(at("2026-10-24T00:30:00Z"), "a day after its end").toBeNull();
+    expect(at("2026-10-21T12:00:00Z"), "not before its day").toBeNull();
   });
   it("after it expires one probe is allowed: a failure during the probe reopens it at once, a success clears it", () => {
     const t = new ProviderHealthTracker({ breakerMs: 1000 });

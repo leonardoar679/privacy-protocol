@@ -173,6 +173,25 @@ describe("an operator's incident (the audit round of 2026-10-16, c22)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("one dated by day — yesterday, as the risk database dates its own — still opens the breaker today (audit round 2, n07)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "incidents-"));
+    const file = join(dir, "incidents.json");
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    writeFileSync(file, JSON.stringify([{ provider: "thorchain", date: yesterday, title: "operator: vault anomaly (by day)", lossUsd: 0, class: "api", halfLifeDays: 30, source: "ops" }]));
+    const before = process.env.INCIDENTS_FILE;
+    process.env.INCIDENTS_FILE = file;
+    try {
+      const e = engine([new Stub("thorchain", "quote"), new Stub("chainflip", "quote")]);
+      const set = await e.quoteAll(req, "balanced");
+      const by = Object.fromEntries(set.competition.map((c) => [c.provider, c]));
+      expect(by.thorchain).toMatchObject({ outcome: "skipped", reason: expect.stringContaining("security incident") });
+    } finally {
+      if (before === undefined) delete process.env.INCIDENTS_FILE;
+      else process.env.INCIDENTS_FILE = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("the competition record, the time budget and the breaker (whale spec §2, §3, §16)", () => {

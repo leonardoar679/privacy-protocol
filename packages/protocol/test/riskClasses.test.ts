@@ -1,7 +1,7 @@
 // Risk classes (High-Value Protection spec §2, §10): the class per provider and quote, the flags, the gate under
 // each mode, database overrides, the narrowed band, and ELPF.
 import { describe, it, expect } from "vitest";
-import { expectedLossPerFailure, narrowedBand, riskModelOf } from "../src/wallet/riskClasses";
+import { expectedLossPerFailure, incidentSpan, narrowedBand, riskModelOf } from "../src/wallet/riskClasses";
 
 const ETH = { symbol: "ETH" }, BTC = { symbol: "BTC" }, USDC = { symbol: "USDC" };
 
@@ -32,5 +32,13 @@ describe("riskModelOf", () => {
     expect(expectedLossPerFailure({ pFailPrior: 0.02, exposed: 250_000 })).toEqual({ pFailure: 0.02, expectedLoss: 5_000 });
     expect(expectedLossPerFailure({ pFailPrior: 0.02, failuresInWindow: 3, incidentFactor: 2, exposed: 250_000 })).toEqual({ pFailure: 0.08, expectedLoss: 20_000 });
     expect(expectedLossPerFailure({ pFailPrior: 0.9, failuresInWindow: 30, exposed: 1 }).pFailure).toBe(1);
+  });
+});
+
+describe("an incident's time (audit round 2, n07)", () => {
+  it("a date by day is the whole of that day (UTC); a time is its instant; anything else is none", () => {
+    expect(incidentSpan("2026-10-22")).toEqual({ from: Date.parse("2026-10-22T00:00:00Z"), to: Date.parse("2026-10-23T00:00:00Z") - 1 });
+    expect(incidentSpan("2026-10-22T09:30:00Z")).toEqual({ from: Date.parse("2026-10-22T09:30:00Z"), to: Date.parse("2026-10-22T09:30:00Z") });
+    expect(incidentSpan("not a date")).toBeNull();
   });
 });

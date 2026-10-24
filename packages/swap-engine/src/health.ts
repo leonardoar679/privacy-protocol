@@ -150,11 +150,12 @@ export class ProviderHealthTracker {
     if (r.divergences.length >= this.opts.divergencesAfter) this.open(r, now, `${r.divergences.length} hard quotes far below the alternatives (last ${gapBps} bps)`);
     return true;
   }
-  /** A security incident on the feed; a fresh one opens the breaker. */
-  recordIncident(p: ProviderId, dateMs: number, now = Date.now()): void {
+  /** A security incident on the feed (an instant, or a day's span: `incidentSpan`); a fresh one opens the breaker — fresh until `incidentMs` after its end. */
+  recordIncident(p: ProviderId, at: number | { from: number; to: number }, now = Date.now()): void {
+    const { from, to } = typeof at === "number" ? { from: at, to: at } : at;
     const r = this.rec(p);
-    if (r.incidentAt === undefined || dateMs > r.incidentAt) r.incidentAt = dateMs;
-    if (now - dateMs < this.opts.incidentMs && dateMs <= now) this.open(r, now, "a security incident reported in the last 24 hours");
+    if (r.incidentAt === undefined || from > r.incidentAt) r.incidentAt = from;
+    if (from <= now && now - Math.min(to, now) < this.opts.incidentMs) this.open(r, now, "a security incident reported in the last 24 hours");
   }
   failures(p: ProviderId, now = Date.now()): NonNullable<Health["failures"]> {
     const r = this.rec(p);

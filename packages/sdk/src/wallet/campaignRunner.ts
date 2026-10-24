@@ -14,6 +14,7 @@ import {
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { velocityExceeded } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+import { incidentSpan } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "../chain";
@@ -92,7 +93,8 @@ export function resetRunnerMemory(): void { orders.clear(); signedCache.clear();
 async function leftRouteUnsound(provider: string, c: Campaign, io: CampaignIo, now: number): Promise<string | null> {
   const risk = await cached(`risk:${provider}`, now, () => io.risk(provider), true).catch(() => null);
   if (risk?.breaker.open) return `its own route, ${provider}, is skipped after repeated failures`;
-  if (risk?.security.incidentList.some((i) => Date.parse(i.date) >= c.createdAt)) return `a security incident at ${provider} was reported after this operation started`;
+  // an incident dated by day counts the whole of its day: one dated the day the operation started is not before it (n07)
+  if (risk?.security.incidentList.some((i) => (incidentSpan(i.date)?.to ?? -Infinity) >= c.createdAt)) return `a security incident at ${provider} was reported after this operation started`;
   return null;
 }
 // V6 Stages 15–16 (spec v2.0 §8, §19): a lock forgets this memory. The hook is registered when this module loads, so

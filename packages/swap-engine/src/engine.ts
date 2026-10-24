@@ -17,6 +17,7 @@ import { placeholderDestination } from "./placeholders";
 import { protectionFor, type Protection, type ProviderRisk } from "./risk/protection";
 import { normalizeQuote } from "./normalize";
 import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
+import { incidentSpan } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { SHIELD_TIP_DIVISOR, type TipSource } from "./tips";
 
 export interface EngineConfig {
@@ -274,7 +275,10 @@ export class PrivateSwapEngine {
       const t0 = Date.now();
       // the budget covers the provider's health check and its quote together: the competition never waits longer for one provider (§16)
       const { health, timedOut } = await this.healthWithin(a, now, budget);
-      for (const i of feed) if (i.provider === a.id && Number.isFinite(Date.parse(i.date))) this.tracker.recordIncident(a.id, Date.parse(i.date), now);
+      for (const i of feed) {
+        const span = i.provider === a.id ? incidentSpan(i.date) : null; // a day-dated incident is its whole day (audit round 2, n07)
+        if (span) this.tracker.recordIncident(a.id, span, now);
+      }
       const open = this.tracker.breakerOpen(a.id, now);
       if (open) { skipped[a.id] = open; competition.push({ provider: a.id, outcome: "skipped", reason: open, ms: 0 }); return { id: a.id, health, quote: undefined, error: open }; }
       if (!a.implemented) { competition.push({ provider: a.id, outcome: "refused", reason: "not implemented", ms: 0 }); return { id: a.id, health, quote: undefined, error: "not implemented" }; }

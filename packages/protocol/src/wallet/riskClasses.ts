@@ -40,6 +40,17 @@ export const PROVIDER_RISK: Record<string, { class: RiskClass; custody: Custody;
 
 export const ISSUER_CONTROLLED = new Set(["USDC", "USDT"]);
 
+/**
+ * When an incident happened (audit round 2, n07): a date by day — the risk database's own format, "2026-10-22" — is the whole
+ * of that day (UTC), a time is its instant. Read as its day's midnight, a day-dated incident had opened a breaker only until the
+ * next midnight, not at all when recorded the day after, and an incident dated the day an operation started read as before it.
+ */
+export function incidentSpan(date: string): { from: number; to: number } | null {
+  const at = Date.parse(date);
+  if (!Number.isFinite(at)) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date.trim()) ? { from: at, to: at + 86_400_000 - 1 } : { from: at, to: at };
+}
+
 export interface QuoteShape { plan?: { mode: string } | null; /** the route swaps on the source chain before bridging (the Across swap leg, a LI.FI source swap) */ sourceSwap?: boolean; nativeAssets?: boolean }
 
 /**
