@@ -386,6 +386,7 @@ The owner's rewrite of the V5 document, complete (§89–§96 new: the exact dev
 | 17 | follow-up (2026-10-23, audit round 2, n81): `npm run preview` sends the build's whole policy as a header, frame-ancestors with it (it had sent `frame-ancestors 'none'` alone). Tests: `preview-headers` +1 — failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 | 17 | follow-up (2026-10-23, audit round 2, n76): docs: the zkAPI SDK's same-origin rewrite `/zkapi-deployment/` in the nginx and Caddy recipes of `docs/deployment.md`; the fallback had answered the SDK with `index.html`. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 | 17 | follow-up (2026-10-23, audit round 2, n00): the relayer keeps a lost submission whose notes both read spent (perhaps its own spend, mined where the endpoint had not seen it): dbd7223 had dropped it, and `/jobs/by-nullifier` answered 404. Tests: `monitor` — failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
+| 17 | follow-up (2026-10-23, audit round 2, n04): the rate limit holds a whole IPv6 /48 (sixteen times a /64's allowance) and forgives no drained caller when its table is full (the fullest bucket goes). Tests: `rateLimit` +2 — failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 
 ## Decisions still open (owner needed)
 - **Gas vs §79 targets** — `transact` 1.79M / `deposit` 1.52M vs 650k / 150k. At today's gas that is
