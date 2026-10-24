@@ -80,6 +80,28 @@ describe("operation notifications (doc §76)", () => {
     }
   });
 
+  it("a lock clears the list, a forget too: the next wallet of this tab is never shown the last one's (audit round 2, n50)", async () => {
+    const inApp = { settings: { inApp: true, system: false, generic: false }, hidden: false };
+    await session.create("pw");
+    session.acknowledgePhrase();
+    notify({ kind: "info", title: "Completed", body: "8,000 USDC → 3.1 ETH. Your transaction is complete." }, inApp);
+    expect(notifications.all()).toHaveLength(1);
+    session.lock();
+    expect(notifications.all(), "a lock").toEqual([]);
+    expect(await session.unlock("pw")).toBe(true);
+    notify({ kind: "info", title: "Completed", body: "8,000 USDC → 3.1 ETH. Your transaction is complete." }, inApp);
+    session.forget();
+    expect(notifications.all(), "a forget").toEqual([]);
+    await session.create("another wallet");
+    session.acknowledgePhrase();
+    render(
+      <ToastProvider>
+        <NotificationToasts />
+      </ToastProvider>,
+    );
+    expect(screen.queryByTestId("toast"), "nothing of the last wallet's toasted").toBeNull();
+  });
+
   it("a transition while unlocked lands in the in-app list, without an amount, and shows once as a toast", async () => {
     await session.create("pw");
     session.acknowledgePhrase();

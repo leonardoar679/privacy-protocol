@@ -3,6 +3,7 @@
 // private operation has updated" unless amount previews are allowed. No push server, no native shell (out of scope).
 import type { AlertKind } from "@privacy-wallet/protocol/wallet/campaign";
 import { settings as defaultSettings, type ProtectionSettings } from "./settings";
+import { session as defaultSession } from "./session";
 
 export interface WalletNotification {
   id: string;
@@ -50,6 +51,9 @@ class NotificationStore {
   clear(): void { this.list = []; this.emit(); }
 }
 export const notifications = new NotificationStore();
+// a lock clears the list, and a forget with it, which locks (audit round 2, n50): a wallet's unread alerts — with amounts when
+// the user allowed them — had stayed in memory and were toasted in the shell of the next wallet unlocked in this tab
+defaultSession.onLock(() => notifications.clear());
 
 export interface NotifyDeps {
   settings?: ProtectionSettings["notifications"];
