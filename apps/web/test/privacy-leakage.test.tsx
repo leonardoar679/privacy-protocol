@@ -61,6 +61,10 @@ const relayerSeed = Uint8Array.from({ length: 32 }, (_, i) => 200 + i);
 const requests: { url: string; method: string; body: string | null }[] = [];
 const providerCalls: { method: string; params: unknown[] }[] = [];
 const consoleLines: string[] = [];
+/** the URLs of every element that loads something (audit round 2, n80): an img, a script, a frame never seen by the fetch trap */
+const elementUrls: string[] = [];
+const LOADING = new Set(["IMG", "SCRIPT", "LINK", "IFRAME", "FRAME", "SOURCE", "VIDEO", "AUDIO", "OBJECT", "EMBED", "TRACK", "IMAGE", "USE"]);
+const URL_ATTRIBUTES = ["src", "href", "srcset", "data", "poster", "xlink:href"];
 const transportRecords: RequestRecord[] = [];
 const relayerBodies: unknown[] = [];
 let mock: Awaited<ReturnType<typeof startMockCore>> | null = null;
@@ -145,10 +149,22 @@ function provider() {
 
 beforeAll(() => {
   globalThis.fetch = fetchSpy as unknown as typeof fetch;
-  for (const name of ["XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker"]) (globalThis as unknown as Record<string, unknown>)[name] = Forbidden;
+  for (const name of ["XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker", "RTCPeerConnection"]) (globalThis as unknown as Record<string, unknown>)[name] = Forbidden;
   (navigator as unknown as Record<string, unknown>).sendBeacon = () => { throw new Error("forbidden primitive used: sendBeacon"); };
-  for (const level of ["log", "info", "warn", "error", "debug"] as const) {
-    const original = console[level].bind(console);
+  // a new window and an element that loads are requests the fetch trap never saw (audit round 2, n80)
+  window.open = () => { throw new Error("forbidden primitive used: window.open"); };
+  const record = (el: Element) => {
+    if (!LOADING.has(el.tagName.toUpperCase())) return;
+    for (const a of URL_ATTRIBUTES) { const v = el.getAttribute(a); if (v) elementUrls.push(v); }
+  };
+  new MutationObserver((ms) => {
+    for (const m of ms) {
+      if (m.type === "attributes" && m.target instanceof Element) record(m.target);
+      for (const n of m.addedNodes) if (n instanceof Element) { record(n); n.querySelectorAll("*").forEach(record); }
+    }
+  }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: URL_ATTRIBUTES });
+  for (const level of ["log", "info", "warn", "error", "debug", "trace", "table", "dir"] as const) {
+    const original = console[level].bind(console) as (...a: unknown[]) => void;
     console[level] = (...args: unknown[]) => { consoleLines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a) ?? String(a))).join(" ")); original(...args); };
   }
 });
@@ -262,5 +278,13 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     expect(leaks(`${location.href}
 ${JSON.stringify(history.state ?? null)}`, secrets), "the location and the history").toEqual([]);
     expect(location.search + location.hash, "no query and no fragment carry state").toBe("");
+    // nothing loaded from elsewhere, nothing secret in what loaded (audit round 2, n80): data and blob URLs, or this origin's
+    document.querySelectorAll("*").forEach((el) => {
+      if (LOADING.has(el.tagName.toUpperCase())) for (const a of URL_ATTRIBUTES) { const v = el.getAttribute(a); if (v) elementUrls.push(v); }
+    });
+    const elsewhere = elementUrls.filter((u) => /^[a-z][a-z0-9+.-]*:/i.test(u.trim()) && !/^(data|blob):/i.test(u.trim()) && !u.trim().startsWith(location.origin));
+    expect(elsewhere, "an element loading from another origin").toEqual([]);
+    expect(elementUrls.filter((u) => u.trim().startsWith("//")), "a protocol-relative load").toEqual([]);
+    expect(leaks(elementUrls.join("\n"), secrets), "an element's URL").toEqual([]);
   }, 120_000);
 });
