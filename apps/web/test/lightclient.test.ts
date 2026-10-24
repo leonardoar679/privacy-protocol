@@ -202,6 +202,48 @@ describe("a configured checkpoint past the age limit (audit round 2, n43)", () =
   });
 });
 
+describe("beacon APIs that answer what does not verify, and a slow clock (audit round 2, n39/n40)", () => {
+  const at = (period: number, slot = 10): BeaconChainSpec => ({ ...spec, genesisTime: Math.floor(Date.now() / 1000) - 12 * (period * PERIOD_SLOTS + slot) });
+  const start = P * PERIOD_SLOTS + 100;
+  /** a store of period P that knows its next committee */
+  const store = (s: BeaconChainSpec) => {
+    const b = bootstrap(start, A);
+    const lc = LightClient.fromBootstrap(s, b.root, b.data, "electra");
+    lc.applyUpdate(update({ attSlot: start + 200, finSlot: start + 150, signer: A, next: B }), "electra", Date.now());
+    return lc.snapshot();
+  };
+  // signed in P+1 by the next committee, finalizing a block of P
+  const good = update({ attSlot: (P + 1) * PERIOD_SLOTS + 2, finSlot: P * PERIOD_SLOTS + 8000, signer: B });
+  const forged = update({ attSlot: (P + 1) * PERIOD_SLOTS + 2, finSlot: P * PERIOD_SLOTS + 8000, signer: WRONG });
+  const answer = (v: unknown) => new Response(JSON.stringify(v));
+  /** per API host: the updates and the finality update it serves */
+  const beacons = (by: Record<string, { updates: LightClientUpdate[]; finality?: LightClientUpdate }>) =>
+    (async (url: string) => {
+      const api = by[new URL(url).host];
+      if (url.includes("/light_client/updates")) return answer(api.updates.map((data) => ({ version: "electra", data })));
+      if (url.includes("/light_client/finality_update")) return api.finality ? answer({ version: "electra", data: api.finality }) : new Response("{}", { status: 404 });
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+
+  it("the next API serves what the first's forged answer could not: a period's update, the finality update", async () => {
+    const s = at(P + 1);
+    const urls = ["http://forged.test", "http://honest.test"];
+    const walked = await syncLightClient({ spec: s, snapshot: store(s), beaconUrls: urls, fetchFn: beacons({ "forged.test": { updates: [forged] }, "honest.test": { updates: [good] } }) });
+    expect(walked.finalizedSlot, "the honest API's period update").toBe(P * PERIOD_SLOTS + 8000);
+    const final = await syncLightClient({ spec: s, snapshot: store(s), beaconUrls: urls, fetchFn: beacons({ "forged.test": { updates: [], finality: forged }, "honest.test": { updates: [], finality: good } }) });
+    expect(final.finalizedSlot, "the honest API's finality update").toBe(P * PERIOD_SLOTS + 8000);
+  });
+
+  it("a finality update a slow clock refuses leaves the walked store standing: the sync does not throw", async () => {
+    // the local clock two minutes and more behind: the newest update was signed 90 slots after it
+    const s = at(P + 1, 10);
+    const ahead = update({ attSlot: (P + 1) * PERIOD_SLOTS + 99, finSlot: P * PERIOD_SLOTS + 8100, signer: B });
+    const lc = await syncLightClient({ spec: s, snapshot: store(s), beaconUrls: ["http://beacon.test"], fetchFn: beacons({ "beacon.test": { updates: [], finality: ahead } }) });
+    expect(lc.period).toBe(P);
+    expect(lc.finalizedSlot, "the walked store's header").toBe(start + 150);
+  });
+});
+
 describe("execution proofs on hand-built tries", () => {
   const hp = (nibs: number[], leaf: boolean): Hex => { // hex-prefix encoding
     const odd = nibs.length % 2;

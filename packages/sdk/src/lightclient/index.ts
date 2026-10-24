@@ -49,18 +49,24 @@ export async function agreedFinalizedRoot(urls: string[], fetchFn: typeof fetch 
 /** Bring a light client to the latest finalized header the network has signed. */
 export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   const urls = o.beaconUrls?.length ? o.beaconUrls : o.spec.beaconApis;
-  // every answer is verified, so any configured API may serve any request: fail over in order
+  // every answer is verified, so any configured API may serve any request: fail over in order — on a failed request, and on
+  // an answer that does not verify (audit round 2, n39): the first API's bad answer had stopped the light client, and every
+  // spend with it, though the next API would have served a valid one. `use` verifies and applies; it changes nothing on a throw
   const apis = urls.map((u) => beaconApi(u, o.fetchFn));
-  const api = async <T,>(path: string): Promise<T> => {
+  const verified = async <T, R>(path: string, use: (answer: T) => R): Promise<R> => {
     let last: unknown;
-    for (const a of apis) { try { return await a<T>(path); } catch (e) { last = e; } }
+    for (const a of apis) {
+      try {
+        return use(await a<T>(path));
+      } catch (e) {
+        last = e;
+      }
+    }
     throw last;
   };
   let lc: LightClient;
-  const fromRoot = async (root: Hex): Promise<LightClient> => {
-    const b = await api<Versioned<LightClientBootstrap>>(`/eth/v1/beacon/light_client/bootstrap/${root}`);
-    return LightClient.fromBootstrap(o.spec, root, b.data, b.version);
-  };
+  const fromRoot = (root: Hex): Promise<LightClient> =>
+    verified<Versioned<LightClientBootstrap>, LightClient>(`/eth/v1/beacon/light_client/bootstrap/${root}`, (b) => LightClient.fromBootstrap(o.spec, root, b.data, b.version));
   if (o.snapshot) lc = LightClient.fromSnapshot(o.spec, o.snapshot);
   else {
     lc = await fromRoot(o.checkpoint ?? (await agreedFinalizedRoot(urls, o.fetchFn)));
@@ -74,9 +80,19 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   // then each following period's update (signed by that committee) moves the store into it
   const target = periodAtSlot(currentSlot(o.spec));
   const update = async (period: number) => {
-    const us = await api<Versioned<LightClientUpdate>[]>(`/eth/v1/beacon/light_client/updates?start_period=${period}&count=1`);
-    if (!us.length) throw new LightClientError(`light client: no update for sync-committee period ${period}`);
-    lc.applyUpdate(us[0].data, us[0].version);
+    let none = false; // an API answered that it has none: the period's boundary is read from that, whatever the others did
+    try {
+      await verified<Versioned<LightClientUpdate>[], void>(`/eth/v1/beacon/light_client/updates?start_period=${period}&count=1`, (us) => {
+        if (!us.length) {
+          none = true;
+          throw new LightClientError(`light client: no update for sync-committee period ${period}`);
+        }
+        lc.applyUpdate(us[0].data, us[0].version);
+      });
+    } catch (e) {
+      if (none) throw new LightClientError(`light client: no update for sync-committee period ${period}`);
+      throw e;
+    }
   };
   for (let walked = 0; lc.period < target; walked++) {
     if (walked >= (o.maxPeriods ?? 512)) throw new LightClientError(`light client: more than ${o.maxPeriods ?? 512} sync-committee periods to walk; start from a newer checkpoint`);
@@ -99,8 +115,16 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   }
   // best effort: a finality update signed just after the period boundary needs the next committee
   if (!lc.knowsNextCommittee) await update(lc.period).catch(() => undefined);
-  const fu = await api<Versioned<LightClientUpdate>>("/eth/v1/beacon/light_client/finality_update");
-  if (Number(fu.data.finalized_header.beacon.slot) > lc.finalizedSlot) lc.applyUpdate({ ...fu.data, next_sync_committee: undefined, next_sync_committee_branch: undefined }, fu.version);
+  // the finality update moves the walked store's header when one verifies; when none does — a local clock more than
+  // CLOCK_SLACK_SLOTS slow refuses the newest, or no API serves one — the walked store stands, valid as it is (audit round 2,
+  // n40: the whole sync had thrown)
+  try {
+    await verified<Versioned<LightClientUpdate>, void>("/eth/v1/beacon/light_client/finality_update", (fu) => {
+      if (Number(fu.data.finalized_header.beacon.slot) > lc.finalizedSlot) lc.applyUpdate({ ...fu.data, next_sync_committee: undefined, next_sync_committee_branch: undefined }, fu.version);
+    });
+  } catch {
+    /* the walked store stands */
+  }
   return lc;
 }
 
