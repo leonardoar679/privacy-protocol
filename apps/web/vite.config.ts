@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { extname, join } from "node:path";
-import { cspPlugin, SECURITY_HEADERS, zkapiHosts } from "./scripts/csp.mjs";
+import { buildCsp, cspPlugin, SECURITY_HEADERS, zkapiHosts } from "./scripts/csp.mjs";
 
 /**
  * Serves the circuit artifacts the in-browser prover fetches (`/artifacts/*`) straight from
@@ -126,8 +126,9 @@ export default defineConfig(({ mode, command }) => {
   // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
   const env = loadEnv(mode, root, "VITE_");
   const zkapi = zkapiSdk();
+  const zkHosts = zkapiHosts(join(root, "public", "zkapi", "browser-config.json"));
   return {
-    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkapiHosts(join(root, "public", "zkapi", "browser-config.json"))), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
+    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkHosts), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },
@@ -153,8 +154,10 @@ export default defineConfig(({ mode, command }) => {
       // in dev it is proxied to the pinned protocol server of the network the assets were built for
       proxy: { "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") } },
     },
-    // `npm run preview` answers with the headers a host must send (docs/deployment.md)
-    preview: { headers: { ...SECURITY_HEADERS } },
+    // `npm run preview` answers with the headers a host must send (docs/deployment.md): the build's whole policy as a header
+    // too, as a host sends it (audit round 2, n81) — the preview had sent "frame-ancestors 'none'" alone, so no release check
+    // exercised a connect-src delivered by a header
+    preview: { headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, zkHosts)}; frame-ancestors 'none'` } },
     worker: { format: "es" },
   };
 });

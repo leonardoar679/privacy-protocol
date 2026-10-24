@@ -383,6 +383,7 @@ The owner's rewrite of the V5 document, complete (§89–§96 new: the exact dev
 | 17 | follow-up (2026-10-23, audit round 2, n77): a production build reaches no loopback service it does not name: the strict transport had allowed 127.0.0.1 and localhost on any port. Tests: `transport` — failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 | 17 | follow-up (2026-10-23, audit round 2, n78): the component preview ships in the dev server and the screenshot fixtures only: `vite build --mode staging` had kept it. Tests: `preview-builds` +2 — failing on the old code. The local stack's quick pass 199/199; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 | 17 | follow-up (2026-10-23, audit round 2, n79): a production build offers the relayers it can reach under Advanced (its transport and CSP refuse any other); development keeps the free URL. Tests: `advanced-relayer`, a new suite of 2 — the production case failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
+| 17 | follow-up (2026-10-23, audit round 2, n81): `npm run preview` sends the build's whole policy as a header, frame-ancestors with it (it had sent `frame-ancestors 'none'` alone). Tests: `preview-headers` +1 — failing on the old code. The local stack's quick pass 198/198; verify-all `--browser` 44/44 | ✅ 2026-10-23 |
 
 ## Decisions still open (owner needed)
 - **Gas vs §79 targets** — `transact` 1.79M / `deposit` 1.52M vs 650k / 150k. At today's gas that is
