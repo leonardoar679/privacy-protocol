@@ -7,7 +7,7 @@ import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
-import { creditWalletProvider } from "../zkapi/creditWallet";
+import { creditWalletProvider, fundingChainOk } from "../zkapi/creditWallet";
 import { aiSession } from "../zkapi/aiSession";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
@@ -106,6 +106,8 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
 
   async function fundFromPool() {
     if (!deployment) { setStatus("No pool deployment configured (VITE_RPC_URL / VITE_CORE / VITE_ETH_VAULT)."); return; }
+    // the credit's deployment on the pool's chain only (audit round 2, p03)
+    if (!fundingChainOk(deployment.chainId, cfg)) { setStatus(`Private AI's deployment is on chain ${cfg?.trusted_deployment.chain_id ?? "unknown"}, the pool on chain ${deployment.chainId}: nothing was sent.`); return; }
     const total = parseEther(bucket) + parseEther(FEE_RESERVE_ETH);
     if (!fundingReady) return;
     const leaves = funding?.total ?? total;

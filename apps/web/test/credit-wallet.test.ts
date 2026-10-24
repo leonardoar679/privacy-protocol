@@ -3,7 +3,7 @@
 // wallet or WalletConnect — never window.ethereum by default; the fresh account is the seed's own.
 import { afterEach, describe, expect, it } from "vitest";
 import { setActiveProvider, type Eip1193Provider } from "@privacy-wallet/wallet-engine/injected";
-import { creditWalletProvider } from "../src/zkapi/creditWallet";
+import { creditWalletProvider, fundingChainOk } from "../src/zkapi/creditWallet";
 import { deriveFundingKey, freshAccountProvider } from "../src/zkapi/freshAccountProvider";
 
 const wallet = (name: string): Eip1193Provider => ({ request: async () => name }) as unknown as Eip1193Provider;
@@ -24,6 +24,12 @@ describe("the credit's funding wallet", () => {
         throw new Error("not asked");
       }),
     ).toBe(chosen);
+  });
+
+  it("the pool funds a credit on its own chain only (audit round 2, p03)", () => {
+    expect(fundingChainOk(1, { trusted_deployment: { chain_id: 11155111 } }), "a mainnet pool, a Sepolia credit").toBe(false);
+    expect(fundingChainOk(11155111, { trusted_deployment: { chain_id: "11155111" } })).toBe(true);
+    expect(fundingChainOk(1, null), "no deployment read").toBe(false);
   });
 
   it("fresh: the seed's own funding account", () => {
