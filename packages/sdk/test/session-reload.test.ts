@@ -5,6 +5,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { configure, defaultConfig } from "../src/config";
 import { WalletSession } from "../src/wallet/session";
+import { decryptJournal, journalKey } from "../src/wallet/journal";
+import { noteStore } from "../src/wallet/notes";
 import { settings } from "../src/wallet/settings";
 import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "../src/wallet/storage";
 import { generateMasterSeed } from "../src/keys/wallet";
@@ -141,5 +143,27 @@ describe("a journal set aside as unreadable, at a create or a restore (audit rou
     back.lock();
     expect(await back.unlock("new password")).toBe(true);
     expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(7);
+  });
+});
+
+describe("a restore's counters, whenever its tab closes (audit round 2, n71)", () => {
+  it("the first journal a restore writes holds them; an unlock that finds a keystore and no journal holds them too", async () => {
+    const store = memoryStorage();
+    const first: { journal?: string } = {};
+    const watched = {
+      ...store,
+      set: (k: string, v: string) => (k === JOURNAL_KEY && first.journal === undefined && (first.journal = v), store.set(k, v)),
+    } as KeyValueStorage;
+    const s = new WalletSession(watched, KDF);
+    await s.restoreFromPhrase(seedToPhrase(generateMasterSeed()), "pw");
+    const seed = s.state().seed!.slice();
+    expect(decryptJournal(journalKey(seed), JSON.parse(first.journal!))?.countersHeld, "held in the first write").toBe(true);
+    s.lock();
+    // the tab closed after the keystore's write, before the journal's
+    store.remove(JOURNAL_KEY);
+    noteStore.clear();
+    expect(await s.unlock("pw")).toBe(true);
+    expect(noteStore.serialize().countersHeld, "held until one complete scan").toBe(true);
+    s.lock();
   });
 });

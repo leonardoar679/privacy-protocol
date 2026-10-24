@@ -154,7 +154,7 @@ export class WalletSession {
 
   /** New wallet: a fresh seed, encrypted under `password`; returns the recovery phrase to show once. Over a wallet already
    *  here only with `replace` (the user's typed REPLACE): WalletExists otherwise. */
-  async create(password: string, seed: Uint8Array = generateMasterSeed(), opts: { replace?: boolean } = {}): Promise<string> {
+  async create(password: string, seed: Uint8Array = generateMasterSeed(), opts: { replace?: boolean; holdCounters?: boolean } = {}): Promise<string> {
     await this.guardExisting(opts.replace);
     // over a wallet already here (the typed REPLACE): its settings are not the new one's either (r30)
     if (this.hasKeystore() && isConfigured()) settings.reset();
@@ -176,7 +176,9 @@ export class WalletSession {
     this.keptJournal = !!journal;
     this.unreadable = false;
     this.pendingPhrase = seedToPhrase(own);
-    this.open(own, journal ?? emptyJournal());
+    // a restore's first journal holds its counters (audit round 2, n71): written without, then held by a second write, a tab
+    // closed between the two reopened with the counters free at 0 — the next note made one the restored wallet already had
+    this.open(own, journal ?? (opts.holdCounters ? { ...emptyJournal(), countersHeld: true } : emptyJournal()));
     this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
     if (!kept && asideJournal) this.store.remove(UNREADABLE_JOURNAL_KEY); // stored as the journal just now
     this.firstLaunch = true;
@@ -225,8 +227,10 @@ export class WalletSession {
     }
     this.unreadable = !!blob && journal === null; // kept as it is: nothing overwrites it
     this.open(seed, journal ?? emptyJournal());
-    // the journal in memory starts empty: which counters were used is unknown until one complete scan (PP-P03)
-    if (this.unreadable) noteStore.holdCounters();
+    // the journal in memory starts empty: which counters were used is unknown until one complete scan (PP-P03) — and so with
+    // no journal at all (audit round 2, n71): a create or a restore whose tab closed between its keystore's write and its
+    // journal's; a restored wallet's counters were in use
+    if (this.unreadable || !blob) noteStore.holdCounters();
     this.firstLaunch = false;
     return true;
   }
@@ -284,8 +288,8 @@ export class WalletSession {
    */
   async restoreFromPhrase(phrase: string, password: string, opts: { replace?: boolean } = {}): Promise<void> {
     const seed = phraseToSeed(phrase);
-    await this.create(password, seed, opts);
-    if (!this.keptJournal) noteStore.holdCounters(); // its own journal kept: the counters it used are known
+    // the counters are held from its first journal on, unless its own journal was kept: the counters it used are known then
+    await this.create(password, seed, { ...opts, holdCounters: true });
     this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
   }
 
