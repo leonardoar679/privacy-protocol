@@ -114,6 +114,12 @@ describe("the wallet engine (doc §15)", () => {
     await expect(requestSignature(typed)).rejects.toThrow(/no wallet connected/);
   });
 
+  it("a chain id it cannot read is not the deployment's network: wrong-network, never connected (audit round 2, n55)", async () => {
+    (window as unknown as { ethereum: Eip1193Provider }).ethereum = scriptedWallet("not a chain id");
+    connection.configure({ expectedChainId: 1 });
+    expect(await connect()).toMatchObject({ status: "wrong-network", account: ACCOUNT, chainId: null });
+  });
+
   it("without any wallet: nothing to detect, connect reports it unavailable, never throws", async () => {
     expect(detectWallet()).toEqual([]);
     expect(await connect()).toMatchObject({ status: "unavailable", account: null });

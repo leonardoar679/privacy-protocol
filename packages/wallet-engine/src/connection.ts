@@ -55,7 +55,9 @@ export function discover(): void {
 }
 
 const parseChainId = (x: unknown): number | null => (typeof x === "string" && /^0x[0-9a-fA-F]+$/.test(x) ? parseInt(x, 16) : typeof x === "number" ? x : null);
-const statusFor = (account: string | null, chainId: number | null): ConnectionStatus => (!account ? "disconnected" : expected !== null && chainId !== null && chainId !== expected ? "wrong-network" : "connected");
+// a chain id the wallet did not give readably is not the deployment's chain (audit round 2, n55): it had read "connected", and
+// reads such as the allowance list ran on a chain nobody knew (sends were re-checked by sendViaInjectedWallet)
+const statusFor = (account: string | null, chainId: number | null): ConnectionStatus => (!account ? "disconnected" : expected !== null && chainId !== expected ? "wrong-network" : "connected");
 
 function bind(provider: Eip1193Provider): void {
   unbind();
