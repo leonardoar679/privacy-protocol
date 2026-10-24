@@ -2,7 +2,17 @@
 // circuit and hash identifiers, its verifier and vault factory, the canonical vault of every registry asset and its
 // version — condensed to a fingerprint. The wallet remembers the fingerprint it first saw for a chain; a different one
 // is a blocking notice ("This app does not match the deployed protocol."), never a silent switch.
-import { keccak256, stringToHex, type Address, type Hex } from "viem";
+import {
+  AbiDecodingDataSizeTooSmallError,
+  AbiDecodingZeroDataError,
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
+  keccak256,
+  stringToHex,
+  type Address,
+  type Hex,
+} from "viem";
 import type { DeploymentFingerprint, ProtocolDeployment } from "@privacy-wallet/protocol-types";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -44,6 +54,17 @@ export interface DeploymentCheck {
 }
 
 const lower = (a: string): Address => a.toLowerCase() as Address;
+
+/** The chain's own answer that an address is not the contract asked (no code, a revert, no data or too little) — not a failed read. */
+const notThatContract = (e: unknown): boolean =>
+  e instanceof BaseError &&
+  !!e.walk(
+    (x) =>
+      x instanceof ContractFunctionZeroDataError ||
+      x instanceof ContractFunctionRevertedError ||
+      x instanceof AbiDecodingZeroDataError ||
+      x instanceof AbiDecodingDataSizeTooSmallError,
+  );
 
 /** Canonical JSON: keys sorted at every level, addresses lowercase (two reads of the same deployment hash the same). */
 export function canonicalJson(v: unknown): string {
@@ -88,9 +109,13 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
   }
   // V6 Stage 12 (spec v2.0 §11.2): a shield receiver deposits into its factory's pool — it must be this core's
   if (claim.shieldFactory) {
-    const pool = (await client
-      .readContract({ address: claim.shieldFactory, abi: SHIELD_FACTORY_ABI, functionName: "VAULT_FACTORY" })
-      .catch(() => null)) as Address | null;
+    // a read that failed is the read's own error, tried again next time, as every other read here (audit round 2, n41): any
+    // error had read as "no pool", a blocking "This app does not match the deployed protocol"; only the chain's own answer —
+    // no contract there, a revert, no data — names the address as no shield receiver factory of this pool
+    const pool = (await client.readContract({ address: claim.shieldFactory, abi: SHIELD_FACTORY_ABI, functionName: "VAULT_FACTORY" }).catch((e: unknown) => {
+      if (notThatContract(e)) return null;
+      throw e;
+    })) as Address | null;
     if (!pool || lower(pool) !== lower(vaultFactory))
       problems.push(`the shield receiver factory deposits into ${pool ?? "no pool"}, not this core's vault factory ${vaultFactory}`);
   }

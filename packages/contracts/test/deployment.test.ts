@@ -2,6 +2,7 @@
 // chain says — the verifier, a vault, the identifiers — yields another, flagged against the remembered one; a wrong chain,
 // a missing vault and mixed vault versions are named.
 import { describe, expect, it } from "vitest";
+import { ContractFunctionExecutionError, ContractFunctionZeroDataError, HttpRequestError } from "viem";
 import { ABI, BYTECODE, verifyDeployment, type DeploymentReader } from "../src";
 import escrowJson from "../../../contracts/abi/periphery/SwapOrderEscrow.json";
 
@@ -80,6 +81,32 @@ describe("verifyDeployment", () => {
     expect(ok.fingerprint.hash).not.toBe((await verifyDeployment(chain(), claim)).fingerprint.hash);
     const other = await verifyDeployment(chain({ shieldPool: "0x00000000000000000000000000000000000000f9" }), { ...claim, shieldFactory: SHIELD_FACTORY });
     expect(other.problems[0]).toMatch(/shield receiver factory deposits into 0x0+f9, not this core's vault factory/);
+  });
+
+  it("a failed read of the shield factory is the read's own error, tried again; only the chain's answer names no factory (audit round 2, n41)", async () => {
+    const failing = (cause: Error): DeploymentReader => {
+      const base = chain();
+      return {
+        ...base,
+        readContract: async (q) => {
+          if (q.address === SHIELD_FACTORY) throw cause;
+          return base.readContract(q);
+        },
+      };
+    };
+    const withShield = { ...claim, shieldFactory: SHIELD_FACTORY } as const;
+    // an endpoint that did not answer: it had read as "no pool", a blocking mismatch
+    const down = new ContractFunctionExecutionError(new HttpRequestError({ url: "http://rpc.example", details: "fetch failed" }), {
+      abi: [],
+      functionName: "VAULT_FACTORY",
+    });
+    await expect(verifyDeployment(failing(down), withShield)).rejects.toBe(down);
+    // the chain answers that no such contract is there
+    const none = new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "VAULT_FACTORY" }), {
+      abi: [],
+      functionName: "VAULT_FACTORY",
+    });
+    expect((await verifyDeployment(failing(none), withShield)).problems[0]).toMatch(/shield receiver factory deposits into no pool/);
   });
 
   it("the address case of the claim does not change the fingerprint", async () => {
