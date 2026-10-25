@@ -55,7 +55,9 @@ CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm start
    solc 0.8.24, optimizer 200, paris, no metadata hash) — the runtime code must match byte for byte.
 2. `cast code <factory> | keccak` and `cast call <factory> "initCodeHash(...)"` against the TS
    prediction (`packages/swap-engine/test/endpoints.test.ts` vector) — a mismatch means the engine
-   would predict wrong escrow addresses.
+   would predict wrong escrow addresses. Every wallet makes the same comparison before its first money operation (the
+   deployment check asks both factories where they would put a fixed probe: `packages/contracts/src/factoryProbe.ts`),
+   so a wrong factory blocks the wallets; this step catches it before any is pointed at the address.
 3. Core invariants from `docs/security-invariants.md` hold by construction; the only configuration is
    the constructor (verifier, hasher, depth), so compare `PrivacyCore.VERIFIER()/HASHER()/LEVELS()`
    with the deployment log.

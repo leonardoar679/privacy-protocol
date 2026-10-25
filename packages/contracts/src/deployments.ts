@@ -56,7 +56,7 @@ export interface DeploymentCheck {
 const lower = (a: string): Address => a.toLowerCase() as Address;
 
 /** The chain's own answer that an address is not the contract asked (no code, a revert, no data or too little) — not a failed read. */
-const notThatContract = (e: unknown): boolean =>
+export const notThatContract = (e: unknown): boolean =>
   e instanceof BaseError &&
   !!e.walk(
     (x) =>

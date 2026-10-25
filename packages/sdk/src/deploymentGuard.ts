@@ -95,6 +95,13 @@ async function check(d: Deployment, reader: DeploymentReader, remembered: string
     const core = (await reader.readContract({ address: d.protectRouter, abi: ROUTER_ABI, functionName: "CORE" })) as string;
     if (!same(core, d.core)) problems.push("ProtectRouter answers to another core");
   }
+  // the factories put a fixed probe where this app predicts (audit round 2, critic gap 1): a factory of another escrow or
+  // receiver version, or no contract there, had passed every check. Loaded here, with the check: its creation codes stay
+  // out of the first route
+  if (d.swapFactory || d.shieldFactory) {
+    const { factoryProblems } = await import("@privacy-wallet/contracts/factoryProbe");
+    problems.push(...(await factoryProblems(reader, { swapFactory: d.swapFactory, shieldFactory: d.shieldFactory })));
+  }
   if (problems.length || result.changed) throw new DeploymentMismatch(problems, result.changed);
   const hash = result.fingerprint.hash;
   if (!remembered && session.isUnlocked()) {

@@ -730,7 +730,11 @@ protocol."), never a silent switch.
 Code (Stage 10): `packages/sdk/src/deploymentGuard.ts` — `guardDeployment` runs before a session's first money operation
 (the engine's `submitShield`, `privateTransfer`, `privateWithdrawal`, `mergeNotes`, `splitNote`: before any request,
 proof or wallet prompt), never earlier (first launch stays request-free). Beyond `verifyDeployment` it checks that the
-configured vaults are the canonical ones and that ProtectRouter's `CORE()` is this core. The first fingerprint per
+configured vaults are the canonical ones and that ProtectRouter's `CORE()` is this core, and it asks the swap order
+factory and the shield receiver factory where each would put a fixed probe (an order and a receipt no wallet makes):
+an answer that is not this app's own CREATE2 prediction from the creation code it bundles — another escrow or receiver
+version, or no contract at the address — is a problem (`packages/contracts/src/factoryProbe.ts`, loaded with the check
+so its creation codes stay out of the first route; audit round 2, critic gap 1). The first fingerprint per
 chain is remembered in the journal's optional `deploymentFingerprints`; a problem or a changed fingerprint throws
 `DeploymentMismatch`, classified `deployment_mismatch` (nothing moved, FAILED); a failed read is the read's own error and
 is tried again. More → Advanced shows the remembered fingerprint and forgets it on request — the deliberate way to

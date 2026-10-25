@@ -5,6 +5,7 @@
 // what it reads; a failed read is not a mismatch and is tried again; the engine's money functions refuse before any request.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DeploymentReader } from "@privacy-wallet/contracts";
+import { ContractFunctionExecutionError, ContractFunctionZeroDataError } from "viem";
 import { configure, defaultConfig } from "../src/config";
 import type { Deployment } from "../src/chain";
 import { DeploymentMismatch, claimOf, forgetDeployment, guardDeployment, rememberedFingerprint, resetDeploymentGuard } from "../src/deploymentGuard";
@@ -31,8 +32,8 @@ const deployment: Deployment = {
   protectRouter: ROUTER,
 };
 
-/** A chain as the reader sees it; `reads` counts every call. */
-function chain(o: { chainId?: number; verifier?: string; routerCore?: string; fail?: boolean } = {}) {
+/** A chain as the reader sees it; `reads` counts every call; `predict`: what a factory answers for the probe (null: no contract). */
+function chain(o: { chainId?: number; verifier?: string; routerCore?: string; fail?: boolean; predict?: Record<string, string | null> } = {}) {
   const reader = {
     reads: 0,
     getChainId: async () => {
@@ -56,6 +57,12 @@ function chain(o: { chainId?: number; verifier?: string; routerCore?: string; fa
         return ({ [ZERO]: ETH_VAULT, [USDC.toLowerCase()]: USDC_VAULT } as Record<string, string>)[String(args![0]).toLowerCase()] ?? ZERO;
       if (functionName === "VAULT_VERSION") return 1n;
       if (address === ROUTER && functionName === "CORE") return o.routerCore ?? CORE;
+      if (functionName === "predict" && o.predict && address.toLowerCase() in o.predict) {
+        const answer = o.predict[address.toLowerCase()];
+        if (answer === null)
+          throw new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "predict" }), { abi: [], functionName: "predict" });
+        return answer;
+      }
       throw new Error(`unexpected read ${address}.${functionName}`);
     },
   };
@@ -164,5 +171,28 @@ describe("the deployment check before the first operation (doc §71)", () => {
     expect(events, "no fee terms, no sync, no proof").toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("the factories' own predictions (audit round 2, critic gap 1)", () => {
+  it("a swap factory that would put the probe elsewhere, or no contract there, blocks before any money moves; this app's own passes", async () => {
+    const SWAP = "0x00000000000000000000000000000000000000f2" as const;
+    const withFactory: Deployment = { ...deployment, swapFactory: SWAP };
+    // a factory of another escrow version: its predict answers another address
+    reader = chain({ predict: { [SWAP]: "0x00000000000000000000000000000000000000e5" } });
+    let e = await guardDeployment(withFactory).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(DeploymentMismatch);
+    expect((e as DeploymentMismatch).problems.join(" ")).toMatch(/creates escrows other than this app's/);
+    expect(rememberedFingerprint(1), "nothing remembered").toBeNull();
+    // no contract at the address
+    resetDeploymentGuard();
+    reader = chain({ predict: { [SWAP]: null } });
+    e = await guardDeployment(withFactory).catch((x: unknown) => x);
+    expect((e as DeploymentMismatch).problems.join(" ")).toMatch(/no swap order factory answers/);
+    // the factory of this app's escrow code
+    const { probeEscrowOf } = await import("@privacy-wallet/contracts/factoryProbe");
+    resetDeploymentGuard();
+    reader = chain({ predict: { [SWAP]: probeEscrowOf(SWAP) } });
+    await expect(guardDeployment(withFactory)).resolves.toMatch(/^0x/);
   });
 });
