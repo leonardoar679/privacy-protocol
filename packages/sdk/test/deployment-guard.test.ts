@@ -33,7 +33,16 @@ const deployment: Deployment = {
 };
 
 /** A chain as the reader sees it; `reads` counts every call; `predict`: what a factory answers for the probe (null: no contract). */
-function chain(o: { chainId?: number; verifier?: string; routerCore?: string; fail?: boolean; predict?: Record<string, string | null> } = {}) {
+function chain(
+  o: {
+    chainId?: number;
+    verifier?: string;
+    routerCore?: string;
+    fail?: boolean;
+    predict?: Record<string, string | null>;
+    usdcDecimals?: number | null | Error;
+  } = {},
+) {
   const reader = {
     reads: 0,
     getChainId: async () => {
@@ -57,6 +66,13 @@ function chain(o: { chainId?: number; verifier?: string; routerCore?: string; fa
         return ({ [ZERO]: ETH_VAULT, [USDC.toLowerCase()]: USDC_VAULT } as Record<string, string>)[String(args![0]).toLowerCase()] ?? ZERO;
       if (functionName === "VAULT_VERSION") return 1n;
       if (address === ROUTER && functionName === "CORE") return o.routerCore ?? CORE;
+      if (address.toLowerCase() === USDC.toLowerCase() && functionName === "decimals") {
+        const d = o.usdcDecimals === undefined ? 6 : o.usdcDecimals;
+        if (d instanceof Error) throw d;
+        if (d === null)
+          throw new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "decimals" }), { abi: [], functionName: "decimals" });
+        return d;
+      }
       if (functionName === "predict" && o.predict && address.toLowerCase() in o.predict) {
         const answer = o.predict[address.toLowerCase()];
         if (answer === null)
@@ -171,6 +187,27 @@ describe("the deployment check before the first operation (doc §71)", () => {
     expect(events, "no fee terms, no sync, no proof").toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("a configured token's decimals (audit round 2, critic gap 1)", () => {
+  it("are the token's own: other decimals, or none answered, block before any money moves; a failed read is tried again", async () => {
+    const wrong: Deployment = { ...deployment, erc20Vaults: [{ symbol: "USDC", decimals: 18, token: USDC, vault: USDC_VAULT }] };
+    let e = await guardDeployment(wrong).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(DeploymentMismatch);
+    expect((e as DeploymentMismatch).problems.join(" ")).toMatch(/configured decimals of USDC \(18\) are not the token's \(6\)/);
+    expect(rememberedFingerprint(1), "nothing remembered").toBeNull();
+    resetDeploymentGuard();
+    reader = chain({ usdcDecimals: null });
+    e = await guardDeployment(deployment).catch((x: unknown) => x);
+    expect((e as DeploymentMismatch).problems.join(" ")).toMatch(/USDC answers no decimals\(\)/);
+    resetDeploymentGuard();
+    const down = new Error("fetch failed");
+    reader = chain({ usdcDecimals: down });
+    await expect(guardDeployment(deployment), "a failed read: the read's own error").rejects.toBe(down);
+    resetDeploymentGuard();
+    reader = chain();
+    await expect(guardDeployment(deployment), "the token's own decimals").resolves.toMatch(/^0x/);
   });
 });
 

@@ -64,6 +64,7 @@ const client = {
       return ({ [ZERO]: ETH_VAULT, [USDT.toLowerCase()]: USDT_VAULT } as Record<string, string>)[String(args![0]).toLowerCase()] ?? ZERO;
     if (functionName === "VAULT_VERSION") return 1n;
     if (address === ROUTER && functionName === "CORE") return CORE;
+    if (address === USDT && functionName === "decimals") return 6; // the token's own, as configured (critic gap 1)
     throw new Error(`unexpected read ${address}.${functionName}`);
   },
   waitForTransactionReceipt: async ({ hash }: { hash: string }) => ({

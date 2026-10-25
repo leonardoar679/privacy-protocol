@@ -732,7 +732,9 @@ protocol."), never a silent switch.
 Code (Stage 10): `packages/sdk/src/deploymentGuard.ts` — `guardDeployment` runs before a session's first money operation
 (the engine's `submitShield`, `privateTransfer`, `privateWithdrawal`, `mergeNotes`, `splitNote`: before any request,
 proof or wallet prompt), never earlier (first launch stays request-free). Beyond `verifyDeployment` it checks that the
-configured vaults are the canonical ones and that ProtectRouter's `CORE()` is this core, and it asks the swap order
+configured vaults are the canonical ones, that every configured token's decimals are its own `decimals()` (audit round
+2, critic gap 1: the configuration's word alone set every amount in that asset), that ProtectRouter's `CORE()` is this
+core, and it asks the swap order
 factory and the shield receiver factory where each would put a fixed probe (an order and a receipt no wallet makes):
 an answer that is not this app's own CREATE2 prediction from the creation code it bundles — another escrow or receiver
 version, or no contract at the address — is a problem (`packages/contracts/src/factoryProbe.ts`, loaded with the check

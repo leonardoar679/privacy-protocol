@@ -10,6 +10,7 @@
 // fingerprint: a deliberate act, after which the next operation remembers what it reads.
 import type { Address, Hex } from "viem";
 import { verifyDeployment, type DeploymentClaim, type DeploymentReader } from "@privacy-wallet/contracts";
+import { notThatContract } from "@privacy-wallet/contracts/deployments";
 import { assetsOf } from "./assets";
 import { clientFor, type Deployment } from "./chain";
 import { config } from "./config";
@@ -30,6 +31,7 @@ export class DeploymentMismatch extends Error {
 }
 
 const ROUTER_ABI = [{ type: "function", name: "CORE", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
+const DECIMALS_ABI = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
 const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 const keyOf = (d: Deployment) => `${d.chainId}:${d.core.toLowerCase()}`;
 
@@ -89,6 +91,18 @@ async function check(d: Deployment, reader: DeploymentReader, remembered: string
   for (const a of assetsOf(d)) {
     const canonical = result.fingerprint.read.vaults[a.symbol.toLowerCase()];
     if (canonical && !same(canonical, a.vault)) problems.push(`the configured vault of ${a.symbol} is not the canonical one`);
+  }
+  // and a configured token's decimals are the token's own (audit round 2, critic gap 1): the configuration's word alone set
+  // every amount the wallet showed and sent in that asset — a token configured with 18 decimals for its 6 read off by twelve
+  // orders of magnitude. A failed read is the read's own error, tried again; a token that answers no decimals() is named
+  for (const a of assetsOf(d)) {
+    if (!a.token) continue;
+    const decimals = await reader.readContract({ address: a.token, abi: DECIMALS_ABI, functionName: "decimals" }).catch((e: unknown) => {
+      if (notThatContract(e)) return null;
+      throw e;
+    });
+    if (decimals === null) problems.push(`the configured token of ${a.symbol} answers no decimals()`);
+    else if (Number(decimals) !== a.decimals) problems.push(`the configured decimals of ${a.symbol} (${a.decimals}) are not the token's (${Number(decimals)})`);
   }
   // ProtectRouter must answer to this core
   if (d.protectRouter) {
