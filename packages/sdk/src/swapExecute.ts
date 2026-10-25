@@ -14,7 +14,7 @@ import { simulateExecution, type Simulation } from "./simulate";
 import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ResumeRequest, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
 import { ApiError } from "./api/client";
 import { checkOrder, OrderMismatch, predictEscrow, restoreDigest, restoreRequestText } from "./swapGuard";
-import { shieldTipCeiling, tipCeiling } from "./executionCost";
+import { CostUnknown, shieldTipCeiling, tipCeiling } from "./executionCost";
 import { buildShieldReceipt, shieldJobRequest, shieldJobView } from "./shieldReceiver";
 import { checkBeforeSigning, type JournaledOrder, type SignCheck } from "./swapSign";
 import { ProviderCallMismatch, type CheckedCall, type MinimumMoved } from "./providerCall";
@@ -73,6 +73,12 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   assertJournalSaved(s); // its record would be lost at the next lock (audit round 2, r47)
   const now = i.now ?? Date.now();
   const factory = swapFactoryOf(i.deployment);
+  // the tips are checked against this wallet's own estimate of the gas they pay for, never left to the escrow's 1 % cap
+  // alone (audit round 2, critic gap 4: a failed fee read or price read had let the service set any tip up to 1 %). Without
+  // an estimate nothing is committed: no note counter is taken, the service is not asked
+  const maxTip = i.deployment ? await tipCeiling(i.deployment, i.fromAsset) : null;
+  const maxShieldTip = i.deployment && i.shield ? await shieldTipCeiling(i.deployment, i.request.to) : null;
+  if (i.deployment && (maxTip === null || (i.shield && maxShieldTip === null))) throw new CostUnknown();
   // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
   const attemptId = randomHex32();
   const key = deriveOrderKey(i.masterSeed, attemptId);
@@ -83,16 +89,14 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   let shield: StoredShield | undefined;
   if (i.shield) {
     if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
-    const ceiling = await shieldTipCeiling(i.deployment, req.to);
-    if (ceiling !== null && i.shield.shieldTip > ceiling) throw new OrderMismatch("shieldTip", `${i.shield.shieldTip} is more than three times this wallet's own estimate of the shield's gas`);
+    if (maxShieldTip !== null && i.shield.shieldTip > maxShieldTip) throw new OrderMismatch("shieldTip", `${i.shield.shieldTip} is more than three times this wallet's own estimate of the shield's gas`);
     shield = buildShieldReceipt({ masterSeed: i.masterSeed, deployment: i.deployment, counter: noteStore.allocateCounter(), asset: req.to.asset, shieldTip: i.shield.shieldTip, fallbackRecipient: i.shield.fallbackRecipient });
     req = { ...req, destination: shield.receiver, destinationType: "protected" };
   }
   // a receipt goes with its commit: the service vouches for it once it is this order's (audit gap 47)
   const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}) });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
-  // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3)
-  const maxTip = i.deployment ? await tipCeiling(i.deployment, i.fromAsset) : null;
+  // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3), read before the service was asked
   checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
   const order = response.order;
   // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls

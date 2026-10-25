@@ -505,6 +505,19 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state).toBe("committed");
   });
 
+  it("a step whose tips the wallet cannot check yet waits and is committed once it can: never a pause (audit round 2, critic gap 4)", async () => {
+    const c = await fresh();
+    world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs to check this swap's execution fee"), { code: "cost_unknown" });
+    const r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    expect(current(c).state, "running, never paused").not.toBe("paused");
+    expect(current(c).tranches[0].state, "still ready: committed at the next tick").toBe("ready");
+    expect(notes.map((n) => n.kind), "no alert").toEqual([]);
+    clock += 61_000;
+    expect((await tick(c))?.action.kind, "committed once the wallet can estimate").toBe("commit");
+    expect(current(c).tranches[0].state).toBe("committed");
+  });
+
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {
     const c = await fresh();
     world.breakerOpen = true;

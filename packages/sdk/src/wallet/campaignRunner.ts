@@ -399,8 +399,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         catch (e) {
           const m = (e as Error)?.message ?? String(e);
           // the wallet's own hold after a restore (audit round 2, r07): no new note before one complete scan — the step waits
-          // for it, never a pause that blamed the provider and asked the user to resume
-          if ((e as { code?: unknown })?.code === "notes_loading") { nextAt = now + HELD_SCAN_RETRY_MS; break; }
+          // for it, never a pause that blamed the provider and asked the user to resume; so does a step whose tips the wallet
+          // cannot check yet (audit round 2, critic gap 4: no fee read or price) — committed once it can estimate the gas
+          const code = (e as { code?: unknown })?.code;
+          if (code === "notes_loading" || code === "cost_unknown") { nextAt = now + HELD_SCAN_RETRY_MS; break; }
           c = withTrancheState(c, t.index, "planned", now, {}, `commit failed: ${m}`);
           c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index);
           break;

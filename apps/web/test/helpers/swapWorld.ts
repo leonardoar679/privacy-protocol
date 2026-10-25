@@ -62,6 +62,8 @@ export const world: {
   serviceDeployment?: Record<string, unknown>;
   /** 2026-10-17 (the audit's unverified m57): the ETH / USD feed does not answer — the wallet's band is the fail-safe one */
   feedDown?: boolean;
+  /** audit round 2, critic gap 4: the fee history does not answer — the wallet cannot check the executor's tip */
+  feesDown?: boolean;
 } = {
   bend: {},
   rpcBend: {},
@@ -164,6 +166,16 @@ function rpc(req: any) {
     return { jsonrpc: "2.0", id, result: "0x" };
   }
   if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
+  // the fee history the wallet's tip ceiling reads (audit round 2, critic gap 4): 20 gwei base, 2 gwei priority — three
+  // times the execution's gas at these fees is far above the service's 0.25 % tip of what these tests swap
+  if (method === "eth_feeHistory") {
+    if (world.feesDown) return { jsonrpc: "2.0", id, error: { code: -32000, message: "mock: the fee history does not answer" } };
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: { oldestBlock: "0x1", baseFeePerGas: Array(6).fill("0x4a817c800"), gasUsedRatio: Array(5).fill(0.5), reward: Array(5).fill(["0x77359400"]) },
+    };
+  }
   return { jsonrpc: "2.0", id, error: { code: -32601, message: `mock rpc: ${method} unsupported` } };
 }
 
@@ -292,6 +304,7 @@ export function resetWorld(): void {
   world.relayerInfo = undefined;
   world.serviceDeployment = undefined;
   world.feedDown = undefined;
+  world.feesDown = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

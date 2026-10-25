@@ -90,6 +90,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   no_owner_key: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // after a restore no note is made before one complete scan of the pool (wallet/notes.ts CountersHeld; PP-P03)
   notes_loading: { source: "wallet", fundsClass: "not-moved", actions: ["wait"] },
+  // no estimate of a swap's gas (no fee read, no agreed price of the past day): no order is committed with its tips
+  // unchecked (audit round 2, critic gap 4); nothing was sent, the wallet tries again
+  cost_unknown: { source: "wallet", fundsClass: "not-moved", actions: ["wait"] },
   // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
   provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

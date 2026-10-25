@@ -36,8 +36,9 @@ vi.mock("../src/swapService", async (importOriginal) => {
 vi.mock("../src/swapGuard", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/swapGuard")>()), checkOrder: () => undefined }));
 vi.mock("../src/executionCost", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/executionCost")>()),
-  tipCeiling: async () => null,
-  shieldTipCeiling: async () => null,
+  // a ceiling far above any tip here (these tests check other things; a null estimate commits nothing: critic gap 4)
+  tipCeiling: async () => 10n ** 30n,
+  shieldTipCeiling: async () => 10n ** 30n,
 }));
 
 import { commitOrder } from "../src/swapExecute";

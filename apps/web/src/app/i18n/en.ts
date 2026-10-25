@@ -479,6 +479,8 @@ export const en = {
   "op.error.order_outdated.reason": "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.notes_loading.title": "Still looking for your notes",
   "op.error.notes_loading.reason": "After a restore, the wallet reads the pool once before it makes a new note, so that no note repeats one already on chain. Nothing was sent and your funds were not moved. Try again in a moment.",
+  "op.error.cost_unknown.title": "The network cost could not be checked",
+  "op.error.cost_unknown.reason": "The wallet could not read the network fees it needs to check this swap's execution fee, so the swap was not set up. Nothing was sent and your funds were not moved. Try again in a moment.",
   "op.error.provider_unavailable.title": "The provider is not answering",
   "op.error.provider_unavailable.reason": "The provider failed or did not answer. The wallet tries again on its own and checks where things stand before anything is signed or sent.",
   "op.error.capacity.title": "The relayer is at capacity",

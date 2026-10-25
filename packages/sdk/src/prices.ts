@@ -102,6 +102,13 @@ export class PriceStore {
     return this.inFlight;
   }
 
+  /** The last good read the journal keeps, while it is less than a day old (as the fail-safe's memory in `assess`): the tip
+   *  ceilings' prices when the current read lacks one (audit round 2, critic gap 4). */
+  lastGood(now = Math.floor(Date.now() / 1000)): Prices | null {
+    const p = journaledPrices(this.s);
+    return p && now - p.at < 86_400 ? p : null;
+  }
+
   /** Value an amount of an asset with the current read, the journaled read as the fail-safe's memory, and the user's thresholds. */
   assess(amount: bigint, asset: Pick<Asset, "symbol" | "decimals">, now = Math.floor(Date.now() / 1000)): Assessment {
     const thresholds: TierThresholds = settings.get().tiers;

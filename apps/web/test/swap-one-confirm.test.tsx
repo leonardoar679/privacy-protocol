@@ -528,6 +528,25 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(stored(orderId)).toMatchObject({ state: "refund-only" });
   }, 60_000);
 
+  it("a tip the wallet cannot check is never accepted: without the fee history no swap is set up, nothing is sent, and it says so (audit round 2, critic gap 4)", async () => {
+    await wallet();
+    world.feesDown = true;
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.5" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
+    fireEvent.click(screen.getByTestId("swap-review"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    expect((await screen.findByTestId("swap-status")).textContent).toContain("could not read the network fees");
+    expect(session.journal().swaps, "nothing was committed").toHaveLength(0);
+    expect(
+      calls.filter((c) => c.endsWith("/v1/operations")),
+      "the swap service was not even asked",
+    ).toHaveLength(0);
+    expect(funding.count, "nothing funded").toBe(0);
+  }, 60_000);
+
   it("an expired quote says so and that nothing moved; a new quote brings the Review back", async () => {
     await wallet();
     world.ttlSeconds = 0;

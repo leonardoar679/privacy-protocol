@@ -779,7 +779,9 @@ The relayer shields such a delivery at its own cost once the swap is over, if it
 the shield's gas; a token: twice the tip). A token's floor was the whole minimum (the audit round of 2026-10-16, c10), so
 such a token delivery stayed at the receiver. The shield tip `S` is the receiver's deployment, tip transfer and deposit at today's gas (forge's
 measured `shieldETH` / `shieldERC20` units × the fee history × 1.2), in the output asset (a token's at the agreed
-Chainlink prices, `tip_unpriced` otherwise); the wallet refuses one above three times its own estimate. The note's
+Chainlink prices, `tip_unpriced` otherwise); the wallet refuses one above three times its own estimate. Without an
+estimate of either tip (no fee read, or no agreed price read within the past day) the wallet commits no order at all
+(`cost_unknown`; audit round 2, critic gap 4). The note's
 secret is the one of a fresh note counter and its payload the seed's `/shield-payload/` family, so a wallet restored from
 its phrase finds the delivery and tells it from a refund of the same counter. The wallet recomputes the receiver from
 its own factory and the journaled parameters before it signs (`ShieldReceiptMismatch` pauses the order as

@@ -102,6 +102,11 @@ function rpc(req: any) {
     return { jsonrpc: "2.0", id, error: { code: -32000, message: "mock: no contract" } };
   }
   if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
+  // the fee history the wallet's tip ceiling reads (audit round 2, critic gap 4): 1,000 gwei base, 2 gwei priority — this
+  // world's tip is 0.25 % of the amount, not the gas, so the fees are set high enough that three times the execution's
+  // gas covers it for every amount here
+  if (method === "eth_feeHistory")
+    return { jsonrpc: "2.0", id, result: { oldestBlock: "0x1", baseFeePerGas: Array(6).fill("0xe8d4a51000"), gasUsedRatio: Array(5).fill(0.5), reward: Array(5).fill(["0x77359400"]) } };
   return { jsonrpc: "2.0", id, error: { code: -32601, message: `mock rpc: ${method} unsupported` } };
 }
 const api = v1Adapter(service);

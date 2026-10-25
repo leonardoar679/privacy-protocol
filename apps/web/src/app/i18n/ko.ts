@@ -510,6 +510,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.notes_loading.title": "아직 노트를 찾고 있습니다",
   "op.error.notes_loading.reason":
     "복원한 뒤 지갑은 새 노트를 만들기 전에 풀을 한 번 읽어, 이미 체인에 있는 노트와 겹치지 않게 합니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",
+  "op.error.cost_unknown.title": "네트워크 비용을 확인할 수 없습니다",
+  "op.error.cost_unknown.reason":
+    "지갑이 이 스왑의 실행 수수료를 확인하는 데 필요한 네트워크 수수료를 읽지 못해 스왑을 설정하지 않았습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",
   "op.error.provider_unavailable.title": "제공자가 응답하지 않습니다",
   "op.error.provider_unavailable.reason":
     "제공자가 실패했거나 응답하지 않았습니다. 지갑이 스스로 다시 시도하며, 서명하거나 보내기 전에 상태를 먼저 확인합니다.",
