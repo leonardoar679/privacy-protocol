@@ -464,7 +464,9 @@ swap factory or a list without the swap service's key, and a funded escrow it re
 refund time; and `service_key_changed` (the same follow-up): the swap service no longer takes the key the order was
 confirmed under. *A V6 follow-up of 2026-10-14 — the execution window:* an order with less than five minutes of its window left
 (`FUNDING_MARGIN_MS`; a funding delayed for privacy runs at the next unlock, which can come later) is never funded: it
-stops unfunded as `order_expired` (CANCELLED, not-moved, "Review again"); a funded order whose window has closed with
+stops unfunded as `order_expired` (CANCELLED, not-moved, "Review again"). The window is read by the later of the
+device's clock and the chain's latest block (`fundingClock`; audit round 2, critic gap 5: a device clock minutes slow had
+funded an escrow past its deadline, its execution reverted and its funding's fee lost). A funded order whose window has closed with
 nothing handed over is never signed — the escrow only refunds — and stops as `execution_window_closed`
 (RECOVERY_REQUIRED, still protected, "Return funds"; no "Try again"). Before, such an order was funded anyway, or retried
 its signature on the scheduler's growing backoff for good with no way back on its screen. A protected execution's step

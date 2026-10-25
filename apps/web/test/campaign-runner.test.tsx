@@ -518,6 +518,21 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state).toBe("committed");
   });
 
+  it("a step whose funding finds the window closed by the chain's clock is abandoned unfunded and planned again, never retried on the backoff (audit round 2, critic gap 5)", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    const committed = current(c).tranches[0].orderId!;
+    clock += 2000;
+    world.fundThrows = Object.assign(new Error("Not funded: this order's execution window has closed. Nothing was sent."), { code: "order_expired" });
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c).state, "running, never paused").not.toBe("paused");
+    expect(current(c).tranches[0]).toMatchObject({ state: "planned" });
+    expect(current(c).tranches[0].orderId, "its order is let go").toBeUndefined();
+    expect(session.journal().swaps.find((x) => x.orderId === committed)?.state).toBe("abandoned");
+  });
+
   it("pauses on an open breaker, on the global switch and on a price deviation; alerts are journaled and notified", async () => {
     const c = await fresh();
     world.breakerOpen = true;

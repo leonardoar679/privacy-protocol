@@ -10,7 +10,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, FundingAlreadySent, fundingFate, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, FundingAlreadySent, fundingClock, fundingFate, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
 import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
@@ -253,6 +253,38 @@ describe("swap funding", () => {
     // the user's word replaces a dead funding, once
     await fundEscrow({ ...relayed, stored: sent, reads: reads("dead"), replaceDead: true });
     expect(withdrawals.calls).toHaveLength(1);
+  });
+
+  it("a funding reads the window by the later of the device's clock and the chain's: a device clock behind funds nothing past the deadline (audit round 2, critic gap 5)", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const NOW = 1_900_000_000_000;
+    const params = {
+      orderId: ("0x" + "5c".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [stored]; });
+    withdrawals.calls.length = 0;
+    const at = (ms: number) => async () => BigInt(Math.floor(ms / 1000));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW); // the device: an hour before the deadline
+    try {
+      // the chain is a minute past the deadline: the device's clock is an hour and a minute behind
+      await expect(fundEscrow({ masterSeed: seed, deployment, session: s, relayerUrl: "http://relayer.test", stored, latestBlock: at(NOW + 3600_000 + 60_000) })).rejects.toBeInstanceOf(OrderWindowClosed);
+      expect(withdrawals.calls, "nothing was sent").toHaveLength(0);
+      // the clock itself: the later of the two; a chain behind never moves it back, a read that fails leaves the device's
+      expect(await fundingClock(deployment, NOW, at(NOW + 600_000))).toBe(NOW + 600_000);
+      expect(await fundingClock(deployment, NOW, at(NOW - 600_000))).toBe(NOW);
+      expect(await fundingClock(deployment, NOW, async () => { throw new Error("no RPC answered"); })).toBe(NOW);
+      // the chain agrees with the device: funded
+      await fundEscrow({ masterSeed: seed, deployment, session: s, relayerUrl: "http://relayer.test", stored, latestBlock: at(NOW + 15_000) });
+      expect(withdrawals.calls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a dead funding sent again is a new funding: never one of an order an older build committed under the privacy address (audit round 2, n10)", async () => {

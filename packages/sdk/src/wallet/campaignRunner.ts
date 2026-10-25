@@ -495,6 +495,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + 1000;
         } catch (e) {
           const m = (e as Error)?.message ?? String(e);
+          // the funding's own window check, by the later of the device's clock and the chain's (audit round 2, critic gap 5): a
+          // device clock behind the chain had passed the step's check above — abandoned unfunded and planned again, as there
+          if (!sent && (e as { code?: unknown })?.code === "order_expired") {
+            abandonSwap(stored.orderId, s);
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's execution window had closed by the chain's clock before it was funded: the order is abandoned and the step planned again");
+            nextAt = now + 1000;
+            break;
+          }
           // a step whose tip no longer pays its execution at today's gas price (audit round 2, p04) is committed afresh, its new
           // tip priced now — never funded to wait out its refund time at the relayer
           if (!sent && (e as { code?: unknown })?.code === "tip_stale") {

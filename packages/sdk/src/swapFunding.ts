@@ -6,7 +6,7 @@
 import { recoverAddress, type Address, type Hex } from "viem";
 import { executionUnits, type GasFees } from "@privacy-wallet/contracts";
 import { feesOf } from "./executionCost";
-import { outcomeReads, type Deployment } from "./chain";
+import { clientFor, outcomeReads, type Deployment } from "./chain";
 import { privateWithdrawal, type Submitted } from "./privateTx";
 import { RelayerRefusal, relayerInfo, relayerJobFor, relayerRunsFor, relayerShieldRegister, type RelayerInfo, type ShieldJob } from "./relayer";
 import { shieldJobRequest, shieldJobView } from "./shieldReceiver";
@@ -208,6 +208,25 @@ export const windowEndOf = (stored: Pick<StoredSwap, "params">): number => Numbe
  */
 export const FUNDING_MARGIN_MS = 5 * 60_000;
 
+/** The chain's latest block's timestamp, in seconds. */
+export type LatestBlockTime = (d: Deployment) => Promise<bigint>;
+const latestBlockTime: LatestBlockTime = async (d) => (await clientFor(d).getBlock({ blockTag: "latest" })).timestamp;
+
+/**
+ * The clock a funding reads its order's window by: the later of the device's and the chain's latest block (audit round 2,
+ * critic gap 5). A device clock minutes slow had funded escrows whose execution deadline had passed in chain time: the
+ * execution reverted, the funds waited for the refund time, and the funding's fee was lost. The later of the two never
+ * funds later than either allows (an endpoint that lies about the time can only make it refuse); a block read that fails
+ * leaves the device's clock, as before.
+ */
+export async function fundingClock(d: Deployment, deviceNow = Date.now(), read: LatestBlockTime = latestBlockTime): Promise<number> {
+  try {
+    return Math.max(deviceNow, Number(await read(d)) * 1000);
+  } catch {
+    return deviceNow;
+  }
+}
+
 /**
  * What became of a journaled funding.
  * - landed: its notes are spent on chain, and the escrow's balance follows.
@@ -312,6 +331,9 @@ export async function fundEscrow(o: {
   reads?: FundingReads;
   /** today's gas fees (tests); this wallet's own RPC otherwise */
   fees?: (d: Deployment) => Promise<GasFees>;
+  /** the chain's latest block time (tests); this wallet's own RPC otherwise */
+  latestBlock?: LatestBlockTime;
+  /** a fixed clock (tests): the device's and the chain's are not read */
   now?: number;
 }): Promise<Submitted> {
   const s = o.session ?? defaultSession;
@@ -348,7 +370,9 @@ export async function fundEscrow(o: {
     if (committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
     patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
   }
-  if ((o.now ?? Date.now()) + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();
+  // the window by the later of the device's clock and the chain's (critic gap 5)
+  const now = o.now ?? (await fundingClock(o.deployment, Date.now(), o.latestBlock));
+  if (now + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();
   await checkTipCovers(o.deployment, stored, o.fees ?? feesOf);
   await checkFundingReady(o);
   // a same-chain swap's shield job is accepted before anything is funded (c12)
