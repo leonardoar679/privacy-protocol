@@ -44,7 +44,12 @@ jobs:
           version: v1.8.4
       - name: lockfile check (before anything is installed)
         run: node scripts/check-lockfile.mjs
+      # V7 Stage 2: the Classic app's own lockfile (classic/), checked and installed apart (spec v3.0 §7.8)
+      - name: classic lockfile check
+        run: node scripts/check-lockfile.mjs --lockfile classic/package-lock.json --manifest classic/package.json
       - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: classic
       - name: verify-all --ci
         run: node scripts/verify-all.mjs --ci --forge 0.8.24
 

@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/protocol-types",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "The frozen types of the Privacy Wallet (spec v2.0): assets, chains, deployments, quotes, the privacy and risk assessments, the operation states. No dependencies; consumed as TypeScript source.",
   "exports": {

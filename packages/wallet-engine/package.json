@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/wallet-engine",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "The public wallet's connection (doc §15; spec v2.0 §8): EIP-6963 discovery, the injected provider, WalletConnect on request; connect, disconnect, switchNetwork, getAddress, signMessage, requestSignature, detectWallet. It never touches the shielded keys.",
   "exports": {

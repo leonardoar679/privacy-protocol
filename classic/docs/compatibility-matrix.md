@@ -45,12 +45,12 @@ recorded anywhere in the clones; the research study's `10-audits/historical` is 
 
 **The websnark pin matters:** `git diff 4c0af6a8 2041cfa5 -- src/ tools/` is four files — `src/bn128.js` builds the
 FFT with the fixed non-residue `bigInt(7)` (`buildFFT(moduleBuilder, "fft", "frm", bigInt(7))`, line 50), `src/build_fft.js`
-takes that `overrideNr` instead of searching for a non-residue, `tools/buildpkey.js` and `tools/buildwasm.js` follow.
+takes that `overrideNr` instead of searching for a non-residue, `../reference/websnark/tools/buildpkey.js` and `../reference/websnark/tools/buildwasm.js` follow.
 A prover built from master proves with another root of unity and the production key rejects it. Closure hashes at
 `4c0af6a8` (sha256, first 16 hex): `src/groth16.js` 715466cd17ee6f09, `src/utils.js` 0441ef88c50121d8,
-`tools/stringifybigint.js` 5053c72386313a8c, `build/groth16_wasm.js` f3dfe57eeb393d1a.
+`../reference/websnark/tools/stringifybigint.js` 5053c72386313a8c, `build/groth16_wasm.js` f3dfe57eeb393d1a.
 
-## 3. The note and the derivations (tornado-cli `cli.js`, classic-ui `utils/crypto.js`, tornado-core `circuits/withdraw.circom`)
+## 3. The note and the derivations (tornado-cli `cli.js`, classic-ui `utils/crypto.js`, tornado-core `../tornado-core/circuits/withdraw.circom`)
 
 - Note: `tornado-<currency>-<amount>-<netId>-0x<124 hex>`; the hex is `nullifier (31 bytes, little-endian) ‖ secret
   (31 bytes, little-endian)`, both from `crypto.randomBytes(31)` (`rbigint`). The CLI parses it with an unanchored

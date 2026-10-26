@@ -8,7 +8,7 @@
 // answer naming no package and no known network failure is asked again once, three seconds later, and a second such answer
 // fails with npm's whole error (2026-10-17: twice in a day npm answered an error whose code, summary and detail were empty,
 // and the gate failed with "npm audit failed:" and nothing else). A self-test of how answers are read runs first.
-//   node scripts/audit.mjs          the root lockfile (every workspace)
+//   node scripts/audit.mjs          the root lockfile (every workspace) and the Classic app's (classic/, V7 Stage 2)
 //   node scripts/audit.mjs --json   the raw reports to stdout
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const PACKAGES = ["."];
+const PACKAGES = [".", "classic"];
 const OFFLINE =
   /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ECONNRESET|socket hang up|audit endpoint returned an error|request to .+ failed|ERR_SOCKET|fetch failed|getaddrinfo/i;
 const wantJson = process.argv.includes("--json");

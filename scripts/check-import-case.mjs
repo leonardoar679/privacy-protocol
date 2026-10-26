@@ -2,13 +2,13 @@
 // Relative imports resolve with the exact case of the files they name (V6 Stage 2): this machine's file system ignores
 // case, the CI runner's does not, so `./Recovery` beside `recovery.ts` builds here and breaks there. Every relative
 // specifier (import / export from, import(), require(), new URL(…, import.meta.url)) in the TypeScript and JavaScript
-// of apps/, packages/, tests/ and scripts/ is resolved segment by segment against the directory listings.
+// of apps/, packages/, tests/, scripts/ and classic/ (V7 Stage 2) is resolved segment by segment against the directory listings.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const ROOTS = ["apps", "packages", "tests", "scripts"];
+const ROOTS = ["apps", "packages", "tests", "scripts", "classic"];
 const SKIP = new Set(["node_modules", "dist", "run", "results", "target", "pkg", ".vite", "coverage"]);
 const SOURCE = /\.(ts|tsx|mts|js|mjs|cjs|jsx)$/;
 const SPEC = /(?:from\s*|import\s*\(\s*|require\s*\(\s*|new URL\s*\(\s*)(["'])(\.\.?\/[^"']*)\1/g;

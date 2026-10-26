@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/config",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "The Privacy Wallet's registries (spec v2.0 §9): the chains and the assets — the only place a network or a token is named.",
   "exports": {

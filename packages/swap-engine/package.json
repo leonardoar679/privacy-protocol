@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/swap-engine",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "PrivateSwap engine (docs/private-swap-spec-v1.1.md): order state machine, provider adapters, route scoring, privacy score, one-time endpoint derivation. Adapter tests are LIVE (real public quote APIs, read-only, no funds).",
   "exports": {

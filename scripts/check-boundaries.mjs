@@ -11,7 +11,10 @@
 //   8. Classic Privacy is a module apart (spec v2.0 §11.3; V6 Stage 14): its files import nothing of the protected-wallet
 //      engine but the session that keeps its journal field, its record type and the build's configuration, nothing of
 //      the protocol but the classic note, and nothing of the app but its words and hooks; outside it, only More's routes,
-//      the route table and the fixtures registry import it (tests may).
+//      the route table and the fixtures registry import it (tests may);
+//   9. the Classic app is a product apart (spec v3.0 §7.8; V7 Stage 2): nothing under classic/ imports a @privacy-wallet
+//      package or reaches into apps/ or packages/ by a relative path, and nothing under apps/ or packages/ reaches into
+//      classic/ — the two share no runtime code (the design tokens cross as a generated stylesheet, by a script).
 // Usage: node scripts/check-boundaries.mjs (exit 1 with every violation listed).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -51,6 +54,9 @@ const CLASSIC_ALLOWED = [
   /^(react|zod)$/,
 ];
 const CLASSIC_APP = ["apps/web/src/app/i18n/", "apps/web/src/hooks"];
+// rule 9: the Classic app (V7 Stage 2) — its code, and the directories it may never reach
+const CLASSIC_ROOT = "classic/";
+const CLASSIC_SKIP = new Set([...SKIP, "docs", "vendor"]);
 
 const posix = (p) => p.split(sep).join("/");
 const rel = (p) => posix(relative(ROOT, p));
@@ -117,6 +123,7 @@ export function check() {
             const target = owner(resolve(dirname(abs), spec));
             if (target && target !== w) report(file, line, `rule 1: a relative import crosses into ${target.root} (${spec}); import ${target.name} by name`);
             const into = rel(resolve(dirname(abs), spec));
+            if (into.startsWith(CLASSIC_ROOT)) report(file, line, `rule 9: ${spec} reaches into the Classic app (the two share no runtime code)`);
             if (file.startsWith(CLASSIC_DIR) && !dev && !into.startsWith(CLASSIC_DIR) && !CLASSIC_APP.some((d) => into.startsWith(d)))
               report(file, line, `rule 8: Classic Privacy imports ${spec} from outside its module`);
             if (!file.startsWith(CLASSIC_DIR) && !dev && into.startsWith(CLASSIC_DIR) && !CLASSIC_IMPORTERS.includes(file))
@@ -151,6 +158,37 @@ export function check() {
             );
         for (const m of src.matchAll(/\(?\s*\bwindow\b[^();\n]*\)?\s*\.\s*ethereum\b/g))
           if (file !== INJECTED_READER) report(file, lineOf(src, m.index), `rule 7: window.ethereum outside ${INJECTED_READER}`);
+      }
+    }
+  }
+
+  // rule 9: the Classic app's code (src, scripts, test, its configs) names no @privacy-wallet package and reaches into no
+  // workspace by a relative path; its docs and the vendored prover are not code of its own
+  const classicDir = join(ROOT, "classic");
+  if (existsSync(classicDir)) {
+    const classicFiles = (dir, out = []) => {
+      for (const e of readdirSync(dir)) {
+        if (CLASSIC_SKIP.has(e)) continue;
+        const p = join(dir, e);
+        if (statSync(p).isDirectory()) classicFiles(p, out);
+        else if (CODE.test(e)) out.push(p);
+      }
+      return out;
+    };
+    for (const abs of classicFiles(classicDir)) {
+      const file = rel(abs);
+      const src = uncomment(readFileSync(abs, "utf8"));
+      for (const rx of SPECS) {
+        for (const m of src.matchAll(rx)) {
+          const spec = m[1];
+          const line = lineOf(src, m.index);
+          if (spec.startsWith(".")) {
+            const into = rel(resolve(dirname(abs), spec));
+            if (/^(apps|packages)\//.test(into))
+              report(file, line, `rule 9: the Classic app reaches into ${into} (${spec}); it shares no runtime code with the Privacy Wallet`);
+          } else if (packageOf(spec).startsWith("@privacy-wallet/"))
+            report(file, line, `rule 9: the Classic app imports ${spec}; it shares no runtime code with the Privacy Wallet`);
+        }
       }
     }
   }

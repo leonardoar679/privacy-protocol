@@ -1,0 +1,4 @@
+{
+  "comment": "The Classic app's runtime artifacts and their sha256 (spec v3.0 §7.3): filled by Stage 6 (the original circuit, its proving key, the precompiled witness data); checked by scripts/check-pins.mjs; shipped with the build.",
+  "files": {}
+}

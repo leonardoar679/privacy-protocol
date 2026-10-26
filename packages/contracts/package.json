@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/contracts",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "The contract boundary (spec v2.0 §10): the ABIs and creation code exported by forge, the deployment check and its fingerprint. Never a raw address in a component.",
   "exports": {

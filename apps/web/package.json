@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/web",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Privacy wallet (Vite + React + TS + viem): client-side proving, encrypted keystore + journal, fresh per-chain addresses, private swaps, Private AI on zkAPI. The raw seed is never written to dapp-origin storage (TC-01).",
   "scripts": {

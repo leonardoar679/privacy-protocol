@@ -27,6 +27,19 @@ code.
 
 ## Reviews
 
+- 2026-10-26 (V7 Stage 2) — the Classic app's own lockfile, `classic/package-lock.json` (spec v3.0 §7.8; 386 packages,
+  every one from the registry with its sha512 integrity, no `@privacy-wallet/*` package): the runtime dependencies
+  `react@18.3.1`, `react-dom@18.3.1` and `zod@4.6.7` (MIT; the same versions the root lockfile carries; zod is reviewed
+  above) and the development tooling (Vite 5, Vitest 2, TypeScript, ESLint and its plugins, Testing Library, happy-dom),
+  none of which ships in the build. Two packages carry an install script, both reviewed (the gate reads one line at a
+  time, so each is dated on its own line):
+  - 2026-10-26 — `esbuild@0.21.5` (MIT; Vite 5's bundler; its postinstall only picks the platform binary among its own
+    optional packages; the root lockfile carries the same esbuild).
+  - 2026-10-26 — `fsevents@2.3.3` (MIT; a macOS-only optional dependency of chokidar, never installed on this
+    workstation or in CI).
+  No cryptography-sensitive package is in the lockfile yet; the vendored prover of Stage 6 enters as source files under
+  the app's vendor directory, hashed by `classic/vendor/VENDORED.md`, not through npm.
+
 - 2026-10-13 (V6 Stage 5) — `@fontsource-variable/inter@5.3.0` (OFL-1.1; packages/ui): the variable Inter's woff2 files;
   the design system serves the latin one from its own origin (`packages/ui/src/fonts.css`). `playwright-core@1.64.0`
   (Apache-2.0), `pixelmatch@8.0.0` (ISC), `pngjs@7.0.0` (MIT; root devDependencies): the screenshot harness

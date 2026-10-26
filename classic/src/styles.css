@@ -1,0 +1,40 @@
+/* The Classic app's base styles over the Privacy Wallet's tokens (tokens.generated.css): one visual identity. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+.tc-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.tc-title {
+  margin: 0;
+  font-size: var(--display-size, 2rem);
+  line-height: var(--display-line, 2.375rem);
+  font-weight: var(--display-weight, 700);
+}
+.tc-sub,
+.tc-note {
+  color: var(--fg-muted);
+}
+.tc-banner {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
+  color: var(--fg);
+  border-radius: 8px;
+  line-height: 1.45;
+}

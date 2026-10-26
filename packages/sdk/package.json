@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/sdk",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "The wallet SDK (doc §61; spec v2.0 §4, §8): the session with its encrypted keystore and journal, the notes, the private transactions, the swap orders and campaigns, the operation records and their catalog — behind one facade (src/index.ts). No React and no platform: the platform passes its store and its prover to configure().",
   "exports": {

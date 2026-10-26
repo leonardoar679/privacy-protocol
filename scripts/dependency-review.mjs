@@ -4,6 +4,7 @@
 // without a dated entry in docs/dependency-reviews.md.
 //   node scripts/dependency-review.mjs                 # against HEAD (the working tree's uncommitted change)
 //   node scripts/dependency-review.mjs --base HEAD~1   # against a revision (CI on push: the commit's own change)
+//   node scripts/dependency-review.mjs --path classic/package-lock.json   # the Classic app's own lockfile (V7 Stage 2)
 // Prints the added, removed and changed packages with their install scripts and licences. Exit 1 when a sensitive
 // package (@noble/*, @scure/*, snarkjs, ffjavascript, circomlibjs, viem, ox, @walletconnect/*) is added or changes
 // version and docs/dependency-reviews.md has no line naming `name@version` — and whenever a package keeps its name and
@@ -17,6 +18,8 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const base = argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : "HEAD";
+// `--path <repo-relative lockfile>`: which lockfile is reviewed, at the base and in the working tree (default: the root's)
+const lockRel = argv.includes("--path") ? argv[argv.indexOf("--path") + 1].replace(/\\/g, "/") : "package-lock.json";
 const SENSITIVE = [/^@noble\//, /^@scure\//, /^snarkjs$/, /^ffjavascript$/, /^circomlibjs$/, /^viem$/, /^ox$/, /^@walletconnect\//];
 
 const nameOf = (key) => key.slice(key.lastIndexOf("node_modules/") + "node_modules/".length);
@@ -38,19 +41,20 @@ function packagesAt(text) {
 
 let baseText;
 try {
-  baseText = execFileSync("git", ["show", `${base}:package-lock.json`], {
+  baseText = execFileSync("git", ["show", `${base}:${lockRel}`], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 64 << 20,
     stdio: ["ignore", "pipe", "ignore"],
   });
 } catch {
-  console.log(`dependency review: no package-lock.json at ${base} — nothing to compare (first commit or shallow clone)`);
-  process.exit(0);
+  // a lockfile that is new (the Classic app's first commit) is reviewed whole: every package of it is "added"
+  baseText = JSON.stringify({ packages: {} });
+  console.log(`dependency review: no ${lockRel} at ${base} — every package reviewed as added`);
 }
 const before = packagesAt(baseText);
 // `--lockfile <path>`: review a candidate lockfile instead of the working tree's
-const lockPath = argv.includes("--lockfile") ? argv[argv.indexOf("--lockfile") + 1] : join(root, "package-lock.json");
+const lockPath = argv.includes("--lockfile") ? argv[argv.indexOf("--lockfile") + 1] : join(root, lockRel);
 const after = packagesAt(readFileSync(lockPath, "utf8"));
 
 // a version is its tarball: the same name@version with another integrity or source is refused outright

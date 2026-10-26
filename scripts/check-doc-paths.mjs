@@ -8,15 +8,17 @@
 //      listed in scripts/doc-paths-allowlist.txt with its reason;
 //   2. no document names the old roots (frontend/, services/, core/rust, reference/typescript) except to say what a
 //      path "was".
-// Scanned: README.md, docs/**/*.md, and the README.md of every directory; not scripts/local-stack/results (reports).
+// Scanned: README.md, docs/**/*.md, classic/docs/**/*.md (V7 Stage 2), and the README.md of every directory; not
+// scripts/local-stack/results (reports).
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const TOP = ["apps", "packages", "privacy-core", "contracts", "circuits", "tests", "scripts", "docs", "benchmarks", "tools", "reference"];
+const TOP = ["apps", "packages", "privacy-core", "contracts", "circuits", "tests", "scripts", "docs", "benchmarks", "tools", "reference", "classic"];
 // generated outputs: the directory itself or anything below it (a clean checkout has none of them)
 const GENERATED = [
+  /^classic\/(dist|node_modules|public\/(artifacts|data))(\/|$)/,
   /^circuits\/build(\/|$)/,
   /^privacy-core\/(target|pkg)(\/|$)/,
   /^apps\/web\/(dist|public\/(core|zkapi))(\/|$)/,
@@ -40,7 +42,7 @@ function docs(dir, out = []) {
     if (e.name === "node_modules" || e.name.startsWith(".") || e.name === "target" || e.name === "results" || e.name === "run" || e.name === "dist") continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) docs(p, out);
-    else if (e.name.endsWith(".md") && (e.name === "README.md" || relative(root, p).startsWith("docs"))) out.push(p);
+    else if (e.name.endsWith(".md") && (e.name === "README.md" || /^(docs|classic[\\/]docs)([\\/]|$)/.test(relative(root, p)))) out.push(p);
   }
   return out;
 }

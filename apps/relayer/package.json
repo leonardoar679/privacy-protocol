@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/relayer",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Private submission for the shielded pool (plan §76, §81, §85 rule 5): submits a wallet's proven `PrivacyCore.transact` from its own key, paid by a private fee note inside the transaction. Replaceable; the wallet keeps self-submission and any other relayer as fallbacks.",
   "scripts": {

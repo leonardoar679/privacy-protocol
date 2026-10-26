@@ -2,6 +2,7 @@
   "name": "@privacy-wallet/protocol",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Executable cryptographic reference (spec v1.0): Poseidon2 (vendored, nargo-verified), note/nullifier/Merkle primitives, the circuit witness builder, and the shared test vectors.",
   "scripts": {

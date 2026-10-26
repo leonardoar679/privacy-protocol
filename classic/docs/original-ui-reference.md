@@ -10,7 +10,7 @@ reference and was not done.
 
 ## How the reference was captured
 
-`reference/capture.cjs` serves the clone from a local static server (port 5190, every path falling back to
+`classic/docs/reference/capture.cjs` serves the clone from a local static server (port 5190, every path falling back to
 `index.html` as the original's IPFS hosting did) and drives installed Chrome through `playwright-core` at the two
 canvases of this repository's harness, **390 × 844** (phone, touch) and **1440 × 900** (desktop), screenshotting the
 full page and writing each state's visible text (`<state>.txt`) and its visible controls into `inventory.json`. Run it
