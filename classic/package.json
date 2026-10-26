@@ -14,7 +14,9 @@
     "gates": "node scripts/gates.mjs",
     "check-build": "node scripts/check-build.mjs",
     "tokens": "node scripts/tokens.mjs",
-    "visual": "node tests/visual/run.mjs"
+    "visual": "node tests/visual/run.mjs",
+    "verify-deployment": "node scripts/verify-deployment.mjs",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -33,9 +35,11 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^15.11.7",
+    "js-sha3": "0.13.0",
     "pixelmatch": "^8.0.0",
     "playwright-core": "^1.64.0",
     "pngjs": "^7.0.0",
+    "solc": "0.8.38",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.71.1",
     "vite": "^5.4.0",

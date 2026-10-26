@@ -15,7 +15,7 @@ const packageOf = (spec) => (spec.startsWith("@") ? spec.split("/").slice(0, 2).
 
 function files(dir, out = []) {
   for (const e of readdirSync(dir)) {
-    if (e === "node_modules" || e === "dist" || e === "public" || e.startsWith(".")) continue;
+    if (e === "node_modules" || e === "dist" || e === "public" || e === "contracts" || e.startsWith(".")) continue; // contracts/: the records and the downloaded compiler builds
     const p = join(dir, e);
     if (statSync(p).isDirectory()) files(p, out);
     else if (CODE.test(e)) out.push(p);

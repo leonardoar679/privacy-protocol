@@ -1,0 +1,303 @@
+{
+  "chainId": 1,
+  "readAt": {
+    "block": 26278752,
+    "date": "2026-10-26"
+  },
+  "pools": {
+    "eth-0.1": {
+      "address": "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc",
+      "runtime": {
+        "sha256": "3bbc2652c41f0a13289cac4d503b27595c017b8d3c780424610c6feec6eb7dfe",
+        "bytes": 6615
+      },
+      "source": {
+        "name": "TornadoCash_Eth_01",
+        "compiler": "0.5.11+commit.c082d0b4",
+        "sourcify": "match",
+        "matchId": "615612"
+      },
+      "deployedBlock": 9116966,
+      "libraries": {
+        "TornadoCash_Eth_01.sol:Hasher": "0x83584f83f26af4edda9cbe8c730bc87c364b28fe"
+      },
+      "amount": "0.1",
+      "verifier": "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
+      "levels": 20,
+      "denominationWei": "100000000000000000",
+      "operator": "0x0000000000000000000000000000000000000000",
+      "rootHistorySize": 100,
+      "nextIndex": 75197,
+      "lastRoot": "0x19a9bdf9701f9bd6374334c43cb0a96efacb927d96c92adf409811a0b1c41e52"
+    },
+    "eth-1": {
+      "address": "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936",
+      "runtime": {
+        "sha256": "57632dbb86b78ae0bd84ff480d359a2422945e6df83c3b04511a0ed22e9456dd",
+        "bytes": 5191
+      },
+      "source": {
+        "name": "TornadoCash_eth",
+        "compiler": "0.5.11+commit.c082d0b4",
+        "sourcify": "match",
+        "matchId": "2351792"
+      },
+      "deployedBlock": 9117609,
+      "libraries": {
+        "TornadoCash_eth.sol:Hasher": "0x83584f83f26af4edda9cbe8c730bc87c364b28fe"
+      },
+      "amount": "1",
+      "verifier": "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
+      "levels": 20,
+      "denominationWei": "1000000000000000000",
+      "operator": "0x0000000000000000000000000000000000000000",
+      "rootHistorySize": 100,
+      "nextIndex": 96466,
+      "lastRoot": "0x18614cdefd82ef49ea79f95435cf4039327ef530c7c4e7541dbe3a5cba2bedd1"
+    },
+    "eth-10": {
+      "address": "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf",
+      "runtime": {
+        "sha256": "57632dbb86b78ae0bd84ff480d359a2422945e6df83c3b04511a0ed22e9456dd",
+        "bytes": 5191
+      },
+      "source": {
+        "name": "TornadoCash_eth",
+        "compiler": "0.5.11+commit.c082d0b4",
+        "sourcify": "match",
+        "matchId": "1892734"
+      },
+      "deployedBlock": 9117720,
+      "libraries": {
+        "TornadoCash_eth.sol:Hasher": "0x83584f83f26af4edda9cbe8c730bc87c364b28fe"
+      },
+      "amount": "10",
+      "verifier": "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
+      "levels": 20,
+      "denominationWei": "10000000000000000000",
+      "operator": "0x0000000000000000000000000000000000000000",
+      "rootHistorySize": 100,
+      "nextIndex": 78822,
+      "lastRoot": "0x25b250cdb12dce89d3a6de1576ec3d2e2273d5791874e94f4ea2b0267c538ab9"
+    },
+    "eth-100": {
+      "address": "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+      "runtime": {
+        "sha256": "57632dbb86b78ae0bd84ff480d359a2422945e6df83c3b04511a0ed22e9456dd",
+        "bytes": 5191
+      },
+      "source": {
+        "name": "TornadoCash_eth",
+        "compiler": "0.5.11+commit.c082d0b4",
+        "sourcify": "match",
+        "matchId": "2531285"
+      },
+      "deployedBlock": 9161895,
+      "libraries": {
+        "TornadoCash_eth.sol:Hasher": "0x83584f83f26af4edda9cbe8c730bc87c364b28fe"
+      },
+      "amount": "100",
+      "verifier": "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
+      "levels": 20,
+      "denominationWei": "100000000000000000000",
+      "operator": "0x0000000000000000000000000000000000000000",
+      "rootHistorySize": 100,
+      "nextIndex": 49627,
+      "lastRoot": "0x2401674a92196d5d327702628dccbb7ed15a76f0a78c4f8c247a11d2a1685fe2"
+    }
+  },
+  "verifier": {
+    "address": "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
+    "runtime": {
+      "sha256": "ff815c35f6f160a3e86d72a13a922c732b1be9306a53c200c37ce64b2e80811f",
+      "bytes": 3781
+    },
+    "source": {
+      "name": "Verifier",
+      "compiler": "0.5.17+commit.d19bba13",
+      "sourcify": "match",
+      "matchId": "6740144"
+    },
+    "deployedBlock": 10050743,
+    "libraries": {},
+    "vk": {
+      "alfa1": [
+        "20692898189092739278193869274495556617788530808486270118371701516666252877969",
+        "11713062878292653967971378194351968039596396853904572879488166084231740557279"
+      ],
+      "beta2": [
+        [
+          "12168528810181263706895252315640534818222943348193302139358377162645029937006",
+          "281120578337195720357474965979947690431622127986816839208576358024608803542"
+        ],
+        [
+          "16129176515713072042442734839012966563817890688785805090011011570989315559913",
+          "9011703453772030375124466642203641636825223906145908770308724549646909480510"
+        ]
+      ],
+      "gamma2": [
+        [
+          "11559732032986387107991004021392285783925812861821192530917403151452391805634",
+          "10857046999023057135944570762232829481370756359578518086990519993285655852781"
+        ],
+        [
+          "4082367875863433681332203403145435568316851327593401208105741076214120093531",
+          "8495653923123431417604973247489272438418190587263600148770280649306958101930"
+        ]
+      ],
+      "delta2": [
+        [
+          "21280594949518992153305586783242820682644996932183186320680800072133486887432",
+          "150879136433974552800030963899771162647715069685890547489132178314736470662"
+        ],
+        [
+          "1081836006956609894549771334721413187913047383331561601606260283167615953295",
+          "11434086686358152335540554643130007307617078324975981257823476472104616196090"
+        ]
+      ],
+      "IC": [
+        [
+          "16225148364316337376768119297456868908427925829817748684139175309620217098814",
+          "5167268689450204162046084442581051565997733233062478317813755636162413164690"
+        ],
+        [
+          "12882377842072682264979317445365303375159828272423495088911985689463022094260",
+          "19488215856665173565526758360510125932214252767275816329232454875804474844786"
+        ],
+        [
+          "13083492661683431044045992285476184182144099829507350352128615182516530014777",
+          "602051281796153692392523702676782023472744522032670801091617246498551238913"
+        ],
+        [
+          "9732465972180335629969421513785602934706096902316483580882842789662669212890",
+          "2776526698606888434074200384264824461688198384989521091253289776235602495678"
+        ],
+        [
+          "8586364274534577154894611080234048648883781955345622578531233113180532234842",
+          "21276134929883121123323359450658320820075698490666870487450985603988214349407"
+        ],
+        [
+          "4910628533171597675018724709631788948355422829499855033965018665300386637884",
+          "20532468890024084510431799098097081600480376127870299142189696620752500664302"
+        ],
+        [
+          "15335858102289947642505450692012116222827233918185150176888641903531542034017",
+          "5311597067667671581646709998171703828965875677637292315055030353779531404812"
+        ]
+      ],
+      "nPublic": 6
+    }
+  },
+  "router": {
+    "address": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "runtime": {
+      "sha256": "789e8e68ed03fea4cca814995b674af2b1d42364f95d957bbc8b05433a4612c2",
+      "bytes": 5725
+    },
+    "source": {
+      "name": "TornadoRouter",
+      "compiler": "0.6.12+commit.27d51765",
+      "sourcify": "exact_match",
+      "matchId": "429006"
+    },
+    "deployedBlock": 14173127,
+    "libraries": {},
+    "governance": "0x5efda50f22d34f262c29268506c5fa42cb56a1ce",
+    "instanceRegistry": "0xb20c66c4de72433f3ce747b58b86830c459ca911",
+    "relayerRegistry": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2"
+  },
+  "instanceRegistry": {
+    "address": "0xb20c66c4de72433f3ce747b58b86830c459ca911",
+    "runtime": {
+      "sha256": "3a3419f6edf4d1ead75bf57e3ff2a267e37a3b01512272935aebc68064603f47",
+      "bytes": 1450
+    },
+    "source": {
+      "name": "AdminUpgradeableProxy",
+      "compiler": "0.6.12+commit.27d51765",
+      "sourcify": "exact_match",
+      "matchId": "6868049"
+    },
+    "deployedBlock": 14173395,
+    "libraries": {},
+    "proxy": {
+      "implementation": "0x2573bac39ebe2901b4389cd468f2872cf7767faf",
+      "admin": "0x5efda50f22d34f262c29268506c5fa42cb56a1ce",
+      "implementationRuntime": {
+        "sha256": "9aa6800371c73df597f4d8274ccf286214a8a6909c2a4c8fc8cb273755321dc4",
+        "bytes": 5935
+      }
+    },
+    "instances": {
+      "eth-0.1": {
+        "isERC20": false,
+        "token": "0x0000000000000000000000000000000000000000",
+        "state": 1,
+        "stateName": "ENABLED",
+        "uniswapPoolSwappingFee": 0,
+        "protocolFeePercentage": 0
+      },
+      "eth-1": {
+        "isERC20": false,
+        "token": "0x0000000000000000000000000000000000000000",
+        "state": 1,
+        "stateName": "ENABLED",
+        "uniswapPoolSwappingFee": 0,
+        "protocolFeePercentage": 30
+      },
+      "eth-10": {
+        "isERC20": false,
+        "token": "0x0000000000000000000000000000000000000000",
+        "state": 1,
+        "stateName": "ENABLED",
+        "uniswapPoolSwappingFee": 0,
+        "protocolFeePercentage": 30
+      },
+      "eth-100": {
+        "isERC20": false,
+        "token": "0x0000000000000000000000000000000000000000",
+        "state": 1,
+        "stateName": "ENABLED",
+        "uniswapPoolSwappingFee": 0,
+        "protocolFeePercentage": 30
+      }
+    }
+  },
+  "relayerRegistry": {
+    "address": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+    "runtime": {
+      "sha256": "3a3419f6edf4d1ead75bf57e3ff2a267e37a3b01512272935aebc68064603f47",
+      "bytes": 1450
+    },
+    "source": {
+      "name": "AdminUpgradeableProxy",
+      "compiler": "0.6.12+commit.27d51765",
+      "sourcify": "exact_match",
+      "matchId": "1990356"
+    },
+    "deployedBlock": 14173129,
+    "libraries": {},
+    "proxy": {
+      "implementation": "0x84b0c75c1f6211450fec7289c32d717adadd702a",
+      "admin": "0x5efda50f22d34f262c29268506c5fa42cb56a1ce",
+      "implementationRuntime": {
+        "sha256": "fa899d231b5819c75454f156538429bac53761d72f3da01191fffdf1bfaf7e63",
+        "bytes": 17426
+      }
+    }
+  },
+  "compilers": {
+    "0.5.11+commit.c082d0b4": {
+      "path": "soljson-v0.5.11+commit.c082d0b4.js",
+      "sha256": "b6012fb777a7f842a6e7efe8c50cb2eba3b3997c72b761810823e796d4390d44"
+    },
+    "0.5.17+commit.d19bba13": {
+      "path": "soljson-v0.5.17+commit.d19bba13.js",
+      "sha256": "dac1bc7560247d3e69bce9891f7eb2218a6a8d0106d9cdb4de8e03ede4546153"
+    },
+    "0.6.12+commit.27d51765": {
+      "path": "soljson-v0.6.12+commit.27d51765.js",
+      "sha256": "3e1956c550ca48e289044c7c0bd892403081b4b5e17e77ce707c815ce6c4228f"
+    }
+  }
+}

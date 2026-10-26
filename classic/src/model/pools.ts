@@ -1,7 +1,10 @@
-// The four Classic pools (spec v3.0 §7.2): Ethereum mainnet, the documented addresses the owner's document names, their
-// denominations and deployed blocks. Stage 5 verifies them against the chain and pins their code hashes in
-// src/config/deployment.json; until then nothing here sends a transaction (spec §7.7, CLASSIC_LIVE).
+// The four Classic pools (spec v3.0 §7.2): Ethereum mainnet, the addresses, denominations and deployed blocks read from
+// the pins the deployment verification wrote (src/config/deployment.json — scripts/verify-deployment.mjs, V7 Stage 5:
+// each pool's runtime code held against its Sourcify record and a rebuild with the pinned compiler, its verifier,
+// levels, denomination, the operator renounced, ROOT_HISTORY_SIZE 100). Stage 9 verifies the pins against the chain
+// at start; until then nothing here sends a transaction (spec §7.7, CLASSIC_LIVE).
 import type { PoolId } from "../config";
+import deployment from "../config/deployment.json";
 
 export type { PoolId };
 export type PoolAmount = "0.1" | "1" | "10" | "100";
@@ -16,31 +19,45 @@ export interface Pool {
   deployedBlock: number;
 }
 
-const ETH = 1_000_000_000_000_000_000n;
+/** The pins, as the verification wrote them (the shape the app reads; the rest of the file is the report's). */
+export interface DeploymentPins {
+  chainId: number;
+  readAt: { block: number; date: string };
+  pools: Record<
+    PoolId,
+    {
+      address: string;
+      amount: string;
+      deployedBlock: number;
+      denominationWei: string;
+      verifier: string;
+      levels: number;
+      rootHistorySize: number;
+      runtime: { sha256: string; bytes: number };
+    }
+  >;
+  verifier: { address: string; runtime: { sha256: string; bytes: number } };
+  router: { address: string; governance: string; instanceRegistry: string; relayerRegistry: string };
+}
+export const DEPLOYMENT = deployment as unknown as DeploymentPins;
 
-export const POOLS: readonly Pool[] = [
-  {
-    id: "eth-0.1",
+/** The order of the original's slider. */
+const ORDER: readonly PoolId[] = ["eth-0.1", "eth-1", "eth-10", "eth-100"];
+
+export const POOLS: readonly Pool[] = ORDER.map((id) => {
+  const p = DEPLOYMENT.pools[id];
+  return {
+    id,
     currency: "eth",
-    amount: "0.1",
-    denominationWei: ETH / 10n,
-    address: "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc",
-    deployedBlock: 9_116_966,
-  },
-  { id: "eth-1", currency: "eth", amount: "1", denominationWei: ETH, address: "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936", deployedBlock: 9_117_609 },
-  { id: "eth-10", currency: "eth", amount: "10", denominationWei: 10n * ETH, address: "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf", deployedBlock: 9_117_720 },
-  {
-    id: "eth-100",
-    currency: "eth",
-    amount: "100",
-    denominationWei: 100n * ETH,
-    address: "0xa160cdab225685da1d56aa342ad8841c3b53f291",
-    deployedBlock: 9_161_895,
-  },
-];
+    amount: p.amount as PoolAmount,
+    denominationWei: BigInt(p.denominationWei),
+    address: p.address as `0x${string}`,
+    deployedBlock: p.deployedBlock,
+  };
+});
 
 /** Ethereum mainnet: the only network the pools exist on. */
-export const NET_ID = 1;
+export const NET_ID = DEPLOYMENT.chainId;
 
 export const poolOf = (id: PoolId): Pool => POOLS.find((p) => p.id === id)!;
 /** The pool a note names, or null (another currency, another amount, another network). */

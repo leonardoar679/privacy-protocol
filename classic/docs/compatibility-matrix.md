@@ -171,3 +171,15 @@ The note parser twin of `packages/protocol/src/classic/note.ts` (the same vector
 the relayer schemas of the former in-app module, corrected for the string health and `RESUBMITTED`; the design tokens
 as a generated stylesheet; the original's words (§6) under the Classic word policy; the research's findings as
 requirements (§7). Nothing of the original's Nuxt code runs inside the Privacy Wallet (doc §9).
+
+## 10. Verified on chain (V7 Stage 5, 2026-10-26)
+
+`classic/scripts/verify-deployment.mjs` read Ethereum mainnet at block 26,278,752 and held every contract of §5 to its
+Sourcify record (`classic/contracts/verified/`) and to a rebuild with the pinned compiler: the four pools (solc 0.5.11,
+the `Hasher` library `0x83584f83f26af4edda9cbe8c730bc87c364b28fe` at both link sites of each), the shared verifier
+(solc 0.5.17, deployed at block 10,050,743 — after the pools, which point at it: the pools' verifier was updated before
+the operator was renounced), the router (solc 0.6.12, an exact match) and the two registries (`AdminUpgradeableProxy`s
+administered by governance, their implementations `0x2573bac39ebe2901b4389cd468f2872cf7767faf` and
+`0x84b0c75c1f6211450fec7289c32d717adadd702a`). `operator() = 0x0` and `ROOT_HISTORY_SIZE() = 100` on every pool, all
+four instances `ENABLED` (protocol fee 0.30 % on the 1 / 10 / 100 pools, 0 on the 0.1 pool). The pins and the report:
+`classic/src/config/deployment.json`, `classic/docs/deployment-verification-2026-10-26.md`.

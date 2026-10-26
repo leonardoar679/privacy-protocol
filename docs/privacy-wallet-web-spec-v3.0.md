@@ -271,7 +271,13 @@ relayers are found — three facts the availability model reports separately (§
 `ROOT_HISTORY_SIZE`, the registry) and **verifies it at start** against the chain: a mismatch marks the pool "not
 verified" and nothing is sent. The sources are rebuilt from the Sourcify-verified files with the named compilers and
 compared modulo the metadata hash and the linked Hasher library address (the deployment-era pools link a `Hasher`
-library generated from circomlib's MiMCSponge).
+library generated from circomlib's MiMCSponge). *Stage 5 as landed (2026-10-26, block 26,278,752):* every rebuild with
+the pinned compiler reproduced the chain's code; the Hasher is `0x83584f83f26af4edda9cbe8c730bc87c364b28fe` at both
+link sites of every pool; the verifier was deployed at block 10,050,743, after the pools that point at it (their
+verifier was updated before the operator was renounced); the two registries are `AdminUpgradeableProxy`s administered
+by governance (implementations `0x2573bac39ebe2901b4389cd468f2872cf7767faf` and
+`0x84b0c75c1f6211450fec7289c32d717adadd702a`) — upgradeable, so reported apart from the immutable pools; the report is
+`classic/docs/deployment-verification-2026-10-26.md`, the records `classic/contracts/verified/`.
 
 ### 7.3 The note and the cryptography (doc §4.3 C) — *Stage 6*
 Note: `tornado-<currency>-<amount>-<netId>-0x<nullifier 31 B LE><secret 31 B LE>` (124 hex); the currency compared

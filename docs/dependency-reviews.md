@@ -74,3 +74,12 @@ code.
   harness uses (`axe-core` was already in the lockfile through `eslint-plugin-jsx-a11y`). Local tooling only, never
   shipped (`classic/scripts/check-deps.mjs` keeps them out of `src/`). None is cryptography-sensitive; none has an
   install script; each locked with its sha512 integrity from the registry.
+- 2026-10-26 (V7 Stage 5) — the Classic deployment verification's devDependencies in `classic/package-lock.json`:
+  `solc@0.8.38` (MIT) — its wrapper alone (`solc/wrapper.js`), which binds the pinned legacy builds the verification
+  downloads from binaries.soliditylang.org and checks against the release list's sha256 (`classic/scripts/compilers.mjs`;
+  the builds are never committed) — with its closure `commander@8.3.0`, `command-exists@1.2.9`, `follow-redirects@1.16.2`,
+  `memorystream@0.3.1` (no licence field in its manifest; the ISC-style text in its repository), `semver@5.7.2` (ISC),
+  `tmp@0.2.6` and the nested `js-sha3@0.8.0`; and `js-sha3@0.13.0` (MIT) for the four-byte selectors of the view calls
+  the verification makes. Node-side tooling only (`classic/scripts/`, `classic/test/`): nothing of it reaches the app
+  (`classic/scripts/check-deps.mjs` keeps devDependencies out of `src/`). None is cryptography-sensitive in the gate's
+  sense; none has an install script; each locked with its sha512 integrity from the registry.
