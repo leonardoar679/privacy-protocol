@@ -1,7 +1,8 @@
 // The Classic app's content security policy and response headers (spec v3.0 §7.8): written into the built index.html
 // as a <meta http-equiv> by the Vite plugin below and sent as a header by the host (docs/deployment.md). Every host the
-// app may talk to comes from the build's VITE_CLASSIC_* environment — the RPC endpoints, the curated relayers, where the
-// history snapshots and the proving artifacts are served — and nothing else. No inline script, no eval (the circuit's
+// app may talk to comes from the build's VITE_CLASSIC_* environment — the RPC endpoints, extra relayers, where the
+// history snapshots and the proving artifacts are served — plus the curated relayers of classic/relayers.json (the list
+// scripts/relayers.mjs writes from the registry), and nothing else. No inline script, no eval (the circuit's
 // templates are precompiled at build time, spec §7.3), WASM through 'wasm-unsafe-eval' (websnark), the prover's workers
 // same-origin or Blob URLs (websnark spawns its sub-workers from a Blob).
 import { existsSync, readFileSync } from "node:fs";
@@ -31,9 +32,20 @@ export function originOf(value) {
   }
 }
 
-/** The connect-src entries of a build: the environment's hosts, deduplicated; a relative base adds nothing. */
-export function connectHosts(env = {}) {
+/** The curated relayers' origins (classic/relayers.json), or none when the list is absent. */
+export function curatedRelayerOrigins(file = new URL("../relayers.json", import.meta.url)) {
+  try {
+    const list = JSON.parse(readFileSync(file, "utf8"));
+    return (list.relayers ?? []).map((r) => originOf(r.url)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** The connect-src entries of a build: the environment's hosts and the extra origins, deduplicated; a relative base adds nothing. */
+export function connectHosts(env = {}, extra = []) {
   const out = new Set();
+  for (const o of extra) if (originOf(o)) out.add(originOf(o));
   for (const name of LIST_VARS) {
     for (const part of String(env[name] ?? "").split(",")) {
       const o = originOf(part);
@@ -44,8 +56,8 @@ export function connectHosts(env = {}) {
 }
 
 /** The policy string. */
-export function buildCsp(env = {}) {
-  const connect = ["'self'", ...connectHosts(env)];
+export function buildCsp(env = {}, extra = []) {
+  const connect = ["'self'", ...connectHosts(env, extra)];
   return [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",
@@ -63,17 +75,17 @@ export function buildCsp(env = {}) {
 }
 
 /** The meta tag the built index.html carries, first in <head>. */
-export function cspMeta(env = {}) {
-  return { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: buildCsp(env) }, injectTo: "head-prepend" };
+export function cspMeta(env = {}, extra = []) {
+  return { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: buildCsp(env, extra) }, injectTo: "head-prepend" };
 }
 
 /** The Vite plugin: build only (the dev server needs its own inline scripts and websocket). */
-export function cspPlugin(env = {}) {
+export function cspPlugin(env = {}, extra = []) {
   return {
     name: "classic-csp-meta",
     apply: "build",
     transformIndexHtml() {
-      return [cspMeta(env)];
+      return [cspMeta(env, extra)];
     },
   };
 }

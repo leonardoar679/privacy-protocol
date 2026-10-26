@@ -398,6 +398,40 @@ with `relayer = recipient`, `fee = 0`, after the original warning that the gas-p
 the user. Every request leaves through the Classic app's own transport with timeouts and a bounded poll; before the
 first withdrawal the screen says that the relayer sees the IP address.
 
+**As landed (Stage 8, 2026-10-26).** The relayer protocol lives in `classic/src/relayer/`: `schema.ts` parses GET
+`/v1/status`, GET `/v1/jobs/:id` and the POST `/v1/tornadoWithdraw` body with zod — `health.status` is read as the
+string "true" or "false" the relayer software sends (a boolean is read too; the former in-app schema wanted a boolean
+and would have refused every real relayer), the job states are the seven including RESUBMITTED, and the request is
+strict: the proof, the pool, the six arguments as bytes32 strings for the root, the nullifier hash, the fee and the
+refund and addresses for the recipient and the relayer — exactly what tornado-relayer's validator accepts. `rules.ts`
+says whether a relayer may be offered for a pool (R-6 to R-8): healthy, on mainnet, the pool at its pinned address,
+the reward account the registry registered, a fee under the cap the user sees (20 % at most), a queue of at most five,
+a version the protocol trusts (4.1.4 and up, any 5.x; a 4.x beta from 11). `client.ts` over the transport
+`classic/src/net/relayer.ts`: the status, the withdrawal handed over or refused with the relayer's own words, the job
+followed every 3 s with a transient error forgiven five times and a 15-minute deadline, as the original did.
+`registry.ts` reads the registry as the original UI's discovery did — every RelayerRegistered event, the newest per ENS
+name, the name's owner and the `url` text record of `mainnet-tornado.<name>` through the ENS registry and resolver,
+the registration and the stake — and applies its rules (the owner is the registered address, a host without a scheme,
+registered, at least 40 TORN; the registry asks 5,000 TORN of a new relayer today, and burned-down stakes stay valid).
+`classic/scripts/relayers.mjs` runs that over the chain and asks every qualified host for its status:
+`classic/relayers.json` is the curated list — on 2026-10-26, of 127 registrations and 123 names, 48 qualified by the
+registry's rules and 23 answered within the protocol's (fees 0.35–0.43 %, tornado-relayer 4.1.6 and 5.0.0, stakes 570
+to 25,969 TORN; three relayers pay to an account other than the one registered and are not listed) — the relayers the
+app may ask, whose hosts the content security policy allows beside the environment's (`classic/scripts/csp.mjs`,
+`classic/src/relayer/curated.ts`); the status is read again from each one when a withdrawal is prepared. A relayer
+the user types in is not offered (a strict policy cannot allow it; the owner's follow-up). The wallet side is
+`classic/src/wallet/`: `calldata.ts` builds `router.deposit(instance, commitment, "")` (no encrypted note: the
+original's backup-on-chain is not copied), `pool.deposit`, `pool.withdraw` and `router.withdraw` by hand and the six
+relayer arguments, held byte for byte to a real deposit through the router and a real wallet-mode withdrawal of the
+100 ETH pool; `injected.ts` sees the wallets a page can see (EIP-6963 announcements, the legacy provider last; the
+only reader of `window.ethereum`); `connection.ts` is one account on mainnet or "wrong network", the transaction
+handed to the wallet to sign and send, the receipt read from the app's own endpoints. Found while measuring: a burst
+of parallel TLS connections from Node stalls on the development workstation (20 of 24 status requests aborted at six
+in flight; all answer in about two seconds one at a time) — the discovery and the live survey ask two or one at a
+time. Classic's fee lines (`classic/src/model/fees.ts`, Stage 3) already price a withdrawal at the live gas price over
+550,000 gas plus the relayer's percent, with the relayer's own minimum (390,000 gas) as the floor an offer may not fall
+below. The screens still read the mock; Stage 9 wires the relayers, the fees and the wallet into the flows.
+
 ### 7.6 Deposits (doc §4.4) — *Stage 9*
 The connected wallet (chain 1 only) deposits through the Router — `deposit(instance, commitment, 0x)` with `value =
 denomination` — while the registry lists the pool `ENABLED`; a direct `pool.deposit(commitment)` is offered only when

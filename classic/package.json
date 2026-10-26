@@ -19,6 +19,7 @@
     "compile-circuit:check": "node scripts/compile-circuit.mjs --check",
     "prover:browser": "node tests/prover/run.mjs",
     "snapshot": "node scripts/snapshot.mjs",
+    "relayers": "node scripts/relayers.mjs",
     "check-build": "node scripts/check-build.mjs",
     "tokens": "node scripts/tokens.mjs",
     "visual": "node tests/visual/run.mjs",

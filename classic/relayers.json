@@ -1,0 +1,380 @@
+{
+  "comment": "The relayers the Classic app offers (spec v3.0 §7.5): written by classic/scripts/relayers.mjs from the on-chain registry (every RelayerRegistered event, the newest per ENS name), each name's owner and mainnet-tornado url record from ENS, its registration and stake, the original interface's rules over them, and GET /v1/status of every qualified host held to the protocol's rules (healthy, mainnet, the four ETH pools at the pinned addresses, the reward account the registry registered, a fee under the cap, a queue of at most five, tornado-relayer 4.1.4+ or 5.x). Sorted by fee, then stake. The app reads each relayer's status again when a withdrawal is prepared; this list says who may be asked, and the build's content security policy allows exactly these hosts. Regenerate before a release: npm run relayers.",
+  "generatedAt": "2026-10-26T22:04:19.911Z",
+  "block": 26279701,
+  "registry": {
+    "address": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+    "minStakeTorn": "5000.000",
+    "registrations": 127,
+    "names": 123
+  },
+  "relayers": [
+    {
+      "ensName": "hello-relayer.eth",
+      "relayerAddress": "0x213cfeb89529efc2eae2a502d4a8253fe4ae76ef",
+      "url": "https://hirelay04.xyz",
+      "rewardAccount": "0x213cfeb89529efc2eae2a502d4a8253fe4ae76ef",
+      "stakeTorn": "7921.640",
+      "feePercent": 0.35,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "0xgm777.eth",
+      "relayerAddress": "0x94596b6a626392f5d972d6cc4d929a42c2f0008c",
+      "url": "https://gm777.xyz",
+      "rewardAccount": "0x94596b6a626392f5d972d6cc4d929a42c2f0008c",
+      "stakeTorn": "4331.401",
+      "feePercent": 0.35,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "0xgn777.eth",
+      "relayerAddress": "0x0381deee9bbcd701d022b47c81f5b0079f48d38c",
+      "url": "https://gn777.xyz",
+      "rewardAccount": "0x0381deee9bbcd701d022b47c81f5b0079f48d38c",
+      "stakeTorn": "1036.649",
+      "feePercent": 0.35,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "hurricane-relayer.eth",
+      "relayerAddress": "0x16cb924b5b7ef604139be95f8762ed817852db92",
+      "url": "https://eth.hurricane42.xyz",
+      "rewardAccount": "0x16cb924b5b7ef604139be95f8762ed817852db92",
+      "stakeTorn": "889.857",
+      "feePercent": 0.35,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "00relayer.eth",
+      "relayerAddress": "0xda0b76cc92e94a6f972ed29c104bbe8d73c2f753",
+      "url": "https://eth.00relayer.xyz",
+      "rewardAccount": "0xda0b76cc92e94a6f972ed29c104bbe8d73c2f753",
+      "stakeTorn": "17095.647",
+      "feePercent": 0.36,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "solid-relayer.eth",
+      "relayerAddress": "0xb69e1e65142d293035323470d2b3c0c5d4e03f8e",
+      "url": "https://solidrelayer.com",
+      "rewardAccount": "0xb69e1e65142d293035323470d2b3c0c5d4e03f8e",
+      "stakeTorn": "4565.484",
+      "feePercent": 0.38,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "safe-torn.eth",
+      "relayerAddress": "0x0a5b2bf3ccfb44c1d22f07eed9553ecba752d4ad",
+      "url": "https://eth3.safetorn.ovh",
+      "rewardAccount": "0x0a5b2bf3ccfb44c1d22f07eed9553ecba752d4ad",
+      "stakeTorn": "25969.274",
+      "feePercent": 0.385,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "cheap-relayer.eth",
+      "relayerAddress": "0x076d4e32c6a5d888fc4658281539c94e778c796d",
+      "url": "https://mainnet-tornado.cheap-relayer.xyz",
+      "rewardAccount": "0x076d4e32c6a5d888fc4658281539c94e778c796d",
+      "stakeTorn": "1038.692",
+      "feePercent": 0.39,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "dieguis-and-martis.eth",
+      "relayerAddress": "0x9edde74078fba110c22922a925f653bcf1f60121",
+      "url": "https://mainnet.dieguis-and-martis.xyz",
+      "rewardAccount": "0x9edde74078fba110c22922a925f653bcf1f60121",
+      "stakeTorn": "993.691",
+      "feePercent": 0.39,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "lowcost.eth",
+      "relayerAddress": "0x28907f21f43b419f34226d6f10acbcf1832b1d4d",
+      "url": "https://mainnet-tornado.low-fee.xyz",
+      "rewardAccount": "0x28907f21f43b419f34226d6f10acbcf1832b1d4d",
+      "stakeTorn": "962.369",
+      "feePercent": 0.39,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "default-relayer.eth",
+      "relayerAddress": "0x5555555731006f71f121144534ca7c8799f66aa3",
+      "url": "https://eth.default-relayer.com",
+      "rewardAccount": "0x5555555731006f71f121144534ca7c8799f66aa3",
+      "stakeTorn": "11201.687",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "torn-city.eth",
+      "relayerAddress": "0xd04e9f0945dea8373d882c730e2c93a74b591796",
+      "url": "https://torncity.fun",
+      "rewardAccount": "0xd04e9f0945dea8373d882c730e2c93a74b591796",
+      "stakeTorn": "9555.314",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "to-relayer.eth",
+      "relayerAddress": "0x64d38735695377d98dfb4205bfeec07c3466de3c",
+      "url": "https://eth.to-relayer.com",
+      "rewardAccount": "0x64d38735695377d98dfb4205bfeec07c3466de3c",
+      "stakeTorn": "4821.828",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "torntool.eth",
+      "relayerAddress": "0xc0f12799b8d3fa8810dfe1616095170c72117f8f",
+      "url": "https://eth.theavengers.me",
+      "rewardAccount": "0xc0f12799b8d3fa8810dfe1616095170c72117f8f",
+      "stakeTorn": "4683.472",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "aarelayer.eth",
+      "relayerAddress": "0x69ce09ab548ffb0b46978fdabb44beb2344608d5",
+      "url": "https://fakkk.vin",
+      "rewardAccount": "0x69ce09ab548ffb0b46978fdabb44beb2344608d5",
+      "stakeTorn": "2221.027",
+      "feePercent": 0.4,
+      "version": "5.0.0",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "trndrly.eth",
+      "relayerAddress": "0xf0bf3c1d67afa6c48b9b5d1bc7e3f0b87f2b80dd",
+      "url": "https://mainnet.trndrly.xyz",
+      "rewardAccount": "0xf0bf3c1d67afa6c48b9b5d1bc7e3f0b87f2b80dd",
+      "stakeTorn": "1815.743",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "tor-relay.eth",
+      "relayerAddress": "0x7d2a66f05d2bb0ff4dc856eb317196c59ac3e932",
+      "url": "https://tor.fakkk.vin",
+      "rewardAccount": "0x7d2a66f05d2bb0ff4dc856eb317196c59ac3e932",
+      "stakeTorn": "1464.187",
+      "feePercent": 0.4,
+      "version": "5.0.0",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "bitah.eth",
+      "relayerAddress": "0x7e3893725d4e238b4c8c83375bbad024a66ffa42",
+      "url": "https://tornado.bitah.link",
+      "rewardAccount": "0x7e3893725d4e238b4c8c83375bbad024a66ffa42",
+      "stakeTorn": "570.287",
+      "feePercent": 0.4,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "s-relayer.eth",
+      "relayerAddress": "0xc6398b4e8b60720051ed33f5c5a692f9785f5580",
+      "url": "https://s-relayer.xyz",
+      "rewardAccount": "0xc6398b4e8b60720051ed33f5c5a692f9785f5580",
+      "stakeTorn": "4177.068",
+      "feePercent": 0.42,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "sky-relayer.eth",
+      "relayerAddress": "0xee4c45cc5eaa535cb8a8ffdc92f2839a601fe226",
+      "url": "https://sky-relayer.xyz",
+      "rewardAccount": "0xee4c45cc5eaa535cb8a8ffdc92f2839a601fe226",
+      "stakeTorn": "14035.926",
+      "feePercent": 0.43,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "master-relayer.eth",
+      "relayerAddress": "0xaaaaa27ea9ffab81f4735e6b766af985d0c88c61",
+      "url": "https://eth.master-relayer.com",
+      "rewardAccount": "0xaaaaa27ea9ffab81f4735e6b766af985d0c88c61",
+      "stakeTorn": "11633.626",
+      "feePercent": 0.43,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "t-relayer.eth",
+      "relayerAddress": "0x000000cd6521ed1a65fae0678ea15af4eead74fe",
+      "url": "https://eth.t-relayer.com",
+      "rewardAccount": "0x000000cd6521ed1a65fae0678ea15af4eead74fe",
+      "stakeTorn": "4425.889",
+      "feePercent": 0.43,
+      "version": "4.1.6",
+      "currentQueue": 0
+    },
+    {
+      "ensName": "k-relayer.eth",
+      "relayerAddress": "0xc49415493eb3ec64a0f13d8aa5056f1cfc4ce35c",
+      "url": "https://black-hardy.com",
+      "rewardAccount": "0xc49415493eb3ec64a0f13d8aa5056f1cfc4ce35c",
+      "stakeTorn": "2401.467",
+      "feePercent": 0.43,
+      "version": "4.1.6",
+      "currentQueue": 0
+    }
+  ],
+  "survey": {
+    "qualifiedByRegistry": 48,
+    "online": 23,
+    "registryProblems": {
+      "owner is not the registered address": 20,
+      "not registered": 39,
+      "stake below the floor": 72,
+      "no host record": 19
+    },
+    "notListed": [
+      {
+        "ensName": "torn-secure.eth",
+        "url": "https://mainnet-tornado.secure-relays.site",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "favorite-r.eth",
+        "url": "https://mainnet-relayer.favorite-r.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "relayermaster.eth",
+        "url": "https://mainnet-tornado.lowfee.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "em3tornado.eth",
+        "url": "https://ztorn.xyz",
+        "problems": ["offline: [\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    "]
+      },
+      {
+        "ensName": "reslayer.eth",
+        "url": "https://mainnet-tornado.reslayer.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "wetez.eth",
+        "url": "https://tornado-1.wetez.io",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "0xproxy.eth",
+        "url": "https://mainnet.0x0relayer.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "torn-eth.eth",
+        "url": "https://eth-relay.tornadocash.link",
+        "problems": ["reward account differs"]
+      },
+      {
+        "ensName": "shadow-out.eth",
+        "url": "https://livetobecomeavillain",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "fifqgf.eth",
+        "url": "https://sziazrnkqqyxr.duckdns.org",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "torntorn.eth",
+        "url": "https://eth.fsdhreu39jfk.com",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "secure-relay.eth",
+        "url": "https://torn-relayer.duckdns.org",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "tornrelayer.eth",
+        "url": "https://tornrelayer.com",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "reltor.eth",
+        "url": "https://eth.reltor.su",
+        "problems": ["offline: the relayer answered HTTP 403 to the status request"]
+      },
+      {
+        "ensName": "tornadocash-dev.eth",
+        "url": "https://tornadocashdev-relayer.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "cheap-tornado.eth",
+        "url": "https://mainnet.deeean.com",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "relayer-secure.eth",
+        "url": "https://eth-relay.tornadocash.link",
+        "problems": ["reward account differs"]
+      },
+      {
+        "ensName": "thornado-relayer.eth",
+        "url": "https://mainnet.thornado-relayer.com",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "tornxdo.eth",
+        "url": "https://eth-relay.tornadocash.link",
+        "problems": ["reward account differs"]
+      },
+      {
+        "ensName": "fastrelayer.eth",
+        "url": "https://mainnet.fastrelayer.com",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "das-relayer.eth",
+        "url": "https://mainnet.easy-relayer.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "nice-relayer.eth",
+        "url": "https://eth.maxstorn.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "best-relay.eth",
+        "url": "https://best-relay.milomez.xyz",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "safety-relayer.eth",
+        "url": "https://a-relayer.top",
+        "problems": ["offline: fetch failed"]
+      },
+      {
+        "ensName": "quick-relayer.eth",
+        "url": "https://eth.qqrelayer.xyz",
+        "problems": ["offline: fetch failed"]
+      }
+    ]
+  }
+}

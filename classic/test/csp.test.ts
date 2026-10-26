@@ -3,7 +3,7 @@
 // (the circuit's templates are precompiled), WASM allowed, the workers same-origin or Blob; the plugin prepends the
 // meta tag; the headers a server must send.
 import { describe, expect, it } from "vitest";
-import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, originOf, SECURITY_HEADERS } from "../scripts/csp.mjs";
+import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, curatedRelayerOrigins, originOf, SECURITY_HEADERS } from "../scripts/csp.mjs";
 
 const ENV = {
   VITE_CLASSIC_RPC_URLS: "https://rpc-a.example/v1/key, https://rpc-b.example",
@@ -16,6 +16,19 @@ describe("the Classic content security policy", () => {
   it("names exactly the build's hosts, deduplicated; a relative base adds nothing", () => {
     expect(connectHosts(ENV)).toEqual(["https://rpc-a.example", "https://rpc-b.example", "https://relayer.example", "https://cdn.example"]);
     expect(connectHosts({})).toEqual([]);
+    // the curated relayers come in beside the environment's hosts, deduplicated, origins only
+    expect(connectHosts(ENV, ["https://relayer.example/v1/status", "https://eth.relayer-two.example", "nonsense"])).toEqual([
+      "https://relayer.example",
+      "https://eth.relayer-two.example",
+      "https://rpc-a.example",
+      "https://rpc-b.example",
+      "https://cdn.example",
+    ]);
+    const curated = curatedRelayerOrigins();
+    expect(curated.length).toBeGreaterThan(0);
+    expect(curated.every((o: string) => /^https:\/\/[a-z0-9.-]+$/.test(o))).toBe(true);
+    expect(buildCsp(ENV, curated)).toContain(curated[0]);
+    expect(curatedRelayerOrigins(new URL("file:///nonexistent/relayers.json"))).toEqual([]);
     expect(originOf("ws://127.0.0.1:1234/x")).toBe("ws://127.0.0.1:1234");
     expect(originOf("ftp://x.example")).toBeNull();
     expect(originOf("/classic/data")).toBeNull();

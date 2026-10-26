@@ -220,3 +220,17 @@ personal token"), drpc's free plan allows 10,000 blocks, 1rpc 50, blastapi 10, n
 history, llamarpc and merkle answered errors; `gateway.tenderly.co/public/mainnet` and `rpc.mevblocker.io` answered
 500,000-block windows (6,198 logs in 5.6 s). The sync sizes its windows to the endpoint (halving on a refusal, from
 500,000 down to 50), so any of them works — slowly on the small ones.
+
+## 13. The relayers today (V7 Stage 8, 2026-10-26)
+
+| Fact | Checked | Result |
+|---|---|---|
+| the registry | `RelayerRegistered` events of `0x58e8…3dF2` from block 14,173,129 to 26,279,701; `minStakeAmount()`; `tornadoRouter()` | 127 registrations, 123 names; 5,000 TORN for a new relayer (the UI's 40 TORN floor dates from 2022); the router `0xd90e…F31b` (§5) |
+| the ENS records | each name's owner and the `url` text record of `mainnet-tornado.<name>` through the ENS registry `0x0000…2e1e` and its resolver (what the Aggregator `0xE8F4…1b49` reads in one call) | 48 names qualify by the original's rules; the rest: 72 stakes below 40 TORN, 39 not registered, 20 whose owner is not the registered address, 19 without a record |
+| the status answers | `GET /v1/status` of the 48, one at a time | 23 online and within the protocol's rules (fees 0.35–0.43 %, queues 0, tornado-relayer 4.1.6 ×21 and 5.0.0 ×2, stakes 570–25,969 TORN); 3 pay to an account other than the registered one (`torn-eth.eth`, `relayer-secure.eth`, `tornxdo.eth`) and are not listed; about 22 hosts unreachable or refusing |
+| the request | the relayer's own validator (tornado-relayer `src/modules/validator.js`) | `proof` 512 hex, `contract` a known instance, `args` = [bytes32 root, bytes32 nullifierHash, address recipient, address relayer == rewardAccount, bytes32 fee, bytes32 refund], nothing else; the fee rule `fee ≥ gasPrice × 390,000 + amount × fee %` at the block's base fee |
+| the transactions | a real deposit through the router (100 ETH, an empty encrypted note) and a real wallet-mode withdrawal straight to the pool (relayer 0x0, fee 0), re-encoded by `classic/src/wallet/calldata.ts` | byte for byte (`classic/test/fixtures/relayers/transactions.json`) |
+
+The former in-app schema (apps/web, V6) wanted a boolean `health.status`; every real relayer answers the string
+`"true"` — it would have refused them all. The curated list is `classic/relayers.json` (`npm run relayers`
+regenerates it; the status is read again before a withdrawal); the content security policy allows exactly its hosts.
