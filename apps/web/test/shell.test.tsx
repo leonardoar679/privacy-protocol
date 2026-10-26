@@ -97,27 +97,32 @@ describe("the application shell (spec §2)", () => {
     await screen.findByTestId("home");
     await waitFor(() => expect(settings.get().advanced).toBe(true));
     expect((session.journal().settings as { advanced?: boolean }).advanced).toBe(true);
-    await act(async () => { await router.navigate("/more"); }); // V5 Stage 10: the experience switch lives on the More menu
-    await screen.findByTestId("more");
+    await act(async () => { await router.navigate("/settings"); }); // V7 Stage 4 (spec v3.0 §2): the experience switch lives under Settings → Experience
+    await screen.findByTestId("settings");
     const toggle = [...document.querySelectorAll("label")].find((l) => l.textContent?.includes("Show the cryptographic detail"))!.querySelector("input") as HTMLInputElement;
     fireEvent.click(toggle);
     expect(settings.get().advanced).toBe(false);
     expect(prefs().get().experience).toBe("simple");
   });
-  it("More lists Receive, the Privacy Center, Security, Wallet, Classic Privacy and Private AI; Advanced only under the advanced experience", async () => {
+  it("More lists Tornado Classic (a plain link to the Classic app), the Privacy Center and Settings; Private AI only under the advanced experience (spec v3.0 §2)", async () => {
     await unlockedWallet();
-    await renderApp("/more");
+    const { pathname } = await renderApp("/more");
     await screen.findByTestId("more");
-    for (const id of ["more-receive", "more-privacy", "more-security", "more-wallet", "more-classic", "more-ai"]) expect(screen.getByTestId(id)).toBeInTheDocument();
-    expect(screen.queryByTestId("more-advanced")).toBeNull();
+    expect([...screen.getByTestId("more").querySelectorAll("[data-testid^='more-']")].map((e) => e.getAttribute("data-testid"))).toEqual(["more-classic", "more-privacy", "more-settings"]);
+    const classic = screen.getByTestId("more-classic");
+    expect(classic.tagName).toBe("A");
+    expect(classic).toHaveAttribute("href", "/classic/");
+    expect(classic).toHaveTextContent("Tornado Classic");
+    expect(screen.queryByTestId("more-ai")).toBeNull();
     prefs().update({ experience: "advanced" });
-    expect(await screen.findByTestId("more-advanced")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("more-classic"));
-    const classic = await screen.findByTestId("classic");
-    expect(screen.getByTestId("classic-pool-eth-1"), "V5 Stage 10: the devnet pools").toBeInTheDocument();
-    expect(classic.textContent).toContain("never your protected balance");
-    fireEvent.click(screen.getByTestId("back"));
-    await screen.findByTestId("more");
+    expect(await screen.findByTestId("more-ai")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("more-settings"));
+    await screen.findByTestId("settings", {}, LAZY);
+    expect(pathname()).toBe("/settings");
+    // the old More paths redirect to their new homes (bookmarks and the auto-lock's return path)
+    const back = await renderApp("/more/security");
+    await screen.findAllByTestId("settings", {}, LAZY);
+    expect(back.pathname()).toBe("/settings");
   });
   it("from 1024 px: the top bar (Home · Swap · Activity · Wallet) above the content; the Wallet menu holds the connection and every More entry (doc §88)", async () => {
     (globalThis as { __TEST_VIEWPORT_WIDTH__?: number }).__TEST_VIEWPORT_WIDTH__ = 1440;
@@ -133,11 +138,18 @@ describe("the application shell (spec §2)", () => {
       const panel = screen.getByTestId("nav-wallet-panel");
       expect(within(panel).getByTestId("menu-connection")).toHaveTextContent("Not connected");
       // the same entries as the phone's More screen, Advanced only in the advanced experience
-      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-receive", "menu-privacy", "menu-security", "menu-wallet", "menu-language", "menu-classic", "menu-ai"]);
-      fireEvent.click(within(panel).getByTestId("menu-security"));
+      // V7 Stage 4 (spec v3.0 §2): Connect wallet, then the same entries as the phone's More screen; Private AI in the advanced experience
+      expect([...panel.querySelectorAll("[data-testid^='menu-']")].map((e) => e.getAttribute("data-testid")).filter((id) => id !== "menu-connection")).toEqual(["menu-connect", "menu-classic", "menu-privacy", "menu-settings"]);
+      expect(within(panel).getByTestId("menu-connect")).toHaveTextContent("Connect wallet");
+      expect(within(panel).getByTestId("menu-classic")).toHaveAttribute("href", "/classic/");
+      fireEvent.click(within(panel).getByTestId("menu-settings"));
       // the screen is a lazy route (V6 Stage 16): the location changes once its chunk has loaded
-      await waitFor(() => expect(pathname()).toBe("/more/security"));
+      await waitFor(() => expect(pathname()).toBe("/settings"));
       expect(screen.queryByTestId("nav-wallet-panel")).toBeNull();
+      // More stays lit on /settings (the bottom bar is the phone's; the desktop has no More item, so the top bar marks nothing)
+      fireEvent.click(screen.getByTestId("nav-wallet"));
+      fireEvent.click(within(screen.getByTestId("nav-wallet-panel")).getByTestId("menu-connect"));
+      expect(await screen.findByTestId("connect-sheet")).toHaveTextContent("No wallet was found in this browser");
     } finally {
       delete (globalThis as { __TEST_VIEWPORT_WIDTH__?: number }).__TEST_VIEWPORT_WIDTH__;
     }

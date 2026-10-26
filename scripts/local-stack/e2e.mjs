@@ -2,7 +2,7 @@
 // Hardhat devnet as chain id 1, deploy.mjs, start-services.mjs). V5 (Privacy Wallet Web spec §2–§3, §19–§21): the
 // money flow on the rebuilt screens, the viewport matrix, the pseudo-locale width pass and the leakage twin.
 //   0. first launch: Welcome → the experience → Create → the phrase → Home; every route without one request off-origin
-//   1. More → Advanced: the light client off (the devnet has no beacon chain); More → Wallet: the funding wallet connected
+//   1. Settings → Advanced: the light client off (the devnet has no beacon chain); Settings → Connected wallet: the funding wallet connected (V7 Stage 4)
 //   2. Protect: two public deposits of 500 ETH through the connected wallet's own provider (a $4.25M protected balance
 //      at the mock price); V6 Stage 10: the page, the Review (a hold from $50K), the progress lines, and the deployment
 //      checked before the first protect (nothing read at first launch; Advanced then shows the remembered fingerprint)
@@ -304,11 +304,11 @@ async function campaignRun(page) {
     await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
     deviceOk = true;
   } catch (e) { log(`no virtual authenticator (${e.message}); the institutional confirmation cannot be given here`); }
-  // More: the advanced experience (the dashboard and the per-step lines), then Advanced → Protected execution
-  await nav(page, "More");
-  const experience = page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]');
+  // Settings: the advanced experience (the dashboard and the per-step lines), then Advanced → Protected execution (V7 Stage 4: one Settings page)
+  await nav(page, "More"); await clickId(page, "more-settings"); await byId(page, "settings").waitFor();
+  const experience = byId(page, "experience-toggle");
   if (!(await experience.isChecked())) await experience.check();
-  await clickId(page, "more-advanced");
+  await clickId(page, "settings-advanced");
   await byId(page, "protected-execution").waitFor();
   await byId(page, "protected-execution").scrollIntoViewIfNeeded();
   await snap(page, "advanced-protected-execution");
@@ -317,7 +317,7 @@ async function campaignRun(page) {
     await textAppears(page, "Registered. Operations at the institutional size", 60_000);
   }
   const deviceLine = await text(byId(page, "protected-execution"));
-  check("More → Advanced → Protected execution: the four modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)", /Balanced/.test(deviceLine) && /Maximum safety/.test(deviceLine) && /Best execution/.test(deviceLine) && (!deviceOk || /registered/.test(deviceLine)), deviceLine.slice(0, 200));
+  check("Settings → Advanced → Protected execution: the four modes, the exposure fraction, the switch; the separate device registered (a virtual cross-platform authenticator)", /Balanced/.test(deviceLine) && /Maximum safety/.test(deviceLine) && /Best execution/.test(deviceLine) && (!deviceOk || /registered/.test(deviceLine)), deviceLine.slice(0, 200));
   // five more deposits: the protected balance reaches the order
   const before = await balanceEth(stack.ethVault);
   for (const i of [1, 2, 3, 4, 5]) {
@@ -482,8 +482,9 @@ const SHELL_SCREENS = [
   { route: "swap", id: "swap-view", name: "swap" },
   { route: "activity", id: "activity", name: "activity" },
   { route: "more", id: "more", name: "more" },
-  { route: "more/privacy", id: "privacy-center", name: "privacy-center" },
-  { route: "more/security", id: "settings", name: "security" },
+  // V7 Stage 4 (spec v3.0 §2): the Privacy Center and one Settings page at their own paths
+  { route: "privacy", id: "privacy-center", name: "privacy-center" },
+  { route: "settings", id: "settings", name: "settings" },
 ];
 /** No horizontal scroll; every visible control of the design system at least 44 px tall. */
 async function layoutProbe(page) {
@@ -626,9 +627,9 @@ try {
   await snap(page, "home-empty");
   for (const [link, id] of [["Swap", "swap-view"], ["Activity", "activity"], ["More", "more"], ["Home", "home"]]) { await nav(page, link); await byId(page, id).waitFor({ timeout: 60_000 }); }
   await clickId(page, "home-send"); await byId(page, "send-view").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor();
-  await nav(page, "More"); await clickId(page, "more-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await nav(page, "Home"); await byId(page, "home").waitFor(); // V6: Receive is More's
+  await clickId(page, "home-receive"); await byId(page, "sheet-receive").waitFor(); await clickId(page, "back"); await byId(page, "home").waitFor(); // V7 Stage 4: Receive from Home's balance card (and Settings → Connected wallet)
   await clickId(page, "privacy-badge"); await byId(page, "privacy-center").waitFor(); await snap(page, "privacy-center"); await clickId(page, "back"); await byId(page, "home").waitFor();
-  await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "security");
+  await clickId(page, "home-settings"); await byId(page, "settings").waitFor(); await snap(page, "settings");
   // V6 Stage 15 (spec v2.0 §8; doc §18): 15 idle minutes by default; this run waits longer than that on some screens
   check("auto-lock: 15 minutes by default (1 / 5 / 15 / 60 under Security)", (await byId(page, "auto-lock-15").getAttribute("aria-checked")) === "true");
   await clickId(page, "auto-lock-60");
@@ -636,28 +637,28 @@ try {
   const offOrigin = requests.filter((r) => r.phase === "first-launch" && !r.url.startsWith(WALLET));
   check("first launch: no request left the page's origin (creating a wallet, every route and screen)", offOrigin.length === 0, offOrigin.length ? offOrigin.slice(0, 5).map((r) => r.url).join(", ") : `${requests.length} same-origin loads`);
 
-  // 1. More → Advanced: the light client off (chain id 1 has one, the devnet no beacon chain); More → Wallet: connected ----
+  // 1. Settings → Advanced: the light client off (chain id 1 has one, the devnet no beacon chain); Settings → Connected wallet: connected ----
   phase = "settings";
-  await nav(page, "More");
-  const experience = page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]');
-  await experience.check(); // Advanced is reachable from the More menu only under the advanced experience
-  await clickId(page, "more-advanced");
+  await nav(page, "More"); await clickId(page, "more-settings"); await byId(page, "settings").waitFor(); // V7 Stage 4 (spec v3.0 §2): one Settings page
+  const experience = byId(page, "experience-toggle");
+  await experience.check(); // the Advanced settings are reachable from Settings only under the advanced experience
+  await clickId(page, "settings-advanced");
   await byId(page, "advanced").waitFor();
   const lc = byId(page, "verify-reads");
   await lc.uncheck();
   await textAppears(page, "Off: the pool is read from the RPC endpoints");
-  check("More → Advanced: the light client is off and says so", true);
+  check("Settings → Advanced: the light client is off and says so", true);
   const fingerprintBefore = await text(byId(page, "deployment-fingerprint"));
   check("V6 Stage 10 (doc §71): nothing about the deployment is read before the first operation", /checked before your first operation/.test(fingerprintBefore), fingerprintBefore);
   await snap(page, "advanced");
-  await experience.uncheck().catch(() => {});
-  await nav(page, "More");
-  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').uncheck(); // Simple again for the money flow
-  await clickId(page, "more-wallet");
+  await clickId(page, "back"); await byId(page, "settings").waitFor();
+  await byId(page, "experience-toggle").uncheck(); // Simple again for the money flow
   await byId(page, "wallet-screen").waitFor();
-  await clickId(page, "wallet-connect");
+  await clickId(page, "wallet-connect"); // V7 Stage 4: the connector picker, the browser's injected wallet
+  await byId(page, "connect-sheet").waitFor();
+  await clickId(page, "connector-injected");
   await textAppears(page, "Connected");
-  check("More → Wallet: the funding wallet is connected through its own provider", (await text(byId(page, "connection-status"))).includes("Connected"));
+  check("Settings → Connected wallet: the funding wallet is connected through its own provider, chosen in the picker", (await text(byId(page, "connection-status"))).includes("Connected"));
   await snap(page, "wallet-connected");
 
   // 2. protect: two public deposits of 500 ETH --------------------------------------------------------------------------
@@ -681,14 +682,14 @@ try {
   await snap(page, "home-funded");
   // V6 Stage 10 (doc §71; spec v2.0 §10): the first protect checked the deployment — the core's identifiers, the
   // canonical vaults, ProtectRouter's core — and the journal remembers its fingerprint; Advanced shows it and can forget it
-  await nav(page, "More");
-  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').check();
-  await clickId(page, "more-advanced");
+  await nav(page, "More"); await clickId(page, "more-settings"); await byId(page, "settings").waitFor(); // V7 Stage 4: one Settings page
+  await byId(page, "experience-toggle").check();
+  await clickId(page, "settings-advanced");
   await byId(page, "advanced").waitFor();
   const fingerprintAfter = await text(byId(page, "deployment-fingerprint"));
   check("the deployment was checked before the first operation and its fingerprint remembered (Advanced shows it with the way to forget it)", /0x[0-9a-f]{8}…[0-9a-f]{6}/.test(fingerprintAfter) && (await byId(page, "deployment-forget").count()) === 1, fingerprintAfter);
-  await nav(page, "More");
-  await page.locator("label", { hasText: "Show the cryptographic detail" }).locator('input[type="checkbox"]').uncheck(); // Simple again
+  await clickId(page, "back"); await byId(page, "settings").waitFor();
+  await byId(page, "experience-toggle").uncheck(); // Simple again
 
   // 2b. V6 Stage 10 (spec v2.0 §3, §7.3–§7.4; doc §22, §24): the document's figures in USDC — Protect 5,000 → 4,950 (the
   // 1 % to ProtectRouter's fee recipient), then Send 2,500 → 2,470.90 (25.00 privacy fee + 4.10 relayer, one fee note) -----

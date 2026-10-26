@@ -866,17 +866,17 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
     await session.create("a strong password");
     session.acknowledgePhrase();
     prefs().update({ firstLaunchDone: true });
-    await renderApp("/more/language");
+    await renderApp("/settings"); // V7 Stage 4 (spec v3.0 §2): Language is a section of the one Settings page
     // Automatic: the device is Korean, so the wallet is (once the Korean chunk has loaded)
     await waitFor(() => expect(document.documentElement.lang).toBe("ko"));
-    expect(await screen.findByTestId("language")).toHaveTextContent("언어");
+    expect(await screen.findByTestId("settings-language")).toHaveTextContent("언어"); // the section heading (V7 Stage 4)
     expect(screen.getByTestId("language-auto")).toHaveAttribute("aria-checked", "true");
     // English, chosen
     fireEvent.click(screen.getByTestId("language-en"));
     expect(prefs().get()).toMatchObject({ locale: "en", localeChosen: true });
     await waitFor(() => expect(document.documentElement.lang).toBe("en"));
     expect(getLocale()).toBe("en");
-    expect(screen.getByTestId("language")).toHaveTextContent("Language");
+    expect(screen.getByTestId("settings-language")).toHaveTextContent("Language");
     expect(applyLocale(), "the device's Korean does not override the choice").toBe("en");
     // Automatic again: the device decides
     fireEvent.click(screen.getByTestId("language-auto"));

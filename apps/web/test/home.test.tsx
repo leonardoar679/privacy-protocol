@@ -71,13 +71,13 @@ describe("Home (spec v2.0 §7.1)", () => {
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("privacy-badge"));
     // the screens behind these routes are lazy (V6 Stage 16): the location changes once their chunk has loaded
-    await waitFor(() => expect(pathname()).toBe("/more/privacy"));
+    await waitFor(() => expect(pathname()).toBe("/privacy"));
     await act(async () => {
       await router.navigate(-1);
     });
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("home-settings"));
-    await waitFor(() => expect(pathname()).toBe("/more/security"));
+    await waitFor(() => expect(pathname()).toBe("/settings"));
     expect(fetchSpy, "nothing read for an empty balance").not.toHaveBeenCalled();
   });
 

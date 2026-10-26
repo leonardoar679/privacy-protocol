@@ -37,18 +37,18 @@ description in slot 1; BTC / USD through a mock Feed Registry) at $4,250 / ETH a
 every proof the wallet makes in the browser is verified on chain.
 
 One consequence: chain id 1 has an Ethereum light client, and the devnet has no beacon chain, so the run switches
-"Verify the pool with the Ethereum light client" off under More → Advanced (the wallet then says reads rest on the RPC quorum).
+"Verify the pool with the Ethereum light client" off under Settings → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
 ## What a run checks (V6, the final full run on the V6 code: 212/212 checks with the $10M campaign, `results/report-2026-10-14-v6.json`; V6 Stage 16: 196/196 on the quick pass, `results/report-2026-10-14-v6-stage16.json` — the run now does what a person would when the live market moves: it accepts a new minimum up to ten times, resumes paused steps and waits another round, and types the amount again while there is no route; V6 Stage 15: 197/197 checks on the quick pass, `results/report-2026-10-14-v6-stage15.json`; 165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
 
 V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
-More → Advanced for the light client and More → Wallet for the connection; Protect through the connected wallet's own provider; Send (public),
+Settings → Advanced for the light client and Settings → Connected wallet for the connection (V7 Stage 4); Protect through the connected wallet's own provider; Send (public),
 exact-input by default, so the recipient receives what you send minus the privacy fee and the relayer's; the hold from $50K; the swap through
 the order panel (Fund now, the hard quote — a lower minimum asks for consent, once more when the live price drifts again before the fresh quote —, the execute Review, the hand-over, the tracker); the reload; Activity; the $10M protected swap on the
 new screens (a step whose hard quote comes back below the approved minimum pauses the campaign for consent; Resume accepts it) — then the viewport matrix (1280x800, 1440x900, 360x800, 390x844, 412x915, 768x1024: no horizontal scroll, 44 px controls, a screenshot per screen; once more under
 `?locale=pseudo`) and the leakage twin (every request body read for the phrase and the password; `localStorage` empty; the two ciphertext
-blobs in IndexedDB). On the devnet the light client is switched off under More → Advanced.
+blobs in IndexedDB). On the devnet the light client is switched off under Settings → Advanced.
 V6 Stage 15 (`docs/privacy-wallet-web-spec-v2.0.md` §7.11, §8, §12.5, §14.3): section 9b, the hardening in the browser.
 
 - `pagehide` locks the wallet, and the unlock returns to the screen it interrupted.

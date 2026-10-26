@@ -43,6 +43,8 @@ const funded: HomeModel = {
   ],
   returning: null,
   advanced: null,
+  // V7 Stage 4 (spec v3.0 §2): the public wallet's chip in the header reads the short account once connected
+  wallet: { status: "connected", account: "0x7A…91F2" },
 };
 
 export const HOME_FIXTURES = {

@@ -116,9 +116,11 @@ export interface NavItem {
   label: string;
   icon: IconName;
   testId?: string;
+  /** other paths the item stays highlighted on (V7 Stage 4, spec v3.0 §2: More on /privacy and /settings) */
+  also?: string[];
 }
 
-const isActive = (current: string, to: string) => current === to || (to !== "/" && current.startsWith(`${to}/`));
+const isActive = (current: string, to: string, also: string[] = []) => [to, ...also].some((p) => current === p || (p !== "/" && current.startsWith(`${p}/`)));
 
 function NavLink({
   item,
@@ -135,7 +137,7 @@ function NavLink({
   activeClassName: string;
   iconSize: number;
 }) {
-  const active = isActive(current, item.to);
+  const active = isActive(current, item.to, item.also);
   return (
     <a
       href={item.to}

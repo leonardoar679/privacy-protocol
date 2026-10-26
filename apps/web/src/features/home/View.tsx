@@ -44,6 +44,8 @@ export interface HomeModel {
   returning?: string | null;
   /** the Advanced experience's technical lines (maintenance, the core); absent in Simple */
   advanced?: string[] | null;
+  /** the public wallet's connection for the header's chip (V7 Stage 4, spec v3.0 §2): the account already shortened ("0x7A…91F2"); absent or null: not connected */
+  wallet?: { status: "connected" | "connecting" | "wrong-network"; account: string | null } | null;
 }
 export interface HomeActions {
   onProtect: () => void;
@@ -51,6 +53,10 @@ export interface HomeActions {
   onSwap: () => void;
   onPrivacy: () => void;
   onSettings: () => void;
+  /** the header's Connect wallet / account chip: the connector picker */
+  onWallet: () => void;
+  /** the balance card's secondary action: the Receive address */
+  onReceive: () => void;
   onOperation: (id: string) => void;
 }
 
@@ -80,8 +86,14 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
         <span className="ds-balance-label">{t("home.protectedBalance")}</span>
         {m.balance.state === "unavailable" && !empty ? <span className="ds-balance-sub">{t("home.usdUnavailable")}</span> : null}
       </div>
+      <div className="ds-actions">
+        <TextButton icon="receive" onClick={a.onReceive} data-testid="home-receive">
+          {t("home.receive")}
+        </TextButton>
+      </div>
     </Card>
   );
+  const walletLabel = m.wallet?.account ? m.wallet.account : m.wallet?.status === "connecting" ? t("wallet.status.connecting") : t("protect.connect");
   const assetRows = m.assets.map((x) => (
     <AssetRow
       key={x.amount.symbol}
@@ -175,7 +187,21 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
       leading={
         <ProtectionBadge level={m.protection === "high" ? "High" : "Reduced"} label={t(BADGE[m.protection])} onPress={a.onPrivacy} testId="privacy-badge" />
       }
-      actions={<IconButton label={t("home.settings")} icon="gear" onClick={a.onSettings} data-testid="home-settings" />}
+      actions={
+        <>
+          <button
+            type="button"
+            className="ds-chip"
+            onClick={a.onWallet}
+            aria-label={m.wallet?.account ? `${t("home.wallet")}: ${walletLabel}` : t("protect.connect")}
+            data-state={m.wallet?.status ?? "disconnected"}
+            data-testid="home-wallet"
+          >
+            {walletLabel}
+          </button>
+          <IconButton label={t("home.settings")} icon="gear" onClick={a.onSettings} data-testid="home-settings" />
+        </>
+      }
     >
       {m.returning ? (
         <p className="ds-note" role="status" data-testid="home-returning">

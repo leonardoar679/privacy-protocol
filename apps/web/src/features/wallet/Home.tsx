@@ -4,7 +4,8 @@
 // experience adds the maintenance and core lines.
 import { useEffect, useState } from "react";
 import { routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
-import { useNavigate } from "react-router-dom";
+import { shortAccount } from "@privacy-wallet/wallet-engine/connection";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { DESKTOP_QUERY, useMediaQuery } from "@privacy-wallet/ui";
 import { assetsOf } from "@privacy-wallet/sdk/assets";
 import { isDraft, isOpen } from "@privacy-wallet/sdk/wallet/operationRecord";
@@ -12,11 +13,12 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import { useT } from "../../app/i18n/useT";
 import { useDeployment } from "../../app/deployment";
-import { HomeView } from "../home/View";
+import { HomeView, type HomeModel } from "../home/View";
 import { homeModel } from "../home/model";
 import { titleOf } from "../amounts";
 import { buildRows } from "../activity/rows";
-import { useSession, useSettings } from "../../hooks/core";
+import type { ShellContext } from "../../app/Shell";
+import { useConnection, useSession, useSettings } from "../../hooks/core";
 import { useAllOperations, useNotes, usePosture, usePrices } from "../../hooks/wallet";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import type { MessageKey } from "../../app/i18n/en";
@@ -118,16 +120,28 @@ export function Home() {
     },
     t,
   );
+  // V7 Stage 4 (spec v3.0 §2): the public wallet's chip in the header; the connector picker is the shell's sheet
+  const conn = useConnection();
+  const shell = useOutletContext<ShellContext | undefined>();
+  const wallet: HomeModel["wallet"] =
+    conn.account || conn.status === "connecting"
+      ? {
+          status: conn.status === "wrong-network" ? "wrong-network" : conn.status === "connecting" ? "connecting" : "connected",
+          account: conn.account ? shortAccount(conn.account) : null, // shortened here: the View stays pure (no engine import)
+        }
+      : null;
   return (
     <HomeView
-      model={model}
+      model={{ ...model, wallet }}
       wide={wide}
       actions={{
         onProtect: () => navigate("/protect"),
         onSend: () => navigate("/send"),
         onSwap: () => navigate("/swap"),
-        onPrivacy: () => navigate("/more/privacy"),
-        onSettings: () => navigate("/more/security"),
+        onPrivacy: () => navigate("/privacy"),
+        onSettings: () => navigate("/settings"),
+        onWallet: () => shell?.openConnect(),
+        onReceive: () => navigate("/receive"),
         // V6 Stage 11: a swap's card opens its progress — where a paused order's choice is made; the rest open their detail
         onOperation: (id) =>
           navigate(

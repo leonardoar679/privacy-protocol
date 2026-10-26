@@ -1,6 +1,8 @@
-// The entries of More (spec v2.0 §6, §7.10): one list for the phone's More screen and the desktop's Wallet menu, so
-// everything reachable on a phone is reachable on a desktop (doc §88). Advanced shows only in the Advanced experience;
-// Classic Privacy is here and nowhere near Swap or Send (doc §53).
+// The entries of More (spec v3.0 §2; doc §3, §15; V7 Stage 4): one list for the phone's More screen and the desktop's
+// Wallet menu, so everything reachable on a phone is reachable on a desktop (doc §88) — Tornado Classic (a separate
+// application served under /classic/, reached through a plain link that leaves the wallet's router), the Privacy
+// Center and Settings; the Advanced experience adds Private AI. Receive, Security, Wallet, Language and Advanced live
+// under Settings now (features/settings/Settings.tsx).
 import type { IconName } from "@privacy-wallet/ui";
 import type { MessageKey } from "../../app/i18n/en";
 
@@ -12,18 +14,15 @@ export interface MoreEntry {
   /** more-<id> on the More screen, menu-<id> in the Wallet menu */
   id: string;
   advancedOnly?: boolean;
+  /** a plain link, not a route: the Classic app is another application on this origin (spec v3.0 §7.8) */
+  external?: boolean;
 }
 
 export const MORE_ENTRIES: readonly MoreEntry[] = [
-  { to: "/receive", title: "route.receive", subtitle: "more.receiveWhy", icon: "receive", id: "receive" },
-  { to: "/more/privacy", title: "route.privacy", subtitle: "more.privacyWhy", icon: "shield", id: "privacy" },
-  { to: "/more/security", title: "route.security", subtitle: "more.securityWhy", icon: "lock", id: "security" },
-  { to: "/more/wallet", title: "route.wallet", subtitle: "more.walletWhy", icon: "wallet", id: "wallet" },
-  // V6 Stage 16 (spec v2.0 §18): the language picker
-  { to: "/more/language", title: "route.language", subtitle: "more.languageWhy", icon: "globe", id: "language" },
-  { to: "/more/classic", title: "route.classic", subtitle: "more.classicWhy", icon: "recovery", id: "classic" },
-  { to: "/more/ai", title: "route.ai", subtitle: "more.aiWhy", icon: "globe", id: "ai" },
-  { to: "/more/advanced", title: "route.advanced", subtitle: "more.advancedWhy", icon: "gear", id: "advanced", advancedOnly: true },
+  { to: "/classic/", title: "route.tornadoClassic", subtitle: "more.tornadoClassicWhy", icon: "recovery", id: "classic", external: true },
+  { to: "/privacy", title: "route.privacy", subtitle: "more.privacyWhy", icon: "shield", id: "privacy" },
+  { to: "/settings", title: "route.settings", subtitle: "more.settingsWhy", icon: "gear", id: "settings" },
+  { to: "/more/ai", title: "route.ai", subtitle: "more.aiWhy", icon: "globe", id: "ai", advancedOnly: true },
 ];
 
 export const moreEntries = (experience: "simple" | "advanced"): MoreEntry[] => MORE_ENTRIES.filter((e) => !e.advancedOnly || experience === "advanced");

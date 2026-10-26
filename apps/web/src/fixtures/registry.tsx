@@ -37,6 +37,10 @@ import { PrivacyCenterView } from "../features/privacy-center/View";
 import { PRIVACY_CENTER_FIXTURES } from "../features/privacy-center/fixtures";
 import { ClassicHomeView, ClassicPoolActions, ClassicPoolStatusView, ClassicRecoverView, ClassicRelayersView } from "../features/classic-privacy/View";
 import { CLASSIC_HOME_FIXTURE, CLASSIC_POOL_FIXTURE, CLASSIC_RECOVER_FIXTURE, CLASSIC_RELAYERS_FIXTURE } from "../features/classic-privacy/fixtures";
+// V7 Stage 4 (spec v3.0 §2): the More list, the one Settings page (its sections on a fresh wallet: the stores at their defaults) and the connector picker
+import { MoreView } from "../features/more/More";
+import { Settings } from "../features/settings/Settings";
+import { ConnectSheet } from "../features/wallet/ConnectSheet";
 
 export interface Fixture {
   id: string;
@@ -85,12 +89,12 @@ const shellNav = (current: string): ShellNav => ({
           <span className="ds-kv-label">Connection</span>
           <StatusBadge tone="ok">Connected · 0x7A…91F2</StatusBadge>
         </div>
-        <ListRow title="Receive" leading={<Icon name="receive" />} onPress={close} testId="menu-receive" />
+        <Button variant="secondary" full icon="wallet" onClick={close} data-testid="menu-connect">
+          0x7A…91F2
+        </Button>
+        <ListRow title="Tornado Classic" leading={<Icon name="recovery" />} href="/classic/" testId="menu-classic" />
         <ListRow title="Privacy Center" leading={<Icon name="shield" />} onPress={close} testId="menu-privacy" />
-        <ListRow title="Security" leading={<Icon name="lock" />} onPress={close} testId="menu-security" />
-        <ListRow title="Wallet" leading={<Icon name="wallet" />} onPress={close} testId="menu-wallet" />
-        <ListRow title="Language" leading={<Icon name="globe" />} onPress={close} testId="menu-language" />
-        <ListRow title="Classic Privacy" leading={<Icon name="recovery" />} onPress={close} testId="menu-classic" />
+        <ListRow title="Settings" leading={<Icon name="gear" />} onPress={close} testId="menu-settings" />
         <ListRow title="Private AI" leading={<Icon name="globe" />} onPress={close} testId="menu-ai" />
       </>
     ),
@@ -133,7 +137,7 @@ function Home({ state }: { state: keyof typeof HOME_FIXTURES }) {
     <HomeView
       model={HOME_FIXTURES[state]}
       wide={wide}
-      actions={{ onProtect: noop, onSend: noop, onSwap: noop, onPrivacy: noop, onSettings: noop, onOperation: noop }}
+      actions={{ onProtect: noop, onSend: noop, onSwap: noop, onPrivacy: noop, onSettings: noop, onWallet: noop, onReceive: noop, onOperation: noop }}
     />,
   );
 }
@@ -174,6 +178,23 @@ export const FIXTURES: readonly Fixture[] = [
   },
   screen("shell", "The shell around a page", () => <ShellSample />),
   screen("shell-wallet-menu", "The desktop Wallet menu, open", () => <ShellSample />, { before: "open-wallet-menu" }),
+  // V7 Stage 4 (spec v3.0 §2): More = Tornado Classic · Privacy Center · Settings; one Settings page; the connector picker
+  screen("more", "More — Tornado Classic, the Privacy Center, Settings", () => inShell("/more", <MoreView experience="simple" onOpen={noop} />)),
+  screen("settings", "Settings — the sections, on a fresh wallet", () =>
+    inShell("/settings", <Settings deployment={null} onReceive={noop} onAdvanced={noop} onConnect={noop} />),
+  ),
+  // the sheet alone is the image (a full page under an open dialog changes height between runs)
+  screen(
+    "connect-sheet",
+    "The connector picker — no wallet in this browser",
+    () => (
+      <>
+        <Home state="empty" />
+        <ConnectSheet open onClose={noop} />
+      </>
+    ),
+    { parts: [["sheet", '[data-testid="connect-sheet"]']] },
+  ),
   // Home (spec §7.1)
   screen("home-empty", "Home — connected, nothing protected", () => <Home state="empty" />),
   screen("home-funded", "Home — assets", () => <Home state="funded" />),

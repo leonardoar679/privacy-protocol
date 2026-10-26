@@ -1,23 +1,25 @@
-// More → Wallet (spec §2, §7; plan §11, §50; High-Value Protection spec §13): the connected public wallet and its
-// network (connect, switch, disconnect — through its own provider), the trade preference (how swaps choose their
-// route and when they are funded; saved here only, never on chain), and the token allowances of the connected wallet
-// toward the vaults, read and revoked through that wallet's own provider — never this wallet's endpoints.
+// Settings → Connected wallet and Trading preference (spec §2, §7; plan §11, §50; High-Value Protection spec §13; V7
+// Stage 4: two sections of the one Settings page, spec v3.0 §2): the connected public wallet and its network (connect
+// through the connector picker, switch, disconnect — through its own provider), the token allowances of the connected
+// wallet toward the vaults, read and revoked through that wallet's own provider — never this wallet's endpoints —, and
+// the trade preference (how swaps choose their route and when they are funded; saved here only, never on chain).
 import { useState } from "react";
-import { Button, Card, Page, StatusBadge, TextButton } from "@privacy-wallet/ui";
+import { Button, Card, StatusBadge, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { allowancesFor, revokeAllowance, type AllowanceLine } from "@privacy-wallet/sdk/allowances";
 import { classify, reasonKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { formatAmount } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
-import { DELAY_WINDOW, policyFromPreference, PREFERENCE_LABELS, windowLabel } from "@privacy-wallet/sdk/policy";
+import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { PREFERENCES, settings, type Preference } from "@privacy-wallet/sdk/wallet/settings";
 import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { useConnection, useSettings } from "../../hooks";
+import { disconnectWallet } from "../wallet/ConnectSheet";
 
-export function Wallet({ deployment, onBack }: { deployment: Deployment | null; onBack?: () => void }) {
+/** The connection and the allowances. `onConnect` opens the connector picker (the shell's sheet). */
+export function WalletSection({ deployment, onConnect }: { deployment: Deployment | null; onConnect?: () => void }) {
   const t = useT();
-  const s = useSettings();
   const conn = useConnection();
   // the allowances are the account's they were read for (audit round 2, n53): after an account switch the list had stayed,
   // and its Revoke sent approve(0) from whichever account the wallet had then — or again, for one already revoked
@@ -50,32 +52,20 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
   }
   const tone = conn.status === "connected" ? "ok" : conn.status === "wrong-network" ? "warn" : conn.status === "connecting" ? "pending" : "neutral";
   return (
-    <Page title={t("route.wallet")} back={onBack} testId="wallet-screen">
-      <div className="ds-stack">
+    <div className="ds-stack" data-testid="wallet-screen">
         <Card testId="connection">
           <div className="ds-stack-sm">
             <div className="ds-kv"><span className="ds-kv-label">{t("wallet.connection")}</span><StatusBadge tone={tone} testId="connection-status">{t(`wallet.status.${conn.status}` as MessageKey)}</StatusBadge></div>
             {conn.account ? <div className="ds-kv"><span className="ds-kv-label">{t("wallet.account")}</span><b className="ds-kv-value">{shortAccount(conn.account)}</b></div> : null}
+            {conn.connector ? <div className="ds-kv"><span className="ds-kv-label">{t("wallet.sheet.via")}</span><b className="ds-kv-value">{conn.connector.name}</b></div> : null}
             <div className="ds-kv"><span className="ds-kv-label">{t("wallet.network")}</span><b className="ds-kv-value">{deployment ? t("wallet.chain", { id: deployment.chainId }) : t("wallet.noDeployment")}</b></div>
             <div className="ds-actions">
-              {!conn.account ? <Button onClick={() => void connection.connect()} loading={conn.status === "connecting"} data-testid="wallet-connect">{t("protect.connect")}</Button> : null}
+              {/* secondary: the one primary action of the Settings page is the backup (doc §57); the header's chip is the main way to connect */}
+              {!conn.account ? <Button variant="secondary" onClick={() => (onConnect ? onConnect() : void connection.connect())} loading={conn.status === "connecting"} data-testid="wallet-connect">{t("protect.connect")}</Button> : null}
               {conn.status === "wrong-network" ? <Button onClick={() => void connection.switchNetwork()} data-testid="wallet-switch">{t("wallet.switch")}</Button> : null}
-              {conn.account ? <Button variant="secondary" onClick={() => void connection.disconnect()} data-testid="wallet-disconnect">{t("wallet.disconnect")}</Button> : null}
+              {conn.account ? <Button variant="secondary" onClick={disconnectWallet} data-testid="wallet-disconnect">{t("wallet.disconnect")}</Button> : null}
             </div>
             <p className="ds-note">{t("wallet.connectionNote")}</p>
-          </div>
-        </Card>
-
-        <Card testId="trade-preference">
-          <div className="ds-stack-sm">
-            <h2 className="ds-review-title">{t("wallet.preference.title")}</h2>
-            <p className="ds-note">{t("wallet.preference.body")}</p>
-            {PREFERENCES.map((pref: Preference) => (
-              <label key={pref} className="ds-radio-row" data-testid={`preference-${pref}`}>
-                <input type="radio" name="preference" className="ds-radio" checked={s.preference === pref} onChange={() => settings.set({ preference: pref })} />
-                <span className="ds-radio-text"><b>{PREFERENCE_LABELS[pref].label}</b> <span className="ds-note">· {t("wallet.preference.fundedWithin", { window: windowLabel(DELAY_WINDOW[policyFromPreference(pref)]) })}</span><span className="ds-radio-desc">{PREFERENCE_LABELS[pref].help}</span></span>
-              </label>
-            ))}
           </div>
         </Card>
 
@@ -94,7 +84,31 @@ export function Wallet({ deployment, onBack }: { deployment: Deployment | null; 
             {status ? <p className="ds-note" data-testid="allowance-status">{status}</p> : null}
           </div>
         </Card>
+    </div>
+  );
+}
+
+/** How swaps choose their route and when they are funded (spec §7). */
+export function TradePreferenceSection() {
+  const t = useT();
+  const s = useSettings();
+  // the funding window in the catalog's words ("1–24 h", "지연 없음"), not the SDK's English windowLabel
+  const windowWords = ([min, max]: [number, number]): string => {
+    if (max === 0) return t("wallet.preference.window.noDelay");
+    if (min >= 3600) return t("wallet.preference.window.hours", { min: Math.round(min / 3600), max: Math.round(max / 3600) });
+    return t("wallet.preference.window.minutes", { min: Math.round(min / 60), max: Math.round(max / 60) });
+  };
+  return (
+    <Card testId="trade-preference">
+      <div className="ds-stack-sm">
+        <p className="ds-note">{t("wallet.preference.body")}</p>
+        {PREFERENCES.map((pref: Preference) => (
+          <label key={pref} className="ds-radio-row" data-testid={`preference-${pref}`}>
+            <input type="radio" name="preference" className="ds-radio" checked={s.preference === pref} onChange={() => settings.set({ preference: pref })} />
+            <span className="ds-radio-text"><b>{t(`wallet.preference.${pref}.label` as MessageKey)}</b> <span className="ds-note">· {t("wallet.preference.fundedWithin", { window: windowWords(DELAY_WINDOW[policyFromPreference(pref)]) })}</span><span className="ds-radio-desc">{t(`wallet.preference.${pref}.help` as MessageKey)}</span></span>
+          </label>
+        ))}
       </div>
-    </Page>
+    </Card>
   );
 }

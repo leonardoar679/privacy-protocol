@@ -13,7 +13,6 @@ import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
 import { config } from "@privacy-wallet/sdk/config";
 import { registerSecondDevice, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
 import { forgetDeployment } from "@privacy-wallet/sdk/deploymentGuard";
-import { requestSystemNotifications } from "@privacy-wallet/sdk/wallet/notifications";
 import { CAP_BPS_RANGE, PROTECTION_DEFAULTS, PROTECTION_MODES, settings, type ProtectionMode } from "@privacy-wallet/sdk/wallet/settings";
 import { AddressBookPanel } from "../../components/protection/AddressBook";
 import { useStatusLines } from "./statusLines";
@@ -68,12 +67,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
     try { const credentialId = await registerSecondDevice(); settings.set({ protection: { ...p, secondDevice: { enabled: true, credentialId } } }); setDeviceStatus(t("advanced.protection.deviceDone")); }
     catch (e) { setDeviceStatus(e instanceof Error ? e.message : String(e)); }
   }
-  async function enableSystemNotifications(on: boolean) {
-    if (!on) { settings.set({ protection: { ...p, notifications: { ...p.notifications, system: false } } }); return; }
-    const granted = await requestSystemNotifications();
-    settings.set({ protection: { ...p, notifications: { ...p.notifications, system: granted } } });
-  }
-  const toggle = (checked: boolean, onChange: (v: boolean) => void, text: string, testId?: string) => (
+  const toggle =(checked: boolean, onChange: (v: boolean) => void, text: string, testId?: string) => (
     <label className="ds-switch-row ds-native-row"><span>{text}</span><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} data-testid={testId} /></label>
   );
 
@@ -165,9 +159,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
             <p className="ds-note"><b>{t("advanced.protection.advancedWord")}</b> {t("advanced.protection.advancedNote")}</p>
             <Field label={t("advanced.protection.concentration")} htmlFor="concentration"><Input id="concentration" inputMode="decimal" value={share} onChange={(e) => setShare(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={applyShare} data-testid="concentration-input" /></Field>
             <Field label={t("advanced.protection.velocity")} htmlFor="velocity" error={knobError || undefined}><Input id="velocity" inputMode="numeric" value={velocity} onChange={(e) => setVelocity(e.target.value.replace(/[^0-9]/g, ""))} onBlur={applyVelocity} data-testid="velocity-input" /></Field>
-            {toggle(p.notifications.inApp, (v) => settings.set({ protection: { ...p, notifications: { ...p.notifications, inApp: v } } }), t("advanced.protection.inApp"), "notify-in-app")}
-            {toggle(p.notifications.system, (v) => void enableSystemNotifications(v), t("advanced.protection.system"), "notify-system")}
-            {toggle(p.notifications.generic, (v) => settings.set({ protection: { ...p, notifications: { ...p.notifications, generic: v } } }), t("advanced.protection.generic"), "notify-generic")}
+            {/* V7 Stage 4: the notification toggles live under Settings → Notifications (features/settings) */}
             <div className="ds-kv"><span className="ds-kv-label">{t("advanced.protection.secondDevice")}</span><b className="ds-kv-value">{p.secondDevice.credentialId ? t("advanced.protection.deviceRegistered") : webauthnAvailable() ? t("advanced.protection.deviceNotRegistered") : t("advanced.protection.deviceUnavailable")}</b></div>
             <div className="ds-actions">
               {!p.secondDevice.credentialId ? <Button variant="secondary" onClick={() => void registerDevice()} disabled={!webauthnAvailable()} data-testid="register-second-device">{t("advanced.protection.registerDevice")}</Button> : null}

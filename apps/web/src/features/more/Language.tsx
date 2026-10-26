@@ -1,8 +1,8 @@
-// More → Language (spec v2.0 §18; doc §78; V6 Stage 16): Automatic (the browser's languages decide), English or Korean —
-// the preference's `locale` with `localeChosen`, so an English reader on a Korean device keeps English by choosing it.
-// The catalog, the numbers and dates (Intl) and the document's lang follow (app/i18n/locale.ts). Each language is named
-// in its own words, as every language picker does.
-import { Card, Page, RadioGroup } from "@privacy-wallet/ui";
+// Settings → Language (spec v2.0 §18; doc §78; V6 Stage 16; V7 Stage 4: a section of the one Settings page): Automatic
+// (the browser's languages decide), English or Korean — the preference's `locale` with `localeChosen`, so an English
+// reader on a Korean device keeps English by choosing it. The catalog, the numbers and dates (Intl) and the document's
+// lang follow (app/i18n/locale.ts). Each language is named in its own words, as every language picker does.
+import { Card, RadioGroup } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { usePrefs } from "../../hooks/core";
 import { prefs } from "../../storage/prefs";
@@ -13,7 +13,7 @@ export const LANGUAGES: readonly { code: "en" | "ko"; name: string }[] = [
   { code: "ko", name: "한국어" },
 ];
 
-export function Language({ onBack }: { onBack: () => void }) {
+export function LanguageSection() {
   const t = useT();
   const p = usePrefs();
   const value = p.localeChosen ? p.locale.split("-")[0] : "auto";
@@ -21,19 +21,26 @@ export function Language({ onBack }: { onBack: () => void }) {
     prefs().update(v === "auto" ? { locale: "en", localeChosen: undefined } : { locale: v, localeChosen: true });
   };
   return (
-    <Page title={t("route.language")} back={onBack} testId="language">
-      <Card>
-        <RadioGroup
-          value={value}
-          onValueChange={choose}
-          ariaLabel={t("route.language")}
-          name="language"
-          options={[
-            { value: "auto", label: t("language.auto"), description: t("language.autoWhy"), testId: "language-auto" },
-            ...LANGUAGES.map((l) => ({ value: l.code, label: <span lang={l.code}>{l.name}</span>, testId: `language-${l.code}` })),
-          ]}
-        />
-      </Card>
-    </Page>
+    <Card testId="language">
+      <RadioGroup
+        value={value}
+        onValueChange={choose}
+        ariaLabel={t("route.language")}
+        name="language"
+        options={[
+          { value: "auto", label: t("language.auto"), description: t("language.autoWhy"), testId: "language-auto" },
+          // each language in its own name, never translated (lang + translate="no": a browser's translator leaves it, and so does the Korean screen test)
+          ...LANGUAGES.map((l) => ({
+            value: l.code,
+            label: (
+              <span lang={l.code} translate="no">
+                {l.name}
+              </span>
+            ),
+            testId: `language-${l.code}`,
+          })),
+        ]}
+      />
+    </Card>
   );
 }

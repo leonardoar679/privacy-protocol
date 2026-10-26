@@ -11,7 +11,7 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { lockedAutomatically, lockedElsewhere, startAutoLock, stepAside } from "../src/platform/autoLock";
 import { Unlock } from "../src/features/onboarding/Lock";
 import { returnPath } from "../src/app/Gate";
-import { SecurityRoute } from "../src/features/more/MoreRoutes";
+import { SettingsRoute } from "../src/features/settings/Settings";
 
 const MIN = 60_000;
 let stops: (() => void)[] = [];
@@ -46,7 +46,7 @@ describe("auto-lock on the page", () => {
   it("the minutes chosen under Security; the choice is kept in the journal's settings", () => {
     render(
       <MemoryRouter>
-        <SecurityRoute />
+        <SettingsRoute />
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByTestId("auto-lock-1"));

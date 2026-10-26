@@ -1,34 +1,41 @@
-// The More menu (spec v2.0 §6, §7.10): the Privacy Center, Security, Wallet, Classic Privacy, Private AI; Advanced only
-// when the experience says so (one list with the desktop's Wallet menu: ./entries.ts); the experience switch itself (it
-// writes the preference and the journal's advanced flag). Each row is a route.
+// The More menu (spec v3.0 §2; doc §3, §15; V7 Stage 4): Tornado Classic, the Privacy Center, Settings — and Private AI
+// in the Advanced experience (one list with the desktop's Wallet menu: ./entries.ts). Each row is a route, except
+// Tornado Classic: a plain link to the Classic application under /classic/ (it leaves the wallet's router). The
+// experience switch lives under Settings now. MoreView is pure (the screenshot fixtures render it); More is the route.
 import { useNavigate } from "react-router-dom";
 import { Card, Icon, ListRow, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { prefs } from "../../storage/prefs";
-import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { usePrefs, useSettings } from "../../hooks";
+import { usePrefs } from "../../hooks";
 import { moreEntries } from "./entries";
 
-export function More() {
+export function MoreView({ experience, onOpen }: { experience: "simple" | "advanced"; onOpen: (to: string) => void }) {
   const t = useT();
-  const navigate = useNavigate();
-  const p = usePrefs();
-  const s = useSettings();
   return (
     <Page title={t("route.more")} testId="more">
       <div className="ds-stack">
         <Card padding="md">
-          {moreEntries(p.experience === "advanced" ? "advanced" : "simple").map((e) => (
-            <ListRow key={e.id} title={t(e.title)} subtitle={t(e.subtitle)} leading={<Icon name={e.icon} />} onPress={() => navigate(e.to)} testId={`more-${e.id}`} />
-          ))}
-        </Card>
-        <Card testId="experience">
-          <label className="ds-switch-row ds-native-row">
-            <span className="ds-radio-text"><b>{t("more.experienceTitle")}</b><span className="ds-radio-desc">{t("more.experienceToggle")}</span></span>
-            <input type="checkbox" checked={s.advanced} onChange={(e) => { settings.set({ advanced: e.target.checked }); prefs().update({ experience: e.target.checked ? "advanced" : "simple" }); }} data-testid="experience-toggle" />
-          </label>
+          {moreEntries(experience).map((e) =>
+            e.external ? (
+              <ListRow key={e.id} title={t(e.title)} subtitle={t(e.subtitle)} leading={<Icon name={e.icon} />} href={e.to} testId={`more-${e.id}`} />
+            ) : (
+              <ListRow
+                key={e.id}
+                title={t(e.title)}
+                subtitle={t(e.subtitle)}
+                leading={<Icon name={e.icon} />}
+                onPress={() => onOpen(e.to)}
+                testId={`more-${e.id}`}
+              />
+            ),
+          )}
         </Card>
       </div>
     </Page>
   );
+}
+
+export function More() {
+  const navigate = useNavigate();
+  const p = usePrefs();
+  return <MoreView experience={p.experience === "advanced" ? "advanced" : "simple"} onOpen={(to) => navigate(to)} />;
 }

@@ -26,7 +26,7 @@ export function ProtectRoute() {
       onConnect={() => void connection.connect()}
       onBack={() => navigate("/")}
       onDone={() => navigate("/")}
-      onBackup={() => navigate("/more/security")}
+      onBackup={() => navigate("/settings")}
     />
   );
 }

@@ -98,7 +98,7 @@
 .ds-page { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .ds-page-wide { max-width: none; }
 .ds-page-body { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.ds-header { display: flex; align-items: center; gap: var(--space-2); min-height: var(--header-h); }
+.ds-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: var(--header-h); } /* wraps the actions under the title at 200 % text (V7 Stage 4: the Connect wallet chip) */
 .ds-header-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: var(--title-size); line-height: var(--title-line); font-weight: var(--title-weight); }
 .ds-header-actions { display: flex; align-items: center; gap: var(--space-2); }
 .ds-header-spacer { flex: 1 1 auto; }

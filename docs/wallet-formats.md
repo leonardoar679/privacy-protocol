@@ -45,7 +45,7 @@ backup file = { "v": 1, "keystore": keystore, "journal": journal | null }
 `pp.keystore` and `pp.journal` — and `pp.journal.unreadable` when a journal that would not decrypt was set aside — in the
 IndexedDB database `privacy-wallet`, object store `secure` (a memory mirror hydrated before the first render; a browser
 without IndexedDB keeps them in memory for the session). The `prefs` store (zod `PrefsV1`: the experience, the theme, the
-locale — V6 Stage 16: with the optional `localeChosen`, the user's choice under More → Language, absent for
+locale — V6 Stage 16: with the optional `localeChosen`, the user's choice under Settings → Language, absent for
 "Automatic" —, the recent network, the backup timestamps, the last connector, the first-launch flag; an unknown key is refused)
 holds no secret and no financial figure. `localStorage` holds nothing of the wallet's: the one-time migration copied the
 records, read them back byte for byte and only then removed the old keys. The plaintext journal's optional fields —

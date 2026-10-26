@@ -2,8 +2,11 @@
 // items, never more —; from 1024 px one top bar `Logo · Home Swap Activity · Wallet` above the content, its Wallet menu
 // holding the connection and every More entry (the same list as the More screen, so nothing on a phone is out of reach
 // on a desktop). Then the journal notice when the stored journal would not decrypt, and the screen of the current
-// route; the background jobs run beside it while the wallet is unlocked.
-import { lazy, Suspense } from "react";
+// route; the background jobs run beside it while the wallet is unlocked. V7 Stage 4 (spec v3.0 §2): the Wallet menu
+// holds the Connect wallet button (the account chip once connected) and More = Tornado Classic · Privacy Center ·
+// Settings (Private AI in the Advanced experience); the connector picker is a sheet the shell owns, opened from the
+// menu and from Home's header through the outlet context; More stays highlighted on /privacy and /settings.
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AppShell, Button, Icon, ListRow, Skeleton, StatusBadge, WarningCard, type NavItem, type ShellNav, type StatusTone } from "@privacy-wallet/ui";
 import { shortAccount, type ConnectionStatus } from "@privacy-wallet/wallet-engine/connection";
@@ -16,6 +19,7 @@ import { NotificationToasts } from "./notifications";
 import { StorageNotice } from "./StorageNotice";
 import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks/core";
 import { moreEntries } from "../features/more/entries";
+import { ConnectSheet } from "../features/wallet/ConnectSheet";
 
 const TONE: Record<ConnectionStatus, StatusTone> = {
   connected: "ok",
@@ -25,6 +29,11 @@ const TONE: Record<ConnectionStatus, StatusTone> = {
   unavailable: "neutral",
 };
 
+/** What the shell hands its screens (react-router's outlet context): the way to open the connector picker. */
+export interface ShellContext {
+  openConnect: () => void;
+}
+
 export function Shell() {
   const t = useT();
   const navigate = useNavigate();
@@ -32,10 +41,13 @@ export function Shell() {
   const s = useSession();
   const p = usePrefs();
   const conn = useConnection();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const openConnect = useCallback(() => setConnectOpen(true), []);
+  const shellContext = useMemo<ShellContext>(() => ({ openConnect }), [openConnect]);
   const home: NavItem = { to: "/", label: t("nav.home"), icon: "home", testId: "nav-home" };
   const swap: NavItem = { to: "/swap", label: t("nav.swap"), icon: "swap", testId: "nav-swap" };
   const activity: NavItem = { to: "/activity", label: t("nav.activity"), icon: "activity", testId: "nav-activity" };
-  const more: NavItem = { to: "/more", label: t("nav.more"), icon: "more", testId: "nav-more" };
+  const more: NavItem = { to: "/more", label: t("nav.more"), icon: "more", testId: "nav-more", also: ["/privacy", "/settings"] };
   const status = t(`wallet.status.${conn.status}` as MessageKey);
   const nav: ShellNav = {
     brand: (
@@ -59,18 +71,34 @@ export function Shell() {
             <span className="ds-kv-label">{t("wallet.connection")}</span>
             <StatusBadge tone={TONE[conn.status]}>{conn.account ? `${status} · ${shortAccount(conn.account)}` : status}</StatusBadge>
           </div>
-          {moreEntries(p.experience === "advanced" ? "advanced" : "simple").map((e) => (
-            <ListRow
-              key={e.id}
-              title={t(e.title)}
-              leading={<Icon name={e.icon} />}
-              onPress={() => {
-                close();
-                navigate(e.to);
-              }}
-              testId={`menu-${e.id}`}
-            />
-          ))}
+          <Button
+            variant="secondary"
+            full
+            icon="wallet"
+            onClick={() => {
+              close();
+              openConnect();
+            }}
+            data-testid="menu-connect"
+          >
+            {conn.account ? shortAccount(conn.account) : t("protect.connect")}
+          </Button>
+          {moreEntries(p.experience === "advanced" ? "advanced" : "simple").map((e) =>
+            e.external ? (
+              <ListRow key={e.id} title={t(e.title)} leading={<Icon name={e.icon} />} href={e.to} testId={`menu-${e.id}`} />
+            ) : (
+              <ListRow
+                key={e.id}
+                title={t(e.title)}
+                leading={<Icon name={e.icon} />}
+                onPress={() => {
+                  close();
+                  navigate(e.to);
+                }}
+                testId={`menu-${e.id}`}
+              />
+            ),
+          )}
         </>
       ),
     },
@@ -105,8 +133,9 @@ export function Shell() {
           </div>
         }
       >
-        <Outlet />
+        <Outlet context={shellContext} />
       </Suspense>
+      <ConnectSheet open={connectOpen} onClose={() => setConnectOpen(false)} />
     </AppShell>
   );
 }

@@ -77,7 +77,7 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     await waitFor(() => expect(document.body.textContent).toContain("Nothing yet"), LAZY);
     fireEvent.click(within(nav).getByRole("link", { name: "More" }));
     expect(await screen.findByTestId("more")).toBeInTheDocument();
-    expect(screen.queryByTestId("more-advanced"), "Simple hides the Advanced entry").toBeNull();
+    expect(screen.queryByTestId("more-ai"), "Simple hides the Private AI entry (V7 Stage 4)").toBeNull();
     fireEvent.click(within(nav).getByRole("link", { name: "Home" }));
     expect(await screen.findByTestId("home")).toBeInTheDocument();
     expect(fetchSpy, "after the four routes").not.toHaveBeenCalled();
@@ -100,11 +100,9 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     expect(pathname()).toBe("/protect");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
-    fireEvent.click(screen.getByTestId("nav-more")); // V6: Receive is an entry of More (and of the desktop's Wallet menu)
-    fireEvent.click(await screen.findByTestId("more-receive"));
+    fireEvent.click(screen.getByTestId("home-receive")); // V7 Stage 4 (spec v3.0 §2): Receive from Home's balance card (and from Settings → Connected wallet)
     expect((await screen.findByTestId("sheet-receive")).querySelector("svg"), "the Receive QR is inline, no image request").toBeTruthy();
     fireEvent.click(screen.getByTestId("back"));
-    fireEvent.click(await screen.findByTestId("nav-home"));
     await screen.findByTestId("home");
     fireEvent.click(screen.getByTestId("privacy-badge"));
     const center = await screen.findByTestId("privacy-center");
@@ -112,21 +110,20 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     for (const c of ["Financial history", "Address separation", "Network privacy", "RPC privacy", "Timing privacy", "Cross-chain privacy"]) expect(center.textContent).toContain(c);
     expect(center.textContent).toContain("What this wallet cannot promise");
     expect(center.textContent!.toLowerCase()).not.toMatch(/anonymous/);
-    expect(pathname()).toBe("/more/privacy");
+    expect(pathname()).toBe("/privacy");
     fireEvent.click(screen.getByTestId("back"));
     await screen.findByTestId("home");
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByTestId("settings")).toBeInTheDocument();
-    expect(pathname()).toBe("/more/security");
-    fireEvent.click(within(nav).getByRole("link", { name: "More" })); // V5: the trade preference lives under More → Wallet
-    fireEvent.click(await screen.findByTestId("more-wallet"));
-    await screen.findByTestId("wallet-screen");
-    expect(pathname()).toBe("/more/wallet");
-    expect(document.body.textContent).toContain("Trade preference");
+    expect(pathname()).toBe("/settings");
+    // V7 Stage 4 (spec v3.0 §2): one Settings page — the connected wallet and the trading preference are sections of it
+    expect(screen.getByTestId("wallet-screen")).toBeInTheDocument();
+    expect(document.body.textContent).toContain("Trading preference");
     expect(fetchSpy, "after every screen").not.toHaveBeenCalled();
     expect(beaconSpy).not.toHaveBeenCalled();
 
-    // Private AI (More): only same-origin build files, only once opened
+    // Private AI (More, the Advanced experience): only same-origin build files, only once opened
+    prefs().update({ experience: "advanced" });
     fireEvent.click(within(nav).getByRole("link", { name: "More" }));
     fireEvent.click(await screen.findByTestId("more-ai"));
     await screen.findByTestId("sheet-ai", {}, LAZY);
@@ -140,8 +137,9 @@ describe("first launch (plan §39; spec §2–§3)", () => {
     }
 
     // lock (Settings) → the unlock route; nothing persisted in the clear (spec §8)
+    prefs().update({ experience: "simple" });
     fireEvent.click(within(nav).getByRole("link", { name: "More" }));
-    fireEvent.click(await screen.findByTestId("more-security"));
+    fireEvent.click(await screen.findByTestId("more-settings"));
     await screen.findByTestId("settings");
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
     expect(await screen.findByTestId("lock-screen")).toBeInTheDocument();

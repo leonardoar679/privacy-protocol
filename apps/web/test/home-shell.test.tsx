@@ -43,13 +43,12 @@ async function unlockThrough(password: string) {
 describe("the shell", () => {
   it("Settings: the trade preference and the tiers are journaled and come back after a lock; nonsense thresholds are refused", async () => {
     const { router } = await mountUnlocked();
-    await act(async () => { await router.navigate("/more/wallet"); }); // V5: the trade preference lives under More → Wallet
+    await act(async () => { await router.navigate("/settings"); }); // V7 Stage 4 (spec v3.0 §2): one Settings page — the trading preference, the thresholds and Lock are its sections
     await screen.findByTestId("wallet-screen");
     const radio = labelled("Best privacy")!.querySelector("input") as HTMLInputElement;
     fireEvent.click(radio);
     expect(settings.get().preference).toBe("best-privacy");
     expect((session.journal().settings as { preference?: string }).preference).toBe("best-privacy");
-    await act(async () => { await router.navigate("/more/security"); }); // the thresholds and Lock live under More → Security
     await screen.findByTestId("settings");
     const enhanced = labelled("Enhanced review from")!.nextElementSibling as HTMLInputElement;
     type(enhanced, "250000");
@@ -64,7 +63,7 @@ describe("the shell", () => {
     await unlockThrough("a strong password");
     expect(settings.get().preference).toBe("best-privacy");
     expect(settings.get().tiers.enhanced).toBe(250_000);
-    expect(document.body.textContent).not.toContain("Trade preference"); // Home, not Settings, after the unlock
+    expect(document.body.textContent).not.toContain("Trading preference"); // Home, not Settings, after the unlock
   }, 60_000);
 
   it("the Privacy badge shows the overall level and opens the Center; Activity renders the journal and removes finished rows", async () => {

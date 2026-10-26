@@ -10,9 +10,14 @@ import "@privacy-wallet/ui/base.css";
 import "@privacy-wallet/ui/components.css";
 import "@privacy-wallet/ui/patterns.css";
 import "../styles.css";
+import { configureFromBuild } from "../config";
 import { FIXTURES } from "./registry";
 
 export const FIXTURE_SENTINEL = "pw-fixture-sentinel";
+
+// V7 Stage 4: the Settings fixture renders the real sections over the stores at their defaults, and a store's defaults
+// read the engine's configuration (the production floors) — configured here as main.tsx does, from the build's environment
+configureFromBuild();
 
 declare global {
   interface Window {

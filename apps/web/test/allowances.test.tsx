@@ -10,7 +10,7 @@ import { decodeFunctionData, encodeAbiParameters, getAddress } from "viem";
 import { erc20Abi } from "@privacy-wallet/sdk/privacyProtocol";
 import { allowancesFor, readAllowance, revokeAllowance } from "@privacy-wallet/sdk/allowances";
 import { parseErc20Vaults } from "@privacy-wallet/sdk/assets";
-import { Wallet } from "../src/features/more/Wallet";
+import { WalletSection } from "../src/features/more/Wallet";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { ProtectScreen } from "../src/features/protect/ProtectScreen";
@@ -114,7 +114,7 @@ describe("allowances through the injected wallet", () => {
     (window as any).ethereum = eth;
     const container = document.createElement("div");
     await connection.connect(); // V5: the Wallet screen reads the account from the connection store (the injected fallback)
-    await act(async () => { root = createRoot(container); root.render(<Wallet deployment={deployment} />); });
+    await act(async () => { root = createRoot(container); root.render(<WalletSection deployment={deployment} />); });
     await act(async () => { button(container, "Read allowances")!.click(); });
     await vi.waitFor(() => expect(container.querySelector('[data-testid="allowance-line"]')).toBeTruthy());
     const line = container.querySelector('[data-testid="allowance-line"]')!;

@@ -9,7 +9,7 @@ import { pseudoCatalog } from "./pseudo";
 export const zh: Catalog = {
   "app.name": "隐私钱包",
   "nav.home": "首页", "nav.swap": "兑换", "nav.activity": "活动", "nav.more": "更多", "nav.wallet": "钱包",
-  "route.swap": "兑换", "route.activity": "活动", "route.more": "更多", "route.receive": "接收", "protect.title": "保护资产", "route.privacy": "隐私中心", "route.security": "安全", "route.wallet": "钱包", "route.advanced": "高级", "route.classic": "经典隐私",
+  "route.swap": "兑换", "route.activity": "活动", "route.more": "更多", "route.receive": "接收", "protect.title": "保护资产", "route.privacy": "隐私中心", "route.advanced": "高级", "route.classic": "经典隐私",
   "welcome.title": "保护您的金融隐私", "welcome.body": "钱包始终由您掌控。", "welcome.connect": "连接钱包", "welcome.noAccount": "无需账户", "welcome.skip": "不连接，继续",
   "common.continue": "继续",
 };
@@ -17,7 +17,7 @@ export const zh: Catalog = {
 export const ja: Catalog = {
   "app.name": "プライバシーウォレット",
   "nav.home": "ホーム", "nav.swap": "スワップ", "nav.activity": "履歴", "nav.more": "その他", "nav.wallet": "ウォレット",
-  "route.swap": "スワップ", "route.activity": "履歴", "route.more": "その他", "route.receive": "受取", "protect.title": "資産を保護", "route.privacy": "プライバシーセンター", "route.security": "セキュリティ", "route.wallet": "ウォレット", "route.advanced": "詳細設定", "route.classic": "クラシックプライバシー",
+  "route.swap": "スワップ", "route.activity": "履歴", "route.more": "その他", "route.receive": "受取", "protect.title": "資産を保護", "route.privacy": "プライバシーセンター", "route.advanced": "詳細設定", "route.classic": "クラシックプライバシー",
   "welcome.title": "金融プライバシーを守る", "welcome.body": "ウォレットは常にあなたの管理下にあります。", "welcome.connect": "ウォレットを接続", "welcome.noAccount": "アカウント不要", "welcome.skip": "接続せずに続ける",
   "common.continue": "続ける",
 };

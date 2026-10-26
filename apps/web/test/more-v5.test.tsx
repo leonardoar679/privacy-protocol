@@ -8,9 +8,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LIMITS } from "@privacy-wallet/protocol/wallet/privacyCenter";
-import { downloadBackup, Security } from "../src/features/more/Security";
+import { downloadBackup, SecuritySection } from "../src/features/more/Security";
 import { downloadText } from "@privacy-wallet/sdk/download";
-import { Wallet } from "../src/features/more/Wallet";
+import { TradePreferenceSection, WalletSection } from "../src/features/more/Wallet";
 import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";
 import { WhatStaysPrivate } from "../src/features/privacy-center/WhatStaysPrivate";
 import { FRESH_WINDOW_MS, freshDestinations } from "../src/features/privacy-center/status";
@@ -34,7 +34,7 @@ describe("More → Security (spec §3.12, §9)", () => {
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => "blob:backup";
     (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    render(<Security />);
+    render(<SecuritySection />);
     expect(screen.getByTestId("backup-badge").textContent).toContain("Not backed up yet");
     fireEvent.click(screen.getByTestId("backup-now"));
     expect(exported).toHaveBeenCalledTimes(1);
@@ -69,7 +69,7 @@ describe("More → Security (spec §3.12, §9)", () => {
   it("the phrase needs the password (a wrong one is refused) and marks the backup acknowledged; the thresholds are journaled and nonsense refused; Forget needs the typed word", async () => {
     await session.create("a strong password");
     const phrase = session.state().pendingPhrase!;
-    render(<Security />);
+    render(<SecuritySection />);
     fireEvent.click(screen.getByTestId("show-phrase"));
     type(screen.getByLabelText("Your password"), "wrong");
     fireEvent.click(screen.getByTestId("reveal-phrase"));
@@ -105,7 +105,7 @@ describe("More → Security (spec §3.12, §9)", () => {
 describe("More → Wallet (spec §7)", () => {
   it("without a wallet the connection shows Connect; the trade preference is journaled with its funding window", async () => {
     await session.create("a strong password");
-    render(<Wallet deployment={null} />);
+    render(<><WalletSection deployment={null} /><TradePreferenceSection /></>);
     expect(screen.getByTestId("connection-status").textContent).toBe("Not connected");
     expect(screen.getByTestId("wallet-connect")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("preference-best-privacy").querySelector("input")!);
@@ -134,7 +134,7 @@ describe("More → Wallet (spec §7)", () => {
         await connection.connect();
       });
       expect(connection.get().status).toBe("wrong-network");
-      render(<Wallet deployment={null} />);
+      render(<WalletSection deployment={null} />);
       fireEvent.click(screen.getByTestId("read-allowances"));
       expect(await screen.findByText("Switch your wallet to this network first.")).toBeInTheDocument();
       expect(calls, "nothing read from that chain").not.toContain("eth_call");

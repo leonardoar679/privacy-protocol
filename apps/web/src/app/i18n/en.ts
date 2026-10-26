@@ -57,7 +57,8 @@ export const en = {
   "lock.unlock": "Unlock",
   "lock.wrongPassword": "Wrong password.",
   "lock.wrongBackupPassword": "Wrong password for this backup.",
-  "lock.createIntro": "A new seed is generated on this device. It is encrypted with your password before anything is stored; you will be shown a 24-word recovery phrase once.",
+  "lock.createIntro":
+    "A new seed is generated on this device. It is encrypted with your password before anything is stored; you will be shown a 24-word recovery phrase once.",
   "lock.create": "Create wallet",
   "lock.createReplacing": "Create a new wallet (replaces this one)",
   "lock.restore": "Restore",
@@ -67,21 +68,21 @@ export const en = {
   "lock.phrasePlaceholder": "word word word …",
   "lock.phraseRescan": "Your notes come back with a chain rescan after unlocking.",
   "lock.fileLabel": "Backup file contents (JSON)",
-  "lock.replaceWarning": "This replaces the wallet on this device: its keystore and encrypted journal are removed. Its phrase or a backup file is then the only way back. Type REPLACE to confirm.",
+  "lock.replaceWarning":
+    "This replaces the wallet on this device: its keystore and encrypted journal are removed. Its phrase or a backup file is then the only way back. Type REPLACE to confirm.",
   "lock.replacePlaceholder": "REPLACE",
   "lock.walletExists": "A wallet was created on this device in another tab. Unlock it, or type REPLACE below to replace it.",
   "lock.guest": "Swap without a wallet",
   "lock.toUnlock": "Unlock instead",
   "phrase.title": "Your recovery phrase",
-  "phrase.body": "Write these 24 words down, in order, and keep them offline. They restore this wallet anywhere; this site cannot. Nobody will ever ask you for them.",
+  "phrase.body":
+    "Write these 24 words down, in order, and keep them offline. They restore this wallet anywhere; this site cannot. Nobody will ever ask you for them.",
   "phrase.ack": "I have written the 24 words down",
   "route.receive": "Receive",
   "route.swap": "Swap",
   "route.activity": "Activity",
   "route.more": "More",
   "route.privacy": "Privacy Center",
-  "route.security": "Security",
-  "route.wallet": "Wallet",
   "route.advanced": "Advanced",
   "route.ai": "Private AI",
   "route.classic": "Classic Privacy",
@@ -245,7 +246,8 @@ export const en = {
   "screen.swap.stepsRouteChanged": "The route changed",
   "screen.swap.stepsReviewRoute": "Review the new route",
   "screen.swap.stepsSafe": "Your funds are safe: what has not been handed over stays in your protected balance.",
-  "screen.swap.stepsSafeHeld": "Your funds are safe: a step already funded is held for its swap and returns to your protected balance after its refund time; the rest stays in your protected balance.",
+  "screen.swap.stepsSafeHeld":
+    "Your funds are safe: a step already funded is held for its swap and returns to your protected balance after its refund time; the rest stays in your protected balance.",
   "screen.swap.stepsDetail": "View the steps",
   "screen.swap.intoProtected": "Arrives in your protected balance.",
   "screen.swap.addingToProtected": "Delivered — adding it to your protected balance…",
@@ -275,7 +277,8 @@ export const en = {
   "screen.review.confirm": "Confirm",
   "screen.review.hold": "Hold to Confirm",
   "screen.review.edit": "Edit",
-  "screen.review.notAtomic": "Cross-chain settlement is not atomic: your funds leave first and arrive later, and a failure in between is refunded, not reversed.",
+  "screen.review.notAtomic":
+    "Cross-chain settlement is not atomic: your funds leave first and arrive later, and a failure in between is refunded, not reversed.",
   "screen.review.large.title": "Protected execution",
   "screen.review.large.body": "Because this is a large transaction, we added additional safety checks.",
   "screen.review.large.destination": "Destination verified",
@@ -304,21 +307,21 @@ export const en = {
   "screen.progress.remaining": "Remaining",
   "more.receiveWhy": "Your privacy address, to be paid privately",
   "more.privacyWhy": "What stays private, and what the wallet cannot promise",
-  "more.securityWhy": "Backup, lock, second confirmation, large transfers",
-  "more.walletWhy": "Connection, network, allowances",
   "more.advancedWhy": "Technical detail and the protected-execution controls",
   "more.aiWhy": "Pay for inference from a private credit account",
-  "more.classicWhy": "A fixed pool, separate from your protected balance",
   "protect.connect": "Connect wallet",
   "protect.wrongNetwork": "Your wallet is on another network.",
   "journal.unreadableTitle": "Your encrypted journal could not be read with this seed.",
-  "journal.unreadableBody": "Nothing was overwritten. This session runs on an empty journal and saves nothing until you decide: restore a backup file (lock, then Restore), or set the unreadable journal aside and start fresh.",
+  "journal.unreadableBody":
+    "Nothing was overwritten. This session runs on an empty journal and saves nothing until you decide: restore a backup file (lock, then Restore), or set the unreadable journal aside and start fresh.",
   "journal.lockRestore": "Lock and restore a backup",
   "journal.setAside": "Set it aside and start fresh",
   "op.error.journal_not_kept.title": "Swaps wait for a browser that keeps your data",
-  "op.error.journal_not_kept.reason": "This browser is not keeping the wallet's data, so a swap's record, the only way back for its funds until the executor has it, would be lost when this tab closes. Nothing was sent: free some space, or use a browser that keeps site data, then try again.",
+  "op.error.journal_not_kept.reason":
+    "This browser is not keeping the wallet's data, so a swap's record, the only way back for its funds until the executor has it, would be lost when this tab closes. Nothing was sent: free some space, or use a browser that keeps site data, then try again.",
   "storage.memoryTitle": "This browser is not keeping the wallet's data",
-  "storage.memoryBody": "Your wallet and its activity are kept in this tab only and are gone when it closes. Keep your recovery phrase: it brings the wallet back.",
+  "storage.memoryBody":
+    "Your wallet and its activity are kept in this tab only and are gone when it closes. Keep your recovery phrase: it brings the wallet back.",
   "fees.total": "Total fees",
   "fees.viewDetails": "View fee details",
   "fees.privacy": "Privacy fee ({percent})",
@@ -400,13 +403,15 @@ export const en = {
   "op.error.bad_payloads.title": "The relayer could not read the note payloads",
   "op.error.bad_payloads.reason": "The encrypted payloads were malformed, so nothing was sent. Confirm again to build them afresh.",
   "op.error.wrong_domain.title": "This relayer serves another network",
-  "op.error.wrong_domain.reason": "The transaction was built for another chain or core than this relayer serves. Nothing was sent; check the relayer in Advanced settings.",
+  "op.error.wrong_domain.reason":
+    "The transaction was built for another chain or core than this relayer serves. Nothing was sent; check the relayer in Advanced settings.",
   "op.error.payload_hash_mismatch.title": "A note payload did not match its proof",
   "op.error.payload_hash_mismatch.reason": "A payload hashes differently from what the proof commits to, so nothing was sent. Confirm again to rebuild.",
   "op.error.bad_fee.title": "The fee note could not be read",
   "op.error.bad_fee.reason": "The fee opening was malformed, so nothing was sent. Confirm again at fresh fee terms.",
   "op.error.fee_vault_not_accepted.title": "The relayer takes no fee in this asset",
-  "op.error.fee_vault_not_accepted.reason": "This relayer accepts fee notes in other assets only. Nothing was sent; another relayer or a different fee asset is needed.",
+  "op.error.fee_vault_not_accepted.reason":
+    "This relayer accepts fee notes in other assets only. Nothing was sent; another relayer or a different fee asset is needed.",
   "op.error.fee_note_mismatch.title": "The fee note is not the relayer's",
   "op.error.fee_note_mismatch.reason": "The fee output does not open as a note to this relayer, so nothing was sent. Confirm again at fresh fee terms.",
   "op.error.fee_payload_unreadable.title": "The relayer cannot read its fee note",
@@ -414,19 +419,24 @@ export const en = {
   "op.error.fee_too_low.title": "The relayer's minimum fee rose",
   "op.error.fee_too_low.reason": "Its minimum moved above the fee set at the Review. Nothing was sent; confirm again at the new terms.",
   "op.error.fee_below_percent.title": "The privacy fee is below the relayer's percentage",
-  "op.error.fee_below_percent.reason": "The fee note is under the percentage of this withdrawal the relayer charges. Nothing was sent; confirm again at the new terms.",
+  "op.error.fee_below_percent.reason":
+    "The fee note is under the percentage of this withdrawal the relayer charges. Nothing was sent; confirm again at the new terms.",
   "op.error.nullifier_in_flight.title": "This transaction is already in flight",
   "op.error.nullifier_in_flight.reason": "A transaction spending the same notes is being mined. Wait for it rather than sending again.",
   "op.error.unknown_nullifier.title": "The relayer has no record of this transaction",
   "op.error.unknown_nullifier.reason": "The submission did not reach the relayer; nothing was sent. Your funds are still in your protected balance.",
   "op.error.gas_too_high.title": "This transaction needs more gas than its fee pays for",
-  "op.error.gas_too_high.reason": "The recipient spends gas on receiving, more than the relayer's fee covers. Nothing was sent: choose another recipient, or send it from your connected wallet.",
+  "op.error.gas_too_high.reason":
+    "The recipient spends gas on receiving, more than the relayer's fee covers. Nothing was sent: choose another recipient, or send it from your connected wallet.",
   "op.error.reverted_before.title": "These funds' last attempt failed at this relayer",
-  "op.error.reverted_before.reason": "A transaction spending the same funds failed on chain at this relayer in the last day, so it is not sent again from there. Nothing was sent: use another relayer, or send it from your connected wallet.",
+  "op.error.reverted_before.reason":
+    "A transaction spending the same funds failed on chain at this relayer in the last day, so it is not sent again from there. Nothing was sent: use another relayer, or send it from your connected wallet.",
   "op.error.simulation_failed.title": "The transaction would revert",
-  "op.error.simulation_failed.reason": "The relayer's simulation failed — an outdated tree root or an already spent note is the usual cause. Nothing was sent; sync and confirm again.",
+  "op.error.simulation_failed.reason":
+    "The relayer's simulation failed — an outdated tree root or an already spent note is the usual cause. Nothing was sent; sync and confirm again.",
   "op.error.send_failed.title": "The relayer could not broadcast",
-  "op.error.send_failed.reason": "The relayer signed the transaction but the network refused or dropped it. The wallet checks the chain before anything is sent again.",
+  "op.error.send_failed.reason":
+    "The relayer signed the transaction but the network refused or dropped it. The wallet checks the chain before anything is sent again.",
   "op.error.too_large.title": "The request was too large",
   "op.error.too_large.reason": "The relayer refused the request's size. Nothing was sent.",
   "op.error.bad_json.title": "The request could not be read",
@@ -438,51 +448,70 @@ export const en = {
   "op.error.unsupported_media_type.title": "The relayer refused the request format",
   "op.error.unsupported_media_type.reason": "The request was not sent as JSON. Nothing was sent.",
   "op.error.unknown_factory.title": "The relayer shields for another deployment",
-  "op.error.unknown_factory.reason": "It cannot add this swap's delivery to your protected balance. Nothing was executed: choose another relayer, or return the funds to your protected balance.",
+  "op.error.unknown_factory.reason":
+    "It cannot add this swap's delivery to your protected balance. Nothing was executed: choose another relayer, or return the funds to your protected balance.",
   "op.error.bad_params.title": "The relayer refused the receipt",
-  "op.error.bad_params.reason": "The one-time receiver's parameters were not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
+  "op.error.bad_params.reason":
+    "The one-time receiver's parameters were not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
   "op.error.bad_payload.title": "The relayer refused the receipt",
-  "op.error.bad_payload.reason": "The note's payload was not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
+  "op.error.bad_payload.reason":
+    "The note's payload was not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
   "op.error.payload_mismatch.title": "The relayer refused the receipt",
-  "op.error.payload_mismatch.reason": "The note's payload does not match what the receiver commits to. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
+  "op.error.payload_mismatch.reason":
+    "The note's payload does not match what the receiver commits to. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
   "op.error.bad_deadline.title": "The relayer refused the receipt",
-  "op.error.bad_deadline.reason": "The swap's delivery window was not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
+  "op.error.bad_deadline.reason":
+    "The swap's delivery window was not accepted. Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
   "op.error.receipt_conflict.title": "The relayer already watches another receipt with this id",
   "op.error.receipt_conflict.reason": "Nothing was executed: try again with a new quote, or return the funds to your protected balance.",
   "op.error.no_vault.title": "This asset cannot be protected here",
-  "op.error.no_vault.reason": "The pool has no vault for it, so it cannot be received into your protected balance. Nothing was executed: choose another asset, or return the funds to your protected balance.",
+  "op.error.no_vault.reason":
+    "The pool has no vault for it, so it cannot be received into your protected balance. Nothing was executed: choose another asset, or return the funds to your protected balance.",
   "op.error.unknown_shield.title": "The relayer does not know this receipt",
   "op.error.unknown_shield.reason": "The wallet hands it the receipt again and keeps tracking the swap.",
   "op.error.shield_unavailable.title": "This relayer cannot add swaps to your protected balance",
-  "op.error.shield_unavailable.reason": "It runs no shield executor. Nothing was executed: choose another relayer, or return the funds to your protected balance.",
+  "op.error.shield_unavailable.reason":
+    "It runs no shield executor. Nothing was executed: choose another relayer, or return the funds to your protected balance.",
   "op.error.unknown_swap_factory.title": "The relayer executes swaps for another deployment",
   "op.error.unknown_swap_factory.reason": "Nothing was executed. Choose another relayer to continue, or to return the funds to your protected balance.",
   "op.error.swap_unavailable.title": "This relayer cannot execute swaps",
-  "op.error.swap_unavailable.reason": "It runs no swap executor. Nothing was executed: choose another relayer to continue, or to return the funds to your protected balance.",
+  "op.error.swap_unavailable.reason":
+    "It runs no swap executor. Nothing was executed: choose another relayer to continue, or to return the funds to your protected balance.",
   "op.error.bad_shield_receipt.title": "The swap service did not accept this swap's receipt",
   "op.error.bad_shield_receipt.reason": "The receipt that adds the swap to your protected balance does not match the swap. Nothing moved: get a new quote.",
   "op.error.unvouched_order.title": "The swap service did not vouch for this swap",
-  "op.error.unvouched_order.reason": "The relayer runs only swaps the swap service committed and prepared. Nothing was executed: check that the wallet, the swap service and the relayer belong to the same network.",
+  "op.error.unvouched_order.reason":
+    "The relayer runs only swaps the swap service committed and prepared. Nothing was executed: check that the wallet, the swap service and the relayer belong to the same network.",
   "op.error.bad_refund_vault.title": "The relayer refused this swap's return path",
-  "op.error.bad_refund_vault.reason": "The vault this swap would return its funds to is not this pool's. Nothing was executed: check the wallet's network settings.",
+  "op.error.bad_refund_vault.reason":
+    "The vault this swap would return its funds to is not this pool's. Nothing was executed: check the wallet's network settings.",
   "op.error.destination_not_protectable.title": "This swap cannot land in your protected balance",
-  "op.error.destination_not_protectable.reason": "Only an asset with a vault in the pool, on the pool's own network, can be received there. Your funds were not moved.",
+  "op.error.destination_not_protectable.reason":
+    "Only an asset with a vault in the pool, on the pool's own network, can be received there. Your funds were not moved.",
   "op.error.asset_mismatch.title": "The swap service does not know this asset as your wallet does",
-  "op.error.asset_mismatch.reason": "It has this token with other decimals or another symbol, or not at all, so it cannot price the swap's execution. Nothing was committed and your funds were not moved. Check the wallet's network settings.",
+  "op.error.asset_mismatch.reason":
+    "It has this token with other decimals or another symbol, or not at all, so it cannot price the swap's execution. Nothing was committed and your funds were not moved. Check the wallet's network settings.",
   "op.error.no_owner_key.title": "One of these notes cannot be spent with this wallet's keys",
-  "op.error.no_owner_key.reason": "A note chosen for this is made out to an owner this wallet does not hold, so it was stopped before anything was proved or sent. Your funds were not moved.",
+  "op.error.no_owner_key.reason":
+    "A note chosen for this is made out to an owner this wallet does not hold, so it was stopped before anything was proved or sent. Your funds were not moved.",
   "op.error.fee_moved.title": "The relayer's fee went up",
-  "op.error.fee_moved.reason": "It is now more than the fee you reviewed, so nothing was sent and your funds were not moved. Review it again to see the new fee.",
+  "op.error.fee_moved.reason":
+    "It is now more than the fee you reviewed, so nothing was sent and your funds were not moved. Review it again to see the new fee.",
   "op.error.tip_stale.title": "This swap needs a new quote",
-  "op.error.tip_stale.reason": "Network fees rose since it was set up, and its executor would not carry it out at today's gas price. It was stopped before funding: nothing was sent and your funds were not moved. Get a new quote to swap.",
+  "op.error.tip_stale.reason":
+    "Network fees rose since it was set up, and its executor would not carry it out at today's gas price. It was stopped before funding: nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.order_outdated.title": "This swap needs a new quote",
-  "op.error.order_outdated.reason": "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
+  "op.error.order_outdated.reason":
+    "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.notes_loading.title": "Still looking for your notes",
-  "op.error.notes_loading.reason": "After a restore, the wallet reads the pool once before it makes a new note, so that no note repeats one already on chain. Nothing was sent and your funds were not moved. Try again in a moment.",
+  "op.error.notes_loading.reason":
+    "After a restore, the wallet reads the pool once before it makes a new note, so that no note repeats one already on chain. Nothing was sent and your funds were not moved. Try again in a moment.",
   "op.error.cost_unknown.title": "The network cost could not be checked",
-  "op.error.cost_unknown.reason": "The wallet could not read the network fees it needs to check this swap's execution fee, so the swap was not set up. Nothing was sent and your funds were not moved. Try again in a moment.",
+  "op.error.cost_unknown.reason":
+    "The wallet could not read the network fees it needs to check this swap's execution fee, so the swap was not set up. Nothing was sent and your funds were not moved. Try again in a moment.",
   "op.error.provider_unavailable.title": "The provider is not answering",
-  "op.error.provider_unavailable.reason": "The provider failed or did not answer. The wallet tries again on its own and checks where things stand before anything is signed or sent.",
+  "op.error.provider_unavailable.reason":
+    "The provider failed or did not answer. The wallet tries again on its own and checks where things stand before anything is signed or sent.",
   "op.error.capacity.title": "The relayer is at capacity",
   "op.error.capacity.reason": "It has too many open swap jobs right now. Nothing was sent; try again shortly.",
   "op.error.admin_closed.title": "The relayer is paused by its operator",
@@ -490,29 +519,41 @@ export const en = {
   "op.error.admin_token.title": "The relayer refused the credential",
   "op.error.admin_token.reason": "An operator action was attempted without the right token. Nothing was sent.",
   "op.error.bad_request.title": "The hand-over was refused",
-  "op.error.bad_request.reason": "The executor could not read the signed execution. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
+  "op.error.bad_request.reason":
+    "The executor could not read the signed execution. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.bad_deadlines.title": "The order's deadlines are out of range",
-  "op.error.bad_deadlines.reason": "The executor refused the execution window. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
+  "op.error.bad_deadlines.reason":
+    "The executor refused the execution window. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.deadline_too_close.title": "The signed swap ran out of time before the hand-over",
-  "op.error.deadline_too_close.reason": "The executor sends nothing in the last seconds before a call's deadline. Your funds sit in your one-time escrow; a fresh quote is prepared and checked before anything is signed again.",
+  "op.error.deadline_too_close.reason":
+    "The executor sends nothing in the last seconds before a call's deadline. Your funds sit in your one-time escrow; a fresh quote is prepared and checked before anything is signed again.",
   "op.error.bad_execution.title": "The signed execution does not match the order",
-  "op.error.bad_execution.reason": "The executor refused the execution it was handed. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
+  "op.error.bad_execution.reason":
+    "The executor refused the execution it was handed. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.bad_refund_floors.title": "The refund floors were refused",
-  "op.error.bad_refund_floors.reason": "The executor could not read the re-shield floors. Your funds sit in your one-time escrow; confirm again or return them.",
+  "op.error.bad_refund_floors.reason":
+    "The executor could not read the re-shield floors. Your funds sit in your one-time escrow; confirm again or return them.",
   "op.error.bad_refund_payload.title": "The refund payload was refused",
-  "op.error.bad_refund_payload.reason": "The executor could not read the committed refund payload. Your funds sit in your one-time escrow; confirm again or return them.",
+  "op.error.bad_refund_payload.reason":
+    "The executor could not read the committed refund payload. Your funds sit in your one-time escrow; confirm again or return them.",
   "op.error.bad_refund_tokens.title": "The refund tokens were refused",
-  "op.error.bad_refund_tokens.reason": "The executor could not read the tokens a refund may arrive in. Your funds sit in your one-time escrow; confirm again or return them.",
+  "op.error.bad_refund_tokens.reason":
+    "The executor could not read the tokens a refund may arrive in. Your funds sit in your one-time escrow; confirm again or return them.",
   "op.error.bad_signature.title": "The execution signature was refused",
-  "op.error.bad_signature.reason": "The one-time key's signature did not verify at the executor. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
+  "op.error.bad_signature.reason":
+    "The one-time key's signature did not verify at the executor. Your funds sit in your one-time escrow; confirm again with a fresh quote or return them.",
   "op.error.refund_payload_mismatch.title": "The refund payload does not match the order",
-  "op.error.refund_payload_mismatch.reason": "The executor's check of the refund payload failed. Your funds sit in your one-time escrow; confirm again or return them.",
+  "op.error.refund_payload_mismatch.reason":
+    "The executor's check of the refund payload failed. Your funds sit in your one-time escrow; confirm again or return them.",
   "op.error.unsupported_asset.title": "The executor does not handle this asset",
-  "op.error.unsupported_asset.reason": "This relayer's executor cannot run an order in this asset. Your funds sit in your one-time escrow; return them or choose another relayer.",
+  "op.error.unsupported_asset.reason":
+    "This relayer's executor cannot run an order in this asset. Your funds sit in your one-time escrow; return them or choose another relayer.",
   "op.error.minimum_moved.title": "The route now guarantees less than you approved",
-  "op.error.minimum_moved.reason": "The provider's minimum moved below the amount you approved. Nothing was handed over; confirm again against the new minimum or return the funds.",
+  "op.error.minimum_moved.reason":
+    "The provider's minimum moved below the amount you approved. Nothing was handed over; confirm again against the new minimum or return the funds.",
   "op.error.price_guard.title": "The price moved too far from the best route",
-  "op.error.price_guard.reason": "The service's price guard refused this route against the others. Nothing was handed over; confirm again with a fresh quote or return the funds.",
+  "op.error.price_guard.reason":
+    "The service's price guard refused this route against the others. Nothing was handed over; confirm again with a fresh quote or return the funds.",
   "op.error.no_quote.title": "No route is available right now",
   "op.error.no_quote.reason": "No provider quoted this pair and size. Nothing left your protected balance; try again in a moment or change the amount.",
   "op.error.route_filtered.title": "This route was set aside by the risk engine",
@@ -520,15 +561,19 @@ export const en = {
   "op.error.unknown_provider.title": "The provider is not known to the service",
   "op.error.unknown_provider.reason": "The route named a provider the service does not run. Nothing left your protected balance.",
   "op.error.restore_unsigned.title": "The service rebuilds an order only for its own key",
-  "op.error.restore_unsigned.reason": "This wallet's request to rebuild the order was not signed with the order's key. Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
+  "op.error.restore_unsigned.reason":
+    "This wallet's request to rebuild the order was not signed with the order's key. Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
   "op.error.unknown_order.title": "The service no longer knows this order",
-  "op.error.unknown_order.reason": "The order was not found at the service (it may have restarted). Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
+  "op.error.unknown_order.reason":
+    "The order was not found at the service (it may have restarted). Your funds are in your escrow or your protected balance; the wallet resumes from its own journal.",
   "op.error.order_not_prepared.title": "The order was not prepared",
   "op.error.order_not_prepared.reason": "The execution was requested before the order was prepared. Your funds sit in your one-time escrow; confirm again.",
   "op.error.service_rejected.title": "The service refused the request",
-  "op.error.service_rejected.reason": "The swap service rejected this request. Nothing left your protected balance; the details are in the operation's history.",
+  "op.error.service_rejected.reason":
+    "The swap service rejected this request. Nothing left your protected balance; the details are in the operation's history.",
   "op.error.invalid_request.title": "The service could not read the request",
-  "op.error.invalid_request.reason": "The API refused a request it could not read (a missing field or a wrong format). Nothing left your protected balance; get a new quote.",
+  "op.error.invalid_request.reason":
+    "The API refused a request it could not read (a missing field or a wrong format). Nothing left your protected balance; get a new quote.",
   "op.error.user_rejected.title": "You declined in your wallet",
   "op.error.user_rejected.reason": "The connected wallet reported that the request was rejected. Nothing was sent.",
   "op.error.wallet_disconnected.title": "The wallet is disconnected",
@@ -536,57 +581,78 @@ export const en = {
   "op.error.chain_mismatch.title": "The wallet is on another network",
   "op.error.chain_mismatch.reason": "The connected wallet is not on this deployment's network. Nothing was sent; switch the network and confirm again.",
   "op.error.account_changed.title": "The connected wallet changed accounts",
-  "op.error.account_changed.reason": "The connected wallet now uses another account than the one this was read for, so nothing was sent. Read it again for this account.",
+  "op.error.account_changed.reason":
+    "The connected wallet now uses another account than the one this was read for, so nothing was sent. Read it again for this account.",
   "op.error.rpc_disagreement.title": "The RPC endpoints disagree",
-  "op.error.rpc_disagreement.reason": "Your endpoints returned different views of the chain, so the wallet refused to act on either. Nothing was sent; check the endpoints in Advanced settings.",
+  "op.error.rpc_disagreement.reason":
+    "Your endpoints returned different views of the chain, so the wallet refused to act on either. Nothing was sent; check the endpoints in Advanced settings.",
   "op.error.receipt_disputed.title": "Your RPC endpoints disagree about this transaction",
-  "op.error.receipt_disputed.reason": "One endpoint reports another outcome than the others. We're checking where your funds are: nothing is sent again until they agree.",
+  "op.error.receipt_disputed.reason":
+    "One endpoint reports another outcome than the others. We're checking where your funds are: nothing is sent again until they agree.",
   "op.error.transport_refused.title": "A request to an unknown host was refused",
   "op.error.transport_refused.reason": "The wallet only talks to this deployment's endpoints. Nothing was sent.",
   "op.error.order_mismatch.title": "The service's order did not match your request",
-  "op.error.order_mismatch.reason": "The swap service returned an order with a different destination, amount or deadline than you asked for, so the wallet did not use it. Nothing left your protected balance.",
+  "op.error.order_mismatch.reason":
+    "The swap service returned an order with a different destination, amount or deadline than you asked for, so the wallet did not use it. Nothing left your protected balance.",
   "op.error.provider_call_mismatch.title": "The provider call did not match your request",
-  "op.error.provider_call_mismatch.reason": "The call the service built does not do what you asked, so the wallet did not sign it. Your funds sit in your one-time escrow; confirm again or return them.",
+  "op.error.provider_call_mismatch.reason":
+    "The call the service built does not do what you asked, so the wallet did not sign it. Your funds sit in your one-time escrow; confirm again or return them.",
   "op.error.guest_instruction_mismatch.title": "The deposit instruction did not match",
   "op.error.guest_instruction_mismatch.reason": "The instruction the service gave does not match your request, so it was not shown. Nothing was sent.",
   "op.error.housekeeping_needed.title": "Your balance needs consolidating first",
   "op.error.deployment_mismatch.title": "This app does not match the deployed protocol",
-  "op.error.deployment_mismatch.reason": "The contracts on this network are not the ones this app was built for, or not the ones this wallet saw before. Nothing was sent. Update the app; under More → Advanced you can choose to accept the deployment it names.",
+  "op.error.deployment_mismatch.reason":
+    "The contracts on this network are not the ones this app was built for, or not the ones this wallet saw before. Nothing was sent. Update the app; under More → Advanced you can choose to accept the deployment it names.",
   "op.error.execution_unavailable.title": "The route cannot execute right now",
-  "op.error.execution_unavailable.reason": "Its check before the hand-over failed, so nothing was handed over. Your funds wait in your one-time escrow: try again with a fresh quote, or return them to your protected balance.",
+  "op.error.execution_unavailable.reason":
+    "Its check before the hand-over failed, so nothing was handed over. Your funds wait in your one-time escrow: try again with a fresh quote, or return them to your protected balance.",
   "op.error.relayer_not_ready.title": "The relayer is not set up for this swap",
-  "op.error.relayer_not_ready.reason": "The relayer that would carry out this swap does not run the swap service's orders, so we stopped it before funding. Nothing left your protected balance. Check the relayer in Settings, or try again later.",
+  "op.error.relayer_not_ready.reason":
+    "The relayer that would carry out this swap does not run the swap service's orders, so we stopped it before funding. Nothing left your protected balance. Check the relayer in Settings, or try again later.",
   "op.error.service_key_changed.title": "The swap service changed its key since you confirmed this swap",
-  "op.error.service_key_changed.reason": "This swap was confirmed under a key the swap service no longer accepts, so we stopped it before funding. Nothing left your protected balance. Review the swap again for a new confirmation.",
+  "op.error.service_key_changed.reason":
+    "This swap was confirmed under a key the swap service no longer accepts, so we stopped it before funding. Nothing left your protected balance. Review the swap again for a new confirmation.",
   "op.error.older_notes_unavailable.title": "Your older funds no longer cover this swap",
-  "op.error.older_notes_unavailable.reason": "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
+  "op.error.older_notes_unavailable.reason":
+    "It was to be paid from funds you protected earlier. They were spent or no longer cover it with its fees, so we stopped it before funding. Review the swap again.",
   "op.error.interrupted.title": "Stopped before anything was sent",
   "op.error.interrupted.reason": "The page was closed or reloaded before it was sent. Nothing moved: start it again.",
   "op.error.journal_unreadable.title": "Swaps wait for your activity record",
-  "op.error.journal_unreadable.reason": "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
+  "op.error.journal_unreadable.reason":
+    "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "It was sent but dropped before it was mined, so nothing moved. Send it again.",
   "op.error.payout_held.title": "The recipient's address did not take the payment",
-  "op.error.payout_held.reason": "The funds left your protected balance, but the address refused them, so the vault holds them for it. They can be claimed to that address later; an address that can never accept them leaves them there.",
+  "op.error.payout_held.reason":
+    "The funds left your protected balance, but the address refused them, so the vault holds them for it. They can be claimed to that address later; an address that can never accept them leaves them there.",
   "op.error.not_this_spend.title": "We're checking where this transaction went",
-  "op.error.not_this_spend.reason": "The transaction we were given back does not spend these funds. Nothing is counted as sent: the wallet reads the chain to find out.",
+  "op.error.not_this_spend.reason":
+    "The transaction we were given back does not spend these funds. Nothing is counted as sent: the wallet reads the chain to find out.",
   "op.error.no_relayer.title": "No relayer could take this transaction",
-  "op.error.no_relayer.reason": "None of the relayers in Settings answered for this asset, so nothing was sent. Check the relayer in Settings, or try again later.",
+  "op.error.no_relayer.reason":
+    "None of the relayers in Settings answered for this asset, so nothing was sent. Check the relayer in Settings, or try again later.",
   "op.error.verification_failed.title": "We couldn't verify the network",
-  "op.error.verification_failed.reason": "Before every transaction the wallet checks the pool against Ethereum itself. That check did not pass, so nothing was sent. Try again in a moment; if it keeps failing, check the endpoints in Advanced settings.",
+  "op.error.verification_failed.reason":
+    "Before every transaction the wallet checks the pool against Ethereum itself. That check did not pass, so nothing was sent. Try again in a moment; if it keeps failing, check the endpoints in Advanced settings.",
   "op.error.funding_unconfirmed.title": "The swap stopped: its funding was never confirmed",
-  "op.error.funding_unconfirmed.reason": "Its funding was sent but never landed, and a funding is never sent twice on its own. Your funds are still in your protected balance. Review the swap again.",
+  "op.error.funding_unconfirmed.reason":
+    "Its funding was sent but never landed, and a funding is never sent twice on its own. Your funds are still in your protected balance. Review the swap again.",
   "op.error.unsafe_contract_call.title": "We stopped this transaction",
-  "op.error.unsafe_contract_call.reason": "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
+  "op.error.unsafe_contract_call.reason":
+    "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
   "op.error.execution_window_closed.title": "The swap ran out of time",
-  "op.error.execution_window_closed.reason": "Its window to execute closed before it was signed and handed over, so nothing was swapped. Your funds wait in your one-time escrow; return them to your protected balance.",
-  "op.error.housekeeping_needed.reason": "This amount is spread over more notes than one spend can merge. Nothing was sent; run Private balance maintenance, then confirm again.",
+  "op.error.execution_window_closed.reason":
+    "Its window to execute closed before it was signed and handed over, so nothing was swapped. Your funds wait in your one-time escrow; return them to your protected balance.",
+  "op.error.housekeeping_needed.reason":
+    "This amount is spread over more notes than one spend can merge. Nothing was sent; run Private balance maintenance, then confirm again.",
   "op.error.insufficient_balance.title": "Not enough protected balance",
   "op.error.insufficient_balance.reason": "The amount plus the fees of the merges it needs exceeds your protected balance. Nothing was sent.",
   "op.error.wallet_insufficient_funds.title": "Not enough in your wallet",
-  "op.error.wallet_insufficient_funds.reason": "Your connected wallet does not hold the amount plus its network fee. Nothing was sent; lower the amount or add funds.",
+  "op.error.wallet_insufficient_funds.reason":
+    "Your connected wallet does not hold the amount plus its network fee. Nothing was sent; lower the amount or add funds.",
   "op.error.relayer_unreachable.title": "The relayer could not be reached",
-  "op.error.relayer_unreachable.reason": "The proof was ready but the relayer did not answer. The wallet checks the chain for the transaction before anything is sent again.",
+  "op.error.relayer_unreachable.reason":
+    "The proof was ready but the relayer did not answer. The wallet checks the chain for the transaction before anything is sent again.",
   "op.error.quote_expired.title": "The quote expired",
   "op.error.quote_expired.reason": "The terms are older than this operation allows. Nothing was sent; a fresh quote is needed.",
   "op.error.order_expired.title": "The order expired before it was funded",
@@ -600,19 +666,24 @@ export const en = {
   "op.error.tracker_unknown.title": "Reconnecting to the settlement tracker",
   "op.error.tracker_unknown.reason": "The last settlement read failed. The wallet reads again; nothing is sent in the meantime.",
   "op.error.provider_timeout.title": "The execution window closed",
-  "op.error.provider_timeout.reason": "The provider did not execute in time. Your funds return to your protected balance from the escrow after the refund time.",
+  "op.error.provider_timeout.reason":
+    "The provider did not execute in time. Your funds return to your protected balance from the escrow after the refund time.",
   "op.error.destination_failed.title": "The provider could not deliver",
-  "op.error.destination_failed.reason": "The destination transaction failed. Your funds return to your protected balance from the escrow after the refund time.",
+  "op.error.destination_failed.reason":
+    "The destination transaction failed. Your funds return to your protected balance from the escrow after the refund time.",
   "op.error.execute_failed.title": "The execution failed",
-  "op.error.execute_failed.reason": "The executor's transaction failed; your funds sit in your one-time escrow. Confirm again with a fresh quote, or return them to your protected balance.",
+  "op.error.execute_failed.reason":
+    "The executor's transaction failed; your funds sit in your one-time escrow. Confirm again with a fresh quote, or return them to your protected balance.",
   "op.error.refund_failed.title": "The return to your balance failed",
   "op.error.refund_failed.reason": "The executor's re-shield transaction failed. The wallet checks the escrow and offers the refund again.",
   "op.error.partial_delivery.title": "Delivered in part",
-  "op.error.partial_delivery.reason": "Part of the amount arrived at the destination; the remainder came back to the escrow and returns to your protected balance.",
+  "op.error.partial_delivery.reason":
+    "Part of the amount arrived at the destination; the remainder came back to the escrow and returns to your protected balance.",
   "op.error.needs_attention.title": "This operation needs attention",
   "op.error.needs_attention.reason": "The tracker could not settle where the funds are. The wallet keeps checking; a refund can be started.",
   "op.error.late_refund.title": "Your funds came back",
-  "op.error.late_refund.reason": "The provider returned this swap's funds late, after the executor had stopped watching for them. They wait in your one-time escrow: return them to your protected balance.",
+  "op.error.late_refund.reason":
+    "The provider returned this swap's funds late, after the executor had stopped watching for them. They wait in your one-time escrow: return them to your protected balance.",
   "op.error.price_deviation.title": "Paused: the price moved",
   "op.error.price_deviation.reason": "The rate left the bounds you confirmed. The steps already handed over finish; the rest waits for a fresh quote.",
   "op.error.provider_error.title": "Paused: the provider failed",
@@ -714,28 +785,36 @@ export const en = {
   "dest.groups.hint0x": "Re-type the address group by group, reading it from where you got it (not from this screen): {n} groups of {size} after 0x.",
   "dest.groups.check": "Check the groups",
   "dest.groups.differ": "One or more groups differ from the address in the book. Compare them with the source before you continue.",
-  "dest.signed.hintEvm": "Sign this exact text with the key of the destination ({method}) and paste the signature. Nothing is sent anywhere: the signature is checked here.",
-  "dest.signed.hintSolana": "Sign this exact text with the key of the destination (an {method} signature of the text) and paste the signature. Nothing is sent anywhere: the signature is checked here.",
+  "dest.signed.hintEvm":
+    "Sign this exact text with the key of the destination ({method}) and paste the signature. Nothing is sent anywhere: the signature is checked here.",
+  "dest.signed.hintSolana":
+    "Sign this exact text with the key of the destination (an {method} signature of the text) and paste the signature. Nothing is sent anywhere: the signature is checked here.",
   "dest.signed.placeholderEvm": "0x… (65 bytes)",
   "dest.signed.placeholderSolana": "base58 or hex (64 bytes)",
   "dest.signed.check": "Check the signature",
   "dest.signed.wrong": "The signature does not come from this address.",
-  "dest.test.warning": "⚠ This test creates public transaction metadata: the amount, the address and the time become visible on the public side. Prefer the signed message when the destination can sign.",
+  "dest.test.warning":
+    "⚠ This test creates public transaction metadata: the amount, the address and the time become visible on the public side. Prefer the signed message when the destination can sign.",
   "dest.test.cost": "Sends {amount} {symbol} from your private balance to {address}.",
-  "dest.test.costFees": "Sends {amount} {symbol} from your private balance to {address}: {total} {symbol} leaves it, {fee} of that the relayer's charge and the privacy fee.",
+  "dest.test.costFees":
+    "Sends {amount} {symbol} from your private balance to {address}: {total} {symbol} leaves it, {fee} of that the relayer's charge and the privacy fee.",
   "dest.test.send": "Send the test transaction",
   "dest.test.sending": "Sending the test transaction…",
   "dest.test.noDeployment": "No deployment configured.",
   "dest.test.notEnough": "Not enough {symbol} in your private balance for the test and its fees.",
   "dest.test.sent": "Sent {amount} {symbol} (tx {hash}…). Check that it arrived where you expect; the address counts as verified.",
-  "dest.override.intro": "The cooling-off protects you from an address that was swapped under your eyes: an immediate use needs the phrase {phrase}, a hold and your second confirmation.",
-  "dest.override.introDevice": "The cooling-off protects you from an address that was swapped under your eyes: an immediate use needs the phrase {phrase}, a hold and your separate device.",
-  "dest.override.noDevice": "An immediate use at this size needs the separate device registered under Settings → Protected execution; there is no password fallback.",
+  "dest.override.intro":
+    "The cooling-off protects you from an address that was swapped under your eyes: an immediate use needs the phrase {phrase}, a hold and your second confirmation.",
+  "dest.override.introDevice":
+    "The cooling-off protects you from an address that was swapped under your eyes: an immediate use needs the phrase {phrase}, a hold and your separate device.",
+  "dest.override.noDevice":
+    "An immediate use at this size needs the separate device registered under Settings → Protected execution; there is no password fallback.",
   "dest.override.deviceDeclined": "The separate device did not confirm.",
   "dest.override.passwordDeclined": "Second confirmation: the authenticator did not confirm; enter your wallet password.",
   "dest.override.passwordNone": "Second confirmation: no authenticator is registered; enter your wallet password.",
   "dest.override.done": "Immediate use confirmed and journaled; the cooling-off no longer applies to this address.",
-  "book.intro": "Destinations of large payments are verified here, wait 24 hours after they are added unless you confirm an immediate use, and are then approved for large payments by you; an approval unused for 90 days is checked again before the next large payment. Fresh addresses of this wallet are verified by derivation and retire after one use. The book never leaves this device.",
+  "book.intro":
+    "Destinations of large payments are verified here, wait 24 hours after they are added unless you confirm an immediate use, and are then approved for large payments by you; an approval unused for 90 days is checked again before the next large payment. Fresh addresses of this wallet are verified by derivation and retire after one use. The book never leaves this device.",
   "book.empty": "No entries yet.",
   "book.noLabel": "(no label)",
   "book.freshLabel": "Fresh address #{n}",
@@ -783,7 +862,8 @@ export const en = {
   "lint.dest-public-wallet": "The destination is your connected public wallet: this payment and your public history become one.",
   "lint.dest-not-public-wallet": "The destination is not your connected public wallet.",
   "lint.link-unknown": "What the route publishes is known once a route is chosen.",
-  "lint.link-public": "This route settles publicly: the destination amount will be visible. Your private source stays protected, but timing and amount may be correlated.",
+  "lint.link-public":
+    "This route settles publicly: the destination amount will be visible. Your private source stays protected, but timing and amount may be correlated.",
   "lint.link-private": "The route keeps the escrow → destination link off public chains.",
   "lint.identity-unknown": "Quote requests carry no identity; the chosen provider learns the destination only at execution.",
   "lint.identity-detached": "Indicative quotes carried placeholders; only the chosen provider sees your fresh address.",
@@ -905,7 +985,8 @@ export const en = {
   "destCard.entered": "Entered by hand: check every group before you confirm.",
   "destCard.privacy": "A privacy address: the payment stays inside the pool.",
   "op.error.recipient_refused.title": "This address cannot receive",
-  "op.error.recipient_refused.reason": "It is the zero address, a burn address, or a contract of this wallet's protocol or of a token: what is sent to it cannot come back. Nothing was sent.",
+  "op.error.recipient_refused.reason":
+    "It is the zero address, a burn address, or a contract of this wallet's protocol or of a token: what is sent to it cannot come back. Nothing was sent.",
   "send.notEnough": "Not enough {symbol} in your protected balance.",
   "send.backToReview": "Back to review",
   "send.edit": "Edit",
@@ -973,8 +1054,10 @@ export const en = {
   "receive.new": "New address",
   "receive.yourAddress": "Your address",
   "receive.generate": "Generate a private receiving address",
-  "fresh.unreadable": "A new address waits for your activity record: it could not be read, so an address reserved now would be handed out again after the next lock. Restore a backup, or set the record aside, first.",
-  "fresh.notKept": "A new address waits for a browser that keeps your data: this one is not keeping the wallet's data, so an address reserved now would be handed out again once this tab closes. Free some space, or use a browser that keeps site data.",
+  "fresh.unreadable":
+    "A new address waits for your activity record: it could not be read, so an address reserved now would be handed out again after the next lock. Restore a backup, or set the record aside, first.",
+  "fresh.notKept":
+    "A new address waits for a browser that keeps your data: this one is not keeping the wallet's data, so an address reserved now would be handed out again once this tab closes. Free some space, or use a browser that keeps site data.",
   // V5 Stage 8: the Review, the Swap screen, the protected execution's progress and wizard, the recovery screen
   "review.moment.commit.title": "Review the swap",
   "review.moment.commit.what": "Confirming commits the order and schedules the private withdrawal that funds its one-time escrow.",
@@ -989,10 +1072,12 @@ export const en = {
   "review.moment.withdraw.what": "Confirming proves and submits the withdrawal to the public address below. It cannot be undone.",
   "review.moment.withdraw.button": "Confirm and withdraw",
   "review.moment.campaign.title": "Review the protected swap",
-  "review.moment.campaign.what": "Confirming starts the protected execution: the order runs as steps under the exposure cap, each funded from your private balance into its own one-time escrow and handed over only when the previous step settled. Steps already handed over cannot be undone.",
+  "review.moment.campaign.what":
+    "Confirming starts the protected execution: the order runs as steps under the exposure cap, each funded from your private balance into its own one-time escrow and handed over only when the previous step settled. Steps already handed over cannot be undone.",
   "review.moment.campaign.button": "Confirm and start the protected execution",
   "review.moment.reroute.title": "Review the new route",
-  "review.moment.reroute.what": "The route changed while the operation was paused. Confirming continues the remaining steps on the new route under the same bounds you approved.",
+  "review.moment.reroute.what":
+    "The route changed while the operation was paused. Confirming continues the remaining steps on the new route under the same bounds you approved.",
   "review.moment.reroute.button": "Confirm the new route",
   "review.from": "From",
   "review.receiveAtLeast": "Receive at least",
@@ -1031,7 +1116,8 @@ export const en = {
   "review.protection.elpf": "Expected loss per failure",
   "review.protection.concentration": "Concentration",
   "review.protection.alternative": "Alternative",
-  "review.tradeCheck.hint": "A sanitized summary goes to your private AI session: assets, rounded amounts, the route, the competition, the privacy check — no address",
+  "review.tradeCheck.hint":
+    "A sanitized summary goes to your private AI session: assets, rounded amounts, the route, the competition, the privacy check — no address",
   "review.tradeCheck.button": "Check this trade",
   "review.tradeCheck.disclaimer": "Private AI (it recommends and warns; it signs nothing and changes nothing)",
   "review.tradeCheck.bestRoute": "Best route",
@@ -1040,7 +1126,8 @@ export const en = {
   "review.tradeCheck.privacy": "Privacy",
   "review.tradeCheck.execution": "Execution",
   "review.tradeCheck.risk": "Risk",
-  "review.reviewHold": "Review hold: after you confirm, the funding waits at least {minutes} minutes and the order can be cancelled meanwhile (Swap → open swaps → Abandon).",
+  "review.reviewHold":
+    "Review hold: after you confirm, the funding waits at least {minutes} minutes and the order can be cancelled meanwhile (Swap → open swaps → Abandon).",
   "review.export": "Export for review (JSON)",
   "review.factor.next": "{button} (second confirmation next)",
   "review.device.next": "{button} (separate device next)",
@@ -1050,7 +1137,8 @@ export const en = {
   "review.factor.passwordNoAuthenticator": "Second confirmation: no authenticator is registered (Settings); enter your wallet password.",
   "review.factor.passwordLabel": "Wallet password",
   "review.factor.confirmWithPassword": "Confirm with the password",
-  "review.device.missing": "Operations at this size need a confirmation from a separate device (a security key or a phone), and there is no password fallback for it. Register one under Settings → Protected execution.",
+  "review.device.missing":
+    "Operations at this size need a confirmation from a separate device (a security key or a phone), and there is no password fallback for it. Register one under Settings → Protected execution.",
   "review.device.unavailable": "This browser cannot ask the separate device; the operation is not confirmed.",
   "review.device.declined": "The separate device did not confirm. There is no password fallback at this size.",
   "review.device.asking": "Confirm on your separate device…",
@@ -1080,14 +1168,16 @@ export const en = {
   "campaign.inProgress": "In progress",
   "campaign.protected": "Protected (never exposed at once)",
   "campaign.remaining": "Remaining",
-  "campaign.capSentence": "At most {cap} is ever outside your private balance and unsettled at one time ({percent} % of the order); {concurrency}; every step is funded from your private balance into its own one-time escrow.",
+  "campaign.capSentence":
+    "At most {cap} is ever outside your private balance and unsettled at one time ({percent} % of the order); {concurrency}; every step is funded from your private balance into its own one-time escrow.",
   "campaign.oneAtATime": "one step at a time",
   "campaign.upTo": "up to {n} steps at a time",
   "campaign.routeHealthy": "Route healthy",
   "campaign.destinationVerified": "Destination verified",
   "campaign.pausedTitle": "Paused — {title}",
   "campaign.stepWord": "step {n}",
-  "campaign.resumeNote": "Resuming checks the facts again, quotes the remaining amount again, and asks you to review the route if it changed. Steps already handed over continue meanwhile.",
+  "campaign.resumeNote":
+    "Resuming checks the facts again, quotes the remaining amount again, and asks you to review the route if it changed. Steps already handed over continue meanwhile.",
   "campaign.rerouteTitle": "The route changed to {provider}.",
   "campaign.rerouteNote": "A route change on a large operation is reviewed, never adopted quietly. The steps already handed over continue.",
   "campaign.pause": "Pause",
@@ -1140,7 +1230,8 @@ export const en = {
   "wizard.revealsFresh": "its own fresh address",
   "wizard.everyStepPays": "Every step pays",
   "wizard.firstStepPays": "The first step pays",
-  "wizard.enteredNote": "An entered address: every step pays this one address, which links the steps on the destination side. The format parses; check every group before you continue.",
+  "wizard.enteredNote":
+    "An entered address: every step pays this one address, which links the steps on the destination side. The format parses; check every group before you continue.",
   "wizard.freshNote": "Each step pays its own fresh address of this wallet, reserved when the step starts; nothing links the steps on the destination side.",
   "wizard.checked": "checked",
   "wizard.verifyFirst": "Verify the destination in your address book first",
@@ -1172,7 +1263,8 @@ export const en = {
   "swap.bridgeWrapped": "wrapped leg",
   "swap.planParts": "{parts} parts over ~{time}",
   "swap.refundAtDestination": "a failure refunds at the destination, not to the pool",
-  "swap.linkPublic": "the provider publishes the escrow → destination link (harmless: your escrow was funded privately; this swap is as private as your pool withdrawal)",
+  "swap.linkPublic":
+    "the provider publishes the escrow → destination link (harmless: your escrow was funded privately; this swap is as private as your pool withdrawal)",
   "swap.linkEvidence": "link: {evidence}",
   "swap.notSelectable": "not selectable: {reason}",
   "swap.scoreLine": "score {total} (price {price}, security {security}, latency {latency}, reliability {reliability}, liquidity {liquidity})",
@@ -1275,7 +1367,8 @@ export const en = {
   "swap.useBucket": "Use {amount} {symbol} (a public bucket; the rest stays private)",
   "swap.chooseLarger": "Choose a larger amount.",
   "swap.largeFailSafe": "No price is available, so this swap is treated as a large transfer: ",
-  "swap.largeNotice": "the route must be confirmed by two live quotes or acknowledged, the price guard tightens, and the review steps of a large transfer apply.",
+  "swap.largeNotice":
+    "the route must be confirmed by two live quotes or acknowledged, the price guard tightens, and the review steps of a large transfer apply.",
   "swap.receiveAtOwn": "Receive at (your own address)",
   "swap.receiveAtFresh": "Receive at (a fresh address of this wallet, reserved when you confirm)",
   "swap.destinationPlaceholder": "fresh address",
@@ -1294,7 +1387,8 @@ export const en = {
   "swap.destinationVerified": "Destination verified",
   "swap.routeHealthy": "Route healthy",
   "swap.protectionLine": "Protected execution: about {steps} steps of ≈ {piece} · {concurrency} · at most {cap} at risk · about {duration}.",
-  "swap.protectionOff": "Protected execution is off (Settings → Protected execution): this order would run as one execution, the whole amount at one provider at once.",
+  "swap.protectionOff":
+    "Protected execution is off (Settings → Protected execution): this order would run as one execution, the whole amount at one provider at once.",
   "swap.onlyOneQuoted": "Only one provider answered for this size; the route cannot be compared with another live quote.",
   "swap.noRoute": "No route available right now",
   "swap.yourProtectedSwaps": "Your protected swaps",
@@ -1324,7 +1418,8 @@ export const en = {
   "order.returnHint": "The order is not executed; its escrow re-shields into your private balance once the window opens",
   "order.return": "Return to my private balance",
   "order.priceMoved": "The price moved. This route now guarantees at least {min}; you approved {approved} (−{drop} %). Nothing has been signed.",
-  "order.priceMovedNote": "Confirm at the new minimum, or wait and confirm later against a fresh quote. Nothing returns on its own: the funds wait in the order's one-time escrow until you confirm or return them, and a return reaches your private balance after {time}.",
+  "order.priceMovedNote":
+    "Confirm at the new minimum, or wait and confirm later against a fresh quote. Nothing returns on its own: the funds wait in the order's one-time escrow until you confirm or return them, and a return reaches your private balance after {time}.",
   "order.confirmNewMinimum": "Confirm at the new minimum",
   "order.returnInstead": "Return it to my private balance instead",
   "order.checked": "Checked by this wallet before signing: pays your fresh address{minimum}; {refund}.",
@@ -1345,12 +1440,15 @@ export const en = {
   "order.execution": "execution {hash}",
   "order.refreshNote": "refreshed every 15 s while this screen is open.",
   "order.handedRefundDestination": "Handed to the provider. If it cannot deliver, it refunds at your fresh address on the destination chain, not to the pool.",
-  "order.handedRefundPool": "Handed to the provider. If it cannot deliver, it refunds the escrow, and the executor re-shields that into your private balance when it arrives within its watch (by default a day after {time}). An amount too small to be worth a re-shield is left in the escrow, where anyone can re-shield it.",
-  "order.refundOnly": "Returning to your private balance: the escrow re-shields as your pre-committed note after {time}; it is added to your private balance when the executor reports it.",
+  "order.handedRefundPool":
+    "Handed to the provider. If it cannot deliver, it refunds the escrow, and the executor re-shields that into your private balance when it arrives within its watch (by default a day after {time}). An amount too small to be worth a re-shield is left in the escrow, where anyone can re-shield it.",
+  "order.refundOnly":
+    "Returning to your private balance: the escrow re-shields as your pre-committed note after {time}; it is added to your private balance when the executor reports it.",
   "op.error.quote_ttl_short.title": "The quote is about to expire",
   "op.error.quote_ttl_short.reason": "A protected execution needs at least a minute left on the hard quote. Nothing was handed over; a fresh quote is needed.",
   "op.error.provider_unhealthy.title": "The route is not healthy right now",
-  "op.error.provider_unhealthy.reason": "The provider's breaker is open, its security score is low or it had an incident within a day. Nothing was handed over; the next route is quoted.",
+  "op.error.provider_unhealthy.reason":
+    "The provider's breaker is open, its security score is low or it had an incident within a day. Nothing was handed over; the next route is quoted.",
   "op.error.slippage_too_wide.title": "The quote's minimum is too far below its estimate",
   "op.error.slippage_too_wide.reason": "A protected execution caps the slippage at 0.5 %. Nothing was handed over; a fresh quote is needed.",
   // V5 Stage 9: the Activity list and the operation's detail
@@ -1414,10 +1512,12 @@ export const en = {
   "security.backupStatus": "Recovery backup",
   "security.backedUp": "✓ Recovery backup created · {date}",
   "security.notBackedUp": "Not backed up yet",
-  "security.backupBody": "The backup file holds your keystore and your encrypted journal (notes, orders, activity, settings). It opens only with your password. The 24-word phrase restores the keys anywhere; the notes then come back with a rescan.",
+  "security.backupBody":
+    "The backup file holds your keystore and your encrypted journal (notes, orders, activity, settings). It opens only with your password. The 24-word phrase restores the keys anywhere; the notes then come back with a rescan.",
   "security.showPhrase": "Show recovery phrase",
   "security.autoLock.title": "Auto-lock",
-  "security.autoLock.body": "The wallet locks after this long without activity, and 5 minutes after you leave the tab. It waits while a transaction is being signed or sent.",
+  "security.autoLock.body":
+    "The wallet locks after this long without activity, and 5 minutes after you leave the tab. It waits while a transaction is being signed or sent.",
   "security.autoLock.minutes": "{n} min",
   "security.lock": "Lock",
   "security.phrase.password": "Your password",
@@ -1425,7 +1525,8 @@ export const en = {
   "security.phrase.wrongPassword": "That password did not open the wallet.",
   "security.phrase.note": "Write the 24 words down and keep them off this device; anyone holding them holds the wallet.",
   "security.factor.title": "Second confirmation",
-  "security.factor.body": "Above the second-confirmation threshold a transfer asks this device to verify you — Face ID, Touch ID or Windows Hello — before it is sent. It gates the action and holds no key; your wallet password is always the fallback.",
+  "security.factor.body":
+    "Above the second-confirmation threshold a transfer asks this device to verify you — Face ID, Touch ID or Windows Hello — before it is sent. It gates the action and holds no key; your wallet password is always the fallback.",
   "security.factor.authenticator": "Authenticator",
   "security.factor.registeredHere": "registered on this device",
   "security.factor.notRegistered": "not registered (the password is asked instead)",
@@ -1436,7 +1537,8 @@ export const en = {
   "security.factor.registered": "Registered. Transfers above the second-confirmation threshold ask the authenticator first; your password stays the fallback.",
   "security.factor.removed": "Removed; the password is asked instead.",
   "security.tiers.title": "Large transfers",
-  "security.tiers.body": "Above these USD values the wallet adds a review, a privacy check, a simulation, a hold to confirm and a second confirmation, in that order. Values come from Chainlink through your own RPC endpoints; when no price is available the high-value controls apply.",
+  "security.tiers.body":
+    "Above these USD values the wallet adds a review, a privacy check, a simulation, a hold to confirm and a second confirmation, in that order. Values come from Chainlink through your own RPC endpoints; when no price is available the high-value controls apply.",
   "security.tiers.reset": "Reset to defaults",
   "security.tier.large": "Review from (USD)",
   "security.tier.largeProtected": "Protected execution from (USD)",
@@ -1445,7 +1547,8 @@ export const en = {
   "security.tier.highValueSecondary": "Second confirmation from (USD)",
   "security.tier.institutional": "Institutional review from (USD)",
   "security.forget.title": "Forget this wallet on this device",
-  "security.forget.body": "Removes the keystore and the encrypted journal from this device. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
+  "security.forget.body":
+    "Removes the keystore and the encrypted journal from this device. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
   "security.forget.open": "Forget this wallet…",
   "security.forget.typeWord": "Type FORGET",
   "security.forget.confirm": "Forget this wallet",
@@ -1463,11 +1566,12 @@ export const en = {
   "wallet.switch": "Switch network",
   "wallet.disconnect": "Disconnect",
   "wallet.connectionNote": "The public wallet pays deposits and signs nothing else; it never sees your protected balance.",
-  "wallet.preference.title": "Trade preference",
-  "wallet.preference.body": "How swaps choose their route and when they are funded. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
+  "wallet.preference.body":
+    "How swaps choose their route and when they are funded. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
   "wallet.preference.fundedWithin": "funded within {window}",
   "wallet.allowances.title": "Token allowances",
-  "wallet.allowances.body": "A deposit approves the exact amount; what a failed deposit left behind can be revoked here. Read through the connected wallet's own provider, never this wallet's endpoints.",
+  "wallet.allowances.body":
+    "A deposit approves the exact amount; what a failed deposit left behind can be revoked here. Read through the connected wallet's own provider, never this wallet's endpoints.",
   "wallet.allowances.read": "Read allowances",
   "wallet.allowances.line": "{symbol} → its vault",
   "wallet.allowances.router": "{symbol} → the protect router",
@@ -1499,41 +1603,47 @@ export const en = {
   "advanced.feeCap": "Daily fee cap (ETH)",
   "advanced.feeCapNote": "Each maintenance transaction pays the relayer a private fee; the cap bounds what a day may spend on it.",
   "advanced.protection.title": "Protected execution",
-  "advanced.protection.body": "A large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your protected balance and unsettled at any time. The mode sets the fraction, the sizes and the pace; the wallet chooses the pieces.",
+  "advanced.protection.body":
+    "A large swap runs as steps, each from its own one-time escrow, with at most a small fraction of the order outside your protected balance and unsettled at any time. The mode sets the fraction, the sizes and the pace; the wallet chooses the pieces.",
   "advanced.protection.enabled": "Use protected execution for large orders (from $1M; from $100K when the route is thin or when you ask)",
   "advanced.protection.offWarningTitle": "Changing this can reduce protection.",
-  "advanced.protection.offWarning": "With protected execution off, a large order runs as one execution: the whole amount sits with one provider at once, and a provider failure can reach all of it instead of a small fraction.",
+  "advanced.protection.offWarning":
+    "With protected execution off, a large order runs as one execution: the whole amount sits with one provider at once, and a provider failure can reach all of it instead of a small fraction.",
   "advanced.protection.offConfirm": "I understand, turn it off",
   "advanced.protection.keepOn": "Keep it on",
   "advanced.protection.offNotice": "Protected execution is off: large orders run as one execution. Turn it back on above.",
   "advanced.protection.fromEnhanced": "Protect every order from $100K (steps of at most 5 % at a time), not only when the route is thin or unreliable",
   "advanced.protection.modeLine": "at most {cap} % exposed",
   "advanced.protection.exposure": "Exposure fraction (% of the order outside your balance at once, {min}–{max})",
-  "advanced.protection.exposureError": "The exposure fraction stays between {min} % and {max} % of the order; the order's size and the route's risk set the ceiling at confirmation (2.5–3 % from $1M, 1 % on an unknown or high-risk route).",
-  "advanced.protection.pause": "Pause large operations (every protected swap stops releasing steps; steps already handed over finish; the protocol itself never pauses)",
+  "advanced.protection.exposureError":
+    "The exposure fraction stays between {min} % and {max} % of the order; the order's size and the route's risk set the ceiling at confirmation (2.5–3 % from $1M, 1 % on an unknown or high-risk route).",
+  "advanced.protection.pause":
+    "Pause large operations (every protected swap stops releasing steps; steps already handed over finish; the protocol itself never pauses)",
   "advanced.protection.autoReroute": "Adopt a changed route without a new review below the second-confirmation size",
   "advanced.protection.advancedWord": "Advanced.",
   "advanced.protection.advancedNote": "Changing these can reduce protection.",
-  "advanced.protection.concentration": "Provider concentration (% of the order one provider may carry when several quote the size; the service recommends 30; empty for the recommendation)",
+  "advanced.protection.concentration":
+    "Provider concentration (% of the order one provider may carry when several quote the size; the service recommends 30; empty for the recommendation)",
   "advanced.protection.concentrationError": "The concentration stays between 10 % and 100 % of the order per provider.",
   "advanced.protection.velocity": "Velocity limit (USD handed over within any 24 hours; empty for none)",
   "advanced.protection.velocityError": "The velocity limit is a positive USD amount per 24 hours.",
   "advanced.protection.inApp": "In-app notifications about a protected swap (paused, step settled, route changed)",
   "advanced.protection.system": "System notifications while this tab is in the background",
-  "advanced.protection.generic": "Keep system notifications generic (\"Your private operation has updated\"; no amounts)",
+  "advanced.protection.generic": 'Keep system notifications generic ("Your private operation has updated"; no amounts)',
   "advanced.protection.secondDevice": "Second device (institutional size)",
   "advanced.protection.deviceRegistered": "registered",
   "advanced.protection.deviceNotRegistered": "not registered",
   "advanced.protection.deviceUnavailable": "not available in this browser",
   "advanced.protection.registerDevice": "Register a separate device",
   "advanced.protection.removeDevice": "Remove",
-  "advanced.protection.deviceNote": "A security key or a phone confirms an operation at the institutional size after this device did; a compromised phone alone does not reach that size. There is no password fallback for the second device.",
+  "advanced.protection.deviceNote":
+    "A security key or a phone confirms an operation at the institutional size after this device did; a compromised phone alone does not reach that size. There is no password fallback for the second device.",
   "advanced.protection.deviceRegistering": "Registering a separate device (a security key, or a phone over the cross-device flow)…",
-  "advanced.protection.deviceDone": "Registered. Operations at the institutional size ask this device after the second confirmation; there is no password fallback for it.",
+  "advanced.protection.deviceDone":
+    "Registered. Operations at the institutional size ask this device after the second confirmation; there is no password fallback for it.",
   "advanced.protection.deviceRemoved": "Removed. Operations at the institutional size cannot be confirmed until a device is registered again.",
   // More (spec §6): the experience switch
-  "more.experienceTitle": "Experience",
-  "more.experienceToggle": "Show the cryptographic detail (notes, leaves, escrows, scores)",
+  "more.experienceToggle": "Show the cryptographic detail (notes, leaves, the funds in flight, scores)",
   // The Privacy Center (spec §3.13, §15)
   "privacyCenter.networkNote": "The network sees deposits into the pool and withdrawals out of it, never which deposit paid which withdrawal.",
   "privacyCenter.learnMore": "Learn more",
@@ -1557,7 +1667,8 @@ export const en = {
   "privacyCenter.why.financial.unknown": "Unknown until the first sync: the pool's size is what an observer must search, and the wallet has not read it yet.",
   "privacyCenter.why.financial.pool": "The pool holds {notes} notes; with bucketed amounts and your delay window the effective set is about {set}.",
   "privacyCenter.why.financial.inside": "Private transfers inside the pool show nothing but a transaction; only what leaves it has a public side.",
-  "privacyCenter.why.addresses.fresh": "Every withdrawal, swap and receipt uses a fresh address of this wallet; your privacy address is shared only with people who pay you.",
+  "privacyCenter.why.addresses.fresh":
+    "Every withdrawal, swap and receipt uses a fresh address of this wallet; your privacy address is shared only with people who pay you.",
   "privacyCenter.why.addresses.typed": "An address you type by hand is yours to keep separate: the wallet warns when it is reused.",
   "privacyCenter.why.addresses.entered": "Destinations are entered by hand: whoever knows an address knows the payments to it.",
   "privacyCenter.why.network.relayer": "A relayer submits your private transactions and is paid by a private fee note; your address never sends them.",
@@ -1567,13 +1678,17 @@ export const en = {
   "privacyCenter.why.rpc.single": "One endpoint serves every read and could lie or watch; configure two or more.",
   "privacyCenter.why.rpc.lightClient": "An Ethereum light client proves the pool before every transaction.",
   "privacyCenter.why.rpc.noLightClient": "Reads rest on the endpoints' agreement alone (no light client for this chain).",
-  "privacyCenter.why.rpc.reads": "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
+  "privacyCenter.why.rpc.reads":
+    "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
   "privacyCenter.why.timing.immediate": "Your preference acts immediately: funding and acting are linked by time.",
   "privacyCenter.why.timing.window": "Swaps are funded at a random moment inside {from}–{to}; a patient observer still sees when money moves.",
-  "privacyCenter.why.crossChain.escrow": "A swap pays from a one-time escrow to a fresh address of this wallet; the provider never sees your permanent address.",
-  "privacyCenter.why.crossChain.public": "This route publishes the escrow → destination link; your private source stays protected, but timing and amount may be correlated.",
+  "privacyCenter.why.crossChain.escrow":
+    "A swap pays from a one-time escrow to a fresh address of this wallet; the provider never sees your permanent address.",
+  "privacyCenter.why.crossChain.public":
+    "This route publishes the escrow → destination link; your private source stays protected, but timing and amount may be correlated.",
   "privacyCenter.why.crossChain.private": "This route keeps the escrow → destination link off public chains.",
-  "privacyCenter.why.crossChain.default": "A swap pays from a one-time escrow to a fresh address of this wallet; the provider sees the escrow, the destination and the amount, never your permanent address.",
+  "privacyCenter.why.crossChain.default":
+    "A swap pays from a one-time escrow to a fresh address of this wallet; the provider sees the escrow, the destination and the amount, never your permanent address.",
   "privacyCenter.why.crossChain.route": "The route is chosen by its privacy score among live quotes; the Swap screen shows the level of the chosen one.",
   "privacyCenter.hide": "Hide",
   "privacyCenter.limitsTitle": "What this wallet cannot promise",
@@ -1605,7 +1720,8 @@ export const en = {
   "privacyCenter.sent.rpc": "Your RPC endpoints",
   "privacyCenter.sent.rpc.what": "Public chain reads: every event of the pool, never a question about your notes.",
   "privacyCenter.sent.relayer": "The relayer",
-  "privacyCenter.sent.relayer.what": "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",
+  "privacyCenter.sent.relayer.what":
+    "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",
   "privacyCenter.sent.swap-service": "The swap API",
   "privacyCenter.sent.swap-service.what": "A swap's pair and amount for its quotes; at the confirmation the order's one-time signer and its destination.",
   "privacyCenter.sent.beacon": "Beacon nodes (light client)",
@@ -1628,7 +1744,8 @@ export const en = {
   "privacyCenter.apiGroup.progress": "the provider, the state and the settlement",
   "privacyCenter.apiGroup.untilSigned": "the destination and the refund material — only until the order is signed",
   "privacyCenter.apiGroup.record": "when the record was made and last checked",
-  "privacyCenter.apiGroup.execution": "once handed over: the execution's transaction, the provider's reference for it, when it was handed over and its planned time",
+  "privacyCenter.apiGroup.execution":
+    "once handed over: the execution's transaction, the provider's reference for it, when it was handed over and its planned time",
   "privacyCenter.apiGroup.job": "what the relayer last reported of the execution: its state, its transaction and its network cost",
   "privacyCenter.sent.never": "What the swap API never keeps",
   "privacyCenter.never.notes": "your notes",
@@ -1652,14 +1769,17 @@ export const en = {
   "privacyCenter.why.reason.recent": "You protected these funds recently; waiting makes this swap harder to link.",
   "privacyCenter.why.reason.exactAmount": "An exact amount is easier to link than a round one.",
   "whatStaysPrivate.title": "What stays private?",
-  "whatStaysPrivate.private": "Your protected balance, your notes and which deposit paid which withdrawal are not stored as plain public blockchain data. They live encrypted on this device and are proven, not revealed, when you spend.",
+  "whatStaysPrivate.private":
+    "Your protected balance, your notes and which deposit paid which withdrawal are not stored as plain public blockchain data. They live encrypted on this device and are proven, not revealed, when you spend.",
   "whatStaysPrivate.publicTitle": "What stays public",
-  "whatStaysPrivate.public": "Deposits into the pool, withdrawals out of it, their amounts and timing, and every public address you send to. A relayer sees the transaction it submits; your connected wallet sees the deposits it pays.",
+  "whatStaysPrivate.public":
+    "Deposits into the pool, withdrawals out of it, their amounts and timing, and every public address you send to. A relayer sees the transaction it submits; your connected wallet sees the deposits it pays.",
   "whatStaysPrivate.path": "Privacy is a property of the whole path — the amount, the timing, the destination and the network — not of one step.",
   // Classic Privacy (spec §3.14, §16)
   "classic.fixedPool": "A fixed-denomination pool",
   "classic.unavailable": "Classic Privacy is not available in this build yet: its pools arrive once their contracts have been reviewed.",
-  "classic.intro": "Classic Privacy deposits a fixed amount into a pool and withdraws it later to any address, with a note as the only key. It is a separate module: its pools, notes and relayer are its own.",
+  "classic.intro":
+    "Classic Privacy deposits a fixed amount into a pool and withdraws it later to any address, with a note as the only key. It is a separate module: its pools, notes and relayer are its own.",
   "classic.disclosure.fixed": "Deposits are fixed sizes; the pool's size is the whole protection.",
   "classic.disclosure.note": "The note is the only key to the deposit: lose it and the deposit is lost; share it and the deposit is theirs.",
   "classic.disclosure.public": "The deposit and the withdrawal are public transactions; only the link between them is hidden.",
@@ -1721,7 +1841,6 @@ export const en = {
   "classic.relayers.change": "Change",
   // V6 Stage 16: the language picker, the hold's alternative, the desktop Home's columns
   "route.language": "Language",
-  "more.languageWhy": "The wallet's language",
   "language.auto": "Automatic",
   "language.autoWhy": "Your device's language when the wallet has it; English otherwise.",
   "common.confirmWithoutHolding": "Confirm without holding",
@@ -1733,9 +1852,47 @@ export const en = {
   // the wallet's limits (packages/protocol/src/wallet/privacyCenter.ts LIMITS, stated the same way: a test pins them)
   "privacyCenter.limit.deposit": "Adding funds is public by design: the deposit shows your address and its amount; privacy starts with what happens after it.",
   "privacyCenter.limit.ip": "Your IP address is visible to the RPC endpoints and to the relayer; a native app with Tor or a light client is the upgrade.",
-  "privacyCenter.limit.provider": "A swap provider sees the one-time deposit address, the destination and the amount, and some publish that link; your private source stays protected, but timing and amount can be correlated by a patient observer.",
-  "privacyCenter.limit.pool": "The pool is the crowd you hide in: with few notes, or an unusual amount, the effective set is small and the numbers here say so.",
+  "privacyCenter.limit.provider":
+    "A swap provider sees the one-time deposit address, the destination and the amount, and some publish that link; your private source stays protected, but timing and amount can be correlated by a patient observer.",
+  "privacyCenter.limit.pool":
+    "The pool is the crowd you hide in: with few notes, or an unusual amount, the effective set is small and the numbers here say so.",
   "privacyCenter.limit.trace": "Every action here leaves some public trace by construction. Every score is a bound from the privacy lab, not a guarantee.",
+  // V7 Stage 4 (spec v3.0 §2): More = Tornado Classic / Privacy Center / Settings; one Settings page; Connect wallet in the header
+  "route.settings": "Settings",
+  "more.settingsWhy": "Backup, connected wallet, trading, language, experience, notifications",
+  "route.tornadoClassic": "Tornado Classic",
+  "more.tornadoClassicWhy": "The original pools and note format — a separate app, opened in this tab",
+  "settings.section.backup": "Backup & security",
+  "settings.section.wallet": "Connected wallet",
+  "settings.section.trading": "Trading preference",
+  "settings.section.language": "Language",
+  "settings.section.experience": "Experience",
+  "settings.section.notifications": "Notifications",
+  "settings.notificationsBody": "How the wallet tells you about an operation: on the screen, as a system notification, or with the amount left out.",
+  "home.wallet": "Public wallet",
+  "home.receive": "Receive",
+  "wallet.sheet.title": "Connect a wallet",
+  "wallet.sheet.connectedTitle": "Public wallet",
+  "wallet.sheet.none": "No wallet was found in this browser. Install one, or open this page inside a wallet's browser.",
+  "wallet.sheet.via": "Connected through",
+  "wallet.sheet.kind.eip6963": "A wallet in this browser",
+  "wallet.sheet.kind.injected": "The browser's wallet",
+  "wallet.sheet.kind.walletconnect": "A wallet on another device",
+  // V7 Stage 4: the trading preference's words in the catalog (the SDK's PREFERENCE_LABELS said them in English only)
+  "wallet.preference.balanced.label": "Balanced",
+  "wallet.preference.balanced.help":
+    "Privacy, price and time weighed together; funded at a random time within 1–24 h. Large transfers favour privacy and execution quality by themselves.",
+  "wallet.preference.best-privacy.label": "Best privacy",
+  "wallet.preference.best-privacy.help": "The most private route and the longest random delay (6–72 h), even at a worse price.",
+  "wallet.preference.best-price.label": "Best price",
+  "wallet.preference.best-price.help": "The best net output among safe routes; funded within 1–24 h.",
+  "wallet.preference.native.label": "Native assets",
+  "wallet.preference.native.help": "Balanced, but a route that keeps the assets native wins over one with a wrapped leg.",
+  "wallet.preference.fastest.label": "Fastest",
+  "wallet.preference.fastest.help": "No delay and a public submission: the least private choice, for when time matters more.",
+  "wallet.preference.window.hours": "{min}–{max} h",
+  "wallet.preference.window.minutes": "{min}–{max} min",
+  "wallet.preference.window.noDelay": "no delay",
 } as const;
 
 export type MessageKey = keyof typeof en;

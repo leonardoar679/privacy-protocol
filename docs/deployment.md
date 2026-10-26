@@ -73,7 +73,7 @@ server {
   location = /index.html { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "no-store" always; }
   location /assets/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }
   location /artifacts/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
-  location / { try_files $uri /index.html; }   # the client-side routes (/send, /more/privacy, …): the server's headers
+  location / { try_files $uri /index.html; }   # the client-side routes (/send, /privacy, /settings, …): the server's headers
   # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
   location /zkapi-deployment/ { proxy_pass https://zkapi-sepolia.openanonymity.ai/; proxy_ssl_server_name on; include snippets/privacy-wallet-headers.conf; }
 }

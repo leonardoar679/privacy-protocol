@@ -1,11 +1,12 @@
-// More → Security (spec §2, §3.2, §9, §11; plan §13, §26): the backup status with the date, Back up now (the backup
-// file: the keystore and the encrypted journal, opened only with the password) and the recovery phrase after the
-// password, Lock, the second confirmation (the platform authenticator; the password stays the fallback), the large
-// transfer thresholds (the two consumer bands and the V2–V4 tiers, user-adjustable, increasing), and Forget behind a
-// typed confirmation in a dialog. Everything is journaled (encrypted); nothing is sent anywhere.
+// Settings → Backup & security (spec §2, §3.2, §9, §11; plan §13, §26; V7 Stage 4: a section of the one Settings page,
+// spec v3.0 §2): the backup status with the date, Back up now (the backup file: the keystore and the encrypted journal,
+// opened only with the password) and the recovery phrase after the password, Lock, the second confirmation (the
+// platform authenticator; the password stays the fallback), the large transfer thresholds (the two consumer bands and
+// the V2–V4 tiers, user-adjustable, increasing), and Forget behind a typed confirmation in a dialog. Everything is
+// journaled (encrypted); nothing is sent anywhere.
 import { useState } from "react";
 import { checkThresholds, TIER_DEFAULTS, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
-import { Button, Card, Collapsible, Field, Modal, Page, Segmented, StatusBadge, Input } from "@privacy-wallet/ui";
+import { Button, Card, Collapsible, Field, Modal, Segmented, StatusBadge, Input } from "@privacy-wallet/ui";
 import { AUTO_LOCK_MINUTES, autoLockMinutesOf } from "@privacy-wallet/sdk/session/autoLock";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
@@ -30,7 +31,7 @@ export function downloadBackup(): void {
   prefs().update({ backup: { ...current, exportedAt: Date.now() } });
 }
 
-export function Security({ onBack }: { onBack?: () => void }) {
+export function SecuritySection() {
   const t = useT();
   const s = useSettings();
   const p = usePrefs();
@@ -64,7 +65,6 @@ export function Security({ onBack }: { onBack?: () => void }) {
   }
 
   return (
-    <Page title={t("route.security")} back={onBack} testId="settings">
       <div className="ds-stack" data-testid="security">
         <Card testId="backup-status">
           <div className="ds-stack-sm">
@@ -144,6 +144,5 @@ export function Security({ onBack }: { onBack?: () => void }) {
               }} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
         </Modal>
       </div>
-    </Page>
   );
 }

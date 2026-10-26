@@ -20,7 +20,7 @@ run does what a person would (accepts, resumes, types the amount again) and says
 other reason (neither a reconcile under way nor a refused quote it can try again) fails its check at once, with the
 record's state, its reason's code and the words the user reads: the progress view carries `data-code`. Before (a V6
 follow-up of 2026-10-15), the run waited out its timeouts and named nothing. The one difference from a testnet: there the light client
-stays on; on the devnet the run switches it off under More → Advanced (no beacon chain to follow).
+stays on; on the devnet the run switches it off under Settings → Advanced (no beacon chain to follow).
 `VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
 
 ```
@@ -91,7 +91,7 @@ first-time user would:
 - **$80,000**: no mode to choose — "Protected execution" with its four checks, Hold to Confirm (or "Confirm without
   holding", a dialog), then the steps in amounts only (Completed / Executing / Remaining).
 - **Reload, close the tab, go offline, lock** in the middle of any of them: the wallet comes back to the operation and
-  sends nothing twice. Then Activity, the detail, More → Privacy Center, More → Language (한국어), and the desktop at 1440 px.
+  sends nothing twice. Then Activity, the detail, the Privacy Center, Settings → Language (한국어), and the desktop at 1440 px.
 
 The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the same):
 0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **More →
@@ -118,7 +118,7 @@ The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the sa
 3b. **Receive** → Bitcoin / Solana / ETH-public → "New address" gives a fresh address each time; the index survives Lock / Unlock.
 4. **Swap**: the V6 flow above (one confirmation). From $100K the V3–V5 screen under `/swap/protected` still takes a
    staged or a single order. A single order there has its order panel: **1 · Fund now** (with the *Best privacy*
-   preference, under More → Wallet, the funding waits a random time in its window; reload, unlock: the order is still
+   preference, under Settings → Trading preference, the funding waits a random time in its window; reload, unlock: the order is still
    under "Your open swaps") → **2 · Confirm the swap**. Both screens read the provider call before signing and say what
    they checked; the executor's state goes Pending → Executing (`deployAndExecute` from the relayer key).
    - On a testnet the wallet refuses to sign (the pinned provider contracts exist on mainnet only): **Return funds**

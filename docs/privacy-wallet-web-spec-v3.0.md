@@ -62,12 +62,18 @@ exposes the protected wallet (v2.0 §1).
 | `/more/ai` | Private AI (Advanced) | unchanged |
 
 Every old `/more/*` path **redirects** to its new home (bookmarks and the auto-lock's return path keep working); the
-More tab stays highlighted on `/classic`, `/privacy` and `/settings`. The Settings page takes the test id `settings`;
-the former Security page's inner id follows it. Every new string exists in English and Korean.
+More tab stays highlighted on `/privacy` and `/settings` (`/classic` is another application: the wallet's bars are
+not on its pages). The Settings page takes the test id `settings`; the former Security page's inner id follows it.
+Every new string exists in English and Korean. *Stage 4 as landed:* the V6 Classic module's devnet screens under
+`/more/classic/*` stay reachable by URL (nothing links to them) until Stage 11 removes the module, when
+`/more/classic/*` redirects to `/classic/` like the rest; the notification toggles moved from Advanced to the Settings
+page's Notifications section; the trading preference's words moved into the catalog (English and Korean).
 
 Code (Stage 4): `apps/web/src/routes/index.tsx` (the routes and redirects), `apps/web/src/features/more/entries.ts`,
-`apps/web/src/features/settings/` (the Settings View, model and fixtures composing today's `Security.tsx`,
-`Wallet.tsx`, `Language.tsx` and `Advanced.tsx` as sections), `apps/web/src/features/wallet/Home.tsx` (the header's
+`apps/web/src/features/settings/Settings.tsx` (the one page composing today's `Security.tsx`, `Wallet.tsx` and
+`Language.tsx` as sections — unwrapped from their pages, every test id kept — with the notification toggles from
+`Advanced.tsx` and the experience switch from More; the screenshot fixture renders it over the stores at their
+defaults), `apps/web/src/features/wallet/ConnectSheet.tsx` (the connector picker), `apps/web/src/features/wallet/Home.tsx` (the header's
 account chip, the gear to `/settings`, the badge to `/privacy`, Receive), `apps/web/src/app/Shell.tsx` and
 `packages/ui/src/components/Layout.tsx` (the Connect wallet control, the highlight prefixes),
 `packages/wallet-engine/src/connection.ts` (connect by connector id, reconnect from the preference),

@@ -77,9 +77,13 @@ function unbind(): void {
   bound = null;
 }
 
-async function providerFor(id: string | undefined): Promise<{ provider: Eip1193Provider; info: ConnectorInfo } | null> {
-  const list = connectorList();
-  const info = id ? list.find((c) => c.id === id) : list.find((c) => c.kind !== "walletconnect") ?? list[0];
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function providerFor(id: string | undefined, waitMs = 0): Promise<{ provider: Eip1193Provider; info: ConnectorInfo } | null> {
+  const find = () => { const list = connectorList(); return id ? list.find((c) => c.id === id) : list.find((c) => c.kind !== "walletconnect") ?? list[0]; };
+  let info = find();
+  // a remembered wallet may still be announcing itself (EIP-6963 answers asynchronously): a reconnect waits a moment for it
+  for (const until = Date.now() + waitMs; !info && id && Date.now() < until; ) { await sleep(100); info = find(); }
   if (!info) return null;
   if (info.kind === "eip6963") return { provider: discovered.get(info.id)!.provider, info };
   if (info.kind === "injected") { const p = injectedProvider(); return p ? { provider: p, info } : null; }
@@ -109,6 +113,30 @@ export const connection = {
       set({ account, chainId, connector: chosen.info, status: statusFor(account, chainId) });
     } catch (e) {
       set({ status: "disconnected", account: null, connector: null, error: e instanceof Error ? e.message : String(e) });
+    }
+    return state;
+  },
+  /**
+   * V7 Stage 4 (spec v3.0 §2): reconnects the remembered connector after a reload without a prompt (`eth_accounts`): a
+   * wallet that no longer authorizes this site leaves the state disconnected. WalletConnect is not reconnected this way
+   * (its own session store restores it when the user asks). Never throws.
+   */
+  async reconnect(id: string): Promise<ConnectionState> {
+    discover();
+    if (state.status !== "disconnected") return state;
+    try {
+      const chosen = await providerFor(id, 1_500);
+      if (!chosen || chosen.info.kind === "walletconnect") return state;
+      const accounts = (await chosen.provider.request({ method: "eth_accounts" })) as string[] | undefined;
+      const account = accounts?.[0] ?? null;
+      if (!account || state.status !== "disconnected") return state;
+      let chainId: number | null = null;
+      try { chainId = parseChainId(await chosen.provider.request({ method: "eth_chainId" })); } catch { chainId = null; }
+      setActiveProvider(chosen.provider);
+      bind(chosen.provider);
+      set({ account, chainId, connector: chosen.info, status: statusFor(account, chainId), error: null });
+    } catch {
+      // the wallet refused or threw: nothing changes, the user connects by hand
     }
     return state;
   },

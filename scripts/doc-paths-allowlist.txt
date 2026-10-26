@@ -5,7 +5,6 @@ contracts/deployments/sepolia.json  # planned: written by the Sepolia deployment
 docs/fee-policy.md  # planned: V7 Stage 12 (the published fee & refund policy)
 docs/mobile-web-gate.md  # planned: V7 Stage 16 (the real-device checklist)
 docs/definition-of-done-v7.md  # planned: V7 Stage 17
-apps/web/src/features/settings/  # planned: V7 Stage 4 (the Settings page)
 packages/swap-engine/src/provider.ts  # planned: V7 Stage 14 (the swap provider facade)
 packages/sdk/src/swapProvider.ts  # planned: V7 Stage 14 (the facade's wallet side)
 # historical: named by a record of an earlier pass on purpose.

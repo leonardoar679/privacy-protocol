@@ -254,8 +254,8 @@ export function AddressBookPanel({ deployment }: { deployment: Deployment | null
         );
       })}
       <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-        <label>{t("book.addTitle")}</label>
-        <select value={chain} onChange={(e: any) => setChain(e.target.value)} data-testid="book-chain">
+        <label htmlFor="book-chain">{t("book.addTitle")}</label>
+        <select id="book-chain" value={chain} onChange={(e: any) => setChain(e.target.value)} data-testid="book-chain">
           <option value="evm">{t("book.chain.evm")}</option>
           <option value="bitcoin">Bitcoin</option>
           <option value="solana">Solana</option>

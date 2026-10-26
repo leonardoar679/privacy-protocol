@@ -72,10 +72,15 @@ test/              523 vitest tests (node; the screens under happy-dom or jsdom)
 - **Activity** — by day, a page at a time, the detail with its timeline and, when needed, its recovery, read from
   where the money is. The wallet finds its notes in the pool by itself: after an unlock, every ten minutes, and when
   Activity or Receive opens. A private transfer received shows as `Private Receive`; a first launch stays request-free.
-- **More** — the Privacy Center (seven sections, computed), Security (the backup, auto-lock, the second confirmation,
-  the thresholds, Forget), Wallet (the connection, the trade preference, the allowances), Language (Automatic,
-  English, 한국어), Advanced (the deployment check, the light client, the submission path, the protected execution's
-  controls), Classic Privacy, Private AI.
+- **More** (V7 Stage 4, spec v3.0 §2) — Tornado Classic (a plain link to the separate Classic application under
+  `/classic/`), the Privacy Center (seven sections, computed) and **Settings**, one page: Backup & security (the backup,
+  auto-lock, the second confirmation, the thresholds, Forget), Connected wallet (the connection through the connector
+  picker, the allowances, the Receive address), Trading preference, Language (Automatic, English, 한국어), Experience,
+  Notifications, and — in the Advanced experience — Advanced (the deployment check, the light client, the submission
+  path, the protected execution's controls); Private AI in the Advanced experience. The old `/more/*` paths redirect.
+- **Connect wallet** — in Home's header and in the desktop's Wallet menu: the connector picker lists the wallets this
+  browser announces (EIP-6963), the injected wallet and WalletConnect when configured; the last connector reconnects
+  after a reload without a prompt. Connecting never creates, unlocks or exposes the protected wallet.
 - **Offline** — a banner. Nothing that moves money runs until the network is back, and an answer lost mid-submission
   is found by its nullifier, never sent twice.
 - **One tab at a time** — the wallet is unlocked in one tab: another tab waits ("The wallet is open in another tab")

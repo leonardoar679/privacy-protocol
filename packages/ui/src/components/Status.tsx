@@ -115,14 +115,16 @@ export function Skeleton({ width = "100%", height = 16 }: { width?: number | str
   return <span className="ds-skeleton" aria-hidden style={{ width, height }} />;
 }
 
-export function ListRow({ title, subtitle, leading, trailing, onPress, testId }: { title: ReactNode; subtitle?: ReactNode; leading?: ReactNode; trailing?: ReactNode; onPress?: () => void; testId?: string }) {
+/** A row: a button with `onPress`, a plain link with `href` (V7 Stage 4: the Classic app is another application), else static. */
+export function ListRow({ title, subtitle, leading, trailing, onPress, href, testId }: { title: ReactNode; subtitle?: ReactNode; leading?: ReactNode; trailing?: ReactNode; onPress?: () => void; href?: string; testId?: string }) {
   const body = (
     <>
       {leading}
       <span className="ds-list-main"><span>{title}</span>{subtitle ? <span className="ds-list-sub">{subtitle}</span> : null}</span>
-      {trailing ?? (onPress ? <Icon name="chevron-right" size={18} /> : null)}
+      {trailing ?? (onPress || href ? <Icon name="chevron-right" size={18} /> : null)}
     </>
   );
+  if (href) return <a className="ds-list-row" href={href} data-testid={testId}>{body}</a>;
   return onPress
     ? <button type="button" className="ds-list-row" onClick={onPress} data-testid={testId}>{body}</button>
     : <div className="ds-list-row" data-testid={testId}>{body}</div>;

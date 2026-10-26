@@ -16,6 +16,15 @@ export function Providers({ children, deployment }: { children: ReactNode; deplo
   const [fromEnv] = useState(() => (deployment === undefined ? config().deployment : deployment));
   useEffect(() => { connection.configure({ expectedChainId: fromEnv?.chainId ?? null }); discover(); }, [fromEnv]);
   useEffect(() => { applyLocale(); return prefs().subscribe(applyLocale); }, []);
+  // V7 Stage 4 (spec v3.0 §2): the connector of the last connection reconnects after a reload, without a prompt
+  useEffect(() => {
+    let on = true;
+    void prefs().ready.then(() => {
+      const id = prefs().get().lastConnector;
+      if (on && id && connection.get().status === "disconnected") void connection.reconnect(id);
+    });
+    return () => { on = false; };
+  }, []);
   return (
     <DeploymentContext.Provider value={fromEnv}>
       <ToastProvider>{children}</ToastProvider>
