@@ -69,3 +69,8 @@ code.
   with trailing bytes threw an uncaught exception, a denial of service for anyone who can reach the API; every 2.x below
   2.4.0) failed the audit gate on 2026-10-23. The API reads its bodies with `express.json` (64 KB). Not
   cryptography-sensitive; no install script; locked with their sha512 integrity from the registry; nothing else moved.
+- 2026-10-26 (V7 Stage 3) — the Classic screenshot harness's devDependencies in `classic/package-lock.json`:
+  `pixelmatch@8.0.0` (ISC), `playwright-core@1.64.1` (Apache-2.0) and `pngjs@7.0.0` (MIT), the same three the root
+  harness uses (`axe-core` was already in the lockfile through `eslint-plugin-jsx-a11y`). Local tooling only, never
+  shipped (`classic/scripts/check-deps.mjs` keeps them out of `src/`). None is cryptography-sensitive; none has an
+  install script; each locked with its sha512 integrity from the registry.

@@ -8,7 +8,7 @@ import { cspOfHtml } from "./csp.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 export const DIST = join(here, "..", "dist");
-const SENTINELS = ["pw-fixture-sentinel", "pw-preview-sentinel"];
+const SENTINELS = ["pw-fixture-sentinel", "pw-preview-sentinel", "tc-fixture-sentinel"];
 
 function files(dir, out = []) {
   for (const e of readdirSync(dir)) {

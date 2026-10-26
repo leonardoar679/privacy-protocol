@@ -25,6 +25,8 @@ export interface ClassicConfig {
   production: boolean;
   /** the path the app is served under (Vite's base) */
   base: string;
+  /** the address the withdraw tab's "Donate" fills in (the original offered its project's); null hides the button */
+  donationAddress: `0x${string}` | null;
 }
 
 const list = (s: unknown): string[] =>
@@ -63,6 +65,10 @@ export const EnvSchema = z.object({
   VITE_CLASSIC_LIVE: z.string().optional(),
   VITE_CLASSIC_COMPLIANCE_ORACLE: flag,
   VITE_CLASSIC_GEOFENCE: flag,
+  VITE_CLASSIC_DONATION_ADDRESS: z
+    .string()
+    .regex(/^(0x[0-9a-fA-F]{40})?$/, "VITE_CLASSIC_DONATION_ADDRESS must be a 0x address of 40 hex digits")
+    .optional(),
   PROD: z.boolean().optional(),
   BASE_URL: z.string().optional(),
 });
@@ -82,6 +88,7 @@ export function configFromEnv(env: Record<string, unknown>): ClassicConfig {
     geofence: e.VITE_CLASSIC_GEOFENCE === "1",
     production: e.PROD === true,
     base,
+    donationAddress: e.VITE_CLASSIC_DONATION_ADDRESS ? (e.VITE_CLASSIC_DONATION_ADDRESS as `0x${string}`) : null,
   };
 }
 

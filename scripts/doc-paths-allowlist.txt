@@ -13,7 +13,6 @@ apps/web/src/sdk/facade.ts  # historical: the V5 spec's facade, never built; the
 apps/web/src/components/Review.tsx  # historical: the V2 Review, replaced by apps/web/src/features/review/ReviewScreen.tsx in V5 Stage 8
 packages/swap-engine/src/server.ts  # historical: the V1.1–V5 swap service, moved to apps/api/src/routes/swap.ts in V6 Stage 9
 # planned: the Classic app's files named by docs/privacy-wallet-web-spec-v3.0.md §7 and the roadmap's V7 table; each line goes when its stage lands.
-classic/docs/parity.md  # planned: V7 Stage 3 (the parity table against the original's reference captures)
 classic/src/config/deployment.json  # planned: V7 Stage 5 (the verified deployment pins)
 classic/vendor/VENDORED.md  # planned: V7 Stage 6 (the vendored prover's origins and hashes)
 classic/scripts/compile-circuit.mjs  # planned: V7 Stage 6 (the circuit's templates precompiled)

@@ -34,3 +34,5 @@ tests/visual/run/
 # the Classic app (classic/): its copied artifacts and history snapshots are deploy-time files (spec v3.0 §7.3–§7.4)
 classic/public/artifacts/
 classic/public/data/
+# the Classic screenshot harness: actual images, diffs and the report (classic/tests/visual/run.mjs)
+classic/tests/visual/run/

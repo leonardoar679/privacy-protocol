@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "gates": "node scripts/gates.mjs",
     "check-build": "node scripts/check-build.mjs",
-    "tokens": "node scripts/tokens.mjs"
+    "tokens": "node scripts/tokens.mjs",
+    "visual": "node tests/visual/run.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -27,10 +28,14 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "axe-core": "^4.14.0",
     "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^15.11.7",
+    "pixelmatch": "^8.0.0",
+    "playwright-core": "^1.64.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.71.1",
     "vite": "^5.4.0",
