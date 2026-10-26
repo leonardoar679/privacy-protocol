@@ -101,3 +101,6 @@ code.
   never the first route (`classic/scripts/check-budget.mjs`). The vendored prover itself — websnark `4c0af6a8`, snarkjs
   0.1.20, circomlib `3b492f9`, blake-hash 2.0.0 — is source under `classic/vendor/` with every file's sha256 in
   `classic/vendor/VENDORED.md`, not a lockfile entry.
+- 2026-10-26 (V7 Stage 7) — `fake-indexeddb@6.2.5` (Apache-2.0), a devDependency in `classic/package-lock.json`: the
+  IndexedDB the Classic history store's tests run against (the same package the root lockfile carries for apps/web).
+  Test-only, never shipped; no install script; locked with its sha512 integrity from the registry.

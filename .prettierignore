@@ -15,3 +15,5 @@ classic/src/prover/legacy/
 classic/src/prover/generated/
 # the Classic app: the originals vendored byte for byte (classic/vendor/VENDORED.md)
 classic/vendor/
+# the Classic app: the history fixture is generated data (classic/scripts/snapshot.mjs --fixture)
+classic/test/fixtures/history/

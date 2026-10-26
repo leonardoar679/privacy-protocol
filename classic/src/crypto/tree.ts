@@ -3,7 +3,8 @@
 // pools' own `zeros(i)`), leaves appended in deposit order, the path of a leaf as the circuit wants it — the sibling at
 // every level and the side the leaf is on. Sparse: only the nodes the leaves touch are kept, so a path costs 20 hashes
 // of the way up and a tree of n leaves about 2n hashes. Stage 7 feeds it the verified history and persists its layers.
-import { FIELD_SIZE, hashLeftRight, ZERO_VALUE } from "./hashes";
+// explicit .ts extensions on this chain: Node runs these modules directly for the snapshot generator (type stripping)
+import { FIELD_SIZE, hashLeftRight, ZERO_VALUE } from "./hashes.ts";
 
 export const LEVELS = 20;
 
@@ -48,6 +49,34 @@ export class MerkleTree {
       width = next;
     }
     return tree;
+  }
+
+  /** The tree from persisted layers (level 0 the leaves, each level as wide as its nodes): no hashing. */
+  static fromLayers(layers: readonly (readonly bigint[])[]): MerkleTree {
+    if (layers.length !== LEVELS + 1) throw new Error(`a tree has ${LEVELS + 1} layers`);
+    const tree = new MerkleTree();
+    tree.count = layers[0].length;
+    if (tree.count > 2 ** LEVELS) throw new Error("the tree is full");
+    for (let level = 0; level <= LEVELS; level++) {
+      const expected = level === 0 ? tree.count : Math.ceil(layers[level - 1].length / 2);
+      if (layers[level].length !== expected) throw new Error(`layer ${level} has ${layers[level].length} nodes, not ${expected}`);
+      layers[level].forEach((node, i) => {
+        if (node >= FIELD_SIZE) throw new Error("a node must be inside the field");
+        tree.layers[level].set(i, node);
+      });
+    }
+    return tree;
+  }
+
+  /** The layers as dense arrays (what a snapshot persists): level 0 the leaves, each level as wide as its nodes. */
+  toLayers(): bigint[][] {
+    const out: bigint[][] = [];
+    let width = this.count;
+    for (let level = 0; level <= LEVELS; level++) {
+      out.push(Array.from({ length: width }, (_, i) => this.node(level, i)));
+      width = Math.ceil(width / 2);
+    }
+    return out;
   }
 
   get size(): number {

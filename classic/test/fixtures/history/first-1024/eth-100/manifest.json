@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "chainId": 1,
+  "pool": "eth-100",
+  "address": "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+  "deployedBlock": 9161895,
+  "toBlock": 10734277,
+  "blockHash": "0xe3b348446a258a86acfe7ddab78bc375294961868528e588ab3bff4be9c3bee0",
+  "leaves": 1024,
+  "root": "0x2975f174a308bd011811111beaea27c0d462708608f157e250c47c5d74204ead",
+  "files": {
+    "deposits.json": {
+      "sha256": "66565957e1a02425bbc05e177cc090133016d8bb105ae4ceb6b69a25c827d3b0",
+      "bytes": 238253,
+      "count": 1024
+    },
+    "withdrawals.json": {
+      "sha256": "3c78db1a79b6dbe7d1dc4d76af98f30af9dc89eacf14e7a50ee07f0ebe7011ba",
+      "bytes": 256377,
+      "count": 900
+    },
+    "tree.json": {
+      "sha256": "743752b35b75bcab0ebd6dd707ccc61845bb2cf80434a30eecd1297166aa624e",
+      "bytes": 142025
+    }
+  },
+  "generatedAt": "2026-10-26T21:11:57.088Z",
+  "verified": {
+    "method": "eth_call getLastRoot() at block 10734277",
+    "endpoint": "https://eth.drpc.org",
+    "block": 10734277,
+    "date": "2026-10-26"
+  }
+}

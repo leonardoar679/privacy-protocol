@@ -20,6 +20,8 @@ export const PINS_FILE = join(here, "..", "src", "config", "deployment.json");
 export const CHAIN_ID = 1;
 /** The public endpoints a verification reads when none is named (CLASSIC_RPC_URLS). */
 export const PUBLIC_RPC_URLS = ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"];
+/** Endpoints that answer eth_getLogs over wide historical windows without a key (500,000 blocks in a few seconds on 2026-10-26; publicnode refuses history, drpc and 1rpc allow 10,000 and 50 blocks): the history sync and the snapshot generator. */
+export const PUBLIC_LOG_RPC_URLS = ["https://gateway.tenderly.co/public/mainnet", "https://rpc.mevblocker.io"];
 
 /** What the records describe, by the name the app uses. */
 export const CONTRACTS = Object.freeze({

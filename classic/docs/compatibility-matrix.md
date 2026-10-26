@@ -203,3 +203,20 @@ static words (`0xe0`), and the selector is `0x695ef6f9`. Two differences from th
 in `classic/vendor/VENDORED.md`: the circuit's templates are precompiled (no eval) and the witness calculator's
 triggering is a queue (a Web Worker's stack is too small for the original's nested chain). The 0.3 % protocol fee, the
 relayers and the history are Stages 7–9.
+
+## 12. The history held to the chain (V7 Stage 7, 2026-10-26)
+
+| Rung | What was checked | Result |
+|---|---|---|
+| the frontier, every pool | `filledSubtrees(0..19)`, `nextIndex()`, `getLastRoot()` read at the head, the last Deposit from the logs; the root recomputed as `_insert` walks (`classic/src/history/verify.ts`) | reproduced on all four pools at blocks 26,279,415–26,279,424 (nextIndex 75,224 / 96,491 / 78,835 / 49,628) |
+| the seed | the original UI's caches (`static/events/{deposits,withdrawals}_eth_100.json.zip` at a83fae07): deposits ascending by leaf, 27,544 to block 14,954,101; withdrawals newest first, without the relayer | read by `classic/scripts/zip.mjs`; the root of the 27,544 leaves equals `getLastRoot()` at that block (§11, `vectors/roots.json`) |
+| the delta | 22,084 deposits and 21,188 withdrawals from block 14,954,102 to 26,279,460 through `eth_getLogs` | 23 windows of 500,000 blocks, 36 s (tenderly); the leaves contiguous |
+| the snapshot | 49,628 leaves hashed layer by layer (55 s in Node); `getLastRoot()` at block 26,279,460 (drpc archive); `isKnownRoot` and `nextIndex()` at the head | equal, known, 49,628 |
+| the fixture | the first 1,024 deposits, block 10,734,277, 900 withdrawals before it; `getLastRoot()` at that block (archive) | equal: `0x2975f174…4ead` (`classic/test/fixtures/history/first-1024/eth-100/`) |
+| the live sync | the local snapshot held to its manifest, its checkpoint's block hash standing, the delta to head − 12, the root held to the chain | known root, nextIndex equal (`classic/test/live/history.live.test.ts`) |
+
+The public endpoints and `eth_getLogs` over history (2026-10-26): publicnode refuses ("archive requests require a
+personal token"), drpc's free plan allows 10,000 blocks, 1rpc 50, blastapi 10, nodies 50, flashbots has pruned the
+history, llamarpc and merkle answered errors; `gateway.tenderly.co/public/mainnet` and `rpc.mevblocker.io` answered
+500,000-block windows (6,198 logs in 5.6 s). The sync sizes its windows to the endpoint (halving on a refusal, from
+500,000 down to 50), so any of them works — slowly on the small ones.

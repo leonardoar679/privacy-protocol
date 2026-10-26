@@ -354,6 +354,33 @@ history answers first (nothing is disclosed); "Check on chain" and the moment be
 chain, and the screen says that this read discloses the note's nullifier hash to the RPC endpoint. The history is
 public data; it is cached in the Classic app's own IndexedDB `tornado-classic` (§7.8).
 
+**As landed (Stage 7, 2026-10-26).** `classic/scripts/snapshot.mjs` writes a pool's snapshot — `deposits.json`,
+`withdrawals.json`, `tree.json` (the layers) and `manifest.json` (sha256 and size per file, the block and its hash,
+the leaf count, the root, how it was held to the chain) — under `classic/public/data/<pool>/` (git-ignored; served at
+`/classic/data/`), seeded from the original UI's caches when the classic-ui clone sits beside the repository
+(`classic/scripts/zip.mjs` reads them) and synced through `eth_getLogs`; it refuses to write unless the leaf count is
+`nextIndex()` and the root a root the pool knows, and with `--archive` unless `getLastRoot()` at the snapshot's own
+block equals the root. The modules are `classic/src/history/`: `events.ts` (the two events decoded), `snapshot.ts`
+(the format, built and held to its manifest), `sync.ts` (the delta in windows the endpoint allows — halved on a range
+refusal down to 50 blocks, grown again after two successes —, 12 confirmations, a checkpoint per window, `findReorg`
+and the rollback), `verify.ts` (the one check against the chain, and the frontier: `filledSubtrees` plus the last leaf
+hashed as the contract's `_insert` does), `spent.ts` (a note's facts and spent state from the history; the disclosed
+`isSpent` read apart) — one implementation for the app, the tests and the generator (Node runs them by type stripping,
+so this chain carries explicit `.ts` extensions and no parameter properties); `classic/src/net/rpc.ts` is the app's
+JSON-RPC transport and `classic/src/storage/historyDb.ts` the IndexedDB `tornado-classic` (one store, four records per
+pool; memory where IndexedDB is absent). Measured: of the public endpoints, publicnode refuses historical logs, drpc
+allows 10,000 blocks and 1rpc 50, while `gateway.tenderly.co/public/mainnet` and `rpc.mevblocker.io` answer
+500,000-block windows in seconds (`PUBLIC_LOG_RPC_URLS` in `classic/scripts/deployment.mjs`; the app's operator sets
+`VITE_CLASSIC_RPC_URLS` accordingly, and the sync sizes itself to whatever answers); the 100 ETH pool's delta from the
+June-2022 cache to head — 22,084 deposits and 21,188 withdrawals — synced in 23 windows and 36 s, the 49,628-leaf tree
+hashed in 55 s in Node, and its root equals the pool's own `getLastRoot()` at that block (archive) and is known on
+chain (`npm run snapshot -- --pool eth-100`; 33 MB of files). The committed fixture
+`classic/test/fixtures/history/first-1024/eth-100/` is the pool's first 1,024 deposits, its root equal to
+`getLastRoot()` at block 10,734,277 (archive). The live suite (`classic/test/live/history.live.test.ts`) holds every
+pool's frontier plus its last deposit to its `getLastRoot()` and syncs the local snapshot's delta to head − 12 into a
+root the pool knows. The screens still read the mock; Stage 9 wires the history (the worker builds and appends the
+tree; a 50,000-leaf build costs about a minute of hashing, which the persisted layers avoid repeating).
+
 ### 7.5 Relayers, fees, wallet mode (doc §4.5, §6 rule 8) — *Stage 8*
 The relayer protocol of the original: `GET /status` (`rewardAccount, instances, netId, ethPrices, tornadoServiceFee`
 in percent, `version`, `health.status` as the STRING `'true'`, `currentQueue`), `POST /v1/tornadoWithdraw {proof,

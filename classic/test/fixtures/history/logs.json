@@ -1,0 +1,33 @@
+{
+ "comment": "Raw eth_getLogs entries of the 100 ETH pool 0xa160cdab225685da1d56aa342ad8841c3b53f291 as the chain returned them on 2026-10-26 (gateway.tenderly.co): the first Deposit after the original UI cache (leaf 27,544) and a Withdrawal of the same window, for the decoder tests (classic/test/history.test.ts).",
+ "deposit": {
+  "address": "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+  "topics": [
+   "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196",
+   "0x1074a5c5493989f0bdf801d88770d82e6b9c084d39abcaf3ea2da0613da67474"
+  ],
+  "data": "0x0000000000000000000000000000000000000000000000000000000000006b980000000000000000000000000000000000000000000000000000000062a73016",
+  "blockNumber": "0xe435f7",
+  "transactionHash": "0xe154677f7435a5f263da0790c952f0fa17f9368085fc94ca1d66aac27cce233b",
+  "transactionIndex": "0xba",
+  "blockHash": "0x95fe44ab3300ef8ce71cf30014331e61cf6f391282f49f6790874b2cca6d0421",
+  "logIndex": "0xf7",
+  "blockTimestamp": "0x62a73016",
+  "removed": false
+ },
+ "withdrawal": {
+  "address": "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+  "topics": [
+   "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931",
+   "0x00000000000000000000000007c3aa37347c8102a24e5bfb261cf420aa4512fe"
+  ],
+  "data": "0x00000000000000000000000007c3aa37347c8102a24e5bfb261cf420aa4512fe14c9a4c91058f2b4b287e65b61f266dbbfce317b41ba4eb197e40963087122760000000000000000000000000000000000000000000000000000000000000000",
+  "blockNumber": "0xe42ef5",
+  "transactionHash": "0xc5daaf852d99df53c1a38a2a25d21473ce1bd1b3b85dea0e037a41aaf8338cc4",
+  "transactionIndex": "0x128",
+  "blockHash": "0x011a39a162595f519e72f5419a137b42ca00dc7969e6800c82b26e856cdf5f68",
+  "logIndex": "0x1fd",
+  "blockTimestamp": "0x62a6c678",
+  "removed": false
+ }
+}
