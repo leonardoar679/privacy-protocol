@@ -1,0 +1,947 @@
+{
+  "capturedAt": "2026-10-26",
+  "source": "ui-minified 7aeae4a53f2e3f1b13f21e5ed06f42c2ac94e80a",
+  "log": [
+    {
+      "label": "390x844 load",
+      "ok": true
+    },
+    {
+      "label": "390x844 pick 1 ETH",
+      "ok": true
+    },
+    {
+      "label": "390x844 deposit button",
+      "ok": true
+    },
+    {
+      "label": "390x844 close modal",
+      "ok": true
+    },
+    {
+      "label": "390x844 withdraw tab",
+      "ok": true
+    },
+    {
+      "label": "390x844 invalid note",
+      "ok": true
+    },
+    {
+      "label": "390x844 settings",
+      "ok": false,
+      "error": "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=/Withdrawal settings|Settings/i').first()\u001b[22m\n\u001b[2m    - locat"
+    },
+    {
+      "label": "390x844 close settings",
+      "ok": true
+    },
+    {
+      "label": "390x844 statistics tab",
+      "ok": false,
+      "error": "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=/Statistics|Stats/i').first()\u001b[22m\n\u001b[2m    - locator resolved "
+    },
+    {
+      "label": "1440x900 load",
+      "ok": true
+    },
+    {
+      "label": "1440x900 pick 1 ETH",
+      "ok": true
+    },
+    {
+      "label": "1440x900 deposit button",
+      "ok": true
+    },
+    {
+      "label": "1440x900 close modal",
+      "ok": true
+    },
+    {
+      "label": "1440x900 withdraw tab",
+      "ok": true
+    },
+    {
+      "label": "1440x900 invalid note",
+      "ok": true
+    },
+    {
+      "label": "1440x900 settings",
+      "ok": false,
+      "error": "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=/Withdrawal settings|Settings/i').first()\u001b[22m\n\u001b[2m    - locat"
+    },
+    {
+      "label": "1440x900 close settings",
+      "ok": true
+    },
+    {
+      "label": "1440x900 statistics tab",
+      "ok": false,
+      "error": "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=/Statistics|Stats/i').first()\u001b[22m\n\u001b[2m    - locator resolved "
+    }
+  ],
+  "inventory": {
+    "390x844-deposit": {
+      "text": "You are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nToken\nETH\nAmount\n0.1 ETH\n1 ETH\n10 ETH\n100 ETH\nConnect\nStatistics\n0.1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "menu",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0.1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "10 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "100 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "390x844-deposit-after-click": {
+      "text": "You are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nToken\nETH\nAmount\n0.1 ETH\n1 ETH\n10 ETH\n100 ETH\nConnect\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova\nYour Wallet\nPlease select your Web3 compatible wallet:\nInstall Metamask WalletConnect",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "menu",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0.1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "10 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "100 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        },
+        {
+          "tag": "button",
+          "text": "Install Metamask",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "WalletConnect",
+          "disabled": false
+        }
+      ]
+    },
+    "390x844-withdraw": {
+      "text": "You are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nNote\n\nRecipient Address\nDonate\n\nWithdraw\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "menu",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please enter your note",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Donate",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please paste address here",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Withdraw",
+          "disabled": true
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "390x844-withdraw-note": {
+      "text": "You are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nNote\nRecipient Address\nDonate\n\nError There is no related deposit. The note is invalid.\n\nWithdraw\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nGetting the note data...\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "menu",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "tornado-eth-1-1-0xababababababababababababababababababababababababababababababab",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Donate",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please paste address here",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Withdraw",
+          "disabled": true
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "390x844-console-errors": [
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "checkRpc Error: Invalid JSON RPC response: \"invalid project id\\n\"\n    at Object.InvalidResponse (http://127.0.0.1:5190/_",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "checkRpc Error: Invalid JSON RPC response: \"account disabled\\n\"\n    at Object.InvalidResponse (http://127.0.0.1:5190/_nu",
+      "preselectRpc https://mainnet.infura.io/v3/9b8f0ddb3e684ece890f594bf1710c88 RPC is down",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/tornado-relayer-registry' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()"
+    ],
+    "1440x900-deposit": {
+      "text": "Voting\nCompliance\nDocs\nEthereum\n\nNot connected\n\nConnect\n\nNot connected\n\nConnect Note Account\nSettings\nYou are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nToken\nETH\nAmount\n0.1 ETH\n1 ETH\n10 ETH\n100 ETH\nConnect\nStatistics\n0.1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Voting",
+          "disabled": false,
+          "href": "/governance"
+        },
+        {
+          "tag": "a",
+          "text": "Compliance",
+          "disabled": false,
+          "href": "/compliance"
+        },
+        {
+          "tag": "a",
+          "text": "Docs",
+          "disabled": false,
+          "href": "https://docs.tornado.cash"
+        },
+        {
+          "tag": "button",
+          "text": "Ethereum",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect Note Account",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Settings",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0.1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "10 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "100 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "1440x900-deposit-after-click": {
+      "text": "Voting\nCompliance\nDocs\nEthereum\n\nNot connected\n\nConnect\n\nNot connected\n\nConnect Note Account\nSettings\nYou are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nToken\nETH\nAmount\n0.1 ETH\n1 ETH\n10 ETH\n100 ETH\nConnect\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova\nYour Wallet\nPlease select your Web3 compatible wallet:\nInstall Metamask WalletConnect",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Voting",
+          "disabled": false,
+          "href": "/governance"
+        },
+        {
+          "tag": "a",
+          "text": "Compliance",
+          "disabled": false,
+          "href": "/compliance"
+        },
+        {
+          "tag": "a",
+          "text": "Docs",
+          "disabled": false,
+          "href": "https://docs.tornado.cash"
+        },
+        {
+          "tag": "button",
+          "text": "Ethereum",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect Note Account",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Settings",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0.1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "1 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "10 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "100 ETH",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        },
+        {
+          "tag": "button",
+          "text": "Install Metamask",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "WalletConnect",
+          "disabled": false
+        }
+      ]
+    },
+    "1440x900-withdraw": {
+      "text": "Voting\nCompliance\nDocs\nEthereum\n\nNot connected\n\nConnect\n\nNot connected\n\nConnect Note Account\nSettings\nYou are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nNote\n\nRecipient Address\nDonate\n\nWithdraw\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Voting",
+          "disabled": false,
+          "href": "/governance"
+        },
+        {
+          "tag": "a",
+          "text": "Compliance",
+          "disabled": false,
+          "href": "/compliance"
+        },
+        {
+          "tag": "a",
+          "text": "Docs",
+          "disabled": false,
+          "href": "https://docs.tornado.cash"
+        },
+        {
+          "tag": "button",
+          "text": "Ethereum",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect Note Account",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Settings",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please enter your note",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Donate",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please paste address here",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Withdraw",
+          "disabled": true
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "1440x900-withdraw-note": {
+      "text": "Voting\nCompliance\nDocs\nEthereum\n\nNot connected\n\nConnect\n\nNot connected\n\nConnect Note Account\nSettings\nYou are using a public IPFS gateway. Tornado Cash dApp can not use all security features of your browser. Check out landing page for alternatives\nTornado.cash was audited. However, it is still an experimental software. Please use at your own risk.\nDeposit\nWithdraw\nNote\nRecipient Address\nDonate\n\nError There is no related deposit. The note is invalid.\n\nWithdraw\nStatistics\n1\nETH\nAnonymity set\nLatest deposits\nDonations address:\n0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7\nTornado.cash version:\na83fae0\nGetting the note data...\nNew version\nTornado Cash Nova",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Voting",
+          "disabled": false,
+          "href": "/governance"
+        },
+        {
+          "tag": "a",
+          "text": "Compliance",
+          "disabled": false,
+          "href": "/compliance"
+        },
+        {
+          "tag": "a",
+          "text": "Docs",
+          "disabled": false,
+          "href": "https://docs.tornado.cash"
+        },
+        {
+          "tag": "button",
+          "text": "Ethereum",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Connect Note Account",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Settings",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "landing page",
+          "disabled": false,
+          "href": "https://tornado.cash/"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "was audited",
+          "disabled": false,
+          "href": "https://twitter.com/TornadoCash/status/1204745639759884289"
+        },
+        {
+          "tag": "a",
+          "text": "Deposit",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Withdraw",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "tornado-eth-1-1-0xababababababababababababababababababababababababababababababab",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Donate",
+          "disabled": false
+        },
+        {
+          "tag": "input",
+          "text": "Please paste address here",
+          "disabled": false
+        },
+        {
+          "tag": "button",
+          "text": "Withdraw",
+          "disabled": true
+        },
+        {
+          "tag": "a",
+          "text": "0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7",
+          "disabled": false,
+          "href": "https://etherscan.io/address/0x08ec3A4e3873505D34450b0F726136E1BF0c9DF7"
+        },
+        {
+          "tag": "button",
+          "text": "Close notification",
+          "disabled": false
+        },
+        {
+          "tag": "a",
+          "text": "Tornado Cash Nova",
+          "disabled": false,
+          "href": "https://nova.tornadocash.eth.link"
+        }
+      ]
+    },
+    "1440x900-console-errors": [
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "checkRpc Error: Invalid JSON RPC response: \"account disabled\\n\"\n    at Object.InvalidResponse (http://127.0.0.1:5190/_nu",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "checkRpc Error: Invalid JSON RPC response: \"account disabled\\n\"\n    at Object.InvalidResponse (http://127.0.0.1:5190/_nu",
+      "preselectRpc https://mainnet.infura.io/v3/9b8f0ddb3e684ece890f594bf1710c88 RPC is down",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/tornado-relayer-registry' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Access to fetch at 'https://api.thegraph.com/subgraphs/name/tornadocash/mainnet-tornado-subgraph' from origin 'http://12",
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+      "checkRpc Error: Invalid JSON RPC response: \"\"\n    at Object.InvalidResponse (http://127.0.0.1:5190/_nuxt/68d7ff0.js:2:60",
+      "preselectRpc https://eth-mainnet.alchemyapi.io/v2/Mr-4mfUSoT5xfF6iHbrdAEoGEE9hVzQa RPC is down",
+      "Error: All predefined RPCs are down. It's probably a network error. Please select custom RPC in Settings\n    at http://1",
+      "Failed to load resource: the server responded with a status of 401 ()",
+      "Failed to load resource: the server responded with a status of 401 ()"
+    ]
+  },
+  "note": "the settings and statistics steps of the capture matched nothing (the withdrawal settings appear only after a valid note; the Statistics panel is on every screen) — their duplicate files were removed"
+}
