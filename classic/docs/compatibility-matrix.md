@@ -183,3 +183,23 @@ administered by governance, their implementations `0x2573bac39ebe2901b4389cd468f
 `0x84b0c75c1f6211450fec7289c32d717adadd702a`). `operator() = 0x0` and `ROOT_HISTORY_SIZE() = 100` on every pool, all
 four instances `ENABLED` (protocol fee 0.30 % on the 1 / 10 / 100 pools, 0 on the 0.1 pool). The pins and the report:
 `classic/src/config/deployment.json`, `classic/docs/deployment-verification-2026-10-26.md`.
+
+## 11. Verified by proving (V7 Stage 6, 2026-10-26)
+
+The vendored stack (`classic/vendor/VENDORED.md`), converted into ES modules without eval (`classic/scripts/vendor.mjs`,
+`classic/scripts/compile-circuit.mjs`), reproduces the original's cryptography on every rung of the ladder:
+
+| Rung | What was checked | Result |
+|---|---|---|
+| MiMCSponge | `hashLeftRight` over the twenty empty subtrees against the 1 ETH pool's `zeros(0..19)` read on chain (`classic/vectors/zeros.json`); the 100 ETH pool's own `getLastRoot()` at block 14,954,101 against the tree over the classic-ui cache's 27,544 leaves (`classic/vectors/roots.json`; drpc and 1rpc archive endpoints) | 20/20 equal; the root equal (27.4 s to hash in Node) |
+| Pedersen | commitment and nullifier hash of three seeded notes against circomlibjs 0.1.2 (`classic/vectors/notes.json`) | equal |
+| witness | the converted calculator (queued triggering) against the pristine snarkjs 0.1.20 (nested triggering, eval) on the vector input | 28,300 signals equal |
+| proof | websnark `4c0af6a8` with the original proving key; snarkjs 0.7.6 `groth16.verify` with the key of the deployed `Verifier.sol` | verifies only with every G2 limb pair reordered (the Solidity verifier keeps the imaginary part first; websnark's own proof is in snarkjs's order); the other three orders false |
+| chain | `eth_call verifyProof(bytes,uint256[6])` on the shared verifier `0xce172ce1f20ec0b3728c9965470eaf994a03557a` with the vector proof (`classic/vectors/proof.json`) | accepted; refused with the recipient bent by one (`classic/test/live/verifier.live.test.ts`) |
+| browser | the built prover worker in Chrome under the app's content security policy: artifacts fetched and pinned, websnark's sub-workers from Blob URLs, the proof verified offline in the worker, the second visit from Cache Storage (`classic/tests/prover/run.mjs`) | 4 sub-workers, witness 118 ms, proof 4.9 s, verify 187 ms |
+
+Two facts the original code never documented: the calldata of `verifyProof` places the `bytes` offset after the six
+static words (`0xe0`), and the selector is `0x695ef6f9`. Two differences from the original's run time, both recorded
+in `classic/vendor/VENDORED.md`: the circuit's templates are precompiled (no eval) and the witness calculator's
+triggering is a queue (a Web Worker's stack is too small for the original's nested chain). The 0.3 % protocol fee, the
+relayers and the history are Stages 7–9.

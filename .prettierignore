@@ -10,3 +10,8 @@ contracts/cache/
 scripts/local-stack/run/
 scripts/local-stack/results/
 package-lock.json
+# the Classic app: the vendored prover as ES modules and the precompiled circuit are generated from pinned originals (classic/scripts/vendor.mjs, compile-circuit.mjs)
+classic/src/prover/legacy/
+classic/src/prover/generated/
+# the Classic app: the originals vendored byte for byte (classic/vendor/VENDORED.md)
+classic/vendor/

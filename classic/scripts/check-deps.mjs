@@ -3,19 +3,29 @@
 // a dependency the Classic lockfile never recorded. src/ may use dependencies; test/, scripts/ and the configs may use
 // devDependencies too; src/ never imports a Node built-in or a @privacy-wallet package.
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 export const APP = join(here, "..");
 const CODE = /\.(ts|tsx|mts|js|mjs|cjs)$/;
-const SPECS = [/\bfrom\s*["']([^"'\n]+)["']/g, /^[ \t]*import\s*["']([^"'\n]+)["']/gm, /\bimport\(\s*["']([^"'\n]+)["']/g, /\brequire\(\s*["']([^"'\n]+)["']/g];
+const SPECS = [
+  /(?<=[\s}*])from\s*["']([^"'\n]+)["']/g,
+  /^[ \t]*import\s*["']([^"'\n]+)["']/gm,
+  /\bimport\(\s*["']([^"'\n]+)["']/g,
+  /\brequire\(\s*["']([^"'\n]+)["']/g,
+];
 const uncomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^[ \t]*\/\/.*$/gm, "");
 const packageOf = (spec) => (spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]);
+const isBuiltin = (name) => name.startsWith("node:") || builtinModules.includes(name);
+// files whose text quotes requires that are not theirs: the conversion lists (the originals' requires, replaced) and
+// websnark's Node worker bootstrap string (a require of worker_threads executed in a Node worker thread only)
+const QUOTED = new Set(["scripts/vendor.mjs", "src/prover/legacy/groth16.js"]);
 
 function files(dir, out = []) {
   for (const e of readdirSync(dir)) {
-    if (e === "node_modules" || e === "dist" || e === "public" || e === "contracts" || e.startsWith(".")) continue; // contracts/: the records and the downloaded compiler builds
+    if (e === "node_modules" || e === "dist" || e === "public" || e === "contracts" || e === "vendor" || e.startsWith(".")) continue; // contracts/: the records and the downloaded compiler builds; vendor/: the pristine originals, never built
     const p = join(dir, e);
     if (statSync(p).isDirectory()) files(p, out);
     else if (CODE.test(e)) out.push(p);
@@ -31,6 +41,7 @@ export function checkDeps(app = APP) {
   let checked = 0;
   for (const abs of files(app)) {
     const file = relative(app, abs).replace(/\\/g, "/");
+    if (QUOTED.has(file)) continue;
     const isSrc = file.startsWith("src/");
     const src = uncomment(readFileSync(abs, "utf8"));
     for (const rx of SPECS) {
@@ -39,7 +50,7 @@ export function checkDeps(app = APP) {
         if (spec.startsWith(".") || spec.startsWith("/")) continue;
         checked++;
         const pkgName = packageOf(spec);
-        if (pkgName.startsWith("node:")) {
+        if (isBuiltin(pkgName)) {
           if (isSrc) problems.push(`${file}: src imports the Node built-in ${spec}`);
           continue;
         }

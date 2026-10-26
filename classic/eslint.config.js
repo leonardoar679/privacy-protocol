@@ -42,7 +42,19 @@ const WORDS = [
 ];
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "public/**", "scripts/**", "tests/**", "contracts/**", "*.config.*"] },
+  {
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "public/**",
+      "scripts/**",
+      "tests/**",
+      "contracts/**",
+      "src/prover/legacy/**",
+      "src/prover/generated/**",
+      "*.config.*",
+    ],
+  },
   ...tseslint.configs.recommended.map((c) => ({ ...c, files: [...SRC, ...TESTS] })),
   {
     files: SRC,

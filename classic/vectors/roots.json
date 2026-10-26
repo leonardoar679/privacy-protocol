@@ -1,0 +1,22 @@
+{
+ "comment": "Roots of real pool histories (spec v3.0 §7.4; V7 Stage 6): the MiMC tree over the classic-ui event cache's leaves (static/events/deposits_eth_100.json.zip at a83fae07; 27,544 deposits, leaf indices 0..27543 contiguous, the last at block 14,954,101), computed layer by layer with the vendored MiMCSponge in 27.4 s, equal to the pool's own getLastRoot() at that block as two archive endpoints answered on 2026-10-26 (the root is older than the pool's 100-root window, so isKnownRoot answers false today). Stage 7's history fixture and sync are held to it.",
+ "eth-100": {
+  "pool": "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+  "source": "classic-ui a83fae07 static/events/deposits_eth_100.json.zip",
+  "leaves": 27544,
+  "lastLeafIndex": 27543,
+  "toBlock": 14954101,
+  "firstCommitment": "0x04b0b397af86289595530ea0a5d34e4edc64429a2cd207e51b146d4480a2b0dc",
+  "lastCommitment": "0x20929e5491719b28492daa45f720e2d53405109306dc2e660c304d4a6f5b203c",
+  "root": "0x1a9d5cf215c8753799dd52ff112610f4b05badfbd60b2cc5926a459eb40784f0",
+  "verified": {
+   "method": "eth_call getLastRoot() at block 14954101",
+   "endpoints": [
+    "https://eth.drpc.org",
+    "https://1rpc.io/eth"
+   ],
+   "date": "2026-10-26"
+  },
+  "isKnownRootNow": "0x0000000000000000000000000000000000000000000000000000000000000000"
+ }
+}

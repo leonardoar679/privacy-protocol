@@ -1,8 +1,9 @@
-// The Classic app's artifact pins (spec v3.0 §7.3): public/artifacts.json names every runtime artifact the app serves
-// under /classic/artifacts/ (the original circuit, the proving key, the precompiled witness data) with its sha256 and
-// size; a file present under public/artifacts/ must hash to its pin, a present file without a pin fails (it would be
-// served unpinned), a pinned file absent from this machine is skipped (a clone without the artifacts). The build ships
-// the pin file (dist/artifacts.json). Stage 6 fills the list; until then it is empty and the check passes.
+// The Classic app's artifact pins (spec v3.0 §7.3): src/prover/artifacts.json — imported by the prover worker, so the
+// code itself vouches for what it loads — names every runtime artifact the app serves under /classic/artifacts/ (the
+// original circuit, the proving key, the precompiled witness data) with its sha256 and size; public/artifacts.json is its
+// served copy and must be identical. A file present under public/artifacts/ must hash to its pin, a present file without
+// a pin fails (it would be served unpinned), a pinned file absent from this machine is skipped (a clone without the
+// artifacts). The build ships the served copy (dist/artifacts.json).
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -10,7 +11,8 @@ import { fileURLToPath } from "node:url";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 export const APP = join(here, "..");
-export const PIN_FILE = join(APP, "public", "artifacts.json");
+export const PIN_FILE = join(APP, "src", "prover", "artifacts.json");
+export const PUBLIC_PIN_FILE = join(APP, "public", "artifacts.json");
 export const ARTIFACT_DIR = join(APP, "public", "artifacts");
 export const sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -23,11 +25,18 @@ export function readPins(file = PIN_FILE) {
   }
 }
 
-export function checkPins({ pinFile = PIN_FILE, dir = ARTIFACT_DIR, dist = join(APP, "dist") } = {}) {
+/** @param {{ pinFile?: string, publicPinFile?: string | null, dir?: string, dist?: string }} [opts] */
+export function checkPins({ pinFile = PIN_FILE, publicPinFile = null, dir = ARTIFACT_DIR, dist = join(APP, "dist") } = {}) {
   const pins = readPins(pinFile);
-  if (!pins || typeof pins.files !== "object") return { ok: false, rows: [], problems: ["public/artifacts.json is missing or unreadable"] };
+  if (!pins || typeof pins.files !== "object") return { ok: false, rows: [], problems: ["src/prover/artifacts.json is missing or unreadable"] };
   const rows = [];
   const problems = [];
+  if (publicPinFile) {
+    if (!existsSync(publicPinFile))
+      problems.push("public/artifacts.json is missing (the served copy of src/prover/artifacts.json; copy-artifacts.mjs writes both)");
+    else if (readFileSync(publicPinFile, "utf8") !== readFileSync(pinFile, "utf8"))
+      problems.push("public/artifacts.json differs from src/prover/artifacts.json (copy-artifacts.mjs writes both)");
+  }
   const present = existsSync(dir) ? readdirSync(dir).filter((f) => statSync(join(dir, f)).isFile()) : [];
   for (const [name, pin] of Object.entries(pins.files)) {
     if (!present.includes(name)) {
@@ -52,7 +61,7 @@ export function checkPins({ pinFile = PIN_FILE, dir = ARTIFACT_DIR, dist = join(
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const r = checkPins();
+  const r = checkPins({ publicPinFile: PUBLIC_PIN_FILE });
   for (const row of r.rows)
     console.log(`${row.status === "match" ? "PASS" : row.status === "skipped" ? "SKIP" : "FAIL"}  ${row.name}: ${row.status} — ${row.detail}`);
   for (const p of r.problems) console.error(`FAIL  ${p}`);

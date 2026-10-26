@@ -1,0 +1,17 @@
+{
+  "comment": "The runtime artifacts served under /classic/artifacts/, pinned by sha256 and size (spec v3.0 §7.3): the original circuit and proving key (copy-artifacts.mjs), the witness file derived from the circuit (compile-circuit.mjs). A file present under public/artifacts/ must hash to its pin (scripts/check-pins.mjs).",
+  "files": {
+    "tornado.json": {
+      "sha256": "3ddd61dbff09caeec82d8edde95c674a3c34f9e66b1fe9f2c8783e72fe536f98",
+      "bytes": 19474889
+    },
+    "tornadoProvingKey.bin": {
+      "sha256": "8e2d2f22beafb5a9666daebca57b13f8029c3656c65fcfbcc86e2418fa16a3af",
+      "bytes": 14522256
+    },
+    "witness.json": {
+      "sha256": "821c01d5a89ecfc3a2b34e3a651e3ff519e5a47c76fe50343409fcbd501fc6c8",
+      "bytes": 8086414
+    }
+  }
+}

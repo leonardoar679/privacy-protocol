@@ -1,0 +1,91 @@
+{
+ "comment": "Known-answer vectors for the Classic note (spec v3.0 §7.3; V7 Stage 6): three notes of the 1 ETH mainnet pool with deterministic bytes (a linear congruential generator seeded 7, 11 and 12345; the top byte of each step), their commitment Pedersen(nullifier ‖ secret).x and nullifier hash Pedersen(nullifier).x, the contract's hashLeftRight on two field elements, and the 20-level MiMC tree over the three commitments with the path of the second leaf. Generated with the vendored originals (classic/vendor; circomlib 3b492f9's Pedersen and MiMCSponge over snarkjs 0.1's field) and cross-checked on 2026-10-26 against circomlibjs 0.1.2 (buildPedersenHash + buildBabyjub for the hashes, buildMimcSponge multiHash([l, r], 0, 1) for hashLeftRight), and — for the tree — against the deployed pools' zeros(i) (vectors/zeros.json) and the 100 ETH pool's own root over 27,544 real leaves (vectors/roots.json). Pinned by classic/test/crypto.test.ts.",
+ "notes": [
+  {
+   "seed": 7,
+   "note": "tornado-eth-1-1-0x3de99ced0cdb5c0d11fbf988738c9ac7c76b79da5c7b17bfd55b2dfb1f74741b1d9fc5159bed44975a5083b64f28dfa061ff7c2d40eb967e2c6f2d00b1c2",
+   "nullifier": "0x3de99ced0cdb5c0d11fbf988738c9ac7c76b79da5c7b17bfd55b2dfb1f7474",
+   "secret": "0x1b1d9fc5159bed44975a5083b64f28dfa061ff7c2d40eb967e2c6f2d00b1c2",
+   "commitment": "0x1b585fa493ce7b53c1cf904222618fa78e11432b32a31c9a46eba9765228ae04",
+   "nullifierHash": "0x219430c7b5386d443c44491638a03d7afc78c09b47068854b556d38136458ac8"
+  },
+  {
+   "seed": 11,
+   "note": "tornado-eth-1-1-0x3d465913b7d815b71a36c9455b5a84a4647aab6620bbc5094d20930c5ceccebaf70c5cc60836dc2d48dfc0f0b92776979269409e740cc22309b1669547fe",
+   "nullifier": "0x3d465913b7d815b71a36c9455b5a84a4647aab6620bbc5094d20930c5cecce",
+   "secret": "0xbaf70c5cc60836dc2d48dfc0f0b92776979269409e740cc22309b1669547fe",
+   "commitment": "0x12c48d751b0bf524c09c837fed149874a733f89d4347a38d47898254b3f1444a",
+   "nullifierHash": "0x05612fde88c14a934cd146f2ac7fece21b9a3bed264c2354eebf3cf7fd38b638"
+  },
+  {
+   "seed": 12345,
+   "note": "tornado-eth-1-1-0x05048ba2e81c7e8c98c80abef712b37565f567f3fea96c7f496cac2716da4f01764a92f603c74d52f48baaa89f29edc475b954b693c2713474ab85df64ec",
+   "nullifier": "0x05048ba2e81c7e8c98c80abef712b37565f567f3fea96c7f496cac2716da4f",
+   "secret": "0x01764a92f603c74d52f48baaa89f29edc475b954b693c2713474ab85df64ec",
+   "commitment": "0x063aa2177ecf7a4a8704c0d46e87b870ffc8655d95c255987e85a7f69165bf72",
+   "nullifierHash": "0x19f49625a33613023494541e1514cfaf99f17436ab43b00ca2e70925e1b70601"
+  }
+ ],
+ "mimc": {
+  "left": "12345678901234567890",
+  "right": "98765432109876543210",
+  "hashLeftRight": "0x0f3ee80248d3280b90a9733c218264c5ccd0fc0deb503134d0757f64ffbba069",
+  "crossChecked": "circomlibjs@0.1.2 mimcsponge multiHash([left, right], 0, 1), 2026-10-26"
+ },
+ "tree": {
+  "levels": 20,
+  "leaves": [
+   "0x1b585fa493ce7b53c1cf904222618fa78e11432b32a31c9a46eba9765228ae04",
+   "0x12c48d751b0bf524c09c837fed149874a733f89d4347a38d47898254b3f1444a",
+   "0x063aa2177ecf7a4a8704c0d46e87b870ffc8655d95c255987e85a7f69165bf72"
+  ],
+  "root": "0x00d4bf5cca147f192ea7e5a1ebbd8d17f9a2272ccbc8514a879e2a4167a3aeaa",
+  "path": {
+   "index": 1,
+   "pathElements": [
+    "0x1b585fa493ce7b53c1cf904222618fa78e11432b32a31c9a46eba9765228ae04",
+    "0x05ce47f2e5ba2209ec35e0492af2784c08da02b1883f1dd16292b7042e46cd7e",
+    "0x1151949895e82ab19924de92c40a3d6f7bcb60d92b00504b8199613683f0c200",
+    "0x20121ee811489ff8d61f09fb89e313f14959a0f28bb428a20dba6b0b068b3bdb",
+    "0x0a89ca6ffa14cc462cfedb842c30ed221a50a3d6bf022a6a57dc82ab24c157c9",
+    "0x24ca05c2b5cd42e890d6be94c68d0689f4f21c9cec9c0f13fe41d566dfb54959",
+    "0x1ccb97c932565a92c60156bdba2d08f3bf1377464e025cee765679e604a7315c",
+    "0x19156fbd7d1a8bf5cba8909367de1b624534ebab4f0f79e003bccdd1b182bdb4",
+    "0x261af8c1f0912e465744641409f622d466c3920ac6e5ff37e36604cb11dfff80",
+    "0x0058459724ff6ca5a1652fcbc3e82b93895cf08e975b19beab3f54c217d1c007",
+    "0x1f04ef20dee48d39984d8eabe768a70eafa6310ad20849d4573c3c40c2ad1e30",
+    "0x1bea3dec5dab51567ce7e200a30f7ba6d4276aeaa53e2686f962a46c66d511e5",
+    "0x0ee0f941e2da4b9e31c3ca97a40d8fa9ce68d97c084177071b3cb46cd3372f0f",
+    "0x1ca9503e8935884501bbaf20be14eb4c46b89772c97b96e3b2ebf3a36a948bbd",
+    "0x133a80e30697cd55d8f7d4b0965b7be24057ba5dc3da898ee2187232446cb108",
+    "0x13e6d8fc88839ed76e182c2a779af5b2c0da9dd18c90427a644f7e148a6253b6",
+    "0x1eb16b057a477f4bc8f572ea6bee39561098f78f15bfb3699dcbb7bd8db61854",
+    "0x0da2cb16a1ceaabf1c16b838f7a9e3f2a3a3088d9e0a6debaa748114620696ea",
+    "0x24a3b3d822420b14b5d8cb6c28a574f01e98ea9e940551d2ebd75cee12649f9d",
+    "0x198622acbd783d1b0d9064105b1fc8e4d8889de95c4c519b3f635809fe6afc05"
+   ],
+   "pathIndices": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ }
+}

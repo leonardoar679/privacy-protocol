@@ -83,3 +83,21 @@ code.
   the verification makes. Node-side tooling only (`classic/scripts/`, `classic/test/`): nothing of it reaches the app
   (`classic/scripts/check-deps.mjs` keeps devDependencies out of `src/`). None is cryptography-sensitive in the gate's
   sense; none has an install script; each locked with its sha512 integrity from the registry.
+- 2026-10-26 (V7 Stage 6) — the Classic prover's runtime dependencies in `classic/package-lock.json`:
+  `big-integer@1.6.52` (Unlicense; snarkjs 0.1's and websnark's arithmetic where native BigInt is not used — the vendored
+  originals' own dependency, at the version their manifests name), `js-sha3@0.13.0` (MIT; moved from devDependencies to
+  dependencies: the keccak256 chain of the MiMCSponge constants in place of web3-utils, and the view-call selectors), and
+  `snarkjs@0.7.6` (GPL-3.0) for `groth16.verify` alone — a proof verified on the device, inside the prover worker, before
+  it is returned — with its closure: `ffjavascript@0.3.1` (and `ffjavascript@0.3.0` nested under `r1csfile`),
+  `wasmcurves@0.2.2`, `wasmbuilder@0.0.16`, `r1csfile@0.0.48`, `fastfile@0.0.20`, `@iden3/binfileutils@0.0.12`,
+  `@iden3/bigarray@0.0.2` (GPL-3.0), `circom_runtime@0.1.28`, `web-worker@1.2.0`, `ejs@3.1.10`, `jake@10.9.4`,
+  `filelist@1.0.6` (Apache-2.0), `@noble/hashes@1.8.0` (MIT), `bfj@7.1.0`, `logplease@1.2.15`, `async@3.2.6`,
+  `bluebird@3.7.2`, `check-types@11.2.3`, `hoopy@0.1.4`, `tryer@1.0.1`, `jsonpath@1.3.0`, `static-eval@2.1.1`,
+  `underscore@1.13.6`, `escodegen@2.1.0`, `esprima@4.0.1` and `esprima@1.2.5` (no licence field in its manifest;
+  BSD-2-Clause in its repository), `source-map@0.6.1` (optional), the nested `brace-expansion@2.1.7` and
+  `minimatch@5.1.9`. The same `snarkjs@0.7.6`, `ffjavascript@0.3.1` / `0.3.0` and `@noble/hashes@1.8.0` the root lockfile
+  carries (the baseline table above); none has an install script; each locked with its sha512 integrity from the registry.
+  Of the closure only snarkjs's browser build reaches the app, in the prover worker's chunk (466 KB, 114 KB gzipped) and
+  never the first route (`classic/scripts/check-budget.mjs`). The vendored prover itself — websnark `4c0af6a8`, snarkjs
+  0.1.20, circomlib `3b492f9`, blake-hash 2.0.0 — is source under `classic/vendor/` with every file's sha256 in
+  `classic/vendor/VENDORED.md`, not a lockfile entry.

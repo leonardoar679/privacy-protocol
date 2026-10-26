@@ -10,6 +10,7 @@ import { feeLines } from "../model/fees";
 import { isAddress } from "../model/format";
 import { mockSource } from "../model/mock";
 import { formatNote, generateNote, noteFileName, parseNote, type ClassicNote } from "../model/notes";
+import { warmProver } from "./prover";
 import { NET_ID, poolOf, type PoolId } from "../model/pools";
 import type { ClassicSource } from "../model/source";
 import type { Availability, FeeLines, HistoryRow, NoteLookup, PoolFunctionLive, PoolStats, RelayerInfo, WithdrawMode } from "../model/types";
@@ -124,6 +125,10 @@ export function App(props: AppProps = {}) {
   const recipientInvalid = recipient.trim() !== "" && !isAddress(recipient);
   const canWithdraw = !!found && isAddress(recipient) && (mode === "wallet" || (!!relayer && !!fees && fees.receiveWei > 0n));
   const withdrawLive = found ? isLive(c, found.pool, "withdraw") : false;
+  // the prover warms up as soon as a live withdrawal is possible: the artifacts fetched and verified, websnark built (spec §7.3)
+  useEffect(() => {
+    if (found && withdrawLive) warmProver();
+  }, [found, withdrawLive]);
 
   // the statistics follow the selected pool, or the pool of the note being withdrawn (as the original did)
   const statsPool: PoolId = route === "withdraw" && found ? found.pool : pool;

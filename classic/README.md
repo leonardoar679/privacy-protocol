@@ -9,17 +9,20 @@ nothing at runtime with the Privacy Wallet in `../apps/web`: the design tokens a
 (`src/tokens.generated.css`, from `../packages/ui/src/tokens/tokens.css`, `npm run tokens`), nothing else crosses
 (`../scripts/check-boundaries.mjs`, rule 9).
 
-**Status (V7 Stage 5):** the package, the gates, the original-style screens on mock data (`docs/parity.md` against the
-original, element by element; the Classic screenshot harness, axe and the word policy), and the deployment verified
-against Ethereum mainnet: every pinned contract's runtime code held against its Sourcify record (`contracts/verified/`)
-and against a rebuild with the pinned compiler, the pools' constants, the router and the registries, the verifier's key
-— `npm run verify-deployment` writes the pins (`src/config/deployment.json`, which `src/model/pools.ts` reads) and the
-report (`docs/deployment-verification-2026-10-26.md`); `npm run test:live` holds the chain to the pins. The data
-behind the screens is still `src/model/mock.ts` until the cryptography, the history, the relayers and the flows arrive
-with Stages 6–9; the end-to-end runs and the release gate with Stages 10–11 (`../docs/roadmap.md`, the V7 table). **No
-build sends a transaction** until a pool function is switched live (`VITE_CLASSIC_LIVE`) after its release-gate row and
-the owner's legal review (`classic/docs/release-gate.md`, `classic/docs/legal-review.md` — Stage 11): every sending
-button reads "Not connected" and the banner says so on every screen.
+**Status (V7 Stage 6):** the package, the gates, the original-style screens on mock data (`docs/parity.md` against the
+original, element by element; the Classic screenshot harness, axe and the word policy), the deployment verified against
+Ethereum mainnet (`npm run verify-deployment` writes the pins `src/config/deployment.json` and the report
+`docs/deployment-verification-2026-10-26.md`; `npm run test:live` holds the chain to them), and the cryptography: the
+original's own prover vendored byte for byte (`vendor/`, `vendor/VENDORED.md`) and converted without eval into
+`src/prover/legacy/`, the circuit precompiled, the artifacts pinned, the note's derivations and the Merkle tree held to
+circomlibjs, to the pools' zeros and to a real pool's root, the prover worker proving in Node and in Chrome under the
+app's own policy, its proofs verified offline and — the recorded one — accepted by the deployed verifier itself
+(`docs/compatibility-matrix.md` §11). The data behind the screens is still `src/model/mock.ts` until the history, the
+relayers and the flows arrive with Stages 7–9; the end-to-end runs and the release gate with Stages 10–11
+(`../docs/roadmap.md`, the V7 table). **No build sends a transaction** until a pool function is switched live
+(`VITE_CLASSIC_LIVE`) after its release-gate row and the owner's legal review (`classic/docs/release-gate.md`,
+`classic/docs/legal-review.md` — Stage 11): every sending button reads "Not connected" and the banner says so on every
+screen.
 
 ## Layout
 
@@ -29,17 +32,24 @@ button reads "Not connected" and the banner says so on every screen.
 | `src/app/` | the controller (`App.tsx`), the routes (`router.ts`: `/classic`, `/classic/deposit`, `/classic/withdraw`, `/classic/history`, `/classic/settings` — no query string, no fragment) and the catalogs (`i18n/`: en, ko) |
 | `src/views/` | the pure screens: the shell, the deposit tab and the note modal, the withdraw tab, the Statistics, History, Settings and the availability card, the primitives |
 | `src/model/` | the pools (from the pins), the note, Classic's fee lines, the time words, the formatting, the data-source interface and the Stage 3 mock |
+| `src/crypto/` | the note's derivations over the vendored originals (`hashes.ts`: Pedersen commitment and nullifier hash, the contract's MiMC `hashLeftRight`), the pools' Merkle tree (`tree.ts`: 20 levels, the zeros, paths, a bulk build), SHA-256 for the pins |
+| `src/prover/` | the prover: the worker (`worker.ts`) and its main-thread client (`client.ts`, `protocol.ts`), the engine over websnark and the witness calculator (`engine.ts`), the circuit input (`input.ts`), offline verification with snarkjs 0.7.6 against the deployed key (`offline.ts`), the contract's `verifyProof` call (`verify.ts`), the artifact pins (`artifacts.json`); `legacy/` the converted originals and `generated/` the precompiled circuit — both generated, never edited |
+| `src/net/`, `src/storage/artifactCache.ts` | the only fetch (an artifact streamed, capped and sha256-checked) and the artifacts' Cache Storage |
+| `vendor/` | the originals byte for byte (websnark `4c0af6a8`, snarkjs 0.1.20, circomlib `3b492f9`, blake-hash 2.0.0) with `VENDORED.md`: sources, licences, sha256s, what the conversion changes |
+| `vectors/` | the known answers: notes → commitment and nullifier hash, the pools' zeros, a proof accepted by the deployed verifier, the 100 ETH cache's root equal to the pool's own |
+| `scripts/vendor.mjs`, `scripts/copy-artifacts.mjs`, `scripts/compile-circuit.mjs` | the conversion lists (`npm run vendor`, checked by the gates), the artifacts copied from the pinned tornado-cli clone and pinned, the circuit's templates precompiled and the witness file derived |
+| `tests/prover/` | the prover in Chrome under the app's policy (`run.mjs`; verify-all `--browser`) |
 | `src/config/deployment.json` | the deployment pins the verification wrote: the addresses, deployed blocks, runtime code hashes and sizes, the pools' constants, the verifier's key, the router's roles, the registries' proxies and the pools' instance states, the compiler pins |
 | `contracts/verified/` | the Sourcify records of the pools, the verifier, the router and the registries (sources, settings, the bytecode Sourcify saw and recompiled, the transformations); `compilers/` (git-ignored) holds the pinned solc builds once downloaded |
 | `scripts/compilers.mjs`, `scripts/deployment.mjs`, `scripts/verify-deployment.mjs` | the compiler pins and their download, the verification logic (the comparison modulo the transformations, the view calls, the key parser, the drift check), the command (`npm run verify-deployment [--write]`) |
 | `test/live/`, `vitest.live.config.ts` | the live suites (`npm run test:live`; `verify-all --live`): the pins against mainnet |
-| `src/storage/` | the only module that touches the browser's storage — preferences alone, never a note |
+| `src/storage/` | the only module that touches the browser's storage — preferences and the public artifacts' cache, never a note |
 | `src/fixtures/`, `fixtures.html` | the screenshot fixtures, served by `vite --mode fixtures` only and never built |
 | `tests/visual/` | the screenshot harness (`run.mjs`) and the reviewed baselines per platform |
 | `src/tokens.generated.css`, `src/styles.css` | the Privacy Wallet's tokens (generated) and the app's styles (mobile-first; the Statistics beside the form from 1024 px) |
 | `scripts/csp.mjs` | the content security policy (`script-src 'self' 'wasm-unsafe-eval'`, `worker-src 'self' blob:`, `connect-src` the configured hosts only) |
-| `scripts/tokens.mjs`, `scripts/words.mjs`, `scripts/check-deps.mjs`, `scripts/gates.mjs` | the source gates: the tokens up to date, no promise word, every import declared here |
-| `scripts/check-dist.mjs`, `scripts/check-budget.mjs`, `scripts/check-pins.mjs`, `scripts/check-build.mjs` | the build gates: the policy meta and the manifest in `dist/`, the first route ≤ 200 KB gzipped without the prover, the artifact pins (`public/artifacts.json`) |
+| `scripts/tokens.mjs`, `scripts/words.mjs`, `scripts/check-deps.mjs`, `scripts/gates.mjs` | the source gates: the tokens up to date, no promise word, every import declared here, the converted prover exactly the pinned originals with the listed replacements, the precompiled circuit what the pinned circuit derives, the pin file and its served copy equal |
+| `scripts/check-dist.mjs`, `scripts/check-budget.mjs`, `scripts/check-pins.mjs`, `scripts/check-build.mjs` | the build gates: the policy meta and the manifest in `dist/`, the first route ≤ 200 KB gzipped without the prover, the artifact pins (`src/prover/artifacts.json`, imported by the prover worker; `public/artifacts.json` its served copy) |
 | `docs/` | the compatibility matrix, the original interface's reference captures, the parity table, the release gate |
 | `test/` | the suites (`npm test`); `test/live/` and `test/fork/` read the chain and run under `verify-all --live` |
 
@@ -51,7 +61,11 @@ npm run dev            # http://127.0.0.1:5174/classic/
 npm run build          # tsc --noEmit, then vite build (dist/, with the policy meta and the manifest)
 npm test               # vitest
 npm run lint           # eslint
-npm run gates          # words, declared dependencies, tokens
+npm run gates          # words, declared dependencies, tokens, the vendored prover's conversion, the precompiled circuit, the pins
+npm run copy-artifacts # the original circuit and proving key from ../reference/tornado-cli (or --from <dir>) into public/artifacts/, pinned
+npm run compile-circuit # the circuit's templates as src/prover/generated/templates.js and the witness file (after copy-artifacts)
+npm run vendor         # regenerate src/prover/legacy/ from vendor/ and the lists in scripts/vendor.mjs
+npm run prover:browser # the prover in Chrome under the app's policy (after a build, with the artifacts)
 npm run check-build    # dist, budget, pins (after a build)
 npm run visual         # the screenshot harness (installed Chrome; UPDATE_BASELINES=1 rewrites the baselines — review them)
 npm run verify-deployment -- --write   # the deployment against mainnet (public RPC; downloads the pinned compilers once): the pins + the report

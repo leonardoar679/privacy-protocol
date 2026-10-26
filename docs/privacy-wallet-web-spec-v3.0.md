@@ -310,6 +310,36 @@ before it leaves the device. Vectors: `classic/vectors/notes.json` (note → com
 `classic/vectors/proof.json` (a synthetic tree and a proof) verified offline and **accepted by the deployed verifier**
 through `eth_call` (`--live`); the vendored files re-hashed by a test.
 
+**As landed (Stage 6, 2026-10-26).** `classic/vendor/` holds the originals byte for byte (`classic/vendor/VENDORED.md`:
+sources and sha256s — websnark `4c0af6a8` from the reference clone, snarkjs 0.1.20 and blake-hash 2.0.0 from the
+registry tarballs, circomlib `3b492f9`), and `classic/scripts/vendor.mjs` converts them into `classic/src/prover/legacy/`
+by listed literal replacements — one more than planned: snarkjs 0.1's witness calculator ran a ready component nested
+inside the setter that completed its inputs, a chain of about 8,800 components for one withdrawal (220 MiMC rounds × 2
+× 20 levels), deeper than a Web Worker's stack in Chrome (Node's sufficed); the converted calculator queues ready
+components and runs them when a signal not yet set is read (last ready first, so a parent runs before a child whose
+inputs alias its own), and a Node test holds its witness, signal for signal, to the pristine original's. The
+precompiled circuit is `classic/src/prover/generated/templates.js` (39 templates, one function) with the served
+`witness.json` (8,086,414 B); the pins live in `classic/src/prover/artifacts.json`, imported by the worker so that a
+served pin file can never vouch for a served artifact, with `classic/public/artifacts.json` as the served copy the gates
+hold equal. The derivations are `classic/src/crypto/hashes.ts` and `classic/src/crypto/tree.ts` (a sparse 20-level
+tree with a layer-by-layer bulk build); the prover is `classic/src/prover/` (`engine.ts`, `worker.ts`, `client.ts`,
+`protocol.ts`, `input.ts`, `offline.ts`, `verify.ts`): everything cryptographic runs in the dedicated worker —
+`classic/src/app/prover.ts` loads it on first use and warms it when a live withdrawal becomes possible, and the worker
+also derives a note's commitment and nullifier hash on request, so the main thread never loads the legacy modules; the
+artifacts are fetched by `classic/src/net/artifacts.ts` (streamed, capped at the pinned size, sha256-checked) and kept in
+Cache Storage keyed by URL and pin (`classic/src/storage/artifactCache.ts`); a proof is verified offline with snarkjs
+0.7.6 against the key of the deployed `Verifier.sol` (every G2 limb pair reordered — the one order of four that
+verifies) before it is returned, and `verify.ts` encodes the contract's own `verifyProof(bytes,uint256[6])` call (the
+live test; wallet mode later). `fixed-merkle-tree` is not used: the tree is our own hundred lines, held to the pools'
+zeros and to a real root. Measured — Node, 2 workers: witness ≈ 0.2 s, proof ≈ 11 s; Chrome on this workstation, 4
+sub-workers with 2,000 pages each: witness 118 ms, proof 4.9 s, offline verification 187 ms, the 21.6 MB of artifacts
+from Cache Storage in 31 ms on the second visit (`classic/tests/prover/run.mjs`, verify-all `--browser`). Vectors:
+`classic/vectors/notes.json` (cross-checked with circomlibjs 0.1.2), `classic/vectors/zeros.json` (the pools' twenty
+zeros, read on chain), `classic/vectors/proof.json` (accepted by the deployed verifier through `eth_call` on
+2026-10-26; `classic/test/live/verifier.live.test.ts` holds it), `classic/vectors/roots.json` (the classic-ui cache's
+27,544 leaves of the 100 ETH pool hash to the pool's own `getLastRoot()` at block 14,954,101 on two archive
+endpoints). The phone measurements and the worker-count and page defaults for phones are Stage 7's.
+
 ### 7.4 History: events, the tree, spent notes (doc §4.3 C) — *Stage 7*
 Per pool the Deposit events (`commitment, leafIndex, timestamp`) from its deployed block and the Withdrawal events
 (`to, nullifierHash, relayer, fee`). A **snapshot** (`classic/scripts/snapshot.mjs`: the events, the tree's layers and

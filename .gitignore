@@ -36,5 +36,7 @@ classic/public/artifacts/
 classic/public/data/
 # the Classic screenshot harness: actual images, diffs and the report (classic/tests/visual/run.mjs)
 classic/tests/visual/run/
+# the Classic prover run in the browser: its report (classic/tests/prover/run.mjs)
+classic/tests/prover/run/
 # the Classic deployment verification: the pinned solc builds it downloads (classic/scripts/compilers.mjs)
 classic/contracts/verified/compilers/

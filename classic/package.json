@@ -12,6 +12,12 @@
     "test": "vitest run",
     "lint": "eslint .",
     "gates": "node scripts/gates.mjs",
+    "vendor": "node scripts/vendor.mjs --write",
+    "vendor:check": "node scripts/vendor.mjs",
+    "copy-artifacts": "node scripts/copy-artifacts.mjs",
+    "compile-circuit": "node scripts/compile-circuit.mjs",
+    "compile-circuit:check": "node scripts/compile-circuit.mjs --check",
+    "prover:browser": "node tests/prover/run.mjs",
     "check-build": "node scripts/check-build.mjs",
     "tokens": "node scripts/tokens.mjs",
     "visual": "node tests/visual/run.mjs",
@@ -19,8 +25,11 @@
     "test:live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
+    "big-integer": "1.6.52",
+    "js-sha3": "0.13.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "snarkjs": "0.7.6",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -35,7 +44,6 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^15.11.7",
-    "js-sha3": "0.13.0",
     "pixelmatch": "^8.0.0",
     "playwright-core": "^1.64.0",
     "pngjs": "^7.0.0",

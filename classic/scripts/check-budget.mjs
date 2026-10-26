@@ -10,7 +10,8 @@ import { gzipSync } from "node:zlib";
 const here = fileURLToPath(new URL(".", import.meta.url));
 export const DIST = join(here, "..", "dist");
 export const FIRST_ROUTE_KB = 200;
-const PROVER = /\b(genWitnessAndProve|buildGroth16|calculateWitness)\b/;
+// the prover's names, websnark's WebAssembly module in base64 (the bytes "\0asm"), its sub-worker protocol
+const PROVER = /\b(genWitnessAndProve|buildGroth16|calculateWitness)\b|"AGFzbQ|"TERMINATE"/;
 
 export function checkBudget(dist = DIST) {
   const manifestPath = join(dist, ".vite", "manifest.json");

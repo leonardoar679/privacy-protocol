@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkDeps } from "../scripts/check-deps.mjs";
-import { checkPins } from "../scripts/check-pins.mjs";
+import { checkPins, PUBLIC_PIN_FILE } from "../scripts/check-pins.mjs";
 import { checkTokens, generated } from "../scripts/tokens.mjs";
 import { checkWords, scan } from "../scripts/words.mjs";
 
@@ -87,7 +87,9 @@ describe("the artifact pins", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-  it("the app's own pin file is well-formed (empty until Stage 6)", () => {
-    expect(checkPins({ dist: join(tmpdir(), "nodist-classic") }).ok).toBe(true);
+  it("the app's own pin file names the three artifacts, and its served copy is equal", () => {
+    const r = checkPins({ publicPinFile: PUBLIC_PIN_FILE, dist: join(tmpdir(), "nodist-classic") });
+    expect(r.problems).toEqual([]);
+    expect(r.rows.map((x: { name: string }) => x.name).sort()).toEqual(["tornado.json", "tornadoProvingKey.bin", "witness.json"]);
   });
 });
