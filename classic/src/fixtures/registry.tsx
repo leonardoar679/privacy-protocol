@@ -12,6 +12,7 @@ import { FIXTURE_NOTE, fixtureFacts, MOCK_GAS_PRICE_WEI, MOCK_RELAYERS, mockAvai
 import { formatNote, noteFileName } from "../model/notes";
 import { poolOf, type PoolId } from "../model/pools";
 import type { HistoryRow, NoteLookup } from "../model/types";
+import { ConnectModal } from "../views/Connect";
 import { DepositTab, NoteModal } from "../views/Deposit";
 import { History } from "../views/History";
 import { SettingsPage } from "../views/Settings";
@@ -57,17 +58,40 @@ const HISTORY: HistoryRow[] = [
   { id: "d2", kind: "deposit", pool: "eth-100", timestamp: NOW - 120, status: "waiting" },
 ];
 
-const page = (route: Route, children: ReactNode, statsPool: PoolId | null = "eth-0.1") => (
+const page = (
+  route: Route,
+  children: ReactNode,
+  statsPool: PoolId | null = "eth-0.1",
+  shell: { walletLabel?: string; walletEnabled?: boolean; walletNotice?: string | null } = {},
+) => (
   <Shell
     route={route}
     onRoute={noop}
-    walletLabel={t("wallet.notConnected")}
-    walletEnabled={false}
+    walletLabel={shell.walletLabel ?? t("wallet.notConnected")}
+    walletEnabled={shell.walletEnabled ?? false}
+    walletNotice={shell.walletNotice ?? null}
     aside={statsPool ? <Statistics pool={statsPool} stats={mockStats(statsPool, NOW)} now={NOW} /> : undefined}
   >
     {children}
   </Shell>
 );
+/** the connected account the wired fixtures show (a fixture value, never a destination) */
+const CONNECTED = { status: "connected" as const, account: "0x75b9758bba5671c1e71c533a3fa5557f85126c3e", chainId: 1 };
+const WRONG_NETWORK = { ...CONNECTED, status: "wrong-network" as const, chainId: 11155111 };
+const WALLETS = [
+  { id: "io.metamask", name: "MetaMask" },
+  { id: "app.phantom", name: "Phantom" },
+];
+const connect = (state: typeof CONNECTED | typeof WRONG_NETWORK | { status: "disconnected" }, wallets = WALLETS, error: string | null = null) =>
+  page(
+    "deposit",
+    <>
+      <DepositTab pool="eth-0.1" onPool={noop} onDeposit={noop} />
+      <ConnectModal open wallets={wallets} state={state} connecting={false} error={error} onChoose={noop} onDisconnect={noop} onClose={noop} />
+    </>,
+    "eth-0.1",
+    { walletLabel: state.status === "disconnected" ? t("wallet.connect") : "0x75b9…6c3e", walletEnabled: true },
+  );
 
 const withdraw = (o: Partial<WithdrawProps> = {}): WithdrawProps => ({
   text: "",
@@ -162,6 +186,61 @@ const ko = (id: string, title: string, render: () => ReactNode, dialog = false):
 });
 
 export const FIXTURES: readonly Fixture[] = [
+  en("classic-connect", "Connect — the wallets this page can see", () => connect({ status: "disconnected" }), true),
+  en("classic-connect-none", "Connect — no wallet found, the wallet's refusal", () => connect({ status: "disconnected" }, [], t("wallet.rejected")), true),
+  en("classic-connect-wrong-network", "Connect — connected to another network", () => connect(WRONG_NETWORK), true),
+  en("classic-deposit-connected", "Deposit — a wallet connected on Ethereum", () =>
+    page("deposit", <DepositTab pool="eth-0.1" onPool={noop} onDeposit={noop} />, "eth-0.1", { walletLabel: "0x75b9…6c3e", walletEnabled: true }),
+  ),
+  en("classic-deposit-wrong-network", "Deposit — the wallet on another network", () =>
+    page("deposit", <DepositTab pool="eth-0.1" onPool={noop} onDeposit={noop} />, "eth-0.1", {
+      walletLabel: "0x75b9…6c3e",
+      walletEnabled: true,
+      walletNotice: t("wallet.wrongNetwork"),
+    }),
+  ),
+  en(
+    "classic-deposit-note-direct",
+    "Deposit — a live pool the router disabled: the direct-deposit warning, the deposit handed over",
+    () =>
+      page(
+        "deposit",
+        <>
+          <DepositTab pool="eth-1" onPool={noop} onDeposit={noop} />
+          <NoteModal
+            open
+            note={NOTE_TEXT}
+            fileName={noteFileName(FIXTURE_NOTE)}
+            backedUp
+            onBackedUp={noop}
+            copied={false}
+            onCopy={noop}
+            onSave={noop}
+            live
+            onSend={noop}
+            onClose={noop}
+            directWarning
+            message={t("deposit.sent")}
+          />
+        </>,
+        "eth-1",
+        { walletLabel: "0x75b9…6c3e", walletEnabled: true },
+      ),
+    true,
+  ),
+  en("classic-withdraw-wired", "Withdraw — live: the on-chain check answered, the relayer's job followed", () =>
+    page(
+      "withdraw",
+      <WithdrawTab
+        {...foundProps({ live: true, onCheckSpent: noop, spentOnChain: "unspent", submitted: true, flowMessage: t("withdraw.following", { state: "SENT" }) })}
+      />,
+      "eth-1",
+      { walletLabel: "0x75b9…6c3e", walletEnabled: true },
+    ),
+  ),
+  en("classic-withdraw-history-wait", "Withdraw — the history not verified yet", () =>
+    page("withdraw", <WithdrawTab {...foundProps({ canWithdraw: false, historyNotice: t("withdraw.historyNotVerified") })} />, "eth-1"),
+  ),
   en("classic-deposit", "Deposit — 0.1 ETH selected", () => deposit("eth-0.1")),
   en("classic-deposit-100", "Deposit — 100 ETH selected", () => deposit("eth-100")),
   en("classic-deposit-note", "Deposit — your private note (not backed up yet; not connected)", () => noteModal(false, false), true),

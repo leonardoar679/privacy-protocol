@@ -17,13 +17,36 @@ export type ProverRequest =
   | { id: number; kind: "prove"; artifactBase: string; input: CircuitInput; options?: Partial<ProverOptions> }
   | { id: number; kind: "verify"; proof: `0x${string}`; publicInputs: string[] }
   | { id: number; kind: "note"; note: string }
+  // the pools' trees live here too (spec §7.4): loaded from persisted layers, built from leaves, appended, asked for a path
+  | { id: number; kind: "tree:load"; pool: string; layers: string[][] }
+  | { id: number; kind: "tree:build"; pool: string; leaves: string[] }
+  | { id: number; kind: "tree:append"; pool: string; leaves: string[] }
+  | { id: number; kind: "tree:truncate"; pool: string; leaves: number }
+  | { id: number; kind: "tree:path"; pool: string; index: number }
+  | { id: number; kind: "tree:layers"; pool: string }
   | { id: number; kind: "close" };
 
 export interface ProverProgress {
-  step: ProverStep;
-  /** bytes so far and in all, while the artifacts load */
+  step: ProverStep | "tree";
+  /** bytes so far and in all while the artifacts load; leaves so far and in all while a tree is built */
   loaded?: number;
   total?: number;
+}
+
+export interface TreeResult {
+  pool: string;
+  leaves: number;
+  root: `0x${string}`;
+}
+
+export interface PathResult extends TreeResult {
+  pathElements: `0x${string}`[];
+  pathIndices: number[];
+}
+
+export interface LayersResult {
+  pool: string;
+  layers: string[][];
 }
 
 export interface WarmResult {
@@ -53,7 +76,7 @@ export interface VerifyResult {
 
 export type NoteResult = { ok: true; currency: string; amount: string; netId: number; commitment: `0x${string}`; nullifierHash: `0x${string}` } | { ok: false };
 
-export type ProverResult = WarmResult | ProofResult | VerifyResult | NoteResult;
+export type ProverResult = WarmResult | ProofResult | VerifyResult | NoteResult | TreeResult | PathResult | LayersResult;
 
 export type ProverEvent =
   | { id: number; kind: "progress"; progress: ProverProgress }

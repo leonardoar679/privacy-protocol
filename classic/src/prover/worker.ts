@@ -4,14 +4,15 @@
 // hash on request. snarkjs 0.1 extends BigInt's prototype: that happens here, never on the main thread. An error never
 // repeats what it was asked.
 import PINS from "./artifacts.json";
-import { commitmentOf, nullifierHashOf, toHex32 } from "../crypto/hashes";
+import { commitmentOf, FIELD_SIZE, nullifierHashOf, toHex32 } from "../crypto/hashes";
 import { sha256Hex } from "../crypto/digest";
+import { MerkleTree } from "../crypto/tree";
 import { parseNote } from "../model/notes";
 import { fetchVerified, type ArtifactPin } from "../net/artifacts";
 import { cachedArtifact, forgetArtifact, storeArtifact } from "../storage/artifactCache";
 import { defaultOptions, Prover } from "./engine";
 import { verifyOffline } from "./offline";
-import type { ProverEvent, ProverOptions, ProverRequest, ProverResult, WarmResult } from "./protocol";
+import type { ProverEvent, ProverOptions, ProverRequest, ProverResult, TreeResult, WarmResult } from "./protocol";
 
 interface WorkerScope {
   postMessage(message: ProverEvent): void;
@@ -26,8 +27,23 @@ const NEEDED = ["witness.json", "tornadoProvingKey.bin"] as const;
 const now = () => performance.now();
 
 let ready: Promise<{ prover: Prover; warm: WarmResult }> | null = null;
+/** the pools' trees, by pool id: built or loaded here, appended as the history syncs, asked for paths */
+const trees = new Map<string, MerkleTree>();
 
 const post = (e: ProverEvent) => scope.postMessage(e);
+
+const leafOf = (hex: string): bigint => {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hex)) throw new Error("a leaf is 32-byte hex");
+  const v = BigInt(hex);
+  if (v >= FIELD_SIZE) throw new Error("a leaf must be inside the field");
+  return v;
+};
+const treeOf = (pool: string): MerkleTree => {
+  const tree = trees.get(pool);
+  if (!tree) throw new Error(`no tree for ${pool} is loaded`);
+  return tree;
+};
+const treeResult = (pool: string, tree: MerkleTree): TreeResult => ({ pool, leaves: tree.size, root: toHex32(tree.root) });
 
 async function loadArtifact(base: string, name: string, report: (loaded: number) => void): Promise<{ bytes: Uint8Array; fromCache: boolean }> {
   const pin = PIN_FILES[name];
@@ -114,6 +130,43 @@ async function handle(req: ProverRequest): Promise<ProverResult | null> {
       const { currency, amount, netId } = parsed.note;
       return { ok: true, currency, amount, netId, commitment: toHex32(commitmentOf(parsed.note)), nullifierHash: toHex32(nullifierHashOf(parsed.note)) };
     }
+    case "tree:load": {
+      const tree = MerkleTree.fromLayers(req.layers.map((layer) => layer.map(leafOf)));
+      trees.set(req.pool, tree);
+      return treeResult(req.pool, tree);
+    }
+    case "tree:build": {
+      // layer by layer, about 2n hashes; progress every 2,048 leaves of the first layer's worth of work
+      const leaves = req.leaves.map(leafOf);
+      post({ id: req.id, kind: "progress", progress: { step: "tree", loaded: 0, total: leaves.length } });
+      const tree = MerkleTree.fromLeaves(leaves);
+      post({ id: req.id, kind: "progress", progress: { step: "tree", loaded: leaves.length, total: leaves.length } });
+      trees.set(req.pool, tree);
+      return treeResult(req.pool, tree);
+    }
+    case "tree:append": {
+      const tree = treeOf(req.pool);
+      for (const leaf of req.leaves) tree.insert(leafOf(leaf));
+      return treeResult(req.pool, tree);
+    }
+    case "tree:truncate": {
+      // a rollback after a reorg: the first `leaves` leaves again (rare; rebuilt)
+      const tree = MerkleTree.fromLeaves(treeOf(req.pool).leaves().slice(0, req.leaves));
+      trees.set(req.pool, tree);
+      return treeResult(req.pool, tree);
+    }
+    case "tree:path": {
+      const tree = treeOf(req.pool);
+      const path = tree.path(req.index);
+      return { ...treeResult(req.pool, tree), pathElements: path.pathElements.map(toHex32), pathIndices: path.pathIndices };
+    }
+    case "tree:layers":
+      return {
+        pool: req.pool,
+        layers: treeOf(req.pool)
+          .toLayers()
+          .map((layer) => layer.map(toHex32)),
+      };
     case "close": {
       const r = ready;
       ready = null;

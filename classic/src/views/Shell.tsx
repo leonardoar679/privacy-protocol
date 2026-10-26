@@ -12,6 +12,8 @@ export function Shell(props: {
   walletLabel: string;
   walletEnabled: boolean;
   onWallet?: () => void;
+  /** a word about the wallet beside the chip (another network) */
+  walletNotice?: string | null;
   aside?: ReactNode;
   children: ReactNode;
 }) {
@@ -45,6 +47,11 @@ export function Shell(props: {
         <Notice tone="warn" testId="classic-not-connected">
           <strong>{t("notice.notConnected")}</strong>
         </Notice>
+        {props.walletNotice ? (
+          <Notice tone="warn" role="alert" testId="classic-wallet-notice">
+            {props.walletNotice}
+          </Notice>
+        ) : null}
       </header>
       <nav className="tc-nav" aria-label={t("nav.tabs")}>
         <div className="tc-tabs" role="tablist" aria-label={t("nav.tabs")}>

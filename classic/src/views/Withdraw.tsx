@@ -55,6 +55,13 @@ export interface WithdrawProps {
   onConfirm: () => void;
   onCancelConfirm: () => void;
   submitted: boolean;
+  /** the explicit on-chain read of isSpent (spec §7.4): offered when the chain can be asked; its answer; the disclosure stands beside it */
+  onCheckSpent?: () => void;
+  spentOnChain?: "spent" | "unspent" | "checking" | null;
+  /** the history's state when a withdrawal has to wait for it */
+  historyNotice?: string | null;
+  /** what the flow last said: a refusal, a failure, the relayer's state */
+  flowMessage?: string | null;
 }
 
 export function WithdrawTab(p: WithdrawProps) {
@@ -233,6 +240,29 @@ export function WithdrawTab(p: WithdrawProps) {
             </Notice>
           ) : null}
         </div>
+      ) : null}
+      {found && !error && p.onCheckSpent ? (
+        <div className="tc-lines" data-testid="classic-check-spent">
+          <Button testId="classic-check-spent-button" disabled={p.spentOnChain === "checking"} onClick={p.onCheckSpent}>
+            {t("withdraw.checkOnChain")}
+          </Button>
+          <p className="tc-text tc-muted">{t("withdraw.checkOnChainNotice")}</p>
+          {p.spentOnChain === "spent" || p.spentOnChain === "unspent" ? (
+            <Notice tone={p.spentOnChain === "spent" ? "danger" : "info"} role="status" testId="classic-spent-on-chain">
+              {t(p.spentOnChain === "spent" ? "withdraw.spentOnChain" : "withdraw.unspentOnChain")}
+            </Notice>
+          ) : null}
+        </div>
+      ) : null}
+      {p.historyNotice ? (
+        <Notice tone="warn" role="status" testId="classic-history-notice">
+          {p.historyNotice}
+        </Notice>
+      ) : null}
+      {p.flowMessage ? (
+        <Notice tone="info" role="status" testId="classic-flow-message">
+          {p.flowMessage}
+        </Notice>
       ) : null}
       {p.submitted ? (
         <Notice tone="info" testId="classic-withdraw-submitted">

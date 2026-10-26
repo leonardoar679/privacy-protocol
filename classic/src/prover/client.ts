@@ -2,7 +2,19 @@
 // in any order, progress per request, errors as rejections. The worker is created at the first request and can be
 // closed; a crashed worker rejects everything pending and the next request starts a new one. The tests hand in a fake
 // worker.
-import type { NoteResult, ProofResult, ProverEvent, ProverOptions, ProverProgress, ProverRequest, VerifyResult, WarmResult } from "./protocol";
+import type {
+  LayersResult,
+  NoteResult,
+  PathResult,
+  ProofResult,
+  ProverEvent,
+  ProverOptions,
+  ProverProgress,
+  ProverRequest,
+  TreeResult,
+  VerifyResult,
+  WarmResult,
+} from "./protocol";
 import type { CircuitInput } from "./input";
 
 export interface WorkerLike {
@@ -93,6 +105,34 @@ export class ProverClient {
   /** A note's commitment and nullifier hash, derived in the worker (the note stays in memory). */
   note(note: string): Promise<NoteResult> {
     return this.request<NoteResult>((id) => ({ id, kind: "note", note }));
+  }
+
+  /** A pool's tree from persisted layers (no hashing). */
+  loadTree(pool: string, layers: string[][]): Promise<TreeResult> {
+    return this.request<TreeResult>((id) => ({ id, kind: "tree:load", pool, layers }));
+  }
+
+  /** A pool's tree from its leaves (about 2n hashes; a minute for 50,000 leaves). */
+  buildTree(pool: string, leaves: string[], onProgress?: (p: ProverProgress) => void): Promise<TreeResult> {
+    return this.request<TreeResult>((id) => ({ id, kind: "tree:build", pool, leaves }), onProgress);
+  }
+
+  appendLeaves(pool: string, leaves: string[]): Promise<TreeResult> {
+    return this.request<TreeResult>((id) => ({ id, kind: "tree:append", pool, leaves }));
+  }
+
+  /** The tree cut back to its first `leaves` leaves (a rollback after a reorg). */
+  truncateTree(pool: string, leaves: number): Promise<TreeResult> {
+    return this.request<TreeResult>((id) => ({ id, kind: "tree:truncate", pool, leaves }));
+  }
+
+  pathOf(pool: string, index: number): Promise<PathResult> {
+    return this.request<PathResult>((id) => ({ id, kind: "tree:path", pool, index }));
+  }
+
+  /** The layers to persist. */
+  layersOf(pool: string): Promise<string[][]> {
+    return this.request<LayersResult>((id) => ({ id, kind: "tree:layers", pool })).then((r) => r.layers);
   }
 
   /** Stops the worker and its sub-workers; pending requests are rejected. */

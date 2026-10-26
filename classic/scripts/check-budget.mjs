@@ -11,7 +11,8 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 export const DIST = join(here, "..", "dist");
 export const FIRST_ROUTE_KB = 200;
 // the prover's names, websnark's WebAssembly module in base64 (the bytes "\0asm"), its sub-worker protocol
-const PROVER = /\b(genWitnessAndProve|buildGroth16|calculateWitness)\b|"AGFzbQ|"TERMINATE"/;
+// … and the vendored arithmetic (the MiMC seed, the Pedersen generators), which only the worker may load
+const PROVER = /\b(genWitnessAndProve|buildGroth16|calculateWitness|PedersenGenerator|mimcsponge)\b|"AGFzbQ|"TERMINATE"/;
 
 export function checkBudget(dist = DIST) {
   const manifestPath = join(dist, ".vite", "manifest.json");

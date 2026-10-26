@@ -69,6 +69,8 @@ export interface Check {
   state: CheckState;
   /** a message key of the catalog */
   text: string;
+  /** the key's parameters (a block number, a count) */
+  params?: Record<string, string | number>;
 }
 
 /** Per pool: the facts the availability model reports separately (spec §7.7). */

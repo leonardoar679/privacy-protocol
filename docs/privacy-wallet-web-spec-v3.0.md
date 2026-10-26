@@ -361,10 +361,10 @@ the leaf count, the root, how it was held to the chain) — under `classic/publi
 (`classic/scripts/zip.mjs` reads them) and synced through `eth_getLogs`; it refuses to write unless the leaf count is
 `nextIndex()` and the root a root the pool knows, and with `--archive` unless `getLastRoot()` at the snapshot's own
 block equals the root. The modules are `classic/src/history/`: `events.ts` (the two events decoded), `snapshot.ts`
-(the format, built and held to its manifest), `sync.ts` (the delta in windows the endpoint allows — halved on a range
+(the format, held to its manifest) and `snapshotTree.ts` (built and rehashed), `sync.ts` (the delta in windows the endpoint allows — halved on a range
 refusal down to 50 blocks, grown again after two successes —, 12 confirmations, a checkpoint per window, `findReorg`
-and the rollback), `verify.ts` (the one check against the chain, and the frontier: `filledSubtrees` plus the last leaf
-hashed as the contract's `_insert` does), `spent.ts` (a note's facts and spent state from the history; the disclosed
+and the rollback), `verify.ts` (the one check against the chain, and the frontier read) and `frontier.ts` (the frontier walk:
+`filledSubtrees` plus the last leaf hashed as the contract's `_insert` does), `spent.ts` (a note's facts and spent state from the history; the disclosed
 `isSpent` read apart) — one implementation for the app, the tests and the generator (Node runs them by type stripping,
 so this chain carries explicit `.ts` extensions and no parameter properties); `classic/src/net/rpc.ts` is the app's
 JSON-RPC transport and `classic/src/storage/historyDb.ts` the IndexedDB `tornado-classic` (one store, four records per
@@ -456,6 +456,43 @@ AWAITING_AUTHORIZATION → SUBMITTING → SOURCE_CONFIRMING → COMPLETED | FAIL
 PREPARING_PROOF → AWAITING_AUTHORIZATION → SUBMITTING (QUEUED, ACCEPTED, SENT) → SOURCE_CONFIRMING (MINED) → COMPLETED
 (CONFIRMED) | FAILED (before any transaction) | RECOVERY_REQUIRED (RESUBMITTED, an unknown job)`; a reload shows the
 job's state from the relayer, never re-submits.
+
+**As landed (Stage 9, 2026-10-26).** The screens read the real services through the same interface the Stage 3 mock
+implemented (`classic/src/app/services/source.ts`): each pool's history (`history.ts`: the device's copy, else the
+snapshot the host serves at `/classic/data/<pool>/` held to its manifest, then the chain's delta in windows the
+endpoint allows, then the one check — the recomputed root a root the pool knows and the leaf count its `nextIndex` —
+and the whole kept in the app's IndexedDB; a checkpoint that fell rolls the history back to the newest that stands; a
+served snapshot whose own block the chain does not confirm is refused), the relayer directory (`relayers.ts`: every
+curated relayer asked for its status, two at a time, and held to §7.5's rules for every pool), the wallet session
+(`wallet.ts`), the live gas price (`gas.ts`), the contract and router facts (`contract.ts`: the pool's code hashed as
+the verification did, its verifier, levels and denomination; the registry's instance state), the operation adapter
+(`operations.ts`: the fifteen state names as this app's own type, a deposit's and a withdrawal's machines, the records
+kept with ids, states, a transaction hash and the relayer's job — never a note, never a recipient) and the compliance
+switches' pieces (`compliance.ts`: Chainalysis' `isSanctioned` at connect behind `CLASSIC_COMPLIANCE_ORACLE`, the
+host's HTTP 451 behind `CLASSIC_GEOFENCE`, both off). The two flows are `flows.ts`: a deposit sends the note's
+commitment through the router from the connected wallet — straight to the pool only when the router disabled the
+instance, behind the warning — and reads the receipt from the app's endpoints; a withdrawal takes the verified
+history's path from the worker's tree, proves in the worker (a proof the worker could not verify goes no further),
+checks the root is still one the pool knows (proving again once after a resync if not), asks the user to confirm, then
+hands the relayer the request exactly as its validator wants it and follows the job to CONFIRMED, FAILED or
+RECOVERY_REQUIRED (RESUBMITTED, a job that could not be followed) — or, in wallet mode, sends the pool's own `withdraw`
+with no relayer and no fee and awaits the receipt. Both refuse to start unless the pool function is switched live:
+the screens never offer them otherwise (`classic/src/app/App.tsx`), and the flow is the second lock. The prover
+worker holds each pool's tree (loaded from persisted layers, appended as the history syncs, asked for a path).
+`classic/src/model/availability.ts` turns the facts into the Settings card's rows — no RPC configured, verified against
+the pins now, differs from the pins, enabled or disabled by governance, n relayers online, synced to block N with the
+root verified, the prover ready, the wallet connected or on another network — and says what they allow. The withdraw
+tab offers "Check on chain" with its disclosure ("this read tells the RPC endpoint the note's nullifier hash"), and the
+header's chip connects a wallet (`classic/src/views/Connect.tsx`: EIP-6963 announcements, the legacy provider last;
+the wrong network named). Found while wiring: a React effect without dependencies that set state from the services
+looped forever — every redraw now follows the services' change counter; and the first route had come to carry the
+vendored arithmetic through the flow's circuit input and the history's checks, so the history modules were split —
+`verify.ts` and `snapshot.ts` read and check without hashing, `frontier.ts` and `snapshotTree.ts` hash (the worker's,
+the generator's and the tests'), the field constants live in `classic/src/crypto/field.ts`, the flow builds the circuit
+input from the worker's derivation, the history holds the worker's root to the manifest — and the budget gate now
+refuses the MiMC and Pedersen modules in the first route (111.8 KB gzipped after the split). The screens remain honest
+with the switch off: 152 Classic tests hold the flows, the services and the wired app; the local stack and the mainnet
+fork are Stage 10.
 
 ### 7.8 The application (doc §4.5, §9) — *Stages 2, 11*
 `classic/` is **its own application**: its own `package.json` and `package-lock.json` (the second lockfile the

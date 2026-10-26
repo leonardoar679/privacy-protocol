@@ -1,6 +1,6 @@
 // The Settings page (the original's Settings.vue, extended): the RPC endpoints the build names, the relayers it lists,
 // the language; and the availability of the selected pool's functions — each fact apart (spec v3.0 §7.7).
-import { t, type LocaleChoice } from "../app/i18n/messages";
+import { t, type LocaleChoice, type MessageKey } from "../app/i18n/messages";
 import { poolOf, type PoolId } from "../model/pools";
 import type { Availability, Check, PoolFunctionLive, RelayerInfo } from "../model/types";
 import { percentOf } from "./Withdraw";
@@ -29,7 +29,7 @@ export function AvailabilityCard(props: { pool: PoolId; availability: Availabili
               key={key}
               label={label}
               testId={`classic-availability-${key}`}
-              value={<Badge tone={toneOf(a[key])}>{t(a[key].text as "availability.contractUnverified")}</Badge>}
+              value={<Badge tone={toneOf(a[key])}>{t(a[key].text as MessageKey, a[key].params)}</Badge>}
             />
           ))}
           <Row

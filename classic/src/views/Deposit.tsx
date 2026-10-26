@@ -52,6 +52,11 @@ export function NoteModal(props: {
   live: boolean;
   onSend: () => void;
   onClose: () => void;
+  /** the router has disabled the pool: the deposit would go straight to it (spec §7.6) */
+  directWarning?: boolean;
+  /** what the flow last said */
+  message?: string | null;
+  busy?: boolean;
 }) {
   return (
     <Modal open={props.open} title={t("note.title")} onClose={props.onClose} testId="classic-note-modal">
@@ -77,8 +82,18 @@ export function NoteModal(props: {
           {t("note.wontBeSaved")}
         </Notice>
       ) : null}
+      {props.directWarning ? (
+        <Notice tone="danger" role="alert" testId="classic-direct-warning">
+          {t("deposit.routerDisabledWarning")}
+        </Notice>
+      ) : null}
+      {props.message ? (
+        <Notice tone="info" role="status" testId="classic-deposit-message">
+          {props.message}
+        </Notice>
+      ) : null}
       {props.live ? (
-        <Button variant="primary" full large testId="classic-note-send" disabled={!props.backedUp} onClick={props.onSend}>
+        <Button variant="primary" full large testId="classic-note-send" disabled={!props.backedUp || !!props.busy} busy={props.busy} onClick={props.onSend}>
           {t("note.send")}
         </Button>
       ) : (

@@ -20,10 +20,9 @@ const mimcHash = mimc.hash as unknown as (xL: LegacyBig, xR: LegacyBig, k: Legac
 const pedersenHash = pedersen.hash as unknown as (data: Uint8Array) => Uint8Array;
 const unpackPoint = babyJub.unpackPoint as unknown as (packed: Uint8Array) => [LegacyBig, LegacyBig] | null;
 
-/** The BN254 scalar field the circuit and the pool compute in. */
-export const FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-/** keccak256("tornado") mod FIELD_SIZE: the empty leaf (the contract's ZERO_VALUE). */
-export const ZERO_VALUE = 21663839004416932945382355908790599225266501822907911457504978515578255421292n;
+// the field constants live apart, readable without this module's vendored arithmetic (src/crypto/field.ts)
+export { FIELD_SIZE, ZERO_VALUE } from "./field.ts";
+import { FIELD_SIZE } from "./field.ts";
 
 const toBig = (x: LegacyBig): bigint => BigInt(x.toString());
 
@@ -48,5 +47,4 @@ export const commitmentOf = (note: ClassicNote): bigint => pedersenX(new Uint8Ar
 /** The note's nullifier hash, what a withdrawal reveals: Pedersen(nullifier).x. */
 export const nullifierHashOf = (note: ClassicNote): bigint => pedersenX(note.nullifier);
 
-/** A field element as the 32-byte hex the contracts and the relayers use. */
-export const toHex32 = (x: bigint): `0x${string}` => `0x${x.toString(16).padStart(64, "0")}`;
+export { toHex32 } from "./field.ts";

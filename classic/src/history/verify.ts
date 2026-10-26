@@ -1,13 +1,14 @@
 // The history held to the chain (spec v3.0 §7.4): one check settles a synced history — the recomputed root is a root the
-// pool knows (`getLastRoot()`, or `isKnownRoot` inside its 100-root window) and the leaf count is `nextIndex()`. And a
-// cheaper rung that needs no history at all: the pool's own frontier (`filledSubtrees`) plus the last leaf must hash to
-// `getLastRoot()` exactly as the contract's `_insert` does — the live proof that the tree hash and the insertion
-// semantics are the chain's. Pure over an injected JSON-RPC function.
+// pool knows (`getLastRoot()`, or `isKnownRoot` inside its 100-root window) and the leaf count is `nextIndex()` — and
+// the pool's frontier read for the cheaper rung frontier.ts walks. The view calls of the pools by hand. Pure over an
+// injected JSON-RPC function; loads no vendored arithmetic (the main thread imports this).
 import { keccak256 } from "js-sha3";
-import { FIELD_SIZE, hashLeftRight } from "../crypto/hashes.ts";
-import { LEVELS, MerkleTree, zeros } from "../crypto/tree.ts";
+import { toHex32 } from "../crypto/field.ts";
 import type { Hex } from "./events.ts";
 import type { Rpc } from "./sync.ts";
+
+/** the pools' tree height */
+export const TREE_LEVELS = 20;
 
 const selector = (signature: string): string => "0x" + keccak256(signature).slice(0, 8);
 export const SELECTORS = Object.freeze({
@@ -20,7 +21,6 @@ export const SELECTORS = Object.freeze({
 });
 
 const word = (x: bigint | number): string => BigInt(x).toString(16).padStart(64, "0");
-const toHex32 = (x: bigint): Hex => `0x${x.toString(16).padStart(64, "0")}`;
 
 export async function call(rpc: Rpc, to: Hex, data: string, block: string = "latest"): Promise<string> {
   const out = (await rpc("eth_call", [{ to, data }, block])) as string;
@@ -74,31 +74,9 @@ export interface Frontier {
 /** The pool's frontier at `block` (latest by default): 22 calls. */
 export async function readFrontier(rpc: Rpc, address: Hex, block: string = "latest"): Promise<Frontier> {
   const [subtrees, nextIndex, lastRoot] = await Promise.all([
-    Promise.all(Array.from({ length: LEVELS }, (_, i) => call(rpc, address, SELECTORS.filledSubtrees + word(i), block).then(wordOf))),
+    Promise.all(Array.from({ length: TREE_LEVELS }, (_, i) => call(rpc, address, SELECTORS.filledSubtrees + word(i), block).then(wordOf))),
     call(rpc, address, SELECTORS.nextIndex, block).then((o) => Number(wordOf(o))),
     call(rpc, address, SELECTORS.getLastRoot, block).then((o) => toHex32(wordOf(o))),
   ]);
   return { filledSubtrees: subtrees, nextIndex, lastRoot };
-}
-
-/**
- * The root after inserting `leaf` at `index`, from the frontier as the contract holds it right after that insertion:
- * MerkleTreeWithHistory._insert walks up — at a level where the index bit is 0 the new node is the left child and the
- * right is the empty subtree; where it is 1 the left child is filledSubtrees[level] (unchanged by this insertion).
- */
-export function rootFromFrontier(filledSubtrees: readonly bigint[], index: number, leaf: bigint): bigint {
-  if (filledSubtrees.length !== LEVELS) throw new Error(`${LEVELS} subtrees`);
-  if (leaf >= FIELD_SIZE) throw new Error("a leaf must be inside the field");
-  let current = leaf;
-  for (let level = 0; level < LEVELS; level++) {
-    current = (index >> level) & 1 ? hashLeftRight(filledSubtrees[level], current) : hashLeftRight(current, zeros()[level]);
-  }
-  return current;
-}
-
-/** The frontier a full tree implies after its last insertion (what the chain's filledSubtrees hold). */
-export function frontierOf(tree: MerkleTree): bigint[] {
-  if (tree.size === 0) return zeros().slice(0, LEVELS);
-  const k = tree.size - 1;
-  return Array.from({ length: LEVELS }, (_, level) => ((k >> level) & 1 ? tree.node(level, (k >> level) - 1) : tree.node(level, k >> level)));
 }

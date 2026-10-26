@@ -20,7 +20,9 @@ import {
   type Hex,
   type RawLog,
 } from "../src/history/events";
-import { buildSnapshot, pinOf, treeFile, treeFromFile, verifySnapshot, type SnapshotManifest, type SnapshotTexts } from "../src/history/snapshot";
+import { pinOf, verifySnapshot, type SnapshotManifest, type SnapshotTexts } from "../src/history/snapshot";
+import { buildSnapshot, rehashSnapshot, treeFile, treeFromFile } from "../src/history/snapshotTree";
+import { frontierOf, rootFromFrontier } from "../src/history/frontier";
 import { depositFacts, indexHistory, isSpentOnChain, withdrawalOf } from "../src/history/spent";
 import {
   CONFIRMATIONS,
@@ -34,7 +36,7 @@ import {
   SyncError,
   type Rpc,
 } from "../src/history/sync";
-import { frontierOf, readFrontier, rootFromFrontier, SELECTORS, verifyAgainstChain } from "../src/history/verify";
+import { readFrontier, SELECTORS, verifyAgainstChain } from "../src/history/verify";
 import logs from "./fixtures/history/logs.json";
 
 const FIXTURE = join(__dirname, "fixtures", "history", "first-1024", "eth-100");
@@ -85,13 +87,17 @@ describe("the pools' events", () => {
 
 describe("the snapshot fixture (the 100 ETH pool's first 1,024 deposits)", () => {
   it("is held to its manifest, rehashed layer by layer, and its root is the one the chain's archive answered for its block", async () => {
-    const r = await verifySnapshot(manifest, texts, { rehash: true, pool: { id: "eth-100", address: POOL } });
+    const r = await verifySnapshot(manifest, texts, { pool: { id: "eth-100", address: POOL } });
     expect(r.ok, JSON.stringify(r)).toBe(true);
     if (!r.ok) return;
-    expect(r.snapshot.tree.size).toBe(1024);
+    expect(r.snapshot.treeFile.leaves).toBe(1024);
     expect(r.snapshot.deposits.length).toBe(1024);
     expect(r.snapshot.withdrawals.length).toBe(manifest.files["withdrawals.json"].count);
-    expect(hex32(r.snapshot.tree.root)).toBe(manifest.root);
+    const rehashed = rehashSnapshot(r.snapshot);
+    expect(rehashed.ok, JSON.stringify(rehashed)).toBe(true);
+    if (!rehashed.ok) return;
+    expect(rehashed.tree.size).toBe(1024);
+    expect(hex32(rehashed.tree.root)).toBe(manifest.root);
     expect(manifest.toBlock).toBe(10734277);
     expect(manifest.verified?.method).toMatch(/getLastRoot\(\) at block 10734277/);
     expect(manifest.blockHash).toMatch(/^0x[0-9a-f]{64}$/);
@@ -106,8 +112,12 @@ describe("the snapshot fixture (the 100 ETH pool's first 1,024 deposits)", () =>
     expect(r1.ok).toBe(false);
     if (!r1.ok) expect(r1.problems.join()).toMatch(/deposits\.json does not hash/);
     const r2 = await verifySnapshot({ ...manifest, root: hex32(1n) }, texts);
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) expect(r2.problems.join()).toMatch(/root is not the manifest's/);
+    expect(r2.ok).toBe(true);
+    if (r2.ok) {
+      const rehashed = rehashSnapshot(r2.snapshot);
+      expect(rehashed.ok).toBe(false);
+      if (!rehashed.ok) expect(rehashed.problems.join()).toMatch(/root is not the manifest's/);
+    }
     const r3 = await verifySnapshot(manifest, texts, { pool: { id: "eth-1", address: POOL } });
     expect(r3.ok).toBe(false);
     if (!r3.ok) expect(r3.problems.join()).toMatch(/another pool/);

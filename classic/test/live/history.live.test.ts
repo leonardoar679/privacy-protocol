@@ -14,8 +14,10 @@ import { CLASSIC_UI_EVENTS, seedFromClassicUi } from "../../scripts/snapshot.mjs
 import { MerkleTree } from "../../src/crypto/tree";
 import { decodeLogs, type Hex, type RawLog } from "../../src/history/events";
 import { verifySnapshot, type SnapshotManifest, type SnapshotTexts } from "../../src/history/snapshot";
+import { treeFromFile } from "../../src/history/snapshotTree";
+import { rootFromFrontier } from "../../src/history/frontier";
 import { CONFIRMATIONS, findReorg, headBlockOf, syncDelta } from "../../src/history/sync";
-import { readFrontier, rootFromFrontier, verifyAgainstChain } from "../../src/history/verify";
+import { readFrontier, verifyAgainstChain } from "../../src/history/verify";
 
 const list = (env: string | undefined, fallback: readonly string[]) =>
   (env ?? fallback.join(","))
@@ -72,7 +74,8 @@ describe("the 100 ETH pool's history", () => {
       const checked = await verifySnapshot(manifest, texts, { pool: { id: "eth-100", address } });
       expect(checked.ok, JSON.stringify(checked)).toBe(true);
       if (!checked.ok) return;
-      const { tree, deposits } = checked.snapshot;
+      const { deposits } = checked.snapshot;
+      const tree = treeFromFile(checked.snapshot.treeFile);
       expect(await findReorg(rpc, [{ blockNumber: manifest.toBlock, blockHash: manifest.blockHash! }])).toEqual({ intact: true });
       const t0 = Date.now();
       const delta = await syncDelta({ rpc: logRpc, address, fromBlock: manifest.toBlock, leaves: deposits.length });

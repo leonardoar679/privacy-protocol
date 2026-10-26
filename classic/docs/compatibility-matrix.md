@@ -208,7 +208,7 @@ relayers and the history are Stages 7–9.
 
 | Rung | What was checked | Result |
 |---|---|---|
-| the frontier, every pool | `filledSubtrees(0..19)`, `nextIndex()`, `getLastRoot()` read at the head, the last Deposit from the logs; the root recomputed as `_insert` walks (`classic/src/history/verify.ts`) | reproduced on all four pools at blocks 26,279,415–26,279,424 (nextIndex 75,224 / 96,491 / 78,835 / 49,628) |
+| the frontier, every pool | `filledSubtrees(0..19)`, `nextIndex()`, `getLastRoot()` read at the head, the last Deposit from the logs; the root recomputed as `_insert` walks (`classic/src/history/frontier.ts`) | reproduced on all four pools at blocks 26,279,415–26,279,424 (nextIndex 75,224 / 96,491 / 78,835 / 49,628) |
 | the seed | the original UI's caches (`static/events/{deposits,withdrawals}_eth_100.json.zip` at a83fae07): deposits ascending by leaf, 27,544 to block 14,954,101; withdrawals newest first, without the relayer | read by `classic/scripts/zip.mjs`; the root of the 27,544 leaves equals `getLastRoot()` at that block (§11, `vectors/roots.json`) |
 | the delta | 22,084 deposits and 21,188 withdrawals from block 14,954,102 to 26,279,460 through `eth_getLogs` | 23 windows of 500,000 blocks, 36 s (tenderly); the leaves contiguous |
 | the snapshot | 49,628 leaves hashed layer by layer (55 s in Node); `getLastRoot()` at block 26,279,460 (drpc archive); `isKnownRoot` and `nextIndex()` at the head | equal, known, 49,628 |

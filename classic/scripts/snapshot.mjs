@@ -16,7 +16,7 @@ import { readZip } from "./zip.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const APP = join(here, "..");
 const src = (p) => new URL(`../src/${p}`, import.meta.url).href;
-const { buildSnapshot } = await import(src("history/snapshot.ts"));
+const { buildSnapshot } = await import(src("history/snapshotTree.ts"));
 const { syncDelta, blockHashOf, headBlockOf, CONFIRMATIONS } = await import(src("history/sync.ts"));
 const { verifyAgainstChain, call, SELECTORS } = await import(src("history/verify.ts"));
 const { checkContinuity } = await import(src("history/events.ts"));
