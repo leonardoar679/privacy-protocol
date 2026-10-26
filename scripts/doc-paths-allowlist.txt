@@ -1,6 +1,13 @@
 # Documentation paths that do not exist on purpose (scripts/check-doc-paths.mjs). One per line: <path>  # <reason>.
 # planned: named by docs/privacy-wallet-web-spec-v2.0.md; the line goes when its V6 stage lands.
 contracts/deployments/sepolia.json  # planned: written by the Sepolia deployment (roadmap stage 13, not run)
+# planned: named by docs/privacy-wallet-web-spec-v3.0.md; the line goes when its V7 stage lands.
+docs/fee-policy.md  # planned: V7 Stage 12 (the published fee & refund policy)
+docs/mobile-web-gate.md  # planned: V7 Stage 16 (the real-device checklist)
+docs/definition-of-done-v7.md  # planned: V7 Stage 17
+apps/web/src/features/settings/  # planned: V7 Stage 4 (the Settings page)
+packages/swap-engine/src/provider.ts  # planned: V7 Stage 14 (the swap provider facade)
+packages/sdk/src/swapProvider.ts  # planned: V7 Stage 14 (the facade's wallet side)
 # historical: named by a record of an earlier pass on purpose.
 apps/web/src/sdk/facade.ts  # historical: the V5 spec's facade, never built; the doc §61 facade is packages/sdk (V6 Stage 4)
 apps/web/src/components/Review.tsx  # historical: the V2 Review, replaced by apps/web/src/features/review/ReviewScreen.tsx in V5 Stage 8

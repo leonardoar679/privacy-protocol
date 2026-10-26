@@ -1443,3 +1443,12 @@ LI.FI and Chainflip same-chain routes, a private RPC or PIR transport behind §1
 reformat, the production ceremony, external audits, the testnet broadcast, and any change to PrivacyCore, the
 vaults, the circuits or the swap escrow.
 
+## 24. Addendum — the V1.1 master plan
+
+Superseded in part (2026-10-26). The owner's "Privacy Wallet Web V1.1 — Master Development Plan" (§1–§15) adds
+Tornado Classic against the existing mainnet pools as a second product and changes the information architecture,
+the fee policy statement, the amount policy, the swap provider facade and the operation state names. Its frozen
+contracts are `docs/privacy-wallet-web-spec-v3.0.md`, which supersedes this document where it says so (§2, §3 in part,
+§6's route table, §7.11's More list, §11.3, §12.1–§12.2's names, §13.1's interfaces, the Classic rows of §23); every
+other section here stays normative. The V7 stages are in `docs/roadmap.md`.
+
