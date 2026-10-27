@@ -79,9 +79,18 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
     void tick();
     const t = setInterval(tick, pollMs);
     const unkick = onSchedulerKick(() => void tick()); // V6 Stage 11: an action due now runs at once (a confirmed swap)
+    // V7 Stage 16 (spec v3.0 §9): a tab back in view, or back online, catches up at once — a phone throttles or freezes a
+    // hidden tab's timers, so the poll may be long overdue
+    const onCatchUp = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    document.addEventListener("visibilitychange", onCatchUp);
+    window.addEventListener("online", onCatchUp);
     return () => {
       clearInterval(t);
       unkick();
+      document.removeEventListener("visibilitychange", onCatchUp);
+      window.removeEventListener("online", onCatchUp);
     };
   }, [st.status, run, pollMs, s]);
 }

@@ -6,6 +6,7 @@
 import { useCallback, useEffect } from "react";
 import { useDeployment } from "./deployment";
 import { mirrorExperience } from "./Gate";
+import { askPersistentStorage } from "../storage/persist";
 import { runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
 import { runCampaignTick } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { runOrderTick } from "@privacy-wallet/sdk/wallet/orderRunner";
@@ -39,5 +40,7 @@ export function Background() {
   useEffect(() => { if (s.status === "unlocked" && deployment && discoveryWanted()) scheduleDiscovery(); }, [s.status, deployment]);
   // V6 Stage 15 (doc §76): the five operation notifications while unlocked
   useEffect(() => (s.status === "unlocked" ? startOperationNotifications() : undefined), [s.status]);
+  // V7 Stage 16 (spec v3.0 §9): the browser is asked once to keep this origin's storage (the journal, the keystore) out of its eviction
+  useEffect(() => { if (s.status === "unlocked") void askPersistentStorage(); }, [s.status]);
   return null;
 }

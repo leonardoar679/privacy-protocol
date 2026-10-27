@@ -78,6 +78,20 @@ describe("auto-lock on the page", () => {
     expect(session.isUnlocked()).toBe(false);
   });
 
+  it("pagehide during a wallet prompt (V7 Stage 16, spec v3.0 §9): the lock waits for the prompt's answer; pageshow before it resumes", () => {
+    start();
+    const release = session.hold("signature");
+    window.dispatchEvent(new Event("pagehide"));
+    expect(session.isUnlocked(), "a phone's wallet handoff fires pagehide mid-prompt").toBe(true);
+    window.dispatchEvent(new Event("pageshow"));
+    release();
+    expect(session.isUnlocked(), "back before the answer: nothing locks").toBe(true);
+    const again = session.hold("signature");
+    window.dispatchEvent(new Event("pagehide"));
+    again();
+    expect([session.isUnlocked(), lockedAutomatically()], "gone for good: the release locks").toEqual([false, true]);
+  });
+
   it("five minutes in a hidden tab", () => {
     start();
     Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });

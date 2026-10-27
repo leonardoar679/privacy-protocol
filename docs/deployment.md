@@ -16,7 +16,7 @@ header below (`vite.config.ts` → `preview.headers`). The policy of a build:
 
 ```
 default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' <the hosts of the build>;
-img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self';
+img-src 'self' data: blob:; frame-src 'none'; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self';
 base-uri 'none'; form-action 'none'; object-src 'none'; upgrade-insecure-requests
 ```
 
@@ -27,6 +27,9 @@ base-uri 'none'; form-action 'none'; object-src 'none'; upgrade-insecure-request
   profile's pinned hosts when the zkAPI assets were built. Nothing else: no analytics, no error reporting, no font or
   style host.
 - `img-src data: blob:`: the icons wallets announce through EIP-6963 arrive as data URIs; the QR of Receive is inline SVG.
+- `frame-src 'none'`: no frame — with a WalletConnect project id (V7 Stage 16, spec v3.0 §9) the verify iframe's two hosts, and
+  the modal's wallet list and logos (`api.web3modal.org`, `api.web3modal.com`, `explorer-api.walletconnect.com`) join
+  `connect-src` and `img-src`; WalletConnect's telemetry host is never listed. `apps/web/scripts/csp.mjs` builds all of it.
 - `style-src-attr 'unsafe-inline'`: the design system sets no inline styles; a few V1.1–V4 components still mounted do.
 
 The headers (`SECURITY_HEADERS` in `csp.mjs`):
@@ -67,7 +70,7 @@ server {
   server_name wallet.example;
   root /srv/privacy-wallet/dist;
   # the policy of this build is in dist/index.html's meta tag; repeat it here and add frame-ancestors
-  set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests";
+  set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; frame-src 'none'; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests";
   include snippets/privacy-wallet-headers.conf;
   types { application/wasm wasm; application/manifest+json webmanifest; }
   location = /index.html { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "no-store" always; }
@@ -136,7 +139,7 @@ wallet.example {
   root * /srv/privacy-wallet/dist
   encode zstd gzip
   header {
-    Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer.example https://swap.example; img-src 'self' data: blob:; frame-src 'none'; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
     X-Frame-Options DENY
     X-Content-Type-Options nosniff
     Referrer-Policy no-referrer

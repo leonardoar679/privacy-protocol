@@ -141,6 +141,17 @@ export function allOperations(s: WalletSession = defaultSession): OperationRecor
 }
 /** Signed and not yet terminal: what the Home's running line, the Activity's open group and the recovery tracking follow. */
 export const openOperations = (s: WalletSession = defaultSession): OperationRecord[] => allOperations(s).filter((r) => isOpen(r.state));
+/** Before the chain: waiting for the wallet's answer, proving, submitting (V7 Stage 16). */
+const UNRESOLVED_STATES: readonly OperationState[] = ["AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING"];
+/** The record of `kind` still before the chain among `records`, or null. */
+export const unresolvedOf = (records: readonly OperationRecord[], kind: OperationKind): OperationRecord | null =>
+  records.find((r) => r.kind === kind && UNRESOLVED_STATES.includes(r.state)) ?? null;
+/**
+ * V7 Stage 16 (spec v3.0 §9): the open record of a kind still before the chain, or null. A second Protect or Send never
+ * starts beside one: a phone's handoff can leave the first waiting for the wallet's answer, and a duplicate prompt would
+ * move the money twice; the Review says so (`one_at_a_time`) and nothing moves.
+ */
+export const unresolvedOperation = (kind: OperationKind, s: WalletSession = defaultSession): OperationRecord | null => unresolvedOf(allOperations(s), kind);
 export const finishedOperations = (s: WalletSession = defaultSession): OperationRecord[] => allOperations(s).filter((r) => isTerminal(r.state));
 
 /** Tests: forget the drafts and the hook's cache. */

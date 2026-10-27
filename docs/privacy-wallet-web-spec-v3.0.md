@@ -648,6 +648,21 @@ connector is reconnected after a reload; WalletConnect declares `redirect` and i
 persist()` is asked for; a second Protect or Send cannot start while one of the kind is unresolved. A real-device
 checklist (`docs/mobile-web-gate.md`: iOS Safari, Android Chrome, the wallets' in-app browsers) is the owner's to run.
 
+Code (Stage 16, as landed): `packages/sdk/src/session/autoLock.ts` (`pageHidden` in the verdict — due at once without a
+hold, deferred by a live one like every cause, at the safe point past the cap —, `pageHide` / `pageShow`),
+`apps/web/src/platform/autoLock.ts` (the `pageshow` listener), `packages/sdk/src/privateTx.ts` (`assertStillUnlocked`
+before every prompt of a Protect: locked, the error reads `interrupted` and nothing more is asked),
+`packages/wallet-engine/src/walletConnect.ts` (`metadata.icons` = this origin's `/icon.svg`, `metadata.redirect.universal` =
+this origin), `packages/wallet-engine/src/connection.ts` (`reconnect` takes a WalletConnect session its provider restored,
+by `eth_accounts`, never a pairing), `apps/web/scripts/csp.mjs` (with a project id: the modal's hosts in `connect-src` and
+`img-src`, the verify iframe's in `frame-src`; `frame-src 'none'` otherwise; WalletConnect's telemetry host never),
+`apps/web/src/platform/unloadGuard.ts` (`beforeunload` while a hold is live), `apps/web/src/hooks/index.ts` (the
+scheduler's catch-up on `visibilitychange` and `online`), `apps/web/src/storage/persist.ts` + `apps/web/src/app/Background.tsx`
+(`navigator.storage.persist()` once per page after an unlock, the answer remembered), `packages/sdk/src/operations/store.ts`
+(`unresolvedOperation`: a record of the kind in AWAITING_AUTHORIZATION, PREPARING_PROOF or SUBMITTING) with the Protect and
+Send Reviews' blocker `one_at_a_time` (`packages/protocol-types/src/risk.ts`). The checklist and the record of the
+owner's runs: `docs/mobile-web-gate.md`.
+
 ## 10. Gates (doc §13) — *Stages 2, 10, 11, 17*
 
 | Doc §13 gate | Evidence | Where |

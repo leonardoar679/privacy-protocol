@@ -305,6 +305,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.blocker.unsafeContractCall": "컨트랙트 호출이 점검을 통과하지 못했습니다.",
   "screen.review.blocker.inFlightLimit": "이 규모의 보호 작업은 한 번에 하나만 실행됩니다. 진행 중인 작업이 끝날 때까지 기다려 주세요.",
   "screen.review.blocker.routeNotQualified": "이 경로의 측정된 유동성이 금액보다 적습니다. 더 작은 금액을 시도해 주세요.",
+  "screen.review.blocker.oneAtATime": "같은 종류의 다른 작업이 아직 지갑의 응답을 기다리거나 전송 중입니다. 먼저 끝내세요. 활동에서 볼 수 있습니다.",
   "screen.progress.title": "진행 중",
   "screen.progress.preparing": "보호 거래를 준비하는 중…",
   "screen.progress.balance": "잔액 확인",

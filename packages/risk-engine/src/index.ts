@@ -61,6 +61,8 @@ export interface RiskFacts {
   inFlight?: { count: number; limit: number };
   /** V7 Stage 13: the route's measured liquidity (the risk database's `servedUpToUsd`), null when the route is unmeasured */
   route?: { limitUsd: number | null };
+  /** V7 Stage 16 (spec v3.0 §9): a record of the kind still before the chain — the wallet's own count, like `inFlight`; a second Protect or Send never starts beside one */
+  unresolved?: boolean;
 }
 
 /** The level of a 0–100 score: high from 60, medium from 30. */
@@ -79,6 +81,7 @@ export function blockersOf(f: RiskFacts): BlockerCode[] {
     unsafe_contract_call: f.call !== undefined && !f.call.verified,
     in_flight_limit: f.inFlight !== undefined && f.inFlight.count >= f.inFlight.limit,
     route_not_qualified: f.route?.limitUsd !== undefined && f.route.limitUsd !== null && f.usd !== undefined && f.usd > f.route.limitUsd,
+    one_at_a_time: f.unresolved === true,
   };
   return BLOCKER_CODES.filter((c) => hit[c]);
 }

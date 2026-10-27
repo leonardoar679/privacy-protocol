@@ -2,7 +2,8 @@
 //   - after the user's idle minutes (1, 5, 15 or 60; 15 by default; More → Security; kept in the encrypted journal);
 //   - 5 minutes after the tab is hidden;
 //   - on an explicit Lock;
-//   - on `pagehide`;
+//   - on `pagehide` — at once without a hold; with a live hold (V7 Stage 16, spec v3.0 §9: a phone's wallet handoff fires it
+//     mid-prompt) at the hold's release, or past the cap at the safe point; a `pageshow` before that resumes;
 //   - when another tab of this wallet is unlocked (a V6 follow-up: one unlocked tab at a time, the platform's activeTab.ts),
 //     as soon as nothing is in progress, like every automatic lock.
 // Focus loss counts as idleness only: a wallet pop-up and the WalletConnect modal take focus. A critical section — the
@@ -35,8 +36,10 @@ export interface AutoLockFacts {
   holds: readonly Hold[];
   /** another tab of this wallet asked this one to step aside */
   elsewhere?: boolean;
+  /** the page is going away or gone (a pagehide without a pageshow since; V7 Stage 16) */
+  pageHidden?: boolean;
 }
-export type LockCause = "idle" | "hidden" | "elsewhere";
+export type LockCause = "idle" | "hidden" | "elsewhere" | "pagehide";
 export interface LockVerdict {
   /** why a lock is due now, or null */
   due: LockCause | null;
@@ -51,7 +54,7 @@ export interface LockVerdict {
 export function lockVerdict(f: AutoLockFacts): LockVerdict {
   const idleAt = f.lastActivity + f.idleMinutes * 60_000;
   const hiddenAt = f.hiddenSince === null ? Infinity : f.hiddenSince + HIDDEN_LOCK_MS;
-  const due: LockCause | null = f.elsewhere ? "elsewhere" : f.now >= hiddenAt ? "hidden" : f.now >= idleAt ? "idle" : null;
+  const due: LockCause | null = f.pageHidden ? "pagehide" : f.elsewhere ? "elsewhere" : f.now >= hiddenAt ? "hidden" : f.now >= idleAt ? "idle" : null;
   if (!due) return { due: null, heldBy: null, atSafePoint: false, nextCheck: Math.min(idleAt, hiddenAt) };
   const live = f.holds.filter((h) => f.now - h.since < HOLD_CAP_MS);
   if (live.length) return { due, heldBy: live[0].reason, atSafePoint: false, nextCheck: Math.min(...live.map((h) => h.since + HOLD_CAP_MS)) };
@@ -71,7 +74,7 @@ const realClock: AutoLockClock = {
   clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-export type LockTrigger = LockCause | "pagehide";
+export type LockTrigger = LockCause;
 
 /** The controller: activity, visibility and page events in, `session.lock()` out — only while the wallet is unlocked. */
 export class AutoLock {
@@ -82,6 +85,7 @@ export class AutoLock {
   private wasUnlocked = false;
   private holdCount = 0;
   private elsewhere = false;
+  private pageHidden = false;
   private readonly clock: AutoLockClock;
 
   constructor(private readonly o: { session: WalletSession; minutes: () => number; clock?: AutoLockClock; onLock?: (trigger: LockTrigger) => void }) {
@@ -119,9 +123,21 @@ export class AutoLock {
     if (this.o.session.isUnlocked()) this.check();
   }
 
-  /** The page is going away (closed, navigated, put in the back-forward cache): lock now. */
+  /**
+   * The page is going away (closed, navigated, put in the back-forward cache): locked at once — unless a critical section
+   * holds the lock off (V7 Stage 16, spec v3.0 §9): a phone's wallet handoff fires pagehide in the middle of the prompt, and
+   * the page must come back to an unlocked wallet. Then the lock waits for the hold's release (or, past the cap, the safe
+   * point), and a pageshow before that resumes.
+   */
   pageHide(): void {
-    this.lock("pagehide");
+    this.pageHidden = true;
+    this.check();
+  }
+
+  /** The page is back (restored from the back-forward cache, the handoff returned): the pending pagehide lock is dropped. */
+  pageShow(): void {
+    this.pageHidden = false;
+    if (this.o.session.isUnlocked()) this.check();
   }
 
   /** Another tab of this wallet was unlocked: this one locks as soon as nothing is in progress (the holds, then a safe point). */
@@ -146,6 +162,7 @@ export class AutoLock {
       idleMinutes: this.o.minutes(),
       holds: this.o.session.holds(),
       elsewhere: this.elsewhere,
+      pageHidden: this.pageHidden,
     });
     if (v.due && !v.heldBy && (!v.atSafePoint || atSafePoint)) return this.lock(v.due);
     this.pendingSafePoint = v.atSafePoint;
@@ -158,6 +175,7 @@ export class AutoLock {
     if (unlocked && !this.wasUnlocked) {
       this.lastActivity = this.clock.now(); // a fresh unlock starts the idle clock
       this.elsewhere = false; // and is this tab's own
+      this.pageHidden = false; // a page that unlocks is here
     }
     this.wasUnlocked = unlocked;
     const holds = this.o.session.holds().length;

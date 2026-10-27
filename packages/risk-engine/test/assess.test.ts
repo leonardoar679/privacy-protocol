@@ -59,6 +59,9 @@ const ONE_BLOCKER: Record<BlockerCode, (f: RiskFacts) => void> = {
   route_not_qualified: (f) => {
     f.route = { limitUsd: f.usd! - 1 };
   },
+  one_at_a_time: (f) => {
+    f.unresolved = true;
+  },
 };
 
 describe("assessRisk (doc §47–§48)", () => {

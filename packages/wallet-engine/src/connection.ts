@@ -118,15 +118,16 @@ export const connection = {
   },
   /**
    * V7 Stage 4 (spec v3.0 §2): reconnects the remembered connector after a reload without a prompt (`eth_accounts`): a
-   * wallet that no longer authorizes this site leaves the state disconnected. WalletConnect is not reconnected this way
-   * (its own session store restores it when the user asks). Never throws.
+   * wallet that no longer authorizes this site leaves the state disconnected. V7 Stage 16 (spec v3.0 §9): WalletConnect too —
+   * its provider restores the session from its own store, and `eth_accounts` answers from it without a pairing; none
+   * stored answers nothing, and the state stays disconnected. Never throws.
    */
   async reconnect(id: string): Promise<ConnectionState> {
     discover();
     if (state.status !== "disconnected") return state;
     try {
       const chosen = await providerFor(id, 1_500);
-      if (!chosen || chosen.info.kind === "walletconnect") return state;
+      if (!chosen) return state;
       const accounts = (await chosen.provider.request({ method: "eth_accounts" })) as string[] | undefined;
       const account = accounts?.[0] ?? null;
       if (!account || state.status !== "disconnected") return state;

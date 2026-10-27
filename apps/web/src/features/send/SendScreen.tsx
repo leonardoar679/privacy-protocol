@@ -50,6 +50,8 @@ import type { SwapPrefill } from "../swap/Swap";
 import { SendView } from "./View";
 import { crossTargetOf, destinationOf, sendModel, sendSplit } from "./model";
 import { useAddressBook, useConnectivity, useNotes, useOperation, usePrices, useSettings } from "../../hooks";
+import { useOpenOperations } from "../../hooks/wallet";
+import { unresolvedOf, unresolvedOperation } from "@privacy-wallet/sdk/operations/store";
 
 export interface SendScreenProps {
   masterSeed: Uint8Array;
@@ -73,6 +75,9 @@ export function SendScreen(p: SendScreenProps) {
   const navigate = useNavigate();
   const { submission, advanced, verifyReads, secondFactor, protection } = useSettings();
   const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
+  // V7 Stage 16 (spec v3.0 §9): one Send at a time — a private send or a public exit still before the chain stops a second
+  const openRecords = useOpenOperations();
+  const pendingSend = unresolvedOf(openRecords, "send") ?? unresolvedOf(openRecords, "withdraw");
   const book = useAddressBook();
   const prices = usePrices();
   useNotes();
@@ -238,6 +243,11 @@ export function SendScreen(p: SendScreenProps) {
     }
     if (balance < split.total + mergeFees) {
       setStatus(t("send.notEnough", { symbol: asset.symbol }));
+      return;
+    }
+    // V7 Stage 16 (spec v3.0 §9): never a second Send beside one still before the chain (the Review already says so)
+    if (unresolvedOperation("send") ?? unresolvedOperation("withdraw")) {
+      setStatus(t("screen.review.blocker.oneAtATime"));
       return;
     }
     // the fresh address is reserved at the first confirmation and kept for a retry of this send; never one the journal cannot
@@ -545,6 +555,7 @@ export function SendScreen(p: SendScreenProps) {
       large: false,
       hold: controls.hold,
       confirmDisabled: blocked || destinationLocked || (needsDestAck && !destAck) || !net.online,
+      blocked: pendingSend ? "one_at_a_time" : null,
     };
     const extra = (
       <>

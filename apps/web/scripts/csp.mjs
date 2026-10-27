@@ -41,6 +41,10 @@ export function defaultHosts(env = {}) {
   return out;
 }
 const WALLETCONNECT = ["https://relay.walletconnect.com", "wss://relay.walletconnect.com", "https://relay.walletconnect.org", "wss://relay.walletconnect.org", "https://*.walletconnect.com", "https://*.walletconnect.org", "https://*.reown.com", "wss://*.reown.com"];
+// V7 Stage 16 (spec v3.0 §9): with a project id, the modal's wallet list and logos (AppKit's API, the explorer) and the verify
+// iframe; WalletConnect's telemetry host (pulse) is absent on purpose — the policy stops it
+const WALLETCONNECT_MODAL = ["https://api.web3modal.org", "https://api.web3modal.com", "https://explorer-api.walletconnect.com"];
+const WALLETCONNECT_VERIFY = ["https://verify.walletconnect.com", "https://verify.walletconnect.org"];
 
 /** `https://host[:port]` of an absolute URL, or null for a relative path or garbage. */
 export function originOf(value) {
@@ -58,7 +62,7 @@ export function connectHosts(env = {}, extra = []) {
     for (const part of String(env[name] ?? "").split(",")) { const o = originOf(part); if (o) out.add(o); }
   }
   for (const h of defaultHosts(env)) { const o = originOf(h); if (o) out.add(o); }
-  if (env.VITE_WC_PROJECT_ID) for (const h of WALLETCONNECT) out.add(h);
+  if (env.VITE_WC_PROJECT_ID) for (const h of [...WALLETCONNECT, ...WALLETCONNECT_MODAL]) out.add(h);
   for (const e of extra) { const o = originOf(e); if (o) out.add(o); }
   return [...out];
 }
@@ -75,13 +79,16 @@ export function zkapiHosts(configPath) {
 
 /** The policy string. */
 export function buildCsp(env = {}, extra = []) {
+  const wc = !!env.VITE_WC_PROJECT_ID;
   const connect = ["'self'", ...connectHosts(env, extra)];
+  const img = ["'self'", "data:", "blob:", ...(wc ? [...WALLETCONNECT_MODAL, "https://*.walletconnect.com", "https://*.walletconnect.org", "https://*.reown.com"] : [])];
   return [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",
     "worker-src 'self' blob:",
     `connect-src ${connect.join(" ")}`,
-    "img-src 'self' data: blob:",
+    `img-src ${img.join(" ")}`,
+    `frame-src ${wc ? WALLETCONNECT_VERIFY.join(" ") : "'none'"}`,
     "style-src 'self'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self'",

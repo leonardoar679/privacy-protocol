@@ -33,6 +33,8 @@ import { protectModel } from "./model";
 import { estimateShieldCost, type NetworkEstimate } from "./estimate";
 import { readPublicBalance } from "./publicBalance";
 import { useConnectivity, useOperation, usePrefs, usePrices, useSettings } from "../../hooks";
+import { useOpenOperations } from "../../hooks/wallet";
+import { unresolvedOf, unresolvedOperation } from "@privacy-wallet/sdk/operations/store";
 
 export interface ProtectScreenProps {
   masterSeed: Uint8Array;
@@ -67,6 +69,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
   const navigate = useNavigate();
   const { advanced } = useSettings();
   const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
+  const pendingProtect = unresolvedOf(useOpenOperations(), "protect"); // V7 Stage 16 (spec v3.0 §9): one Protect at a time
   const prices = usePrices();
   const pf = usePrefs();
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
@@ -184,6 +187,11 @@ export function ProtectScreen(p: ProtectScreenProps) {
       setStatus(t("protect.noDeployment"));
       return;
     }
+    // V7 Stage 16 (spec v3.0 §9): never a second Protect beside one still before the chain (the Review already says so)
+    if (unresolvedOperation("protect")) {
+      setStatus(t("screen.review.blocker.oneAtATime"));
+      return;
+    }
     nudgeDismissed = true; // shown once per session
     const rec = newOperation({
       kind: "protect",
@@ -285,6 +293,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
           large: false,
           hold: controlsFor(tier).hold,
           confirmDisabled: !net.online,
+          blocked: pendingProtect ? "one_at_a_time" : null,
         }
       : null;
 

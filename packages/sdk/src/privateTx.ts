@@ -194,6 +194,14 @@ export async function submitShield(p: PreparedShield, o: Progress & { /** V6: th
     release();
   }
 }
+/**
+ * V7 Stage 16 (spec v3.0 §9): a Protect stops prompting the external wallet once the session is locked — a phone's handoff can
+ * lock the page between two prompts (the hold defers an automatic lock; an explicit one, or another tab's, does not wait).
+ * What was sent stays sent, nothing more is asked, and the record reads interrupted (nothing moved by the missing prompt).
+ */
+function assertStillUnlocked(): void {
+  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent"), { code: "interrupted" });
+}
 async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?: bigint }): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
   let approveTx: Hex | undefined;
@@ -207,6 +215,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   for (const [k, tx] of approvals.entries()) {
     const clearing = approvals.length === 2 && k === 0;
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
+    assertStillUnlocked();
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
     const hash = await sendViaInjectedWallet(tx, p.deployment.chainId);
     const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash });
@@ -220,6 +229,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   if (approvals.length) o.onStatus?.(`${n}/${n} Depositing into the vault (a shield is public by design)…`);
   else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
+  assertStillUnlocked();
   o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
   const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });

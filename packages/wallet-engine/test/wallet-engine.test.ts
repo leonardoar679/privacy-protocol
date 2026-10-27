@@ -7,14 +7,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { configureWalletConnect, resetWalletConnect } from "../src/walletConnect";
 
 // WalletConnect's provider, scripted: every init is a new pairing, and a disconnect ends that session
-const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0 }));
+const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0, restored: false, lastInit: null as unknown, methods: [] as string[] }));
 vi.mock("@walletconnect/ethereum-provider", () => ({
   EthereumProvider: {
-    init: async () => {
+    init: async (opts: unknown) => {
       wc.inits++;
+      wc.lastInit = opts;
       return {
-        request: async ({ method }: { method: string }) =>
-          method === "eth_requestAccounts" ? ["0x7a3b000000000000000000000000000000c491f2"] : method === "eth_chainId" ? "0x1" : null,
+        request: async ({ method }: { method: string }) => {
+          wc.methods.push(method);
+          // V7 Stage 16: eth_accounts answers from a session the provider restored from its own store, or nothing
+          if (method === "eth_requestAccounts") return ["0x7a3b000000000000000000000000000000c491f2"];
+          if (method === "eth_accounts") return wc.restored ? ["0x7a3b000000000000000000000000000000c491f2"] : [];
+          return method === "eth_chainId" ? "0x1" : null;
+        },
         on: () => {},
         removeListener: () => {},
         disconnect: async () => {
@@ -139,6 +145,41 @@ describe("WalletConnect (the audit's unverified m65)", () => {
       await connection.connect("walletconnect");
       expect(wc.inits, "a new pairing, never the old session").toBe(2);
     } finally {
+      connection.disconnect();
+      configureWalletConnect(undefined);
+      resetWalletConnect();
+    }
+  });
+
+  it("declares the icon a wallet shows and where a phone's wallet app returns after signing (V7 Stage 16, spec v3.0 §9)", async () => {
+    configureWalletConnect("a-project-id");
+    try {
+      await connection.connect("walletconnect");
+      const m = (wc.lastInit as { metadata: { url: string; icons: string[]; redirect?: { universal?: string } } }).metadata;
+      expect(m.url).toBe(location.origin);
+      expect(m.icons).toEqual([`${location.origin}/icon.svg`]);
+      expect(m.redirect).toEqual({ universal: location.origin });
+    } finally {
+      connection.disconnect();
+      configureWalletConnect(undefined);
+      resetWalletConnect();
+    }
+  });
+
+  it("after a reload a session the provider restored is taken up without a pairing (V7 Stage 16): eth_accounts, never eth_requestAccounts; none stored stays disconnected", async () => {
+    configureWalletConnect("a-project-id");
+    try {
+      wc.restored = false;
+      wc.methods.length = 0;
+      expect((await connection.reconnect("walletconnect")).status, "nothing stored").toBe("disconnected");
+      resetWalletConnect();
+      wc.restored = true;
+      const s = await connection.reconnect("walletconnect");
+      expect(s.status).toBe("connected");
+      expect(s.connector?.kind).toBe("walletconnect");
+      expect(wc.methods, "no prompt").not.toContain("eth_requestAccounts");
+    } finally {
+      wc.restored = false;
       connection.disconnect();
       configureWalletConnect(undefined);
       resetWalletConnect();

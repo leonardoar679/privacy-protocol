@@ -2,7 +2,6 @@
 # planned: named by docs/privacy-wallet-web-spec-v2.0.md; the line goes when its V6 stage lands.
 contracts/deployments/sepolia.json  # planned: written by the Sepolia deployment (roadmap stage 13, not run)
 # planned: named by docs/privacy-wallet-web-spec-v3.0.md; the line goes when its V7 stage lands.
-docs/mobile-web-gate.md  # planned: V7 Stage 16 (the real-device checklist)
 docs/definition-of-done-v7.md  # planned: V7 Stage 17
 # historical: named by a record of an earlier pass on purpose.
 apps/web/src/sdk/facade.ts  # historical: the V5 spec's facade, never built; the doc §61 facade is packages/sdk (V6 Stage 4)

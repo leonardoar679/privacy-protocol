@@ -68,6 +68,7 @@ export const BLOCKER_WORDS: Record<BlockerCode, MessageKey> = {
   unsafe_contract_call: "screen.review.blocker.unsafeContractCall",
   in_flight_limit: "screen.review.blocker.inFlightLimit",
   route_not_qualified: "screen.review.blocker.routeNotQualified",
+  one_at_a_time: "screen.review.blocker.oneAtATime",
 };
 const LARGE_CHECKS: MessageKey[] = ["screen.review.large.destination", "screen.review.large.quote", "screen.review.large.route", "screen.review.large.limits"];
 

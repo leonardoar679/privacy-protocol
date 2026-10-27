@@ -12,7 +12,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { getAddress } from "viem";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
-import { allOperations, finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import {
+  allOperations,
+  applyEvent,
+  finishedOperations,
+  getOperation,
+  newOperation,
+  openOperations,
+  resetOperationsMemory,
+} from "@privacy-wallet/sdk/operations/store";
 import { ProtectScreen, type ProtectScreenProps } from "../src/features/protect/ProtectScreen";
 import { PROTECT_OPERATION_STATE, PROTECT_STEPS, protectModel, protectStepOf } from "../src/features/protect/model";
 import { setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
@@ -201,6 +209,30 @@ describe("the Protect flow's model (spec v2.0 §7.3: the §23 reducer on the ope
 });
 
 describe("Protect Assets (spec v2.0 §7.3)", () => {
+  it("one Protect at a time (V7 Stage 16, spec v3.0 §9): while one waits for the wallet's answer, the Review of a second stops it — nothing is sent", async () => {
+    await unlocked();
+    const eth = provider();
+    setActiveProvider(eth);
+    const waiting = newOperation({
+      kind: "protect",
+      amounts: { asset: "ETH", decimals: 18, input: "500000000000000000" },
+      destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" },
+      tier: "standard",
+    });
+    applyEvent(waiting.id, { type: "review" });
+    applyEvent(waiting.id, { type: "confirm" }); // AWAITING_AUTHORIZATION: a phone's handoff left it there
+    const { path } = mount();
+    await waitFor(() => expect(screen.getByTestId("protect-from").textContent).toContain("2 ETH"));
+    type(screen.getByTestId("amount-input"), "1");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    expect(path()).toBe("/protect/review");
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.getByTestId("review-view").textContent).toContain("Another operation of this kind is still waiting for your wallet's answer");
+    expect(screen.queryByTestId("review-confirm"), "no Confirm").toBeNull();
+    expect(calls.native, "nothing was sent").toEqual([]);
+    expect(getOperation(waiting.id)?.state).toBe("AWAITING_AUTHORIZATION");
+  });
+
   it("reads the wallet's balance through its provider; the 1 % comes off what arrives; Review, a tap, the progress lines, then what was added — the record from the signature to COMPLETED with the leaf", async () => {
     await unlocked();
     const eth = provider();

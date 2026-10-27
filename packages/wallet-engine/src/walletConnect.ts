@@ -20,11 +20,19 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
   if (!projectId) return null;
   if (cached) return cached;
   const mod = await import("@walletconnect/ethereum-provider");
+  const origin = typeof location === "undefined" ? "https://localhost" : location.origin;
   const provider = await mod.EthereumProvider.init({
     projectId,
     chains: [chainId],
     showQrModal: true,
-    metadata: { name: "Privacy Wallet", description: "A private wallet", url: typeof location === "undefined" ? "https://localhost" : location.origin, icons: [] },
+    metadata: {
+      name: "Privacy Wallet",
+      description: "A private wallet",
+      url: origin,
+      // V7 Stage 16 (spec v3.0 §9): the icon a wallet shows for this site, and where a phone's wallet app returns after signing
+      icons: [`${origin}/icon.svg`],
+      redirect: { universal: origin },
+    },
   });
   cached = provider as unknown as WcProvider;
   return cached;

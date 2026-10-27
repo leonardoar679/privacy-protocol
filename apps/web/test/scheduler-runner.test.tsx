@@ -65,4 +65,36 @@ describe("the scheduler runner", () => {
     await vi.waitFor(() => expect(session.journal().schedule.find((a) => a.orderId === "0xbad")!.attempts).toBe(3), { timeout: 5_000 }); // the failure is recorded once the run rejects
     expect(ran.filter((x) => x === "0xbad")).toHaveLength(2);
   });
+
+  it("a tab back in view, or back online, runs what came due meanwhile at once — before the next poll (V7 Stage 16, spec v3.0 §9)", async () => {
+    await session.create("pw");
+    session.acknowledgePhrase();
+    const ran: string[] = [];
+    const run = async (a: ScheduledAction) => {
+      ran.push(a.orderId);
+    };
+    function Runner() {
+      useScheduler(run, 60 * 60_000); // a poll too far away to matter
+      return null;
+    }
+    const container = document.createElement("div");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<Runner />);
+    });
+    await act(async () => {
+      scheduleAction({ kind: "fund-escrow", orderId: "0xhidden", dueAt: Date.now() - 10 });
+      await sleep(30);
+    });
+    expect(ran, "due after the mount: nothing polls it for an hour").toEqual([]);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await vi.waitFor(() => expect(ran).toEqual(["0xhidden"]), { timeout: 2_000 });
+    await act(async () => {
+      scheduleAction({ kind: "fund-escrow", orderId: "0xonline", dueAt: Date.now() - 10 });
+      window.dispatchEvent(new Event("online"));
+    });
+    await vi.waitFor(() => expect(ran).toEqual(["0xhidden", "0xonline"]), { timeout: 2_000 });
+  });
 });

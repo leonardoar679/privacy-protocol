@@ -15,7 +15,7 @@ import { getAddress } from "viem";
 import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
-import { finishedOperations, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { applyEvent, finishedOperations, getOperation, newOperation, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { SendScreen, type SendScreenProps } from "../src/features/send/SendScreen";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -185,6 +185,30 @@ function mount(props: Partial<SendScreenProps> = {}, d: Deployment = deployment)
 }
 
 describe("Send (spec v2.0 §7.4)", () => {
+  it("one Send at a time (V7 Stage 16, spec v3.0 §9): while one is still before the chain, the Review of a second stops it — nothing is sent", async () => {
+    await unlocked();
+    const waiting = newOperation({
+      kind: "send",
+      amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+      destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+      tier: "standard",
+    });
+    applyEvent(waiting.id, { type: "review" });
+    applyEvent(waiting.id, { type: "confirm" });
+    applyEvent(waiting.id, { type: "progress", step: "proof" }); // PREPARING_PROOF: a page that went away mid-proof
+    const to = otherWallet();
+    const { path } = mount();
+    typeTo(to);
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/send/review");
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.queryByTestId("review-confirm"), "no Confirm").toBeNull();
+    expect(calls.withdraw, "nothing was sent").toEqual([]);
+    expect(getOperation(waiting.id)?.state).toBe("PREPARING_PROOF");
+  });
+
   it("the private path: a privacy address passes the four checks; 'Recipient receives' is exact input by default and the switch turns it into exact output with what leaves the balance; the Review, a tap, the record to COMPLETED", async () => {
     await unlocked();
     const to = otherWallet();

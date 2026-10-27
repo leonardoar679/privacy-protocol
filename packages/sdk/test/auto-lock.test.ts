@@ -60,6 +60,21 @@ describe("lockVerdict", () => {
       heldBy: "submission",
     });
   });
+  it("pagehide (V7 Stage 16, spec v3.0 §9): due at once without a hold; a live hold defers it like every cause; past the cap it waits for the safe point", () => {
+    expect(lockVerdict({ ...base, pageHidden: true })).toMatchObject({ due: "pagehide", heldBy: null, atSafePoint: false });
+    expect(lockVerdict({ ...base, pageHidden: true, holds: [{ reason: "signature", since: 0 }] })).toMatchObject({
+      due: "pagehide",
+      heldBy: "signature",
+      nextCheck: HOLD_CAP_MS,
+    });
+    expect(lockVerdict({ ...base, now: HOLD_CAP_MS + 1, pageHidden: true, holds: [{ reason: "signature", since: 0 }] })).toMatchObject({
+      due: "pagehide",
+      heldBy: null,
+      atSafePoint: true,
+    });
+    expect(lockVerdict({ ...base, pageHidden: false }).due).toBeNull();
+  });
+
   it("the four choices; anything else is the default", () => {
     expect(AUTO_LOCK_MINUTES).toEqual([1, 5, 15, 60]);
     expect(autoLockMinutesOf(5)).toBe(5);
@@ -149,11 +164,35 @@ describe("the controller", () => {
     expect([s.isUnlocked(), locks]).toEqual([false, ["elsewhere", "elsewhere"]]);
   });
 
-  it("pagehide locks at once, holds or not", async () => {
+  it("pagehide locks at once without a hold; with a live hold (a wallet prompt) the lock waits for the release, and pageshow before that resumes (V7 Stage 16, spec v3.0 §9)", async () => {
+    const plain = await unlocked(manualClock());
+    plain.ctrl.pageHide();
+    expect([plain.s.isUnlocked(), plain.locks], "nothing in progress: at once").toEqual([false, ["pagehide"]]);
+
     const clock = manualClock();
     const { s, ctrl, locks } = await unlocked(clock);
-    s.hold("signature");
+    const release = s.hold("signature", clock.now());
     ctrl.pageHide();
+    expect(s.isUnlocked(), "mid-prompt: the handoff must come back to an unlocked wallet").toBe(true);
+    ctrl.pageShow();
+    release();
+    expect(s.isUnlocked(), "back before the answer: nothing locks").toBe(true);
+    const again = s.hold("signature", clock.now());
+    ctrl.pageHide();
+    clock.advance(MIN);
+    expect(s.isUnlocked(), "gone, the prompt still open: the hold defers").toBe(true);
+    again();
+    expect([s.isUnlocked(), locks], "gone for good: the release locks").toEqual([false, ["pagehide"]]);
+  });
+
+  it("pagehide with a hold past the cap: the lock waits for the scheduler's safe point (V7 Stage 16)", async () => {
+    const clock = manualClock();
+    const { s, ctrl, locks } = await unlocked(clock);
+    s.hold("spend", clock.now());
+    clock.advance(HOLD_CAP_MS + 1);
+    ctrl.pageHide();
+    expect(s.isUnlocked(), "past the cap: not at once").toBe(true);
+    s.safePoint();
     expect([s.isUnlocked(), locks]).toEqual([false, ["pagehide"]]);
   });
 

@@ -303,6 +303,7 @@ export const en = {
   "screen.review.blocker.unsafeContractCall": "The contract call did not pass our checks.",
   "screen.review.blocker.inFlightLimit": "One protected operation of this size runs at a time. Wait until the open one completes.",
   "screen.review.blocker.routeNotQualified": "This route's measured liquidity is below your amount. Try a smaller amount.",
+  "screen.review.blocker.oneAtATime": "Another operation of this kind is still waiting for your wallet's answer, or being sent. Finish it first; Activity lists it.",
   "screen.progress.title": "In progress",
   "screen.progress.preparing": "Preparing your protected transaction…",
   "screen.progress.balance": "Checking balance",

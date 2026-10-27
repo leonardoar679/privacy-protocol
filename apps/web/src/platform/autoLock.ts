@@ -2,7 +2,8 @@
 // (packages/sdk/src/session/autoLock.ts) fed with this page's events. The events:
 //   - a pointer, a key, a wheel, a touch or a scroll is activity (at most once a second);
 //   - `visibilitychange` is the hidden clock;
-//   - `pagehide` locks at once;
+//   - `pagehide` locks at once — unless a hold is live (a wallet prompt, a proof, a submission: a phone's wallet handoff fires
+//     it mid-prompt), then at the release; `pageshow` before that resumes (V7 Stage 16, spec v3.0 §9);
 //   - another tab of this wallet unlocked (./activeTab.ts): `stepAside`, as soon as nothing is in progress.
 // Focus and blur are not listened to: losing focus to a wallet pop-up or the WalletConnect modal is idleness, nothing
 // more. A lock — automatic or the Lock button — also forgets the runners' caches, the drafts and the crypto worker:
@@ -49,9 +50,11 @@ export function startAutoLock(): () => void {
   };
   const onVisibility = () => ctrl.visibility(document.visibilityState === "hidden");
   const onPageHide = () => ctrl.pageHide();
+  const onPageShow = () => ctrl.pageShow();
   for (const e of ACTIVITY) window.addEventListener(e, onActivity, { capture: true, passive: true });
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("pageshow", onPageShow);
   if (document.visibilityState === "hidden") ctrl.visibility(true);
   return () => {
     offHook();
@@ -60,5 +63,6 @@ export function startAutoLock(): () => void {
     for (const e of ACTIVITY) window.removeEventListener(e, onActivity, { capture: true });
     document.removeEventListener("visibilitychange", onVisibility);
     window.removeEventListener("pagehide", onPageHide);
+    window.removeEventListener("pageshow", onPageShow);
   };
 }

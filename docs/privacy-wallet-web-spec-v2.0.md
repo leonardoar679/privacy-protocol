@@ -1012,7 +1012,7 @@ best-price preference, partial quotes never chosen, a delivered swap with its ca
 type RiskAssessment = { score: number; level: "low" | "medium" | "high"; blockers: BlockerCode[]; warnings: string[] }
 type BlockerCode = "quote_expired" | "asset_unsupported" | "destination_invalid" | "provider_unhealthy"
   | "minimum_below_limit" | "parameters_changed" | "network_mismatch" | "unsafe_contract_call"
-  | "in_flight_limit" | "route_not_qualified"
+  | "in_flight_limit" | "route_not_qualified" | "one_at_a_time"
 ```
 `assessRisk(facts)` (`packages/risk-engine`) composes the provider health, the quote age, liquidity, the
 destination check, the slippage, the execution's complexity, the network status, recent provider failures and the
@@ -1020,6 +1020,8 @@ large-trade status. Blockers are re-checked between the Review and every signatu
 operation with the §7.9 words and nothing moves. V7 Stage 13 (spec v3.0 §4) adds `in_flight_limit` (the $50K–$100K band's
 exposure limit: one protected operation of the band in flight per wallet, the wallet's own count) and `route_not_qualified`
 (the route's measured liquidity — the risk database's `servedUpToUsd` — below the order, the service's fact in the §46 quote).
+V7 Stage 16 (spec v3.0 §9) adds `one_at_a_time`: a second Protect or Send while one of the kind is still before the chain
+(waiting for the wallet's answer, proving, submitting) — the Review says so and nothing moves.
 
 ### 13.5 Large trades (doc §49–§50)
 From $50K the operation runs as protected steps (withdrawn by V7 Stage 13, spec v3.0 §4: one order by default at $50K–$100K,

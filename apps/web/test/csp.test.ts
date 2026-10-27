@@ -50,6 +50,15 @@ describe("the content security policy (spec §20)", () => {
     const wc = buildCsp({ ...ENV, VITE_WC_PROJECT_ID: "abc" });
     expect(wc).toContain("wss://relay.walletconnect.com");
     expect(wc).toContain("https://*.walletconnect.com");
+    // V7 Stage 16 (spec v3.0 §9): the modal's wallet list and logos, the verify iframe — with a project id only; never a frame otherwise
+    const directiveOf = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(name + " "))!;
+    expect(directiveOf(wc, "connect-src")).toContain("https://api.web3modal.org");
+    expect(directiveOf(wc, "img-src")).toBe(
+      "img-src 'self' data: blob: https://api.web3modal.org https://api.web3modal.com https://explorer-api.walletconnect.com https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
+    );
+    expect(directiveOf(wc, "frame-src")).toBe("frame-src https://verify.walletconnect.com https://verify.walletconnect.org");
+    expect(directiveOf(buildCsp(ENV), "frame-src")).toBe("frame-src 'none'");
+    expect(wc, "WalletConnect's telemetry host is never allowed").not.toContain("pulse.walletconnect");
     expect(buildCsp(ENV, ["https://zkapi-sepolia.openanonymity.ai/manifest.json", "https://openrouter.ai/api/v1"])).toContain("https://zkapi-sepolia.openanonymity.ai https://openrouter.ai");
     expect(zkapiHosts("/nowhere/browser-config.json")).toEqual([]);
   });

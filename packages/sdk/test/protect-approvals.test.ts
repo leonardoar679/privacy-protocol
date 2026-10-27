@@ -42,6 +42,8 @@ const w = vi.hoisted(() => ({
   /** the connected wallet's network, and the one it switches to after `switchAfter` sends (the deployment's is chain 1) */
   chain: "0x1",
   switchTo: null as null | { after: number; chain: string },
+  /** V7 Stage 16: the session locks right after this many sends (a phone's handoff, or Lock) */
+  lockAfter: null as null | number,
   chainIds: [] as string[],
   provider: null as null | { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> },
 }));
@@ -106,6 +108,7 @@ const usdtWallet = {
         w.allowance = 0n; // the router pulls exactly the approved amount
         w.receipts.set(hash, "success");
       }
+      if (w.lockAfter !== null && w.sent.length === w.lockAfter) session.lock();
       return hash;
     }
     throw new Error(`unexpected ${method}`);
@@ -125,6 +128,7 @@ beforeEach(() => {
   w.chain = "0x1";
   w.switchTo = null;
   w.chainIds.length = 0;
+  w.lockAfter = null;
 });
 
 const AMOUNT = 5_000_000n; // 5 USDT
@@ -201,5 +205,16 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
     w.chain = "0x1";
     await protect(AMOUNT); // what that approval left: used as it is
     expect(w.chainIds, "every transaction names its chain").toEqual(["0x1"]);
+  });
+
+  it("the session locks between two prompts (V7 Stage 16, spec v3.0 §9): nothing more is asked of the wallet; what was sent stays sent", async () => {
+    w.lockAfter = 1; // the clearing approval goes out, then the page locks (a phone's handoff, or Lock)
+    const stopped = await protect(1n).catch((e: unknown) => e);
+    expect(stopped).toMatchObject({ code: "interrupted", message: expect.stringMatching(/locked before the next prompt/) });
+    expect(
+      w.sent.map((s) => s.fn),
+      "the approval of the amount and the deposit were never asked for",
+    ).toEqual(["approve"]);
+    expect(await session.unlock("a strong password")).toBe(true);
   });
 });

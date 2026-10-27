@@ -15,6 +15,8 @@ export const BLOCKER_CODES = [
   // V7 Stage 13 (spec v3.0 §4): the $50K–$100K band's exposure limit and the route's liquidity qualification
   "in_flight_limit",
   "route_not_qualified",
+  // V7 Stage 16 (spec v3.0 §9): a second Protect or Send beside one still waiting for the wallet's answer or being sent
+  "one_at_a_time",
 ] as const;
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
 
