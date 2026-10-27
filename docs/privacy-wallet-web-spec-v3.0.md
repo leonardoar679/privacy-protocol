@@ -187,7 +187,8 @@ One interface, one name, implemented over what exists: `id` and `getQuote` are t
 six adapters (`quoteAll`, `POST /v1/quotes`); `prepare(quote)` is the two-phase commit of v2.0 §15 (the order is
 committed — `buildOrder`, `POST /v1/operations` — then the call is prepared, `POST /v1/operations/:id/prepare`): the
 `PreparedSwap` carries the order, the one-time escrow and the provider call; `validate(prepared)` runs **in the wallet**
-(`checkOrder`, `checkProviderCall`, `checkPrepared`, the simulation on every endpoint — the independent verification
+(`checkOrder` at the commit, `checkPrepared`, `checkProviderCall`, the approved minimum; the simulation on every endpoint where the
+signature is made — the independent verification
 layer of v2.0 §13.1 stays wallet-side and no provider validates itself); `getStatus(executionId)` reads the operation
 (`trackOrder`, the API's reconcile) by the operation id; `getRecoveryOptions(executionId)` is a pure function over the
 settlement (`settlementOf`) and the paused codes: `accept-new-minimum`, `return-funds`, `continue-monitoring`,
@@ -204,10 +205,18 @@ user pays from their own wallet; no wallet-integrated Bitcoin signing); 4 ETH �
 calldata decoding only; 5 further EVM assets — the Base targets, quotes only. The registry of evidence is
 `docs/test-matrix.md`; a real-funds rehearsal on a public network is the owner's (v2.0 §23).
 
-Code (Stage 14): `packages/swap-engine/src/provider.ts` (the interface; `fromAdapter`), `packages/sdk/src/swapProvider.ts`
-(`prepare`, `validate`, `getStatus`, `getRecoveryOptions` over `swapExecute.ts`, `swapGuard.ts`, `providerCall.ts`,
-`swapSign.ts`, `orderTracker.ts`); the Swap screen calls through it; a parity test proves the facade produces the
-order and the call the direct flow produced.
+Code (Stage 14, as landed): the interface `SwapProvider` and the five recovery options in
+`packages/protocol/src/wallet/swapProvider.ts` (shared by both sides: the SDK never imports the engine, the engine imports the
+protocol), re-exported with `fromAdapter` by `packages/swap-engine/src/provider.ts` (a provider's id, quote and tracking over its
+adapter — the engine's three); `packages/sdk/src/swapProvider.ts` (`walletSwapProvider`: `getQuote` the service's competition,
+`prepare` the two-phase commit — `confirmOrder` underneath, then the provider call read once —, `validate` the wallet's checks
+(`checkBeforeSigning`: the escrow recomputed from the journal and this wallet's factory, the digest of exactly the call, the call
+doing what was asked, the approved minimum; the simulation on every endpoint stays where the signature is made,
+`prepareAndSign`), `getStatus` over `trackOrder` and the operation record, `getRecoveryOptions` the pure `recoveryOptionsOf`);
+the Swap screen commits through `facade.prepare` (`withCall: false`: the runner reads its own call at funding and at signing);
+the parity test `apps/web/test/swap-provider.test.tsx` (the call the facade validates is the call the runner checks and signs — the
+same provider contract, value, receiver and minimum, the deadline following the fresh quote's expiry; a status read moves nothing), `packages/sdk/test/swap-provider.test.ts`
+(the options), `packages/swap-engine/test/provider.test.ts` (`fromAdapter`).
 
 ## 6. The operation states V3 (doc §11) — *Stage 15* (supersedes v2.0 §12.1–§12.2's names; the owner's decision 5 of §22)
 

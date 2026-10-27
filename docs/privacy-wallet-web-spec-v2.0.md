@@ -973,7 +973,9 @@ interface SwapProvider { quote(r): Promise<Quote>; prepare(r, q): Promise<Prepar
   validate(p): Promise<ValidationResult>; execute(p): Promise<Execution>; track(id): Promise<ExecutionStatus>;
   recover(id): Promise<RecoveryResult> }
 ```
-`packages/swap-engine` implements them over the existing engine: `quote` and `prepare` are the adapters'
+V7 Stage 14 (spec v3.0 §5) supersedes these declared interfaces with the one `SwapProvider` facade
+(`packages/protocol/src/wallet/swapProvider.ts`, `packages/swap-engine/src/provider.ts`, `packages/sdk/src/swapProvider.ts`);
+the lines below describe V5's intent. `packages/swap-engine` implements them over the existing engine: `quote` and `prepare` are the adapters'
 `quote` / `prepareIngress`; `validate` is the adapters' own calldata verification plus the wallet-side
 `checkProviderCall`; `execute` is the relayer's hand-over (the escrow's `deployAndExecute`); `track` the adapters'
 `track`; `recover` the order's `recoverState` + `settlementOf`. THORChain is the first adapter; Chainflip, Mayan,

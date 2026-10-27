@@ -16,6 +16,8 @@
 // wallet/campaigns.ts; /swap/steps/:campaignId shows amounts only) only when the service stages it or the user asked under
 // Advanced. Above $100K the high-value layer is the Advanced experience's (Simple gets the card with the switch); the V3/V4
 // screens stay (/swap/protected) when the service stages the order.
+// V7 Stage 14 (spec v3.0 §5): the commit goes through the swap provider facade (sdk/swapProvider.ts), the one interface over
+// the service's competition, the two-phase commit, the wallet's checks, the status reads and the recovery options.
 import { destinationWords } from "../destinationWords";
 import { idOfRoute, routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { knownRecipients } from "../recipients";
@@ -48,12 +50,13 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
-import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
+import { acceptNewMinimum, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { buildCampaign, cancelCampaign, cryptoSeed, resumeCampaign, seededUniform, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
 import { inFlightLimitReached, protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
 import { campaignLineText } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
+import { walletSwapProvider } from "@privacy-wallet/sdk/swapProvider";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { CATALOG, classify, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
@@ -508,35 +511,42 @@ export function SwapScreen(p: SwapScreenProps) {
       const shield = intoProtected
         ? { shieldTip: shieldTipOf(quotes), fallbackRecipient: consumeFreshAddress(p.masterSeed, "evm").address as `0x${string}` }
         : undefined;
-      const r = await confirmOrder({
-        masterSeed: p.masterSeed,
-        deployment: p.deployment,
-        request: {
-          from: refOf(fromAsset),
-          to: to.ref,
-          amount: (terms ? swapFunding(units, terms).delivered : units).toString(),
-          destination: dest,
-          slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50,
-          preference,
-          ...(assessment ? { tier: assessment.tier } : {}),
-          destinationKind: edited ? "entered" : "fresh",
-          preferNative: preference === "native",
-          mode: protection.mode,
+      // V7 Stage 14 (spec v3.0 §5): the commit goes through the swap provider facade — the same confirmOrder underneath (the
+      // order journaled, the runner's tick planned); the runner reads the provider call at funding and at signing (withCall: false)
+      const facade = walletSwapProvider({ masterSeed: p.masterSeed, deployment: p.deployment });
+      const r = await facade.prepare(
+        {
+          request: {
+            from: refOf(fromAsset),
+            to: to.ref,
+            amount: (terms ? swapFunding(units, terms).delivered : units).toString(),
+            destination: dest,
+            slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50,
+            preference,
+            ...(assessment ? { tier: assessment.tier } : {}),
+            destinationKind: edited ? "entered" : "fresh",
+            preferNative: preference === "native",
+            mode: protection.mode,
+          },
+          set: quotes,
+          chosen: quote,
+          quote: quotes.quote ?? null,
         },
-        ...(shield ? { shield } : {}),
-        // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
-        ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
-        policy,
-        provider: chosen.provider,
-        fromAsset,
-        shown: quote,
-        competition: quotes.competition ?? null,
-        lint: lintItems,
-        preference,
-        walletTier: assessment ? tier : null,
-        delay: delayOn,
-        ...(older ? { maxTiming: older.maxTiming } : {}),
-      });
+        {
+          policy,
+          provider: chosen.provider,
+          fromAsset,
+          lint: lintItems,
+          preference,
+          walletTier: assessment ? tier : null,
+          ...(shield ? { shield } : {}),
+          // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
+          ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
+          delay: delayOn,
+          ...(older ? { maxTiming: older.maxTiming } : {}),
+          withCall: false,
+        },
+      );
       // the confirmed Review is not shown again (c48); the URL names the record by its handle, never the order id (c41)
       navigate(`/swap/progress/${routeHandle(swapRecordId(r.stored.orderId))}`, { replace: true });
     } catch (e) {
