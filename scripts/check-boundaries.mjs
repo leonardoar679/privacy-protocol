@@ -8,10 +8,8 @@
 //   6. among the wallet's code, only the privacy engine's chain transport makes a viem client (doc §65) — the Private
 //      AI's own funding account on its pinned chain excepted (docs/zkapi-integration-spec.md §6);
 //   7. only the wallet engine's injected.ts reads the browser's injected provider (window.ethereum);
-//   8. Classic Privacy is a module apart (spec v2.0 §11.3; V6 Stage 14): its files import nothing of the protected-wallet
-//      engine but the session that keeps its journal field, its record type and the build's configuration, nothing of
-//      the protocol but the classic note, and nothing of the app but its words and hooks; outside it, only More's routes,
-//      the route table and the fixtures registry import it (tests may);
+//   8. retired (V7 Stage 11): the in-app Classic Privacy module of V6 and the rule that kept it apart are gone with it —
+//      Tornado Classic is the separate application of rule 9; the number stays so the gate and the spec keep rule 9's name;
 //   9. the Classic app is a product apart (spec v3.0 §7.8; V7 Stage 2): nothing under classic/ imports a @privacy-wallet
 //      package or reaches into apps/ or packages/ by a relative path, and nothing under apps/ or packages/ reaches into
 //      classic/ — the two share no runtime code (the design tokens cross as a generated stylesheet, by a script).
@@ -43,17 +41,6 @@ const WALLET_CODE = [
 ];
 const CLIENT_MAKERS = ["packages/privacy-engine/src/transport/chain.ts", "apps/web/src/zkapi/freshAccountProvider.ts"];
 const INJECTED_READER = "packages/wallet-engine/src/injected.ts";
-const CLASSIC_DIR = "apps/web/src/features/classic-privacy/";
-const CLASSIC_IMPORTERS = ["apps/web/src/features/more/MoreRoutes.tsx", "apps/web/src/routes/index.tsx", "apps/web/src/fixtures/registry.tsx"];
-const CLASSIC_ALLOWED = [
-  /^@privacy-wallet\/sdk\/wallet\/(session|classicRecord)$/,
-  /^@privacy-wallet\/sdk\/config$/,
-  /^@privacy-wallet\/protocol\/classic\/[\w.-]+$/,
-  /^@privacy-wallet\/ui$/,
-  /^@privacy-wallet\/privacy-engine\/transport\/http$/,
-  /^(react|zod)$/,
-];
-const CLASSIC_APP = ["apps/web/src/app/i18n/", "apps/web/src/hooks"];
 // rule 9: the Classic app (V7 Stage 2) — its code, and the directories it may never reach
 const CLASSIC_ROOT = "classic/";
 const CLASSIC_SKIP = new Set([...SKIP, "docs", "vendor"]);
@@ -124,18 +111,8 @@ export function check() {
             if (target && target !== w) report(file, line, `rule 1: a relative import crosses into ${target.root} (${spec}); import ${target.name} by name`);
             const into = rel(resolve(dirname(abs), spec));
             if (into.startsWith(CLASSIC_ROOT)) report(file, line, `rule 9: ${spec} reaches into the Classic app (the two share no runtime code)`);
-            if (file.startsWith(CLASSIC_DIR) && !dev && !into.startsWith(CLASSIC_DIR) && !CLASSIC_APP.some((d) => into.startsWith(d)))
-              report(file, line, `rule 8: Classic Privacy imports ${spec} from outside its module`);
-            if (!file.startsWith(CLASSIC_DIR) && !dev && into.startsWith(CLASSIC_DIR) && !CLASSIC_IMPORTERS.includes(file))
-              report(file, line, `rule 8: ${spec} is Classic Privacy's: only More's routes, the route table and the fixtures import it`);
             continue;
           }
-          if (file.startsWith(CLASSIC_DIR) && !dev && !CLASSIC_ALLOWED.some((rx) => rx.test(spec)))
-            report(
-              file,
-              line,
-              `rule 8: Classic Privacy imports ${spec} (only the session, its record, the configuration, the classic note, the UI, the transport, react and zod)`,
-            );
           const pkg = packageOf(spec);
           const isPackage = w.root.startsWith("packages/");
           if (isPackage && APPS.has(pkg)) report(file, line, `rule 2: a package imports the app ${pkg}`);

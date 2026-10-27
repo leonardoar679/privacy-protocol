@@ -9,7 +9,7 @@ nothing at runtime with the Privacy Wallet in `../apps/web`: the design tokens a
 (`src/tokens.generated.css`, from `../packages/ui/src/tokens/tokens.css`, `npm run tokens`), nothing else crosses
 (`../scripts/check-boundaries.mjs`, rule 9).
 
-**Status (V7 Stage 10):** the package, the gates, the original-style screens (`docs/parity.md` against the original; the
+**Status (V7 Stage 11):** the package, the gates, the original-style screens (`docs/parity.md` against the original; the
 Classic screenshot harness, axe and the word policy), the deployment verified against Ethereum mainnet
 (`npm run verify-deployment`, `npm run test:live`), the cryptography (the original's own prover vendored and converted
 without eval, proving in Node and in Chrome, its proofs accepted by the deployed verifier — `docs/compatibility-matrix.md`
@@ -19,7 +19,9 @@ without eval, proving in Node and in Chrome, its proofs accepted by the deployed
 history kept in the app's IndexedDB, the relayer directory, the wallet session, the operation adapter's records, a
 deposit through the router and a withdrawal through the prover worker and a relayer or the wallet), and the whole run end
 to end on the local stack and on a mainnet fork (`../scripts/local-stack`: the mainnet contracts at their addresses on the
-devnet, a relayer stand-in, e2e section 11; `npm run test:fork` against a Hardhat fork — §14 below). **No build sends a
+devnet, a relayer stand-in, e2e section 11; `npm run test:fork` against a Hardhat fork — §14 below), and the release gate
+(`docs/release-gate.md` with its rungs and rows, `docs/legal-review.md` the owner's empty record, `docs/security-review.md`,
+`docs/threat-model.md`; the V6 in-app module removed from the wallet). **No build sends a
 transaction** until a pool function is switched live (`VITE_CLASSIC_LIVE`) after its release-gate row and the owner's
 legal review (`classic/docs/release-gate.md`, `classic/docs/legal-review.md` — Stage 11): every sending button reads
 "Not connected", the banner says so on every screen, and the flows refuse as well. The data behind the screens is still `src/model/mock.ts` until the history, the

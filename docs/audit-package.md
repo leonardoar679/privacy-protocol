@@ -360,6 +360,31 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     seed scan can enumerate), or random secrets for the notes an envelope carries, leaving counters to the seed-derived
     refund and shield payloads.
 
+52. **V7 — Tornado Classic waits for the legal review** (the owner's decision 9 of 2026-10-26). The Classic application
+    (`classic/`, spec v3.0 §7) runs against the real mainnet pools, router and registries behind `CLASSIC_LIVE` switches
+    that are off in every build; the original interface's sanctions-oracle check and geofence exist behind switches, off.
+    `classic/docs/release-gate.md` holds the technical rungs (green but the mainnet-fork run); `classic/docs/legal-review.md`
+    is the empty record. Nothing is live until both say so.
+53. **V7 — the mainnet-fork run of the Classic prover is open.** `classic/test/fork/withdraw.fork.test.ts` deposits
+    through the real router and withdraws through it by a relayer stand-in, then ages the root out of the pool's hundred;
+    it ran in its devnet mode against the local stack's chain (the same contracts at their mainnet addresses) but not
+    against a fork of mainnet's state: a fork node cannot start on the development workstation (Hardhat's fork engine dies
+    at start, as anvil does there). To be run on another machine before any pool function is switched live.
+54. **V7 — the licence boundary.** The Classic bundle is GPL-3.0 (websnark, snarkjs 0.1.20, circomlib vendored) and served
+    apart from the MIT wallet (the owner's decision 10); `snarkjs` 0.7.6 (GPL-3.0) runs inside the Privacy Wallet's crypto
+    worker and the Classic app's offline verifier. Flagged for the owner's lawyer; no code change proposed here.
+55. **V7 — what the RPC endpoints and the relayer see.** As in the original: the RPC endpoints see the IP address, the pools
+    read and a disclosed `isSpent` read's nullifier hash; the chosen relayer sees the IP address, the recipient, the pool and
+    the proof. Both are stated on the screen (`classic/docs/threat-model.md`); a web build cannot hide them.
+56. **V7 — a user-typed relayer URL and a device-kept deposit list are owner follow-ups.** The strict policy allows the
+    curated relayers' hosts only (`classic/relayers.json`), so a relayer the user types cannot be reached by a release build;
+    the note is the only key (the original's IPFS-less mode), so a lost note is a lost deposit — an encrypted, device-kept
+    list would be a new store of secrets and is not built.
+57. **V7 — the host's integrity for the served Classic code** (TC-01's remaining half): the policy, the pins, the budget and
+    the bundle scan bound what runs, but whoever controls the host controls the note when it is generated and pasted. The
+    upgrade is a content-addressed build checked against its hash, or a signed native app — the same residual as the
+    wallet's (`classic/docs/security-review.md` §2).
+
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
 ## 5. Threat model and trust assumptions

@@ -1,5 +1,9 @@
 # Classic Privacy — the dedicated review
 
+> **Superseded (V7 Stage 11, 2026-10-27).** The module this document reviewed — the in-app Classic Privacy screens on a devnet
+> mock — was removed; Tornado Classic is the separate application under `classic/`, reviewed in `classic/docs/security-review.md`
+> with its threat model, release gate and legal-review record beside it. This file stays as the record of the V6 pass.
+
 **Status:** V6 Stage 14, 2026-10-13. Spec v2.0 §11.3 (doc §52–§53) asks for this document. It covers five things:
 
 - the module's boundary;

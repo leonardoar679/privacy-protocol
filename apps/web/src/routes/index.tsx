@@ -80,11 +80,8 @@ export function buildRoutes({ preview = false, deployment }: { preview?: boolean
     { path: "more/wallet", element: <Navigate to="/settings#wallet" replace /> },
     { path: "more/language", element: <Navigate to="/settings#language" replace /> },
     { path: "more/advanced", element: <Navigate to="/settings/advanced" replace /> },
-    // the V6 Classic module's devnet screens stay reachable by URL until Stage 11 removes them; More links to /classic/
-    { path: "more/classic", lazy: load(moreRoutes, (m) => m.ClassicRoute) },
-    { path: "more/classic/recover", lazy: load(moreRoutes, (m) => m.ClassicRecoverRoute) },
-    { path: "more/classic/relayers", lazy: load(moreRoutes, (m) => m.ClassicRelayersRoute) },
-    { path: "more/classic/:poolId", lazy: load(moreRoutes, (m) => m.ClassicPoolRoute) },
+    // V7 Stage 11 (spec v3.0 §7.8): the V6 module is gone; its old paths lead to the Classic app (another application, a full navigation)
+    { path: "more/classic/*", lazy: load(moreRoutes, (m) => m.ToClassicRoute) },
     { path: "*", element: <Navigate to="/" replace /> },
   ];
   return [

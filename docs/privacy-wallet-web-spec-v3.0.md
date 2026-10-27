@@ -512,6 +512,17 @@ anything (doc §4.3 E). The old in-app module (`apps/web/src/features/classic-pr
 and `packages/sdk/src/wallet/classicRecord.ts`) is removed in Stage 11 and rule 8 of `scripts/check-boundaries.mjs`
 becomes rule 9: nothing under `apps/` or `packages/` imports `classic/` and nothing under `classic/` imports them.
 
+**As landed (Stage 11, 2026-10-27).** The V6 module is gone: `apps/web/src/features/classic-privacy/`, its two test files,
+its four fixtures and their sixteen baselines, its 62 words in each catalog, the journal's `classic` field and
+`packages/sdk/src/wallet/classicRecord.ts` (a journal written with the field still parses; the field is carried, never
+read). Its old paths (`/more/classic/*`) lead to the Classic app by a full navigation (`MoreRoutes.tsx` `ToClassicRoute`).
+Rule 8 of `scripts/check-boundaries.mjs` is retired with it — the number stays so rule 9 keeps its name. The gate scans
+the Classic build with the bundle scanner (`scripts/scan-bundle.mjs classic/dist`: no tracker, no source map, no test
+seed) beside its own checks. The two Classic operation kinds of the frozen vocabulary (`classic-deposit`,
+`classic-withdraw`) stay reserved: nothing writes them now, and §6's rename pass (Stage 15) decides their fate with the
+rest. The host recipe (`docs/deployment.md`) gains the `/classic/` location with the application's own policy and the
+cache rules for its hashed assets, artifacts and snapshots, and names the `classic.` subdomain as the stricter option.
+
 ### 7.9 User interface parity (doc §4.1, §4.4, §10) — *Stages 1, 3*
 The reference is the original's **built output** (`tornadocash/ui-minified`, cloned read-only beside the repository
 and served statically; the Nuxt source build on Node 14 is optional), screenshotted at 390 × 844 and 1440 × 900 for
@@ -539,7 +550,20 @@ review recorded (`classic/docs/legal-review.md`) → `CLASSIC_LIVE[pool][functio
 `scripts/verify-all.mjs` (the Classic steps; `--live` adds the chain-reading tests; `--browser` the Classic harness) and
 in CI (the `classic` job, offline).
 
-### 7.11 What Classic never does (doc §4.5, §5)
+**As landed (Stage 11, 2026-10-27).** `classic/docs/release-gate.md` holds the rungs with their evidence and the eight rows
+(four pools × deposit / withdraw): contract, history, prover, relayer, leakage and build green from Stages 5–10; two rungs
+open — the mainnet-fork run of the prover (the suite exists and ran in its devnet mode; a fork node cannot start on the
+development workstation) and the legal review — so every `CLASSIC_LIVE` entry stays off. `classic/docs/legal-review.md` is
+the empty record the gate reads (what the review decides and where each answer takes effect: the live map, the
+compliance switches, the relayers, the words). `classic/docs/security-review.md` replaces `docs/classic-privacy-review.md`
+(the V6 module's review): the boundary (rule 9), the note's handling with its evidence, the research's findings against
+the application (TC-10 closed — the root checked after the proof and before the submission, re-proved once when aged;
+TC-01's storage side closed, the host's integrity the stated residual), the relayer checks R-1 to R-10, the earlier
+review's C-1 to C-5 closed, what awaits the external review (the vendored conversion, the artifacts' provenance, the
+registries' upgradeability, the fork run, the licence boundary). `classic/docs/threat-model.md` names what each party can
+and cannot do: the chain, the RPC endpoints, the snapshot and artifact hosts, the chosen relayer, governance, the browser
+wallet, the served code, another script in the page, the device, the Privacy Wallet, the owner.
+
 Classic never calls `PrivacyCore` or a vault; the Privacy Wallet never calls a pool or the router; no Classic note is
 imported, converted, stored or transferred into the Privacy Wallet; the two apps share no storage, no session, no
 secret and no runtime code; no execution crosses the protocols; the wallet's 1 % is never applied to Classic; and no

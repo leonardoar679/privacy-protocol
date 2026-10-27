@@ -32,7 +32,7 @@ src/
   features/        <screen>/View.tsx (pure: a view-model in, callbacks out) · model.ts (the engine → the view-model) ·
                    fixtures.ts (the screenshots) — home · protect · send · swap (SwapScreen: one confirmation; the
                    $50K steps; the V3–V5 protected execution under /swap/protected) · review · progress · activity
-                   (windowed) · privacy-center · more (Security, Wallet, Advanced, Language) · classic-privacy ·
+                   (windowed) · privacy-center · more (Security, Wallet, Advanced, Language) ·
                    onboarding · operations (the words of the records: progress, recovery cards) · fees · wallet (Home,
                    Receive) · ai · guest
   hooks/           core.ts (the first route's: session, settings, prefs, connection, connectivity) · wallet.ts (Home's
@@ -129,7 +129,8 @@ The whole stack on a workstation, with the browser run: `docs/local-run.md`. Dep
 ## Still open (spec v2.0 §23)
 - The native shells and push delivery.
 - Biometrics and second-device confirmation (doc §51 "later").
-- The Classic contracts, the circuit port and the legal review (the boundary and the mock only).
+- Tornado Classic itself: a separate application (`../../classic/`, V7) the wallet links to under More; the V6 in-app
+  module (a devnet mock) was removed in V7 Stage 11.
 - A native speaker's review of Korean.
 - Unlocking inside the worker (the seed stays on the main thread).
 - LI.FI and Chainflip same-chain routes.

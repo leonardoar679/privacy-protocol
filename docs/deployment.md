@@ -76,8 +76,49 @@ server {
   location / { try_files $uri /index.html; }   # the client-side routes (/send, /privacy, /settings, …): the server's headers
   # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
   location /zkapi-deployment/ { proxy_pass https://zkapi-sepolia.openanonymity.ai/; proxy_ssl_server_name on; include snippets/privacy-wallet-headers.conf; }
+  # V7 (spec v3.0 §7.8): Tornado Classic — another application with its own build and policy, under its own location (the snippets below)
+  location /classic/ { include snippets/tornado-classic.conf; }
 }
 ```
+
+```nginx
+# /etc/nginx/snippets/tornado-classic-headers.conf: every response of the Classic application sends these — its own policy,
+# the same hardening (copy the policy from classic/dist/index.html's meta tag at every build, as for the wallet)
+set $csp_classic "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer-a.example https://relayer-b.example; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+add_header Content-Security-Policy $csp_classic always;
+add_header X-Frame-Options DENY always;
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy no-referrer always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
+add_header Cross-Origin-Opener-Policy same-origin always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+```
+
+```nginx
+# /etc/nginx/snippets/tornado-classic.conf: the body of `location /classic/` — the separate build at classic/dist
+alias /srv/tornado-classic/dist/;
+include snippets/tornado-classic-headers.conf;
+add_header Cache-Control "no-store" always;
+try_files $uri $uri/ /classic/index.html;   # the tabs as URLs (/classic/withdraw, /classic/history, /classic/settings)
+# the hashed assets, the 42 MB of proving artifacts and the history snapshots: immutable, pinned by hash in the application
+location ~ ^/classic/(?<dir>assets|artifacts|data)/(?<rest>.*)$ {
+  alias /srv/tornado-classic/dist/$dir/$rest;
+  include snippets/tornado-classic-headers.conf;
+  add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+```
+
+The Classic application (`classic/`, GPL-3.0; spec v3.0 §7.8) is built apart (`cd classic && npm ci && npm run build`; its
+`VITE_CLASSIC_*` environment names the RPC endpoints, extra relayers, where the snapshots and the artifacts are served, and
+which pool functions are live — none, until `classic/docs/release-gate.md` and the owner's `classic/docs/legal-review.md`
+say so). Its policy is its own (`classic/scripts/csp.mjs`; the curated relayers' hosts from `classic/relayers.json` join
+`connect-src`), written into `classic/dist/index.html` and repeated by the server from `snippets/tornado-classic-headers.conf`. Copy the
+policy from the built `index.html` into that snippet's `$csp_classic` at every build, as for the wallet. The artifacts (`classic/public/artifacts/`, 42 MB) and the
+history snapshots (`npm run snapshot -- --pool <id>`, under `classic/public/data/`) are static files under the same
+location, pinned by hash in the application (an artifact that does not hash to its pin is refused; a snapshot is held to its
+manifest and to the chain). The stricter hosting option — a `classic.` subdomain, so the two applications share no storage
+at all — needs only its own `server` block with the same headers; the wallet's More link then points at it
+(`apps/web/src/features/more/entries.ts`). `npm run preview` in `classic/` answers with these headers, policy included.
 
 Before a release, check that the headers reach every kind of response — the page, a client route and the crypto
 worker, which takes its policy from its own response, never from the page's meta tag:
@@ -107,6 +148,18 @@ wallet.example {
   header @index Cache-Control no-store
   header /assets/* Cache-Control "public, max-age=31536000, immutable"
   header /artifacts/* Cache-Control "public, max-age=31536000, immutable"
+  # V7: Tornado Classic under /classic/ — its own build and policy (classic/scripts/csp.mjs; copy it from classic/dist/index.html)
+  handle /classic/* {
+    root * /srv/tornado-classic
+    header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://rpc.example https://relayer-a.example; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'"
+    header Cache-Control no-store
+    header /classic/assets/* Cache-Control "public, max-age=31536000, immutable"
+    header /classic/artifacts/* Cache-Control "public, max-age=31536000, immutable"
+    header /classic/data/* Cache-Control "public, max-age=31536000, immutable"
+    uri strip_prefix /classic
+    try_files {path} /dist/index.html
+    file_server { root /srv/tornado-classic/dist }
+  }
   # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
   handle_path /zkapi-deployment/* {
     reverse_proxy https://zkapi-sepolia.openanonymity.ai {

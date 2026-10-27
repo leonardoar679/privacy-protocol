@@ -10,7 +10,6 @@ import type { SerializedNote } from "./notes";
 import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import type { AddressBookEntry } from "@privacy-wallet/protocol/wallet/addressBook";
 import type { OperationRecord } from "./operationRecord";
-import type { ClassicDepositRecord } from "./classicRecord";
 import { upgradeOperations } from "../operations/upgrade";
 
 export interface StoredSwap {
@@ -176,8 +175,8 @@ export interface JournalData {
   addressBook?: AddressBookEntry[];
   /** V5 (Privacy Wallet Web spec §12): the operation records from the signature on. Optional, never written by emptyJournal(): every earlier journal stays valid. V6 (spec v2.0 §12.2): a V5 record is upgraded when the journal is decrypted (`v: 2`). */
   operations?: OperationRecord[];
-  /** V5 (spec §16): the Classic Privacy module's deposits — its own state, never the notes. Optional, never written by emptyJournal(). */
-  classic?: { deposits: ClassicDepositRecord[]; /** V6 Stage 14: the classic relayer the user chose (its id) */ relayer?: string };
+  // V5–V6 kept an optional `classic` field here for the in-app Classic Privacy module; V7 Stage 11 removed the module with the
+  // field. A journal written with it still parses (unknown fields are carried, never read), as the pinned vectors show.
   /** V6 Stage 15 (spec v2.0 §14.3): this device's last proof — the key's fetch (or cache read) and the proving, in ms */
   proofStats?: ProofStats;
   /** V6 Stage 10 (doc §71; spec v2.0 §10): the deployment fingerprint first seen per chain id (deploymentGuard.ts) — a different one blocks every operation until it is forgotten under Advanced. Optional, never written by emptyJournal(). */
