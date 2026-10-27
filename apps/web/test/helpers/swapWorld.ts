@@ -64,6 +64,8 @@ export const world: {
   feedDown?: boolean;
   /** audit round 2, critic gap 4: the fee history does not answer — the wallet cannot check the executor's tip */
   feesDown?: boolean;
+  /** V7 Stage 13: the §46 quote's risk assessment the service answers with (its blockers: the route's qualification) */
+  quoteRisk?: { score: number; level: "low" | "medium" | "high"; blockers: string[]; warnings: string[] };
 } = {
   bend: {},
   rpcBend: {},
@@ -189,6 +191,7 @@ async function service(path: string, body: any): Promise<Response> {
         chosen: score,
         links: { thorchain: { public: true, evidence: "memo" } },
         ...(world.protection ? { protection: world.protection, tier: "large-protected" } : {}),
+        ...(world.quoteRisk ? { quote: { risk: world.quoteRisk } } : {}),
       });
     case "/order": {
       const order = engine.buildOrder(
@@ -305,6 +308,7 @@ export function resetWorld(): void {
   world.serviceDeployment = undefined;
   world.feedDown = undefined;
   world.feesDown = undefined;
+  world.quoteRisk = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

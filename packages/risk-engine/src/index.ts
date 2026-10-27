@@ -3,6 +3,9 @@
 // status, the provider's recent failures and the large-trade status into {score, level, blockers, warnings}. Pure: the
 // wallet and the API gather the facts; the wallet re-runs it between the Review and every signature, and one blocker
 // stops the operation before anything moves ("We stopped this transaction … Your funds have not moved.").
+// V7 Stage 13 (spec v3.0 §4): two more blockers — the $50K–$100K band's exposure limit (one protected operation of the band in
+// flight per wallet, the wallet's own count) and the route's liquidity qualification (the risk database's measured limit below
+// the order, the service's fact).
 // The warnings are codes (WARNING_CODES): the words belong to the app's catalog.
 import { BLOCKER_CODES, type AssetStatus, type BlockerCode, type RiskAssessment, type RiskLevel } from "@privacy-wallet/protocol-types";
 
@@ -52,8 +55,12 @@ export interface RiskFacts {
   execution: { steps: number; crossChain: boolean };
   /** the operation's value in USD, when priced */
   usd?: number;
-  /** $50K and above: the automatic protection (doc §49) */
+  /** $50K and above: the band's protection (doc §49; V7 Stage 13: one order by default) */
   largeTrade: boolean;
+  /** V7 Stage 13 (spec v3.0 §4): the protected operations of the $50K–$100K band this wallet has in flight, and the band's limit (one) */
+  inFlight?: { count: number; limit: number };
+  /** V7 Stage 13: the route's measured liquidity (the risk database's `servedUpToUsd`), null when the route is unmeasured */
+  route?: { limitUsd: number | null };
 }
 
 /** The level of a 0–100 score: high from 60, medium from 30. */
@@ -70,6 +77,8 @@ export function blockersOf(f: RiskFacts): BlockerCode[] {
     parameters_changed: !f.quote.parametersMatch,
     network_mismatch: f.network.chainId !== null && f.network.chainId !== f.network.expectedChainId,
     unsafe_contract_call: f.call !== undefined && !f.call.verified,
+    in_flight_limit: f.inFlight !== undefined && f.inFlight.count >= f.inFlight.limit,
+    route_not_qualified: f.route?.limitUsd !== undefined && f.route.limitUsd !== null && f.usd !== undefined && f.usd > f.route.limitUsd,
   };
   return BLOCKER_CODES.filter((c) => hit[c]);
 }

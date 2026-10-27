@@ -104,3 +104,14 @@ Rule (stated before the run): among the caps that complete $10M on the reference
 **Result: 2.5 %** — 2.5 % completes $10M in 137 h with an expected loss of 3595 USD and a cost of 254 USD (3849 USD together; 5 %: 7827 USD; 1 %: 2157 USD but 349 h, over the budget).
 
 The production default (`PROTECTION_DEFAULTS.balanced.capBps`, `EXPOSURE_POLICY["high-value"].capBps`) is set from this figure; the figure is recorded in the contract (§9).
+
+## V7 Stage 13: the $50K band (spec v3.0 §4)
+
+The V5/V6 rule "automatic protection from $50,000 — four sequential quarters, no mode to choose" is withdrawn (the owner's
+decision 3 of 2026-10-26): a $50K–$100K swap is **one order by default** — Hold to Confirm, the exposure limit (one protected
+operation of the band in flight per wallet), the verified destination, the route's measured liquidity, recovery monitoring — and
+runs as protected steps only when the service's plan says `staged` (impact above 50 bps per piece, reliability below 60, the
+provider's instant limit below the order) or the user asks under Advanced. The steps are then the V3 planner's varied pieces
+between an eighth and a quarter of the order, in every mode: identical quarters were a recognisable pattern. The §4 table above
+stays an engineering hypothesis and is configurable (`EXPOSURE_POLICY_FILE` on the API; `packages/protocol/src/wallet/exposurePolicy.ts`);
+nothing applies a split at the $50K band because of the table alone. The §123 default (2.5 %) is unchanged.

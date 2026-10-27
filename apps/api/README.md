@@ -71,7 +71,7 @@ schedule (`src/db.ts` `RETENTION`):
 ## Run
 
 ```
-cd apps/api && cp .env.example .env      # PORT, DB_PATH, ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (+ the engine's: packages/swap-engine/.env.example)
+cd apps/api && cp .env.example .env      # PORT, DB_PATH, ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS, EXPOSURE_POLICY_FILE (+ the engine's: packages/swap-engine/.env.example)
 npm start                                # http://127.0.0.1:8787/v1
 npm test                                 # 38 tests: schema (two migrations), routes, reconcile, retention, security, logs, a full flow, the reads, provider failures, validation, stalls
 ```

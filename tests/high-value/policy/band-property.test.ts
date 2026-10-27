@@ -1,8 +1,9 @@
-// V6 Stage 13 (Privacy Wallet Web spec v2.0 §2, §13.5; doc §49–§50, §87): the $50K band's protected execution — the
-// order's exact quarters, one in flight at a time — driven by the runner's own reducer (`nextAction`) through random
-// worlds: every step fills, partially fills, refunds or fails; the user pauses, resumes or returns the rest. After every
-// event the in-flight exposure stays within the limit (I1: in flight ≤ a quarter of the order), at most one step is in
-// flight, every step fits the limit (I2), and completed + in flight + prepared + remaining is the order.
+// V7 Stage 13 (spec v3.0 §4; the owner's decision 3; the V6 Stage 13 worlds kept): the $50K band's protected execution — when the
+// service stages the order or the user asks — plans the V3 planner's varied pieces between an eighth and a quarter of the order,
+// one in flight at a time, never identical quarters; driven by the runner's own reducer (`nextAction`) through random worlds:
+// every step fills, partially fills, refunds or fails; the user pauses, resumes or returns the rest. After every event the
+// in-flight exposure stays within the limit (I1: in flight ≤ a quarter of the order), at most one step is in flight, every step
+// fits the limit (I2), and completed + in flight + prepared + remaining is the order.
 import { describe, expect, it } from "vitest";
 import {
   exposure,
@@ -14,25 +15,23 @@ import {
   type Campaign,
   type TrancheState,
 } from "../../../packages/protocol/src/wallet/campaign";
-import { campaign, seeded } from "../helpers";
+import { campaign, seeded, sum } from "../helpers";
 
 const CASES = 500;
-const BAND = { bandBps: [2500, 2500] as [number, number], capBps: 2500 };
+const BAND = { bandBps: [1250, 2500] as [number, number], capBps: 2500 };
 
-/** A $50K–$100K order in USDC (6 decimals) or ETH (18), planned as the band plans it. */
+/** A $50K–$100K order in USDC (6 decimals) or ETH (18), planned as the band plans it: varied pieces under the quarter. */
 function bandCampaign(rng: () => number): { c: Campaign; cap: bigint } {
   const decimals = rng() < 0.5 ? 6 : 18;
   const unit = 10n ** BigInt(decimals);
-  // the wallet funds a multiple of the step count (protectedStepsAmount), so the quarters are exact
-  const raw =
+  const total =
     decimals === 6 ? BigInt(50_000 + Math.floor(rng() * 50_000)) * unit : BigInt(12 + Math.floor(rng() * 12)) * unit + BigInt(Math.floor(rng() * 1e9));
-  const total = raw - (raw % 4n);
-  const split = planTranches(total, { decimals, ...BAND, sizing: "bucket", maxParallel: 1, rng, exact: true });
+  const split = planTranches(total, { decimals, ...BAND, sizing: "varied", maxParallel: 1, rng });
   const c = campaign(
     split.pieces,
     [],
     { tier: "large-protected" },
-    { ...BAND, concurrency: "sequential", maxParallel: 1, exact: true, estimatedTranches: split.pieces.length },
+    { ...BAND, sizing: "varied", concurrency: "sequential", maxParallel: 1, estimatedTranches: split.pieces.length },
   );
   return { c, cap: (total * 2500n) / 10000n };
 }
@@ -77,11 +76,10 @@ function apply(c: Campaign, rng: () => number, now: number): Campaign {
       const split = planTranches(e.remaining, {
         decimals: c.request.from.decimals,
         ...BAND,
-        sizing: "bucket",
+        sizing: "varied",
         maxParallel: 1,
         rng,
         reference: e.total,
-        exact: true,
       });
       return replan(c, split.pieces, now);
     }
@@ -98,13 +96,18 @@ function apply(c: Campaign, rng: () => number, now: number): Campaign {
   }
 }
 
-describe("V6 Stage 13: the $50K band's protected execution (spec v2.0 §13.5)", () => {
-  it("plans the order's exact quarters, each at the limit", () => {
+describe("V7 Stage 13: the $50K band's protected steps (spec v3.0 §4)", () => {
+  it("plans varied pieces under the quarter: at least four, the whole order, no two neighbours alike (the last aside), never four identical quarters", () => {
     const rng = seeded(7);
     for (let n = 0; n < 200; n++) {
       const { c, cap } = bandCampaign(rng);
-      expect(c.tranches).toHaveLength(4);
-      for (const t of c.tranches) expect(BigInt(t.amount)).toBe(cap);
+      const pieces = c.tranches.map((t) => BigInt(t.amount));
+      expect(pieces.length, `case ${n}`).toBeGreaterThanOrEqual(4);
+      expect(sum(pieces), `case ${n}`).toBe(BigInt(c.request.amount));
+      for (const p of pieces) expect(p <= cap, `case ${n}: ${p} ≤ ${cap}`).toBe(true);
+      expect(new Set(pieces.map(String)).size, `case ${n}: varied sizes`).toBeGreaterThan(1);
+      for (let i = 1; i < pieces.length - 1; i++) expect(pieces[i], `case ${n}: piece ${i} differs from its neighbour`).not.toBe(pieces[i - 1]);
+      expect(pieces.slice(0, 4), `case ${n}: never the V5 quarters`).not.toEqual([cap, cap, cap, cap]);
     }
   });
 

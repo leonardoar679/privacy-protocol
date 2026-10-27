@@ -6,7 +6,7 @@ segfaults on this machine, a Winsock LSP; a JavaScript node survives it), the co
 artifacts, mock Chainlink feeds and the mainnet bytecode of the pinned provider contracts at their addresses, the three
 services from one script, and a Playwright-driven browser clicking through the flows below on the V6 screens (spec v2.0:
 Welcome → the experience → Create, Protect 5,000 USDC, Send 2,500 USDC, the large Reviews, ETH → BTC with one confirmation,
-USDC → ETH into the protected balance, the $80,000 protected steps, the $10M campaign, Activity, More), then the viewport
+USDC → ETH into the protected balance, the $80,000 Protected Large Swap (one order; V7 Stage 13) and the band's exposure limit, the $10M campaign, Activity, More), then the viewport
 matrix — the shell screens with no horizontal scroll and 44 px controls, once more under the pseudo-locale —, section 9b
 (pagehide, an idle minute, a wallet disconnected mid-Protect, a tab closed, the browser restarted on its profile, a Send
 whose answer is lost as the network drops) and the leakage twin (every request body read for the phrase and the password,

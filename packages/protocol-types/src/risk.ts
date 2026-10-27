@@ -12,6 +12,9 @@ export const BLOCKER_CODES = [
   "parameters_changed",
   "network_mismatch",
   "unsafe_contract_call",
+  // V7 Stage 13 (spec v3.0 §4): the $50K–$100K band's exposure limit and the route's liquidity qualification
+  "in_flight_limit",
+  "route_not_qualified",
 ] as const;
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
 

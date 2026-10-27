@@ -323,7 +323,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const chosen = quotes?.chosen;
   const chosenQuote = chosen ? quotes!.quotes.find((q) => q.provider === chosen.provider) : undefined;
   const protectionPlan: Protection | null = quotes?.protection ?? null;
-  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)) || tier === "large-protected"); // V6 Stage 13: automatic from $50K, no opt-in
+  const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)) || (tier === "large-protected" && (protectionPlan.staged || protection.stepsAtBand === true))); // V7 Stage 13 (spec v3.0 §4): the band's steps only when staged or asked
   const ctx: SwapContext = { t, quotes: quotes!, fromAsset, to, units, usd, tier, controls, policy, preference, destination, destinationEdited, parsedOk: parsedDestination?.ok === true, destAck, routeAck, destCheck, destinationLocked, lintItems: null, protection: { mode: protection.mode, capBps: protection.capBps }, relayerFee };
   const lineDraft = (() => {
     if (!campaignMode || !protectionPlan || !quotes?.chosen) return null;

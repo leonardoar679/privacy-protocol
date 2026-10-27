@@ -47,7 +47,7 @@ export interface Protection {
   maxPieceUnits: string | null;
   concentration: { providers: { id: ProviderId; shareBps: number }[]; singleVenue: boolean; capBps: number };
   elpf: { prior: number; pFailure: number; perTrancheUsd: number | null; perCampaignUsd: number | null };
-  /** $100K–$1M: stage the order although the tier does not require it (a single venue with high impact or low reliability) */
+  /** $50K–$1M: stage the order although the tier does not require it (a single venue with high impact or low reliability); at the $50K band the only automatic reason for steps (V7 Stage 13) */
   staged: boolean;
   reasons: string[];
   /** the same reasons by their codes, for the wallet's catalog (audit round 2, r55) */
@@ -117,10 +117,12 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const capBps = capBpsFor(o.tier, o.mode, xt.tier);
   let band: [number, number] = atLeast(o.tier, "institutional") ? [Math.min(200, capBps), Math.min(250, capBps)] : [Math.min(band0[0], capBps), Math.min(band0[1], capBps)];
   if (band[0] > band[1]) band = [band[1], band[1]];
-  if (o.tier === "large-protected") band = [capBps, capBps]; // V5 (spec §11): exact pieces of the cap — four sequential steps of 25 %
+  // V7 Stage 13 (spec v3.0 §4; the owner's decision 3): the $50K band's pieces — when the order is staged or the user asks — are
+  // the planner's varied sizes between half the cap and the cap, never identical quarters (the V5 exact pieces are withdrawn)
+  if (o.tier === "large-protected") band = [Math.max(1, Math.floor(capBps / 2)), capBps];
   const sequential = o.mode === "max-safety" || o.tier === "large-protected" || atLeast(o.tier, "institutional") || model.class === "R5" || model.class === "R6";
   if (model.class === "R5" || model.class === "R6") because("sequential", "a bridge / MPC / counterparty route runs one piece at a time (sequential safety mode)");
-  const sizing: Sizing = o.mode === "max-privacy" ? "bucket" : "varied";
+  const sizing: Sizing = o.tier === "large-protected" ? "varied" : o.mode === "max-privacy" ? "bucket" : "varied"; // the band: varied in every mode (never identical pieces)
   const gate = o.mode === "max-safety" ? "destination-final" : model.gate;
   // the thin-market rule and the provider's instant limit cap the piece
   const capUnits = bps(o.amount, capBps);
@@ -140,7 +142,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   // the remedy applied (plan §81, contract §2.3): reduce the tranche, an RFQ venue (none today), a stream, another venue
   const othersUnderLimit = o.set.quotes.some((x) => x.provider !== chosen.provider && !o.set.scores.find((s) => s.provider === x.provider)?.filtered && (x.impactBps ?? 0) * capFraction <= IMPACT_CAP_BPS);
   const impactRemedy = remedyOf({ trancheImpactBps: rawImpact === null ? null : Math.round(rawImpact * 100) / 100, halvingFits, rfqQuotes: false, streamedPlan: !!chosen.plan && chosen.plan.mode !== "single", otherVenues: othersUnderLimit });
-  const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random, exact: o.tier === "large-protected" });
+  const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random });
   const pieces = split.pieces;
   const steps = pieces.length;
   const largest = pieces.length ? pieces.reduce((m, p) => (p > m ? p : m), 0n) : 0n;

@@ -2,7 +2,7 @@
 import { TIER_DEFAULTS, checkThresholds, fillThresholds, type TierThresholds } from "@privacy-wallet/protocol/wallet/valuation";
 import { config } from "../config"; // V6 Stage 16: the configured relayer read here, not through the relayer client (the first route's budget)
 import type { ProtectionMode, Sizing } from "@privacy-wallet/protocol/wallet/campaign";
-import { EXPOSURE_POLICY } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+import { exposurePolicy } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import { AUTO_LOCK_MINUTES, type AutoLockMinutes } from "../session/autoLock";
 
 /** Private by default: a relayer submits and is paid by a private fee note; the connected wallet is the public fallback. */
@@ -55,13 +55,15 @@ export interface ProtectionSettings {
   providerShareCapBps?: number;
   /** the velocity limit: hand-overs in any trailing 24 h, USD; absent: none */
   velocity?: { maxUsdPer24h: number };
+  /** V7 Stage 13 (spec v3.0 §4): a $50K–$100K swap runs as protected steps (varied pieces, one at a time) when the user asks; otherwise one order */
+  stepsAtBand?: boolean;
   /** when the first-time explanation of protected execution was shown (plan §127) */
   introSeenAt?: number;
 }
 /** The exposure fraction the user may choose, bps (plan V3 §72, §74; V4 contract §2.1: 1–5 %, the band and the route set the ceiling at order time). */
 export const CAP_BPS_RANGE: [number, number] = [100, 500];
 /** The range the value band allows (contract §2.1): the enhanced row below $1M, the band's row above. */
-export const capRangeFor = (tier: "standard" | "enhanced" | "high-value" | "high-value-secondary" | "institutional"): [number, number] => EXPOSURE_POLICY[tier].range ?? EXPOSURE_POLICY.enhanced.range!;
+export const capRangeFor = (tier: "standard" | "enhanced" | "high-value" | "high-value-secondary" | "institutional"): [number, number] => exposurePolicy()[tier].range ?? exposurePolicy().enhanced.range!;
 /** What each mode means, lab-calibrated in Stage 2 (benchmarks/whale/campaign.md) and mirrored by the service's recommendation. */
 export const PROTECTION_DEFAULTS: Record<ProtectionMode, { capBps: number; sizing: Sizing; cadenceSeconds: [number, number]; label: string; words: string }> = {
   balanced: { capBps: 250, sizing: "varied", cadenceSeconds: [600, 5400], label: "Balanced", words: "At most 2.5 % of the order is exposed at a time; pieces of varied common sizes, a random 10 min – 1.5 h between them; the recommended default." },
@@ -108,6 +110,7 @@ export function healProtection(p: Partial<ProtectionSettings> | undefined): Prot
     notifications: { inApp: n.inApp !== false, system: n.system === true, generic: n.generic !== false },
     secondDevice: { enabled: d.enabled === true, ...(typeof d.credentialId === "string" ? { credentialId: d.credentialId } : {}) },
     enabled: p?.enabled !== false, protectFromEnhanced: p?.protectFromEnhanced === true,
+    ...(p?.stepsAtBand === true ? { stepsAtBand: true } : {}),
     ...(share !== undefined ? { providerShareCapBps: share } : {}), ...(velocity ? { velocity } : {}),
     ...(typeof p?.introSeenAt === "number" && Number.isFinite(p.introSeenAt) ? { introSeenAt: p.introSeenAt } : {}),
   };

@@ -266,6 +266,8 @@ export class SwapApi {
       chainId: Number(this.engine.cfg.chainId),
       now: this.d.now(),
       recentFailures: (p) => health.find((h) => h.provider === p)?.recentFailures ?? 0,
+      // V7 Stage 13 (spec v3.0 §4): the route's measured liquidity from the risk database; the §46 quote blocks an order above it
+      routeLimitUsd: chosen ? (riskDb().routeRisk(`${req.from.symbol}>${req.to.symbol}`, chosen.provider)?.servedUpToUsd ?? null) : null,
       healthy: (p) =>
         set.health[p as ProviderId]?.reachable !== false &&
         !set.health[p as ProviderId]?.halted &&

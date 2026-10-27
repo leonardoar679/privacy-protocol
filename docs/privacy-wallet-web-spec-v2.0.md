@@ -1008,15 +1008,19 @@ best-price preference, partial quotes never chosen, a delivered swap with its ca
 type RiskAssessment = { score: number; level: "low" | "medium" | "high"; blockers: BlockerCode[]; warnings: string[] }
 type BlockerCode = "quote_expired" | "asset_unsupported" | "destination_invalid" | "provider_unhealthy"
   | "minimum_below_limit" | "parameters_changed" | "network_mismatch" | "unsafe_contract_call"
+  | "in_flight_limit" | "route_not_qualified"
 ```
 `assessRisk(facts)` (`packages/risk-engine`) composes the provider health, the quote age, liquidity, the
 destination check, the slippage, the execution's complexity, the network status, recent provider failures and the
 large-trade status. Blockers are re-checked between the Review and every signature; one blocker stops the
-operation with the §7.9 words and nothing moves.
+operation with the §7.9 words and nothing moves. V7 Stage 13 (spec v3.0 §4) adds `in_flight_limit` (the $50K–$100K band's
+exposure limit: one protected operation of the band in flight per wallet, the wallet's own count) and `route_not_qualified`
+(the route's measured liquidity — the risk database's `servedUpToUsd` — below the order, the service's fact in the §46 quote).
 
 ### 13.5 Large trades (doc §49–§50)
-From $50K the operation runs as protected steps: in flight ≤ the configured limit (the band's four sequential
-quarters; V4's caps above $100K), the strict quote (TTL ≥ 60 s, slippage ≤ 50 bps), provider health (breaker
+From $50K the operation runs as protected steps (withdrawn by V7 Stage 13, spec v3.0 §4: one order by default at $50K–$100K,
+protected steps of varied size only when the service stages the order or the user asks): in flight ≤ the configured limit (the
+band's quarter; V4's caps above $100K), the strict quote (TTL ≥ 60 s, slippage ≤ 50 bps), provider health (breaker
 closed, security ≥ 60, no incident within a day), the destination verified, recovery tracking. The engine
 subdivides; the UI shows amounts only.
 

@@ -1,4 +1,4 @@
-// The risk assessment (doc §47–§48; spec v2.0 §13.4): each of the eight blockers on its own fact, every blocker makes the
+// The risk assessment (doc §47–§48; spec v2.0 §13.4): each of the ten blockers on its own fact (V7 Stage 13 adds the band's exposure limit and the route's qualification), every blocker makes the
 // assessment high at 100, a clean route is low with no warning, the concerns raise their warnings and add up to medium or
 // high, and the score stays within 0–100 whatever the facts.
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,8 @@ const clean = (): RiskFacts => ({
   execution: { steps: 1, crossChain: false },
   usd: 10_000,
   largeTrade: false,
+  inFlight: { count: 0, limit: 1 },
+  route: { limitUsd: 1_000_000 },
 });
 
 const ONE_BLOCKER: Record<BlockerCode, (f: RiskFacts) => void> = {
@@ -51,6 +53,12 @@ const ONE_BLOCKER: Record<BlockerCode, (f: RiskFacts) => void> = {
   unsafe_contract_call: (f) => {
     f.call = { verified: false };
   },
+  in_flight_limit: (f) => {
+    f.inFlight = { count: 1, limit: 1 };
+  },
+  route_not_qualified: (f) => {
+    f.route = { limitUsd: f.usd! - 1 };
+  },
 };
 
 describe("assessRisk (doc §47–§48)", () => {
@@ -76,6 +84,21 @@ describe("assessRisk (doc §47–§48)", () => {
     g.network.chainId = null;
     delete g.call;
     expect(blockersOf(g)).toEqual([]);
+  });
+
+  it("V7 Stage 13: an unmeasured route (null) or no in-flight fact blocks nothing; the route blocks only above its measured limit; the limit counts the band's operations", () => {
+    const f = clean();
+    f.route = { limitUsd: null };
+    delete f.inFlight;
+    expect(blockersOf(f)).toEqual([]);
+    f.route = { limitUsd: f.usd! };
+    expect(blockersOf(f), "at the limit: qualified").toEqual([]);
+    f.route = { limitUsd: f.usd! - 0.01 };
+    expect(blockersOf(f)).toEqual(["route_not_qualified"]);
+    f.inFlight = { count: 2, limit: 1 };
+    expect(blockersOf(f)).toEqual(["in_flight_limit", "route_not_qualified"]);
+    delete f.usd;
+    expect(blockersOf(f), "unpriced: the route cannot be judged, the limit still holds").toEqual(["in_flight_limit"]);
   });
 
   it("several blockers come back in the order of BLOCKER_CODES", () => {

@@ -143,6 +143,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
             ) : null}
             {!p.enabled ? <p className="ds-note-warn" data-testid="protection-off-notice">{t("advanced.protection.offNotice")}</p> : null}
             {toggle(p.protectFromEnhanced, (v) => settings.set({ protection: { ...p, protectFromEnhanced: v } }), t("advanced.protection.fromEnhanced"), "protect-from-enhanced")}
+            {toggle(p.stepsAtBand === true, (v) => settings.set({ protection: { ...p, stepsAtBand: v } }), t("advanced.protection.stepsAtBand"), "steps-at-band")}
             <div className="ds-radio-list" role="radiogroup" aria-label={t("advanced.protection.title")}>
               {PROTECTION_MODES.map((m: ProtectionMode) => (
                 <label key={m} className="ds-radio-row ds-native-row" data-checked={p.mode === m ? "true" : "false"}>

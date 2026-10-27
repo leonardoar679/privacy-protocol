@@ -150,14 +150,25 @@ database's `bandBps`) over the compiled defaults, and nothing applies a split at
 alone. The V6 rule "automatic from $50,000, no mode to choose" (v2.0 §2, doc V6 §87) is withdrawn; the harness's §87
 check becomes "one order, hold, the exposure limit, the verified destination, no silent split".
 
-Code (Stage 13): `apps/web/src/features/swap/SwapScreen.tsx` (`protectedSteps` only when staged or asked),
-`packages/sdk/src/tiers.ts` (`MAX_IN_FLIGHT` enforced at the band; `controls` for the Advanced gate),
-`packages/protocol/src/wallet/exposurePolicy.ts` (`activation: 'staged-or-opt-in'` honoured; the override),
-`packages/swap-engine/src/risk/protection.ts` (the plan's `staged` reasons), `packages/risk-engine/src/index.ts`
-(`route_not_qualified`), `apps/web/src/features/swap/model.ts` (the blockers); the tests
-`tests/high-value/policy/bands.test.ts`, `tests/high-value/policy/band-property.test.ts`,
-`apps/web/test/swap-protected-steps.test.tsx` rewritten, the e2e's section 8b (one order at $80K) and a new 8c (a
-staged order through a risk-database override), `docs/HighValuePolicyBenchmark.md` noted.
+Code (Stage 13, as landed): `apps/web/src/features/swap/SwapScreen.tsx` (`protectedSteps` only when the plan is `staged` or
+the user asked — `ProtectionSettings.stepsAtBand`, the Advanced page's "Protected steps" switch —; the Review's card says "One
+order — no automatic split" or the steps planned; the Advanced gate card over $100K with its switch; the band's exposure limit
+and the route's qualification close Review Swap and block a confirmation), `apps/web/src/features/swap/Swap.tsx` (the same rule
+on the protected screen), `packages/sdk/src/wallet/inFlight.ts` (`protectedInFlight`: the band's open orders and running
+campaigns; `MAX_IN_FLIGHT` enforced), `packages/sdk/src/wallet/campaigns.ts` (no exact quarters; one seed per quote draws the
+Review's pieces and the confirmed plan's), `packages/swap-engine/src/risk/protection.ts` (the band's pieces varied between half
+the cap and the cap, in every mode), `packages/protocol/src/wallet/exposurePolicy.ts` (`exposurePolicyFrom` /
+`useExposurePolicy` / `exposurePolicy()`: the override the API reads from `EXPOSURE_POLICY_FILE`),
+`packages/risk-engine/src/index.ts` and `packages/protocol-types/src/risk.ts` (`in_flight_limit`, `route_not_qualified`),
+`apps/api/src/quote.ts` and `apps/api/src/routes/swap.ts` (the §46 quote's `route_not_qualified` from the risk database's
+`servedUpToUsd`), `apps/web/src/features/swap/model.ts` (the blockers: the band's count, the service's qualification); the tests
+`tests/high-value/policy/bands.test.ts`, `tests/high-value/policy/band-property.test.ts` and
+`apps/web/test/swap-protected-steps.test.tsx` rewritten (one order by default, steps when staged or asked, the limit, the
+qualification, the gate), `packages/sdk/test/in-flight.test.ts`, `apps/api/test/route-qualification.test.ts`; the quick pass:
+section 5 meets the Advanced gate in Simple and switches, 8b is one order at $80K (the relayer's job carries the whole amount),
+8c the exposure limit (a second $80K names it and Review Swap stays closed). **Deviation:** the planned 8c "a staged order through
+a risk-database override" is covered by the unit tests instead (`staged` cannot be forced deterministically against live
+providers; the in-flight limit is the e2e's 8c); `docs/HighValuePolicyBenchmark.md` noted.
 
 ## 5. The swap provider facade (doc §7) — *Stage 14* (supersedes v2.0 §13.1's declared interfaces)
 

@@ -216,7 +216,10 @@ whole number in its range stops the service at start, naming the setting. Their 
 (`RATE_PER_MINUTE`), and the address is never logged. By default the caller is the socket's address and no proxy header
 is read. `TRUST_PROXY_HOPS` names how many proxies in front of the service append to `X-Forwarded-For`; the caller is
 then the entry the outermost of them wrote, so what a client writes there itself buys nothing. A request with fewer
-entries keeps its socket's address. A POST that is not JSON answers 415.
+entries keeps its socket's address. A POST that is not JSON answers 415. The API's `EXPOSURE_POLICY_FILE` (V7 Stage 13, spec v3.0 §4)
+names a JSON object keyed by value tier whose rows replace the compiled exposure-policy table
+(`packages/protocol/src/wallet/exposurePolicy.ts`) field by field (`word`, `capBps`, `range`, `activation`); a malformed file
+stops the start, naming the field. Unset, the compiled defaults apply.
 The relayer's edge is `apps/relayer/src/edge.ts` (`apps/relayer/test/edge.test.ts`), the API's `apps/api/src/app.ts`.
 
 Behind a TLS proxy, leave `TLS` unset and let the proxy send HSTS, and set `TRUST_PROXY_HOPS` to the number of proxies

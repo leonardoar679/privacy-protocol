@@ -3,11 +3,11 @@
 // the executor's tip, the provider's own fees; V6 Stage 12: a same-chain swap's shield tip, in the output asset — what
 // reaches the protected balance is the delivery less it), the minimum, the time (the provider's estimate plus the funding's),
 // the protection from the privacy assessment, the countdown to the quote's expiry, the route's facts under Advanced,
-// and the blockers re-checked when the user confirms (packages/risk-engine assessRisk). Pure: the screen gathers the
-// facts.
+// and the blockers re-checked when the user confirms (packages/risk-engine assessRisk; V7 Stage 13: the band's exposure
+// limit and the service's route qualification among them). Pure: the screen gathers the facts.
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { SwapPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessment";
-import { assessRisk, type BlockerCode } from "@privacy-wallet/risk-engine";
+import { assessRisk, BLOCKER_CODES, type BlockerCode } from "@privacy-wallet/risk-engine";
 import type { CheckState } from "@privacy-wallet/ui";
 import { feeSummary, type QuoteSet, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { amountOf, centsOf } from "../amounts";
@@ -216,6 +216,10 @@ export interface ConfirmFacts {
   largeTrade: boolean;
   /** V6 Stage 13 (spec v2.0 §2, §13.5): from the Medium band the strict quote — at least a minute left at the confirmation */
   strictQuote?: boolean;
+  /** V7 Stage 13 (spec v3.0 §4): at the $50K band, the band's protected operations this wallet has in flight and the limit (one) */
+  inFlight?: { count: number; limit: number };
+  /** V7 Stage 13: the blockers the service's §46 quote carries that the wallet cannot judge itself (the route's liquidity qualification) */
+  serviceBlockers?: readonly BlockerCode[];
 }
 
 /** The time a strict quote must still have at the confirmation (sdk/tiers PROTECTED_EXECUTION.MIN_QUOTE_TTL_S). */
@@ -225,7 +229,9 @@ export const STRICT_QUOTE_TTL_SECONDS = 60;
 export function confirmBlockers(f: ConfirmFacts): BlockerCode[] {
   // a strict quote with less than a minute left is as good as expired: the hard quote at the signature could not keep it
   if (f.strictQuote && f.quote.expiresAt - Math.floor(f.now / 1000) < STRICT_QUOTE_TTL_SECONDS) return ["quote_expired"];
-  return assessRisk({
+  // the service's liquidity qualification rides on its §46 quote: the wallet has no measured limits of its own (spec v3.0 §4)
+  const fromService: BlockerCode[] = (f.serviceBlockers ?? []).filter((c) => c === "route_not_qualified");
+  const own = assessRisk({
     now: f.now,
     quote: {
       fetchedAt: f.quotedAt,
@@ -243,5 +249,7 @@ export function confirmBlockers(f: ConfirmFacts): BlockerCode[] {
     execution: { steps: 1, crossChain: f.crossChain },
     ...(f.usd !== undefined ? { usd: f.usd } : {}),
     largeTrade: f.largeTrade,
+    ...(f.inFlight ? { inFlight: f.inFlight } : {}),
   }).blockers;
+  return BLOCKER_CODES.filter((c) => own.includes(c) || fromService.includes(c));
 }

@@ -10,9 +10,11 @@
 // — a fresh address of this wallet unless one is typed — is reserved and sent at the confirmation. V6 Stage 12 (spec v2.0
 // §11.2): a same-chain target lands in the protected balance — the quote asks for a protected destination (its shield tip
 // is in the lines), the confirmation builds the one-time shield receiver the order pays, and the result says what arrived.
-// V6 Stage 13 (spec v2.0 §2, §7.6–§7.7, §13.5): from $50K to $100K the protection is automatic — the Review's Protected
-// execution checks and the hold, then the order runs as protected steps (the band's sequential quarters under the
-// in-flight limit, wallet/campaigns.ts) whose progress, /swap/steps/:campaignId, shows amounts only. Above $100K the V3/V4
+// V7 Stage 13 (spec v3.0 §4; the owner's decisions 3 and 4): from $50K to $100K the swap is a Protected Large Swap — ONE order
+// by default behind the Review's Protected execution checks and the hold, under the band's exposure limit (one in flight per
+// wallet) and the route's liquidity qualification; it runs as protected steps (the planner's varied pieces, one at a time,
+// wallet/campaigns.ts; /swap/steps/:campaignId shows amounts only) only when the service stages it or the user asked under
+// Advanced. Above $100K the high-value layer is the Advanced experience's (Simple gets the card with the switch); the V3/V4
 // screens stay (/swap/protected) when the service stages the order.
 import { destinationWords } from "../destinationWords";
 import { idOfRoute, routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
@@ -37,7 +39,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
 import { feeTerms, maxSpendable } from "@privacy-wallet/sdk/privateTx";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
-import { controlsFor, holdMs, issuerControlled, routeKind } from "@privacy-wallet/sdk/tiers";
+import { controlsFor, holdMs, issuerControlled, PROTECTED_EXECUTION, routeKind } from "@privacy-wallet/sdk/tiers";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { walletLint, topBucket } from "@privacy-wallet/sdk/wallet/lintFacts";
@@ -47,7 +49,8 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, confirmOrder, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
-import { buildCampaign, cancelCampaign, resumeCampaign, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { buildCampaign, cancelCampaign, cryptoSeed, resumeCampaign, seededUniform, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import { inFlightLimitReached, protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
 import { campaignLineText } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
@@ -71,16 +74,17 @@ import {
   destinationChecks,
   expiresInOf,
   netOfShield,
-  protectedStepsAmount,
   quoteLines,
   routeDetails,
   shieldTipOf,
   providerFeeCents,
+  stepsAmountAtFixedPoint,
 } from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
 import { TARGETS, refOf, riskWord, sameChainTargets } from "./targets";
-import { useCampaigns, useConnectivity, useOperation, usePoolStats, usePrices, useSession, useSettings, useNotes } from "../../hooks";
+import { useCampaigns, useConnectivity, useOperation, usePoolStats, usePrefs, usePrices, useSession, useSettings, useNotes } from "../../hooks";
+import { prefs } from "../../storage/prefs";
 
 export interface SwapScreenProps {
   masterSeed: Uint8Array;
@@ -105,6 +109,7 @@ export function SwapScreen(p: SwapScreenProps) {
   usePoolStats();
   const prices = usePrices();
   const running = useCampaigns().filter((c) => !TERMINAL_STATES.includes(c.state));
+  const prefsNow = usePrefs();
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
   const [fromAsset, setFromAsset] = useState<Asset | undefined>(() => assets.find((a) => a.vault === p.prefill?.fromVault) ?? assets[0]);
   // the cross-chain targets, and (V6 Stage 12) the pool's assets this deployment receives into the protected balance
@@ -130,6 +135,7 @@ export function SwapScreen(p: SwapScreenProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [holders, setHolders] = useState<number | null>(null);
+  const [stepsSeed, setStepsSeed] = useState(() => cryptoSeed()); // V7 Stage 13: the pieces of this quote's steps (the dry run and the plan alike)
 
   const to = targets[target] ?? TARGETS.BTC;
   const intoProtected = !!to.protected; // a same-chain swap: the destination is the protected balance (spec v2.0 §11.2)
@@ -147,6 +153,12 @@ export function SwapScreen(p: SwapScreenProps) {
   const usd = assessment && "usd" in assessment.value ? assessment.value.usd : null;
   const tier: Tier = assessment?.tier ?? "standard";
   const controls = controlsFor(tier);
+  // V7 Stage 13 (spec v3.0 §4; the owner's decision 4): over $100,000 the high-value layer is the Advanced experience's — Simple
+  // gets the card with the switch; the band below stays open to everyone
+  const advancedGate = atLeast(tier, "enhanced") && prefsNow.experience !== "advanced";
+  // the band's exposure limit (the owner's decision 3; sdk/tiers MAX_IN_FLIGHT): one protected operation of the $50K–$100K
+  // band in flight per wallet — the wallet's own count of its open orders and running campaigns of the band
+  const limitReached = tier === "large-protected" && inFlightLimitReached();
   const destCheck = edited && parsed?.ok ? destinationCheck(chain, destination, { tier }) : null;
   const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   const balance = fromAsset ? noteStore.balance(BigInt(fromAsset.vault)) : 0n;
@@ -216,6 +228,7 @@ export function SwapScreen(p: SwapScreenProps) {
           if (seq.current !== mine) return;
           setTerms(tm);
           setQuotes(set);
+          setStepsSeed(cryptoSeed()); // a new quote set: a new draw of the steps' pieces
           setQuotedAt(Date.now());
           setNow(Date.now());
           setQuoteError(set.chosen ? null : t("swap.noRoute"));
@@ -251,10 +264,16 @@ export function SwapScreen(p: SwapScreenProps) {
   const priceFrom = fromAsset ? availablePrice(prices.prices, fromAsset.symbol, Math.floor(now / 1000)) : null;
   const priceTo = availablePrice(prices.prices, to.ref.symbol, Math.floor(now / 1000));
   const protectionPlan = quotes?.protection ?? null;
-  // V6 Stage 13: the $50K band's protected execution runs here, automatically (no checkbox, no mode to choose; V4's
-  // deliberate opt-out is under Advanced); above $100K the V3/V4 screens take a staged order. A swap into the protected
-  // balance stays one order (the steps' receivers are a follow-up), with the hold from $50K.
-  const protectedSteps = !intoProtected && !!protectionPlan && protection.enabled && tier === "large-protected";
+  // V7 Stage 13 (spec v3.0 §4; the owner's decision 3): the $50K band is a Protected Large Swap — ONE order by default (Hold to
+  // Confirm, the exposure limit, the verified destination, the route's measured liquidity, recovery monitoring). It runs as
+  // protected steps — the V3 planner's varied pieces under the quarter cap, one at a time — only when the service's plan says
+  // `staged` (a thin route) or the user asked under Advanced ("Protected steps"); above $100K the V3/V4 screens take a staged
+  // order. A swap into the protected balance stays one order (the steps' receivers are a follow-up), with the hold from $50K.
+  const protectedSteps =
+    !intoProtected && !!protectionPlan && protection.enabled && tier === "large-protected" && (protectionPlan.staged || protection.stepsAtBand === true);
+  // the service's liquidity qualification rides on its §46 quote (spec v3.0 §4): a route whose measured limit is below the order
+  const serviceBlockers = quotes?.quote?.risk.blockers ?? [];
+  const routeUnqualified = serviceBlockers.includes("route_not_qualified");
   const campaignMode =
     !intoProtected &&
     !protectedSteps &&
@@ -281,7 +300,8 @@ export function SwapScreen(p: SwapScreenProps) {
           crossChain: to.ref.chain !== "ethereum",
         })
       : null;
-  // the steps the planner makes of this amount (a dry run), and the amount they fund so that their fees stay inside it
+  // the steps the planner makes of this amount (a dry run), and the amount they fund so that their fees stay inside it; the
+  // dry run and the confirmed plan draw the same pieces from one seed per quote (varied sizes, never a recognisable pattern)
   const stepsPlan = (() => {
     if (!protectedSteps || !quotes || !chosen || !fromAsset || units <= 0n) return null;
     const destinationPolicy = edited ? { kind: "entered" as const, address: destination } : { kind: "fresh-per-tranche" as const };
@@ -302,11 +322,11 @@ export function SwapScreen(p: SwapScreenProps) {
         capBps: protection.capBps,
         terms, // the relayer's F at the Review bounds every piece's funding (spec v3.0 §3; V7 Stage 12)
         now,
-        rng: () => 0.5,
+        rng: seededUniform(stepsSeed),
       });
     try {
-      const n = draft(units).tranches.length;
-      const amount = protectedStepsAmount(units, terms, n);
+      // the count at its own amount (c50): varied pieces may be one more or less of a smaller amount
+      const { n, amount } = stepsAmountAtFixedPoint(units, terms, (a) => draft(a).tranches.length);
       return amount > 0n ? { n, amount, destinationPolicy } : null;
     } catch {
       return null;
@@ -377,7 +397,11 @@ export function SwapScreen(p: SwapScreenProps) {
         privacy: recentFunds ? { recent: true, delay: delayOn, older: !!older } : null,
         notice: assessment && tier !== "standard" ? (assessment.failSafe ? t("swap.largeFailSafe") + t("swap.largeNotice") : t("swap.largeNotice")) : null,
         details: advanced && routeQuotes ? routeDetails(routeQuotes, to, privacy, chosen ? riskWord(chosen.components.security) : "—") : null,
-        canReview: !!quote && !expired && destinationOk && !destinationLocked && !busy,
+        // V7 Stage 13: the Advanced gate over $100K, the band's exposure limit and the route's qualification close Review Swap
+        gate: advancedGate ? { title: t("swap.advancedGate.title"), body: t("swap.advancedGate.body"), switchLabel: t("swap.advancedGate.switch") } : null,
+        limit: limitReached ? t("swap.inFlight") : null,
+        routeLimit: routeUnqualified ? t("swap.routeLimit") : null,
+        canReview: !!quote && !expired && destinationOk && !destinationLocked && !busy && !advancedGate && !limitReached && !routeUnqualified,
       }
     : null;
 
@@ -401,6 +425,8 @@ export function SwapScreen(p: SwapScreenProps) {
       ...(usd !== null ? { usd } : {}),
       largeTrade: true,
       strictQuote: true,
+      inFlight: { count: protectedInFlight(), limit: PROTECTED_EXECUTION.MAX_IN_FLIGHT },
+      serviceBlockers,
     });
     if (blockers.length) {
       setBlocked(blockers[0]);
@@ -439,6 +465,7 @@ export function SwapScreen(p: SwapScreenProps) {
         crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never),
         gasPriceWei,
         confirmations: edited && destAck ? { destinationVerified: at } : {},
+        rng: seededUniform(stepsSeed), // the Review's pieces (the dry run's seed)
         now: at,
       });
       // the confirmed Review is not shown again (c48, audit round 2 r15): Back had re-shown it, one hold from a second campaign
@@ -465,6 +492,8 @@ export function SwapScreen(p: SwapScreenProps) {
       ...(usd !== null ? { usd } : {}),
       largeTrade: atLeast(tier, "large-protected"),
       strictQuote: controls.strictQuote,
+      ...(tier === "large-protected" ? { inFlight: { count: protectedInFlight(), limit: PROTECTED_EXECUTION.MAX_IN_FLIGHT } } : {}),
+      serviceBlockers,
     });
     if (blockers.length) {
       setBlocked(blockers[0]);
@@ -595,6 +624,7 @@ export function SwapScreen(p: SwapScreenProps) {
               reset();
             },
             ...(delayOffered ? { onDelay: setDelay } : {}),
+            onAdvanced: (on) => prefs().update({ experience: on ? "advanced" : "simple" }),
             ...(balance > 0n
               ? {
                   // the merges a spend of every note needs are paid out of it (the audit's unverified m55)
@@ -782,6 +812,7 @@ export function SwapScreen(p: SwapScreenProps) {
       },
       protection: privacy?.level ?? "medium",
       large,
+      steps: stepsPlan?.n ?? null, // V7 Stage 13: the card says "One order" or the steps planned
       hold: controls.hold,
       confirmDisabled: busy || lintBlocked || destinationLocked || (needsDestAck && !destAck) || !health.ok || !net.online,
       blocked,

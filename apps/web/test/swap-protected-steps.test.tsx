@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-// V6 Stage 13 (spec v2.0 §2, §7.6–§7.7, §13.5; doc §49–§50, §87): from $50K the protection is automatic — an $80,000 ETH
-// → BTC swap on the V6 screens: no "Protect this order" checkbox and no mode to choose, the Review's Protected execution
-// card with its four checks and Hold to Confirm, then ONE confirmation starts the protected steps (the band's sequential
-// quarters, funded so that the steps' own fees stay inside what the user typed) and /swap/steps/:id shows amounts only —
-// "$80,000.00 ETH → BTC / Completed / Executing / Remaining" — with "Return the rest". The pure pieces too: the progress
-// in amounts, the fee-inclusive steps amount, the strict quote from the Medium band.
+// V7 Stage 13 (spec v3.0 §4; the owner's decisions 3 and 4): the $50K–$100K band is a Protected Large Swap — an $80,000 ETH → BTC
+// swap on the V6 screens is ONE order by default: no "Protect this order" checkbox and no mode, the Review's Protected execution
+// card with its checks and "One order — no automatic split", Hold to Confirm, then ONE confirmation commits one order (its
+// progress page, no campaign). The steps run only when the service's plan is staged or the user asked under Advanced
+// ("Protected steps"): the planner's varied pieces under the quarter, one at a time, /swap/steps/:id with amounts only and
+// "Return the rest". The band's exposure limit (one protected operation in flight per wallet), the route's liquidity
+// qualification and the Advanced gate over $100,000 close Review Swap and block a confirmation. The pure pieces too.
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -13,8 +14,10 @@ import { feeForWithdrawal, swapFunding } from "@privacy-wallet/protocol/wallet/f
 import type { Protection, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { campaignById, campaignsOf, putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
 import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { loadCatalog } from "../src/app/i18n/catalogs";
@@ -24,6 +27,7 @@ import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
 import { campaignProgressModel } from "../src/features/progress/model";
 import { confirmBlockers, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
+import { prefs } from "../src/storage/prefs";
 import { deployment, ETH_VAULT, fetchMock, requests, resetWorld, world } from "./helpers/swapWorld";
 
 beforeAll(() => {
@@ -35,27 +39,29 @@ afterEach(() => {
   noteStore.clear();
   resetOperationsMemory();
   resetWorld();
+  settings.reset();
+  prefs().reset();
 });
 
 const ETH = 10n ** 18n;
-/** The engine's recommendation at the $50K band (spec v2.0 §13.5): four sequential quarters, one in flight. */
+/** The engine's recommendation at the $50K band (spec v3.0 §4): varied pieces between an eighth and a quarter, one in flight. */
 const bandPlan: Protection = {
   provider: "thorchain",
   riskClass: "R3",
   flags: [],
   custody: "tss-vaults",
-  bandBps: [2500, 2500],
+  bandBps: [1250, 2500],
   capBps: 2500,
-  sizing: "bucket",
+  sizing: "varied",
   concurrency: "sequential",
   maxParallel: 1,
   gate: "destination-final",
   cadenceSeconds: [60, 300],
   providerShareCapBps: 10000,
   executeWindowSeconds: 1800,
-  estimatedTranches: 4,
+  estimatedTranches: 5,
   estimatedSeconds: 3600,
-  trancheUsd: [20_000, 20_000],
+  trancheUsd: [10_000, 20_000],
   capUsd: 20_000,
   trancheImpactBps: 1,
   thinMarket: false,
@@ -66,12 +72,19 @@ const bandPlan: Protection = {
   reasons: [],
   exposureTier: "R3",
 };
+/** The same route, staged by the service (a thin route: impact or reliability): the steps run without asking. */
+const stagedPlan: Protection = { ...bandPlan, staged: true, reasons: ["staged below $1M: the only venue quotes with high impact or low reliability"] };
 
-async function wallet() {
+async function wallet(ethNotes = 40n) {
   await session.create("a strong password");
   session.acknowledgePhrase();
-  noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 40n * ETH, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
-  await priceStore.refresh(deployment); // ETH at $2,500: 32 ETH is $80,000 — the $50K band
+  noteStore.add({
+    note: { vaultId: BigInt(ETH_VAULT), amount: ethNotes * ETH, ownerCommitment: 1n, noteSecret: 2n },
+    leafIndex: 0,
+    noteData: "0x",
+    spent: false,
+  });
+  await priceStore.refresh(deployment); // ETH at $2,500: 32 ETH is $80,000 — the $50K band; 50 ETH is $125,000 — over $100K
 }
 function mount(path = "/swap") {
   const router = createMemoryRouter(
@@ -88,61 +101,169 @@ function mount(path = "/swap") {
   );
   return router;
 }
-
-describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, §7.6)", () => {
-  it("after the hold, Back never shows the confirmed Review again: one campaign, never a second from the same quote (audit round 2, r15)", async () => {
-    world.protection = bandPlan;
-    await wallet();
-    const router = mount();
-    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
-    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
-    fireEvent.click(screen.getByTestId("swap-review"));
-    await screen.findByTestId("review-view");
-    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
-    await act(async () => {
-      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 120));
-    });
-    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
-    await act(async () => {
-      await router.navigate(-1);
-    });
-    expect(router.state.location.pathname, "the steps page replaced the Review in the history").toBe("/swap");
-    expect(screen.queryByTestId("hold-to-confirm")).toBeNull();
-    expect(campaignsOf(session.journal())).toHaveLength(1);
+async function typeAndReview(amount: string) {
+  fireEvent.input(screen.getByTestId("amount-input"), { target: { value: amount } });
+  await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
+  fireEvent.click(screen.getByTestId("swap-review"));
+  return screen.findByTestId("review-view");
+}
+async function holdToConfirm() {
+  const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+  await act(async () => {
+    hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
   });
+}
+/** An open order of a band in the journal (its funding sent), as the runner would have left it. */
+const openOrder = (tier: string, orderId = "0x" + "ab".repeat(20)): StoredSwap =>
+  ({
+    orderId,
+    attemptId: "0x" + "01".repeat(32),
+    refundCounter: 0,
+    provider: "thorchain",
+    policy: "balanced",
+    request: {},
+    params: {},
+    endpoint: "0x" + "ee".repeat(20),
+    createdAt: Date.now(),
+    state: "funded",
+    tier,
+  }) as StoredSwap;
 
-  it("$80,000: the Protected execution checks and the hold, one confirmation, then the steps in amounts only", async () => {
+describe("V7 Stage 13: the Protected Large Swap — one order by default (spec v3.0 §4)", () => {
+  it("$80,000: no checkbox, no mode, no gate; the Review's Protected execution card says One order; the hold commits ONE order to its progress page — no campaign", async () => {
     world.protection = bandPlan;
     await wallet();
     const router = mount();
     fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
     await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
-    expect(screen.queryByTestId("protect-this-order"), "no checkbox: the protection is automatic").toBeNull();
+    expect(screen.queryByTestId("protect-this-order"), "no checkbox").toBeNull();
     expect(screen.queryByText(/Protection mode|Max privacy|Max safety/i), "no mode to choose in Simple").toBeNull();
+    expect(screen.queryByTestId("swap-advanced-gate"), "the band is open to the Simple experience").toBeNull();
+    expect(screen.queryByTestId("swap-in-flight"), "nothing of the band in flight yet").toBeNull();
     fireEvent.click(screen.getByTestId("swap-review"));
-    // the V6 Review (not the V5 protected screen): the four checks and Hold to Confirm
     const review = await screen.findByTestId("review-view");
     for (const words of ["Protected execution", "Destination verified", "Quote locked", "Route health checked", "Execution limits enabled"])
       expect(review.textContent).toContain(words);
+    expect(screen.getByTestId("review-large-order").textContent).toContain("One order — no automatic split");
     expect(screen.queryByTestId("review-confirm"), "never a tap from $50K").toBeNull();
-    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
-    await act(async () => {
-      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 120));
+    await holdToConfirm();
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/progress\/r[0-9a-f]{32}$/), { timeout: 15_000 });
+    expect(campaignsOf(session.journal()), "no campaign: one order").toHaveLength(0);
+    expect(session.journal().swaps).toHaveLength(1);
+    const [stored] = session.journal().swaps;
+    expect(stored.tier).toBe("large-protected");
+    expect(BigInt((stored.params as { amount: string }).amount), "the whole funding in one order, never a quarter").toBeGreaterThan(30n * ETH);
+    expect(protectedInFlight(), "the band's one operation in flight").toBe(1);
+  });
+
+  it("the exposure limit: with an order of the band open, a second $80,000 names the limit and keeps Review Swap closed; another band's order or a closed one never counts", async () => {
+    world.protection = bandPlan;
+    await wallet(80n);
+    act(() => {
+      session.update((j) => {
+        j.swaps = [...j.swaps, openOrder("large-protected")];
+      });
     });
+    expect(protectedInFlight()).toBe(1);
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await screen.findByTestId("swap-in-flight", {}, { timeout: 15_000 });
+    expect(screen.getByTestId("swap-in-flight").textContent).toContain("One protected swap of this size at a time");
+    await waitFor(() => expect(screen.getByTestId("swap-quote")).toBeInTheDocument(), { timeout: 15_000 });
+    expect(screen.getByTestId("swap-review"), "closed although a route is quoted").toBeDisabled();
+    act(() => {
+      session.update((j) => {
+        j.swaps = [openOrder("enhanced"), { ...openOrder("large-protected", "0x" + "cd".repeat(20)), state: "refunded" }];
+      });
+    });
+    await waitFor(() => expect(screen.queryByTestId("swap-in-flight")).toBeNull());
+    expect(protectedInFlight()).toBe(0);
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled());
+  });
+
+  it("the route's qualification: the service's §46 quote says route_not_qualified — the words, Review Swap closed", async () => {
+    world.quoteRisk = { score: 100, level: "high", blockers: ["route_not_qualified"], warnings: [] };
+    await wallet();
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await screen.findByTestId("swap-route-limit", {}, { timeout: 15_000 });
+    expect(screen.getByTestId("swap-route-limit").textContent).toContain("Try a smaller amount");
+    await waitFor(() => expect(screen.getByTestId("swap-quote")).toBeInTheDocument(), { timeout: 15_000 });
+    expect(screen.getByTestId("swap-review")).toBeDisabled();
+  });
+
+  it("over $100,000 in the Simple experience: the card with the switch; the switch turns Advanced on and Review Swap opens; the band below never meets it", async () => {
+    await wallet(80n); // 50 ETH at $2,500 = $125,000: the enhanced band
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "50" } });
+    const gate = await screen.findByTestId("swap-advanced-gate", {}, { timeout: 15_000 });
+    expect(gate.textContent).toContain("Over $100,000 needs the Advanced experience");
+    await waitFor(() => expect(screen.getByTestId("swap-quote")).toBeInTheDocument(), { timeout: 15_000 });
+    expect(screen.getByTestId("swap-review"), "closed although a route is quoted").toBeDisabled();
+    fireEvent.click(screen.getByTestId("swap-advanced-switch"));
+    await waitFor(() => expect(screen.queryByTestId("swap-advanced-gate")).toBeNull());
+    expect(prefs().get().experience).toBe("advanced");
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled());
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await waitFor(() => expect(screen.getByTestId("swap-amount-usd").textContent).toContain("$80,000"));
+    expect(screen.queryByTestId("swap-advanced-gate")).toBeNull();
+  });
+
+  it("the blockers (pure): the band's limit and the service's route qualification stop a confirmation; the service's other verdicts the wallet judges itself", () => {
+    const now = Date.parse("2026-10-13T12:00:00Z");
+    const quote = { expiresAt: Math.floor(now / 1000) + 600, toAmount: "100", toAmountMin: "99", impactBps: 0 } as ServiceQuote;
+    const facts = {
+      now,
+      quotedAt: now - 1000,
+      quote,
+      approvedMin: 99n,
+      destinationValid: true,
+      providerHealthy: true,
+      chainId: 1,
+      crossChain: true,
+      largeTrade: true,
+      strictQuote: true,
+    };
+    expect(confirmBlockers(facts)).toEqual([]);
+    expect(confirmBlockers({ ...facts, inFlight: { count: 1, limit: 1 } })).toEqual(["in_flight_limit"]);
+    expect(confirmBlockers({ ...facts, inFlight: { count: 0, limit: 1 } })).toEqual([]);
+    expect(confirmBlockers({ ...facts, serviceBlockers: ["route_not_qualified"] })).toEqual(["route_not_qualified"]);
+    expect(confirmBlockers({ ...facts, serviceBlockers: ["quote_expired", "provider_unhealthy"] }), "judged by the wallet's own facts").toEqual([]);
+    expect(confirmBlockers({ ...facts, inFlight: { count: 1, limit: 1 }, serviceBlockers: ["route_not_qualified"] })).toEqual([
+      "in_flight_limit",
+      "route_not_qualified",
+    ]);
+  });
+});
+
+describe("V7 Stage 13: protected steps only when staged or asked (spec v3.0 §4)", () => {
+  it("asked under Advanced (Protected steps): the Review names the steps, the hold starts them — varied pieces under the quarter, one in flight, amounts only, Return the rest", async () => {
+    world.protection = bandPlan;
+    settings.set({ protection: { ...settings.get().protection, stepsAtBand: true } });
+    await wallet();
+    const router = mount();
+    await typeAndReview("32");
+    expect(screen.getByTestId("review-large-order").textContent).toMatch(/Protected steps: \d+ pieces of varied size, one at a time/);
+    expect(screen.queryByTestId("review-confirm"), "never a tap from $50K").toBeNull();
+    await holdToConfirm();
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     expect(session.journal().swaps, "no single order: the steps are the campaign's").toHaveLength(0);
     const [c] = campaignsOf(session.journal());
     expect(c.tier).toBe("large-protected");
+    const total = BigInt(c.request.amount);
+    const pieces = c.tranches.map((x) => BigInt(x.amount));
+    expect(pieces.length).toBeGreaterThanOrEqual(4);
+    expect(pieces.reduce((s, x) => s + x, 0n)).toBe(total);
+    for (const x of pieces) expect(x <= total / 4n, `${x} under the quarter`).toBe(true);
+    expect(new Set(pieces.map(String)).size, "varied sizes, never identical quarters").toBeGreaterThan(1);
+    for (let i = 1; i < pieces.length - 1; i++) expect(pieces[i], `piece ${i} differs from its neighbour`).not.toBe(pieces[i - 1]);
+    expect(c.plan.exact, "the V5 exact quarters are withdrawn").toBeUndefined();
+    expect(exposure(c).cap, "a quarter in flight at most").toBe(total / 4n);
+    expect(total <= 32n * ETH, "the steps' own fees stay inside what was typed").toBe(true);
     // its Activity line names what may leave the protected balance: the 32 ETH typed, the steps' fee notes included (audit round 2, r18)
     expect(session.journal().activity?.find((x) => x.id === `campaign:${c.id.toLowerCase()}`)?.amount).toBe((32n * ETH).toString());
-    expect(
-      c.tranches.map((t) => BigInt(t.amount)),
-      "four equal quarters",
-    ).toEqual(Array(4).fill(BigInt(c.request.amount) / 4n));
-    expect(BigInt(c.request.amount) <= 32n * ETH && BigInt(c.request.amount) % 4n === 0n).toBe(true);
-    expect(exposure(c).cap, "one quarter in flight at most").toBe(BigInt(c.request.amount) / 4n);
+    expect(protectedInFlight(), "the campaign is the band's one operation in flight").toBe(1);
     // the progress: amounts, never step counts
     const large = await screen.findByTestId("progress-large");
     expect(large.textContent).toContain("$80,000.00");
@@ -154,7 +275,7 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
       fireEvent.click(screen.getByTestId("swap-steps-return"));
     });
     expect(campaignById(c.id, session)?.state).toBe("winding-down");
-    expect(campaignById(c.id, session)?.tranches.every((t) => t.state === "skipped")).toBe(true);
+    expect(campaignById(c.id, session)?.tranches.every((x) => x.state === "skipped")).toBe(true);
     expect(screen.getByTestId("swap-steps-note").textContent).toMatch(/Returning the rest/);
     // cancelled with a step delivered: part of the swap is complete, never "Returned" alone (the audit's unverified m58)
     const back = campaignById(c.id, session)!;
@@ -165,19 +286,39 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
     expect(screen.getByTestId("swap-steps-done").textContent).not.toContain("Returned to your protected balance.");
   });
 
-  it("paused with a step funded: that step is said to be held for its swap, not in the protected balance (the audit round of 2026-10-16, c51)", async () => {
-    world.protection = bandPlan;
+  it("staged by the service (a thin route): the steps run without asking; the Review says so", async () => {
+    world.protection = stagedPlan;
     await wallet();
     const router = mount();
-    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
-    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
-    fireEvent.click(screen.getByTestId("swap-review"));
-    await screen.findByTestId("review-view");
-    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
+    await typeAndReview("32");
+    expect(screen.getByTestId("review-large-order").textContent).toMatch(/Protected steps: \d+ pieces/);
+    await holdToConfirm();
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+    expect(campaignsOf(session.journal())).toHaveLength(1);
+    expect(session.journal().swaps).toHaveLength(0);
+  });
+
+  it("after the hold, Back never shows the confirmed Review again: one campaign, never a second from the same quote (audit round 2, r15)", async () => {
+    world.protection = stagedPlan;
+    await wallet();
+    const router = mount();
+    await typeAndReview("32");
+    await holdToConfirm();
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     await act(async () => {
-      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 120));
+      await router.navigate(-1);
     });
+    expect(router.state.location.pathname, "the steps page replaced the Review in the history").toBe("/swap");
+    expect(screen.queryByTestId("hold-to-confirm")).toBeNull();
+    expect(campaignsOf(session.journal())).toHaveLength(1);
+  });
+
+  it("paused with a step funded: that step is said to be held for its swap, not in the protected balance (the audit round of 2026-10-16, c51)", async () => {
+    world.protection = stagedPlan;
+    await wallet();
+    const router = mount();
+    await typeAndReview("32");
+    await holdToConfirm();
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     const [c] = campaignsOf(session.journal());
     const now = Date.now();
@@ -198,18 +339,11 @@ describe("V6 Stage 13: large trades are protected automatically (spec v2.0 §2, 
   });
 
   it("a pause reads in the catalog's words, the runner's own detail under Advanced; a funding not yet confirmed never reads as safe (audit round 2, n87, p05)", async () => {
-    world.protection = bandPlan;
+    world.protection = stagedPlan;
     await wallet();
     const router = mount();
-    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
-    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), { timeout: 15_000 });
-    fireEvent.click(screen.getByTestId("swap-review"));
-    await screen.findByTestId("review-view");
-    const hold = screen.getByTestId("hold-to-confirm") as HTMLButtonElement;
-    await act(async () => {
-      hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 120));
-    });
+    await typeAndReview("32");
+    await holdToConfirm();
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     const [c] = campaignsOf(session.journal());
     const now = Date.now();

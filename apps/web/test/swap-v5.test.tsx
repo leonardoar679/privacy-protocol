@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The Swap's V5 layer (spec §3.6–§3.9, §3.12, §11–§13): the band's checks (the strict quote, the provider's health,
-// the slippage cap), the $80K staged plan of four quarters, the progress words in Simple (never a step counter), the
+// the slippage cap), the $80K plan of varied pieces (V7 Stage 13: steps only when staged or asked), the progress words in Simple (never a step counter), the
 // recovery card (a refund or monitoring, never a retry), the Review's cross-chain sentence and protection line, the
 // §3.8 notice, Compare routes, and the operation record of an order from the journal and the tracker.
 import "fake-indexeddb/auto";
@@ -61,16 +61,23 @@ describe("the band's checks (spec §3.8, §11)", () => {
     const set = { scores: [score("thorchain"), score("chainflip"), score("mayan", "quote expired")], risk: { thorchain: { ...base, breaker: { open: "stalls" } }, chainflip: base } } as unknown as Pick<QuoteSet, "scores" | "risk">;
     expect(healthyProviders(set)).toEqual(["chainflip"]);
   });
-  it("$80K at the band: the service recommends four sequential quarters and the wallet's plan cuts exactly them, sequential, under a 30-minute window", () => {
+  it("$80K at the band: the service recommends varied pieces between an eighth and a quarter, sequential, under a 30-minute window; the wallet's plan cuts them the same way (V7 Stage 13: never identical quarters)", () => {
     const amount = eth(32); // $80K at $2,500
     const quotes: EngineQuoteSet = { quotes: [quoteOf("thorchain", amount) as never], errors: {}, health: { thorchain: { provider: "thorchain", reachable: true, apiLatencyMs: 300, halted: false, haltedChains: [], checkedAt: Date.now() } } as never, scores: [score("thorchain") as never], chosen: score("thorchain") as never, links: {}, policy: "balanced", competition: [] };
     const p = recommendProtection({ set: quotes, req: { from: ETH, to: BTC, amount, destination: DEST, slippageBps: 50 } as never, amount, tier: "large-protected", mode: "balanced", usdPerUnit: 2500, db: RiskDb.load(RISK_DB_DIR), rng: () => 0.5 })!;
-    expect(p).toMatchObject({ capBps: 2500, bandBps: [2500, 2500], concurrency: "sequential", estimatedTranches: 4 });
+    expect(p).toMatchObject({ capBps: 2500, bandBps: [1250, 2500], sizing: "varied", concurrency: "sequential" });
+    expect(p.estimatedTranches).toBeGreaterThanOrEqual(4);
     expect(p.executeWindowSeconds).toBeLessThanOrEqual(PROTECTED_EXECUTION.MAX_EXECUTE_WINDOW_S);
     const set = { ...quotes, protection: p as unknown as Protection } as unknown as QuoteSet;
     const c = buildCampaign({ quotes: set, provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT, token: null }, to: BTC, amount, tier: "large-protected", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: 80_000, now: Date.now(), rng: () => 0.5 });
-    expect(c.tranches.map((t) => BigInt(t.amount))).toEqual([eth(8), eth(8), eth(8), eth(8)]);
-    expect(c.plan).toMatchObject({ capBps: 2500, concurrency: "sequential", maxParallel: 1, exact: true });
+    const pieces = c.tranches.map((t) => BigInt(t.amount));
+    expect(pieces.length).toBeGreaterThanOrEqual(4);
+    expect(pieces.reduce((s, x) => s + x, 0n)).toBe(amount);
+    for (const x of pieces) expect(x <= eth(8), `${x} under the quarter`).toBe(true);
+    expect(new Set(pieces.map(String)).size, "varied sizes, never four identical quarters").toBeGreaterThan(1);
+    for (let i = 1; i < pieces.length - 1; i++) expect(pieces[i], `piece ${i} differs from its neighbour`).not.toBe(pieces[i - 1]);
+    expect(c.plan).toMatchObject({ capBps: 2500, bandBps: [1250, 2500], sizing: "varied", concurrency: "sequential", maxParallel: 1 });
+    expect(c.plan.exact, "the V5 exact quarters are withdrawn").toBeUndefined();
     expect(controlsFor("large-protected")).toMatchObject({ hold: true, protectedExecution: true, campaign: false });
   });
 });

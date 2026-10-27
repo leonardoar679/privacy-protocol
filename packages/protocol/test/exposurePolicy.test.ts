@@ -1,8 +1,8 @@
 // The exposure policy (contract §2; plan §4–§6, §62, §80–§81, §90): the §4 table per value band, the exposure tier derived
 // from the risk class and the live facts, the effective cap from band × tier × mode × the user's fraction, the
 // market-impact remedies in the plan's order, and the velocity limit.
-import { describe, it, expect } from "vitest";
-import { EXPOSURE_POLICY, IMPACT_LIMIT_BPS, TIER_RANGES, capBpsFor, exposureTierOf, impactRemedy, velocityExceeded } from "../src/wallet/exposurePolicy";
+import { afterEach, describe, it, expect } from "vitest";
+import { EXPOSURE_POLICY, IMPACT_LIMIT_BPS, TIER_RANGES, capBpsFor, exposureTierOf, impactRemedy, velocityExceeded, exposurePolicy, exposurePolicyFrom, useExposurePolicy } from "../src/wallet/exposurePolicy";
 
 describe("the policy table (plan §4)", () => {
   it("Normal below $100K, Protected 5 % at $100K–$1M (staged or opt-in), 2.5 % at $1M–$10M, 2 % above $10M inside the plan's 1–2.5 %", () => {
@@ -13,7 +13,7 @@ describe("the policy table (plan §4)", () => {
     expect(EXPOSURE_POLICY.institutional).toMatchObject({ word: "Extreme Value", capBps: 200, range: [100, 250] });
     expect(TIER_RANGES.R4[1]).toBe(100);
   });
-  it("V5 (spec §11): the consumer bands — Normal at $20K, four sequential quarters at $50K", () => {
+  it("V5 (spec §11), V7 Stage 13 (spec v3.0 §4): the consumer bands — Normal at $20K, Protected at $50K (one order by default; steps under a quarter when staged or asked)", () => {
     expect(EXPOSURE_POLICY.large).toMatchObject({ word: "Normal", capBps: null, activation: "none" });
     expect(EXPOSURE_POLICY["large-protected"]).toMatchObject({ word: "Protected", capBps: 2500, range: [2500, 5000], activation: "staged-or-opt-in" });
   });
@@ -106,5 +106,35 @@ describe("velocity (plan §62)", () => {
     expect(velocityExceeded(h, 600_000, 1_000_000, now)).toEqual({ exceeded: true, usedUsd: 500_000 });
     expect(velocityExceeded(h, 600_000, undefined, now).exceeded).toBe(false);
     expect(velocityExceeded(h, 600_000, 0, now).exceeded).toBe(false);
+  });
+});
+
+describe("the override (V7 Stage 13, spec v3.0 §4): the table is configurable, never silently", () => {
+  afterEach(() => useExposurePolicy(null));
+  it("a JSON row per tier replaces the compiled row field by field; the rest of the table stays; capBpsFor reads the table in force", () => {
+    const rows = exposurePolicyFrom({ "large-protected": { capBps: 2000, range: [2000, 4000] }, enhanced: { word: "Guarded" } });
+    expect(rows["large-protected"]).toEqual({ word: "Protected", capBps: 2000, range: [2000, 4000], activation: "staged-or-opt-in" });
+    expect(rows.enhanced).toEqual({ ...EXPOSURE_POLICY.enhanced, word: "Guarded" });
+    expect(rows["high-value"]).toEqual(EXPOSURE_POLICY["high-value"]);
+    useExposurePolicy(rows);
+    expect(exposurePolicy()).toBe(rows);
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R3" }).capBps).toBe(2000);
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R3", userCapBps: 5000 }).capBps, "clipped to the override's range").toBe(4000);
+    useExposurePolicy(null);
+    expect(exposurePolicy()).toBe(EXPOSURE_POLICY);
+    expect(capBpsFor({ tier: "large-protected", mode: "balanced", exposureTier: "R3" }).capBps).toBe(2500);
+  });
+  it("refuses what it cannot read, naming the field: an unknown tier, a stray field, a cap outside 1–10000 or outside its range, a bad range, a bad activation, no object", () => {
+    expect(() => exposurePolicyFrom({ whale: {} })).toThrow(/unknown tier "whale"/);
+    expect(() => exposurePolicyFrom({ enhanced: { cap: 1 } })).toThrow(/enhanced\.cap is not a field/);
+    expect(() => exposurePolicyFrom({ enhanced: { capBps: 0 } })).toThrow(/enhanced\.capBps/);
+    expect(() => exposurePolicyFrom({ enhanced: { capBps: 2.5 } })).toThrow(/enhanced\.capBps/);
+    expect(() => exposurePolicyFrom({ enhanced: { capBps: 600 } })).toThrow(/inside its range/);
+    expect(() => exposurePolicyFrom({ enhanced: { range: [500, 100] } })).toThrow(/enhanced\.range/);
+    expect(() => exposurePolicyFrom({ enhanced: { activation: "sometimes" } })).toThrow(/enhanced\.activation/);
+    expect(() => exposurePolicyFrom({ enhanced: null })).toThrow(/not a row/);
+    expect(() => exposurePolicyFrom([])).toThrow(/object keyed by tier/);
+    expect(() => exposurePolicyFrom("{}")).toThrow(/object keyed by tier/);
+    expect(exposurePolicyFrom({})).toEqual(EXPOSURE_POLICY);
   });
 });

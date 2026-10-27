@@ -14,12 +14,47 @@ export interface PolicyRow { word: string; capBps: number | null; range: [number
 export const EXPOSURE_POLICY: Record<Tier, PolicyRow> = {
   standard: { word: "Normal", capBps: null, range: null, activation: "none" },
   large: { word: "Normal", capBps: null, range: null, activation: "none" }, // V5 (spec §11): the Review and the lint, no split
-  "large-protected": { word: "Protected", capBps: 2500, range: [2500, 5000], activation: "staged-or-opt-in" }, // V5: at most four sequential steps of 25 %
+  "large-protected": { word: "Protected", capBps: 2500, range: [2500, 5000], activation: "staged-or-opt-in" }, // V5; V7 Stage 13 (spec v3.0 §4): one order by default, steps under 25 % when staged or asked
   enhanced: { word: "Protected", capBps: 500, range: [100, 500], activation: "staged-or-opt-in" },
   "high-value": { word: "High Value", capBps: 250, range: [100, 300], activation: "always" },
   "high-value-secondary": { word: "Very High Value", capBps: 250, range: [100, 300], activation: "always" },
   institutional: { word: "Extreme Value", capBps: 200, range: [100, 250], activation: "always" }, // inside the plan's 1–2.5 %
 };
+
+// V7 Stage 13 (spec v3.0 §4): the table is an engineering hypothesis, configurable — the service reads an optional override
+// (EXPOSURE_POLICY_FILE: a JSON object keyed by tier whose rows replace the compiled ones field by field) and nothing applies a
+// split at the $50K band because of the table alone. A malformed override refuses at start, naming the field, never silently.
+let active: Record<Tier, PolicyRow> = EXPOSURE_POLICY;
+/** The table in force: the compiled defaults, or the override installed with useExposurePolicy(). */
+export const exposurePolicy = (): Record<Tier, PolicyRow> => active;
+/** Installs an override (null: the compiled defaults again). */
+export function useExposurePolicy(rows: Record<Tier, PolicyRow> | null): void { active = rows ?? EXPOSURE_POLICY; }
+const ACTIVATIONS: PolicyRow["activation"][] = ["none", "staged-or-opt-in", "always"];
+const isBps = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x) && x >= 1 && x <= 10000;
+/** A table from JSON: every tier present is checked field by field (word, capBps, range, activation); a tier absent keeps its compiled row; anything else refuses. */
+export function exposurePolicyFrom(json: unknown): Record<Tier, PolicyRow> {
+  if (!json || typeof json !== "object" || Array.isArray(json)) throw new Error("exposure policy: an object keyed by tier is expected");
+  const out: Record<Tier, PolicyRow> = { ...EXPOSURE_POLICY };
+  for (const [tier, row] of Object.entries(json as Record<string, unknown>)) {
+    if (!(tier in EXPOSURE_POLICY)) throw new Error(`exposure policy: unknown tier "${tier}"`);
+    if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error(`exposure policy: ${tier} is not a row`);
+    const r = row as Record<string, unknown>;
+    for (const k of Object.keys(r)) if (!["word", "capBps", "range", "activation"].includes(k)) throw new Error(`exposure policy: ${tier}.${k} is not a field`);
+    const base = EXPOSURE_POLICY[tier as Tier];
+    const word = r.word === undefined ? base.word : r.word;
+    const capBps = r.capBps === undefined ? base.capBps : r.capBps;
+    const range = r.range === undefined ? base.range : r.range;
+    const activation = r.activation === undefined ? base.activation : r.activation;
+    if (typeof word !== "string" || !word.trim()) throw new Error(`exposure policy: ${tier}.word must be a word`);
+    if (capBps !== null && !isBps(capBps)) throw new Error(`exposure policy: ${tier}.capBps must be a whole number of basis points in 1–10000, or null`);
+    if (range !== null && !(Array.isArray(range) && range.length === 2 && isBps(range[0]) && isBps(range[1]) && range[0] <= range[1]))
+      throw new Error(`exposure policy: ${tier}.range must be [low, high] in basis points with low ≤ high, or null`);
+    if (capBps !== null && range !== null && ((capBps as number) < (range as number[])[0] || (capBps as number) > (range as number[])[1])) throw new Error(`exposure policy: ${tier}.capBps must lie inside its range`);
+    if (!ACTIVATIONS.includes(activation as PolicyRow["activation"])) throw new Error(`exposure policy: ${tier}.activation must be one of ${ACTIVATIONS.join(", ")}`);
+    out[tier as Tier] = { word, capBps: capBps as number | null, range: range as [number, number] | null, activation: activation as PolicyRow["activation"] };
+  }
+  return out;
+}
 
 /** The plan's §6 ranges per exposure tier, bps: what a route of that tier may ever expose at once. */
 export const TIER_RANGES: Record<ExposureTier, [number, number]> = { R0: [500, 1000], R1: [250, 500], R2: [250, 250], R3: [100, 250], R4: [100, 100] };
@@ -90,11 +125,12 @@ const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.m
  * "3 % only where the risk engine permits"). Below the enhanced tier the enhanced row applies (a campaign there is opt-in).
  */
 export function capBpsFor(i: CapInput): CapResult {
-  // V5 (spec §11): the $50K band is the consumer's protected execution — at most four sequential steps of a quarter. The
+  // V5 (spec §11), V7 Stage 13 (spec v3.0 §4): the $50K band is the consumer's Protected Large Swap — one order by default,
+  // protected steps of varied size (each under the quarter cap) only when staged or asked. The
   // §6 tier ceilings and the mode ceiling are the high-value layer's (bps of a $1M+ order) and do not apply here; an
   // unknown or high-risk route is not split finer but handed to the next route by the service.
   if (i.tier === "large-protected") {
-    const row = EXPOSURE_POLICY["large-protected"];
+    const row = exposurePolicy()["large-protected"];
     const range = row.range!;
     const reasons: string[] = [];
     let cap = row.capBps!;
@@ -106,9 +142,10 @@ export function capBpsFor(i: CapInput): CapResult {
     if (i.exposureTier === "R4") reasons.push("an unknown or high-risk route: protected execution takes the next healthy route rather than smaller pieces");
     return { capBps: cap, range, reasons };
   }
-  const row = EXPOSURE_POLICY[atLeast(i.tier, "enhanced") ? i.tier : "enhanced"]; // below enhanced the enhanced row still applies (a campaign there is opt-in)
-  const base = row.capBps ?? EXPOSURE_POLICY.enhanced.capBps!;
-  const rowRange = row.range ?? EXPOSURE_POLICY.enhanced.range!;
+  const policy = exposurePolicy();
+  const row = policy[atLeast(i.tier, "enhanced") ? i.tier : "enhanced"]; // below enhanced the enhanced row still applies (a campaign there is opt-in)
+  const base = row.capBps ?? policy.enhanced.capBps!;
+  const rowRange = row.range ?? policy.enhanced.range!;
   const tierMax = TIER_RANGES[i.exposureTier][1];
   const reasons: string[] = [];
   // the user may lower the cap anywhere; raise it above the band's default only on an R0 / R1 route, and never above the tier's maximum

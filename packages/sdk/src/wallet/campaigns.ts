@@ -52,6 +52,13 @@ export const childOrder = (t: Tranche, s: WalletSession = defaultSession): Store
 const randomId = (): string => "0x" + Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
 /** A uniform draw in [0, 1) from the CSPRNG (the tranche sizes, the cadence). */
 export function cryptoUniform(): number { const u = new Uint32Array(1); crypto.getRandomValues(u); return u[0] / 2 ** 32; }
+/** A seed for seededUniform, from the CSPRNG (V7 Stage 13). */
+export function cryptoSeed(): number { const u = new Uint32Array(1); crypto.getRandomValues(u); return u[0]; }
+/** A uniform source from a seed (mulberry32): the Review's dry run and the confirmed plan draw the same pieces (V7 Stage 13). */
+export function seededUniform(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
 
 /** The largest piece still to fund; the notes must pay it with the withdrawal's inputs, or the campaign shapes them first (§4). */
 export const largestPlanned = (c: Campaign): bigint => c.tranches.filter((t) => t.state === "planned" || t.state === "ready").reduce((m, t) => (BigInt(t.amount) > m ? BigInt(t.amount) : m), 0n);
@@ -140,8 +147,8 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const sizing = p.sizing ?? defaults.sizing;
   const maxParallel = p.concurrency === "sequential" ? 1 : Math.max(1, p.maxParallel);
   const rng = i.rng ?? cryptoUniform;
-  const exact = i.tier === "large-protected"; // V5 (spec §11): the consumer band's four sequential quarters
-  const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng, exact });
+  // V7 Stage 13 (spec v3.0 §4): the $50K band's steps are the planner's varied pieces too — the V5 exact quarters are withdrawn
+  const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng });
   const cap = (i.amount * BigInt(capBps)) / 10000n;
   // the rate per unit of what the set was asked for (c49): over the smaller steps amount, the whole order's minimum
   // overstated it, and every step paused at commit; and per unit paid to the provider when the set names the executor tip
@@ -161,7 +168,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const plan: TranchePlan = {
     riskClass: p.riskClass as TranchePlan["riskClass"], bandBps: band, capBps, sizing, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, gate: p.gate, cadenceSeconds: p.cadenceSeconds ?? defaults.cadenceSeconds,
     providerShareCapBps: p.concentration.singleVenue ? 10000 : Math.min(p.providerShareCapBps || 10000, i.providerShareCapBps ?? 10000), executeWindowSeconds: p.executeWindowSeconds, estimatedTranches: split.pieces.length, estimatedSeconds: p.estimatedSeconds,
-    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}), ...(exact ? { exact: true } : {}), // V5 (spec §11): the band's exact quarters survive a re-plan
+    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}),
   };
   // the reference rate (§3): the Chainlink cross-rate when both feeds exist, else the quote's expected rate (then the deviation check compares like with like only approximately)
   const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), quoted);

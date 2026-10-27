@@ -1,7 +1,7 @@
 // The Review (spec v2.0 §7.6, §7.9; doc §26, §31, §48, §51, §86–§87): nothing hidden — what you pay (USD and the
 // asset), what you receive and the minimum, every fee and the total, the destination, the protection —, then the one
-// confirmation: a tap below $50K, Hold to Confirm from $50K with the Protected execution checks (protection is automatic
-// there: no mode to choose). A cross-chain Review carries the one sentence on settlement not being atomic. A blocker
+// confirmation: a tap below $50K, Hold to Confirm from $50K with the Protected execution checks (V7 Stage 13, spec v3.0 §4: one
+// order by default — the card says so —, protected steps only when staged or asked). A cross-chain Review carries the one sentence on settlement not being atomic. A blocker
 // found between the Review and the signature replaces it: "We stopped this transaction", the reason, "Your funds have
 // not moved." Pure: the flows are wired under it in Stages 10–11 (V6 Stage 10: `hold` apart from `large` — a $60K send is
 // held without a swap's protected-execution checks — and an `extra` slot the flow fills with what its band adds: the
@@ -40,6 +40,8 @@ export interface ReviewModel {
   /** the band's own steps are not done yet (the lint acknowledged, the typed-in destination re-confirmed) */
   confirmDisabled?: boolean;
   blocked?: BlockerCode | null;
+  /** V7 Stage 13 (spec v3.0 §4): the protected steps planned (the plan staged, or asked under Advanced); absent or 1 = one order */
+  steps?: number | null;
 }
 export interface ReviewActions {
   onConfirm: () => void;
@@ -64,6 +66,8 @@ export const BLOCKER_WORDS: Record<BlockerCode, MessageKey> = {
   parameters_changed: "screen.review.blocker.parametersChanged",
   network_mismatch: "screen.review.blocker.networkMismatch",
   unsafe_contract_call: "screen.review.blocker.unsafeContractCall",
+  in_flight_limit: "screen.review.blocker.inFlightLimit",
+  route_not_qualified: "screen.review.blocker.routeNotQualified",
 };
 const LARGE_CHECKS: MessageKey[] = ["screen.review.large.destination", "screen.review.large.quote", "screen.review.large.route", "screen.review.large.limits"];
 
@@ -185,6 +189,9 @@ export function ReviewView({
                       ✓ {t(k)}
                     </li>
                   ))}
+                  <li data-state="ok" data-testid="review-large-order">
+                    ✓ {m.steps && m.steps > 1 ? t("screen.review.large.steps", { n: m.steps }) : t("screen.review.large.oneOrder")}
+                  </li>
                 </ul>
               </Card>
             ) : null}

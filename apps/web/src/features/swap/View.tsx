@@ -70,6 +70,12 @@ export interface SwapModel {
   notice?: string | null;
   /** Advanced (doc §29): the route's facts */
   details?: { provider: string; route: string; expected: Amount; fee: string; time: string; risk: string; privacy: string } | null;
+  /** V7 Stage 13 (spec v3.0 §4): over $100,000 in the Simple experience — the card with the switch to the Advanced experience */
+  gate?: { title: string; body: string; switchLabel: string } | null;
+  /** V7 Stage 13: the $50K–$100K band's exposure limit — one protected operation of the band at a time; the words while one runs */
+  limit?: string | null;
+  /** V7 Stage 13: the route's measured liquidity is below the amount (the service's `route_not_qualified`); the words */
+  routeLimit?: string | null;
   /** whether Review Swap can be taken (absent: a quote) */
   canReview?: boolean;
 }
@@ -84,6 +90,8 @@ export interface SwapActions {
   onDestination?: (v: string) => void;
   onFreshDestination?: () => void;
   onDelay?: (on: boolean) => void;
+  /** V7 Stage 13: the gate's switch — the Advanced experience on */
+  onAdvanced?: (on: boolean) => void;
   onMax?: () => void;
   onBack?: () => void;
 }
@@ -245,6 +253,29 @@ export function SwapView({
           {m.notice ? (
             <p className="ds-note-warn" data-testid="swap-large">
               {m.notice}
+            </p>
+          ) : null}
+          {m.gate ? (
+            <Card padding="md" testId="swap-advanced-gate">
+              <h2 className="ds-card-title">{m.gate.title}</h2>
+              <p className="ds-note">{m.gate.body}</p>
+              <Switch
+                id="swap-advanced-switch"
+                checked={false}
+                onCheckedChange={(v) => a.onAdvanced?.(v)}
+                label={m.gate.switchLabel}
+                testId="swap-advanced-switch"
+              />
+            </Card>
+          ) : null}
+          {m.limit ? (
+            <p className="ds-note-warn" role="status" data-testid="swap-in-flight">
+              {m.limit}
+            </p>
+          ) : null}
+          {m.routeLimit ? (
+            <p className="ds-note-warn" role="status" data-testid="swap-route-limit">
+              {m.routeLimit}
             </p>
           ) : null}
           {d ? (

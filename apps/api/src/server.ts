@@ -4,9 +4,11 @@
 // Env: PORT (8787), HOST (127.0.0.1), DB_PATH (api.sqlite), ALLOWED_ORIGINS, RELAYER_URL, RPC_URLS (also the engine's tip
 // and valuation reads), TLS (1 when the API terminates TLS itself: HSTS), RATE_PER_MINUTE (120), TRUST_PROXY_HOPS (the proxies in front of it; default none), API_VOUCH_KEY (the key that
 // vouches for the orders it commits and the calls it prepares, for the relayers; unset: none), SHIELD_FACTORY (the receipts
-// it vouches for), and the engine's own
+// it vouches for), EXPOSURE_POLICY_FILE (a JSON override of the exposure-policy table, V7 Stage 13), and the engine's own
 // (CHAIN_ID, SWAP_FACTORY, NATIVE_VAULT, ERC20_VAULTS, REFUND_WINDOW_SECONDS).
+import { readFileSync } from "node:fs";
 import { ASSETS, CHAINS } from "@privacy-wallet/config";
+import { exposurePolicyFrom, useExposurePolicy } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import { addressListSetting, createLogger, intSetting, originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit";
 import { voucherFrom } from "./vouch";
 
@@ -25,6 +27,9 @@ import { makeReads } from "./reads";
 import { Store } from "./store";
 
 const env = process.env;
+// V7 Stage 13 (spec v3.0 §4): the exposure-policy table is configurable — EXPOSURE_POLICY_FILE names a JSON object keyed by
+// tier whose rows replace the compiled ones field by field; a malformed file stops the start, naming the field
+if (env.EXPOSURE_POLICY_FILE) useExposurePolicy(exposurePolicyFrom(JSON.parse(readFileSync(env.EXPOSURE_POLICY_FILE, "utf8"))));
 const log = createLogger();
 const engine = defaultEngine();
 const store = new Store(openDb(env.DB_PATH ?? "api.sqlite"), log);

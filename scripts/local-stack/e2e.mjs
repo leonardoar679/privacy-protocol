@@ -11,7 +11,8 @@
 //   3. Send (public) $1K to a fresh address from the address book: the standard flow (a proof in the Web Worker, the
 //      relayer submits, the V6 Review's tap)
 //   4. Send (public) $120K: the enhanced Review (the V2–V4 screen: lint + the hold)
-//   5. Swap $850K ETH → BTC (enhanced), V6 Stage 11: the quote as the amount is typed → Review Swap (the V2–V4 commit
+//   5. Swap $850K ETH → BTC (enhanced; V7 Stage 13: the Simple experience first meets "Over $100,000 needs the Advanced
+//      experience" and its switch), V6 Stage 11: the quote as the amount is typed → Review Swap (the V2–V4 commit
 //      Review: five lines, lint, a hold) → ONE confirmation → the order runner funds the escrow (a private withdrawal),
 //      prepares the hard quote, checks the call, signs, simulates and hands it over with no second tap (a lower minimum
 //      waits for the user's choice; a refused one is tried again; else the funds return) → the executor → the tracker
@@ -22,10 +23,12 @@
 //      relayer watches from the hand-over; THORChain's outbound is the real router's transferOut (a 2300-gas send to the
 //      receiver); the relayer deploys the receiver and shields the delivery (the tip once, the rest as the committed
 //      note); the wallet finds the note and the progress ends on what was added
-//  8b. V6 Stage 13 (spec v2.0 §2, §7.6–§7.7; doc §49–§50, §87): an $80,000 ETH → BTC swap is protected automatically —
-//      no checkbox and no mode, the V6 Review's Protected execution checks and Hold to Confirm, ONE confirmation, the
-//      steps (the band's four quarters) on /swap/steps with amounts only; the runner funds, signs and hands over the first
-//      step by itself; "Return the rest" skips the steps not started
+//  8b. V7 Stage 13 (spec v3.0 §4; the owner's decision 3): an $80,000 ETH → BTC swap is a Protected Large Swap — ONE order by
+//      default: no checkbox, no mode, no Advanced gate; the V6 Review's Protected execution card says "One order — no automatic
+//      split"; Hold to Confirm; ONE confirmation commits one order (its progress page, never the steps page) and the runner
+//      funds the whole amount by itself — the relayer's job carries ≈ $80,000, never a quarter
+//  8c. V7 Stage 13: the band's exposure limit — a second $80,000 swap while the first is open names the limit and keeps Review
+//      Swap closed (one protected operation of the band in flight per wallet)
 //   8. V3: the $10M protected swap on the V5 screens — a separate device registered through a virtual authenticator, five
 //      more deposits, the protection line, the wizard, the campaign Review (the hold, the password fallback, the device),
 //      the runner through step 1, the dashboard, the global switch, Return the rest, a reload
@@ -782,9 +785,20 @@ try {
   await byId(page, "swap-view").waitFor({ timeout: 30_000 });
   await fillId(page, "amount-input", "200");
   await page.getByText(usdRe(200 * PRICE)).first().waitFor({ timeout: 30_000 });
+  // V7 Stage 13 (spec v3.0 §4; the owner's decision 4): over $100,000 the high-value layer is the Advanced experience's — the
+  // Simple experience meets the card with the switch; Review Swap stays closed until it is on
+  const gate = byId(page, "swap-advanced-gate");
+  await gate.waitFor({ timeout: 30_000 });
+  const gateText = await text(gate);
+  await snap(page, "swap-advanced-gate");
+  await waitQuote(page, "200"); // fetched as the amount was typed: no "Get a quote" step
+  check("over $100,000 in the Simple experience: \"Over $100,000 needs the Advanced experience\" with its switch, and Review Swap closed although a route is quoted", /Over \$100,000 needs the Advanced experience/.test(gateText) && (await byId(page, "swap-review").isDisabled()), gateText.slice(0, 160));
+  await clickId(page, "swap-advanced-switch");
+  await gate.waitFor({ state: "detached", timeout: 30_000 });
+  const reviewOpen = await until(page, async () => !(await byId(page, "swap-review").isDisabled()), 30_000);
+  check("the card's switch turns the Advanced experience on: the card is gone and Review Swap opens", !!reviewOpen);
   const destination = await byId(page, "destination-input").inputValue();
   check("the destination is a fresh Bitcoin address of this wallet", /^bc1q[0-9a-z]{38,}$/.test(destination), destination);
-  await waitQuote(page, "200"); // fetched as the amount was typed: no "Get a quote" step
   const quoteText = await text(byId(page, "swap-quote"));
   log(`the quote: ${quoteText.slice(0, 260)}`);
   check("the quote: the best protected route, the privacy, relayer and provider fees, the time (spec v2.0 §7.5)", /Best protected route/.test(quoteText) && /Privacy fee/.test(quoteText) && /Relayer/.test(quoteText) && /Swap\/provider/.test(quoteText) && /min/.test(quoteText), quoteText.slice(0, 200));
@@ -875,6 +889,10 @@ try {
     report.outcome.returned = job ? { orderId: job.id, escrow: job.escrow } : true;
     await snap(page, "returned-to-balance");
   }
+
+  // V7 Stage 13: the Simple experience again for the band's sections (the card's switch turned Advanced on)
+  await nav(page, "More"); await clickId(page, "more-settings"); await byId(page, "settings").waitFor();
+  await byId(page, "experience-toggle").uncheck();
 
   // 6. a reload: unlock, the order comes back from the encrypted journal; the runner carries on -------------------------------
   phase = "reload";
@@ -991,7 +1009,7 @@ try {
   // 8. the $10M protected swap (V3 on the V5 screens) ----------------------------------------------------------------------
   if (!process.env.SKIP_CAMPAIGN) { phase = "campaign"; await campaignRun(page); }
 
-  // 8b. V6 Stage 13: the $80K protected execution (after the $10M campaign, so the two never share its list) — automatic from $50K, amounts only -------------------------------------
+  // 8b. V7 Stage 13 (spec v3.0 §4; the owner's decision 3): the $80K Protected Large Swap — ONE order by default (after the $10M campaign, so the two never share its list) --------------
   {
     phase = "swap-80k";
     const sectionStart = Date.now();
@@ -1004,73 +1022,63 @@ try {
     await page.getByText(usdRe(80_000)).first().waitFor({ timeout: 30_000 });
     await waitQuote(page, amount80);
     const page80 = await text(page.locator("main"));
-    check("$80,000: no \"Protect this order\" and no protection mode to choose — the protection is automatic (doc §87)", (await byId(page, "protect-this-order").count()) === 0 && !/Protection mode|Max privacy|Max safety|Protect this order/i.test(page80), page80.slice(0, 200));
+    check("$80,000: no \"Protect this order\", no protection mode, no Advanced gate — the band's swap is open to the Simple experience", (await byId(page, "protect-this-order").count()) === 0 && !/Protection mode|Max privacy|Max safety/.test(page80) && (await byId(page, "swap-advanced-gate").count()) === 0 && (await byId(page, "swap-in-flight").count()) === 0);
     await clickId(page, "swap-review");
     const kind80 = await waitReview(page);
     const review80 = await text(page.locator("main"));
-    check("the $80K Review is the V6 one: Protected execution with its four checks (doc §49)", kind80 === "v6" && ["Protected execution", "Destination verified", "Quote locked", "Route health checked", "Execution limits enabled"].every((w) => review80.includes(w)), review80.slice(0, 300));
+    check("the $80K Review is the V6 one: Protected execution with its checks and \"One order — no automatic split\" (spec v3.0 §4)", kind80 === "v6" && ["Protected execution", "Destination verified", "Quote locked", "Route health checked", "Execution limits enabled", "One order — no automatic split"].every((w) => review80.includes(w)), review80.slice(0, 300));
     check("from $50K: Hold to Confirm, never a tap", (await byId(page, "hold-to-confirm").count()) === 1 && (await byId(page, "review-confirm").count()) === 0);
     await snap(page, "review-80k");
     await confirmReview(page);
-    await page.waitForURL(/\/swap\/steps\/0x[0-9a-f]{64}$/, { timeout: 60_000 });
-    const large80 = byId(page, "progress-large");
-    await large80.waitFor({ timeout: 30_000 });
-    const steps80 = await text(byId(page, "swap-steps"));
-    check("ONE confirmation starts the protected steps; the progress shows amounts only: $80,000 ETH → BTC, Completed / Executing / Remaining", /\$80,000(\.00)?/.test(steps80) && /ETH → BTC/.test(steps80) && ["Completed", "Executing", "Remaining"].every((w) => steps80.includes(w)) && !/Step \d|Tranche|of ~?\d/.test(steps80), steps80.slice(0, 220));
-    await snap(page, "steps-80k");
-    // the runner by itself: the first step funded (a proof), signed and handed over to the executor — its amount is Executing
-    // from the funding on (a funded step counts as executing), so the hand-over is read from the relayer's jobs
-    // the live market may pause the steps between the approval and a step's hard quote — the price moved ("Price changed"),
-    // or the approved provider gave no quote for a moment ("Liquidity dropped", V6 Stage 16's run: Chainflip answered
-    // nothing) — and a person resumes, as the $10M campaign's section does; the run says so each time (at most five)
-    // a resumed step starts its cycle again (quote, commit, fund, sign, hand over, one action per tick): a round in
-    // which the run pressed Resume earns another round (the 2026-10-14 final run's step came 10 s after one round)
-    let pauses = 0;
-    let firstJob = null;
-    for (let round = 0; round < 3 && !firstJob; round++) {
-      const before = pauses;
-      firstJob = await until(
+    await page.waitForURL(/\/swap\/progress\/r[0-9a-f]{32}$/, { timeout: 60_000 });
+    check("ONE confirmation commits ONE order: its progress page, never the steps page", /\/swap\/progress\//.test(page.url()) && !/\/swap\/steps\//.test(page.url()), new URL(page.url()).pathname);
+    await snap(page, "committed-80k");
+    // the runner funds the whole order by itself (a proof), prepares the hard quote, signs and hands it over: the relayer's swap
+    // job carries the order's full amount. The live market may move the minimum or refuse a hard quote on the way — the run
+    // answers as a person would (accepts, tries again), at most five times, and says so
+    let job80 = null;
+    let nudges = 0;
+    for (let round = 0; round < 3 && !job80; round++) {
+      const before = nudges;
+      job80 = await until(
         page,
         async () => {
-          const resume = byId(page, "swap-steps-resume");
-          if ((await resume.count()) && pauses < 5) {
-            pauses++;
-            log(`the steps paused before step 1's hand-over (${(await text(page.locator("main"))).slice(0, 140)}): Resume`);
-            await resume.first().click();
-            await large80.waitFor({ timeout: 30_000 }).catch(() => {});
+          if ((await byId(page, "swap-accept-minimum").count()) && nudges < 5) {
+            nudges++;
+            log("the live market moved the minimum: accepting the new one, as a person would");
+            await byId(page, "swap-accept-minimum").first().click();
+          } else if ((await byId(page, "swap-try-again").count()) && nudges < 5) {
+            nudges++;
+            log("the price guard refused the hard quote: trying again against a fresh quote");
+            await byId(page, "swap-try-again").first().click();
           }
-          return (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.execution) ?? null;
+          return (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0) ?? null;
         },
         PROOF_TIMEOUT,
       );
-      if (pauses === before) break; // no resume in this round: waiting longer would not help
+      if (nudges === before) break; // nothing answered in this round: waiting longer would not help
     }
-    if (pauses) log(`step 1 ${firstJob ? "went ahead" : "did not go ahead"} after ${pauses} resume(s)`);
-    // a funded step whose route the requote replaced returns through its refund-only job, which waits for the escrow's
-    // window while the band's one-quarter cap holds the next step (audit gap 44, the 2026-10-14 quick pass): named, not guessed
-    const refundOnly = firstJob ? null : (await jobsOfThisRun()).find((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && j.state === "refund-only");
-    if (refundOnly) log(`step 1's order ${refundOnly.id.slice(0, 18)}… went refund-only: the requote adopted another route, and its refund waits for the escrow's window (audit gap 44)`);
-    // a step that never went ahead (a provider down for the whole wait) is this section's failure, not the run's end
-    const progress80 = await text(large80).catch(() => "");
-    const executing = /Executing\s*\$[1-9][\d,]*\.\d\d/.test(progress80) ? progress80 : null;
-    check("the first step was funded, signed and handed over with no second tap; its amount is Executing", !!executing && !!firstJob, `${(executing ?? (progress80 || (await text(page.locator("main")).catch(() => "")))).slice(0, 160)} | job ${firstJob?.id?.slice(0, 18) ?? (refundOnly ? "none: step 1 went refund-only after a route change (audit gap 44)" : "none")}…`);
-    if (firstJob) {
-      const quarter = Number(BigInt(firstJob.params.amount)) / 1e18;
-      check("the step is a quarter of the order (the band's limit: one quarter in flight), on the route approved", Math.abs(quarter * PRICE - 20_000) < 400, `${quarter.toFixed(4)} ETH ≈ $${Math.round(quarter * PRICE)}`);
-    }
-    await snap(page, "steps-80k-executing");
-    // Return the rest: the steps not started are skipped; the one in flight finishes first (THORChain never settles here).
-    // "Nothing more" is counted from the jobs there are when Return is pressed (a step may land just as the wait ends)
-    // a hand-over is a job with an execution: a step funded and never handed over returns through a refund-only job
-    const handOvers = async () => (await jobsOfThisRun()).filter((j) => Number(j.createdAt ?? 0) >= sectionStart && Number(j.params?.assetType) === 0 && !!j.execution).length;
-    const jobsAtReturn = await handOvers();
-    await clickId(page, "swap-steps-return");
-    await textAppears(page, "Returning the rest", 30_000);
-    await page.waitForTimeout(20_000); // a runner tick or two: nothing more may be handed over
-    const jobsAfter = await handOvers();
-    check("Return the rest: nothing more is handed over (the step in flight finishes first)", jobsAfter === jobsAtReturn && jobsAfter <= 1, `${jobsAfter} hand-overs for this order (${jobsAtReturn} when Return was pressed)`);
-    await snap(page, "steps-80k-returning");
-    report.outcome.protectedSteps = { firstJob: firstJob?.id ?? null };
+    const eth80 = job80 ? Number(BigInt(job80.params.amount)) / 1e18 : null;
+    check("the order is funded as one piece: the relayer's job carries ≈ $80,000 of ETH (the amount less its fees), never a quarter — no silent split", eth80 !== null && Math.abs(eth80 * PRICE - 80_000) < 1_600, eth80 !== null ? `${eth80.toFixed(4)} ETH ≈ $${Math.round(eth80 * PRICE)} (${job80.state})` : `no swap job of this order within the wait (${await orderWords(page)})`);
+    await snap(page, "progress-80k");
+    report.outcome.protectedLargeSwap = { job: job80?.id ?? null, state: job80?.state ?? null };
+  }
+
+  // 8c. V7 Stage 13: the band's exposure limit — one protected operation of the band in flight per wallet (spec v3.0 §4) -------------
+  {
+    phase = "swap-80k-limit";
+    await nav(page, "Home");
+    await byId(page, "home").waitFor({ timeout: 30_000 });
+    await nav(page, "Swap");
+    await byId(page, "swap-view").waitFor({ timeout: 30_000 });
+    const amount80 = (Math.ceil((80_000 / PRICE) * 1e6) / 1e6).toFixed(6);
+    await fillId(page, "amount-input", amount80);
+    await page.getByText(usdRe(80_000)).first().waitFor({ timeout: 30_000 });
+    const limit = byId(page, "swap-in-flight");
+    await limit.waitFor({ timeout: 30_000 });
+    const limitText = await text(limit);
+    check("a second $80,000 while the first is open: the exposure limit names it and Review Swap stays closed (one protected operation of the band at a time)", /One protected swap of this size at a time/.test(limitText) && (await byId(page, "swap-review").isDisabled()), limitText.slice(0, 160));
+    await snap(page, "swap-80k-in-flight");
   }
 
   // 9. the viewport matrix: the shell screens per viewport, then under the pseudo-locale ---------------------------------------

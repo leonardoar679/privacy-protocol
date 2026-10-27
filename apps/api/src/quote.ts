@@ -1,7 +1,8 @@
 // The §46 quote (doc §45–§46; spec v2.0 §13.2): the engine's chosen route as one Quote — the amounts, every fee in the
 // source asset (the privacy fee by the formula of what the user pays — `grossAmount`, V7 Stage 12 —, the relayer's F from its terms plus the executor tip, the provider's own
 // fees in the source asset; a fee the provider takes in another asset is already in the rate), the expiry, the time, the
-// route-only privacy assessment and assessRisk. Indicative: the wallet stays canonical for money (it computes the
+// route-only privacy assessment and assessRisk — with the route's measured liquidity (V7 Stage 13, spec v3.0 §4: an order
+// above the risk database's servedUpToUsd carries `route_not_qualified`). Indicative: the wallet stays canonical for money (it computes the
 // escrow's W with its own relayer terms, spec v2.0 §3). V6 Stage 12: into the protected balance, the expected and minimum
 // output are what the note receives — the delivery less the shield tip, which is in the output asset (in the rate).
 import { assetOn } from "@privacy-wallet/config";
@@ -41,6 +42,8 @@ export interface QuoteFacts {
   healthy: (provider: string) => boolean;
   chainId: number;
   now: number;
+  /** V7 Stage 13 (spec v3.0 §4): the route's measured liquidity (the risk database's servedUpToUsd); null when unmeasured */
+  routeLimitUsd?: number | null;
 }
 
 /** The §46 quote of the chosen route; null when nothing was chosen or an asset is not in the registry. */
@@ -77,6 +80,7 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     execution: { steps: chosen.plan && chosen.plan.mode !== "single" ? Math.min(chosen.plan.parts, 4) : 1, crossChain: req.from.chain !== req.to.chain },
     ...(set.value && "usd" in set.value ? { usd: set.value.usd } : {}),
     largeTrade: !!tier && atLeast(tier, "large-protected"),
+    route: { limitUsd: f.routeLimitUsd ?? null },
   });
   return {
     id: f.id,
