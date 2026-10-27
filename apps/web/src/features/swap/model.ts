@@ -120,6 +120,25 @@ export function stepsAmountAtFixedPoint(units: bigint, terms: FeeTerms | null, c
 export const chosenQuoteOf = (q: QuoteSet | null): ServiceQuote | null =>
   q?.chosen ? (q.quotes.find((x) => x.provider === q.chosen!.provider) ?? null) : null;
 
+/**
+ * The provider's fees in cents (the policy's rule 1, V7 Stage 12): a fee in the source asset from its price in integer math;
+ * one in another asset from the provider's own dollar figure, the one number here that is not ours (rounded to cents).
+ */
+export function providerFeeCents(
+  fees: readonly { asset: string; decimals?: number; amount?: string; usd?: number }[] | undefined,
+  symbol: string,
+  decimals: number,
+  usd1e8: bigint | null,
+): bigint {
+  let cents = 0n;
+  for (const x of fees ?? []) {
+    if (x.asset === symbol && x.decimals === decimals && usd1e8 !== null && typeof x.amount === "string" && /^\d+$/.test(x.amount))
+      cents += centsOf(BigInt(x.amount), decimals, usd1e8);
+    else if (typeof x.usd === "number" && Number.isFinite(x.usd)) cents += BigInt(Math.round(x.usd * 100));
+  }
+  return cents;
+}
+
 /** The quote's lines (spec v2.0 §3): what arrives and the three fees in cents — never a float, always the one split. */
 export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   const quote = chosenQuoteOf(f.quotes);
@@ -130,8 +149,7 @@ export function quoteLines(f: QuoteFacts): SwapModel["quote"] {
   // the tip were paid; it says them in the input asset instead, as the Review does
   const cents = (u: bigint) => (f.from.usd1e8 !== null ? centsOf(u, f.from.decimals, f.from.usd1e8) : null);
   const inAsset = (u: bigint) => amountOf(u, f.from.symbol, f.from.decimals);
-  const providerUsd = (quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0);
-  const providerCents = BigInt(Math.round(providerUsd * 100));
+  const providerCents = providerFeeCents(quote.fees, f.from.symbol, f.from.decimals, f.from.usd1e8);
   const level: Level = f.privacy?.level ?? "medium";
   const funding = fundingSeconds(f.proofMs);
   const eta: [number, number] = [quote.etaSeconds + funding[0], quote.etaSeconds + funding[1]];

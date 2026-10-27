@@ -76,6 +76,8 @@ export interface PrivacyCenterActions {
   onLearnMore?: () => void;
   /** More → Advanced (the protection's opt-out, the reads, the submission) */
   onSettings?: () => void;
+  /** "Fees & refunds" — the published policy in the app (V7 Stage 12) */
+  onFees?: () => void;
 }
 
 function Row({ r }: { r: CenterRow }) {
@@ -186,6 +188,11 @@ export function PrivacyCenterView({
                 {s.id === "network" && a.onLearnMore ? (
                   <TextButton icon="chevron-right" onClick={a.onLearnMore} data-testid="learn-more">
                     {t("privacyCenter.learnMore")}
+                  </TextButton>
+                ) : null}
+                {s.id === "transaction" && a.onFees ? (
+                  <TextButton icon="chevron-right" onClick={a.onFees} data-testid="fees-and-refunds-link">
+                    {t("privacyCenter.feesAndRefunds")}
                   </TextButton>
                 ) : null}
               </div>

@@ -47,6 +47,11 @@ export interface ExecutionBounds {
   expiry: number;
   /** the tip plus the relayer fee ceiling per tranche, bps of the tranche */
   maxFeeBps: number;
+  /**
+   * V7 (spec v3.0 §3): the relayer's F the Review showed, source base units — each piece's funding never pays more than its
+   * privacy share plus this (`StoredSwap.reviewedFee`, the Review's `F × n`); absent on a campaign from before
+   */
+  maxRelayerFee?: string;
   privacyMode: ProtectionMode;
   /** the in-flight cap in base units (§5) */
   maxExternalExposure: string;

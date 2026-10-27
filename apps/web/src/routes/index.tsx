@@ -70,6 +70,7 @@ export function buildRoutes({ preview = false, deployment }: { preview?: boolean
     { path: "privacy", lazy: load(moreRoutes, (m) => m.PrivacyRoute) },
     { path: "privacy/advanced", lazy: load(moreRoutes, (m) => () => <m.PrivacyRoute advanced />) },
     { path: "privacy/what-stays-private", lazy: load(moreRoutes, (m) => m.WhatStaysPrivateRoute) },
+    { path: "privacy/fees", lazy: load(moreRoutes, (m) => m.FeesRoute) }, // V7 Stage 12: Fees & refunds
     { path: "settings", lazy: load(() => import("../features/settings/Settings"), (m) => m.SettingsRoute) },
     { path: "settings/advanced", lazy: load(moreRoutes, (m) => m.AdvancedRoute) },
     // … and every old More path redirects to its new home (bookmarks and the auto-lock's return path keep working)

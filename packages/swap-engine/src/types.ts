@@ -32,6 +32,8 @@ export interface QuoteRequest {
   from: AssetRef;
   to: AssetRef;
   amount: bigint; // in `from` base units
+  /** V7 (spec v3.0 §3): what the user pays — the privacy fee's basis; absent, `amount` is taken for it (the §46 quote states p of this, never of the escrow's funding) */
+  grossAmount?: bigint;
   /** the fresh destination address (spec §6); at phase 1 the engine substitutes a placeholder (whale spec §5) */
   destination: string;
   /** the one-time source endpoint when known (escrow address); providers that pull need it */

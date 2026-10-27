@@ -1,5 +1,5 @@
 // The §46 quote (doc §45–§46; spec v2.0 §13.2): the engine's chosen route as one Quote — the amounts, every fee in the
-// source asset (the privacy fee by the formula, the relayer's F from its terms plus the executor tip, the provider's own
+// source asset (the privacy fee by the formula of what the user pays — `grossAmount`, V7 Stage 12 —, the relayer's F from its terms plus the executor tip, the provider's own
 // fees in the source asset; a fee the provider takes in another asset is already in the rate), the expiry, the time, the
 // route-only privacy assessment and assessRisk. Indicative: the wallet stays canonical for money (it computes the
 // escrow's W with its own relayer terms, spec v2.0 §3). V6 Stage 12: into the protected balance, the expected and minimum
@@ -51,8 +51,10 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     dst = registryAsset(req.to);
   if (!chosen || !src || !dst) return null;
   const tip = BigInt(set.executorTip ?? chosen.executorTip ?? 0n);
-  const p = privacyFee(req.amount, PRIVACY_FEE_BPS);
-  const relayer = relayerMinimum(f.terms, req.from) + tip;
+  const gross = req.grossAmount ?? req.amount; // what the user pays: p(A), never p(W) of the escrow's funding (spec v3.0 §3)
+  const p = privacyFee(gross, PRIVACY_FEE_BPS);
+  const minimum = relayerMinimum(f.terms, req.from);
+  const relayer = minimum + tip;
   const provider = chosen.fees.filter((x) => x.asset === req.from.symbol && x.decimals === req.from.decimals).reduce((s, x) => s + BigInt(x.amount), 0n);
   const score = set.scores.find((s) => s.provider === chosen.provider);
   const link = set.links[chosen.provider];
@@ -80,13 +82,20 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     id: f.id,
     sourceAsset: src,
     destinationAsset: dst,
-    inputAmount: req.amount.toString(),
+    inputAmount: gross.toString(),
     expectedOutput: (chosen.toAmount - (chosen.shieldTip ?? 0n)).toString(),
     minimumOutput: (chosen.toAmountMin - (chosen.shieldTip ?? 0n)).toString(),
     privacyFee: p.toString(),
     relayerFee: relayer.toString(),
     providerFee: provider.toString(),
     totalFee: (p + relayer + provider).toString(),
+    feeTerms: {
+      privacyFeeBps: PRIVACY_FEE_BPS,
+      relayerFee: minimum.toString(),
+      executorTip: tip.toString(),
+      maxFee: (p + relayer).toString(),
+      termsAt: Math.floor(f.now / 1000),
+    },
     expiresAt: chosen.expiresAt,
     estimatedSeconds: Math.max(chosen.etaSeconds, chosen.plan?.expectedSeconds ?? 0),
     privacy: {

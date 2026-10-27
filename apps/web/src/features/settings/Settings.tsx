@@ -51,6 +51,7 @@ export function Settings({
   onReceive,
   onAdvanced,
   onConnect,
+  onFees,
 }: {
   deployment: Deployment | null;
   /** the location's hash: `#wallet` scrolls to the Connected wallet section */
@@ -58,6 +59,8 @@ export function Settings({
   onBack?: () => void;
   onReceive: () => void;
   onAdvanced: () => void;
+  /** Fees & refunds — the published policy (V7 Stage 12) */
+  onFees?: () => void;
   /** opens the connector picker (the shell's sheet); without it the first wallet of the browser connects */
   onConnect?: () => void;
 }) {
@@ -105,6 +108,11 @@ export function Settings({
         </Section>
         <Section id="trading">
           <TradePreferenceSection />
+          {onFees ? (
+            <Card padding="md" testId="fees-card">
+              <ListRow title={t("settings.feesAndRefunds")} subtitle={t("settings.feesAndRefundsWhy")} leading={<Icon name="recovery" />} onPress={onFees} testId="settings-fees" />
+            </Card>
+          ) : null}
         </Section>
         <Section id="language">
           <LanguageSection />
@@ -161,6 +169,7 @@ export function SettingsRoute() {
       onBack={() => navigate(-1)}
       onReceive={() => navigate("/receive")}
       onAdvanced={() => navigate("/settings/advanced")}
+      onFees={() => navigate("/privacy/fees")}
       onConnect={shell ? () => shell.openConnect() : undefined}
     />
   );

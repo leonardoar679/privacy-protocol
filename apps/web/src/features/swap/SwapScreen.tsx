@@ -75,6 +75,7 @@ import {
   quoteLines,
   routeDetails,
   shieldTipOf,
+  providerFeeCents,
 } from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
@@ -200,6 +201,7 @@ export function SwapScreen(p: SwapScreenProps) {
               from: refOf(fromAsset),
               to: to.ref,
               amount: (split ? split.delivered : units).toString(),
+              grossAmount: units.toString(), // what the user pays: the §46 quote states p of this, not of the escrow's funding (spec v3.0 §3)
               destination: "", // the engine quotes a placeholder: the destination is sent at the confirmation (spec v2.0 §13.2)
               slippageBps: controls.strictQuote ? cappedSlippageBps(50) : 50,
               preference,
@@ -298,6 +300,7 @@ export function SwapScreen(p: SwapScreenProps) {
         destination: destinationPolicy,
         usd,
         capBps: protection.capBps,
+        terms, // the relayer's F at the Review bounds every piece's funding (spec v3.0 §3; V7 Stage 12)
         now,
         rng: () => 0.5,
       });
@@ -746,7 +749,7 @@ export function SwapScreen(p: SwapScreenProps) {
     const split = terms ? swapFunding(units, terms) : { privacy: 0n, network: 0n, delivered: units };
     const tip = BigInt(quotes.executorTip ?? "0");
     const stepsN = BigInt(stepsPlan?.n ?? 1); // a protected execution's steps each pay the relayer's F and their tip
-    const providerCents = BigInt(Math.round((quote.fees ?? []).reduce((s, x) => s + (typeof x.usd === "number" ? x.usd : 0), 0) * 100));
+    const providerCents = providerFeeCents(quote.fees, fromAsset.symbol, fromAsset.decimals, price?.usd1e8 ?? null); // integer cents (the policy's rule 1)
     const privacyCents = cents(split.privacy);
     // into the protected balance the relayer also gets the shield tip, in the output asset: what arrives is the delivery less it
     const shieldTip = intoProtected ? shieldTipOf(quotes) : 0n;
@@ -765,6 +768,7 @@ export function SwapScreen(p: SwapScreenProps) {
           : []),
         {
           kind: "relayer" as const,
+          ...(stepsN > 1n ? { count: Number(stepsN) } : {}), // F × n: the Review names the steps (spec v3.0 §3)
           usdCents: relayerCents,
           amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
           ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),

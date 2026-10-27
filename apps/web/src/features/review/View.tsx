@@ -17,7 +17,7 @@ export type Level = "high" | "medium" | "low";
 export interface ReviewFee {
   /** `merges`: the merges a spend of three notes or more needs first, each paying the relayer (audit round 2, r43) */
   kind: "privacy" | "relayer" | "provider" | "merges";
-  /** how many merges */
+  /** how many merges; for `relayer`, the steps of a protected execution each paying F (V7 Stage 12: the row reads F × n) */
   count?: number;
   usdCents: bigint | null;
   amount?: Amount;
@@ -147,9 +147,20 @@ export function ReviewView({
       title: t("screen.review.fees"),
       testId: "review-fees",
       rows: [
-        ...m.fees.map((f) => ({ label: t(FEE[f.kind], { n: f.count ?? 1 }), value: fee(f), testId: `review-fee-${f.kind}` })),
+        ...m.fees.map((f) => ({
+          label: f.kind === "relayer" && (f.count ?? 1) > 1 ? t("screen.review.relayerFeeSteps", { n: f.count ?? 1 }) : t(FEE[f.kind], { n: f.count ?? 1 }),
+          value: fee(f),
+          testId: `review-fee-${f.kind}`,
+        })),
         { label: t("screen.review.totalFees"), value: m.totalFeesUsdCents !== null ? <Usd cents={m.totalFeesUsdCents} /> : "—", testId: "review-total-fees" },
       ],
+      // the fee policy's statement (spec v3.0 §3, doc §6; V7 Stage 12): once per operation — and a swap of protected funds pays again
+      note: (
+        <span data-testid="review-fee-statement">
+          {t("screen.review.feeStatement")}
+          {m.kind === "swap" || m.kind === "cross-chain" ? ` ${t("screen.review.feeAgain")}` : ""}
+        </span>
+      ),
     },
   ];
   return (

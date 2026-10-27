@@ -15,6 +15,8 @@ export interface ReviewRow {
 export interface ReviewSection {
   title?: string;
   rows: ReviewRow[];
+  /** a sentence under the rows (V7 Stage 12: the fee statement) */
+  note?: ReactNode;
   testId?: string;
 }
 
@@ -55,6 +57,11 @@ export function ReviewLayout({
               </div>
             ))}
           </dl>
+          {s.note ? (
+            <p className="ds-note" data-testid={s.testId ? `${s.testId}-note` : undefined}>
+              {s.note}
+            </p>
+          ) : null}
         </Card>
       ))}
       {notices ? <div className="ds-review-notices">{notices}</div> : null}

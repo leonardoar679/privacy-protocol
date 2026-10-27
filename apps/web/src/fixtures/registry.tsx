@@ -179,7 +179,7 @@ export const FIXTURES: readonly Fixture[] = [
   // V7 Stage 4 (spec v3.0 §2): More = Tornado Classic · Privacy Center · Settings; one Settings page; the connector picker
   screen("more", "More — Tornado Classic, the Privacy Center, Settings", () => inShell("/more", <MoreView experience="simple" onOpen={noop} />)),
   screen("settings", "Settings — the sections, on a fresh wallet", () =>
-    inShell("/settings", <Settings deployment={null} onReceive={noop} onAdvanced={noop} onConnect={noop} />),
+    inShell("/settings", <Settings deployment={null} onReceive={noop} onAdvanced={noop} onConnect={noop} onFees={noop} />),
   ),
   // the sheet alone is the image (a full page under an open dialog changes height between runs)
   screen(
@@ -306,10 +306,16 @@ export const FIXTURES: readonly Fixture[] = [
   // Activity, the detail, recovery (§7.8)
   // V6 Stage 14 (spec v2.0 §7.10): the Privacy Center's seven sections
   screen("privacy-center", "Privacy Center — protected", () =>
-    inShell("/more", <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.protected} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop }} />),
+    inShell(
+      "/more",
+      <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.protected} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop, onFees: noop }} />,
+    ),
   ),
   screen("privacy-center-entered", "Privacy Center — an entered destination, one read endpoint", () =>
-    inShell("/more", <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.entered} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop }} />),
+    inShell(
+      "/more",
+      <PrivacyCenterView model={PRIVACY_CENTER_FIXTURES.entered} actions={{ onBack: noop, onLearnMore: noop, onSettings: noop, onFees: noop }} />,
+    ),
   ),
   screen("activity", "Activity", () => <Activity state="list" />),
   screen("activity-empty", "Activity — empty", () => <Activity state="empty" />),

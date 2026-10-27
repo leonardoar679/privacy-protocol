@@ -219,7 +219,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       const split = terms ? swapFunding(units, terms) : null;
       if (split?.tooSmall) throw new Error(t("swap.tooSmallForFees"));
       setFunding(terms && split ? { amount: units, terms, split } : null);
-      return swapService.quote({ ...request(), amount: (split ? split.delivered : units).toString() });
+      return swapService.quote({ ...request(), amount: (split ? split.delivered : units).toString(), grossAmount: units.toString() }); // p(A) of what the user pays (spec v3.0 §3)
     });
     if (set) setQuotes(set);
   }
@@ -327,7 +327,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const ctx: SwapContext = { t, quotes: quotes!, fromAsset, to, units, usd, tier, controls, policy, preference, destination, destinationEdited, parsedOk: parsedDestination?.ok === true, destAck, routeAck, destCheck, destinationLocked, lintItems: null, protection: { mode: protection.mode, capBps: protection.capBps }, relayerFee };
   const lineDraft = (() => {
     if (!campaignMode || !protectionPlan || !quotes?.chosen) return null;
-    try { return buildCampaign({ quotes, provider: protectionPlan.provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" }, usd, capBps: protection.capBps, now: Date.now(), rng: () => 0.5 }); } catch { return null; }
+    try { return buildCampaign({ quotes, provider: protectionPlan.provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" }, usd, capBps: protection.capBps, terms: funding?.terms ?? null, now: Date.now(), rng: () => 0.5 }); } catch { return null; }
   })();
   useEffect(() => { if (review?.moment === "campaign" && submission.kind === "relayer") relayerInfo(submission.url).then((i) => setRelayerFee(BigInt(i.minFeeWei))).catch(() => setRelayerFee(null)); }, [review?.moment, submission]);
   const orderAsset = stored ? assetOf(stored) : fromAsset;
@@ -358,7 +358,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     // the steps and each step's fee note spend at most what was typed (the audit round of 2026-10-16, c50): every step's funding
     // pays its own p + F, so the steps run what as many fundings as the plan can have deliver — as on the band's Swap screen —
     // and the price bound is per unit of the funding the set was quoted for
-    const base = { quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps };
+    const base = { quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps, terms: funding?.terms ?? null };
     // the smallest pieces: the most steps an amount can make, read again for the steps' own amount (a lower one can make more)
     const countFor = (amount: bigint) => { try { return buildCampaign({ ...base, amount, now, rng: () => 0 }).tranches.length; } catch { return 1; } };
     const amount = funding ? stepsAmountAtFixedPoint(units, funding.terms, countFor).amount : units;

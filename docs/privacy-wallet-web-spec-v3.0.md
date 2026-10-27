@@ -119,6 +119,21 @@ and Settings links; `apps/api/src/quote.ts` (`p(A)`); `packages/protocol-types/s
 `packages/sdk/src/wallet/campaignRunner.ts` and `packages/sdk/src/swapFunding.ts` (the pieces' `reviewedFee`);
 `apps/web/src/features/swap/model.ts` (integer USD lines).
 
+**As landed (Stage 12, 2026-10-27).** `docs/fee-policy.md` is the published policy — the 1 % and its rounding, once per
+operation, a Protect then a Swap paying twice, the relayer's cost as a bound (the pieces of a protected execution
+included), the executor tip as gas, the swap's privacy fee earned at funding and the swapped amount returned without it,
+when nothing is charged, Classic apart, the eight rules — and `apps/web/src/features/privacy-center/FeesAndRefunds.tsx`
+says the same in the app (English and Korean) at `/privacy/fees`, reached from the Privacy Center's transaction section
+and from Settings' trading section as "Fees & refunds". Every Review's fee section ends with the statement *Privacy fee
+(1 %) — charged on each protect, send and swap.* and a swap's with *Your funds paid 1 % when they were protected; this swap
+pays 1 % again.*; a protected execution's relayer row reads *Relayer/network (n steps)* for `F × n`. The §46 quote states
+`p(A)` of what the user pays — the wallet sends `grossAmount` beside the escrow's `amount` — and carries `feeTerms`
+(the basis points, `F`, the tip, their sum as the bound, when they were read). The campaign's bounds record the Review's
+`F` (`maxRelayerFee`) and each piece's order is committed with `reviewedFee` = its privacy share plus that `F`, so a
+piece's funding never pays more (`stepReviewedFee`); a campaign from before stays as it was. The swap screen's provider
+fee is integer cents from the price where the fee is in the source asset (the provider's own dollar figure only for a fee
+in another asset). The fee code itself is unchanged: the formulas and the enforcement are v2.0 §3's.
+
 ## 4. The amount policy (doc §8) — *Stage 13* (supersedes v2.0 §2; the owner's decisions 3 and 4 of §22)
 
 | Doc §8 band | Tier (code) | Behaviour |

@@ -17,12 +17,15 @@ export function PrivacyCenter({
   onBack,
   onLearnMore,
   onSettings,
+  onFees,
   defaultAdvanced = false,
 }: {
   deployment: Deployment | null;
   onBack?: () => void;
   onLearnMore?: () => void;
   onSettings?: () => void;
+  /** Fees & refunds (V7 Stage 12) */
+  onFees?: () => void;
   defaultAdvanced?: boolean;
 }) {
   const posture = usePosture(deployment);
@@ -45,5 +48,5 @@ export function PrivacyCenter({
     purposes: listedPurposes(privateAi()),
     poolNotes: stats ? stats.notes : null,
   });
-  return <PrivacyCenterView model={model} actions={{ onBack, onLearnMore, onSettings }} defaultAdvanced={defaultAdvanced} />;
+  return <PrivacyCenterView model={model} actions={{ onBack, onLearnMore, onSettings, onFees }} defaultAdvanced={defaultAdvanced} />;
 }

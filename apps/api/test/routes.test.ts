@@ -28,6 +28,7 @@ describe("quotes", () => {
       "estimatedSeconds",
       "expectedOutput",
       "expiresAt",
+      "feeTerms",
       "id",
       "inputAmount",
       "minimumOutput",
@@ -44,6 +45,14 @@ describe("quotes", () => {
     expect(q.privacyFee, "1 % of the input, rounded up").toBe((10n ** 16n).toString());
     expect(q.relayerFee, "F = the relayer's minimum + 10 %, plus the executor tip").toBe((11n * 10n ** 14n + 25n * 10n ** 14n).toString());
     expect(BigInt(q.totalFee)).toBe(BigInt(q.privacyFee) + BigInt(q.relayerFee) + BigInt(q.providerFee));
+    // V7 Stage 12 (spec v3.0 §3, doc §6 rule 2): the terms the quote is bound to — F alone, the tip alone, their sum with p as the bound
+    expect(q.feeTerms).toEqual({
+      privacyFeeBps: 100,
+      relayerFee: (11n * 10n ** 14n).toString(),
+      executorTip: (25n * 10n ** 14n).toString(),
+      maxFee: (BigInt(q.privacyFee) + BigInt(q.relayerFee)).toString(),
+      termsAt: expect.any(Number),
+    });
     expect(q.sourceAsset.symbol).toBe("ETH");
     expect(q.destinationAsset.symbol).toBe("BTC");
     expect(Object.keys(q.risk).sort()).toEqual(["blockers", "level", "score", "warnings"]);

@@ -31,7 +31,7 @@ import { ApiError } from "../api/client";
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
 import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
-import { campaignById, childOrder, expectedOut, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, cryptoUniform, TERMINAL_STATES } from "./campaigns";
+import { campaignById, childOrder, expectedOut, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, cryptoUniform, TERMINAL_STATES } from "./campaigns";
 import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
@@ -137,6 +137,8 @@ export function defaultIo(d: IoDeps): CampaignIo {
         masterSeed: d.masterSeed, deployment: d.deployment, session: d.session,
         request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, destinationKind: entered ? "entered" : "fresh", preferNative: c.request.preference === "native", mode: c.mode, executeWindowSeconds: c.bounds.executeWindowSeconds },
         policy: (c.policy ?? "balanced") as never, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
+        // V7 (spec v3.0 §3): the piece's funding pays at most its privacy share plus the relayer's F the Review showed (the Review's F × n)
+        ...(stepReviewedFee(c.bounds, BigInt(t.amount)) !== undefined ? { reviewedFee: stepReviewedFee(c.bounds, BigInt(t.amount)) } : {}),
         // V6 Stage 13: at the $50K band every step takes the route the user approved (a smaller piece of the same route keeps
         // or betters its rate); above it the competition at the step's size decides and a change is reviewed (V3 §8)
         ...(c.tier === "large-protected" && c.provider ? { provider: c.provider } : {}),

@@ -19,6 +19,8 @@ export type Tier = "standard" | "large" | "large-protected" | "enhanced" | "high
 export interface AssetRef { chain: string; asset: string; decimals: number; symbol: string }
 export interface SwapRequest {
   from: AssetRef; to: AssetRef; amount: string; destination: string; slippageBps: number;
+  /** V7 (spec v3.0 §3): what the user pays, when `amount` is the escrow's funding — the §46 quote states p of this */
+  grossAmount?: string;
   /** an explicit policy (V1.1), or the preference the service derives it from with the tier */
   policy?: Policy; preference?: Preference; tier?: Tier; destinationKind?: "fresh" | "entered"; preferNative?: boolean;
   /** V3 (High-Value Protection spec §3, §14): the protection mode the recommendation is computed under, and a tranche's short execution window */
