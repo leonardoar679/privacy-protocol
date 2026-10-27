@@ -1402,7 +1402,10 @@ try {
       // History: a row per operation, never a note
       await clickId(page, "classic-link-history");
       await byId(page, "classic-history").waitFor({ timeout: 30_000 });
-      const rows = await page.locator('[data-testid^="classic-tx-"]').count();
+      // the rows come from the Classic database after the page mounts: waited for (a full run of 2026-10-27 counted 0 at once, 4 in the run before)
+      const rowsOf = () => page.locator('[data-testid^="classic-tx-"]').count();
+      for (let i = 0; i < 25 && (await rowsOf()) < 4; i++) await page.waitForTimeout(400);
+      const rows = await rowsOf();
       const historyText = await text(byId(page, "classic-history"));
       check("History lists the four operations (two deposits, two withdrawals) with their status words and no note", rows >= 4 && /Deposited|Withdrawn|Confirmed/.test(historyText) && !notes.some((n) => historyText.includes(n.slice(-124))), `${rows} rows`);
       await snap(page, "classic-history");
