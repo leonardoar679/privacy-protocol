@@ -3,6 +3,8 @@
 // is served, refused when the snapshot does not hold or its block is not the chain's, rolled back when a checkpoint
 // fell; the relayer directory's statuses and rules; the operation adapter's machines; the availability rows and what they
 // allow; the contract and router facts; the gas price; the compliance switches' pieces.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { keccak256 } from "js-sha3";
 import { describe, expect, it } from "vitest";
 import { checkPoolContract, routerInstanceState } from "../src/app/services/contract";
@@ -11,6 +13,9 @@ import { geofenceAnswer, isSanctioned, SANCTIONS_ORACLE } from "../src/app/servi
 import { PoolHistory } from "../src/app/services/history";
 import { canMove, fromRelayerState, move, newJob, OPERATION_STATES, toHistoryRow } from "../src/app/services/operations";
 import { RelayerDirectory } from "../src/app/services/relayers";
+import { configuredRelayers } from "../src/app/services/source";
+import { configFromEnv } from "../src/config";
+import { DEPLOYMENT, poolOf } from "../src/model/pools";
 import { sha256Hex } from "../src/crypto/digest";
 import type { DepositEvent } from "../src/history/events";
 import { SELECTORS } from "../src/history/verify";
@@ -46,6 +51,25 @@ const history = (over: Partial<ConstructorParameters<typeof PoolHistory>[0]> & {
 };
 
 describe("a pool's history", () => {
+  it("a ready history answers at once; older than staleMs it syncs again when asked, and settled() waits for a run (Stage 10)", async () => {
+    let t = 1_700_000_000_000;
+    const chain = scriptedChain({ head: TO_BLOCK + 12 + 100, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash });
+    const { h, statuses } = history({ rpc: chain.rpc, now: () => t, staleMs: 30_000 });
+    expect(await h.ensure()).toMatchObject({ kind: "ready", verified: true });
+    const logCalls = () => chain.seen.filter((c) => c.method === "eth_getLogs").length;
+    const after = logCalls();
+    await h.ensure();
+    expect(logCalls()).toBe(after); // fresh: no sync
+    t += 31_000;
+    chain.options.head += 100; // the chain moved on meanwhile
+    const pending = h.ensure(); // stale: syncs again, one more window
+    await h.settled();
+    expect(await pending).toMatchObject({ kind: "ready", verified: true });
+    expect(logCalls()).toBe(after + 1);
+    expect(statuses.filter((s) => s === "loading:sync").length).toBeGreaterThanOrEqual(2); // the first run and the stale one (each window reports too)
+    await h.settled(); // nothing running: resolves at once
+  });
+
   it("loads the served snapshot, appends the chain's delta, is verified by the chain, is persisted; a second history reads the device's copy without a fetch", async () => {
     const head = TO_BLOCK + 12 + 100;
     const chain = scriptedChain({
@@ -319,11 +343,72 @@ describe("the availability rows and what they allow", () => {
   });
 });
 
+describe("the relayers a build names (VITE_CLASSIC_RELAYER_URLS)", () => {
+  it("are offered beside the curated list without a registry record; a curated host is not listed twice; garbage is skipped", () => {
+    const config = configFromEnv({ VITE_CLASSIC_RELAYER_URLS: "http://127.0.0.1:8791/, https://eth.to-relayer.com, not a url, http://127.0.0.1:8791" });
+    const curated = [
+      {
+        ensName: "to-relayer.eth",
+        relayerAddress: "0x1",
+        url: "https://eth.to-relayer.com",
+        rewardAccount: "0x1",
+        stakeTorn: "40",
+        feePercent: 0.3,
+        version: "4.1.4",
+        currentQueue: 0,
+      },
+    ];
+    expect(configuredRelayers(config, curated)).toEqual([
+      {
+        ensName: "127.0.0.1:8791",
+        relayerAddress: "",
+        url: "http://127.0.0.1:8791",
+        rewardAccount: "",
+        stakeTorn: "0",
+        feePercent: 0,
+        version: "",
+        currentQueue: 0,
+      },
+    ]);
+    expect(configuredRelayers(configFromEnv({}), curated)).toEqual([]);
+  });
+});
+
 describe("the contract and router facts, the gas price, the compliance pieces", () => {
+  it("the committed pin of a pool matches the Sourcify record's on-chain code through the app's own check (the bytes hashed, not the hex text — Stage 10)", async () => {
+    const record = JSON.parse(readFileSync(join(__dirname, "..", "contracts", "verified", "pool-eth-1.json"), "utf8")) as {
+      runtimeBytecode: { onchainBytecode: string };
+    };
+    const pin = DEPLOYMENT.pools["eth-1"];
+    const calls = {
+      [sel("verifier()")]: `0x${pin.verifier.slice(2).padStart(64, "0")}`,
+      [sel("levels()")]: `0x${word(pin.levels)}`,
+      [sel("denomination()")]: `0x${word(BigInt(pin.denominationWei))}`,
+    };
+    const chain = scriptedChain({ head: 1, code: record.runtimeBytecode.onchainBytecode, calls });
+    expect(
+      await checkPoolContract(chain.rpc, poolOf("eth-1"), {
+        runtimeSha256: pin.runtime.sha256,
+        verifier: pin.verifier,
+        levels: pin.levels,
+        denominationWei: pin.denominationWei,
+      }),
+    ).toEqual({ ok: true });
+    const upper = scriptedChain({ head: 1, code: record.runtimeBytecode.onchainBytecode.toUpperCase().replace(/^0X/, "0x"), calls });
+    expect(
+      await checkPoolContract(upper.rpc, poolOf("eth-1"), {
+        runtimeSha256: pin.runtime.sha256,
+        verifier: pin.verifier,
+        levels: pin.levels,
+        denominationWei: pin.denominationWei,
+      }),
+    ).toEqual({ ok: true });
+  });
+
   it("the pool's code hashed as the verification did, its verifier, levels and denomination; the registry's instance state", async () => {
     const code = "0x6080604052deadbeef";
     const pins = {
-      runtimeSha256: await sha256Hex(new TextEncoder().encode(code)),
+      runtimeSha256: await sha256Hex(Uint8Array.from(Buffer.from(code.slice(2), "hex"))), // the pins hash the code bytes (scripts/deployment.mjs)
       verifier: "0xce172ce1f20ec0b3728c9965470eaf994a03557a",
       levels: 20,
       denominationWei: "100000000000000000000",

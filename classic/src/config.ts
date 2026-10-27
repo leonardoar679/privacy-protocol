@@ -22,6 +22,16 @@ export interface ClassicConfig {
   /** the original's compliance behaviour behind switches, off until the owner's legal review (spec v3.0 §7.7) */
   complianceOracle: boolean;
   geofence: boolean;
+  /**
+   * A development chain's block the pools' code was placed at (VITE_CLASSIC_DEPLOYED_BLOCK): the history syncs from it
+   * instead of the mainnet deployed blocks (the local stack, spec v3.0 §7.9). Refused in a production build.
+   */
+  deployedBlock: number | null;
+  /**
+   * Whether the curated relayers (relayers.json) are offered. A development chain must not ask mainnet's relayers
+   * (VITE_CLASSIC_RELAYERS_CURATED=0, the local stack); refused in a production build.
+   */
+  curatedRelayers: boolean;
   production: boolean;
   /** the path the app is served under (Vite's base) */
   base: string;
@@ -65,6 +75,8 @@ export const EnvSchema = z.object({
   VITE_CLASSIC_LIVE: z.string().optional(),
   VITE_CLASSIC_COMPLIANCE_ORACLE: flag,
   VITE_CLASSIC_GEOFENCE: flag,
+  VITE_CLASSIC_DEPLOYED_BLOCK: z.string().regex(/^\d+$/, "VITE_CLASSIC_DEPLOYED_BLOCK must be a block number").optional(),
+  VITE_CLASSIC_RELAYERS_CURATED: flag,
   VITE_CLASSIC_DONATION_ADDRESS: z
     .string()
     .regex(/^(0x[0-9a-fA-F]{40})?$/, "VITE_CLASSIC_DONATION_ADDRESS must be a 0x address of 40 hex digits")
@@ -77,6 +89,12 @@ export const EnvSchema = z.object({
 export function configFromEnv(env: Record<string, unknown>): ClassicConfig {
   const e = EnvSchema.parse(env);
   const base = e.BASE_URL ?? "/classic/";
+  const deployedBlock = e.VITE_CLASSIC_DEPLOYED_BLOCK === undefined ? null : Number(e.VITE_CLASSIC_DEPLOYED_BLOCK);
+  if (deployedBlock !== null && e.PROD === true)
+    throw new Error("VITE_CLASSIC_DEPLOYED_BLOCK is for development chains only: a production build syncs from the pools' deployed blocks");
+  const curatedRelayers = e.VITE_CLASSIC_RELAYERS_CURATED !== "0";
+  if (!curatedRelayers && e.PROD === true)
+    throw new Error("VITE_CLASSIC_RELAYERS_CURATED=0 is for development chains only: a production build offers the curated relayers");
   return {
     chainId: Number(e.VITE_CLASSIC_CHAIN_ID ?? "1"),
     rpcUrls: list(e.VITE_CLASSIC_RPC_URLS),
@@ -86,6 +104,8 @@ export function configFromEnv(env: Record<string, unknown>): ClassicConfig {
     live: parseLive(e.VITE_CLASSIC_LIVE),
     complianceOracle: e.VITE_CLASSIC_COMPLIANCE_ORACLE === "1",
     geofence: e.VITE_CLASSIC_GEOFENCE === "1",
+    deployedBlock,
+    curatedRelayers,
     production: e.PROD === true,
     base,
     donationAddress: e.VITE_CLASSIC_DONATION_ADDRESS ? (e.VITE_CLASSIC_DONATION_ADDRESS as `0x${string}`) : null,

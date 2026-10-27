@@ -24,6 +24,9 @@ export interface TreeClient {
   layersOf(pool: string): Promise<string[][]>;
 }
 
+/** a ready history older than this syncs again when asked for (ensure): a deposit made meanwhile is found without a reload */
+export const STALE_MS = 60_000;
+
 export type HistoryStatus =
   | { kind: "idle" }
   | { kind: "loading"; step: "stored" | "snapshot" | "tree" | "sync" | "verify"; loaded?: number; total?: number }
@@ -40,6 +43,8 @@ export interface PoolHistoryDeps {
   store: HistoryStore;
   fetchSnapshot: (pool: PoolId) => Promise<FetchedSnapshot | null>;
   now?: () => number;
+  /** how old a ready history may be before ensure() syncs again (STALE_MS) */
+  staleMs?: number;
   onStatus?: (s: HistoryStatus) => void;
 }
 
@@ -52,6 +57,7 @@ export class PoolHistory {
   private root: Hex | null = null;
   private index: HistoryIndex | null = null;
   private running: Promise<HistoryStatus> | null = null;
+  private syncedAt = 0;
   /** where the current state came from: the device's copy may be dropped and reloaded once; a served snapshot's block must stand */
   private origin: "stored" | "snapshot" | "chain" = "chain";
 
@@ -69,12 +75,20 @@ export class PoolHistory {
     this.index = null;
   }
 
-  /** Loads and syncs once; a ready history answers at once (refresh() syncs again), a run in progress is shared. */
+  /** Loads and syncs once; a ready history answers at once unless it is older than staleMs (then it syncs again), a run in progress is shared. */
   ensure(): Promise<HistoryStatus> {
-    if (this.status.kind === "ready") return Promise.resolve(this.status);
+    if (this.status.kind === "ready") {
+      const stale = (this.d.now ?? Date.now)() - this.syncedAt > (this.d.staleMs ?? STALE_MS);
+      return stale ? this.refresh() : Promise.resolve(this.status);
+    }
     return (this.running ??= this.run(false).finally(() => {
       this.running = null;
     }));
+  }
+
+  /** Resolves once no load or sync is running (a flow reads `verified` after this, never in the middle of a sync). */
+  settled(): Promise<void> {
+    return this.running ? this.running.then(() => undefined) : Promise.resolve();
   }
 
   /** Syncs the delta again and verifies. */
@@ -220,6 +234,7 @@ export class PoolHistory {
     const state = this.state!;
     const chain = await verifyAgainstChain(rpc, address, { root: BigInt(this.root!), size: state.leaves });
     const now = (this.d.now ?? Date.now)();
+    this.syncedAt = now;
     this.state = { ...state, verifiedAt: now, verified: chain.ok };
     await this.persist();
     return this.set({

@@ -152,6 +152,19 @@ the provider concentration and the velocity limit. An entered destination, once 
 re-check. Home shows "🔒 Protection: Balanced ✓" beside the privacy badge; Activity's row carries execution, protection,
 privacy and duration.
 
+## 5. Tornado Classic (V7, `docs/privacy-wallet-web-spec-v3.0.md` §7)
+The Classic app is a product apart (`classic/`): its own build under `/classic/`, its own policy, nothing shared at runtime.
+The local stack's `npm run deploy` places the mainnet pools, verifier, Hasher, router and registries at their mainnet
+addresses on the devnet (chain id 1), so the app verifies its pins against the devnet exactly as against mainnet;
+`npm run services` starts the Classic dev server (5174) behind the wallet's `/classic` proxy with every pool function
+switched live and a relayer stand-in (8791) that submits through the real router. Open http://localhost:5173/classic/ (or
+5174 directly) with an injected wallet on chain id 1 pointed at http://127.0.0.1:8546: Deposit shows the note once and sends
+through the router from the wallet; after twelve blocks (`hardhat_mine`) Withdraw finds the note, prices the relayer's fee at
+the live gas price, proves in the prover worker and hands the withdrawal to the stand-in (or, in wallet mode, to the wallet).
+Settings → Supported right now reads every fact for real. A production build offers no transaction until a pool function is
+switched live (`VITE_CLASSIC_LIVE`) after its release-gate row and the owner's legal review. The mainnet fork
+(`scripts/local-stack/README.md`, "Tornado Classic on the devnet") runs the same flows against mainnet's real state.
+
 ## What to expect to break first
 - Provider quotes: live APIs rate-limit and change shapes; the adversarial suite is the reference.
 - The swap on Sepolia cannot reach a real provider (mainnet pins): the wallet refuses the provider call

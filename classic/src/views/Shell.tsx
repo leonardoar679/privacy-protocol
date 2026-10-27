@@ -14,6 +14,8 @@ export function Shell(props: {
   onWallet?: () => void;
   /** a word about the wallet beside the chip (another network) */
   walletNotice?: string | null;
+  /** the "interface prototype" notice: shown while no pool function is switched live (spec v3.0 §7.7); the fixtures and the mock keep it */
+  prototype?: boolean;
   aside?: ReactNode;
   children: ReactNode;
 }) {
@@ -44,9 +46,11 @@ export function Shell(props: {
             {props.walletLabel}
           </button>
         </div>
-        <Notice tone="warn" testId="classic-not-connected">
-          <strong>{t("notice.notConnected")}</strong>
-        </Notice>
+        {props.prototype !== false ? (
+          <Notice tone="warn" testId="classic-not-connected">
+            <strong>{t("notice.notConnected")}</strong>
+          </Notice>
+        ) : null}
         {props.walletNotice ? (
           <Notice tone="warn" role="alert" testId="classic-wallet-notice">
             {props.walletNotice}

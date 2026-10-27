@@ -74,6 +74,29 @@ export interface ServiceOverrides {
   receiptOptions?: ReceiptOptions;
 }
 
+/**
+ * The relayers the build names beside the curated list (VITE_CLASSIC_RELAYER_URLS — hosts the policy already allows): no
+ * registry record, so the reward account is whatever their status says and the rules skip that one check. The local stack's
+ * stand-in reaches the app this way; a release names none (spec v3.0 §7.5, §7.9). A curated host is not listed twice.
+ */
+export function configuredRelayers(config: ClassicConfig, curated: readonly CuratedRelayer[] = CURATED_RELAYERS): CuratedRelayer[] {
+  const known = new Set(curated.map((r) => r.url.replace(/\/+$/, "").toLowerCase()));
+  const out: CuratedRelayer[] = [];
+  for (const raw of config.relayerUrls) {
+    const url = raw.replace(/\/+$/, "");
+    let host: string;
+    try {
+      host = new URL(url).host;
+    } catch {
+      continue;
+    }
+    if (!host || known.has(url.toLowerCase())) continue;
+    known.add(url.toLowerCase());
+    out.push({ ensName: host, relayerAddress: "", url, rewardAccount: "", stakeTorn: "0", feePercent: 0, version: "", currentQueue: 0 });
+  }
+  return out;
+}
+
 export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const config = o.config ?? readConfig();
   const rpc = o.rpc !== undefined ? o.rpc : config.rpcUrls.length ? makeRpc(config.rpcUrls) : null;
@@ -94,12 +117,24 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const histories = new Map<PoolId, PoolHistory>(
     POOLS.map((p) => [
       p.id,
-      new PoolHistory({ pool: p.id, address: p.address, deployedBlock: p.deployedBlock, rpc, tree: treeClient, store, fetchSnapshot, now, onStatus: changed }),
+      // a development chain (VITE_CLASSIC_DEPLOYED_BLOCK) places the pools at its own block; mainnet's deployed blocks otherwise
+      new PoolHistory({
+        pool: p.id,
+        address: p.address,
+        deployedBlock: config.deployedBlock ?? p.deployedBlock,
+        rpc,
+        tree: treeClient,
+        store,
+        fetchSnapshot,
+        now,
+        onStatus: changed,
+      }),
     ]),
   );
   const transport = o.relayerTransport ?? relayerTransport();
   const relayers = new RelayerDirectory({
-    curated: o.curated ?? CURATED_RELAYERS,
+    // the curated list — unless a development chain switched it off: it must not ask mainnet's relayers — plus the build's own
+    curated: o.curated ?? [...(config.curatedRelayers ? CURATED_RELAYERS : []), ...configuredRelayers(config)],
     transport,
     netId: config.chainId,
     pools: POOLS.map((p) => ({ address: p.address, amount: p.amount })),

@@ -24,12 +24,15 @@ export interface ContractPins {
 
 export type ContractCheck = { ok: true } | { ok: false; problems: string[] };
 
-/** The pool as deployed, against the pins: its code (the sha256 of the hex the endpoint returns, as the verification hashed it), its verifier, levels and denomination. */
+/** The runtime code's bytes from the hex an endpoint returns. */
+const bytesOfHex = (hex: string): Uint8Array => Uint8Array.from(hex.slice(2).match(/.{2}/g) ?? [], (b) => Number.parseInt(b, 16));
+
+/** The pool as deployed, against the pins: its code (the sha256 of the code bytes, as the verification hashed them — Stage 10 found the hex text hashed here, which no pin could match), its verifier, levels and denomination. */
 export async function checkPoolContract(rpc: Rpc, pool: Pool, pins: ContractPins): Promise<ContractCheck> {
   const problems: string[] = [];
   const code = (await rpc("eth_getCode", [pool.address, "latest"])) as string;
   if (typeof code !== "string" || code.length <= 2) problems.push("no code at the pool's address");
-  else if ((await sha256Hex(new TextEncoder().encode(code.toLowerCase()))) !== pins.runtimeSha256) problems.push("the pool's code is not the pinned one");
+  else if ((await sha256Hex(bytesOfHex(code))) !== pins.runtimeSha256) problems.push("the pool's code is not the pinned one");
   const [verifier, levels, denomination] = await Promise.all([
     call(rpc, pool.address, SEL.verifier).then((o) => `0x${wordOf(o).toString(16).padStart(40, "0")}`),
     call(rpc, pool.address, SEL.levels).then((o) => Number(wordOf(o))),

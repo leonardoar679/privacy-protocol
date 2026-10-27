@@ -24,7 +24,8 @@
     "tokens": "node scripts/tokens.mjs",
     "visual": "node tests/visual/run.mjs",
     "verify-deployment": "node scripts/verify-deployment.mjs",
-    "test:live": "vitest run --config vitest.live.config.ts"
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "test:fork": "vitest run --config vitest.fork.config.ts"
   },
   "dependencies": {
     "big-integer": "1.6.52",

@@ -44,4 +44,13 @@ describe("configFromEnv", () => {
     expect(() => parseLive('{"eth-1":["burn"]}')).toThrow(/deposit and\/or withdraw/);
     expect(() => configFromEnv({ VITE_CLASSIC_GEOFENCE: "yes" })).toThrow();
   });
+  it("a development chain's deployed block (Stage 10): read for a dev build, refused in a production build, null by default", () => {
+    expect(configFromEnv({}).deployedBlock).toBeNull();
+    expect(configFromEnv({ VITE_CLASSIC_DEPLOYED_BLOCK: "17" }).deployedBlock).toBe(17);
+    expect(() => configFromEnv({ VITE_CLASSIC_DEPLOYED_BLOCK: "17", PROD: true })).toThrow(/development chains only/);
+    expect(() => configFromEnv({ VITE_CLASSIC_DEPLOYED_BLOCK: "soon" })).toThrow();
+    expect(configFromEnv({}).curatedRelayers).toBe(true);
+    expect(configFromEnv({ VITE_CLASSIC_RELAYERS_CURATED: "0" }).curatedRelayers).toBe(false);
+    expect(() => configFromEnv({ VITE_CLASSIC_RELAYERS_CURATED: "0", PROD: true })).toThrow(/development chains only/);
+  });
 });

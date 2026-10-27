@@ -152,7 +152,12 @@ export default defineConfig(({ mode, command }) => {
       fs: { allow: [fileURLToPath(new URL("../..", import.meta.url)), ...(zkapi.bundled ? [process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url))] : [])] },
       // the zkAPI SDK expects its deployment manifest behind a same-origin rewrite (sdk/README.md);
       // in dev it is proxied to the pinned protocol server of the network the assets were built for
-      proxy: { "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") } },
+      proxy: {
+        "/zkapi-deployment": { target: `https://zkapi-${process.env.ZKAPI_NETWORK ?? "sepolia"}.openanonymity.ai`, changeOrigin: true, rewrite: (p) => p.replace(/^\/zkapi-deployment/, "") },
+        // V7 Stage 10 (spec v3.0 §7.9): the local stack serves the Classic app from its own dev server behind this one, so More →
+        // Tornado Classic is one origin here as on a host (its own build, its own policy; nothing of it is imported)
+        ...(process.env.CLASSIC_DEV_URL ? { "/classic": { target: process.env.CLASSIC_DEV_URL } } : {}),
+      },
     },
     // `npm run preview` answers with the headers a host must send (docs/deployment.md): the build's whole policy as a header
     // too, as a host sends it (audit round 2, n81) — the preview had sent "frame-ancestors 'none'" alone, so no release check

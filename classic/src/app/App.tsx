@@ -30,7 +30,7 @@ import { navigate, useRoute } from "./router";
 import { geofenceAnswer, isSanctioned } from "./services/compliance";
 import { depositFlow, withdrawalFlow } from "./services/flows";
 import { isSpentOnChain } from "../history/spent";
-import { createServices, sourceOf, type ClassicServices } from "./services/source";
+import { createServices, sourceOf, type ClassicServices, anyLive } from "./services/source";
 import { probeGeofence } from "../net/geofence";
 
 /** The words of spec v3.0 §7.7 every build shows until a pool function is switched live (the English catalog's). */
@@ -353,6 +353,7 @@ export function App(props: AppProps = {}) {
       walletEnabled={services !== null}
       onWallet={() => void openWallet()}
       walletNotice={walletState.status === "wrong-network" ? t("wallet.wrongNetwork") : null}
+      prototype={!anyLive(c)}
       aside={aside}
     >
       {route === "deposit" ? (

@@ -592,6 +592,45 @@ checklist (`docs/mobile-web-gate.md`: iOS Safari, Android Chrome, the wallets' i
 | Mobile web | §9 | `docs/mobile-web-gate.md`, the harnesses |
 | Production | v2.0 §19, §21; the owner's: audits, the ceremony, the testnet broadcast, the legal and sanctions review, incident response, rollback of the static builds and the services (the money contracts have no upgrade path) | `docs/audit-package.md`, `docs/deployment.md` |
 
+**As landed (Stage 10, 2026-10-26).** The local stack places Tornado Classic's mainnet contracts at their mainnet
+addresses on the devnet (`scripts/local-stack/deploy.mjs`, step 6): the four pools, the verifier and the MiMC Hasher
+library they link, the TornadoRouter and the two registries behind their proxies — the runtime code from the Sourcify
+records the pins were verified against (`classic/contracts/verified/`), the Hasher's code and the registries' storage
+(the EIP-1967 slots, the initializer flags with the router, the minimum stake, the four ETH instances ENABLED) read from
+mainnet once by `scripts/local-stack/classic-capture.mjs` into `scripts/local-stack/mainnet/classic-state.json`. Each
+pool gets the storage its constructor writes — levels, the twenty zero subtrees in `filledSubtrees` and `zeros`, the
+empty tree's root, the reentrancy counter, the denomination, the verifier, no operator — computed with the app's own tree
+hash, and every getter is read back, `hashLeftRight` through the Hasher included: the chain's MiMC is held to the app's
+before any deposit. `start-services.mjs` runs the Classic dev server (5174) behind the wallet's `/classic` proxy with
+every pool function switched live, the history synced from the block the contracts were placed at
+(`VITE_CLASSIC_DEPLOYED_BLOCK`, a development-only setting a production build refuses), and a relayer stand-in
+(`scripts/local-stack/classic-relayer.mjs`, 8791) that speaks the protocol — the status with its string health, the
+withdrawal request as the validator wants it, the seven job states — and submits through the real router from the devnet's
+account #0, checking the fee as the original relayer does. The browser run's section 11 (`scripts/local-stack/e2e.mjs`)
+reaches the app from More, reads its own policy, reads the facts under Settings for real (the pool's code verified against
+the pins, the router enabled by the registry, one relayer online, the history synced with its root known to the pool, the
+wallet connected), refuses a note nobody deposited and one of another network, and — in the full run — deposits 1 ETH
+through the router, finds the note after twelve confirmations and a reload (the device's copy synced to the chain), proves
+in the prover worker, hands the withdrawal to the stand-in and follows it to CONFIRMED, reads the recipient's balance and
+the pool's `isSpent`, then withdraws 0.1 ETH in wallet mode; its twin reads every Classic request and the Classic database
+for the notes (none) and names the hosts (the origin, the devnet, the stand-in) — 234/234 checks on the quick pass with the Classic sections, 35 of them Classic's (`scripts/local-stack/results/report-2026-10-27-v7-stage10.json`). The mainnet fork
+(`classic/test/fork/withdraw.fork.test.ts`, `npm run test:fork` with `CLASSIC_FORK_RPC`) runs the same services in Node
+against a Hardhat fork of mainnet: the served snapshot synced onto the fork and the pins verified against it, a 100 ETH
+deposit through the real router and registry, the withdrawal through the router by an in-process relayer (the note spent
+on chain, the pool's own Withdrawal event), then a hundred deposits between the proof and the confirmation so the root ages
+out of the pool's hundred — the flow syncs again and proves again once. On this workstation the suite ran in its devnet mode against the local stack's chain (`CLASSIC_FORK_RPC=http://127.0.0.1:8546`: 3 tests in 30 s — the deposit through the real router, the withdrawal through the router by the stand-in with the note spent on chain and the pool's own Withdrawal event, the aged root proved again after a hundred deposits); a mainnet fork node could not be started here — Hardhat's fork engine dies at start with a segmentation fault, as anvil does on this machine — so the run against mainnet's real state is the owner's, on another machine. Found by this stage: the app hashed the
+pool code's hex text where the pins hash its bytes (every mainnet pool would have read "differs from the pins";
+`classic/src/app/services/contract.ts`, pinned by a test over the Sourcify record); the root is now checked again right
+before a submission, not only after the proof; a ready history older than a minute syncs again when asked (a deposit made
+meanwhile is found without a reload), and a flow waits for a running sync before reading `verified`; the build may name
+relayers of its own (`VITE_CLASSIC_RELAYER_URLS`), offered beside the curated list without a registry record — the
+stand-in's way in; a release names none. The first browser run also found the compiled-in curated relayers asked from the
+devnet (the chain answers id 1, the pools sit at their mainnet addresses, so every rule passed and 23 mainnet relayers
+learned of a development machine): a development chain now switches the curated list off (`VITE_CLASSIC_RELAYERS_CURATED=0`,
+refused in a production build), and the dev server's page fallback — index.html where a manifest was asked — is no
+longer taken for a snapshot (an HTML answer means none served; `classic/test/net-snapshot.test.ts`), the devnet serving none
+(`VITE_CLASSIC_DATA_BASE` pointed at an empty path, since `public/data` may hold mainnet's).
+
 ## 11. Implementation order — the V7 stages (doc §12, §15)
 
 | Stage | Doc phase | What | Sections |
@@ -606,7 +645,7 @@ checklist (`docs/mobile-web-gate.md`: iOS Safari, Android Chrome, the wallets' i
 | 7 | 6 (C) | snapshots, delta sync, the live root match, spent notes | §7.4 |
 | 8 | 6 | the relayer client, the curated list, fees, wallet mode | §7.5 |
 | 9 | 6 | the flows wired, availability, the switches, the Classic operation adapter | §7.6, §7.7 |
-| 10 | 6, 8 | Classic end to end: the devnet with the real bytecode, the mainnet fork, the leakage twin | §7.10 |
+| 10 | 6, 8 | Classic end to end: the devnet with the real bytecode, the mainnet fork, the leakage twin — landed, §10 | §7.10, §10 |
 | 11 | 6 (E) | the Classic release gate, its documents, the old module removed | §7.10, §7.11 |
 | 12 | 3 | the fee policy statement | §3 |
 | 13 | 7 | the amount policy | §4 |

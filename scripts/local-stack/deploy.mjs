@@ -12,11 +12,11 @@
 //
 //   npx hardhat node --port 8546 --hostname 127.0.0.1     (another terminal; `npm run chain`)
 //   node deploy.mjs                                        RPC=http://127.0.0.1:8546 by default
-import { createPublicClient, createWalletClient, http, pad, toHex, stringToHex, keccak256 } from "viem";
+import { createPublicClient, createWalletClient, http, pad, toHex, stringToHex, keccak256, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = process.env.PP_ROOT ?? resolve(HERE, "../..");
@@ -158,6 +158,104 @@ const resolved = await pub.readContract({ address: FEED_REGISTRY, abi: feedAbi, 
 if (resolved.toLowerCase() !== BTC_FEED.toLowerCase()) throw new Error("the registry does not resolve BTC / USD");
 console.log(`${"feed registry".padEnd(24)} ${FEED_REGISTRY} -> BTC / USD at ${resolved}`);
 
+// 6. V7 Stage 10 (spec v3.0 §7.9): Tornado Classic's mainnet contracts at their mainnet addresses — the four ETH pools, their
+// verifier and the MiMC Hasher library the pools link, the TornadoRouter and the two registries behind their proxies — with
+// the runtime code of the Sourcify records the Classic app's pins were verified against (classic/contracts/verified/) and the
+// state classic-capture.mjs read from mainnet (mainnet/classic-state.json: the Hasher's code, the proxies' slots, the ETH
+// instances ENABLED). Each pool gets the storage its constructor writes — levels, the twenty zero subtrees in filledSubtrees
+// and zeros, roots[0] = the empty tree's root, the reentrancy counter at one, the denomination, the verifier, no operator —
+// computed with the Classic app's own tree hash, and every getter is read back, hashLeftRight through the Hasher included:
+// the chain's MiMC is held to the app's here, before any deposit. The Classic app then verifies its pins against this chain.
+const classicState = JSON.parse(readFileSync(join(HERE, "mainnet", "classic-state.json"), "utf8"));
+const classicPins = JSON.parse(readFileSync(join(ROOT, "classic/src/config/deployment.json"), "utf8"));
+const verifiedRecord = (name) => JSON.parse(readFileSync(join(ROOT, "classic/contracts/verified", `${name}.json`), "utf8")).runtimeBytecode.onchainBytecode;
+const { zeros, LEVELS } = await import(pathToFileURL(join(ROOT, "classic/src/crypto/tree.ts")).href);
+const w32 = (x) => pad(toHex(BigInt(x)), { size: 32 });
+const slotOf = (s) => toHex(BigInt(s)); // a quantity: no leading zeros
+const z = zeros();
+if (z.length !== LEVELS + 1 || LEVELS !== 20) throw new Error("the Classic tree is not 20 levels");
+const placeCode = async (name, address, code) => {
+  await rpc("hardhat_setCode", [address, code]);
+  console.log(`${("classic " + name).padEnd(24)} ${address} (mainnet bytecode, ${(code.length - 2) / 2} bytes)`);
+};
+await placeCode("Hasher (MiMC)", classicState.hasher.address, classicState.hasher.code);
+await placeCode("verifier", classicPins.verifier.address, verifiedRecord("verifier"));
+await placeCode("router", classicPins.router.address, verifiedRecord("router"));
+for (const [name, reg, files] of [
+  ["instance registry", classicState.instanceRegistry, ["instance-registry-proxy", "instance-registry-implementation"]],
+  ["relayer registry", classicState.relayerRegistry, ["relayer-registry-proxy", "relayer-registry-implementation"]],
+]) {
+  await placeCode(`${name} proxy`, reg.address, verifiedRecord(files[0]));
+  await placeCode(`${name} impl.`, reg.implementation, verifiedRecord(files[1]));
+  for (const [slot, value] of Object.entries(reg.slots)) await rpc("hardhat_setStorageAt", [reg.address, slotOf(slot), value]);
+  for (const inst of Object.values(reg.instances ?? {})) await rpc("hardhat_setStorageAt", [reg.address, slotOf(inst.slot), inst.value]);
+}
+const poolAbi = parseAbi([
+  "function levels() view returns (uint32)",
+  "function filledSubtrees(uint256) view returns (bytes32)",
+  "function zeros(uint256) view returns (bytes32)",
+  "function roots(uint256) view returns (bytes32)",
+  "function getLastRoot() view returns (bytes32)",
+  "function isKnownRoot(bytes32) view returns (bool)",
+  "function nextIndex() view returns (uint32)",
+  "function currentRootIndex() view returns (uint32)",
+  "function denomination() view returns (uint256)",
+  "function verifier() view returns (address)",
+  "function operator() view returns (address)",
+  "function ROOT_HISTORY_SIZE() view returns (uint32)",
+  "function hashLeftRight(bytes32,bytes32) view returns (bytes32)",
+]);
+const registryAbi = parseAbi(["function instances(address) view returns (bool,address,uint8,uint24,uint32)", "function router() view returns (address)", "function tornadoRouter() view returns (address)", "function workers(address) view returns (address)"]);
+const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
+const classicPools = {};
+for (const [id, p] of Object.entries(classicPins.pools)) {
+  await placeCode(`pool ${id}`, p.address, verifiedRecord(`pool-${id}`));
+  // TornadoCash_eth.sol: MerkleTreeWithHistory in slots 0–103 (levels; filledSubtrees and zeros as dynamic arrays; currentRootIndex
+  // and nextIndex packed; roots[100]), ReentrancyGuard's counter at 104, Tornado's denomination 105, the two mappings, verifier 108, operator 109
+  const set = (slot, value) => rpc("hardhat_setStorageAt", [p.address, slotOf(slot), value]);
+  await set(0n, w32(p.levels));
+  await set(1n, w32(LEVELS));
+  await set(2n, w32(LEVELS));
+  const elements1 = BigInt(keccak256(w32(1n)));
+  const elements2 = BigInt(keccak256(w32(2n)));
+  for (let i = 0; i < LEVELS; i++) {
+    await set(elements1 + BigInt(i), w32(z[i]));
+    await set(elements2 + BigInt(i), w32(z[i]));
+  }
+  await set(3n, w32(0n));
+  await set(4n, w32(z[LEVELS]));
+  await set(104n, w32(1n));
+  await set(105n, w32(BigInt(p.denominationWei)));
+  await set(108n, pad(p.verifier, { size: 32 }));
+  await set(109n, w32(0n));
+  // read back through the contract's own getters
+  const problems = [];
+  if ((await read(p.address, poolAbi, "levels")) !== 20) problems.push("levels");
+  for (let i = 0; i < LEVELS; i++) {
+    if (BigInt(await read(p.address, poolAbi, "zeros", [BigInt(i)])) !== z[i]) problems.push(`zeros(${i})`);
+    if (BigInt(await read(p.address, poolAbi, "filledSubtrees", [BigInt(i)])) !== z[i]) problems.push(`filledSubtrees(${i})`);
+  }
+  const last = BigInt(await read(p.address, poolAbi, "getLastRoot"));
+  if (last !== z[LEVELS] || BigInt(await read(p.address, poolAbi, "roots", [0n])) !== z[LEVELS]) problems.push("roots[0] / getLastRoot");
+  if (!(await read(p.address, poolAbi, "isKnownRoot", [w32(z[LEVELS])]))) problems.push("isKnownRoot(empty root)");
+  if ((await read(p.address, poolAbi, "nextIndex")) !== 0 || (await read(p.address, poolAbi, "currentRootIndex")) !== 0) problems.push("indices");
+  if ((await read(p.address, poolAbi, "denomination")) !== BigInt(p.denominationWei)) problems.push("denomination");
+  if ((await read(p.address, poolAbi, "verifier")).toLowerCase() !== p.verifier.toLowerCase()) problems.push("verifier");
+  if ((await read(p.address, poolAbi, "operator")) !== "0x0000000000000000000000000000000000000000") problems.push("operator");
+  if ((await read(p.address, poolAbi, "ROOT_HISTORY_SIZE")) !== 100) problems.push("ROOT_HISTORY_SIZE");
+  if (BigInt(await read(p.address, poolAbi, "hashLeftRight", [w32(z[0]), w32(z[0])])) !== z[1]) problems.push("hashLeftRight through the Hasher");
+  const [, , state] = await read(classicState.instanceRegistry.address, registryAbi, "instances", [p.address]);
+  if (state !== 1) problems.push(`the instance registry says state ${state}`);
+  if (problems.length) throw new Error(`classic pool ${id} does not read back: ${problems.join(", ")}`);
+  classicPools[p.amount] = { id, address: p.address, denominationWei: p.denominationWei };
+  console.log(`${("classic pool " + id).padEnd(24)} levels 20, the empty root known, hashLeftRight = the app's, ENABLED in the registry`);
+}
+if ((await read(classicState.instanceRegistry.address, registryAbi, "router")).toLowerCase() !== classicPins.router.address.toLowerCase()) throw new Error("the instance registry does not name the router");
+if ((await read(classicState.relayerRegistry.address, registryAbi, "tornadoRouter")).toLowerCase() !== classicPins.router.address.toLowerCase()) throw new Error("the relayer registry does not name the router");
+if ((await read(classicState.relayerRegistry.address, registryAbi, "workers", [account.address])) !== "0x0000000000000000000000000000000000000000") throw new Error("the deployer is a registered relayer worker");
+const classicDeployedBlock = Number(await pub.getBlockNumber());
+console.log(`${"classic".padEnd(24)} router ${classicPins.router.address}, registries named, the devnet's "deployed block" ${classicDeployedBlock}`);
+
 // 5. what the services and the wallet need
 const stack = {
   rpc: RPC,
@@ -179,6 +277,17 @@ const stack = {
   pins: PINS,
   feeds: FEEDS.map(({ usd, ...spec }) => spec),
   prices: Object.fromEntries(FEEDS.map((f) => [f.symbol, f.usd])),
+  // V7 Stage 10: Tornado Classic at its mainnet addresses; the Classic dev server syncs the pools from this block
+  classic: {
+    hasher: classicState.hasher.address,
+    verifier: classicPins.verifier.address,
+    router: classicPins.router.address,
+    instanceRegistry: classicState.instanceRegistry.address,
+    relayerRegistry: classicState.relayerRegistry.address,
+    pools: classicPools,
+    deployedBlock: classicDeployedBlock,
+    stateReadAt: classicState.readAt,
+  },
   deployedAt: new Date().toISOString(),
 };
 writeFileSync(join(RUN, "stack.json"), JSON.stringify(stack, null, 2));

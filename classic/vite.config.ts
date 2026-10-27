@@ -23,6 +23,24 @@ function fixturesOnly(mode: string): Plugin {
   };
 }
 
+/**
+ * The local stack's browser run (V7 Stage 10) starts this dev server without its websocket (PW_NO_HMR=1, as the wallet's):
+ * the Classic app is reached through the wallet's dev server proxy, where an HMR client would have nobody to talk to. The
+ * upgrade requests are refused at once (a hung upgrade under a socket reset once crashed the wallet's server).
+ */
+function refuseUpgrades(): Plugin {
+  return {
+    name: "classic-refuse-upgrades",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.on("upgrade", (_req, socket) => {
+        socket.on("error", () => {});
+        socket.destroy();
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const root = fileURLToPath(new URL(".", import.meta.url));
   const env = loadEnv(mode, root, "VITE_");
@@ -30,9 +48,9 @@ export default defineConfig(({ mode }) => {
   const relayers = curatedRelayerOrigins();
   return {
     base: "/classic/",
-    plugins: [react(), fixturesOnly(mode), cspPlugin(env, relayers)],
+    plugins: [react(), fixturesOnly(mode), cspPlugin(env, relayers), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
     build: { manifest: true, sourcemap: false },
-    server: { port: 5174, strictPort: true, fs: { allow: [root] } },
+    server: { port: 5174, strictPort: true, fs: { allow: [root] }, ...(process.env.PW_NO_HMR === "1" ? { ws: false as const, hmr: false } : {}) },
     // `npm run preview` answers with the headers a host must send (the whole policy as a header too)
     preview: { port: 5174, headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, relayers)}; frame-ancestors 'none'` } },
     worker: { format: "es" },

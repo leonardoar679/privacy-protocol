@@ -113,7 +113,9 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   const prover = await s.prover();
 
   // the proof over the current root; proved again once if the root aged out of the pool's window meanwhile
+  const rpc = s.rpc;
   const prove = async (): Promise<{ proof: ProofResult; root: Hex }> => {
+    await history.settled(); // never read in the middle of a sync
     if (!history.verified) throw new FlowRefused("the history is not verified");
     const path = await history.pathFor(facts.leafIndex);
     const feeWei = via === "relayer" ? (input.feeWei ?? 0n) : 0n;
@@ -138,14 +140,23 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
     if (!proof.verified) throw new Error("the proof did not verify on the device");
     return { proof, root: path.root };
   };
-  let proved: { proof: ProofResult; root: Hex };
-  try {
-    proved = await prove();
-    const chain = await verifyAgainstChain(s.rpc, p.address, { root: BigInt(proved.root), size: history.state!.leaves });
-    if (!chain.known && chain.lastRoot !== proved.root) {
+  // the root a proof commits to must be one of the pool's last hundred (count-based, spec §7.4): checked after proving and
+  // again right before anything is sent — a confirmation can take a while — proving again once on a fresh history each time
+  const rootKnown = async (root: Hex): Promise<boolean> => {
+    const chain = await verifyAgainstChain(rpc, p.address, { root: BigInt(root), size: history.state!.leaves });
+    return chain.known || chain.lastRoot === root;
+  };
+  const provedAndKnown = async (current?: { proof: ProofResult; root: Hex }): Promise<{ proof: ProofResult; root: Hex }> => {
+    let proved = current ?? (await prove());
+    if (!(await rootKnown(proved.root))) {
       await history.refresh();
       proved = await prove();
     }
+    return proved;
+  };
+  let proved: { proof: ProofResult; root: Hex };
+  try {
+    proved = await provedAndKnown();
   } catch (e) {
     return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
   }
@@ -153,6 +164,12 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   await keep(move(job, "AWAITING_AUTHORIZATION", now()));
   input.onStep?.({ step: "confirm" });
   if (!(await input.confirm())) return keep(move(job, "CANCELLED", now()));
+
+  try {
+    proved = await provedAndKnown(proved);
+  } catch (e) {
+    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
+  }
 
   await keep(move(job, "SUBMITTING", now()));
   input.onStep?.({ step: "submitting" });

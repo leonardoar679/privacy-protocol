@@ -16,7 +16,7 @@ import { circuitInput } from "../src/prover/input";
 import { generateNote, formatNote } from "../src/model/notes";
 import { memoryHistoryStore, memoryJobsStore } from "../src/storage/historyDb";
 import { SELECTORS } from "../src/wallet/calldata";
-import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, POOL_100, scriptedChain, word } from "./helpers/fakes";
+import { depositLog, fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, POOL_100, scriptedChain, word } from "./helpers/fakes";
 import status from "./fixtures/relayers/status.json";
 
 const ROUTER = "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b" as const;
@@ -197,6 +197,37 @@ describe("the withdrawal flow", () => {
     expect(posted.body.args[3]).toBe(status.v4.body.rewardAccount.toLowerCase());
     expect(posted.body.args[4]).toBe(`0x${word(10n ** 17n)}`);
     expect(posted.body.proof).toMatch(/^0x[0-9a-f]{512}$/);
+  });
+
+  it("the root is checked again after the confirmation: aged out of the pool's hundred meanwhile → the history synced again, proved again once, then submitted (Stage 10)", async () => {
+    const { services, chain, prover, transport, facts } = await ready();
+    const oldRoot = snap.manifest.root.toLowerCase();
+    const job = await withdrawalFlow(services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: 10n ** 17n,
+      confirm: async () => {
+        // while the user looked at the confirmation, another deposit landed and the pool's window moved past the proof's root
+        chain.options.head = snap.manifest.toBlock + 300; // the chain moved on: the new deposit sits in the next window
+        chain.options.logs = [[depositLog(POOL_100, 1024, 777_777n, snap.manifest.toBlock + 250)]];
+        chain.options.nextIndex = 1025;
+        chain.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        chain.options.lastRoot = hex32(5n);
+        return true;
+      },
+    });
+    expect(job.state, job.failedReason ?? "").toBe("COMPLETED");
+    expect(prover.proofs.length).toBe(2);
+    expect(BigInt(prover.proofs[0].root)).toBe(BigInt(oldRoot));
+    expect(BigInt(prover.proofs[1].root)).not.toBe(BigInt(oldRoot));
+    expect(prover.proofs[1].pathElements).not.toEqual(prover.proofs[0].pathElements);
+    const posted = transport.posted[0] as { body: { args: string[] } };
+    expect(BigInt(posted.body.args[0])).toBe(BigInt(prover.proofs[1].root));
+    expect(services.histories.get("eth-100")!.state!.leaves).toBe(1025);
   });
 
   it("wallet mode: the proof with no relayer and no fee, the pool's own withdraw from the account, the receipt", async () => {

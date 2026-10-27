@@ -39,12 +39,18 @@
 //      downloaded once for the whole run (the crypto worker's cache under the pin)
 //  10. V5: the leakage twin — every request body read for the phrase and the password; localStorage empty; the secure
 //      store holds the two ciphertext blobs only
+//  11. V7 Stage 10 (spec v3.0 §7.9): Tornado Classic — More → the separate app under /classic/ against this devnet's mainnet
+//      contracts (deploy.mjs step 6) and the relayer stand-in (classic-relayer.mjs): the facts read for real under Settings, a
+//      note nobody deposited; CLASSIC_FULL=1 (or a run without SKIP_CAMPAIGN): 1 ETH deposited through the router, the history
+//      synced after a reload, the withdrawal proved in the prover worker and followed through the stand-in to CONFIRMED, the
+//      recipient paid, the note spent on chain; 0.1 ETH in wallet mode; the notes nowhere, no host but the stack's three
 // Output: run/e2e/NN-step.png screenshots and run/e2e/report.json (results/ keeps a committed report).
 //
 //   BROWSER_CHANNEL=msedge node e2e.mjs      the system Edge or Chrome (chrome); unset: Playwright's Chromium
 //   HEADED=1 node e2e.mjs                    watch it
 //   VIEWPORTS=360x800,1280x800 node e2e.mjs  the shell pass on these viewports only
 //   SKIP_CAMPAIGN=1 node e2e.mjs             without the $10M protected swap (section 8)
+//   CLASSIC_FULL=1 node e2e.mjs              the Classic deposits and withdrawals (11b) even with SKIP_CAMPAIGN
 import { chromium } from "playwright";
 import { encodeFunctionData, parseAbi } from "viem";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
@@ -1211,6 +1217,219 @@ try {
   const offOriginLater = requests.filter((r) => r.phase !== "first-launch").map((r) => new URL(r.url).host).filter(Boolean);
   report.hosts = [...new Set(offOriginLater)];
   log(`hosts contacted after first launch: ${report.hosts.join(", ")}`);
+  // 11. V7 Stage 10 (spec v3.0 §7.9): Tornado Classic — the separate app under /classic/, reached from More, against this
+  //     devnet's mainnet contracts (deploy.mjs step 6) and the relayer stand-in (classic-relayer.mjs). 11a (every run): the
+  //     app behind the wallet's origin with every pool function live, the wallet connected, Settings reading the facts for
+  //     real, a note nobody deposited. 11b (CLASSIC_FULL=1, or a run without SKIP_CAMPAIGN): a 1 ETH deposit through the
+  //     router, the history synced after a reload, the withdrawal proved in the prover worker, handed to the stand-in and
+  //     followed to CONFIRMED, the recipient paid, the note spent on chain; then 0.1 ETH in wallet mode. 11c: the notes
+  //     nowhere — not in a request, not in the Classic database, not in localStorage; no host but the stack's three.
+  phase = "classic-nav"; // the wallet's own polls (the API, the relayer) until the page leaves for the Classic app
+  if (!stack.classic) {
+    check("the stack placed Tornado Classic's mainnet contracts (deploy.mjs step 6)", false, "run/stack.json has no classic block: run deploy.mjs again");
+  } else {
+    const CLASSIC_RELAYER = "http://127.0.0.1:8791";
+    const CLASSIC_FULL = process.env.CLASSIC_FULL === "1" || !process.env.SKIP_CAMPAIGN;
+    const randomHex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const classicPool = (amount) => stack.classic.pools[amount].address;
+    const classicStatus = await (await fetch(`${CLASSIC_RELAYER}/v1/status`)).json().catch(() => null);
+    const statusPools = Object.values(classicStatus?.instances?.eth?.instanceAddress ?? {}).map((a) => String(a).toLowerCase()).sort().join();
+    const stackPools = Object.values(stack.classic.pools).map((p) => p.address.toLowerCase()).sort().join();
+    check('the relayer stand-in speaks the protocol: health "true" as a string, chain 1, the four pools at their mainnet addresses', classicStatus?.health?.status === "true" && classicStatus?.netId === 1 && statusPools === stackPools, JSON.stringify(classicStatus ?? null).slice(0, 200));
+
+    // More → Tornado Classic: a plain link to the other app (a full navigation; the Classic page carries its own policy)
+    await nav(page, "More");
+    await byId(page, "more").waitFor({ timeout: 30_000 });
+    const classicLink = byId(page, "more-classic");
+    check("More → Tornado Classic is a plain link to /classic/ — another app, another policy (spec v3.0 §2, §7.8)", (await classicLink.getAttribute("href")) === "/classic/", String(await classicLink.getAttribute("href")));
+    await classicLink.click();
+    await page.waitForURL(/\/classic\/?(\?.*)?$/, { timeout: 60_000 });
+    await byId(page, "classic-header").waitFor({ timeout: 60_000 });
+    phase = "classic"; // from here every request is the Classic app's
+    await byId(page, "classic-amount-1").waitFor({ timeout: 30_000 });
+    await snap(page, "classic-deposit");
+    check('the Classic app loads behind the wallet\'s origin with no "interface prototype" banner: every pool function is switched live on the devnet', (await byId(page, "classic-not-connected").count()) === 0);
+    // the policy itself is a build-time property (classic/scripts/check-build.mjs, the prover bench under the built policy): the dev
+    // server needs its inline client; here the page is the Classic app, served behind the wallet's origin by its own server
+    const classicPage = await page.evaluate(() => ({ origin: location.origin, path: location.pathname, title: document.title, viteClient: !!document.querySelector('script[src*="/classic/@vite/client"]') }));
+    check("the Classic app is served behind the wallet's origin by its own dev server (the wallet's /classic proxy), under /classic/", classicPage.origin === "http://localhost:5173" && classicPage.path.startsWith("/classic/") && classicPage.viteClient, JSON.stringify(classicPage));
+
+    // the wallet: the injected account, found as the browser wallet
+    const connectClassic = async () => {
+      if (/^0x/i.test(await text(byId(page, "classic-wallet")))) return;
+      await clickId(page, "classic-wallet");
+      await byId(page, "classic-connect-modal").waitFor({ timeout: 30_000 });
+      await byId(page, "classic-wallets").getByRole("button").first().click();
+      await byId(page, "classic-connect-modal").waitFor({ state: "hidden", timeout: 30_000 });
+    };
+    await connectClassic();
+    const chip = await text(byId(page, "classic-wallet"));
+    check("the header chip shows the connected account (the devnet's funding account, chain 1)", chip.toLowerCase().startsWith(stack.funding.slice(0, 6).toLowerCase()), chip);
+
+    // Settings → Supported right now: every fact read for real on this chain
+    await clickId(page, "classic-link-settings");
+    await byId(page, "classic-availability").waitFor({ timeout: 30_000 });
+    const rowText = async (key) => text(byId(page, `classic-availability-${key}`));
+    const ROWS = ["contract", "router", "relayers", "history", "wallet"];
+    const rowsRead = async () => Promise.all(ROWS.map(rowText));
+    const settled = await until(page, async () => {
+      const t = await rowsRead();
+      return /verified against the pins now/.test(t[0]) && /enabled/.test(t[1]) && /1 online/.test(t[2]) && /synced to block \d[\d,]*, root verified/.test(t[3]) && /connected on Ethereum/.test(t[4]) ? t : null;
+    }, 120_000, 1000);
+    await snap(page, "classic-settings");
+    check("Settings → Supported right now reads the facts on this chain: the pool's code verified against the pins, the router enabled by the registry, one relayer online, the history synced with its root known to the pool, the wallet connected", !!settled, (settled ?? (await rowsRead())).join(" | "));
+    const onOff = async (key) => { const v = await rowText(key); return /On\b/.test(v) && !/Off/.test(v); }; // the label and the value touch ("DepositOn")
+    check("Deposit and Withdraw read On", (await onOff("deposit")) && (await onOff("withdraw")), `${await rowText("deposit")} / ${await rowText("withdraw")}`);
+
+    // a note nobody deposited: the history synced from this chain finds no deposit; a note of another network is named as such
+    await clickId(page, "classic-tab-withdraw");
+    await fillId(page, "classic-note-input", `tornado-eth-1-1-0x${randomHex(62)}`);
+    await byId(page, "classic-note-error").waitFor({ timeout: 60_000 });
+    check("a well-formed note nobody deposited: the pool's history (synced from this chain) finds no related deposit", /no related deposit/.test(await text(byId(page, "classic-note-error"))), await text(byId(page, "classic-note-error")));
+    await fillId(page, "classic-note-input", `tornado-eth-1-5-0x${randomHex(62)}`);
+    await until(page, async () => /another network/.test(await text(byId(page, "classic-note-error")).catch(() => "")), 30_000, 500);
+    check("a note of another network is refused by name", /another network/.test(await text(byId(page, "classic-note-error"))), await text(byId(page, "classic-note-error")));
+    await fillId(page, "classic-note-input", "");
+
+    const notes = [];
+    if (!CLASSIC_FULL) {
+      log("Classic end to end (11b) skipped: SKIP_CAMPAIGN is set and CLASSIC_FULL is not");
+    } else {
+      /** the Statistics' deposit count for the selected pool */
+      const depositsShown = async () => Number((/(\d[\d,]*)/.exec(await text(byId(page, "classic-stats-set")))?.[1] ?? "NaN").replace(/,/g, ""));
+      /** a deposit of `amount` ETH from the Deposit tab: the note read from the modal, the backup confirmed, Send Deposit, the pool's balance read */
+      const classicDeposit = async (amount) => {
+        await clickId(page, "classic-tab-deposit");
+        await clickId(page, `classic-amount-${amount}`);
+        await byId(page, "classic-stats-set").waitFor({ timeout: 60_000 });
+        const before = await until(page, async () => (Number.isFinite(await depositsShown()) ? await depositsShown() : null), 60_000, 500);
+        await clickId(page, "classic-deposit-button");
+        await byId(page, "classic-note-modal").waitFor({ timeout: 30_000 });
+        const note = (await text(byId(page, "classic-note"))).trim();
+        const noteRe = new RegExp(`^tornado-eth-${amount}-1-0x[0-9a-f]{124}$`);
+        check(`the note modal shows one note of the ${amount} ETH pool on chain 1 (31 + 31 bytes)`, noteRe.test(note), `${note.slice(0, 24)}… (${note.length} chars)`);
+        const sendDisabled = await byId(page, "classic-note-send").isDisabled();
+        await clickId(page, "classic-note-backed");
+        check("Send Deposit stays disabled until the backup is confirmed", sendDisabled && !(await byId(page, "classic-note-send").isDisabled()));
+        const poolBefore = await balanceEth(classicPool(amount));
+        await clickId(page, "classic-note-send");
+        await byId(page, "classic-deposit-message").waitFor({ timeout: 120_000 });
+        const msg = await text(byId(page, "classic-deposit-message"));
+        const poolAfter = await balanceEth(classicPool(amount));
+        check(`the ${amount} ETH deposit went through the router from the connected wallet: the pool holds ${amount} ETH more, the app says it was handed to the wallet`, /handed to your wallet/.test(msg) && Math.abs(poolAfter - poolBefore - Number(amount)) < 1e-9, `${msg} — pool ${poolBefore} → ${poolAfter} ETH`);
+        await snap(page, `classic-deposit-${amount}-sent`);
+        await page.keyboard.press("Escape");
+        await byId(page, "classic-note-modal").waitFor({ state: "hidden", timeout: 10_000 });
+        check("the note modal closed: the note is nowhere in the page", !(await page.content()).includes(note.slice(-124)));
+        // twelve confirmations, then a reload: the history comes back from the device's copy and syncs to the deposit
+        await rpc("hardhat_mine", ["0xc"]);
+        await page.reload({ waitUntil: "load" });
+        await byId(page, "classic-header").waitFor({ timeout: 60_000 });
+        await connectClassic();
+        await clickId(page, "classic-tab-deposit");
+        await clickId(page, `classic-amount-${amount}`);
+        const after = await until(page, async () => ((await depositsShown()) === before + 1 ? before + 1 : null), 120_000, 1000);
+        check(`after the reload the Statistics count one more deposit in the ${amount} ETH pool (the device's copy synced to the chain)`, after === before + 1, `${before} → ${after ?? await depositsShown()}`);
+        notes.push(note);
+        return note;
+      };
+      /** the Withdraw tab filled for `note` and `recipient`, in `mode`; the proof, the confirmation; the message awaited */
+      const classicWithdraw = async (note, recipient, mode, amount) => {
+        await clickId(page, "classic-tab-withdraw");
+        await fillId(page, "classic-note-input", note);
+        await byId(page, "classic-note-facts").waitFor({ timeout: 120_000 });
+        const facts = await text(byId(page, "classic-note-facts"));
+        check(`the note is found in the synced history: ${amount} ETH, no subsequent deposits, the time since the deposit`, facts.includes(`${amount} ETH`) && /no deposits/.test(facts), facts);
+        await fillId(page, "classic-recipient", recipient);
+        // the Relayer | Wallet choice sits under "Withdrawal settings", folded by default as in the original
+        if (!(await byId(page, `classic-mode-${mode}`).isVisible())) await clickId(page, "classic-settings-toggle");
+        await clickId(page, `classic-mode-${mode}`);
+        if (mode === "relayer") {
+          await byId(page, "classic-withdraw-total").waitFor({ timeout: 60_000 });
+          const total = await text(byId(page, "classic-withdraw-total"));
+          check("the fee lines: the gas price read live, the network fee, the relayer's percentage, what the recipient receives", /Gwei/.test(total) && /Relayer fee/.test(total) && /Tokens to receive/.test(total), total.slice(0, 220));
+        } else {
+          check("wallet mode names the gas-linkability warning", (await byId(page, "classic-wallet-warning").count()) === 1);
+        }
+        const before = await balanceEth(recipient);
+        const button = byId(page, "classic-withdraw-button");
+        await until(page, async () => !(await button.isDisabled()), 60_000, 500);
+        await button.click();
+        await byId(page, "classic-confirm-modal").waitFor({ timeout: PROOF_TIMEOUT });
+        check("the proof was made in the prover worker and the confirmation asks before anything is sent", /successfully generated/.test(await text(byId(page, "classic-confirm-text"))));
+        await snap(page, `classic-withdraw-${mode}-confirm`);
+        await clickId(page, "classic-confirm");
+        const done = mode === "relayer" ? /Relayer: CONFIRMED|did not go through/ : /handed to your wallet|did not go through/;
+        await until(page, async () => done.test(await text(byId(page, "classic-flow-message")).catch(() => "")), 240_000, 1000);
+        const message = await text(byId(page, "classic-flow-message")).catch(() => "(no message)");
+        const after = await balanceEth(recipient);
+        return { message, received: after - before };
+      };
+
+      // 11b: 1 ETH through the router, withdrawn through the relayer stand-in
+      const recipient1 = `0x${randomHex(20)}`;
+      const note1 = await classicDeposit("1");
+      const relayed = await classicWithdraw(note1, recipient1, "relayer", "1");
+      check("the withdrawal was handed to the relayer stand-in, which sent it through the router; the job was followed to CONFIRMED and the recipient received 1 ETH minus the fee", /Relayer: CONFIRMED/.test(relayed.message) && relayed.received > 0.99 && relayed.received < 1, `${relayed.message}; received ${relayed.received} ETH`);
+      await snap(page, "classic-withdraw-relayer-done");
+      if (await byId(page, "classic-check-spent-button").count()) {
+        await clickId(page, "classic-check-spent-button");
+        await byId(page, "classic-spent-on-chain").waitFor({ timeout: 60_000 });
+        const spent = await text(byId(page, "classic-spent-on-chain"));
+        check("Check on chain (disclosed as a read the endpoint sees): the pool reports the note as spent", /as spent/.test(spent) && !/unspent/.test(spent), spent);
+      } else {
+        const refilled = await until(page, async () => (await byId(page, "classic-note-error").count()) ? await text(byId(page, "classic-note-error")) : null, 30_000, 500);
+        check("the withdrawn note is reported spent by the history itself", /spent/i.test(refilled ?? ""), refilled ?? "(no note error shown)");
+      }
+      const relayerJobs = await (await fetch(`${CLASSIC_RELAYER}/v1/status`)).json().catch(() => null);
+      check("the stand-in's queue is empty again", relayerJobs?.currentQueue === 0, JSON.stringify(relayerJobs?.currentQueue));
+
+      // 11b: 0.1 ETH, withdrawn in wallet mode (the connected account sends the pool's own withdraw; relayer = recipient, fee 0)
+      const recipient2 = `0x${randomHex(20)}`;
+      const note2 = await classicDeposit("0.1");
+      const byWallet = await classicWithdraw(note2, recipient2, "wallet", "0.1");
+      check("wallet mode: the connected account sent the pool's own withdraw; the recipient received the whole 0.1 ETH", /handed to your wallet/.test(byWallet.message) && Math.abs(byWallet.received - 0.1) < 1e-9, `${byWallet.message}; received ${byWallet.received} ETH`);
+      await snap(page, "classic-withdraw-wallet-done");
+
+      // History: a row per operation, never a note
+      await clickId(page, "classic-link-history");
+      await byId(page, "classic-history").waitFor({ timeout: 30_000 });
+      const rows = await page.locator('[data-testid^="classic-tx-"]').count();
+      const historyText = await text(byId(page, "classic-history"));
+      check("History lists the four operations (two deposits, two withdrawals) with their status words and no note", rows >= 4 && /Deposited|Withdrawn|Confirmed/.test(historyText) && !notes.some((n) => historyText.includes(n.slice(-124))), `${rows} rows`);
+      await snap(page, "classic-history");
+    }
+
+    // 11c: the notes nowhere; no host but the stack's three
+    const classicRequests = requests.filter((r) => r.phase === "classic");
+    const secrets = notes.map((n) => n.slice(-124).toLowerCase());
+    const leaking = classicRequests.filter((r) => secrets.some((h) => r.url.toLowerCase().includes(h) || (r.body ?? "").toLowerCase().includes(h)));
+    check(`no request of the Classic section carries a note (${classicRequests.length} requests, ${classicRequests.filter((r) => r.body).length} bodies, ${notes.length} notes)`, leaking.length === 0, leaking.slice(0, 3).map((r) => r.url).join(", "));
+    const hostOf = (u) => { const x = new URL(u); return x.protocol === "blob:" ? "blob" : x.host; }; // websnark's sub-workers load from Blob URLs of the origin
+    const classicHosts = [...new Set(classicRequests.map((r) => hostOf(r.url)))].sort();
+    check("the Classic app talked to the stack's three hosts only — its origin (and the prover's Blob workers), the devnet RPC, the relayer stand-in", classicHosts.every((h) => ["blob", "localhost:5173", "127.0.0.1:8546", "127.0.0.1:8791"].includes(h)), classicHosts.join(", "));
+    const classicStorage = await page.evaluate(async () => {
+      const out = { localStorage: Object.keys(localStorage), localStorageText: JSON.stringify(localStorage), databases: [], text: "" };
+      const names = (await indexedDB.databases?.())?.map((d) => d.name).filter(Boolean) ?? ["tornado-classic"];
+      for (const name of names) {
+        const db = await new Promise((res, rej) => { const r = indexedDB.open(name); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onupgradeneeded = () => { r.transaction?.abort(); rej(new Error("absent")); }; }).catch(() => null);
+        if (!db) continue;
+        const stores = [...db.objectStoreNames];
+        out.databases.push({ name, stores });
+        for (const store of stores) {
+          const all = await new Promise((res, rej) => { const req = db.transaction(store, "readonly").objectStore(store).getAll(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }).catch(() => []);
+          out.text += `\n${name}/${store}: ${JSON.stringify(all, (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 4_000_000)}`;
+        }
+        db.close();
+      }
+      return out;
+    });
+    const classicDb = classicStorage.databases.find((d) => d.name === "tornado-classic");
+    check("the Classic database exists with its history and jobs stores", !!classicDb && classicDb.stores.length >= 2, JSON.stringify(classicStorage.databases));
+    check("no note in any database of the origin, none in localStorage", !secrets.some((h) => classicStorage.text.toLowerCase().includes(h)) && !/tornado-eth-/.test(classicStorage.localStorageText) && !secrets.some((h) => classicStorage.localStorageText.toLowerCase().includes(h)), `${classicStorage.text.length} chars read; localStorage keys: ${classicStorage.localStorage.join(", ") || "none"}`);
+    check("localStorage still holds nothing of the wallet's", classicStorage.localStorage.every((k) => /^tornado-classic\./.test(k)), classicStorage.localStorage.join(", "));
+  }
+
 } catch (e) {
   report.failures.push(`exception: ${e.message}`);
   log(`EXCEPTION ${e.stack?.split("\n").slice(0, 3).join(" | ")}`);

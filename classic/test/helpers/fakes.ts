@@ -128,6 +128,8 @@ export interface ScriptedChainOptions {
   logs?: RawLog[][];
   nextIndex?: number;
   knownRoot?: boolean;
+  /** isKnownRoot answered per root (the aging scenario); `knownRoot` otherwise */
+  knownRoots?: (root: Hex) => boolean;
   lastRoot?: Hex;
   receipts?: Record<string, { status: "0x1" | "0x0"; blockNumber: string } | null>;
   gasPrice?: string;
@@ -165,7 +167,10 @@ export function scriptedChain(o: ScriptedChainOptions) {
         const sel = data.slice(0, 10);
         if (o.calls?.[sel]) return o.calls[sel];
         if (sel === SELECTORS.nextIndex) return `0x${word(o.nextIndex ?? 0)}`;
-        if (sel === SELECTORS.isKnownRoot) return `0x${word(o.knownRoot === false ? 0 : 1)}`;
+        if (sel === SELECTORS.isKnownRoot) {
+          const known = o.knownRoots ? o.knownRoots(`0x${data.slice(10)}` as Hex) : o.knownRoot !== false;
+          return `0x${word(known ? 1 : 0)}`;
+        }
         if (sel === SELECTORS.getLastRoot) return o.lastRoot ?? hex32(1n);
         if (sel === SELECTORS.isSpent) return `0x${word(0)}`;
         throw new Error(`no answer for selector ${sel}`);
@@ -174,7 +179,7 @@ export function scriptedChain(o: ScriptedChainOptions) {
         throw new Error(`no answer for ${method}`);
     }
   };
-  return { rpc, seen };
+  return { rpc, seen, options: o };
 }
 
 /** A Deposit log as a pool emits it. */

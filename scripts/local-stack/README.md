@@ -14,8 +14,8 @@ cd scripts/local-stack && npm install          # hardhat 2, playwright, viem —
 (cd ../../contracts && forge build)            # the artifacts deploy.mjs reads (contracts/out)
 
 npm run chain                                   # 1. the devnet: Hardhat as chain id 1 on 127.0.0.1:8546 (keep it running)
-npm run deploy                                  # 2. the pool, the ETH vault, the SwapOrderFactory, ProtectRouter + USDC, the ShieldReceiverFactory, the mainnet pins, the feeds → run/stack.json
-npm run services                                # 3. the swap service (8787), the relayer (8790), the wallet (5173); logs in run/
+npm run deploy                                  # 2. the pool, the ETH vault, the SwapOrderFactory, ProtectRouter + USDC, the ShieldReceiverFactory, the mainnet pins, the feeds, Tornado Classic's mainnet contracts (V7) → run/stack.json
+npm run services                                # 3. the swap service (8787), the relayer (8790), the wallet (5173), the Classic app (5174, behind the wallet's /classic) and its relayer stand-in (8791); logs in run/
 BROWSER_CHANNEL=chrome npm run e2e              # 4. the browser run → run/e2e/NN-step.png + report.json (HEADED=1 to watch)
 ```
 
@@ -24,6 +24,50 @@ RP ID, and the V3 run registers a separate device). `BROWSER_CHANNEL` is `chrome
 (`npx playwright install chromium`). The wallet can also be used by hand at http://127.0.0.1:5173 while step 3 runs;
 the funding wallet in the browser is the devnet's account #1 (the e2e injects it; by hand, any injected wallet pointed
 at http://127.0.0.1:8546 with chain id 1 works).
+
+## Tornado Classic on the devnet (V7 Stage 10)
+
+`deploy.mjs` (step 6) places Tornado Classic's mainnet contracts at their mainnet addresses: the four ETH pools, the
+verifier `0xce17…557a`, the MiMC Hasher library the pools link (`0x8358…28fe`), the TornadoRouter and the instance and
+relayer registries behind their proxies. The Solidity contracts' runtime code comes from the Sourcify records the Classic
+app's pins were verified against (`classic/contracts/verified/*.json`); the Hasher's code — a circomlib-generated contract
+with no Solidity source — and the registries' storage (the EIP-1967 implementation and admin slots, the initializer flags
+with the router, the minimum stake, the four ETH instances ENABLED with their protocol fee) were read from mainnet once by
+`classic-capture.mjs` into `mainnet/classic-state.json` (committed; the block is recorded; run it again to refresh). Each
+pool gets the storage its constructor writes — `levels`, the twenty zero subtrees in `filledSubtrees` and `zeros`,
+`roots[0]` = the empty tree's root, the reentrancy counter at one, the denomination, the verifier, no operator — computed
+with the Classic app's own tree hash (`classic/src/crypto/tree.ts`, imported by the script), and every getter is read back,
+`hashLeftRight` through the Hasher included: the chain's MiMC is held to the app's before any deposit, and the Classic app
+then verifies its own pins against this chain exactly as it would against mainnet. `run/stack.json` gains a `classic`
+block (the addresses, the "deployed block" the history syncs from).
+
+`start-services.mjs` adds two processes: the Classic dev server on 5174 (`classic/`, every pool function switched live,
+`VITE_CLASSIC_RPC_URLS` the devnet, `VITE_CLASSIC_DEPLOYED_BLOCK` the block the contracts were placed at, the stand-in as
+its one relayer — `VITE_CLASSIC_RELAYERS_CURATED=0`, so mainnet's relayers are never asked from a development machine —,
+no served snapshot — `VITE_CLASSIC_DATA_BASE` at an empty path, since `classic/public/data` may hold mainnet's —, no HMR
+websocket) and `classic-relayer.mjs` on 8791 — a tornado-relayer stand-in speaking the protocol the
+app speaks to real relayers (GET /status, POST /v1/tornadoWithdraw, GET /v1/jobs/:id with the seven states) and submitting
+each withdrawal through the real router from the devnet's account #0, with the original's fee check (the gas for a
+withdrawal at the current price plus the service percentage, a tenth of tolerance). The wallet's dev server proxies
+`/classic` to 5174 (`CLASSIC_DEV_URL`), so More → Tornado Classic is one origin here as on a host. By hand: open
+http://localhost:5173/classic/ with an injected wallet on chain id 1 pointed at the devnet.
+
+The browser run's section 11 (`e2e.mjs`): More → the Classic app, its own content security policy read from the page, the
+wallet connected, Settings → Supported right now reading the facts for real (the pool's code verified against the pins, the
+router enabled by the registry, one relayer online, the history synced with its root known to the pool, the wallet connected),
+a note nobody deposited and one of another network refused. 11b (`CLASSIC_FULL=1`, or any run without `SKIP_CAMPAIGN`): a
+1 ETH deposit through the router from the connected wallet, twelve blocks mined (`hardhat_mine`) and a reload — the history
+comes back from the device's copy and syncs to the deposit —, the note found, the fee lines at the live gas price, the proof
+in the prover worker (the 21.6 MB of artifacts fetched once), the confirmation, the stand-in's job followed to CONFIRMED, the
+recipient paid 1 ETH minus the fee, the pool's `isSpent` through "Check on chain"; then 0.1 ETH withdrawn in wallet mode (the
+connected account sends the pool's own `withdraw`); History with its rows. 11c: no request of the section carries a note, no
+host but the origin, the devnet and the stand-in, and the Classic database (`tornado-classic`) holds no note — 234/234 checks on the quick pass with the Classic sections, 35 of them Classic's (`scripts/local-stack/results/report-2026-10-27-v7-stage10.json`).
+
+The mainnet fork: `npx hardhat node --port 8547 --fork <mainnet rpc>` here, then `CLASSIC_FORK_RPC=http://127.0.0.1:8547 npm
+run test:fork` in `classic/` (`classic/test/fork/withdraw.fork.test.ts`: the served snapshot synced onto the fork, a 100 ETH
+deposit through the real router and registry, the withdrawal through the router by an in-process relayer, the note spent on
+chain, then a hundred deposits between the proof and the confirmation so the root ages out of the pool's hundred — synced
+again, proved again once, withdrawn in wallet mode). On this workstation the suite ran in its devnet mode against the local stack's chain (`CLASSIC_FORK_RPC=http://127.0.0.1:8546`: 3 tests in 30 s — the deposit through the real router, the withdrawal through the router by the stand-in with the note spent on chain and the pool's own Withdrawal event, the aged root proved again after a hundred deposits); a mainnet fork node could not be started here — Hardhat's fork engine dies at start with a segmentation fault, as anvil does on this machine — so the run against mainnet's real state is the owner's, on another machine.
 
 ## Why chain id 1
 
@@ -40,7 +84,7 @@ One consequence: chain id 1 has an Ethereum light client, and the devnet has no 
 "Verify the pool with the Ethereum light client" off under Settings → Advanced (the wallet then says reads rest on the RPC quorum).
 On Sepolia or mainnet leave it on.
 
-## What a run checks (V6, the final full run on the V6 code: 212/212 checks with the $10M campaign, `results/report-2026-10-14-v6.json`; V6 Stage 16: 196/196 on the quick pass, `results/report-2026-10-14-v6-stage16.json` — the run now does what a person would when the live market moves: it accepts a new minimum up to ten times, resumes paused steps and waits another round, and types the amount again while there is no route; V6 Stage 15: 197/197 checks on the quick pass, `results/report-2026-10-14-v6-stage15.json`; 165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
+## What a run checks (V7 Stage 10: 234/234 checks on the quick pass with the Classic sections — 11, 11b, 11c —, `results/report-2026-10-27-v7-stage10.json`; V6, the final full run on the V6 code: 212/212 checks with the $10M campaign, `results/report-2026-10-14-v6.json`; V6 Stage 16: 196/196 on the quick pass, `results/report-2026-10-14-v6-stage16.json` — the run now does what a person would when the live market moves: it accepts a new minimum up to ten times, resumes paused steps and waits another round, and types the amount again while there is no route; V6 Stage 15: 197/197 checks on the quick pass, `results/report-2026-10-14-v6-stage15.json`; 165/165 checks after the V6 monorepo move, `results/report-2026-10-13-v6-stage1.json` — the two price-consent checks fire only when the live price moves between a consent and the hard quote; 167/167 checks on the V5 follow-up run of 2026-10-13, `results/report-2026-10-13-v5.json`, after the executor fix below; 166/166 on the V5 run, `results/report-2026-10-08-v5.json`; the V4 run: `results/report-2026-10-08-v4.json`, 48/48; the V3 run: `results/report-2026-10-08-v3.json`)
 
 V5 (`docs/privacy-wallet-web-spec-v1.0.md`): the same money flow on the rebuilt screens — Welcome → the experience → Create → the phrase;
 Settings → Advanced for the light client and Settings → Connected wallet for the connection (V7 Stage 4); Protect through the connected wallet's own provider; Send (public),
@@ -163,7 +207,7 @@ on stderr, no Windows error report) at the moment the campaign asked it for a st
 `Liquidity dropped` on every tick until the run ended. The VPN client's Winsock layered provider is the suspect (git's
 network helper crashes under it too). Restarted with `node start-services.mjs service`, the service answered the whole next run.
 
-`anvil` (Foundry) segfaults here (a Winsock LSP; see `docs/local-run.md`), which is why the devnet is Hardhat's. Playwright
+`anvil` (Foundry) segfaults here (a Winsock LSP; see `docs/local-run.md`), which is why the devnet is Hardhat's. `hardhat node --fork <endpoint>` dies the same way at start — a segmentation fault in Hardhat's native fork engine before any request leaves (a plain-HTTP relay in front of the upstream changed nothing) — so the mainnet-fork suite runs on another machine; here it runs in its devnet mode against the stack's own chain (`CLASSIC_FORK_RPC=http://127.0.0.1:8546`). Playwright
 1.64 drives the installed Chrome 154 with its old headless shell (`--headless=old`, set by `e2e.mjs` for
 `BROWSER_CHANNEL=chrome`; the new headless mode does not come up) or headed. Edge 152 ran two full passes headless and
 then began answering every external request with `ERR_NETWORK_ACCESS_DENIED` (the THORNode gateways the wallet asks

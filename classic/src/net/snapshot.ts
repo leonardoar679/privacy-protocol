@@ -16,7 +16,7 @@ export interface FetchedSnapshot {
   texts: SnapshotTexts;
 }
 
-/** The snapshot under `${base}/${pool}/`; null when the host serves none (404). */
+/** The snapshot under `${base}/${pool}/`; null when the host serves none (a 404, or a page where the manifest should be). */
 export async function fetchSnapshot(base: string, pool: string, fetchImpl: typeof fetch = fetch, timeoutMs = 60_000): Promise<FetchedSnapshot | null> {
   const dir = `${base.replace(/\/+$/, "")}/${pool}`;
   const get = async (name: string): Promise<string | null> => {
@@ -26,6 +26,8 @@ export async function fetchSnapshot(base: string, pool: string, fetchImpl: typeo
       const res = await fetchImpl(`${dir}/${name}`, { cache: "no-store", credentials: "omit", signal: ctl.signal });
       if (res.status === 404) return null;
       if (!res.ok) throw new SnapshotFetchError(`${name}: HTTP ${res.status}`, res.status);
+      // a page where the file should be — a dev server's fallback to index.html — serves no snapshot
+      if (/text\/html/i.test(res.headers.get("content-type") ?? "")) return null;
       return await res.text();
     } finally {
       clearTimeout(timer);

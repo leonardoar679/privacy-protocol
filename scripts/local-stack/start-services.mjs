@@ -1,6 +1,7 @@
 // start-services.mjs — runs the three processes of docs/local-run.md against the devnet described by run/stack.json:
 // the API (8787; V6 Stage 9: apps/api with its database run/api.sqlite), the relayer (8790) and the wallet's Vite dev
-// server (5173). Every setting goes in
+// server (5173) — and, V7 Stage 10, the Classic app's dev server (5174, behind the wallet's /classic proxy) with the
+// relayer stand-in it submits through (8791, classic-relayer.mjs). Every setting goes in
 // through the environment (no .env file is written into the tree). Logs land in run/<name>.log; the relayer's journal
 // in run/relayer-journal. Ctrl-C stops all three.
 //
@@ -27,10 +28,10 @@ const procs = [];
 const LOCAL_VOUCH_KEY = "0x6c6f63616c2d737461636b2061706920766f756368206b657920286465766e65";
 const LOCAL_VOUCHER = "0xd311b8bb3670cf035826c73a2c8286ad8bacc94e";
 
-function start(name, cwd, args, env) {
+function start(name, cwd, args, env, cmd = npx) {
   if (!wanted(name)) return;
   const log = openSync(join(RUN, `${name}.log`), "w");
-  const p = spawn(npx, args, { cwd: join(ROOT, cwd), env: { ...process.env, ...env }, stdio: ["ignore", log, log], shell: true });
+  const p = spawn(cmd, args, { cwd: join(ROOT, cwd), env: { ...process.env, ...env }, stdio: ["ignore", log, log], shell: true });
   p.on("exit", (code) => console.log(`[${name}] exited with ${code}`));
   procs.push({ name, p });
   console.log(`[${name}] pid ${p.pid} in ${cwd}: ${args.join(" ")}`);
@@ -95,7 +96,24 @@ start("wallet", "apps/web", ["vite", "--port", "5173", "--strictPort", "--host",
   VITE_THORCHAIN_ROUTER: stack.pins.thorchainRouter,
   VITE_REVIEW_HOLD_MINUTES: "1", // the institutional review hold, shortened for the browser run (V3 Stage 7)
   PW_NO_HMR: "1", // V6 Stage 15: no HMR websocket — the offline step would drop it and Vite would reload the page on its return
+  ...(stack.classic ? { CLASSIC_DEV_URL: "http://127.0.0.1:5174" } : {}), // V7 Stage 10: More → Tornado Classic reaches the Classic dev server through this one
 });
+
+// V7 Stage 10 (spec v3.0 §7.9): the Classic app against this devnet — every pool function switched live (the contracts are
+// the mainnet ones at their mainnet addresses, deploy.mjs), the relayer stand-in as its one relayer, the history synced from
+// the block the contracts were placed at — and the stand-in itself, submitting through the real router from account #0
+if (stack.classic) {
+  start("classic-relayer", "scripts/local-stack", ["classic-relayer.mjs"], { PORT: "8791", RPC: stack.rpc }, "node");
+  start("classic", "classic", ["vite", "--port", "5174", "--strictPort", "--host", "127.0.0.1"], {
+    VITE_CLASSIC_RPC_URLS: stack.rpc,
+    VITE_CLASSIC_RELAYER_URLS: "http://127.0.0.1:8791",
+    VITE_CLASSIC_LIVE: JSON.stringify(Object.fromEntries(Object.values(stack.classic.pools).map((p) => [p.id, ["deposit", "withdraw"]]))),
+    VITE_CLASSIC_DEPLOYED_BLOCK: String(stack.classic.deployedBlock),
+    VITE_CLASSIC_RELAYERS_CURATED: "0", // a devnet must not ask mainnet's relayers: the stand-in is the one relayer here
+    VITE_CLASSIC_DATA_BASE: "/classic/devnet-data", // no snapshot is served for the devnet (the pools start empty; public/data may hold mainnet's)
+    PW_NO_HMR: "1",
+  });
+}
 
 const stop = () => { for (const { p } of procs) try { p.kill(); } catch {} ; process.exit(0); };
 process.on("SIGINT", stop);
