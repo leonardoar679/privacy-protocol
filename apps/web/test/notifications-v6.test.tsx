@@ -112,7 +112,7 @@ describe("operation notifications (doc §76)", () => {
       destination: { kind: "fresh", display: "Your protected balance", chain: "ethereum" },
       tier: "standard",
     });
-    putOperation({ ...rec, state: "SETTLING" });
+    putOperation({ ...rec, state: "DESTINATION_CONFIRMING" });
     expect(notifications.all(), "an operation's first steps notify nothing").toHaveLength(0);
     putOperation({ ...rec, state: "COMPLETED" });
     expect(notifications.all().map((n) => [n.title, n.body, n.operationId, n.tone])).toEqual([

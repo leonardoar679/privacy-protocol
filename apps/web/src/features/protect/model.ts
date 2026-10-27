@@ -29,16 +29,16 @@ export const PROTECT_STEPS: readonly ProtectStep[] = [
   "PROTECTED_BALANCE_UPDATED",
 ];
 
-/** Each §23 step as the operation's state (spec v2.0 §12): a draft until the review, signed from the wallet prompt on. */
+/** Each §23 step as the operation's state (spec v3.0 §6): a draft until the review, authorized from the wallet prompt on; the hash and the receipt are one state (SOURCE_CONFIRMING). */
 export const PROTECT_OPERATION_STATE: Readonly<Record<ProtectStep, OperationState>> = {
   SELECT_ASSET: "DRAFT",
   ENTER_AMOUNT: "DRAFT",
   VALIDATE_BALANCE: "DRAFT",
   CALCULATE_FEE: "QUOTING",
-  PREPARE_TRANSACTION: "REVIEW",
-  WALLET_CONFIRM: "AWAITING_SIGNATURE",
-  SUBMITTED: "SUBMITTED",
-  CONFIRMED: "CONFIRMING",
+  PREPARE_TRANSACTION: "READY_TO_REVIEW",
+  WALLET_CONFIRM: "AWAITING_AUTHORIZATION",
+  SUBMITTED: "SOURCE_CONFIRMING",
+  CONFIRMED: "SOURCE_CONFIRMING",
   PROTECTED_BALANCE_UPDATED: "COMPLETED",
 };
 
@@ -59,9 +59,8 @@ export interface ProtectFacts {
 export function protectStepOf(f: ProtectFacts): ProtectStep {
   const s = f.record?.state;
   if (s === "COMPLETED") return "PROTECTED_BALANCE_UPDATED";
-  if (s === "CONFIRMING") return "CONFIRMED";
-  if (s === "SUBMITTED") return "SUBMITTED";
-  if (s === "AWAITING_SIGNATURE" || s === "SIGNED") return "WALLET_CONFIRM";
+  if (s === "SOURCE_CONFIRMING") return "CONFIRMED"; // V7: the hash and the receipt are one state — the step list passes SUBMITTED on the way
+  if (s === "AWAITING_AUTHORIZATION" || s === "PREPARING_PROOF" || s === "SUBMITTING") return "WALLET_CONFIRM";
   if (!f.assetChosen) return "SELECT_ASSET";
   if (f.units <= 0n) return "ENTER_AMOUNT";
   if (f.balance === null || f.balance < f.units) return "VALIDATE_BALANCE";

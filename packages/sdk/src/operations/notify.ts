@@ -34,9 +34,8 @@ export interface OperationNotification {
  *  "executing"), any operation completed, any operation needing recovery. Nothing for a state the record already had. */
 export function kindFor(prev: OperationRecord, next: OperationRecord): OperationNotificationKind | null {
   if (prev.state === next.state) return null;
-  if (next.state === "REVIEW" && prev.state === "QUOTING") return "quote-ready";
-  if (next.state === "EXECUTING" && (prev.state === "SUBMITTED" || prev.state === "CONFIRMING"))
-    return next.kind === "cross-chain" ? "cross-chain-executing" : "confirmed";
+  if (next.state === "READY_TO_REVIEW" && prev.state === "QUOTING") return "quote-ready";
+  if (next.state === "PROVIDER_EXECUTING" && prev.state === "SOURCE_CONFIRMING") return next.kind === "cross-chain" ? "cross-chain-executing" : "confirmed";
   if (next.state === "COMPLETED") return "completed";
   if (next.state === "RECOVERY_REQUIRED") return "recovery-required";
   return null;

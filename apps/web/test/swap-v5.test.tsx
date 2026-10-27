@@ -187,12 +187,12 @@ describe("the words (spec §3.8, §3.9, §3.12)", () => {
     await session.create("a strong password"); session.acknowledgePhrase();
     const stored: StoredSwap = { orderId: "0x" + "0a".repeat(32), attemptId: "0x" + "0b".repeat(32), refundCounter: 1, provider: "thorchain", policy: "balanced", request: { from: ETH, to: BTC, amount: eth(1).toString(), destination: DEST, destinationKind: "fresh" }, params: { amount: eth(1).toString() }, endpoint: "0x" + "0c".repeat(20), createdAt: 1_000, fundedTx: "0x" + "11".repeat(32), state: "funded", tier: "large", approvedMin: "2985000" };
     let rec = syncSwapRecord(stored, { state: "DESTINATION_SUBMITTED", label: "Waiting for destination", steps: [true, true, true, false], detail: "sent", destinationTxHash: "0x" + "22".repeat(32) }, null, 2_000);
-    expect(rec).toMatchObject({ v: 2, id: swapRecordId(stored.orderId), kind: "cross-chain", state: "SETTLING", phase: "settlement", tier: "large", amounts: { asset: "ETH", input: eth(1).toString(), minimumOutput: "2985000", outputAsset: "BTC" }, destination: { kind: "fresh", display: DEST, chain: "bitcoin" } });
+    expect(rec).toMatchObject({ v: 3, id: swapRecordId(stored.orderId), kind: "cross-chain", state: "DESTINATION_CONFIRMING", phase: "settlement", tier: "large", amounts: { asset: "ETH", input: eth(1).toString(), minimumOutput: "2985000", outputAsset: "BTC" }, destination: { kind: "fresh", display: DEST, chain: "bitcoin" } });
     expect(rec.refs).toMatchObject({ orderId: stored.orderId, provider: "thorchain", txHashes: [stored.fundedTx, "0x" + "22".repeat(32)] });
-    expect(getOperation(rec.id)?.state).toBe("SETTLING");
+    expect(getOperation(rec.id)?.state).toBe("DESTINATION_CONFIRMING");
     rec = syncSwapRecord({ ...stored, jobId: "job-1" }, null, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "execute-failed", updatedAt: 3_000, error: "ProviderCallFailed" }, 3_000);
     expect(rec).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "execute_failed", fundsClass: "still-protected" }, recovery: { state: "refund-offered" }, refs: { jobId: "job-1" } });
-    expect(rec.history.map((h) => h.state)).toEqual(["SETTLING", "RECOVERY_REQUIRED"]);
+    expect(rec.history.map((h) => h.state)).toEqual(["DESTINATION_CONFIRMING", "RECOVERY_REQUIRED"]);
     rec = syncSwapRecord(stored, { state: "COMPLETED", label: "Completed", steps: [true, true, true, true], detail: "delivered", deliveredAmount: "0.0299 BTC", deliveredUnits: "2990000" }, { id: "job-1", escrow: stored.endpoint as `0x${string}`, state: "completed", updatedAt: 4_000 }, 4_000);
     expect(rec).toMatchObject({ state: "COMPLETED", amounts: { delivered: "2990000" } });
     rec = syncSwapRecord(stored, { state: "PROVIDER_EXECUTING", label: "Executing", steps: [true, true, false, false], detail: "x" }, null, 5_000);

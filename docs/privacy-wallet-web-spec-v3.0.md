@@ -233,17 +233,19 @@ order: `AWAITING_AUTHORIZATION` (confirmed; waiting for the external wallet's or
 transaction handed to the wallet or the relayer, the escrow funding sent) → `SOURCE_CONFIRMING` (accepted; the source
 chain confirming) → `PROVIDER_EXECUTING` (the source final; the relayer or the provider executing) →
 `DESTINATION_CONFIRMING` (the destination submitted, waiting for its finality) → `COMPLETED` (the provider's word, never
-a relayer hash alone — v2.0 §12.3 I-O4). A Protect goes `AWAITING_AUTHORIZATION → SUBMITTING → SOURCE_CONFIRMING →
-COMPLETED`; a Send adds `PREPARING_PROOF`; a swap runs the whole line. **I-O7 moves to `SUBMITTING`**: once a record has
-entered `SUBMITTING` it never returns to a state before it. A declined authorization goes back to `READY_TO_REVIEW` with
-`declined`. The post-funding "price moved" wait is `RECOVERY_REQUIRED` with the reason `minimum_moved` (actions
+a relayer hash alone — v2.0 §12.3 I-O4). A Protect goes `AWAITING_AUTHORIZATION → SOURCE_CONFIRMING → COMPLETED` (the external wallet signs and sends in one
+step — its prompt is the authorization, declinable, and `SUBMITTING` is that step's instant; as landed, Stage 15: a
+Protect's progress never moves its state); a Send goes `AWAITING_AUTHORIZATION → PREPARING_PROOF → SUBMITTING →
+SOURCE_CONFIRMING → COMPLETED`; a swap runs the whole line. **I-O7 moves to `SUBMITTING`**: once a record has entered
+`SUBMITTING` it never returns to a state before it (the reducer names that refusal, `after-submission`, before the table's
+`not-allowed`). A declined authorization goes back to `READY_TO_REVIEW` with `declined`. The post-funding "price moved" wait is `RECOVERY_REQUIRED` with the reason `minimum_moved` (actions
 `accept-new-minimum`, `return-funds`); a quote that expires before funding returns the draft to `READY_TO_REVIEW` with the
 reason `quote_expired` ("Get new quote"). I-O1–I-O6 stand with the new names.
 
 | V6 (v2.0 §12.1) | V7 |
 |---|---|
 | REVIEW | READY_TO_REVIEW |
-| AWAITING_SIGNATURE | AWAITING_AUTHORIZATION; PREPARING_PROOF while `progress.step` is witness / proof / local-verify; SUBMITTING at 'submitting' |
+| AWAITING_SIGNATURE | AWAITING_AUTHORIZATION; PREPARING_PROOF while `progress.step` is witness / proof / local-verify; SUBMITTING at 'submitting' (a Protect's record stays AWAITING_AUTHORIZATION: its step is the external wallet's prompt) |
 | SIGNED | SUBMITTING |
 | SUBMITTED, CONFIRMING | SOURCE_CONFIRMING |
 | EXECUTING | PROVIDER_EXECUTING |
@@ -257,12 +259,19 @@ lines are renamed the same way. The tracker's internal `OrderState` (`PROVIDER_E
 different type and stays. The Classic app has **its own operation adapter** on the same fifteen names (§7.7); nothing
 is shared at runtime.
 
-Code (Stage 15): `packages/protocol-types/src/operations.ts`, `packages/sdk/src/wallet/operationRecord.ts`,
-`packages/sdk/src/operations/reducer.ts`, `packages/sdk/src/operations/upgrade.ts` (`v: 2 → 3`),
-`packages/sdk/src/operations/adapters.ts`, `packages/sdk/src/operations/stale.ts`, `packages/sdk/src/operations/notify.ts`,
-`packages/sdk/src/operations/swapRecords.ts`, `packages/protocol/src/wallet/settlement.ts`, `apps/api/src/db.ts`
-(migration 3) and `apps/api/src/reconcile.ts`, the web's progress / activity / recovery models and the `op.state.*`
-words (en, ko), the e2e's `data-state` selectors, `packages/sdk/test/spec-sync.test.ts` pinned to this section.
+Code (Stage 15, as landed): `packages/protocol-types/src/operations.ts` (the fifteen, `OPERATION_STATES_V2` and
+`STATE_CROSSWALK_V2` for the upgrades), `packages/sdk/src/wallet/operationRecord.ts` (`v: 3`; the failure states FAILED and
+RECOVERY_REQUIRED; the pre-submission states end at PREPARING_PROOF, the submitted ones start at SUBMITTING),
+`packages/sdk/src/operations/reducer.ts` (the table over the fifteen; a `progress` step moves the record to PREPARING_PROOF or
+SUBMITTING — never back —; `quote-expired` after the funding lands in RECOVERY_REQUIRED, before it in READY_TO_REVIEW with the
+expiry as its reason), `packages/sdk/src/operations/upgrade.ts` (the V6 → V7 step on top of the V5 → V6 one: `upgradeStateV7`,
+`upgradeRecordV7`; a V5 record takes both), `packages/sdk/src/operations/adapters.ts` (the expired-quote rows become
+RECOVERY_REQUIRED: a moved minimum, a price deviation, a campaign's reassessing / requoting / rerouting, an expired funded order),
+`packages/sdk/src/operations/notify.ts`, `packages/sdk/src/operations/recovery.ts`, `packages/protocol/src/wallet/settlement.ts`,
+`apps/api/src/db.ts` (migration 3: the rows renamed in place, an operation expired before its funding cancelled, the system
+events' column following) and `apps/api/src/reconcile.ts`, the web's progress / activity / recovery / protect models and the
+`op.state.*` words (en, ko), the quick pass's `data-state` selectors, `packages/sdk/test/spec-sync.test.ts` and
+`packages/protocol-types/test/spec-sync.test.ts` pinned to this section (the states and the V6 → V7 table).
 
 ## 7. Tornado Classic (doc §1, §4, §10 "Tornado Classic", §11, §13 "Classic") — *Stages 1–3, 5–11* (supersedes v2.0 §11.3 and the Classic rows of §7.11 and §23)
 

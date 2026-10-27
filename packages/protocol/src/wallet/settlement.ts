@@ -73,9 +73,9 @@ export interface Mapped {
 
 /** The executor's job state → the operation state (spec v2.0 §12): one table for the wallet's adapters and the API's reconcile. */
 export const SWAP_JOB_MAP: Record<SwapJobState, Mapped> = {
-  "waiting-funding": { state: "SUBMITTED", phase: "funding" },
-  executing: { state: "EXECUTING", phase: "execution" },
-  executed: { state: "EXECUTING", phase: "execution" },
+  "waiting-funding": { state: "SOURCE_CONFIRMING", phase: "funding" },
+  executing: { state: "PROVIDER_EXECUTING", phase: "execution" },
+  executed: { state: "PROVIDER_EXECUTING", phase: "execution" },
   completed: { state: "COMPLETED", phase: "settlement" },
   expired: { state: "REFUNDING", phase: "settlement" },
   "refund-only": { state: "REFUNDING", phase: "settlement" },

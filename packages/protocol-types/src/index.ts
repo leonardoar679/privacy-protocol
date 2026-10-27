@@ -9,11 +9,14 @@ export type { Quote, QuoteRequest } from "./quotes";
 export {
   DRAFT_STATES,
   OPERATION_STATES,
+  OPERATION_STATES_V2,
+  STATE_CROSSWALK_V2,
   SETTLEMENT_STATES,
   TERMINAL_STATES,
   type FundsClass,
   type OperationKind,
   type OperationState,
+  type OperationStateV2,
   type SettlementState,
 } from "./operations";
 export type { Store } from "./store";

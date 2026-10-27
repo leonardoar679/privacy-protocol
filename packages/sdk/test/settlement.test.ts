@@ -44,10 +44,10 @@ const withTrack = (s: StoredSwap, settlement: string | undefined): StoredSwap =>
   track: { state: "x", label: "x", at: NOW - 1_000, ...(settlement ? { settlement } : {}) },
 });
 const swapRecord = (over: Partial<OperationRecord>): OperationRecord => ({
-  v: 2,
+  v: 3,
   id: "swap:1",
   kind: "cross-chain",
-  state: "EXECUTING",
+  state: "PROVIDER_EXECUTING",
   createdAt: 1,
   updatedAt: 1,
   amounts: { asset: "ETH", decimals: 18, input: AMOUNT.toString() },
@@ -56,8 +56,8 @@ const swapRecord = (over: Partial<OperationRecord>): OperationRecord => ({
   refs: { txHashes: [FUNDED.fundedTx], orderId: "0x" + "0a".repeat(32) },
   tier: "standard",
   history: [
-    { state: "SUBMITTED", at: 1 },
-    { state: "EXECUTING", at: 1 },
+    { state: "SOURCE_CONFIRMING", at: 1 },
+    { state: "PROVIDER_EXECUTING", at: 1 },
   ],
   ...over,
 });
@@ -83,7 +83,7 @@ describe("§82 — the scenarios", () => {
     const t = deriveState(s, facts({ job: job("executed", { executionTx: s.executionTx }), track: null }));
     expect(legsOf(s, facts({ job: job("executed", { executionTx: s.executionTx }), track: null }))).toBeNull();
     expect(t.settlement).toBe("PROVIDER_PENDING");
-    expect(ORDER_STATE_MAP[t.state].state).toBe("EXECUTING");
+    expect(ORDER_STATE_MAP[t.state].state).toBe("PROVIDER_EXECUTING");
   });
   it("the source confirmed, the destination delayed: SETTLING with the destination pending — wait, no refund, no failure", () => {
     const s = stored({ ...FUNDED, jobId: "job-1", executionTx: "0x" + "22".repeat(32) });
@@ -91,8 +91,8 @@ describe("§82 — the scenarios", () => {
       s,
       facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "destination-submitted", destinationTxHash: "0x" + "33".repeat(32) } }),
     );
-    expect([ORDER_STATE_MAP[t.state].state, t.settlement]).toEqual(["SETTLING", "DESTINATION_PENDING"]);
-    const rec = swapRecord({ state: "SETTLING", settlement: t.settlement });
+    expect([ORDER_STATE_MAP[t.state].state, t.settlement]).toEqual(["DESTINATION_CONFIRMING", "DESTINATION_PENDING"]);
+    const rec = swapRecord({ state: "DESTINATION_CONFIRMING", settlement: t.settlement });
     expect(canRefund(rec), "the money left the escrow").toBe(false);
     expect(needsAttention(rec)).toBe(false);
   });
@@ -102,7 +102,7 @@ describe("§82 — the scenarios", () => {
       s,
       facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "destination-final", deliveredAmount: "2990000" } }),
     );
-    expect([ORDER_STATE_MAP[t.state].state, t.settlement]).toEqual(["SETTLING", "COMPLETED"]);
+    expect([ORDER_STATE_MAP[t.state].state, t.settlement]).toEqual(["DESTINATION_CONFIRMING", "COMPLETED"]);
     const done = deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "completed", deliveredAmount: "2990000" } }));
     expect([ORDER_STATE_MAP[done.state].state, done.settlement]).toEqual(["COMPLETED", "COMPLETED"]);
   });
@@ -121,7 +121,7 @@ describe("§82 — the scenarios", () => {
     expect(r.ok && actionsFor(r.record)).toContain("start-refund");
     const timedOut = deriveState(stored(FUNDED), facts({ escrowBalance: AMOUNT, now: NOW + 3_600_000 }));
     expect([ORDER_STATE_MAP[timedOut.state], timedOut.settlement], "no job and the window closed: a delay with the refund available").toEqual([
-      { state: "EXECUTING", phase: "execution", code: "provider_timeout", delayed: true },
+      { state: "PROVIDER_EXECUTING", phase: "execution", code: "provider_timeout", delayed: true },
       "REFUND_AVAILABLE",
     ]);
   });
@@ -143,29 +143,29 @@ describe("§82 — the scenarios", () => {
     const t = deriveState(s, facts({ escrowBalance: 0n }));
     expect(t.state).toBe("SOURCE_SUBMITTED");
     expect(t.settlement, "the leg is pending again").toBeUndefined();
-    const before = swapRecord({ state: "EXECUTING", settlement: "SOURCE_CONFIRMED" });
+    const before = swapRecord({ state: "PROVIDER_EXECUTING", settlement: "SOURCE_CONFIRMED" });
     const back = transition(before, { type: "resume", to: ORDER_STATE_MAP[t.state].state }, 2);
-    expect(back.ok && back.record.state).toBe("CONFIRMING");
+    expect(back.ok && back.record.state).toBe("SOURCE_CONFIRMING");
     expect(back.ok && back.record.refs.txHashes, "the same funding transaction, nothing new").toEqual(before.refs.txHashes);
     const forward = deriveState(s, facts({ escrowBalance: AMOUNT }));
     expect(forward.settlement, "re-included: confirmed again").toBe("SOURCE_CONFIRMED");
   });
-  it("a quote expired: before the funding nothing moved (QUOTE_EXPIRED, not moved); after it, the record waits for the user's choice", () => {
+  it("a quote expired (V7): a funded order past its window waits for the return (RECOVERY_REQUIRED); a moved minimum after the funding waits for the user's choice", () => {
     const t = deriveState(stored(), facts({ now: NOW + 3_600_000 }));
-    expect(ORDER_STATE_MAP[t.state]).toMatchObject({ state: "QUOTE_EXPIRED", code: "order_expired" });
+    expect(ORDER_STATE_MAP[t.state]).toMatchObject({ state: "RECOVERY_REQUIRED", code: "order_expired" });
     expect(t.settlement).toBeUndefined();
     const funded = swapRecord({
-      state: "CONFIRMING",
+      state: "SOURCE_CONFIRMING",
       history: [
-        { state: "SUBMITTED", at: 1 },
-        { state: "CONFIRMING", at: 1 },
+        { state: "SOURCE_CONFIRMING", at: 1 },
+        { state: "SOURCE_CONFIRMING", at: 1 },
       ],
     });
     const moved = transition(funded, { type: "quote-expired", code: "minimum_moved" }, 2);
-    expect(moved.ok && moved.record).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
+    expect(moved.ok && moved.record).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
     expect(moved.ok && needsAttention(moved.record)).toBe(true);
     expect(moved.ok && transition(moved.record, { type: "review" }, 3).ok, "never back before the funding (I-O7)").toBe(false);
-    expect(moved.ok && transition(moved.record, { type: "resume", to: "EXECUTING" }, 3).ok, "the new minimum accepted").toBe(true);
+    expect(moved.ok && transition(moved.record, { type: "resume", to: "PROVIDER_EXECUTING" }, 3).ok, "the new minimum accepted").toBe(true);
     expect(moved.ok && transition(moved.record, { type: "refunding" }, 3).ok, "or the money back").toBe(true);
   });
 });

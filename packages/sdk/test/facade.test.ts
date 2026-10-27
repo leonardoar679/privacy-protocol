@@ -160,7 +160,7 @@ describe("over a configured engine", () => {
       destination: { kind: "entered", display: "bc1q…", chain: "bitcoin" },
       tier: "standard",
       refs: { orderId: "0x01" },
-      state: "SUBMITTED",
+      state: "SOURCE_CONFIRMING",
     });
     putOperation({ ...rec, state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } }, session);
     expect(sdk.getOperation(rec.id, session)?.state).toBe("RECOVERY_REQUIRED");

@@ -55,7 +55,7 @@ export function actionsFor(rec: OperationRecord): RecoveryAction[] {
     if (a === "continue-monitoring" || a === "resume-tracking") return isOpen(rec.state);
     // a fresh start before anything was submitted, or for a submitted swap the price or the route stopped
     if (a === "edit" || a === "review" || a === "new-quote")
-      return isDraft(rec.state) || rec.state === "QUOTE_EXPIRED" || rec.state === "RECOVERY_REQUIRED" || (!!rec.declined && !wasSubmitted(rec));
+      return isDraft(rec.state) || rec.state === "RECOVERY_REQUIRED" || (!!rec.declined && !wasSubmitted(rec));
     return true;
   });
   // a failure after the signature always keeps the monitoring open (the funds may still arrive)
@@ -68,8 +68,7 @@ export function actionsFor(rec: OperationRecord): RecoveryAction[] {
  * submitted swap whose quote moved (the user chooses: the new minimum or the money back).
  */
 export const needsAttention = (rec: OperationRecord): boolean =>
-  !isTerminal(rec.state) &&
-  (rec.state === "RECOVERY_REQUIRED" || !!rec.delayed || rec.recovery?.state === "refund-offered" || (rec.state === "QUOTE_EXPIRED" && wasSubmitted(rec)));
+  !isTerminal(rec.state) && (rec.state === "RECOVERY_REQUIRED" || !!rec.delayed || rec.recovery?.state === "refund-offered");
 
 /** A record's recovery without words: the catalog code ("unknown" when it has none), the class of its funds, the actions it
  *  offers now and the state of a recovery under way. The app turns it into sentences. */

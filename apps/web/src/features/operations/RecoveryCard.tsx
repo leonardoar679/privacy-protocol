@@ -27,8 +27,8 @@ export function legsOf(rec: OperationRecord): RecoveryLegs {
   const by: RecoveryLegs | undefined = rec.settlement ? BY_SETTLEMENT[rec.settlement] : undefined;
   if (by && !(rec.settlement === "COMPLETED" && (s === "REFUNDED" || s === "REFUNDING"))) return by;
   const sourceDone = wasSubmitted(rec) || s === "COMPLETED" || s === "REFUNDED" || (s === "RECOVERY_REQUIRED" && rec.refs.txHashes.length > 0);
-  const swap: StepState = s === "COMPLETED" || s === "SETTLING" ? "done" : s === "RECOVERY_REQUIRED" ? "failed" : s === "EXECUTING" ? "active" : "waiting";
-  const destination: StepState = s === "COMPLETED" ? "done" : s === "SETTLING" ? "active" : "waiting";
+  const swap: StepState = s === "COMPLETED" || s === "DESTINATION_CONFIRMING" ? "done" : s === "RECOVERY_REQUIRED" ? "failed" : s === "PROVIDER_EXECUTING" ? "active" : "waiting";
+  const destination: StepState = s === "COMPLETED" ? "done" : s === "DESTINATION_CONFIRMING" ? "active" : "waiting";
   return { source: sourceDone ? "done" : s === "FAILED" || (!!rec.declined && isDraft(s)) ? "failed" : "active", swap, destination };
 }
 

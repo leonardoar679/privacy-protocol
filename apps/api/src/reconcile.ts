@@ -35,7 +35,7 @@ export interface Reconciled {
   sources: { relayer: Source; chain: Source; provider: Source };
 }
 
-const PRE_FUNDING: readonly OperationState[] = ["DRAFT", "QUOTING", "REVIEW", "AWAITING_SIGNATURE", "SIGNED"];
+const PRE_FUNDING: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING"];
 
 /**
  * The operation's state from what was read — the wallet's tracker (packages/sdk/src/orderTracker.ts deriveState) read
@@ -57,17 +57,17 @@ export function stateFrom(
   if (j === "completed") {
     if (lateRefund) return { state: "RECOVERY_REQUIRED", code: "late_refund" };
     if (track?.state === "partial") return { state: "RECOVERY_REQUIRED", code: "partial_delivery" };
-    return track?.state === "completed" || track?.state === "destination-final" ? { state: "COMPLETED" } : { state: "SETTLING" };
+    return track?.state === "completed" || track?.state === "destination-final" ? { state: "COMPLETED" } : { state: "DESTINATION_CONFIRMING" };
   }
   if (j === "refunding" || j === "refund-only" || j === "expired") return { state: "REFUNDING" };
   if (j === "execute-failed" || j === "refund-failed") return { state: SWAP_JOB_MAP[j].state, ...(SWAP_JOB_MAP[j].code ? { code: SWAP_JOB_MAP[j].code } : {}) };
   if (j === "executing" || j === "executed") {
-    if (!job?.executionTx && j === "executing") return { state: "EXECUTING" };
+    if (!job?.executionTx && j === "executing") return { state: "PROVIDER_EXECUTING" };
     switch (track?.state) {
       case "completed":
       case "destination-final":
       case "destination-submitted":
-        return { state: "SETTLING" };
+        return { state: "DESTINATION_CONFIRMING" };
       case "partial":
         return { state: "RECOVERY_REQUIRED", code: "partial_delivery" };
       case "refunded":
@@ -75,18 +75,19 @@ export function stateFrom(
       case "failed":
         return nowS >= row.refundAfter ? { state: "REFUNDING" } : { state: "RECOVERY_REQUIRED", code: "destination_failed" };
       default:
-        return { state: "EXECUTING" };
+        return { state: "PROVIDER_EXECUTING" };
     }
   }
   // no job yet, or a job waiting for the funding: the escrow's balance decides
   if (funded === null) return { state: row.state };
   if (funded) {
-    if (nowS > row.executeDeadline) return nowS >= row.refundAfter ? { state: "REFUNDING" } : { state: "EXECUTING", code: "provider_timeout", delayed: true };
-    return { state: "EXECUTING" };
+    if (nowS > row.executeDeadline)
+      return nowS >= row.refundAfter ? { state: "REFUNDING" } : { state: "PROVIDER_EXECUTING", code: "provider_timeout", delayed: true };
+    return { state: "PROVIDER_EXECUTING" };
   }
-  if (nowS > row.executeDeadline && PRE_FUNDING.includes(row.state)) return { state: "QUOTE_EXPIRED", code: "order_expired" };
+  if (nowS > row.executeDeadline && PRE_FUNDING.includes(row.state)) return { state: "CANCELLED", code: "order_expired" }; // V7: expired before its funding — nothing moved
   // not funded: before the funding the recorded state stands; after it, an empty escrow is a reorg — the funding is pending again
-  return { state: PRE_FUNDING.includes(row.state) || row.state === "QUOTE_EXPIRED" ? row.state : "CONFIRMING" };
+  return { state: PRE_FUNDING.includes(row.state) ? row.state : "SOURCE_CONFIRMING" };
 }
 
 export async function reconcileOperation(store: Store, row: OperationRow, reads: ReconcileReads, now = store.now()): Promise<Reconciled> {

@@ -830,7 +830,7 @@ try {
 
   // the runner moves the order on its own: the funding (a proof), the hard quote, the checks, the signature, the hand-over
   let executed = false, refusals = 0, consents = 0;
-  const executing = page.locator('[data-testid="swap-progress"][data-state="EXECUTING"], [data-testid="swap-progress"][data-state="SETTLING"], [data-testid="swap-done"]');
+  const executing = page.locator('[data-testid="swap-progress"][data-state="PROVIDER_EXECUTING"], [data-testid="swap-progress"][data-state="DESTINATION_CONFIRMING"], [data-testid="swap-done"]');
   const movedCard = byId(page, "swap-minimum-moved");
   const tryAgain = byId(page, "swap-try-again");
   let stoppedAt = null;
@@ -845,7 +845,7 @@ try {
     }
     if (outcome === "moved") {
       const moved = (await text(movedCard)).slice(0, 200);
-      if (consents === 0) { check("a lower hard quote waits for the user's choice before anything is signed (QUOTE_EXPIRED, minimum_moved)", /now guarantees at least [0-9.,]+ BTC; you approved [0-9.,]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
+      if (consents === 0) { check("a lower hard quote waits for the user's choice before anything is signed (RECOVERY_REQUIRED, minimum_moved)", /now guarantees at least [0-9.,]+ BTC; you approved [0-9.,]+ BTC/.test(moved), moved); await snap(page, "minimum-moved"); }
       else log(`the price moved again (${consents + 1}): ${moved.slice(0, 120)}`);
       consents++;
       await clickId(page, "swap-accept-minimum");

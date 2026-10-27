@@ -12,7 +12,7 @@ export const PROGRESS_LINES: readonly ProgressStepKind[] = ["balance", "fees", "
 
 /** The line a record is on now. */
 export function progressLineOf(rec: Pick<OperationRecord, "kind" | "state" | "progress">): ProgressStepKind {
-  if (["SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "COMPLETED", "REFUNDING", "REFUNDED"].includes(rec.state)) return "confirmation";
+  if (["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "COMPLETED", "REFUNDING", "REFUNDED"].includes(rec.state)) return "confirmation";
   switch (rec.progress?.step) {
     case "fee-terms":
       return "fees";
@@ -39,7 +39,7 @@ export const furthestLine = (prev: number, rec: Pick<OperationRecord, "kind" | "
 export function progressModelOf(rec: Pick<OperationRecord, "kind" | "state" | "progress" | "reason" | "declined">, furthest: number): ProgressModel {
   const done = rec.state === "COMPLETED" || rec.state === "REFUNDED";
   const stopped =
-    !done && (isTerminal(rec.state) || rec.state === "RECOVERY_REQUIRED" || (!!rec.declined && ["DRAFT", "QUOTING", "REVIEW"].includes(rec.state)));
+    !done && (isTerminal(rec.state) || rec.state === "RECOVERY_REQUIRED" || (!!rec.declined && ["DRAFT", "QUOTING", "READY_TO_REVIEW"].includes(rec.state)));
   const at = Math.max(0, Math.min(furthest, PROGRESS_LINES.length - 1));
   const steps = PROGRESS_LINES.map((kind, i): { kind: ProgressStepKind; state: StepState } => ({
     kind,

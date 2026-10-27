@@ -53,7 +53,7 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
   const delayed = !terminal && m.delayed && m.code ? { since: prev?.delayed?.code === m.code ? prev.delayed.since : now, code: m.code } : undefined;
   const settlement = tracked?.settlement ?? prev?.settlement;
   let rec: OperationRecord = {
-    v: 2,
+    v: 3,
     id,
     kind: crossChain ? "cross-chain" : "swap",
     state,

@@ -187,7 +187,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
       session.journal().schedule.some((a) => a.id === `fund-escrow:${order.orderId}`),
       "no 1–24 h funding by default",
     ).toBe(false);
-    expect(getOperation(swapRecordId(order.orderId))).toMatchObject({ kind: "cross-chain", state: "AWAITING_SIGNATURE" });
+    expect(getOperation(swapRecordId(order.orderId))).toMatchObject({ kind: "cross-chain", state: "AWAITING_AUTHORIZATION" });
     expect(await screen.findByTestId("swap-progress")).toBeTruthy();
     // the runner: funded, then signed and handed over in one tick
     expect(await tick(order.orderId)).toBe("funded");
@@ -209,7 +209,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
       calls.filter((c) => c === "127.0.0.1:8790/swap/execute"),
       "handed over once",
     ).toHaveLength(1);
-    await waitFor(() => expect(getOperation(swapRecordId(order.orderId))!.state).toBe("EXECUTING"));
+    await waitFor(() => expect(getOperation(swapRecordId(order.orderId))!.state).toBe("PROVIDER_EXECUTING"));
   }, 60_000);
 
   it("a quote the user typed past is cancelled: its request is aborted, never counted toward offline, and the newer quote is the one shown (V6 Stage 16)", async () => {
@@ -357,7 +357,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await tick(orderId);
     world.bend = { limit: LIMIT - 60_000n };
     expect(await tick(orderId)).toBe("paused");
-    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "minimum_moved" } });
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved" } });
     const card = await screen.findByTestId("swap-minimum-moved");
     expect(card.textContent).toContain("0.0294");
     expect(card.textContent).toContain("0.03");

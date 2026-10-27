@@ -434,7 +434,8 @@ function ProtectProgress(p: ProgressProps) {
       </Page>
     );
   }
-  const stopped = record.reason || (record.declined && ["DRAFT", "QUOTING", "REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
+  const stopped =
+    record.reason || (record.declined && ["DRAFT", "QUOTING", "READY_TO_REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
   // an outcome not known yet (c47): another protect from the form could deposit twice — only Done
   if (stopped && (record.state === "RECOVERY_REQUIRED" || record.reason?.fundsClass === "unknown")) {
     return (

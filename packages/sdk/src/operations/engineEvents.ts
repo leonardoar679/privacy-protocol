@@ -27,7 +27,21 @@ export type EngineEvent =
 export type OnEvent = (e: EngineEvent) => void;
 
 /** The order a protect emits (ERC-20: the approval first); a send or withdrawal: fee terms, merges, the sync, the verification, the proof, the submission, the receipt. */
-export const ENGINE_EVENT_ORDER: readonly EngineEvent["type"][] = ["fee-terms", "merging", "syncing", "verifying", "proving", "proved", "wallet-prompt", "approved", "submitting", "relayer-retry", "submitted", "waiting-receipt", "mined"];
+export const ENGINE_EVENT_ORDER: readonly EngineEvent["type"][] = [
+  "fee-terms",
+  "merging",
+  "syncing",
+  "verifying",
+  "proving",
+  "proved",
+  "wallet-prompt",
+  "approved",
+  "submitting",
+  "relayer-retry",
+  "submitted",
+  "waiting-receipt",
+  "mined",
+];
 
 /**
  * The record's event for an engine event. A nested merge's "submitted" / "mined" are progress, not the spend's own
@@ -35,24 +49,55 @@ export const ENGINE_EVENT_ORDER: readonly EngineEvent["type"][] = ["fee-terms", 
  */
 export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {}): OperationEvent | null {
   switch (e.type) {
-    case "fee-terms": return { type: "progress", step: "fee-terms" };
-    case "merging": return { type: "progress", step: "merging", i: e.i, n: e.n };
-    case "syncing": return { type: "progress", step: "syncing" };
-    case "verifying": return { type: "progress", step: "verifying" };
-    case "proving": return opts.nested ? null : { type: "progress", step: "proof" };
-    case "proved": return opts.nested ? null : { type: "progress", step: "local-verify" };
-    case "wallet-prompt": return opts.nested ? null : { type: "progress", step: "submitting", i: e.i, n: e.n, ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}) };
-    case "approved": return opts.nested ? null : { type: "note", note: `approval ${e.txHash}` };
-    case "submitting": return opts.nested ? null : { type: "progress", step: "submitting", ...(e.nullifiers ? { nullifiers: e.nullifiers } : {}), ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}) };
-    case "relayer-retry": return opts.nested ? null : { type: "note", note: `relayer unreachable, attempt ${e.attempt}` };
-    case "submitted": return opts.nested ? null : { type: "submitted", txHash: e.txHash, by: e.by };
-    case "waiting-receipt": return opts.nested ? null : { type: "confirming", txHash: e.txHash };
-    case "mined": return opts.nested ? null : { type: "completed", ref: { txHash: e.txHash, ...(e.leafIndex !== undefined ? { leafIndex: e.leafIndex } : {}) } };
+    case "fee-terms":
+      return { type: "progress", step: "fee-terms" };
+    case "merging":
+      return { type: "progress", step: "merging", i: e.i, n: e.n };
+    case "syncing":
+      return { type: "progress", step: "syncing" };
+    case "verifying":
+      return { type: "progress", step: "verifying" };
+    case "proving":
+      return opts.nested ? null : { type: "progress", step: "proof" };
+    case "proved":
+      return opts.nested ? null : { type: "progress", step: "local-verify" };
+    case "wallet-prompt":
+      return opts.nested
+        ? null
+        : { type: "progress", step: "submitting", i: e.i, n: e.n, ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}) };
+    case "approved":
+      return opts.nested ? null : { type: "note", note: `approval ${e.txHash}` };
+    case "submitting":
+      return opts.nested
+        ? null
+        : {
+            type: "progress",
+            step: "submitting",
+            ...(e.nullifiers ? { nullifiers: e.nullifiers } : {}),
+            ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}),
+            ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}),
+          };
+    case "relayer-retry":
+      return opts.nested ? null : { type: "note", note: `relayer unreachable, attempt ${e.attempt}` };
+    case "submitted":
+      return opts.nested ? null : { type: "submitted", txHash: e.txHash, by: e.by };
+    case "waiting-receipt":
+      return opts.nested ? null : { type: "confirming", txHash: e.txHash };
+    case "mined":
+      return opts.nested ? null : { type: "completed", ref: { txHash: e.txHash, ...(e.leafIndex !== undefined ? { leafIndex: e.leafIndex } : {}) } };
     case "costs":
       return opts.nested
         ? null
-        : { type: "costs", costs: { ...(e.estimatedWei !== undefined ? { estimatedWei: e.estimatedWei.toString() } : {}), actualWei: e.actualWei.toString(), ...(e.charged ? { charged: { amount: e.charged.amount.toString(), asset: e.charged.asset, decimals: e.charged.decimals } } : {}) } };
-    default: return null;
+        : {
+            type: "costs",
+            costs: {
+              ...(e.estimatedWei !== undefined ? { estimatedWei: e.estimatedWei.toString() } : {}),
+              actualWei: e.actualWei.toString(),
+              ...(e.charged ? { charged: { amount: e.charged.amount.toString(), asset: e.charged.asset, decimals: e.charged.decimals } } : {}),
+            },
+          };
+    default:
+      return null;
   }
 }
 
@@ -63,7 +108,8 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
 export function engineListener(apply: (ev: OperationEvent) => void): OnEvent {
   let nested = false;
   return (e) => {
-    if (e.type === "merging") nested = true; // a merge's proof and submission follow, as progress
+    if (e.type === "merging")
+      nested = true; // a merge's proof and submission follow, as progress
     else if (e.type === "syncing") nested = false; // the spend's own sync comes after the merges
     const ev = fromEngineEvent(e, { nested });
     if (ev) apply(ev);

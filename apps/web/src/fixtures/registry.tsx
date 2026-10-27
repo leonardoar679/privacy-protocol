@@ -148,7 +148,7 @@ function Activity({ state }: { state: keyof typeof ACTIVITY_FIXTURES }) {
 // the catalog's words (V6 Stage 16: the fixtures render in any locale — the Korean test reads them)
 const recoveryCard = () => (
   <ErrorCard
-    title={t("op.state.SETTLING")}
+    title={t("op.state.DESTINATION_CONFIRMING")}
     fundsLine={t("operation.fundsSafe")}
     fundsState="still-protected"
     reason={t("op.recovery.monitoring")}

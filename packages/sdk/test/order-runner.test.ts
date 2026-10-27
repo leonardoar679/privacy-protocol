@@ -1,7 +1,7 @@
 // The order runner (spec v2.0 §7.6; the owner's one confirmation): against a scripted world — the escrow, the executor,
 // the tracker, the hard quote's minimum — a confirmed order is funded, then signed and handed over in one tick while its
 // minimum holds, then tracked to its end; one signature, one hand-over, one funding. A moved minimum waits as
-// QUOTE_EXPIRED until the user accepts it or returns the funds; a funding whose outcome is unknown is reconciled from the
+// RECOVERY_REQUIRED (V7; QUOTE_EXPIRED before) until the user accepts it or returns the funds; a funding whose outcome is unknown is reconciled from the
 // escrow and never sent twice; a hand-over another tab made is found by orderId; a failure before anything was sent goes
 // to the scheduler's backoff; "Delay for more privacy" funds no earlier than its drawn time; a campaign's tranche is
 // never run here. The operation record follows every step. V6 Stage 12: a same-chain swap into the protected balance has
@@ -239,7 +239,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(
       record()!.history.map((h) => h.state),
       "journaled without confirmOrder here: the record starts at the funding",
-    ).toEqual(["SUBMITTED", "EXECUTING", "COMPLETED"]);
+    ).toEqual(["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "COMPLETED"]);
   });
 
   it("a job the executor stopped watching settles the order only on a settled reading, read every 10 minutes till then (audit round 2, r36)", async () => {
@@ -259,7 +259,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(pending()).toBeUndefined();
   });
 
-  it("a moved minimum waits for the user — QUOTE_EXPIRED, nothing signed at the lower minimum —; accepting it signs once at the new minimum", async () => {
+  it("a moved minimum waits for the user — RECOVERY_REQUIRED (V7), nothing signed at the lower minimum —; accepting it signs once at the new minimum", async () => {
     order({ fundedTx: "0xf00d", state: "funded" });
     session.update((j) => {
       j.schedule = [action()];
@@ -268,7 +268,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     w.escrow = AMOUNT;
     expect(await drive(io, 3)).toEqual(["paused"]);
     expect(stored().paused).toMatchObject({ code: "minimum_moved", minOut: "2900000", approved: "2970000" });
-    expect(record()).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
+    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
     expect(pending(), "no tick until the user decides").toBeUndefined();
     expect(w.handOvers).toBe(0);
     expect(acceptNewMinimum(ORDER, session, T0 + 1000)).toBe(true);
@@ -276,7 +276,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(stored().paused).toBeUndefined();
     expect(await drive(io, 2, T0 + 1000)).toEqual(["handed-over", "track"]);
     expect([w.signs, w.handOvers]).toEqual([2, 1]);
-    expect(record()!.state).toBe("EXECUTING");
+    expect(record()!.state).toBe("PROVIDER_EXECUTING");
   });
 
   it("audit gap 43: 'Accept new minimum' signs the very call whose minimum was accepted while it stays valid — a market still moving asks once", async () => {
@@ -901,7 +901,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("paused");
     expect([asked, w.funds], "nothing funded").toEqual([1, 0]);
     expect(stored().paused).toMatchObject({ code: "minimum_moved", minOut: "2900000", approved: "2970000" });
-    expect(record()).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
+    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
     expect(pending(), "no tick until the user decides").toBeUndefined();
     expect(acceptNewMinimum(ORDER, session, delayUntil + 1000)).toBe(true);
     expect((await runOrderTick(pending()!, deps(io, delayUntil + 1000)))?.step).toBe("funded");

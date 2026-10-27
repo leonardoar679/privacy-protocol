@@ -110,11 +110,11 @@ describe("operations whose flow is gone", () => {
     expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(2);
     expect(getOperation(mined)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(1)] } });
     expect(getOperation(reverted)).toMatchObject({ state: "FAILED", reason: { code: "receipt_reverted", fundsClass: "not-moved" } });
-    expect(getOperation(pending)!.state, "the node still knows it: waited for").toBe("CONFIRMING");
-    expect(getOperation(forgotten)!.state, "forgotten for less than the limit: waited for").toBe("CONFIRMING");
+    expect(getOperation(pending)!.state, "the node still knows it: waited for").toBe("SOURCE_CONFIRMING");
+    expect(getOperation(forgotten)!.state, "forgotten for less than the limit: waited for").toBe("SOURCE_CONFIRMING");
     expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
     expect(getOperation(forgotten)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped", fundsClass: "not-moved" } });
-    expect(getOperation(pending)!.state).toBe("CONFIRMING");
+    expect(getOperation(pending)!.state).toBe("SOURCE_CONFIRMING");
     expect(STALE_DROP_MS).toBe(600_000);
   });
 
@@ -124,8 +124,8 @@ describe("operations whose flow is gone", () => {
     resetOperationsMemory(); // the page reloaded
     // an endpoint's "reverted", a node that never saw the relayer's pending transaction: the notes are spent all the same
     expect(await reconcileStaleOperations(chain({ reverted: [41], spent: ["411", "421"], spends: { 41: ["411", "412"] } }), T0 + STALE_DROP_MS + 1)).toBe(0);
-    expect(getOperation(reverted)!.state).toBe("CONFIRMING");
-    expect(getOperation(forgotten)!.state).toBe("CONFIRMING");
+    expect(getOperation(reverted)!.state).toBe("SOURCE_CONFIRMING");
+    expect(getOperation(forgotten)!.state).toBe("SOURCE_CONFIRMING");
     // unspent: nothing moved, as before
     expect(await reconcileStaleOperations(chain({ reverted: [41], spends: { 41: ["411", "412"] } }), T0 + STALE_DROP_MS + 1)).toBe(2);
     expect(getOperation(reverted)).toMatchObject({ state: "FAILED", reason: { code: "receipt_reverted" } });
@@ -138,7 +138,7 @@ describe("operations whose flow is gone", () => {
     resetOperationsMemory();
     expect(await reconcileStaleOperations(chain(), T0 + 1_000)).toBe(1);
     expect(getOperation(proof)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
-    expect(getOperation(submitting)!.state).toBe("AWAITING_SIGNATURE");
+    expect(getOperation(submitting)!.state, "V7: the submission is a state of its own").toBe("SUBMITTING");
   });
 
   it("a Send its page moved to RECOVERY_REQUIRED after a lost answer is settled from what it kept, never called 'nothing moved' while it may have been sent (audit round 2, r41)", async () => {
@@ -173,7 +173,7 @@ describe("operations whose flow is gone", () => {
     });
     expect(await reconcileStaleOperations(chain(), T0 + 60_000)).toBe(1);
     expect(getOperation(landed)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 7, txHashes: [hash(42)] } });
-    expect(getOperation(unanswered)!.state, "the wallet may still be asking: waited for").toBe("AWAITING_SIGNATURE");
+    expect(getOperation(unanswered)!.state, "the wallet may still be asking: waited for").toBe("AWAITING_AUTHORIZATION");
     expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1), "its own wallet's: waited for an hour (audit round 2, n66)").toBe(0);
     expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
     expect(getOperation(unanswered)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
@@ -188,10 +188,10 @@ describe("operations whose flow is gone", () => {
     const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"], spends: { 20: ["201", "202"] } });
     expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(1);
     expect(getOperation(answered)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(20)] } });
-    expect(getOperation(lost)!.state).toBe("AWAITING_SIGNATURE");
+    expect(getOperation(lost)!.state).toBe("SUBMITTING");
     expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
     expect(getOperation(lost)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
-    expect(getOperation(spentElsewhere)!.state, "sent, its transaction unknown here: never called interrupted").toBe("AWAITING_SIGNATURE");
+    expect(getOperation(spentElsewhere)!.state, "sent, its transaction unknown here: never called interrupted").toBe("SUBMITTING");
     // sent through the connected wallet (no relayer to ask): its change note, once the scan found it, completes it
     const own = record("send", "submitting", 23, T0, { nullifiers: ["231", "232"], noteCounter: 77 });
     resetOperationsMemory();
@@ -214,7 +214,7 @@ describe("operations whose flow is gone", () => {
     // the relayer names transaction 31: mined, but a spend of notes 311/312
     const reads = chain({ jobs: { "301": 31 }, mined: [31], spends: { 31: ["311", "312"] } });
     await reconcileStaleOperations(reads, T0 + 60_000);
-    expect(getOperation(named)!.state, "not adopted: still waiting for its own").toBe("AWAITING_SIGNATURE");
+    expect(getOperation(named)!.state, "not adopted: still waiting for its own").toBe("SUBMITTING");
     expect(getOperation(named)!.refs.txHashes).toEqual([]);
     // a Send whose page got the relayer's answer before it went away carries that transaction
     const carried = record("send", "submitting", 32, T0, { nullifiers: ["321", "322"], relayerUrl: relayer });
@@ -229,7 +229,7 @@ describe("operations whose flow is gone", () => {
     const id = record("send", "submitting", 40, T0, { nullifiers: ["401", "402"], relayerUrl: relayer });
     resetOperationsMemory();
     await reconcileStaleOperations(chain({ jobs: { "401": 40 }, known: [40], spends: { 40: ["401", "402"] } }), T0 + 60_000);
-    expect(getOperation(id)).toMatchObject({ state: "SUBMITTED", refs: { txHashes: [hash(40)] } });
+    expect(getOperation(id)).toMatchObject({ state: "SOURCE_CONFIRMING", refs: { txHashes: [hash(40)] } });
     // no reload: the transaction is mined at the next scan
     expect(await reconcileStaleOperations(chain({ jobs: { "401": 40 }, mined: [40], spends: { 40: ["401", "402"] } }), T0 + 120_000)).toBe(1);
     expect(getOperation(id)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(40)] } });
@@ -251,7 +251,7 @@ describe("operations whose flow is gone", () => {
       txHash: hash(51),
     });
     expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
-    expect(getOperation(protect)!.state).toBe("CONFIRMING");
+    expect(getOperation(protect)!.state).toBe("SOURCE_CONFIRMING");
     expect(getOperation(send)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped" } });
     expect(STALE_DROP_WALLET_MS).toBe(3_600_000);
   });
@@ -259,14 +259,14 @@ describe("operations whose flow is gone", () => {
   it("a record this page still drives, a swap, an unread chain: nothing moves", async () => {
     const live = record("send", "proof", 7);
     expect(await reconcileStaleOperations(chain(), T0 + 1_000), "driven by a flow of this page").toBe(0);
-    expect(getOperation(live)!.state).toBe("AWAITING_SIGNATURE");
+    expect(getOperation(live)!.state).toBe("PREPARING_PROOF");
     const swap = record("swap", "proof", 8);
     resetOperationsMemory();
     expect(await reconcileStaleOperations(chain({ down: true }), T0 + STALE_DROP_MS + 1)).toBe(1); // the never-sent send needs no read
-    expect(getOperation(swap)!.state, "a swap's runner moves it").toBe("AWAITING_SIGNATURE");
+    expect(getOperation(swap)!.state, "a swap's runner moves it").toBe("PREPARING_PROOF");
     const sent = record("send", "confirming", 9);
     resetOperationsMemory();
     expect(await reconcileStaleOperations(chain({ down: true }), T0 + STALE_DROP_MS + 1), "unread: tried again at the next scan").toBe(0);
-    expect(getOperation(sent)!.state).toBe("CONFIRMING");
+    expect(getOperation(sent)!.state).toBe("SOURCE_CONFIRMING");
   });
 });

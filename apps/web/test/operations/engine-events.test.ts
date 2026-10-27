@@ -14,7 +14,7 @@ import { record } from "../helpers/operations";
 const H1 = ("0x" + "a1".repeat(32)) as `0x${string}`;
 const H2 = ("0x" + "b2".repeat(32)) as `0x${string}`;
 const H3 = ("0x" + "c3".repeat(32)) as `0x${string}`;
-const signed = (kind: OperationRecord["kind"]) => record({ kind, state: "AWAITING_SIGNATURE", history: [{ state: "AWAITING_SIGNATURE", at: 1_000 }] });
+const signed = (kind: OperationRecord["kind"]) => record({ kind, state: "AWAITING_AUTHORIZATION", history: [{ state: "AWAITING_AUTHORIZATION", at: 1_000 }] });
 
 function drive(start: OperationRecord, events: EngineEvent[]): { record: OperationRecord; applied: OperationEvent[] } {
   let rec = start;
@@ -58,7 +58,8 @@ describe("the documented sequences drive a record from the signature to COMPLETE
     const { record: r, applied } = drive(signed("withdraw"), events);
     expect(r.state).toBe("COMPLETED");
     expect(r.refs).toEqual({ txHashes: [H2], leafIndex: 41 });
-    expect(r.history.map((h) => h.state)).toEqual(["AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
+    // V7: the proof and the submission are lines of their own; the merge's second proof and send are fields of the state the record is in (never back)
+    expect(r.history.map((h) => h.state)).toEqual(["AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING", "SOURCE_CONFIRMING", "COMPLETED"]);
     expect(applied.filter((e) => e.type === "progress").map((e) => (e as { step: string }).step)).toEqual(["fee-terms", "merging", "syncing", "verifying", "proof", "local-verify", "submitting"]);
     expect(applied.filter((e) => e.type === "submitted")).toHaveLength(1);
   });

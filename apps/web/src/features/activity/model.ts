@@ -153,30 +153,30 @@ export function stepsOf(r: OperationRecord, t: T): DetailStep[] {
   const ORDER: OperationState[] = [
     "DRAFT",
     "QUOTING",
-    "REVIEW",
-    "AWAITING_SIGNATURE",
-    "SIGNED",
-    "SUBMITTED",
-    "CONFIRMING",
-    "EXECUTING",
-    "SETTLING",
+    "READY_TO_REVIEW",
+    "AWAITING_AUTHORIZATION",
+    "PREPARING_PROOF",
+    "SUBMITTING",
+    "SOURCE_CONFIRMING",
+    "PROVIDER_EXECUTING",
+    "DESTINATION_CONFIRMING",
     "COMPLETED",
   ];
   const reached = (s: OperationState) => r.history.some((h) => ORDER.indexOf(h.state) >= ORDER.indexOf(s)) || ORDER.indexOf(r.state) >= ORDER.indexOf(s);
   const failed = r.state === "FAILED" || r.state === "RECOVERY_REQUIRED"; // V6: a delay is still under way (I-O5)
   const labels: [MessageKey, OperationState][] = swap
     ? [
-        ["activity.step.quote", "REVIEW"],
-        ["activity.step.authorized", "SIGNED"],
-        ["activity.step.submitted", "SUBMITTED"],
-        ["activity.step.settlement", "SETTLING"],
+        ["activity.step.quote", "READY_TO_REVIEW"],
+        ["activity.step.authorized", "SUBMITTING"],
+        ["activity.step.submitted", "SOURCE_CONFIRMING"],
+        ["activity.step.settlement", "DESTINATION_CONFIRMING"],
         ["activity.step.complete", "COMPLETED"],
       ]
     : [
-        ["activity.step.prepared", "REVIEW"],
-        ["activity.step.authorized", "SIGNED"],
-        ["activity.step.submitted", "SUBMITTED"],
-        ["activity.step.confirming", "CONFIRMING"],
+        ["activity.step.prepared", "READY_TO_REVIEW"],
+        ["activity.step.authorized", "PREPARING_PROOF"],
+        ["activity.step.submitted", "SUBMITTING"],
+        ["activity.step.confirming", "SOURCE_CONFIRMING"],
         ["activity.step.complete", "COMPLETED"],
       ];
   let activeGiven = false;

@@ -64,7 +64,7 @@ describe("the rows (spec §14)", () => {
     const protect = record({ id: "protect:1", kind: "protect", state: "COMPLETED", createdAt: NOW - 2000, updatedAt: NOW - 500, refs: { txHashes: [HASH], leafIndex: 7 }, history: [{ state: "COMPLETED", at: NOW - 500 }] });
     putOperation(protect);
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "executing", ref: ORDER, note: "→ BTC", at: NOW - 3000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 3000, updatedAt: NOW - 100, refs: { txHashes: [], orderId: ORDER }, delayed: { since: NOW - 100, code: "provider_timeout" }, history: [{ state: "EXECUTING", at: NOW - 100 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "PROVIDER_EXECUTING", createdAt: NOW - 3000, updatedAt: NOW - 100, refs: { txHashes: [], orderId: ORDER }, delayed: { since: NOW - 100, code: "provider_timeout" }, history: [{ state: "PROVIDER_EXECUTING", at: NOW - 100 }] }));
     putOperation(record({ id: "send:9", kind: "send", state: "CANCELLED", createdAt: NOW - 4000, updatedAt: NOW - 4000, reason: { code: "user_rejected", fundsClass: "not-moved" }, declined: { at: NOW - 4000, code: "user_rejected" }, history: [{ state: "CANCELLED", at: NOW - 4000 }] }));
     newOperation({ kind: "send", amounts: { asset: "ETH", decimals: 18, input: "1" }, destination: { kind: "entered", display: "0x12…", chain: "ethereum" }, tier: "standard", id: "send:draft" }, NOW - 50);
     const rows = buildRows(session.journal(), [protect, ...[`swap:${ORDER}`, "send:9"].map((id) => session.journal().operations!.find((r) => r.id === id)!), getOperation("send:draft")!], false, t, NOW);
@@ -147,7 +147,7 @@ describe("the screens (spec §3.10)", () => {
     const stored = storedSwap();
     session.update((j) => { j.swaps = [stored]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: (10n ** 18n).toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, refs: { txHashes: [stored.fundedTx!], orderId: ORDER, quoteId: "q-7", executionRef: "thor-123", provider: "thorchain" }, fees: [{ label: "Privacy fee (0.25 %)", value: "0.0025 ETH" }, { label: "Relayer / network", value: "0.001 ETH" }], destination: { kind: "fresh", display: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", chain: "bitcoin" }, history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "PROVIDER_EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, refs: { txHashes: [stored.fundedTx!], orderId: ORDER, quoteId: "q-7", executionRef: "thor-123", provider: "thorchain" }, fees: [{ label: "Privacy fee (0.25 %)", value: "0.0025 ETH" }, { label: "Relayer / network", value: "0.001 ETH" }], destination: { kind: "fresh", display: "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", chain: "bitcoin" }, history: [{ state: "PROVIDER_EXECUTING", at: NOW - 1000 }] }));
     settings.set({ advanced: true });
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("ETH → BTC");
@@ -175,7 +175,7 @@ describe("the screens (spec §3.10)", () => {
     const stored: StoredSwap = { ...storedSwap(), request: { ...storedSwap().request, amount: W.toString() }, params: { amount: W.toString(), executorTip: "0" }, reviewedFee: (p + F).toString() };
     session.update((j) => { j.swaps = [stored]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: W.toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "PROVIDER_EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "PROVIDER_EXECUTING", at: NOW - 1000 }] }));
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
     const row = (label: string) => screen.getByText(label).closest(".ds-review-row")?.textContent ?? "";
     expect(row("You pay"), "what left the protected balance").toContain("1 ETH");
@@ -192,7 +192,7 @@ describe("the screens (spec §3.10)", () => {
     const stored: StoredSwap = { ...storedSwap(), request: { ...storedSwap().request, amount: W.toString() }, params: { amount: W.toString(), executorTip: "0" }, reviewedFee: (p + F).toString(), fundedFee: paid.toString() };
     session.update((j) => { j.swaps = [stored]; });
     recordActivity({ id: `swap:${ORDER}`, kind: "swap", asset: "ETH", decimals: 18, amount: W.toString(), status: "funded", ref: ORDER, note: "→ BTC", at: NOW - 1000 });
-    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "EXECUTING", at: NOW - 1000 }] }));
+    putOperation(record({ id: `swap:${ORDER}`, kind: "cross-chain", state: "PROVIDER_EXECUTING", createdAt: NOW - 1000, updatedAt: NOW - 1000, amounts: { asset: "ETH", decimals: 18, input: W.toString() }, refs: { txHashes: [stored.fundedTx!], orderId: ORDER }, fees: [], history: [{ state: "PROVIDER_EXECUTING", at: NOW - 1000 }] }));
     render(<Detail id={`swap:${ORDER}`} onBack={() => {}} />);
     const row = (label: string) => screen.getByText(label).closest(".ds-review-row")?.textContent ?? "";
     expect(row("You pay"), "what left: the escrow and the fee note paid").toContain("0.9995 ETH");

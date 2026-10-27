@@ -840,7 +840,9 @@ the fixtures registry import it. The review's findings: C-1 (the mock in a produ
 ## 12. The operation contract (doc §37–§38, §41, §73–§76) — *Stage 8*
 
 ### 12.1 States
-One shared definition, `packages/protocol-types/src/operations.ts`, used by the wallet and the API:
+V7 Stage 15 (spec v3.0 §6) replaces this list with the document's fifteen states; the list below is the V6 record that the
+upgrade (`packages/sdk/src/operations/upgrade.ts`) and the API's migration 3 read from. One shared definition,
+`packages/protocol-types/src/operations.ts`, used by the wallet and the API:
 ```
 OperationState = DRAFT | QUOTING | REVIEW | AWAITING_SIGNATURE | SIGNED | SUBMITTED | CONFIRMING | EXECUTING
   | SETTLING | COMPLETED | QUOTE_EXPIRED | FAILED | RECOVERY_REQUIRED | REFUNDING | REFUNDED | CANCELLED

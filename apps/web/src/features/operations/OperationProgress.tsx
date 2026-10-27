@@ -7,19 +7,21 @@ import { useT } from "../../app/i18n/useT";
 import { isDraft, isOpen, wasSubmitted, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
 
-const UNDER_WAY: readonly OperationState[] = ["CONFIRMING", "EXECUTING", "SETTLING", "REFUNDING"];
+const UNDER_WAY: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];
 
 export function timelineOf(rec: OperationRecord, t: ReturnType<typeof useT>): TimelineStep[] {
   const s = rec.state;
   // V6: submitted once the history holds a submitted state or a hash is known; a declined prompt leaves a draft
   const sent = wasSubmitted(rec) || rec.refs.txHashes.length > 0 || s === "COMPLETED" || s === "REFUNDED";
   const declined = !!rec.declined && isDraft(s);
-  const prepared: StepState = s === "AWAITING_SIGNATURE" ? "active" : declined || (s === "QUOTE_EXPIRED" && !sent) ? "failed" : sent || s === "SIGNED" || s === "FAILED" || s === "RECOVERY_REQUIRED" ? "done" : "waiting";
-  const submitted: StepState = sent ? "done" : s === "FAILED" ? "failed" : s === "SIGNED" ? "active" : "waiting";
+  const expired = s === "READY_TO_REVIEW" && rec.reason?.code === "quote_expired"; // V7: the quote expired before the funding
+  const prepared: StepState =
+    s === "AWAITING_AUTHORIZATION" || s === "PREPARING_PROOF" ? "active" : declined || (expired && !sent) ? "failed" : sent || s === "SUBMITTING" || s === "FAILED" || s === "RECOVERY_REQUIRED" ? "done" : "waiting";
+  const submitted: StepState = sent ? "done" : s === "FAILED" ? "failed" : s === "SUBMITTING" ? "active" : "waiting";
   const confirming: StepState = s === "COMPLETED" || s === "REFUNDED" ? "done" : UNDER_WAY.includes(s) ? "active" : s === "RECOVERY_REQUIRED" || (s === "FAILED" && sent) ? "failed" : "waiting";
   const completed: StepState = s === "COMPLETED" ? "done" : s === "REFUNDED" ? "done" : "waiting";
   return [
-    { label: t("progress.stepPrepared"), state: prepared, ...(rec.progress && s === "AWAITING_SIGNATURE" ? { detail: progressWords(rec.progress, t) } : {}) },
+    { label: t("progress.stepPrepared"), state: prepared, ...(rec.progress && (s === "AWAITING_AUTHORIZATION" || s === "PREPARING_PROOF") ? { detail: progressWords(rec.progress, t) } : {}) },
     { label: t("progress.stepSubmitted"), state: submitted, ...(rec.refs.txHashes.length ? { detail: `${rec.refs.txHashes[rec.refs.txHashes.length - 1].slice(0, 10)}…` } : {}) },
     { label: t("progress.stepConfirming"), state: confirming, ...(rec.delayed ? { detail: t("op.delayed") } : {}) },
     { label: s === "REFUNDED" || s === "REFUNDING" ? t("progress.stepRefunded") : t("progress.stepCompleted"), state: completed },
@@ -29,7 +31,8 @@ export function timelineOf(rec: OperationRecord, t: ReturnType<typeof useT>): Ti
 /** The §3.11 headline for the step in progress. */
 export function headlineOf(rec: OperationRecord, t: ReturnType<typeof useT>): string | null {
   if (!isOpen(rec.state)) return null;
-  if (rec.state !== "AWAITING_SIGNATURE") return rec.state === "SUBMITTED" ? t("progress.submitted") : t("progress.confirming");
+  if (rec.state === "SUBMITTING" && rec.progress?.step !== "submitting") return t("progress.submitted");
+  if (rec.state !== "AWAITING_AUTHORIZATION" && rec.state !== "PREPARING_PROOF" && rec.state !== "SUBMITTING") return t("progress.confirming");
   const step = rec.progress?.step;
   if (!step) return t("progress.preparing");
   if (step === "witness" || step === "proof") return t("progress.proving");

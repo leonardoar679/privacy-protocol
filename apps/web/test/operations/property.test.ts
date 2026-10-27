@@ -73,28 +73,29 @@ describe("spec v2.0 §12.3 — the invariants hold under random event sequences"
     // every path is exercised (V6: FAILED is terminal, so fewer walks reach a completion than in V5)
     expect(terminalReached).toBeGreaterThan(500);
     expect(completions).toBeGreaterThan(25);
-    expect(failures).toBeGreaterThan(500);
+    expect(failures, "V7: an expired quote is no failure state of its own any more").toBeGreaterThan(400);
     expect(finalFailures).toBeGreaterThan(25);
     expect(refusals).toBeGreaterThan(5000);
     expect(afterSubmission, "I-O7 is exercised").toBeGreaterThan(10);
     expect(delays).toBeGreaterThan(50);
   });
   it("I-O7 exhaustively: from every open state of a submitted record, every event and every resume aiming before the submission is refused", () => {
-    const back: OperationEvent[] = [{ type: "quote" }, { type: "quoted" }, { type: "review" }, { type: "edit" }, { type: "confirm" }, { type: "signed" }, { type: "rejected" }, ...PRE_SUBMISSION_STATES.map((to) => ({ type: "resume", to }) as OperationEvent)];
+    // V7: `signed` aims at SUBMITTING, the submission itself — no longer before it
+    const back: OperationEvent[] = [{ type: "quote" }, { type: "quoted" }, { type: "review" }, { type: "edit" }, { type: "confirm" }, { type: "rejected" }, ...PRE_SUBMISSION_STATES.map((to) => ({ type: "resume", to }) as OperationEvent)];
     let checked = 0;
     for (const state of OPERATION_STATES) {
       if (TERMINAL_STATES.includes(state) || PRE_SUBMISSION_STATES.includes(state)) continue;
-      const rec = record({ kind: "swap", state, history: [{ state: "AWAITING_SIGNATURE", at: 1_000 }, { state: "SUBMITTED", at: 1_000 }, ...(state === "SUBMITTED" ? [] : [{ state, at: 1_000 }])] });
+      const rec = record({ kind: "swap", state, history: [{ state: "AWAITING_AUTHORIZATION", at: 1_000 }, { state: "SOURCE_CONFIRMING", at: 1_000 }, ...(state === "SOURCE_CONFIRMING" ? [] : [{ state, at: 1_000 }])] });
       for (const ev of back) {
         const t = transition(rec, ev, 2_000);
         expect(t.ok, `${state} ← ${ev.type}${ev.type === "resume" ? ` ${ev.to}` : ""}`).toBe(false);
         checked++;
       }
     }
-    expect(checked).toBe(7 * 12);
+    expect(checked, "six submitted open states, eleven ways back").toBe(6 * 11);
   });
-  it("the state names are the frozen contract's sixteen — the doc's fifteen and CANCELLED", () => {
-    const spec: OperationState[] = ["DRAFT", "QUOTING", "REVIEW", "AWAITING_SIGNATURE", "SIGNED", "SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "COMPLETED", "QUOTE_EXPIRED", "FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED", "CANCELLED"];
+  it("the state names are the contract's fifteen — the document's, exactly (V7 Stage 15, spec v3.0 §6)", () => {
+    const spec: OperationState[] = ["DRAFT", "QUOTING", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING", "SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "COMPLETED", "CANCELLED", "FAILED", "RECOVERY_REQUIRED", "REFUNDING", "REFUNDED"];
     expect([...OPERATION_STATES]).toEqual(spec);
     expect([...OPERATION_STATES]).toEqual([...CONTRACT_STATES]);
   });

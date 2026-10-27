@@ -173,24 +173,25 @@ describe("the progress lines (spec v2.0 §7.7; doc §58)", () => {
   });
   it("the line from the engine's step before the submission and from the state after it; a protect starts at securing", () => {
     expect(PROGRESS_LINES).toEqual(["balance", "fees", "securing", "confirmation"]);
-    expect(progressLineOf(rec("AWAITING_SIGNATURE"))).toBe("balance");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", "fee-terms"))).toBe("fees");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", "syncing"))).toBe("balance");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", "proof"))).toBe("securing");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", "submitting"))).toBe("confirmation");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", "submitting", "protect"))).toBe("securing");
-    expect(progressLineOf(rec("AWAITING_SIGNATURE", undefined, "protect"))).toBe("securing");
-    for (const s of ["SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "COMPLETED"] as const) expect(progressLineOf(rec(s)), s).toBe("confirmation");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION"))).toBe("balance");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", "fee-terms"))).toBe("fees");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", "syncing"))).toBe("balance");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", "proof"))).toBe("securing");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", "submitting"))).toBe("confirmation");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", "submitting", "protect"))).toBe("securing");
+    expect(progressLineOf(rec("AWAITING_AUTHORIZATION", undefined, "protect"))).toBe("securing");
+    for (const s of ["SOURCE_CONFIRMING", "SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "COMPLETED"] as const)
+      expect(progressLineOf(rec(s)), s).toBe("confirmation");
   });
   it("only moves forward: the relayer's terms are read before the notes sync, and a line passed is never waiting again", () => {
     let f = 0;
-    for (const step of ["fee-terms", "syncing", "verifying", "proof"]) f = furthestLine(f, rec("AWAITING_SIGNATURE", step));
+    for (const step of ["fee-terms", "syncing", "verifying", "proof"]) f = furthestLine(f, rec("AWAITING_AUTHORIZATION", step));
     expect(PROGRESS_LINES[f]).toBe("securing");
-    f = furthestLine(f, rec("AWAITING_SIGNATURE", "syncing"));
+    f = furthestLine(f, rec("AWAITING_AUTHORIZATION", "syncing"));
     expect(PROGRESS_LINES[f]).toBe("securing");
   });
   it("the view-model: done before the line, active on it, waiting after; failed where it stopped; all done at the end", () => {
-    expect(progressModelOf(rec("AWAITING_SIGNATURE", "proof"), 2)).toEqual({
+    expect(progressModelOf(rec("AWAITING_AUTHORIZATION", "proof"), 2)).toEqual({
       steps: [
         { kind: "balance", state: "done" },
         { kind: "fees", state: "done" },
@@ -205,7 +206,7 @@ describe("the progress lines (spec v2.0 §7.7; doc §58)", () => {
         (s) => s.state,
       ),
     ).toEqual(["done", "done", "done", "failed"]);
-    expect(progressModelOf(rec("REVIEW", undefined, "send", { declined: { at: 1, code: "user_rejected" } }), 0).steps[0].state).toBe("failed");
+    expect(progressModelOf(rec("READY_TO_REVIEW", undefined, "send", { declined: { at: 1, code: "user_rejected" } }), 0).steps[0].state).toBe("failed");
     expect(progressModelOf(rec("COMPLETED"), 3)).toMatchObject({ fraction: 1, steps: PROGRESS_LINES.map((kind) => ({ kind, state: "done" })) });
   });
 });

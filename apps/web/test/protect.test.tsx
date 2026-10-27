@@ -126,19 +126,19 @@ describe("the Protect flow's model (spec v2.0 §7.3: the §23 reducer on the ope
     expect(protectStepOf({ ...base, balance: 1n })).toBe("VALIDATE_BALANCE");
     expect(protectStepOf({ ...base, feeReady: false })).toBe("CALCULATE_FEE");
     expect(protectStepOf({ ...base, reviewing: true })).toBe("PREPARE_TRANSACTION");
-    expect(protectStepOf({ ...base, record: { state: "AWAITING_SIGNATURE" } })).toBe("WALLET_CONFIRM");
-    expect(protectStepOf({ ...base, record: { state: "SUBMITTED" } })).toBe("SUBMITTED");
-    expect(protectStepOf({ ...base, record: { state: "CONFIRMING" } })).toBe("CONFIRMED");
+    expect(protectStepOf({ ...base, record: { state: "AWAITING_AUTHORIZATION" } })).toBe("WALLET_CONFIRM");
+    expect(protectStepOf({ ...base, record: { state: "SUBMITTING" } }), "V7: the prompt — the transaction handed to the wallet").toBe("WALLET_CONFIRM");
+    expect(protectStepOf({ ...base, record: { state: "SOURCE_CONFIRMING" } }), "V7: the hash and the receipt are one state").toBe("CONFIRMED");
     expect(protectStepOf({ ...base, record: { state: "COMPLETED" } })).toBe("PROTECTED_BALANCE_UPDATED");
     expect(PROTECT_STEPS.map((s) => PROTECT_OPERATION_STATE[s])).toEqual([
       "DRAFT",
       "DRAFT",
       "DRAFT",
       "QUOTING",
-      "REVIEW",
-      "AWAITING_SIGNATURE",
-      "SUBMITTED",
-      "CONFIRMING",
+      "READY_TO_REVIEW",
+      "AWAITING_AUTHORIZATION",
+      "SOURCE_CONFIRMING",
+      "SOURCE_CONFIRMING",
       "COMPLETED",
     ]);
   });
@@ -238,7 +238,10 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
       refs: { txHashes: [HASH], leafIndex: 7 },
       amounts: { asset: "ETH", input: "1000000000000000000", expectedOutput: "990000000000000000" },
     });
-    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
+    expect(
+      rec.history.map((h) => h.state),
+      "the prompt is the authorization; the hash and the receipt one state",
+    ).toEqual(["DRAFT", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "SOURCE_CONFIRMING", "COMPLETED"]);
     expect(openOperations()).toEqual([]);
     expect(screen.queryByTestId("protect-technical"), "the technical lines are Advanced only").toBeNull();
     fireEvent.click(screen.getByTestId("protect-finish"));
@@ -258,7 +261,7 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(error.textContent).toContain("You declined in your wallet");
     expect(error.textContent).toContain("Your funds were not moved.");
     expect(openOperations(), "a declined prompt is a draft again — nothing was signed").toEqual([]);
-    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "REVIEW", declined: { code: "user_rejected" } });
+    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "READY_TO_REVIEW", declined: { code: "user_rejected" } });
     expect(session.journal().operations ?? [], "and it left the journal").toEqual([]);
     fireEvent.click(screen.getByTestId("protect-back"));
     expect(path()).toBe("/protect/review");
@@ -326,7 +329,7 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
       amounts: { asset: "USDC", decimals: 6, input: "500000000", expectedOutput: "495000000" },
       refs: { txHashes: [HASH], leafIndex: 8 },
     });
-    expect(rec.history.find((h) => h.state === "AWAITING_SIGNATURE")?.note).toBe(`approval ${APPROVE}`);
+    expect(rec.history.find((h) => h.state === "AWAITING_AUTHORIZATION")?.note).toBe(`approval ${APPROVE}`);
   });
   it("more than the wallet holds is refused in words before the Review", async () => {
     await unlocked();

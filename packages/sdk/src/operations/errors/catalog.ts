@@ -15,22 +15,38 @@ import { CATALOG, hasCode } from "./codes";
 
 export { CATALOG, CODES, failureTarget, hasCode, reasonKey, titleKey, type CatalogRow, type ErrorSource, type OpErrorKey } from "./codes";
 
-export interface Classified { code: string; fundsClass: FundsClass; actions: RecoveryAction[]; detail: string }
+export interface Classified {
+  code: string;
+  fundsClass: FundsClass;
+  actions: RecoveryAction[];
+  detail: string;
+}
 
 const SERVICE_MESSAGES: [RegExp, string][] = [
-  [/^no quote/i, "no_quote"], [/route filtered/i, "route_filtered"], [/unknown provider/i, "unknown_provider"], [/unknown order/i, "unknown_order"],
-  [/not prepared/i, "order_not_prepared"], [/price guard|price_guard/i, "price_guard"], [/minimum moved|guarantees at least/i, "minimum_moved"],
+  [/^no quote/i, "no_quote"],
+  [/route filtered/i, "route_filtered"],
+  [/unknown provider/i, "unknown_provider"],
+  [/unknown order/i, "unknown_order"],
+  [/not prepared/i, "order_not_prepared"],
+  [/price guard|price_guard/i, "price_guard"],
+  [/minimum moved|guarantees at least/i, "minimum_moved"],
 ];
 const WALLET_MESSAGES: [RegExp, string][] = [
-  [/insufficient shielded balance/i, "insufficient_balance"], [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"], [/spread over \d+ notes|needs a private merge/i, "housekeeping_needed"], [/commitment was not found in the receipt/i, "deposit_not_found"],
-  [/reverted/i, "receipt_reverted"], [/unreachable|failed to fetch|fetch failed|networkerror|ECONNREFUSED|load failed/i, "relayer_unreachable"], [/expired/i, "quote_expired"],
+  [/insufficient shielded balance/i, "insufficient_balance"],
+  [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"],
+  [/spread over \d+ notes|needs a private merge/i, "housekeeping_needed"],
+  [/commitment was not found in the receipt/i, "deposit_not_found"],
+  [/reverted/i, "receipt_reverted"],
+  [/unreachable|failed to fetch|fetch failed|networkerror|ECONNREFUSED|load failed/i, "relayer_unreachable"],
+  [/expired/i, "quote_expired"],
 ];
 
 /** The catalog row of a thrown error (the wallet's classes by instance, EIP-1193 by code, the services by code or message). */
 export function classify(e: unknown): Classified {
   const detail = e instanceof Error ? e.message : typeof e === "string" ? e : "";
   const row = (code: string): Classified => ({ code, fundsClass: CATALOG[code].fundsClass, actions: CATALOG[code].actions, detail });
-  if (e instanceof RelayerRefusal) return row(e.code && hasCode(e.code) ? e.code : e.status === 429 ? "rate_limited" : e.status === 503 ? "capacity" : "service_rejected");
+  if (e instanceof RelayerRefusal)
+    return row(e.code && hasCode(e.code) ? e.code : e.status === 429 ? "rate_limited" : e.status === 503 ? "capacity" : "service_rejected");
   if (e instanceof RelayerTimeout) return row("relayer_unreachable"); // a lost answer: the chain and the relayer's job are read before anything is sent again
   if (e instanceof ServiceMinimumMoved || e instanceof MinimumMoved) return row("minimum_moved");
   if (e instanceof RpcDisagreement) return row("rpc_disagreement");

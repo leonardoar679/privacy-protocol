@@ -678,7 +678,8 @@ function SendProgress(p: ProgressProps) {
       </Page>
     );
   }
-  const stopped = record.reason || (record.declined && ["DRAFT", "QUOTING", "REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
+  const stopped =
+    record.reason || (record.declined && ["DRAFT", "QUOTING", "READY_TO_REVIEW"].includes(record.state)) || ["FAILED", "CANCELLED"].includes(record.state);
   // an outcome not known yet (the audit round of 2026-10-16, c47): confirming again would plan from notes the first spend may
   // be using, and could pay twice — only Done; the record moves by the chain's answer
   const unknownOutcome = record.state === "RECOVERY_REQUIRED" || record.reason?.fundsClass === "unknown";

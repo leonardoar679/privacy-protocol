@@ -230,7 +230,10 @@ describe("Send (spec v2.0 §7.4)", () => {
       destination: { kind: "privacy-address", display: to },
       refs: { txHashes: [HASH], leafIndex: 5 },
     });
-    expect(rec.history.map((h) => h.state)).toEqual(["DRAFT", "REVIEW", "AWAITING_SIGNATURE", "SUBMITTED", "CONFIRMING", "COMPLETED"]);
+    expect(
+      rec.history.map((h) => h.state),
+      "V7: the proof and the submission are lines of their own; the hash and the receipt one state",
+    ).toEqual(["DRAFT", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING", "SOURCE_CONFIRMING", "COMPLETED"]);
     expect(fetchSpy, "the relayer terms came from the mocked engine; nothing else was fetched").not.toHaveBeenCalled();
   });
 

@@ -19,8 +19,8 @@ describe("retention", () => {
     );
     op.run("op_done_old", "COMPLETED", "0x01", 0, 0, NOW - 7 * D - 1);
     op.run("op_done_new", "COMPLETED", "0x02", 0, 0, NOW - 7 * D + 60_000);
-    op.run("op_abandoned", "AWAITING_SIGNATURE", "0x03", 0, Math.floor((NOW - 2 * D - 60_000) / 1000), null);
-    op.run("op_waiting", "AWAITING_SIGNATURE", "0x04", 0, Math.floor((NOW - 2 * D + 60_000) / 1000), null);
+    op.run("op_abandoned", "AWAITING_AUTHORIZATION", "0x03", 0, Math.floor((NOW - 2 * D - 60_000) / 1000), null);
+    op.run("op_waiting", "AWAITING_AUTHORIZATION", "0x04", 0, Math.floor((NOW - 2 * D + 60_000) / 1000), null);
     const ev = db.prepare("INSERT INTO system_events (at, level, event) VALUES (?, 'info', 'x.y')");
     ev.run(NOW - 7 * D - 1);
     ev.run(NOW - 7 * D + 1);

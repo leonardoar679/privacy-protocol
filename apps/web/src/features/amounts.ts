@@ -3,7 +3,7 @@
 import { ASSETS } from "@privacy-wallet/config";
 import { formatAmount } from "@privacy-wallet/ui";
 import type { Amount, Status } from "./viewKit";
-import { isDraft, wasSubmitted, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { needsAttention } from "@privacy-wallet/sdk/operations/recovery";
 import type { MessageKey } from "../app/i18n/en";
 import type { Vars } from "../app/i18n/messages";
@@ -43,12 +43,12 @@ export function statusOf(r: OperationRecord): Status {
       return "cancelled";
     case "FAILED":
       return "failed";
-    case "QUOTE_EXPIRED": // V6: a submitted swap whose quote moved waits for the user's choice
-      return wasSubmitted(r) ? "action-needed" : "failed";
     case "DRAFT":
     case "QUOTING":
-    case "REVIEW":
-    case "AWAITING_SIGNATURE":
+    case "READY_TO_REVIEW":
+    case "AWAITING_AUTHORIZATION":
+    case "PREPARING_PROOF":
+      if (r.state === "READY_TO_REVIEW" && r.reason?.code === "quote_expired") return "failed"; // V7: the quote expired before the funding
       return r.declined && isDraft(r.state) ? "cancelled" : "preparing"; // the user declined: nothing moved, nothing failed
     default:
       return needsAttention(r) ? "action-needed" : "executing";

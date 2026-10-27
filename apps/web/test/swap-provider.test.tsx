@@ -109,7 +109,7 @@ describe("the swap provider facade (spec v3.0 §5)", () => {
     expect(signed.sim.ok, "the simulation lives where the signature is made").toBe(true);
     // a status read: the record, the tracker's derived state, no settlement before the funding — and nothing funded or sent
     const st = await facade.getStatus(prepared.operationId!);
-    expect(st).toMatchObject({ orderId: prepared.orderId, operationId: prepared.operationId, state: "AWAITING_SIGNATURE", settlement: null, paused: null });
+    expect(st).toMatchObject({ orderId: prepared.orderId, operationId: prepared.operationId, state: "AWAITING_AUTHORIZATION", settlement: null, paused: null });
     expect(st.tracked?.state).toBe("COMMITTED");
     expect(count("/relay")).toBe(0);
     expect(count("/swap/execute")).toBe(0);

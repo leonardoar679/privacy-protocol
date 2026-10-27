@@ -14,7 +14,7 @@ describe("the typed logger", () => {
       (l) => lines.push(l),
       () => AT,
     );
-    log.info({ event: "operation.created", operationId: OP, provider: "thorchain", state: "AWAITING_SIGNATURE", network: "ethereum" });
+    log.info({ event: "operation.created", operationId: OP, provider: "thorchain", state: "AWAITING_AUTHORIZATION", network: "ethereum" });
     log.warn({ event: "fee.deviation", operationId: OP, provider: "thorchain", errorClass: "fee_deviation" });
     log.error({ event: "http.error", state: "500", errorClass: "internal" });
     expect(lines.map((l) => JSON.parse(l))).toEqual([
@@ -24,7 +24,7 @@ describe("the typed logger", () => {
         event: "operation.created",
         operationId: OP,
         provider: "thorchain",
-        state: "AWAITING_SIGNATURE",
+        state: "AWAITING_AUTHORIZATION",
         network: "ethereum",
       },
       { at: AT.toISOString(), level: "warn", event: "fee.deviation", operationId: OP, provider: "thorchain", errorClass: "fee_deviation" },

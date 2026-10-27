@@ -120,7 +120,7 @@ describe("Home (spec v2.0 §7.1)", () => {
           amounts: { asset: "ETH", decimals: 18, input: (2n * 10n ** 18n).toString(), outputAsset: "BTC", outputDecimals: 8 },
           destination: { kind: "entered", display: "bc1q", chain: "bitcoin" },
           tier: "standard",
-          state: "SUBMITTED",
+          state: "SOURCE_CONFIRMING",
         },
         2_000_000,
       );

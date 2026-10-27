@@ -29,19 +29,19 @@ describe("reconcile — the legs of doc §82", () => {
   it("funded, then executing, then the destination pending, then completed: the state and the settlement follow; completed is final and stamped", async () => {
     h.script.balance = amount;
     let r = await reconcile();
-    expect(r.body).toMatchObject({ state: "EXECUTING", settlement: "SOURCE_CONFIRMED", sources: { relayer: "none", chain: "ok", provider: "none" } });
+    expect(r.body).toMatchObject({ state: "PROVIDER_EXECUTING", settlement: "SOURCE_CONFIRMED", sources: { relayer: "none", chain: "ok", provider: "none" } });
     h.script.job = { state: "executed", executionTx: EXEC };
     h.script.balance = 0n;
     r = await reconcile();
     expect(r.body).toMatchObject({
-      state: "EXECUTING",
+      state: "PROVIDER_EXECUTING",
       settlement: "PROVIDER_PENDING",
       refs: { executionTx: EXEC },
       sources: { relayer: "ok", provider: "ok" },
     });
     h.adapter.track_ = { state: "destination-submitted", destinationTxHash: "dest-tx-1" };
     r = await reconcile();
-    expect(r.body).toMatchObject({ state: "SETTLING", settlement: "DESTINATION_PENDING", refs: { destinationTx: "dest-tx-1" } });
+    expect(r.body).toMatchObject({ state: "DESTINATION_CONFIRMING", settlement: "DESTINATION_PENDING", refs: { destinationTx: "dest-tx-1" } });
     h.script.job = { state: "completed", executionTx: EXEC };
     h.adapter.track_ = { state: "completed" };
     r = await reconcile();
@@ -61,7 +61,7 @@ describe("reconcile — the legs of doc §82", () => {
     h.script.balance = 0n;
     h.adapter.track_ = { state: "destination-submitted", destinationTxHash: "dest-tx-1" };
     let r = await reconcile();
-    expect(r.body).toMatchObject({ state: "SETTLING", settlement: "DESTINATION_PENDING" });
+    expect(r.body).toMatchObject({ state: "DESTINATION_CONFIRMING", settlement: "DESTINATION_PENDING" });
     expect(h.store.getOperation(id)!.terminalAt, "still open").toBeNull();
     h.script.balance = amount / 2n; // the provider's refund lands days later
     r = await reconcile();
@@ -86,20 +86,20 @@ describe("reconcile — the legs of doc §82", () => {
     await reconcile();
     h.script.balance = 0n;
     const r = await reconcile();
-    expect(r.body).toMatchObject({ state: "CONFIRMING", settlement: null });
+    expect(r.body).toMatchObject({ state: "SOURCE_CONFIRMING", settlement: null });
   });
   it("an unfunded order past its window expired before it moved; a funded one past its window is a delay with the refund available", async () => {
     const row = h.store.getOperation(id)!;
     h.clock.now = (row.executeDeadline + 60) * 1000;
     h.script.balance = 0n;
     let r = await reconcile();
-    expect(r.body).toMatchObject({ state: "QUOTE_EXPIRED", reason: { code: "order_expired" }, settlement: null });
+    expect(r.body).toMatchObject({ state: "CANCELLED", reason: { code: "order_expired" }, settlement: null });
     const c = await h.post("/v1/operations", orderBody());
     id = c.body.operationId;
     h.clock.now = (h.store.getOperation(id)!.executeDeadline + 60) * 1000;
     h.script.balance = BigInt(c.body.order.params.amount);
     r = await reconcile();
-    expect(r.body).toMatchObject({ state: "EXECUTING", delayed: { code: "provider_timeout" }, settlement: "REFUND_AVAILABLE" });
+    expect(r.body).toMatchObject({ state: "PROVIDER_EXECUTING", delayed: { code: "provider_timeout" }, settlement: "REFUND_AVAILABLE" });
   });
   it("one read per operation per 5 s: a second call inside the window answers the last result", async () => {
     h.script.balance = amount;

@@ -81,7 +81,7 @@ describe("operations", () => {
     const g = await h.get(`/v1/operations/${id}`);
     expect(g.status).toBe(200);
     expect(Object.keys(g.body).sort()).toEqual(["checkedAt", "createdAt", "id", "kind", "provider", "settlement", "state", "tier", "updatedAt"]);
-    expect(g.body).toMatchObject({ id, kind: "cross-chain", state: "AWAITING_SIGNATURE", provider: "thorchain", settlement: null });
+    expect(g.body).toMatchObject({ id, kind: "cross-chain", state: "AWAITING_AUTHORIZATION", provider: "thorchain", settlement: null });
     expect(JSON.stringify(g.body), "never the order id, the escrow or the destination").not.toMatch(
       new RegExp(`${c.body.order.orderId}|${c.body.order.endpoint}|bc1q`, "i"),
     );

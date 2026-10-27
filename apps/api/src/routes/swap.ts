@@ -388,7 +388,7 @@ export class SwapApi {
       {
         id,
         kind: req.from.chain === req.to.chain ? "swap" : "cross-chain",
-        state: "AWAITING_SIGNATURE",
+        state: "AWAITING_AUTHORIZATION",
         provider: order.quote.provider,
         network: req.from.chain,
         tier: order.tier ?? null,
@@ -403,7 +403,13 @@ export class SwapApi {
       },
       encodeBlob({ order, ...(chosen ? { chosen: true } : {}) } satisfies Blob),
     );
-    this.d.store.event({ event: "operation.created", operationId: id, provider: order.quote.provider, state: "AWAITING_SIGNATURE", network: req.from.chain });
+    this.d.store.event({
+      event: "operation.created",
+      operationId: id,
+      provider: order.quote.provider,
+      state: "AWAITING_AUTHORIZATION",
+      network: req.from.chain,
+    });
     return id;
   }
 

@@ -14,7 +14,7 @@ import { planWords } from "@privacy-wallet/sdk/tiers";
 import { activityId, activityOf, activityStatusLabel, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import type { ActivityRecord, JournalData, StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
-import { isDraft, isTerminal, wasSubmitted, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, isTerminal, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { recordWords } from "../operations/recovery";
 
 export type T = (key: MessageKey, vars?: Vars) => string;
@@ -50,8 +50,8 @@ export const amountOf = (amount: string, decimals: number, asset: string): strin
 function toneOfRecord(r: OperationRecord): StatusTone {
   if (r.state === "COMPLETED" || r.state === "REFUNDED") return "ok";
   if (r.state === "CANCELLED") return "neutral";
-  if (r.state === "RECOVERY_REQUIRED" || r.delayed || (r.state === "QUOTE_EXPIRED" && wasSubmitted(r))) return "warn";
-  if (r.state === "FAILED" || r.state === "QUOTE_EXPIRED") return "danger";
+  if (r.state === "RECOVERY_REQUIRED" || r.delayed) return "warn";
+  if (r.state === "FAILED" || (r.state === "READY_TO_REVIEW" && r.reason?.code === "quote_expired")) return "danger"; // V7: an expired quote before the funding
   return "pending";
 }
 function toneOfLabel(label: string): StatusTone {
