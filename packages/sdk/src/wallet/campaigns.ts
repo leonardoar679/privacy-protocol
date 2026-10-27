@@ -9,7 +9,7 @@ import {
   type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type Tranche, type TranchePlan,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
-import { PRIVACY_FEE_BPS, privacyFee, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
+import { PRIVACY_FEE_BPS, feeForWithdrawal, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Asset } from "../assets";
 import { mergeSchedule } from "./mergeSchedule";
@@ -124,11 +124,16 @@ export interface StartCampaignInput {
 }
 
 /**
- * The fee a piece's funding may pay at most (V7 Stage 12): its privacy share p(piece) plus the relayer's F of the Review
- * (`maxRelayerFee`) — the stored swap's `reviewedFee`, which the funding never exceeds; undefined for a campaign from before.
+ * The fee a piece's funding may pay at most (V7 Stage 12): the one fee note for delivering the piece to its escrow under the
+ * Review's terms — exact output, as the funding itself prices it: p(W + f) + F (`feeForWithdrawal`), with the relayer's F of
+ * the Review (`maxRelayerFee`) and its basis points (`relayerFeeBps`; the product's 100 when a campaign recorded none) — the
+ * stored swap's `reviewedFee`, which the funding never exceeds; undefined for a campaign from before. The first full local
+ * run after Stage 12 found the earlier bound, the piece's privacy share p(W) plus F, below what the relayer's rule asks for
+ * delivering W: every step's funding was refused as a moved fee, and the campaign sat "committed" in the scheduler's backoff.
  */
-export function stepReviewedFee(bounds: Pick<ExecutionBounds, "maxRelayerFee">, amount: bigint): bigint | undefined {
-  return bounds.maxRelayerFee !== undefined && /^\d+$/.test(bounds.maxRelayerFee) ? privacyFee(amount, PRIVACY_FEE_BPS) + BigInt(bounds.maxRelayerFee) : undefined;
+export function stepReviewedFee(bounds: Pick<ExecutionBounds, "maxRelayerFee" | "relayerFeeBps">, amount: bigint): bigint | undefined {
+  if (bounds.maxRelayerFee === undefined || !/^\d+$/.test(bounds.maxRelayerFee)) return undefined;
+  return feeForWithdrawal(amount, { minimum: BigInt(bounds.maxRelayerFee), feePercentBps: bounds.relayerFeeBps ?? PRIVACY_FEE_BPS });
 }
 
 /** The plan and the bounds from the recommendation and the confirmation (pure); the campaign is not journaled here. */
@@ -163,7 +168,7 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
     orderId: randomId(), assetIn: i.from, chainIn: i.from.chain, amountInLimit: i.amount.toString(), assetOut: i.to, chainOut: i.to.chain, destination: i.destination,
     minimumOutput: minimumOutput.toString(), ...(minimumOutputNet !== null ? { minimumOutputNet: minimumOutputNet.toString() } : {}), expiry: Math.floor(now / 1000) + 2 * estimated + EXPIRY_MARGIN_SECONDS, maxFeeBps: DEFAULT_MAX_FEE_BPS, privacyMode: i.mode,
     maxExternalExposure: cap.toString(), executeWindowSeconds: p.executeWindowSeconds,
-    ...(i.terms ? { maxRelayerFee: i.terms.minimum.toString() } : {}),
+    ...(i.terms ? { maxRelayerFee: i.terms.minimum.toString(), relayerFeeBps: i.terms.feePercentBps } : {}),
   };
   const plan: TranchePlan = {
     riskClass: p.riskClass as TranchePlan["riskClass"], bandBps: band, capBps, sizing, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, gate: p.gate, cadenceSeconds: p.cadenceSeconds ?? defaults.cadenceSeconds,

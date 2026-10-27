@@ -52,6 +52,11 @@ export interface ExecutionBounds {
    * privacy share plus this (`StoredSwap.reviewedFee`, the Review's `F × n`); absent on a campaign from before
    */
   maxRelayerFee?: string;
+  /**
+   * V7 Stage 12 follow-up: the relayer's privacy fee in basis points at the Review (`FeeTerms.feePercentBps`) — with
+   * `maxRelayerFee`, the terms every piece's funding is bound by (the product's 100 when a campaign recorded none)
+   */
+  relayerFeeBps?: number;
   privacyMode: ProtectionMode;
   /** the in-flight cap in base units (§5) */
   maxExternalExposure: string;

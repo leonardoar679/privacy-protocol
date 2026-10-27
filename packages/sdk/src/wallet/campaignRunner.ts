@@ -528,6 +528,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             c = pauseWith(c, "bounds", `Step ${t.index + 1} no longer fits in your protected balance with the relayer's fee now; nothing was sent. Resume once fees fall, or return the rest.`, now, t.index);
             break;
           }
+          // the relayer's fee for this step rose past the bound the Review showed (fee_moved; a V7 Stage 12 follow-up): a bound the
+          // user approved, so the campaign pauses for the decision as the balance case does — never the silent backoff that left
+          // the step "committed" for ten minutes at a time with nothing to say
+          if (!sent && (e as { code?: unknown })?.code === "fee_moved") {
+            c = pauseWith(c, "bounds", `Step ${t.index + 1}'s relayer fee rose above what you approved; nothing was sent. Resume to fund it once today's fee fits, or return the rest.`, now, t.index);
+            break;
+          }
           if (!sent) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
           c = pauseWith(c, "reconcile", `The funding of step ${t.index + 1} ended without a known outcome (${m}); the escrow is read before anything is sent again.`, now, t.index);
         }

@@ -129,8 +129,11 @@ and from Settings' trading section as "Fees & refunds". Every Review's fee secti
 pays 1 % again.*; a protected execution's relayer row reads *Relayer/network (n steps)* for `F × n`. The §46 quote states
 `p(A)` of what the user pays — the wallet sends `grossAmount` beside the escrow's `amount` — and carries `feeTerms`
 (the basis points, `F`, the tip, their sum as the bound, when they were read). The campaign's bounds record the Review's
-`F` (`maxRelayerFee`) and each piece's order is committed with `reviewedFee` = its privacy share plus that `F`, so a
-piece's funding never pays more (`stepReviewedFee`); a campaign from before stays as it was. The swap screen's provider
+`F` (`maxRelayerFee`) and its basis points (`relayerFeeBps`), and each piece's order is committed with `reviewedFee` = the
+one fee note for delivering the piece under those terms — exact output, `p(W + f) + F`, as the funding itself prices it
+(`stepReviewedFee` over `feeForWithdrawal`; the piece's share alone plus `F` fell short of the relayer's rule, which the first
+full local run after Stage 12 found) — so a piece's funding never pays more; a piece whose relayer asks more than that pauses
+the operation (`bounds`, the reason shown) rather than pays; a campaign from before stays as it was. The swap screen's provider
 fee is integer cents from the price where the fee is in the source asset (the provider's own dollar figure only for a fee
 in another asset). The fee code itself is unchanged: the formulas and the enforcement are v2.0 §3's.
 

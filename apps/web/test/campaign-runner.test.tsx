@@ -19,7 +19,18 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings, healSettings, healProtection, DEFAULT_PROTECTION, PROTECTION_DEFAULTS } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction, schedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
 import { trancheMinimum } from "@privacy-wallet/protocol/wallet/campaign";
-import { acceptReroute, buildCampaign, campaignById, cancelCampaign, keepDecisions, pauseCampaign, putCampaign, resumeCampaign, startCampaign, BOUNDS_SLIPPAGE_BPS } from "@privacy-wallet/sdk/wallet/campaigns";
+import {
+  acceptReroute,
+  buildCampaign,
+  campaignById,
+  cancelCampaign,
+  keepDecisions,
+  pauseCampaign,
+  putCampaign,
+  resumeCampaign,
+  startCampaign,
+  BOUNDS_SLIPPAGE_BPS,
+} from "@privacy-wallet/sdk/wallet/campaigns";
 import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
 import { withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
 import { runCampaignTick, resetRunnerMemory, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
@@ -30,6 +41,7 @@ import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
 import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
 import { OrderOutdated, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
+import { FeeMoved } from "@privacy-wallet/sdk/privateTx";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { useScheduler } from "../src/hooks";
@@ -38,7 +50,16 @@ import { useScheduler } from "../src/hooks";
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const ETH_VAULT = getAddress("0x00000000000000000000000000000000000000e7");
 const FACTORY = getAddress("0x00000000000000000000000000000000000000f1");
-const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: ETH_VAULT, rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY };
+const deployment: Deployment = {
+  chainId: 1,
+  core: getAddress("0x00000000000000000000000000000000000000c0"),
+  ethVault: ETH_VAULT,
+  rpcUrl: "http://127.0.0.1:1",
+  rpcUrls: ["http://127.0.0.1:1"],
+  fromBlock: 0n,
+  erc20Vaults: [],
+  swapFactory: FACTORY,
+};
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const BTC: AssetRef = { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" };
 const eth = (n: number) => BigInt(n) * 10n ** 18n;
@@ -46,10 +67,62 @@ const AMOUNT = eth(2500); // $10M at $4,000
 const OUT = 100n * 10n ** 8n; // 100 BTC
 const OUT_MIN = OUT - OUT / 200n; // 0.5 % tolerance in the quote
 const T0 = Date.parse("2026-10-08T12:00:00Z");
-const quote = (provider = "thorchain", amount = AMOUNT): ServiceQuote => ({ provider, category: "A", toAmount: ((OUT * amount) / AMOUNT).toString(), toAmountMin: ((OUT_MIN * amount) / AMOUNT).toString(), fees: [], etaSeconds: 1400, expiresAt: Math.floor(T0 / 1000) + 600, nativeAssets: true, minOutEncoded: true, hops: [], plan: { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 }, impactBps: 9 });
-const protection = (provider = "thorchain"): Protection => ({ provider, riskClass: "R5", flags: [], custody: "tss-vaults", bandBps: [200, 200], capBps: 200, sizing: "varied", concurrency: "sequential", maxParallel: 1, gate: "destination-final", cadenceSeconds: [600, 5400], providerShareCapBps: 10000, executeWindowSeconds: 7200, estimatedTranches: 50, estimatedSeconds: 250_000, trancheUsd: [200_000, 200_000], capUsd: 200_000, trancheImpactBps: 0.18, thinMarket: false, maxPieceUnits: null, concentration: { providers: [{ id: provider, shareBps: 10000 }], singleVenue: true, capBps: 10000 }, elpf: { prior: 0.02, pFailure: 0.02, perTrancheUsd: 4000, perCampaignUsd: 4000 }, staged: false, reasons: [] });
-const score = (provider: string) => ({ provider, total: 80, components: { price: 80, security: 69, privacy: 70, latency: 60, liquidity: 80, reliability: 100 } });
-const quoteSet = (provider = "thorchain", amount = AMOUNT): QuoteSet => ({ quotes: [quote(provider, amount)], scores: [score(provider)], errors: {}, chosen: score(provider), links: {}, tier: "institutional", policy: "privacy-execution", competition: [{ provider, outcome: "quoted", ms: 100 }], protection: protection(provider) });
+const quote = (provider = "thorchain", amount = AMOUNT): ServiceQuote => ({
+  provider,
+  category: "A",
+  toAmount: ((OUT * amount) / AMOUNT).toString(),
+  toAmountMin: ((OUT_MIN * amount) / AMOUNT).toString(),
+  fees: [],
+  etaSeconds: 1400,
+  expiresAt: Math.floor(T0 / 1000) + 600,
+  nativeAssets: true,
+  minOutEncoded: true,
+  hops: [],
+  plan: { mode: "streaming", parts: 205, intervalBlocks: 1, expectedSeconds: 1400 },
+  impactBps: 9,
+});
+const protection = (provider = "thorchain"): Protection => ({
+  provider,
+  riskClass: "R5",
+  flags: [],
+  custody: "tss-vaults",
+  bandBps: [200, 200],
+  capBps: 200,
+  sizing: "varied",
+  concurrency: "sequential",
+  maxParallel: 1,
+  gate: "destination-final",
+  cadenceSeconds: [600, 5400],
+  providerShareCapBps: 10000,
+  executeWindowSeconds: 7200,
+  estimatedTranches: 50,
+  estimatedSeconds: 250_000,
+  trancheUsd: [200_000, 200_000],
+  capUsd: 200_000,
+  trancheImpactBps: 0.18,
+  thinMarket: false,
+  maxPieceUnits: null,
+  concentration: { providers: [{ id: provider, shareBps: 10000 }], singleVenue: true, capBps: 10000 },
+  elpf: { prior: 0.02, pFailure: 0.02, perTrancheUsd: 4000, perCampaignUsd: 4000 },
+  staged: false,
+  reasons: [],
+});
+const score = (provider: string) => ({
+  provider,
+  total: 80,
+  components: { price: 80, security: 69, privacy: 70, latency: 60, liquidity: 80, reliability: 100 },
+});
+const quoteSet = (provider = "thorchain", amount = AMOUNT): QuoteSet => ({
+  quotes: [quote(provider, amount)],
+  scores: [score(provider)],
+  errors: {},
+  chosen: score(provider),
+  links: {},
+  tier: "institutional",
+  policy: "privacy-execution",
+  competition: [{ provider, outcome: "quoted", ms: 100 }],
+  protection: protection(provider),
+});
 
 /** A scripted world behind the runner's I/O interface: every call is counted; the facts are what the test sets. */
 class World implements CampaignIo {
@@ -96,29 +169,83 @@ class World implements CampaignIo {
   shaped = true;
   /** what the last tracker read reported for the service's stall count */
   lastStall: { since: number; expected: number } | undefined;
-  constructor(readonly s: WalletSession, readonly now: () => number) {}
-  private stored(orderId: string): StoredSwap { return this.s.journal().swaps.find((x) => x.orderId === orderId)!; }
+  constructor(
+    readonly s: WalletSession,
+    readonly now: () => number,
+  ) {}
+  private stored(orderId: string): StoredSwap {
+    return this.s.journal().swaps.find((x) => x.orderId === orderId)!;
+  }
   /** thrown once by the next commit (audit round 2, r07: the counters held after a restore) */
   commitThrows: Error | null = null;
   async commit(c: Campaign, t: Tranche, destination: string) {
     this.calls.push(`commit:${t.index}:${c.provider}`);
-    if (this.commitThrows) { const e = this.commitThrows; this.commitThrows = null; throw e; }
+    if (this.commitThrows) {
+      const e = this.commitThrows;
+      this.commitThrows = null;
+      throw e;
+    }
     if (this.gate) await this.gate;
     const orderId = ("0x" + (++this.n).toString(16).padStart(64, "0")) as `0x${string}`;
     const q = quote(this.sizeChosen ?? c.provider ?? "thorchain", BigInt(t.amount));
     const nowS = Math.floor(this.now() / 1000);
-    const params = { orderId, assetType: 0, asset: "0x0000000000000000000000000000000000000000" as `0x${string}`, amount: t.amount, orderSigner: "0x00000000000000000000000000000000000000a1" as `0x${string}`, executeDeadline: q.expiresAt + 7200, refundAfter: q.expiresAt + 14400, refundVault: ETH_VAULT, refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}`, executorTip: (BigInt(t.amount) / 400n).toString() };
-    const stored: StoredSwap = { orderId, attemptId: "0x" + "22".repeat(32), refundCounter: this.n, provider: q.provider, policy: "privacy-execution", request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50 }, params, endpoint: "0x00000000000000000000000000000000000000e5", quote: q, approvedMin: q.toAmountMin, createdAt: nowS * 1000, state: "committed", refundNoteData: "0x01" + "00".repeat(168), campaign: { id: c.id, index: t.index }, tier: c.tier };
-    this.s.update((j) => { j.swaps = [...j.swaps, stored]; });
-    const order: ServiceOrder = { orderId, endpoint: stored.endpoint as `0x${string}`, state: "QUOTED", quote: q, params, privacy: { delaySeconds: [0, 0], score: 80 } };
+    const params = {
+      orderId,
+      assetType: 0,
+      asset: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      amount: t.amount,
+      orderSigner: "0x00000000000000000000000000000000000000a1" as `0x${string}`,
+      executeDeadline: q.expiresAt + 7200,
+      refundAfter: q.expiresAt + 14400,
+      refundVault: ETH_VAULT,
+      refundOwnerCommitment: "1",
+      refundNoteSecret: "2",
+      refundNoteDataHash: ("0x" + "11".repeat(32)) as `0x${string}`,
+      executorTip: (BigInt(t.amount) / 400n).toString(),
+    };
+    const stored: StoredSwap = {
+      orderId,
+      attemptId: "0x" + "22".repeat(32),
+      refundCounter: this.n,
+      provider: q.provider,
+      policy: "privacy-execution",
+      request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50 },
+      params,
+      endpoint: "0x00000000000000000000000000000000000000e5",
+      quote: q,
+      approvedMin: q.toAmountMin,
+      createdAt: nowS * 1000,
+      state: "committed",
+      refundNoteData: "0x01" + "00".repeat(168),
+      campaign: { id: c.id, index: t.index },
+      tier: c.tier,
+    };
+    this.s.update((j) => {
+      j.swaps = [...j.swaps, stored];
+    });
+    const order: ServiceOrder = {
+      orderId,
+      endpoint: stored.endpoint as `0x${string}`,
+      state: "QUOTED",
+      quote: q,
+      params,
+      privacy: { delaySeconds: [0, 0], score: 80 },
+    };
     return { stored, order };
   }
   async fund(stored: StoredSwap, onStatus: (l: string) => void) {
     this.calls.push(`fund:${stored.campaign!.index}`);
-    if (this.fundThrows) { const e = this.fundThrows; this.fundThrows = null; throw e; }
+    if (this.fundThrows) {
+      const e = this.fundThrows;
+      this.fundThrows = null;
+      throw e;
+    }
     if (this.fundPendingAfterSend) {
       onStatus("Proof ready in 1.0 s; handing it to the relayer (your address never touches the chain)…");
-      this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: this.now() }; });
+      this.s.update((j) => {
+        const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
+        x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: this.now() };
+      });
       throw new Error("relayer unreachable");
     }
     if (this.fundThrowsAfterSend) {
@@ -127,14 +254,27 @@ class World implements CampaignIo {
       throw new Error("relayer unreachable");
     }
     this.escrow.set(stored.orderId, BigInt((stored.params as { amount: string }).amount));
-    this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.fundedTx = "0x" + "33".repeat(32); x.state = "funded"; });
+    this.s.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
+      x.fundedTx = "0x" + "33".repeat(32);
+      x.state = "funded";
+    });
     return { txHash: "0x" + "33".repeat(32) };
   }
-  async escrowBalance(stored: StoredSwap) { this.calls.push(`balance:${stored.campaign!.index}`); return this.escrow.get(stored.orderId) ?? 0n; }
-  async fundingFate(): Promise<FundingFate> { return this.fate; }
+  async escrowBalance(stored: StoredSwap) {
+    this.calls.push(`balance:${stored.campaign!.index}`);
+    return this.escrow.get(stored.orderId) ?? 0n;
+  }
+  async fundingFate(): Promise<FundingFate> {
+    return this.fate;
+  }
   async sign(stored: StoredSwap, acceptMin?: bigint): Promise<Signed | { moved: any }> {
     this.calls.push(`sign:${stored.campaign!.index}`);
-    if (this.signThrows) { const e = this.signThrows; this.signThrows = null; throw e; }
+    if (this.signThrows) {
+      const e = this.signThrows;
+      this.signThrows = null;
+      throw e;
+    }
     this.acceptMins.push(acceptMin);
     if (this.moved) return { moved: { minOut: 1n, approved: 2n } };
     if (this.minOutAtSign !== null) {
@@ -143,42 +283,118 @@ class World implements CampaignIo {
     }
     if (this.guardRefuses) throw new Error("price_guard: this route is 80 bps below the best alternative");
     const q = stored.quote as ServiceQuote;
-    return { prepared: { digest: "0x" + "44".repeat(32), provider: "0x00000000000000000000000000000000000000ad", value: (stored.params as { amount: string }).amount, calldata: "0x", deadline: q.expiresAt } as Signed["prepared"], params: stored.params as Signed["params"], call: { minOut: BigInt(q.toAmountMin), refundTo: "escrow", provider: "thorchain", facts: [] } as unknown as Signed["call"], signature: ("0x" + "55".repeat(65)) as `0x${string}`, sim: { ok: true, gas: 210_000n, endpoints: 1, preview: false }, label: "valid until later" };
+    return {
+      prepared: {
+        digest: "0x" + "44".repeat(32),
+        provider: "0x00000000000000000000000000000000000000ad",
+        value: (stored.params as { amount: string }).amount,
+        calldata: "0x",
+        deadline: q.expiresAt,
+      } as Signed["prepared"],
+      params: stored.params as Signed["params"],
+      call: { minOut: BigInt(q.toAmountMin), refundTo: "escrow", provider: "thorchain", facts: [] } as unknown as Signed["call"],
+      signature: ("0x" + "55".repeat(65)) as `0x${string}`,
+      sim: { ok: true, gas: 210_000n, endpoints: 1, preview: false },
+      label: "valid until later",
+    };
   }
   async handOver(stored: StoredSwap) {
     this.calls.push(`handover:${stored.campaign!.index}`);
-    if (this.handOverRefusal) { const e = this.handOverRefusal; this.handOverRefusal = null; throw e; }
+    if (this.handOverRefusal) {
+      const e = this.handOverRefusal;
+      this.handOverRefusal = null;
+      throw e;
+    }
     const job: SwapJob = { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "executing", updatedAt: this.now() };
     this.jobs.set(stored.orderId, job);
     if (this.handOverThrows) throw new Error("socket hang up"); // the executor took the job, the answer was lost
-    this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.jobId = job.id; x.state = job.state; });
+    this.s.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
+      x.jobId = job.id;
+      x.state = job.state;
+    });
     return { job };
   }
-  async job(stored: StoredSwap) { this.calls.push(`job:${stored.campaign!.index}`); return this.jobs.get(stored.orderId) ?? null; }
+  async job(stored: StoredSwap) {
+    this.calls.push(`job:${stored.campaign!.index}`);
+    return this.jobs.get(stored.orderId) ?? null;
+  }
   async track(stored: StoredSwap, stall?: { since: number; expected: number }) {
     this.calls.push(`track:${stored.campaign!.index}`);
     this.lastStall = stall;
     if (this.trackThrows) throw new Error("ECONNRESET");
     const job = this.jobs.get(stored.orderId) ?? null;
     const state = this.tracked.get(stored.orderId) ?? (job?.state === "refund-only" ? "REFUND_PENDING" : job ? "PROVIDER_EXECUTING" : "SOURCE_FINAL");
-    if (this.refundsBack.has(stored.orderId)) this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }]; });
-    const tracked: Tracked = { state, label: "Executing", steps: [true, true, false, false], detail: `state ${state}`, ...(this.delivered.has(stored.orderId) ? { deliveredAmount: "the tracker's words, never units", deliveredUnits: this.delivered.get(stored.orderId) } : {}) }; // as orderTracker reports them (a V6 follow-up of 2026-10-16: the runner had parsed the words, which read 0)
+    if (this.refundsBack.has(stored.orderId))
+      this.s.update((j) => {
+        const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
+        x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }];
+      });
+    const tracked: Tracked = {
+      state,
+      label: "Executing",
+      steps: [true, true, false, false],
+      detail: `state ${state}`,
+      ...(this.delivered.has(stored.orderId)
+        ? { deliveredAmount: "the tracker's words, never units", deliveredUnits: this.delivered.get(stored.orderId) }
+        : {}),
+    }; // as orderTracker reports them (a V6 follow-up of 2026-10-16: the runner had parsed the words, which read 0)
     return { tracked, job };
   }
   async refund(stored: StoredSwap) {
     this.calls.push(`refund:${stored.campaign!.index}`);
     const job: SwapJob = { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "refund-only", updatedAt: this.now() };
     this.jobs.set(stored.orderId, job);
-    this.s.update((j) => { const x = j.swaps.find((y) => y.orderId === stored.orderId)!; x.jobId = job.id; x.state = job.state; });
+    this.s.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
+      x.jobId = job.id;
+      x.state = job.state;
+    });
     return job;
   }
-  async quote(_c: Campaign, amount: bigint) { this.calls.push(`quote:${amount / 10n ** 18n}`); if (this.noQuote) return { ...quoteSet(this.chosen, amount), quotes: [], scores: [], chosen: undefined }; return quoteSet(this.chosen, amount); }
-  async risk(provider: string): Promise<RiskView> { return { provider, model: { class: "R5", flags: [], custody: "tss-vaults", gate: "destination-final", pFailPrior: 0.02, bandBps: [100, 250] }, security: { total: 69, baseline: 84, incidents: -15, incidentList: this.incidents.map((date) => ({ provider, date, title: "t", lossUsd: 0, class: "api", halfLifeDays: 30, source: "s" })) }, breaker: { open: this.breakerOpen || this.brokenProviders.has(provider) ? "skipped after 3 consecutive failures" : null, failures: { consecutive: 0, windowCount: 0 }, stalls: 0, divergences: 0, probe: false, lastIncidentAt: null }, record: null, routes: [] }; }
-  async gasPriceWei() { return this.gas; }
-  crossRateE18() { return this.crossRate; }
-  async shape() { this.calls.push("shape"); this.shaped = true; }
-  notesShaped() { return this.shaped; }
-  freshDestination() { return { address: `bc1qfresh${this.n}`, index: this.n }; }
+  async quote(_c: Campaign, amount: bigint) {
+    this.calls.push(`quote:${amount / 10n ** 18n}`);
+    if (this.noQuote) return { ...quoteSet(this.chosen, amount), quotes: [], scores: [], chosen: undefined };
+    return quoteSet(this.chosen, amount);
+  }
+  async risk(provider: string): Promise<RiskView> {
+    return {
+      provider,
+      model: { class: "R5", flags: [], custody: "tss-vaults", gate: "destination-final", pFailPrior: 0.02, bandBps: [100, 250] },
+      security: {
+        total: 69,
+        baseline: 84,
+        incidents: -15,
+        incidentList: this.incidents.map((date) => ({ provider, date, title: "t", lossUsd: 0, class: "api", halfLifeDays: 30, source: "s" })),
+      },
+      breaker: {
+        open: this.breakerOpen || this.brokenProviders.has(provider) ? "skipped after 3 consecutive failures" : null,
+        failures: { consecutive: 0, windowCount: 0 },
+        stalls: 0,
+        divergences: 0,
+        probe: false,
+        lastIncidentAt: null,
+      },
+      record: null,
+      routes: [],
+    };
+  }
+  async gasPriceWei() {
+    return this.gas;
+  }
+  crossRateE18() {
+    return this.crossRate;
+  }
+  async shape() {
+    this.calls.push("shape");
+    this.shaped = true;
+  }
+  notesShaped() {
+    return this.shaped;
+  }
+  freshDestination() {
+    return { address: `bc1qfresh${this.n}`, index: this.n };
+  }
 }
 
 let session: WalletSession;
@@ -186,23 +402,66 @@ let seed: Uint8Array;
 let world: World;
 let clock = T0;
 let notes: WalletNotification[] = [];
-const notify = (n: { kind: WalletNotification["kind"]; title: string; body: string; campaignId?: string }) => { const full = { id: String(notes.length), at: clock, ...n }; notes.push(full); return full; };
-const action = (c: Campaign): ScheduledAction => session.journal().schedule.find((a) => a.id === `campaign-tick:${c.id}`) ?? { id: `campaign-tick:${c.id}`, kind: "campaign-tick", orderId: c.id, dueAt: clock };
-const tick = (c: Campaign) => runCampaignTick(action(c), { masterSeed: seed, deployment, session, io: world, now: () => clock, settings: () => settings.get(), notify: notify as never, rng: () => 0.5 });
+const notify = (n: { kind: WalletNotification["kind"]; title: string; body: string; campaignId?: string }) => {
+  const full = { id: String(notes.length), at: clock, ...n };
+  notes.push(full);
+  return full;
+};
+const action = (c: Campaign): ScheduledAction =>
+  session.journal().schedule.find((a) => a.id === `campaign-tick:${c.id}`) ?? {
+    id: `campaign-tick:${c.id}`,
+    kind: "campaign-tick",
+    orderId: c.id,
+    dueAt: clock,
+  };
+const tick = (c: Campaign) =>
+  runCampaignTick(action(c), {
+    masterSeed: seed,
+    deployment,
+    session,
+    io: world,
+    now: () => clock,
+    settings: () => settings.get(),
+    notify: notify as never,
+    rng: () => 0.5,
+  });
 const current = (c: Campaign): Campaign => campaignById(c.id, session)!;
 const states = (c: Campaign) => current(c).tranches.map((t) => t.state);
 
 async function fresh(): Promise<Campaign> {
-  const c = startCampaign({ quotes: quoteSet(), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "institutional", mode: "balanced", preference: "balanced", policy: "privacy-execution", destination: { kind: "fresh-per-tranche" }, usd: 10_000_000, confirmations: { secondFactor: T0, secondDevice: T0 }, now: clock, rng: () => 0.5, session, gasPriceWei: "20000000000" });
+  const c = startCampaign({
+    quotes: quoteSet(),
+    provider: "thorchain",
+    from: ETH,
+    fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+    to: BTC,
+    amount: AMOUNT,
+    tier: "institutional",
+    mode: "balanced",
+    preference: "balanced",
+    policy: "privacy-execution",
+    destination: { kind: "fresh-per-tranche" },
+    usd: 10_000_000,
+    confirmations: { secondFactor: T0, secondDevice: T0 },
+    now: clock,
+    rng: () => 0.5,
+    session,
+    gasPriceWei: "20000000000",
+  });
   return c;
 }
 /** Tranche 1 from planned to in flight: four ticks (commit, fund, sign, hand-over). */
 async function toInFlight(c: Campaign): Promise<void> {
-  for (const expected of ["commit", "fund", "sign", "hand-over"]) { const r = await tick(c); expect(r?.action.kind, expected).toBe(expected); clock += 2000; }
+  for (const expected of ["commit", "fund", "sign", "hand-over"]) {
+    const r = await tick(c);
+    expect(r?.action.kind, expected).toBe(expected);
+    clock += 2000;
+  }
 }
 
 beforeEach(async () => {
-  clock = T0; notes = [];
+  clock = T0;
+  notes = [];
   settings.reset();
   noteStore.clear();
   session = new WalletSession(memoryStorage(), KDF);
@@ -214,7 +473,9 @@ beforeEach(async () => {
   resetRunnerMemory();
   schedulerStatus.reset();
 });
-afterEach(() => { session.forget(); });
+afterEach(() => {
+  session.forget();
+});
 
 describe("starting a campaign (spec §3, §4, §17)", () => {
   it("journals the campaign with its bounds, pieces in band and the first tick; the empty journal and a V2 journal are untouched", async () => {
@@ -224,10 +485,24 @@ describe("starting a campaign (spec §3, §4, §17)", () => {
     expect(c.state).toBe("user-confirmed");
     expect(c.tranches).toHaveLength(50);
     for (const t of c.tranches) expect(BigInt(t.amount)).toBe(eth(50)); // 2 % of 2,500 ETH: a bucket of the alphabet
-    expect(c.bounds).toMatchObject({ amountInLimit: AMOUNT.toString(), maxExternalExposure: eth(50).toString(), executeWindowSeconds: 7200, privacyMode: "balanced", destination: { kind: "fresh-per-tranche" } });
+    expect(c.bounds).toMatchObject({
+      amountInLimit: AMOUNT.toString(),
+      maxExternalExposure: eth(50).toString(),
+      executeWindowSeconds: 7200,
+      privacyMode: "balanced",
+      destination: { kind: "fresh-per-tranche" },
+    });
     expect(BigInt(c.bounds.minimumOutput)).toBe((((OUT_MIN * 10n ** 18n) / AMOUNT) * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n);
     expect(c.bounds.expiry).toBeGreaterThan(Math.floor(T0 / 1000) + 2 * 250_000);
-    expect(c.plan).toMatchObject({ riskClass: "R5", capBps: 200, concurrency: "sequential", maxParallel: 1, gate: "destination-final", shapeNotes: false, elpfUsd: 4000 });
+    expect(c.plan).toMatchObject({
+      riskClass: "R5",
+      capBps: 200,
+      concurrency: "sequential",
+      maxParallel: 1,
+      gate: "destination-final",
+      shapeNotes: false,
+      elpfUsd: 4000,
+    });
     expect(c).toMatchObject({ provider: "thorchain", policy: "privacy-execution", gasPriceAtConfirmationWei: "20000000000", tier: "institutional" });
     expect(c.confirmations).toMatchObject({ commit: T0, secondFactor: T0, secondDevice: T0 });
     expect(pendingActions(session).map((a) => a.id)).toEqual([`campaign-tick:${c.id}`]);
@@ -237,29 +512,172 @@ describe("starting a campaign (spec §3, §4, §17)", () => {
     expect(isFinished({ kind: "campaign", status: "running" })).toBe(false);
     expect(isFinished({ kind: "campaign", status: "completed" })).toBe(true);
     // the user's cap (V4, contract §2.2): inside the band's range, never above the service's recommendation, and above the band's default only on an R0 / R1 exposure tier
-    expect(buildCampaign({ quotes: quoteSet(), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps).toBe(200);
-    const r3 = { ...quoteSet("near-intents"), protection: { ...protection("near-intents"), riskClass: "R2", bandBps: [200, 300] as [number, number], capBps: 250, concurrency: "parallel" as const, maxParallel: 2, gate: "destination-submitted" as const } };
-    expect(buildCampaign({ quotes: r3, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan, "a solver route without a signed hard quote is exposure tier R3: the default holds").toMatchObject({ capBps: 250, concurrency: "parallel", maxParallel: 2 });
+    expect(
+      buildCampaign({
+        quotes: quoteSet(),
+        provider: "thorchain",
+        from: ETH,
+        fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+        to: BTC,
+        amount: AMOUNT,
+        tier: "high-value",
+        mode: "balanced",
+        preference: "balanced",
+        policy: "balanced",
+        destination: { kind: "fresh-per-tranche" },
+        usd: null,
+        capBps: 300,
+        now: clock,
+        rng: () => 0.5,
+        session,
+      }).plan.capBps,
+    ).toBe(200);
+    const r3 = {
+      ...quoteSet("near-intents"),
+      protection: {
+        ...protection("near-intents"),
+        riskClass: "R2",
+        bandBps: [200, 300] as [number, number],
+        capBps: 250,
+        concurrency: "parallel" as const,
+        maxParallel: 2,
+        gate: "destination-submitted" as const,
+      },
+    };
+    expect(
+      buildCampaign({
+        quotes: r3,
+        provider: "near-intents",
+        from: ETH,
+        fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+        to: BTC,
+        amount: AMOUNT,
+        tier: "high-value",
+        mode: "balanced",
+        preference: "balanced",
+        policy: "balanced",
+        destination: { kind: "fresh-per-tranche" },
+        usd: null,
+        capBps: 300,
+        now: clock,
+        rng: () => 0.5,
+        session,
+      }).plan,
+      "a solver route without a signed hard quote is exposure tier R3: the default holds",
+    ).toMatchObject({ capBps: 250, concurrency: "parallel", maxParallel: 2 });
     const r1 = { ...r3, protection: { ...r3.protection, exposureTier: "R1" as const, capBps: 250 } };
-    expect(buildCampaign({ quotes: r1, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps, "a signed hard quote (R1): the user may raise the cap to 3 %").toBe(300);
-    expect(buildCampaign({ quotes: r1, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 120, now: clock, rng: () => 0.5, session }).plan.capBps, "and lower it anywhere").toBe(120);
-    expect(buildCampaign({ quotes: { ...r1, protection: { ...r1.protection, exposureTier: "R4", capBps: 100 } }, provider: "near-intents", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: AMOUNT, tier: "high-value", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: null, capBps: 300, now: clock, rng: () => 0.5, session }).plan.capBps, "an unknown / high-risk route: 1 % whatever the user chose").toBe(100);
+    expect(
+      buildCampaign({
+        quotes: r1,
+        provider: "near-intents",
+        from: ETH,
+        fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+        to: BTC,
+        amount: AMOUNT,
+        tier: "high-value",
+        mode: "balanced",
+        preference: "balanced",
+        policy: "balanced",
+        destination: { kind: "fresh-per-tranche" },
+        usd: null,
+        capBps: 300,
+        now: clock,
+        rng: () => 0.5,
+        session,
+      }).plan.capBps,
+      "a signed hard quote (R1): the user may raise the cap to 3 %",
+    ).toBe(300);
+    expect(
+      buildCampaign({
+        quotes: r1,
+        provider: "near-intents",
+        from: ETH,
+        fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+        to: BTC,
+        amount: AMOUNT,
+        tier: "high-value",
+        mode: "balanced",
+        preference: "balanced",
+        policy: "balanced",
+        destination: { kind: "fresh-per-tranche" },
+        usd: null,
+        capBps: 120,
+        now: clock,
+        rng: () => 0.5,
+        session,
+      }).plan.capBps,
+      "and lower it anywhere",
+    ).toBe(120);
+    expect(
+      buildCampaign({
+        quotes: { ...r1, protection: { ...r1.protection, exposureTier: "R4", capBps: 100 } },
+        provider: "near-intents",
+        from: ETH,
+        fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+        to: BTC,
+        amount: AMOUNT,
+        tier: "high-value",
+        mode: "balanced",
+        preference: "balanced",
+        policy: "balanced",
+        destination: { kind: "fresh-per-tranche" },
+        usd: null,
+        capBps: 300,
+        now: clock,
+        rng: () => 0.5,
+        session,
+      }).plan.capBps,
+      "an unknown / high-risk route: 1 % whatever the user chose",
+    ).toBe(100);
     // the journal formats: nothing new in an empty journal; a V2 journal round-trips byte for byte
     expect(Object.keys(emptyJournal()).sort()).toEqual(["chainIndexes", "noteCounter", "notes", "schedule", "swaps", "v"]);
-    const v2 = JSON.stringify({ ...emptyJournal(), swaps: [{ orderId: "0x1", attemptId: "0x2", refundCounter: 0, provider: "thorchain", policy: "balanced", request: {}, params: {}, endpoint: "0x3", createdAt: 1, state: "committed" }], activity: [{ id: "swap:0x1", kind: "swap", at: 1, asset: "ETH", decimals: 18, amount: "1", status: "committed", ref: "0x1" }] });
+    const v2 = JSON.stringify({
+      ...emptyJournal(),
+      swaps: [
+        {
+          orderId: "0x1",
+          attemptId: "0x2",
+          refundCounter: 0,
+          provider: "thorchain",
+          policy: "balanced",
+          request: {},
+          params: {},
+          endpoint: "0x3",
+          createdAt: 1,
+          state: "committed",
+        },
+      ],
+      activity: [{ id: "swap:0x1", kind: "swap", at: 1, asset: "ETH", decimals: 18, amount: "1", status: "committed", ref: "0x1" }],
+    });
     expect(JSON.stringify(JSON.parse(v2))).toBe(v2);
   });
   it("settings: the protection block heals from a V2 journal and from nonsense", () => {
     expect(healSettings({}).protection).toEqual(DEFAULT_PROTECTION);
-    expect(healSettings({ protection: { mode: "nope", capBps: 999, pauseLargeOperations: "yes", notifications: { system: true } } as never }).protection).toEqual({ ...DEFAULT_PROTECTION, notifications: { inApp: true, system: true, generic: true } });
-    expect(healProtection({ mode: "max-safety", capBps: 250, autoReroute: true, secondDevice: { enabled: true, credentialId: "abc" } })).toEqual({ mode: "max-safety", capBps: 250, pauseLargeOperations: false, autoReroute: true, notifications: DEFAULT_PROTECTION.notifications, secondDevice: { enabled: true, credentialId: "abc" }, enabled: true, protectFromEnhanced: false });
+    expect(
+      healSettings({ protection: { mode: "nope", capBps: 999, pauseLargeOperations: "yes", notifications: { system: true } } as never }).protection,
+    ).toEqual({ ...DEFAULT_PROTECTION, notifications: { inApp: true, system: true, generic: true } });
+    expect(healProtection({ mode: "max-safety", capBps: 250, autoReroute: true, secondDevice: { enabled: true, credentialId: "abc" } })).toEqual({
+      mode: "max-safety",
+      capBps: 250,
+      pauseLargeOperations: false,
+      autoReroute: true,
+      notifications: DEFAULT_PROTECTION.notifications,
+      secondDevice: { enabled: true, credentialId: "abc" },
+      enabled: true,
+      protectFromEnhanced: false,
+    });
     expect(healProtection({ capBps: 150 }).capBps, "V4: the fraction may go down to 1 %").toBe(150);
     expect(healProtection({ capBps: 50 }).capBps).toBeUndefined();
     expect(healProtection({ capBps: 600 }).capBps).toBeUndefined();
     expect(PROTECTION_DEFAULTS["max-safety"].capBps, "plan §90 (V4): Maximum Safety is 1 %").toBe(100);
     // V4: the opt-out, the enhanced opt-in, concentration and velocity heal to sane values
-    expect(healProtection({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 } as never)).toMatchObject({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 });
-    expect(healProtection({ providerShareCapBps: 500, velocity: { maxUsdPer24h: -1 }, introSeenAt: "x" } as never)).toMatchObject({ enabled: true, protectFromEnhanced: false });
+    expect(
+      healProtection({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 } as never),
+    ).toMatchObject({ enabled: false, protectFromEnhanced: true, providerShareCapBps: 2500, velocity: { maxUsdPer24h: 500_000 }, introSeenAt: 123 });
+    expect(healProtection({ providerShareCapBps: 500, velocity: { maxUsdPer24h: -1 }, introSeenAt: "x" } as never)).toMatchObject({
+      enabled: true,
+      protectFromEnhanced: false,
+    });
     expect(healProtection({ providerShareCapBps: 500 } as never).providerShareCapBps).toBeUndefined();
     expect(healProtection({ velocity: { maxUsdPer24h: -1 } } as never).velocity).toBeUndefined();
     expect(PROTECTION_DEFAULTS["max-privacy"].sizing).toBe("bucket");
@@ -276,14 +694,20 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(cur.tranches[0].expected).toMatchObject({ minOut: ((OUT_MIN * eth(50)) / AMOUNT).toString(), etaSeconds: 1400 });
     const child = session.journal().swaps.find((x) => x.orderId === cur.tranches[0].orderId)!;
     expect(child.campaign).toEqual({ id: c.id, index: 0 });
-    expect(session.journal().schedule.filter((a) => a.kind === "fund-escrow"), "a tranche is never funded by a fund-escrow action").toHaveLength(0);
+    expect(
+      session.journal().schedule.filter((a) => a.kind === "fund-escrow"),
+      "a tranche is never funded by a fund-escrow action",
+    ).toHaveLength(0);
     expect(world.calls.filter((x) => x.startsWith("commit:"))).toEqual(["commit:0:thorchain"]);
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
     // in flight: tracked every tick, nothing else committed (sequential, the first tranche alone); the read reports the hand-over time and the plan's seconds so the service can count a stall (§10)
     let r = await tick(c);
     expect(r?.action.kind).toBe("track");
     expect(world.lastStall).toEqual({ since: Math.floor(cur.tranches[0].handedOverAt! / 1000), expected: 1400 });
-    expect(states(c).filter((x) => x !== "planned"), "the tracker says the provider is executing: source final").toEqual(["source-confirmed"]);
+    expect(
+      states(c).filter((x) => x !== "planned"),
+      "the tracker says the provider is executing: source final",
+    ).toEqual(["source-confirmed"]);
     expect(exposure(current(c))).toMatchObject({ inFlight: eth(50), prepared: 0n, completed: 0n, maxLoss: eth(50) });
     world.tracked.set(child.orderId, "DESTINATION_FINAL");
     world.delivered.set(child.orderId, ((OUT * eth(50)) / AMOUNT).toString());
@@ -315,7 +739,8 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("a funding sent and not yet landed is never sent again, even after Resume; a dead one is replaced once (2026-10-14)", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // commit
     world.fundPendingAfterSend = true;
     let r = await tick(c);
     expect(r?.action.kind).toBe("fund");
@@ -324,48 +749,72 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     // the user resumes at once: the funding may still land, so nothing is sent again and the step pauses once more
     world.fate = "pending";
     resumeCampaign(c.id, session, clock);
-    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
-    r = await tick(c); expect(r?.action.kind).toBe("fund"); clock += 2000;
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "no second withdrawal").toEqual(["fund:0"]);
+    r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    clock += 2000;
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "no second withdrawal",
+    ).toEqual(["fund:0"]);
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "reconcile", trancheIndex: 0 } });
     // the funding is dead: the next Resume funds the step once more
     world.fate = "dead";
     resumeCampaign(c.id, session, clock);
-    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
-    r = await tick(c); expect(r?.action.kind).toBe("fund");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0", "fund:0"]);
     expect(current(c).tranches[0].state).toBe("funded");
   });
 
   it("a reload during a step's funding: a dead funding is never replaced on its own; the user's Resume funds the step once (2026-10-14)", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // commit
     // the funding was sent and journaled, then the tab reloaded before any answer: the campaign is still running
     const orderId = current(c).tranches[0].orderId!;
-    session.update((j) => { const x = j.swaps.find((y) => y.orderId === orderId)!; x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: clock - 1_000 }; });
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === orderId)!;
+      x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: clock - 1_000 };
+    });
     world.fate = "dead";
     let r = await tick(c);
     expect(r?.action.kind).toBe("fund");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "never sent again on its own").toEqual([]);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "never sent again on its own",
+    ).toEqual([]);
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "reconcile", trancheIndex: 0 } });
     expect(current(c).pause!.detail).toMatch(/never landed; nothing moved\. Resume to fund it again/);
     resumeCampaign(c.id, session, clock);
-    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
-    r = await tick(c); expect(r?.action.kind).toBe("fund");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
     expect(current(c).tranches[0].state).toBe("funded");
   });
 
   it("THORNode gateways that do not answer at a step's signing: tried again at the next tick, never an unexpected destination (2026-10-14)", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
-    let r = await tick(c); expect(r?.action.kind).toBe("fund"); clock += 2000;
+    await tick(c);
+    clock += 2000; // commit
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    clock += 2000;
     world.signThrows = new ProviderCallUnverified("thorchain", "only 1 of 3 THORNode gateways answered for ETH; 2 must agree");
     await expect(tick(c)).rejects.toBeInstanceOf(ProviderCallUnverified);
     expect(current(c).state, "no pause: an outage").toBe("running");
     expect(current(c).pause).toBeUndefined();
     clock += 60_000;
-    r = await tick(c); expect(r?.action.kind).toBe("sign");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
     expect(current(c).tranches[0].state).toBe("signed");
   });
 
@@ -374,33 +823,53 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     // every order the scripted world commits ends its execution window at T0 + 600 s + 7200 s
     const END = (Math.floor(T0 / 1000) + 600 + 7200) * 1000;
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // commit
     clock = END - 4 * 60_000; // the funding comes four minutes before the window closes
-    let r = await tick(c); expect(r?.action.kind).toBe("fund");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "nothing sent").toEqual([]);
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "nothing sent",
+    ).toEqual([]);
     expect(current(c).tranches[0].state).toBe("planned");
     expect(current(c).tranches[0].orderId, "its order abandoned").toBeUndefined();
     expect(JSON.stringify(current(c).tranches[0].history)).toContain("execution window closed before it was funded");
     // a second campaign whose first step is funded, then signed only after its window
-    clock = T0; world = new World(session, () => clock);
+    clock = T0;
+    world = new World(session, () => clock);
     const d = await fresh();
-    await tick(d); clock += 2000; // commit
-    r = await tick(d); expect(r?.action.kind).toBe("fund"); clock += 2000;
+    await tick(d);
+    clock += 2000; // commit
+    r = await tick(d);
+    expect(r?.action.kind).toBe("fund");
+    clock += 2000;
     clock = END + 60_000;
-    r = await tick(d); expect(r?.action.kind).toBe("sign");
-    expect(world.calls.filter((x) => x.startsWith("sign:")), "no signature that cannot execute").toEqual([]);
+    r = await tick(d);
+    expect(r?.action.kind).toBe("sign");
+    expect(
+      world.calls.filter((x) => x.startsWith("sign:")),
+      "no signature that cannot execute",
+    ).toEqual([]);
     expect(world.calls.filter((x) => x.startsWith("refund:"))).toEqual(["refund:0"]);
     expect(current(d).tranches[0].state).toBe("refunding");
-    expect(JSON.stringify(current(d).tranches[0].history)).toContain("its execution window closed before it was signed: the funded step returns through its refund and is planned again");
+    expect(JSON.stringify(current(d).tranches[0].history)).toContain(
+      "its execution window closed before it was signed: the funded step returns through its refund and is planned again",
+    );
   });
 
   it("a step whose order an older build committed under the privacy address's owner commitment is never funded: abandoned and planned again (audit c18)", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // commit
     const first = current(c).tranches[0].orderId!;
     world.fundThrows = new OrderOutdated();
-    const r = await tick(c); expect(r?.action.kind).toBe("fund");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "asked once; nothing was sent").toEqual(["fund:0"]);
+    const r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "asked once; nothing was sent",
+    ).toEqual(["fund:0"]);
     expect(current(c).tranches[0].state).toBe("planned");
     expect(current(c).tranches[0].orderId, "its order abandoned").toBeUndefined();
     expect(session.journal().swaps.find((x) => x.orderId === first)!.state).toBe("abandoned");
@@ -410,7 +879,8 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("never funds or hands over twice: an unknown outcome pauses with reconcile and the next tick continues from the facts", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // commit
     world.fundThrowsAfterSend = true;
     let r = await tick(c);
     expect(r?.action.kind).toBe("fund");
@@ -424,14 +894,21 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     clock += 60_000;
     r = await tick(c);
     expect(r?.action.kind).toBe("wait");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "no second withdrawal").toEqual(["fund:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "no second withdrawal",
+    ).toEqual(["fund:0"]);
     expect(current(c).tranches[0].state).toBe("funded");
     expect(current(c).tranches[0].history.some((h) => /reconciled from the escrow/.test(h.note ?? ""))).toBe(true);
     // resume → reassess → requote (the same provider) → running → the next step is the signature
     resumeCampaign(c.id, session, clock);
-    r = await tick(c); expect(r?.action.kind).toBe("requote"); clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    clock += 2000;
     expect(current(c).state).toBe("running");
-    r = await tick(c); expect(r?.action.kind).toBe("sign"); clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
+    clock += 2000;
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
     world.handOverThrows = true;
     r = await tick(c);
@@ -445,24 +922,42 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     r = await tick(c); // reassess: the executor's job is found first (the tranche is executing, then tracked to source final), then the requote
     cur = current(c);
     expect(cur.tranches[0].state).toBe("source-confirmed");
-    expect(world.calls.filter((x) => x.startsWith("handover:")), "no second hand-over").toEqual(["handover:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("handover:")),
+      "no second hand-over",
+    ).toEqual(["handover:0"]);
     expect(cur.tranches[0].history.map((h) => h.note).some((n) => /reconciled from the executor/.test(n ?? ""))).toBe(true);
   });
 
   it("a step whose signed call came too close to its deadline before the hand-over is signed afresh, never paused (audit round 2, r02)", async () => {
     const c = await fresh();
-    for (const expected of ["commit", "fund", "sign"]) { const r = await tick(c); expect(r?.action.kind, expected).toBe(expected); clock += 2000; }
-    world.handOverRefusal = Object.assign(new Error("relayer: the call's deadline is less than 36 s away (deadline_too_close)"), { code: "deadline_too_close" });
+    for (const expected of ["commit", "fund", "sign"]) {
+      const r = await tick(c);
+      expect(r?.action.kind, expected).toBe(expected);
+      clock += 2000;
+    }
+    world.handOverRefusal = Object.assign(new Error("relayer: the call's deadline is less than 36 s away (deadline_too_close)"), {
+      code: "deadline_too_close",
+    });
     let r = await tick(c);
     expect(r?.action.kind).toBe("hand-over");
     expect(current(c).state, "no pause for the user").toBe("running");
     expect(current(c).tranches[0].state).toBe("funded");
     clock += 2000;
-    r = await tick(c); expect(r?.action.kind).toBe("sign"); clock += 2000;
-    r = await tick(c); expect(r?.action.kind).toBe("hand-over");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("hand-over");
     expect(current(c).tranches[0].state).toBe("executing");
-    expect(world.calls.filter((x) => x.startsWith("sign:")), "a fresh call").toEqual(["sign:0", "sign:0"]);
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "never funded twice").toEqual(["fund:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("sign:")),
+      "a fresh call",
+    ).toEqual(["sign:0", "sign:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "never funded twice",
+    ).toEqual(["fund:0"]);
   });
 
   it("a committed step whose order the executor already has — another copy of this wallet funded and handed it over — is tracked, never funded or planned again (audit round 2, r45)", async () => {
@@ -476,8 +971,14 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     r = await tick(c);
     expect(r?.action.kind).toBe("fund");
     expect(current(c).tranches[0].state).toBe("executing");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "never funded again").toEqual([]);
-    expect(world.calls.filter((x) => x.startsWith("commit:")), "never planned and committed again").toHaveLength(1);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "never funded again",
+    ).toEqual([]);
+    expect(
+      world.calls.filter((x) => x.startsWith("commit:")),
+      "never planned and committed again",
+    ).toHaveLength(1);
   });
 
   it("a step its protected balance no longer covers with the relayer's fee now pauses the campaign: never the backoff, planned and committed again for good (audit round 2, r11)", async () => {
@@ -492,14 +993,33 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).pause?.detail).toMatch(/nothing was sent/);
   });
 
+  it("a step whose relayer fee rose past the Review's bound pauses the campaign with the reason, nothing sent (V7 Stage 12 follow-up): never the silent backoff that left the step committed", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    clock += 2000;
+    world.fundThrows = new FeeMoved(202376000016632000n, 204420202037002021n);
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "bounds", trancheIndex: 0 } });
+    expect(current(c).pause?.detail).toMatch(/relayer fee rose above what you approved.*nothing was sent/);
+    expect(current(c).tranches[0].state, "the step stays committed: funded once the fee fits, or returned with the rest").toBe("committed");
+  });
+
   it("a step refused by the wallet's own hold after a restore waits for the note scan: never a pause that blames the provider (audit round 2, r07)", async () => {
     const c = await fresh();
-    world.commitThrows = Object.assign(new Error("the wallet is still looking for its notes after a restore: no new note until one complete scan of the pool"), { code: "notes_loading" });
+    world.commitThrows = Object.assign(
+      new Error("the wallet is still looking for its notes after a restore: no new note until one complete scan of the pool"),
+      { code: "notes_loading" },
+    );
     const r = await tick(c);
     expect(r?.action.kind).toBe("commit");
     expect(current(c).state, "running, never paused").not.toBe("paused");
     expect(current(c).tranches[0].state, "still ready: committed at the next tick").toBe("ready");
-    expect(notes.map((n) => n.kind), "no alert").toEqual([]);
+    expect(
+      notes.map((n) => n.kind),
+      "no alert",
+    ).toEqual([]);
     clock += 61_000;
     expect((await tick(c))?.action.kind, "committed once the hold has passed").toBe("commit");
     expect(current(c).tranches[0].state).toBe("committed");
@@ -507,12 +1027,17 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("a step whose tips the wallet cannot check yet waits and is committed once it can: never a pause (audit round 2, critic gap 4)", async () => {
     const c = await fresh();
-    world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs to check this swap's execution fee"), { code: "cost_unknown" });
+    world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs to check this swap's execution fee"), {
+      code: "cost_unknown",
+    });
     const r = await tick(c);
     expect(r?.action.kind).toBe("commit");
     expect(current(c).state, "running, never paused").not.toBe("paused");
     expect(current(c).tranches[0].state, "still ready: committed at the next tick").toBe("ready");
-    expect(notes.map((n) => n.kind), "no alert").toEqual([]);
+    expect(
+      notes.map((n) => n.kind),
+      "no alert",
+    ).toEqual([]);
     clock += 61_000;
     expect((await tick(c))?.action.kind, "committed once the wallet can estimate").toBe("commit");
     expect(current(c).tranches[0].state).toBe("committed");
@@ -557,7 +1082,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     world.crossRate = null;
     // a hard quote below the approved minimum at signing is a campaign-level pause, never a per-tranche tap
     const e = await fresh();
-    await tick(e); clock += 2000; await tick(e); clock += 2000;
+    await tick(e);
+    clock += 2000;
+    await tick(e);
+    clock += 2000;
     world.moved = true;
     r = await tick(e);
     expect(r?.action.kind).toBe("sign");
@@ -582,14 +1110,20 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     await tick(c);
     expect(current(c).tranches[0].lastReadFailedAt).toBeUndefined();
     expect(current(c).tranches[0].state).toBe("source-confirmed");
-    expect(world.calls.filter((x) => x.startsWith("handover:")), "never a second hand-over").toEqual(["handover:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("handover:")),
+      "never a second hand-over",
+    ).toEqual(["handover:0"]);
   });
 
   it("V4 (plan §111): a funding seen in the escrow and then gone pauses with reconcile naming a possible reorganization; the step is never funded twice", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // commit
-    await tick(c); clock += 2000; // fund: the escrow holds the amount
-    let r = await tick(c); clock += 2000; // sign: the reconcile pass saw the funding first
+    await tick(c);
+    clock += 2000; // commit
+    await tick(c);
+    clock += 2000; // fund: the escrow holds the amount
+    let r = await tick(c);
+    clock += 2000; // sign: the reconcile pass saw the funding first
     expect(r?.action.kind).toBe("sign");
     expect(current(c).tranches[0]).toMatchObject({ state: "signed", fundedSeenAt: clock - 2000 });
     const orderId = current(c).tranches[0].orderId!;
@@ -598,7 +1132,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action).toMatchObject({ kind: "pause", reason: "reconcile", detail: expect.stringMatching(/reorganization/) });
     expect(current(c).state).toBe("paused");
     expect(current(c).tranches[0].state, "the tranche keeps its state and its fundedTx").toBe("signed");
-    expect(world.calls.filter((x) => x.startsWith("fund:")), "no second withdrawal").toEqual(["fund:0"]);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:")),
+      "no second withdrawal",
+    ).toEqual(["fund:0"]);
     expect(world.calls.filter((x) => x.startsWith("handover:"))).toHaveLength(0);
     // the funding is seen again (the other fork won after all): resume continues without a new send
     world.escrow.set(orderId, eth(50));
@@ -612,7 +1149,12 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("V4 (plan §62): a velocity limit below the next step pauses before the hand-over; raising it lets the step through", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; await tick(c); clock += 2000; await tick(c); clock += 2000; // commit, fund, sign
+    await tick(c);
+    clock += 2000;
+    await tick(c);
+    clock += 2000;
+    await tick(c);
+    clock += 2000; // commit, fund, sign
     settings.set({ protection: { ...settings.get().protection, velocity: { maxUsdPer24h: 150_000 } } }); // one $200K piece would exceed it
     let r = await tick(c);
     expect(r?.action).toMatchObject({ kind: "pause", reason: "velocity" });
@@ -650,9 +1192,26 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action).toMatchObject({ kind: "commit", index: 0 });
     expect(world.calls.at(-1)).toBe("commit:0:chainflip");
     // below the second-confirmation tier with autoReroute on, the route is adopted without a Review
-    const d = startCampaign({ quotes: quoteSet("thorchain", eth(250)), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: eth(250), tier: "high-value", mode: "balanced", preference: "balanced", policy: "privacy-execution", destination: { kind: "fresh-per-tranche" }, usd: 1_000_000, now: clock, rng: () => 0.5, session });
+    const d = startCampaign({
+      quotes: quoteSet("thorchain", eth(250)),
+      provider: "thorchain",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: eth(250),
+      tier: "high-value",
+      mode: "balanced",
+      preference: "balanced",
+      policy: "privacy-execution",
+      destination: { kind: "fresh-per-tranche" },
+      usd: 1_000_000,
+      now: clock,
+      rng: () => 0.5,
+      session,
+    });
     settings.set({ protection: { ...settings.get().protection, autoReroute: true } });
-    pauseCampaign(d.id, session, clock); resumeCampaign(d.id, session, clock);
+    pauseCampaign(d.id, session, clock);
+    resumeCampaign(d.id, session, clock);
     world.chosen = "near-intents";
     r = await tick(d);
     expect(current(d)).toMatchObject({ state: "running", provider: "near-intents" });
@@ -660,7 +1219,8 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     // declining a reroute winds the campaign down
     world.chosen = "chainflip";
     const e = await fresh();
-    pauseCampaign(e.id, session, clock); resumeCampaign(e.id, session, clock);
+    pauseCampaign(e.id, session, clock);
+    resumeCampaign(e.id, session, clock);
     await tick(e);
     acceptReroute(e.id, false, session, clock);
     expect(current(e).state).toBe("winding-down");
@@ -688,7 +1248,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
     // below the second-confirmation tier with autoReroute on, the step's route is adopted and the order kept
     settings.set({ protection: { ...settings.get().protection, autoReroute: true } });
-    const d = startCampaign({ quotes: quoteSet("thorchain", eth(250)), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: eth(250), tier: "high-value", mode: "balanced", preference: "balanced", policy: "privacy-execution", destination: { kind: "fresh-per-tranche" }, usd: 1_000_000, now: clock, rng: () => 0.5, session });
+    const d = startCampaign({
+      quotes: quoteSet("thorchain", eth(250)),
+      provider: "thorchain",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: eth(250),
+      tier: "high-value",
+      mode: "balanced",
+      preference: "balanced",
+      policy: "privacy-execution",
+      destination: { kind: "fresh-per-tranche" },
+      usd: 1_000_000,
+      now: clock,
+      rng: () => 0.5,
+      session,
+    });
     r = await tick(d);
     expect(r?.action.kind).toBe("commit");
     expect(current(d)).toMatchObject({ state: "running", provider: "chainflip" });
@@ -696,7 +1272,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(d).alerts?.at(-1)).toMatchObject({ kind: "route-changed" });
     settings.set({ protection: { ...settings.get().protection, autoReroute: false } });
     // V6 Stage 13: at the $50K band the protection is automatic — the step's route is adopted with the setting off
-    const band = startCampaign({ quotes: quoteSet("thorchain", eth(20)), provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: eth(20), tier: "large-protected", mode: "balanced", preference: "balanced", policy: "balanced", destination: { kind: "fresh-per-tranche" }, usd: 80_000, now: clock, rng: () => 0.5, session });
+    const band = startCampaign({
+      quotes: quoteSet("thorchain", eth(20)),
+      provider: "thorchain",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: eth(20),
+      tier: "large-protected",
+      mode: "balanced",
+      preference: "balanced",
+      policy: "balanced",
+      destination: { kind: "fresh-per-tranche" },
+      usd: 80_000,
+      now: clock,
+      rng: () => 0.5,
+      session,
+    });
     r = await tick(band);
     expect(r?.action.kind).toBe("commit");
     expect(current(band)).toMatchObject({ state: "running", provider: "chainflip" });
@@ -708,7 +1300,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     const leftBehind = async (): Promise<Campaign> => {
       world.chosen = "thorchain";
       const x = await fresh();
-      await tick(x); clock += 2000; await tick(x); clock += 2000; // committed and funded with thorchain
+      await tick(x);
+      clock += 2000;
+      await tick(x);
+      clock += 2000; // committed and funded with thorchain
       expect(current(x).tranches[0]).toMatchObject({ state: "funded", provider: "thorchain" });
       pauseCampaign(x.id, session, clock);
       world.chosen = "chainflip"; // the requote at the step's size
@@ -725,18 +1320,51 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     r = await tick(e);
     expect(r?.action.kind).toBe("sign");
     expect(current(e).tranches[0]).toMatchObject({ state: "signed", provider: "thorchain" });
-    expect(world.calls.filter((x) => /^(sign|refund):/.test(x)), "signed on its own route, not refunded").toEqual(["sign:0"]);
+    expect(
+      world.calls.filter((x) => /^(sign|refund):/.test(x)),
+      "signed on its own route, not refunded",
+    ).toEqual(["sign:0"]);
     clock += 2000;
     r = await tick(e);
     expect(r?.action.kind).toBe("hand-over");
     expect(current(e).tranches[0]).toMatchObject({ state: "executing", provider: "thorchain" });
-    expect(world.calls.filter((x) => x.startsWith("refund:")), "the step finished on its own route: no refund").toEqual([]);
+    expect(
+      world.calls.filter((x) => x.startsWith("refund:")),
+      "the step finished on its own route: no refund",
+    ).toEqual([]);
     // only when its own route cannot sign it — a lower minimum, the price guard's refusal, an open breaker (not even
     // signed) — does it return through its refund and get planned again
     for (const [why, set, unset, signs] of [
-      ["a lower minimum", () => { world.moved = true; }, () => { world.moved = false; }, 1],
-      ["the price guard's refusal", () => { world.guardRefuses = true; }, () => { world.guardRefuses = false; }, 1],
-      ["an open breaker on its own route", () => { world.brokenProviders.add("thorchain"); }, () => { world.brokenProviders.clear(); }, 0],
+      [
+        "a lower minimum",
+        () => {
+          world.moved = true;
+        },
+        () => {
+          world.moved = false;
+        },
+        1,
+      ],
+      [
+        "the price guard's refusal",
+        () => {
+          world.guardRefuses = true;
+        },
+        () => {
+          world.guardRefuses = false;
+        },
+        1,
+      ],
+      [
+        "an open breaker on its own route",
+        () => {
+          world.brokenProviders.add("thorchain");
+        },
+        () => {
+          world.brokenProviders.clear();
+        },
+        0,
+      ],
     ] as const) {
       const x = await leftBehind();
       set();
@@ -744,14 +1372,23 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
       expect(r?.action.kind, why).toBe("sign");
       cur = current(x);
       expect(cur.tranches[0], why).toMatchObject({ state: "refunding", provider: "thorchain", jobId: expect.any(String) });
-      expect(world.calls.filter((y) => y.startsWith("refund:")), why).toEqual(["refund:0"]);
-      expect(world.calls.filter((y) => y.startsWith("sign:")), why).toHaveLength(signs);
+      expect(
+        world.calls.filter((y) => y.startsWith("refund:")),
+        why,
+      ).toEqual(["refund:0"]);
+      expect(
+        world.calls.filter((y) => y.startsWith("sign:")),
+        why,
+      ).toHaveLength(signs);
       unset();
       world.tracked.set(cur.tranches[0].orderId!, "REFUNDED");
       clock += 2000;
       r = await tick(x);
       expect(current(x).tranches[0].state, why).toBe("refunded");
-      expect(session.journal().schedule.some((a) => a.id === "discovery:pool" && !a.done), `${why}: the refund note is looked for at once`).toBe(true);
+      expect(
+        session.journal().schedule.some((a) => a.id === "discovery:pool" && !a.done),
+        `${why}: the refund note is looked for at once`,
+      ).toBe(true);
       expect(exposure(current(x)).remaining, why).toBe(eth(2500));
     }
     world.chosen = "thorchain";
@@ -760,15 +1397,40 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
   it("the price bound is per unit of what the set was quoted for, and per unit paid to the provider when the set names its tip (the audit round of 2026-10-16, c49/c55)", async () => {
     const tip = AMOUNT / 1000n; // the set is net of a 10 bps tip; each step pays 25 bps of its own (the world's commit)
     const steps = (AMOUNT * 98n) / 100n; // a smaller steps amount: each step's fee note comes off the funding the set quoted
-    const input = { quotes: { ...quoteSet(), executorTip: tip.toString() }, provider: "thorchain", from: ETH, fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never, to: BTC, amount: steps, quotedAmount: AMOUNT, tier: "institutional" as const, mode: "balanced" as const, preference: "balanced" as const, policy: "privacy-execution" as const, destination: { kind: "fresh-per-tranche" as const }, usd: 10_000_000, confirmations: { secondFactor: T0, secondDevice: T0 }, now: clock, rng: () => 0.5, session, gasPriceWei: "20000000000" };
+    const input = {
+      quotes: { ...quoteSet(), executorTip: tip.toString() },
+      provider: "thorchain",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: steps,
+      quotedAmount: AMOUNT,
+      tier: "institutional" as const,
+      mode: "balanced" as const,
+      preference: "balanced" as const,
+      policy: "privacy-execution" as const,
+      destination: { kind: "fresh-per-tranche" as const },
+      usd: 10_000_000,
+      confirmations: { secondFactor: T0, secondDevice: T0 },
+      now: clock,
+      rng: () => 0.5,
+      session,
+      gasPriceWei: "20000000000",
+    };
     const slip = (r: bigint) => (r * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
     const built = buildCampaign(input);
     expect(BigInt(built.bounds.minimumOutput), "over the amount the set was asked for (c49)").toBe(slip((OUT_MIN * 10n ** 18n) / AMOUNT));
     expect(BigInt(built.bounds.minimumOutputNet!), "and per unit paid to the provider (c55)").toBe(slip((OUT_MIN * 10n ** 18n) / (AMOUNT - tip)));
-    expect(buildCampaign({ ...input, quotes: quoteSet(), quotedAmount: undefined, amount: AMOUNT }).bounds.minimumOutputNet, "a set without its tip: as before").toBeUndefined();
+    expect(
+      buildCampaign({ ...input, quotes: quoteSet(), quotedAmount: undefined, amount: AMOUNT }).bounds.minimumOutputNet,
+      "a set without its tip: as before",
+    ).toBeUndefined();
     // a step signs at its own tip's net: the market unmoved, its 25 bps tip is not a price below the bound
     const c = startCampaign(input);
-    await tick(c); clock += 2000; await tick(c); clock += 2000; // committed and funded
+    await tick(c);
+    clock += 2000;
+    await tick(c);
+    clock += 2000; // committed and funded
     const t = current(c).tranches[0];
     const stored = session.journal().swaps.find((x) => x.orderId === t.orderId)!;
     const own = BigInt((stored.params as { executorTip: string }).executorTip);
@@ -785,7 +1447,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("V3 §3: a step is held to the campaign's price bound (amount × minimumOutput), not its own quote at commit — a 0.1 % dip is signed, one below the bound pauses", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; await tick(c); clock += 2000; // committed and funded
+    await tick(c);
+    clock += 2000;
+    await tick(c);
+    clock += 2000; // committed and funded
     const t = current(c).tranches[0];
     const stored = session.journal().swaps.find((x) => x.orderId === t.orderId)!;
     const bound = (BigInt(t.amount) * BigInt(current(c).bounds.minimumOutput)) / 10n ** 18n;
@@ -796,7 +1461,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state, "signed: no pause for a dip inside the bound").toBe("signed");
     expect(world.acceptMins.at(-1)).toBe(bound);
     const d = await fresh();
-    await tick(d); clock += 2000; await tick(d); clock += 2000;
+    await tick(d);
+    clock += 2000;
+    await tick(d);
+    clock += 2000;
     world.minOutAtSign = bound - 1n; // below what the user approved
     r = await tick(d);
     expect(r?.action.kind).toBe("sign");
@@ -806,7 +1474,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
   it("cancel returns a funded tranche through a refund-only job, skips the rest, and ends when the refund is back; the tick survives a lock", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; await tick(c); clock += 2000; // committed, funded
+    await tick(c);
+    clock += 2000;
+    await tick(c);
+    clock += 2000; // committed, funded
     expect(current(c).tranches[0].state).toBe("funded");
     // a lock and an unlock: the tick is still scheduled and the campaign is there
     session.lock();
@@ -859,7 +1530,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("abandon");
     expect(current(c).tranches[0]).toMatchObject({ state: "skipped" });
     expect(session.journal().swaps.find((x) => x.orderId === orderId)?.state, "the order is abandoned: nothing left the private balance").toBe("abandoned");
-    expect(world.calls.filter((x) => x.startsWith("fund:") || x.startsWith("refund:")), "never funded, nothing to refund").toEqual([]);
+    expect(
+      world.calls.filter((x) => x.startsWith("fund:") || x.startsWith("refund:")),
+      "never funded, nothing to refund",
+    ).toEqual([]);
     clock += 2000;
     r = await tick(c);
     expect(r?.action.kind).toBe("complete");
@@ -867,7 +1541,9 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
   });
 
   it("an answer given while a tick runs is kept, and no money step starts after it (the audit round of 2026-10-16, c36)", async () => {
-    const settleTicks = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); };
+    const settleTicks = async () => {
+      for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+    };
     // "Return the rest" while step 1 is being committed
     const c = await fresh();
     let release!: () => void;
@@ -880,13 +1556,20 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     const r = await running;
     world.gate = null;
     expect(current(c).state, "the tick's own write kept the answer").toBe("winding-down");
-    expect(current(c).tranches.filter((t) => t.state === "planned" || t.state === "ready"), "nothing planned is left").toEqual([]);
+    expect(
+      current(c).tranches.filter((t) => t.state === "planned" || t.state === "ready"),
+      "nothing planned is left",
+    ).toEqual([]);
     expect(r?.nextAt, "acted on at once").toBe(clock);
     // a Pause while a tick reads the facts: the funding it was about to send is not sent
     const d = await fresh();
-    await tick(d); clock += 2000; // step 1 committed
+    await tick(d);
+    clock += 2000; // step 1 committed
     const facts = world.escrowBalance.bind(world);
-    world.escrowBalance = async (stored) => { pauseCampaign(d.id, session, clock); return facts(stored); };
+    world.escrowBalance = async (stored) => {
+      pauseCampaign(d.id, session, clock);
+      return facts(stored);
+    };
     const funds = world.calls.filter((x) => x.startsWith("fund:")).length;
     await tick(d);
     world.escrowBalance = facts;
@@ -899,7 +1582,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     putCampaign({ ...c, plan: { ...c.plan, shapeNotes: true } }, session); // the pieces need notes shaped first
     world.shaped = false;
     const shaped = world.notesShaped.bind(world);
-    world.notesShaped = () => { pauseCampaign(c.id, session, clock); return shaped(); }; // the answer, during the tick's reads
+    world.notesShaped = () => {
+      pauseCampaign(c.id, session, clock);
+      return shaped();
+    }; // the answer, during the tick's reads
     try {
       const r = await tick(c);
       expect(world.calls, "no merge after the Pause").not.toContain("shape");
@@ -918,19 +1604,34 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(c0.alerts).toHaveLength(MAX_ALERTS);
     // the tick journals a state of its own (its base stays the campaign it read), then the user pauses, then the tick goes on
     const mid = withCampaignState(c0, "preparing-notes", clock + 1000, "shaping the notes for the pieces");
-    const answered = { ...withAlert(withCampaignState(mid, "paused", clock + 1500, "Paused by you", { pause: { reason: "user" as const, detail: "Paused by you", at: clock + 1500 } }), "paused", "Paused by you", clock + 1500), decidedAt: clock + 1500 };
+    const answered = {
+      ...withAlert(
+        withCampaignState(mid, "paused", clock + 1500, "Paused by you", { pause: { reason: "user" as const, detail: "Paused by you", at: clock + 1500 } }),
+        "paused",
+        "Paused by you",
+        clock + 1500,
+      ),
+      decidedAt: clock + 1500,
+    };
     const tickOwn = withCampaignState(mid, "running", clock + 2000, "the first step starts");
     const merged = keepDecisions(c0, answered, tickOwn);
     expect(merged.state).toBe("paused");
     expect(merged.alerts).toHaveLength(MAX_ALERTS);
-    expect(merged.alerts!.some((a) => a.kind === "paused" && a.text === "Paused by you"), "the answer's alert").toBe(true);
-    expect(merged.history.filter((h) => h.note === "shaping the notes for the pieces"), "the tick's own entry, once").toHaveLength(1);
+    expect(
+      merged.alerts!.some((a) => a.kind === "paused" && a.text === "Paused by you"),
+      "the answer's alert",
+    ).toBe(true);
+    expect(
+      merged.history.filter((h) => h.note === "shaping the notes for the pieces"),
+      "the tick's own entry, once",
+    ).toHaveLength(1);
     expect(merged.history.filter((h) => h.note === "Paused by you")).toHaveLength(1);
   });
 
   it("a step whose funding is on its way is never given up: not when the rest returns, not when the route changes (the audit round of 2026-10-16, c35)", async () => {
     const c = await fresh();
-    await tick(c); clock += 2000; // committed
+    await tick(c);
+    clock += 2000; // committed
     world.fundPendingAfterSend = true; // the funding is sent, its answer lost
     await tick(c).catch(() => null);
     world.fundPendingAfterSend = false;
@@ -981,12 +1682,19 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     const vault = String((session.journal().swaps.find((y) => y.orderId === first)!.params as { refundVault: string }).refundVault);
     session.update((j) => {
       const x = j.swaps.find((y) => y.orderId === first)!;
-      x.refunds = [{ leafIndex: 9, vault, amount: eth(15).toString() }, { leafIndex: 10, vault: "0x" + "dd".repeat(20), amount: eth(99).toString() }];
+      x.refunds = [
+        { leafIndex: 9, vault, amount: eth(15).toString() },
+        { leafIndex: 10, vault: "0x" + "dd".repeat(20), amount: eth(99).toString() },
+      ];
     });
     world.jobs.get(first)!.state = "completed";
     clock += 60_000;
     await tick(c);
-    expect(current(c).tranches[0], "another asset's refund is not counted").toMatchObject({ state: "settled", amount: eth(35).toString(), outcome: { refunded: eth(15).toString() } });
+    expect(current(c).tranches[0], "another asset's refund is not counted").toMatchObject({
+      state: "settled",
+      amount: eth(35).toString(),
+      outcome: { refunded: eth(15).toString() },
+    });
     expect(exposure(current(c))).toMatchObject({ completed: eth(35), inFlight: 0n, remaining: eth(2465) });
     world.tracked.delete(first);
     world.delivered.delete(first);
@@ -1042,18 +1750,35 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
 
 describe("the scheduler and a re-scheduled action", () => {
   let root: Root | null = null;
-  afterEach(() => { if (root) { act(() => root!.unmount()); root = null; } defaultSession.forget(); });
+  afterEach(() => {
+    if (root) {
+      act(() => root!.unmount());
+      root = null;
+    }
+    defaultSession.forget();
+  });
   it("keeps an action pending when its run scheduled the next tick under the same id", async () => {
     await defaultSession.create("pw");
     defaultSession.acknowledgePhrase();
     const ran: number[] = [];
     scheduleAction({ kind: "campaign-tick", orderId: "0xc", dueAt: Date.now() - 10 }, defaultSession);
-    const run = async (a: ScheduledAction) => { ran.push(a.dueAt); if (ran.length < 3) scheduleAction({ kind: "campaign-tick", orderId: "0xc", dueAt: a.dueAt + 1 }, defaultSession); };
-    function Runner() { useScheduler(run, 10, defaultSession); return null; }
+    const run = async (a: ScheduledAction) => {
+      ran.push(a.dueAt);
+      if (ran.length < 3) scheduleAction({ kind: "campaign-tick", orderId: "0xc", dueAt: a.dueAt + 1 }, defaultSession);
+    };
+    function Runner() {
+      useScheduler(run, 10, defaultSession);
+      return null;
+    }
     const container = document.createElement("div");
-    await act(async () => { root = createRoot(container); root.render(<Runner />); });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<Runner />);
+    });
     await vi.waitFor(() => expect(ran).toHaveLength(3), { timeout: 5_000 });
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     expect(ran, "the third run did not re-schedule: the action is done").toHaveLength(3);
     expect(defaultSession.journal().schedule.find((a) => a.id === "campaign-tick:0xc")?.done).toBe(true);
   });

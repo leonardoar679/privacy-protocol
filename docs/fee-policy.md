@@ -18,8 +18,8 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
   rounded up by at most one base unit a piece.
 - **Merges, splits, refunds and re-shields pay no privacy fee.** They pay the relayer's cost `F` where a relayer acts.
 - **A Protect followed later by a Swap are two operations, and each pays its 1 %.** Protecting funds costs 1 % of the
-  deposit; swapping them later costs 1 % of the swap. The Swap Review says so in one sentence: *Your funds paid 1 % when
-  they were protected; this swap pays 1 % again.*
+  deposit; swapping them later costs 1 % of the swap. The Swap Review says so in one sentence: _Your funds paid 1 % when
+  they were protected; this swap pays 1 % again._
 - Every Review states it before you confirm: **Privacy fee (1 %) — charged on each protect, send and swap.**
 
 ## 2. The relayer's cost and the network
@@ -30,7 +30,7 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
   fee is above the one the Review showed, nothing is proved or sent — the Review is shown again (`fee_moved`). A swap
   journals the fee it reviewed (`reviewedFee`) and its funding, now or after a delay for privacy, never pays more.
 - **A protected execution's pieces are bound too** (V7): each piece carries the `F` the Review showed; the Review shows
-  `Relayer/network (n steps)` as `F × n`; a piece whose relayer asks more waits rather than pays.
+  `Relayer/network (n steps)` as `F × n`; a piece whose relayer asks more waits rather than pays (the operation pauses and says so; Resume once the fee fits, or return the rest).
 - On chain, the privacy fee and the relayer's cost ride **one fee note** (`p(A) + F`): the relayer is paid that note and
   owes the protocol the 1 %. A relayer whose terms ask more than the 1 % (`feePercentBps` above 100) is not used. There is
   no other relayer percentage.
@@ -61,14 +61,14 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
 
 ## 5. Where the figures come from
 
-| Line | Formula | Where it is computed |
-|---|---|---|
-| Privacy fee | `p(A) = ⌈A·b/10000⌉`, `b = 100` | `packages/protocol/src/wallet/fees.ts` (`privacyFee`), the relayer (`feeMeetsTerms`), ProtectRouter (`feeOf`) |
-| Relayer / network | `F` = the relayer's minimum × 1.1, re-read at submit and bounded by the Review | `packages/sdk/src/relayer.ts`, `packages/sdk/src/privateTx.ts` (`feeWithinReview`) |
-| Executor tip | `T = ⌈units × (2·baseFee + priorityFee) × 1.2⌉` from `eth_feeHistory`; `T ≤ W/100` | `packages/swap-engine/src/tips.ts`, `SwapOrderEscrow.sol` |
-| Swap / provider | the provider's own fees in the source asset; a fee taken in another asset is in the rate | the provider's quote, `apps/api/src/quote.ts` |
-| The quote's fee terms | `feeTerms { privacyFeeBps, relayerFee, executorTip, maxFee, termsAt }` beside `expiresAt` and `minimumOutput` | `apps/api/src/quote.ts`, `packages/protocol-types/src/quotes.ts` |
-| Dollar lines | integer cents from the Chainlink price; an unpriced asset shows its own units | `apps/web/src/features/swap/model.ts`, `features/amounts.ts` |
+| Line                  | Formula                                                                                                       | Where it is computed                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Privacy fee           | `p(A) = ⌈A·b/10000⌉`, `b = 100`                                                                               | `packages/protocol/src/wallet/fees.ts` (`privacyFee`), the relayer (`feeMeetsTerms`), ProtectRouter (`feeOf`) |
+| Relayer / network     | `F` = the relayer's minimum × 1.1, re-read at submit and bounded by the Review                                | `packages/sdk/src/relayer.ts`, `packages/sdk/src/privateTx.ts` (`feeWithinReview`)                            |
+| Executor tip          | `T = ⌈units × (2·baseFee + priorityFee) × 1.2⌉` from `eth_feeHistory`; `T ≤ W/100`                            | `packages/swap-engine/src/tips.ts`, `SwapOrderEscrow.sol`                                                     |
+| Swap / provider       | the provider's own fees in the source asset; a fee taken in another asset is in the rate                      | the provider's quote, `apps/api/src/quote.ts`                                                                 |
+| The quote's fee terms | `feeTerms { privacyFeeBps, relayerFee, executorTip, maxFee, termsAt }` beside `expiresAt` and `minimumOutput` | `apps/api/src/quote.ts`, `packages/protocol-types/src/quotes.ts`                                              |
+| Dollar lines          | integer cents from the Chainlink price; an unpriced asset shows its own units                                 | `apps/web/src/features/swap/model.ts`, `features/amounts.ts`                                                  |
 
 The display identity holds on every screen: `input − privacy fee − relayer/network − swap/provider − market rate & impact
 = estimated receive` (the last term the residual, possibly negative).
@@ -76,19 +76,19 @@ The display identity holds on every screen: `input − privacy fee − relayer/n
 ## 6. Tornado Classic
 
 The Classic application charges **no privacy fee**. A withdrawal through a relayer pays the relayer's own percentage of
-the denomination (shown as *Relayer fee*, from the relayer's status) plus the network fee (`550,000 gas × the live gas
-price`, shown as *Network fee*), both read live and shown apart before the proof; wallet mode pays the gas from the
+the denomination (shown as _Relayer fee_, from the relayer's status) plus the network fee (`550,000 gas × the live gas
+price`, shown as _Network fee_), both read live and shown apart before the proof; wallet mode pays the gas from the
 connected account and no relayer fee. Nothing of this policy applies there (spec v3.0 §7.5).
 
 ## 7. The rules of the owner's document (§6) and their status
 
-| Rule | Status |
-|---|---|
-| 1 Integer / exact decimal math | the fee code is bigint-only (a source scan refuses floating point); the dollar lines are integer cents |
-| 2 Quotes bound to input / output asset, network, minimum receive, expiry and fee terms | the §46 quote carries `feeTerms` beside `expiresAt` and `minimumOutput`, and states `p(A)` of what the user pays |
-| 3 Privacy fee shown apart from relayer / network / provider fees | the Review's lines; on chain `p + F` ride one fee note (§2) |
-| 4 No hidden extra relayer percentage | the relayer's `feePercentBps` is the privacy fee itself; its margin on gas is §2's 10 % |
-| 5 Bounded relayer fee with an agreed maximum | single operations since V6; a protected execution's pieces since V7 |
-| 6 No fee when the service was not delivered, per a published refund policy | §3 and §4: nothing charged for an operation that never leaves the Review or is stopped before anything is sent; the privacy fee of a funded swap is earned at funding and the swapped amount comes back |
-| 7 Retries, reconciliations and refunds follow the signed terms, never a silent second 1 % | §4 |
-| 8 Classic fees distinct | §6 |
+| Rule                                                                                      | Status                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 Integer / exact decimal math                                                            | the fee code is bigint-only (a source scan refuses floating point); the dollar lines are integer cents                                                                                                  |
+| 2 Quotes bound to input / output asset, network, minimum receive, expiry and fee terms    | the §46 quote carries `feeTerms` beside `expiresAt` and `minimumOutput`, and states `p(A)` of what the user pays                                                                                        |
+| 3 Privacy fee shown apart from relayer / network / provider fees                          | the Review's lines; on chain `p + F` ride one fee note (§2)                                                                                                                                             |
+| 4 No hidden extra relayer percentage                                                      | the relayer's `feePercentBps` is the privacy fee itself; its margin on gas is §2's 10 %                                                                                                                 |
+| 5 Bounded relayer fee with an agreed maximum                                              | single operations since V6; a protected execution's pieces since V7                                                                                                                                     |
+| 6 No fee when the service was not delivered, per a published refund policy                | §3 and §4: nothing charged for an operation that never leaves the Review or is stopped before anything is sent; the privacy fee of a funded swap is earned at funding and the swapped amount comes back |
+| 7 Retries, reconciliations and refunds follow the signed terms, never a silent second 1 % | §4                                                                                                                                                                                                      |
+| 8 Classic fees distinct                                                                   | §6                                                                                                                                                                                                      |
