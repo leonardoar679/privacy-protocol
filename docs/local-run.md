@@ -21,7 +21,12 @@ other reason (neither a reconcile under way nor a refused quote it can try again
 record's state, its reason's code and the words the user reads: the progress view carries `data-code`. Before (a V6
 follow-up of 2026-10-15), the run waited out its timeouts and named nothing. The one difference from a testnet: there the light client
 stays on; on the devnet the run switches it off under Settings → Advanced (no beacon chain to follow).
-`VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap.
+`VIEWPORTS=360x800,1280x800` narrows the matrix; `SKIP_CAMPAIGN=1` leaves out the $10M protected swap. A **full run** is one
+without `SKIP_CAMPAIGN`: its report carries the campaign section's "step 1 funded, signed and handed over by the runner" check,
+and the plan's full-run gates (V7 Stages 10, 13, 15 and 17) mean that run — the first one since V7 Stage 12
+(`results/report-2026-10-27-v7-stage15.json`, 251/251) found the step fee bound that every quick pass had skipped (`58ac5da`).
+V7's records: `results/report-2026-10-27-v7-stage10.json` (the first with the Classic sections 11, 11b, 11c), the Stage 15
+full run above, and the final `results/report-2026-10-27-v7.json`. What only a phone can show is `docs/mobile-web-gate.md`.
 
 ```
 cd scripts/local-stack && npm install

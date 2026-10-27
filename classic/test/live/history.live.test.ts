@@ -30,13 +30,20 @@ const pins = readPins() as { pools: Record<string, { address: string; deployedBl
 const hex32 = (x: bigint): Hex => `0x${x.toString(16).padStart(64, "0")}`;
 const SNAPSHOT = join(__dirname, "..", "..", "public", "data", "eth-100");
 
-/** The pool's newest deposit (its leaf index and commitment) from the last `span` blocks. */
-async function lastDeposit(address: Hex, head: number, span: number) {
-  const logs = (await logRpc("eth_getLogs", [
-    { address, topics: [], fromBlock: `0x${(head - span).toString(16)}`, toBlock: `0x${head.toString(16)}` },
-  ])) as RawLog[];
-  const { deposits } = decodeLogs(logs, address);
-  return deposits.at(-1) ?? null;
+/**
+ * The pool's newest deposit (its leaf index and commitment) from the last `span` blocks, read in windows of `step` blocks
+ * newest first: the public log endpoints refused the busiest pool's one 400,000-block scan in the final gate of V7
+ * ("service temporarily unavailable" from both), while every smaller window answers; the first window with a deposit ends it.
+ */
+async function lastDeposit(address: Hex, head: number, span: number, step = 25_000) {
+  for (let to = head; to > head - span; to -= step) {
+    const from = Math.max(head - span, to - step + 1);
+    const logs = (await logRpc("eth_getLogs", [{ address, topics: [], fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}` }])) as RawLog[];
+    const { deposits } = decodeLogs(logs, address);
+    const last = deposits.at(-1);
+    if (last) return last;
+  }
+  return null;
 }
 
 describe("the pools' frontiers", () => {

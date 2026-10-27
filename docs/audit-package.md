@@ -46,6 +46,16 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 | `apps/web/src/platform/crypto/` | the long-lived crypto worker: only the spend plan and the view key cross into it, no reply carries a key or a circuit input, the proving key cached in the Cache API under its pin and hashed on every read, the worker ended at every lock |
 | `packages/privacy-engine/src/transport/connectivity.ts`, `packages/sdk/src/privateTx.ts` | offline detection, the wait before a relayer attempt, the lost answer found by its nullifier before anything is sent again |
 
+### 1.3 Added in V7 (`docs/privacy-wallet-web-spec-v3.0.md`)
+| Component | What to audit |
+|---|---|
+| **`classic/`** (GPL-3.0, the separate application) | `classic/vendor/` (websnark `4c0af6a8`, snarkjs 0.1.20, circomlib `3b492f98` — converted without `eval`; the hashes in `VENDORED.md`), `classic/src/crypto/` (the original Pedersen and MiMC, the note), `classic/src/prover/` (the worker, the local verification with the transcoded key), `classic/src/history/` (the snapshot, the delta sync with checkpoints and rollback, the root held to `getLastRoot` / `isKnownRoot`, spent status from the chain before a withdrawal), `classic/src/relayer/` (the schemas as real relayers speak, the registry rules, the fee at the live gas price), `classic/src/app/services/` (the flows, the availability rows, the `CLASSIC_LIVE` / `CLASSIC_COMPLIANCE_ORACLE` / `CLASSIC_GEOFENCE` switches), the policy and the gates (`classic/scripts/`), `classic/docs/{threat-model,security-review,release-gate,legal-review}.md` |
+| `packages/sdk/src/wallet/campaigns.ts` (`stepReviewedFee`), `packages/sdk/src/wallet/campaignRunner.ts` (the fund case) | a piece's fee bound is the funding's own exact-output formula under the Review's terms; a moved fee pauses the campaign and sends nothing; the Review's `F × n` against the pieces' bounds |
+| `packages/sdk/src/wallet/inFlight.ts`, `packages/protocol/src/wallet/exposurePolicy.ts`, `apps/api/src/quote.ts` | one protected operation of the band in flight per wallet (the wallet's own count); the route's liquidity qualification from the risk database; the cap table's override (`EXPOSURE_POLICY_FILE`) never above the band's range |
+| `packages/swap-engine/src/provider.ts`, `packages/sdk/src/swapProvider.ts` | the facade commits and prepares exactly what the direct flow does; `validate` signs nothing; the recovery options are pure |
+| `packages/sdk/src/operations/{reducer,upgrade,adapters}.ts`, `apps/api/src/db.ts` (migration 3), `apps/api/src/reconcile.ts` | the fifteen states and I-O7 from SUBMITTING; the V6 → V7 upgrade on read (idempotent, the history merged) and the API's migration (the rows renamed in place, an expired quote closed before its funding) |
+| `packages/sdk/src/session/autoLock.ts` (`pageHidden`), `apps/web/src/platform/{autoLock,unloadGuard}.ts`, `apps/web/src/storage/persist.ts`, `packages/sdk/src/privateTx.ts` (`assertStillUnlocked`), `packages/wallet-engine/src/{walletConnect,connection}.ts`, `apps/web/scripts/csp.mjs` | the mobile-web gate: a pagehide deferred by a live hold and resumed by pageshow; a Protect that stops prompting once locked; the unload guard; persistent storage; WalletConnect's metadata, the restored session, the policy's hosts (never a telemetry host) |
+
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
   tree. Core ABIs are frozen and checksummed: `sha256sum -c contracts/abi/SHA256SUMS`.
@@ -384,6 +394,21 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     the bundle scan bound what runs, but whoever controls the host controls the note when it is generated and pasted. The
     upgrade is a content-addressed build checked against its hash, or a signed native app — the same residual as the
     wallet's (`classic/docs/security-review.md` §2).
+58. **V7 — the real-device run of the mobile-web gate is open.** What a phone's browser does at a wallet handoff, in the
+    background and under storage pressure is met in code and under unit tests (`docs/mobile-web-gate.md` §1), and the browser
+    run drives Chrome under mobile emulation; the eleven scenarios of §2 there need iOS Safari, Android Chrome and the
+    wallets' in-app browsers in hand. The record of runs (§5 there) is empty until the owner fills it.
+59. **V7 — a scheduler failure is silent on the screens.** A runner tick that throws is recorded in the journal's schedule
+    (`error`, the backoff: ten minutes, doubling) and in `schedulerStatus`, which no screen renders; the first full local run
+    since Stage 12 found a campaign's step "committed" for ten minutes with nothing to say (the step fee bound, fixed in
+    `58ac5da`, which also pauses the campaign on a moved fee). Other refusals of a funding still take the silent backoff —
+    a line on the operation's detail naming the last failure and the next attempt is the follow-up for the owner to
+    prioritise.
+60. **V7 — WalletConnect's modal is third-party code under the policy.** With a project id the bundle ships
+    `@walletconnect/ethereum-provider` and its modal, which ask `api.web3modal.org` for the wallet list and logos and load the
+    verify iframe; the policy names those hosts and no telemetry host, and the metadata declares this origin's icon and
+    `redirect`. The project id, the modal's own privacy terms and whether to ship the connector at all are the owner's
+    (spec v2.0 §23's WalletConnect note stands).
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

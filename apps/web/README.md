@@ -2,7 +2,11 @@
 
 A mobile-first wallet for the shielded pool, rebuilt in V6 to the owner's complete document
 ([`docs/privacy-wallet-web-spec-v2.0.md`](../../docs/privacy-wallet-web-spec-v2.0.md), the normative text; the pass in
-`docs/roadmap.md`, V6 table; done means [`docs/definition-of-done-v6.md`](../../docs/definition-of-done-v6.md)).
+`docs/roadmap.md`, V6 table; done means [`docs/definition-of-done-v6.md`](../../docs/definition-of-done-v6.md)). V7
+(spec v3.0, [`docs/definition-of-done-v7.md`](../../docs/definition-of-done-v7.md)) added the document's information
+architecture (Settings, `/privacy`, the Classic link, the Connect chip), the fee statement, the amount policy, the swap
+provider facade, the fifteen operation states and the mobile-web gate; Tornado Classic itself is the separate
+application under `../../classic/`.
 - **What this package holds.** The screens, the routes, the words, and the platform: the encrypted store, the prover,
   the crypto worker, auto-lock, connectivity.
 - **What lives elsewhere.** Every engine is a package beside it: `packages/sdk` (the wallet engine: session, journal,

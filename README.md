@@ -17,9 +17,10 @@ stablecoin issuer's freeze can only ever touch its own vault.
 ```
 privacy-protocol/
 ├─ apps/
-│  ├─ web/          the wallet (V6, spec v2.0): Home / Swap / Activity / More on packages/ui, Protect / Send / Receive, Swap with one confirmation, the $50K protected steps, the Privacy Center, Classic Privacy (mock pool), Korean and the language picker, the desktop layouts; the platform: the encrypted IndexedDB container, the long-lived crypto worker with pinned and cached artifacts, auto-lock, connectivity; lazy routes under a performance budget; the screenshot fixtures   [508 + 9 leakage + 6 live ✅]
+│  ├─ web/          the wallet (V6, spec v2.0; V7, spec v3.0: Settings, the Privacy Center under /privacy, the Connect chip, the fee statement, one order at $50K–$100K, the fifteen states, the mobile-web gate): Home / Swap / Activity / More on packages/ui, Protect / Send / Receive, Swap with one confirmation, the $50K protected steps, the Privacy Center, Classic Privacy (mock pool), Korean and the language picker, the desktop layouts; the platform: the encrypted IndexedDB container, the long-lived crypto worker with pinned and cached artifacts, auto-lock, connectivity; lazy routes under a performance budget; the screenshot fixtures   [508 + 9 leakage + 6 live ✅]
 │  ├─ api/          V6: Express 5 + node:sqlite over the swap engine — quotes, operations (swaps only), reconcile, the guest and gateway routes; no secret, balance or address stored; retention; privacy-safe logs   [26 ✅]
 │  └─ relayer/      private submission (proven transact from its own key, paid by a private fee note; V6: the 1 % rule on every withdrawal, the actual gas recorded, a job found by its nullifier) + the swap-order executor + V6's shield executor (same-chain swaps into the protected balance), ERC-20 fee vaults, durable journals, the server kit's edge   [59 ✅]
+├─ classic/        V7 (spec v3.0 §7): Tornado Classic — the original-style interface for the mainnet pools (0.1 / 1 / 10 / 100 ETH) over the vendored prover (GPL-3.0), its own lockfile, build at /classic/, policy, pins, budget, tests and release gate; nothing shared with the wallet at runtime; every pool function off until the release gate and the legal review
 ├─ packages/
 │  ├─ protocol-types/ the frozen types of spec v2.0 (assets, chains, deployments, quotes, the assessments, the operation states)
 │  ├─ config/       the chain and asset registries (the only place a network or a token is named)
@@ -150,6 +151,26 @@ On top of them:
 Nothing in `PrivacyCore`, the vaults, the circuits or the escrow bytecode changed. The services hold no portfolio,
 address list or identity. The React Native apps, the Classic contracts and the legal review, external audits, the
 ceremony and a testnet broadcast stay with the owner (spec v2.0 §23).
+
+**V7 (done 2026-10-27 — the owner's "Privacy Wallet Web V1.1 — Master Development Plan", §1–§15)**: two products inside one
+website, spec first — [`docs/privacy-wallet-web-spec-v3.0.md`](docs/privacy-wallet-web-spec-v3.0.md) — then eighteen stages on
+`main` (`docs/roadmap.md`, V7 table; the evidence for every tracker item of the doc's §14:
+[`docs/definition-of-done-v7.md`](docs/definition-of-done-v7.md)):
+- **Tornado Classic** as a separate GPL-3.0 application under `/classic/`: the four mainnet pools and the router verified
+  against their Sourcify records and pinned; the original cryptography vendored at the phase-2 commits and converted without
+  `eval` (a proof accepted by the deployed verifier); the history as verified snapshots plus a client delta sync held to the
+  pool's own root; the relayer protocol as real relayers speak it; the original screens under their own word policy; the
+  mainnet contracts placed on the local devnet and the flows run end to end; every pool function off until the release gate
+  and the legal review (the owner's decisions 8–10);
+- the wallet's information architecture of the document (Settings, `/privacy`, the Classic link, the Connect chip);
+- the fee policy statement (1 % per operation, disclosed; the pieces bound by the Review's fee);
+- the amount policy (one order by default at $50K–$100K, varied pieces only when staged or asked, over $100K under Advanced);
+- the swap provider facade; the document's fifteen operation states (the journal and the API migrated);
+- the mobile-web gate (a pagehide deferred by a live hold, a Protect that stops prompting once locked, the unload guard,
+  persistent storage, one Protect or Send at a time, WalletConnect's redirect and hosts) with the owner's real-device checklist.
+
+The legal review of Classic, the external audits, the real-device run, the mainnet-fork run of the Classic prover and a
+WalletConnect project id stay with the owner (spec v3.0 §12, §14).
 
 ## Status (this environment)
 | Part | Verified |
