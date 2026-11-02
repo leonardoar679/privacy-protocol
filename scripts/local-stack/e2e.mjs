@@ -606,8 +606,18 @@ let phrase = "";
 try {
   // the relayer runs for the swap service's key (a V6 follow-up of 2026-10-16): its /info lists the API's address and the
   // deployment's swap factory, and the API's status reads it so
-  const vstatus = await (await fetch(`${API}/v1/status`)).json().catch(() => null);
-  const vinfo = await (await fetch(`${RELAYER}/info`)).json().catch(() => null);
+  // a service that is not answering ends the run by name: a relayer the workstation's Winsock fault had killed ended a run on
+  // an unnamed "fetch failed" before any check (2026-10-27)
+  const readJson = async (url, what) => {
+    try {
+      return await (await fetch(url)).json();
+    } catch (e) {
+      check(`${what} answers at ${url} (start the services: npm run services)`, false, String(e?.cause?.message ?? e?.message ?? e));
+      throw new Error(`${what} is not answering at ${url}`);
+    }
+  };
+  const vstatus = await readJson(`${API}/v1/status`, "the API");
+  const vinfo = await readJson(`${RELAYER}/info`, "the relayer");
   check(
     "the relayer runs for the swap service's key: its /info lists the API's address and the swap factory, and the API's status says so",
     !!vstatus?.deployment?.voucher && Array.isArray(vinfo?.vouchers) && vinfo.vouchers.includes(String(vstatus.deployment.voucher).toLowerCase()) && vstatus.deployment.relayerAcceptsVoucher === true && String(vinfo?.swapFactory).toLowerCase() === String(stack.swapFactory).toLowerCase(),
@@ -1252,6 +1262,19 @@ try {
     const statusPools = Object.values(classicStatus?.instances?.eth?.instanceAddress ?? {}).map((a) => String(a).toLowerCase()).sort().join();
     const stackPools = Object.values(stack.classic.pools).map((p) => p.address.toLowerCase()).sort().join();
     check('the relayer stand-in speaks the protocol: health "true" as a string, chain 1, the four pools at their mainnet addresses', classicStatus?.health?.status === "true" && classicStatus?.netId === 1 && statusPools === stackPools, JSON.stringify(classicStatus ?? null).slice(0, 200));
+
+    // Vite discovers the Classic app's lazily imported dependencies (snarkjs, big-integer, zod) on first use and answers 504
+    // "outdated optimize dep" while it re-optimizes — the history row had failed on it mid-run (Stage 10). The run warms the
+    // dev server itself: a scratch page (unwatched: nothing of it counts) visits the app, its Settings and the Withdraw tab
+    {
+      const scratch = await context.newPage();
+      for (const path of ["classic/", "classic/settings", "classic/withdraw", "classic/settings"]) {
+        await scratch.goto(WALLET + path, { waitUntil: "load" }).catch(() => {});
+        await scratch.waitForTimeout(10_000);
+      }
+      await scratch.close();
+      log("the Classic dev server warmed: its lazily discovered dependencies optimized before the checks");
+    }
 
     // More → Tornado Classic: a plain link to the other app (a full navigation; the Classic page carries its own policy)
     await nav(page, "More");

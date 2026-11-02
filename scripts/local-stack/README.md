@@ -63,6 +63,11 @@ recipient paid 1 ETH minus the fee, the pool's `isSpent` through "Check on chain
 connected account sends the pool's own `withdraw`); History with its rows. 11c: no request of the section carries a note, no
 host but the origin, the devnet and the stand-in, and the Classic database (`tornado-classic`) holds no note — 234/234 checks on the quick pass with the Classic sections, 35 of them Classic's (`scripts/local-stack/results/report-2026-10-27-v7-stage10.json`).
 
+Before its Classic sections the run warms the Classic dev server itself: a scratch page visits the app, its Settings and the
+Withdraw tab, so Vite optimizes the lazily discovered dependencies (snarkjs, big-integer, zod) before the checks — a first
+discovery mid-run had answered 504 "outdated optimize dep" and failed the history row. A service that is not answering at the
+start (the API, the relayer) ends the run by name rather than on an unnamed "fetch failed".
+
 The mainnet fork: `npx hardhat node --port 8547 --fork <mainnet rpc>` here, then `CLASSIC_FORK_RPC=http://127.0.0.1:8547 npm
 run test:fork` in `classic/` (`classic/test/fork/withdraw.fork.test.ts`: the served snapshot synced onto the fork, a 100 ETH
 deposit through the real router and registry, the withdrawal through the router by an in-process relayer, the note spent on
