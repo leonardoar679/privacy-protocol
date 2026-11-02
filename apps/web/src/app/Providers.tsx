@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ToastProvider } from "@privacy-wallet/ui";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { config } from "@privacy-wallet/sdk/config";
-import { connection, discover } from "@privacy-wallet/wallet-engine/connection";
+import { connection, connectorAnsweredNothing, discover } from "@privacy-wallet/wallet-engine/connection";
 import { prefs } from "../storage/prefs";
 import { DeploymentContext } from "./deployment";
 import { applyLocale } from "./i18n/locale";
@@ -21,7 +21,12 @@ export function Providers({ children, deployment }: { children: ReactNode; deplo
     let on = true;
     void prefs().ready.then(() => {
       const id = prefs().get().lastConnector;
-      if (on && id && connection.get().status === "disconnected") void connection.reconnect(id);
+      if (on && id && connection.get().status === "disconnected")
+        void connection.reconnect(id).then((st) => {
+          // present and answering no account (the review round of 2026-11-02): forgotten, or every reload would ask again
+          // (WalletConnect's without a session its own store holds initializes nothing, and is forgotten the same way)
+          if (on && connectorAnsweredNothing(id, st)) prefs().update({ lastConnector: undefined });
+        });
     });
     return () => { on = false; };
   }, []);

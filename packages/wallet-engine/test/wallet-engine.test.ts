@@ -4,7 +4,7 @@
 // the wallet with the account and the exact payload (EIP-191 hex text, EIP-712 JSON with bigints as decimal strings);
 // switchNetwork asks for the deployment's chain; disconnect forgets it; nothing signs without a connected wallet.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configureWalletConnect, resetWalletConnect } from "../src/walletConnect";
+import { configureWalletConnect, hasWalletConnectSession, resetWalletConnect } from "../src/walletConnect";
 
 // WalletConnect's provider, scripted: every init is a new pairing, and a disconnect ends that session
 const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0, restored: false, lastInit: null as unknown, methods: [] as string[] }));
@@ -171,18 +171,43 @@ describe("WalletConnect (the audit's unverified m65)", () => {
     try {
       wc.restored = false;
       wc.methods.length = 0;
+      const inits = wc.inits;
       expect((await connection.reconnect("walletconnect")).status, "nothing stored").toBe("disconnected");
+      // the review round of 2026-11-02: nothing in WalletConnect's own store — the provider is not even initialized (no relay socket)
+      expect(wc.inits, "nothing stored: no init").toBe(inits);
+      expect(wc.methods).toEqual([]);
       resetWalletConnect();
       wc.restored = true;
+      globalThis.localStorage.setItem("wc@2:client:0.3//session", JSON.stringify([{ topic: "a-topic" }]));
       const s = await connection.reconnect("walletconnect");
+      expect(wc.inits, "a stored session: initialized once").toBe(inits + 1);
       expect(s.status).toBe("connected");
       expect(s.connector?.kind).toBe("walletconnect");
       expect(wc.methods, "no prompt").not.toContain("eth_requestAccounts");
     } finally {
       wc.restored = false;
+      globalThis.localStorage.removeItem("wc@2:client:0.3//session");
       connection.disconnect();
       configureWalletConnect(undefined);
       resetWalletConnect();
+    }
+  });
+  it("WalletConnect's own store: a session list with an entry is a session to take up; an empty list, another key, garbage or no storage is not (the review round of 2026-11-02)", () => {
+    try {
+      expect(hasWalletConnectSession()).toBe(false);
+      globalThis.localStorage.setItem("wc@2:client:0.3//session", "[]");
+      expect(hasWalletConnectSession(), "an empty list").toBe(false);
+      globalThis.localStorage.setItem("wc@2:core:0.3//pairing", JSON.stringify([{ topic: "p" }]));
+      expect(hasWalletConnectSession(), "a pairing is not a session").toBe(false);
+      globalThis.localStorage.setItem("wc@2:client:0.3//session", "not json");
+      expect(hasWalletConnectSession(), "garbage").toBe(false);
+      globalThis.localStorage.setItem("wc@2:client:0.3//session", JSON.stringify([{ topic: "s" }]));
+      expect(hasWalletConnectSession()).toBe(true);
+      globalThis.localStorage.setItem("wc@2:client:0.4//session", JSON.stringify([{ topic: "s" }]));
+      globalThis.localStorage.removeItem("wc@2:client:0.3//session");
+      expect(hasWalletConnectSession(), "another store version").toBe(true);
+    } finally {
+      globalThis.localStorage.clear();
     }
   });
 });

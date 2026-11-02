@@ -347,6 +347,10 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     return { step: "paused", stored: st };
   };
   schedulerStatus.start(a.id, "Swap: checking the order…");
+  // the critical section is taken again at every tick of an open order before its hand-over (unpaused, due): a tick that
+  // threw releases it below — a dead tick had kept the lock off for the cap's thirty minutes (the review round of 2026-11-02)
+  if (!stored0.paused && !stored0.jobId && (stored0.runner?.delayUntil ?? 0) <= now) holdUntilHandedOver(a.orderId, s, now);
+  let threw = false;
   try {
     // 1. handed over (journaled, or the executor answers by orderId — a hand-over whose answer was lost): track it
     let stored = stored0;
@@ -581,10 +585,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     syncSwapRecord(st, null, null, now);
     tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
     return { step: "handed-over", stored: st };
+  } catch (e) {
+    threw = true;
+    throw e;
   } finally {
     schedulerStatus.finish();
-    // handed over, paused for the user, or over: the critical section ends
+    // handed over, paused for the user, over — or thrown to the scheduler's backoff: the critical section ends (the next tick takes it again)
     const st = journaled(a.orderId, s);
-    if (!st || st.jobId || st.paused || !isOpenSwap(st)) releaseHandOver(a.orderId);
+    if (!st || threw || st.jobId || st.paused || !isOpenSwap(st)) releaseHandOver(a.orderId);
   }
 }

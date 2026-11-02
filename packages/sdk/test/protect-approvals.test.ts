@@ -210,7 +210,7 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
   it("the session locks between two prompts (V7 Stage 16, spec v3.0 §9): nothing more is asked of the wallet; what was sent stays sent", async () => {
     w.lockAfter = 1; // the clearing approval goes out, then the page locks (a phone's handoff, or Lock)
     const stopped = await protect(1n).catch((e: unknown) => e);
-    expect(stopped).toMatchObject({ code: "interrupted", message: expect.stringMatching(/locked before the next prompt/) });
+    expect(stopped).toMatchObject({ code: "locked_mid_flow", message: expect.stringMatching(/locked before the next prompt/) });
     expect(
       w.sent.map((s) => s.fn),
       "the approval of the amount and the deposit were never asked for",

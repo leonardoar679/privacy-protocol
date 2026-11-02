@@ -3,7 +3,7 @@
 // project id, the account and the chain, the wrong-network status and the switch, the provider's events, a refusal
 // that leaves the wallet disconnected, the provider the engine reads.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connection, discover, INJECTED_ID, shortAccount } from "@privacy-wallet/wallet-engine/connection";
+import { connection, connectorAnsweredNothing, discover, INJECTED_ID, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { activeProvider, setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
 
 type Handler = (...args: unknown[]) => void;
@@ -83,6 +83,12 @@ describe("the public wallet's connection (spec §7)", () => {
     expect(spy).toHaveBeenCalled();
     expect(connection.get().chainId).toBe(8453);
     off();
+  });
+  it("a remembered connector is forgotten after a reconnect only when it was present and answered no account (the review round of 2026-11-02)", () => {
+    const base = { ...connection.get(), status: "disconnected" as const, connectors: [{ id: "io.metamask", name: "MetaMask", kind: "eip6963" as const }] };
+    expect(connectorAnsweredNothing("io.metamask", base), "present, nothing answered: forgotten").toBe(true);
+    expect(connectorAnsweredNothing("walletconnect", base), "not present (still announcing, or missing here): kept").toBe(false);
+    expect(connectorAnsweredNothing("io.metamask", { ...base, status: "connected" }), "connected: kept").toBe(false);
   });
   it("the short form of an account is its first four and last four characters", () => {
     expect(shortAccount("0x7A0000000000000000000000000000000000091F2")).toBe("0x7A…91F2");

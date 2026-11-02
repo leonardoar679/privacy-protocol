@@ -125,6 +125,10 @@ export const CATALOG: Record<string, CatalogRow> = {
   funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped
   interrupted: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // the wallet locked between two steps of a flow (a phone's handoff, another tab's unlock, an explicit lock): nothing more
+  // was sent — at most an approval already confirmed, never the funds (the review round of 2026-11-02; "interrupted" is the
+  // page's closing, whose words say so)
+  locked_mid_flow: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   journal_unreadable: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   journal_not_kept: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

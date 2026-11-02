@@ -4,7 +4,7 @@
 // `disconnect` events followed; a wrong network named and switchable, never reinterpreted. The two security
 // domains never meet: nothing here touches the shielded keys.
 import { activeProvider, injectedProvider, setActiveProvider, type Eip1193Provider } from "./injected";
-import { walletConnectAvailable } from "./walletConnect";
+import { hasWalletConnectSession, walletConnectAvailable } from "./walletConnect";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "wrong-network" | "unavailable";
 export interface ConnectorInfo { id: string; name: string; icon?: string; kind: "eip6963" | "injected" | "walletconnect" }
@@ -92,6 +92,13 @@ async function providerFor(id: string | undefined, waitMs = 0): Promise<{ provid
   return p ? { provider: p, info } : null;
 }
 
+/**
+ * The review round of 2026-11-02: a remembered connector that was present at the reconnect and answered no account is
+ * forgotten by the app (prefs.lastConnector) — it would be asked at every reload otherwise. One not present (a wallet still
+ * announcing itself, an extension missing on this browser) is kept: nothing answered because nothing was asked.
+ */
+export const connectorAnsweredNothing = (id: string, st: ConnectionState): boolean => st.status === "disconnected" && st.connectors.some((c) => c.id === id);
+
 export const connection = {
   get: (): ConnectionState => state,
   subscribe: (l: () => void): (() => void) => { listeners.add(l); return () => { listeners.delete(l); }; },
@@ -119,12 +126,15 @@ export const connection = {
   /**
    * V7 Stage 4 (spec v3.0 §2): reconnects the remembered connector after a reload without a prompt (`eth_accounts`): a
    * wallet that no longer authorizes this site leaves the state disconnected. V7 Stage 16 (spec v3.0 §9): WalletConnect too —
-   * its provider restores the session from its own store, and `eth_accounts` answers from it without a pairing; none
-   * stored answers nothing, and the state stays disconnected. Never throws.
+   * only when its own store holds a session (the review round of 2026-11-02): then its provider is initialized, restores it,
+   * and `eth_accounts` answers from it without a pairing; none stored: nothing is initialized (its init opens the relay
+   * socket, which every reload of a browser that once chose it had opened for nothing) and the state stays disconnected.
+   * Never throws.
    */
   async reconnect(id: string): Promise<ConnectionState> {
     discover();
     if (state.status !== "disconnected") return state;
+    if (id === WALLETCONNECT_ID && !hasWalletConnectSession()) return state;
     try {
       const chosen = await providerFor(id, 1_500);
       if (!chosen) return state;

@@ -40,7 +40,10 @@ export function defaultHosts(env = {}) {
   if (!String(env.VITE_BEACON_URLS ?? "").trim()) out.push(...(DEFAULT_BEACON_APIS[Number(env.VITE_CHAIN_ID ?? 31337)] ?? []));
   return out;
 }
-const WALLETCONNECT = ["https://relay.walletconnect.com", "wss://relay.walletconnect.com", "https://relay.walletconnect.org", "wss://relay.walletconnect.org", "https://*.walletconnect.com", "https://*.walletconnect.org", "https://*.reown.com", "wss://*.reown.com"];
+// WalletConnect's relay (the pairing's socket) by exact host — never a wildcard: `*.walletconnect.org` had let the telemetry
+// host (pulse) and the provider's own RPC host through (the review round of 2026-11-02). That RPC host is absent on purpose:
+// the wallet reads through its own endpoints, and a method the provider would route there fails instead of leaking
+const WALLETCONNECT = ["https://relay.walletconnect.com", "wss://relay.walletconnect.com", "https://relay.walletconnect.org", "wss://relay.walletconnect.org"];
 // V7 Stage 16 (spec v3.0 §9): with a project id, the modal's wallet list and logos (AppKit's API, the explorer) and the verify
 // iframe; WalletConnect's telemetry host (pulse) is absent on purpose — the policy stops it
 const WALLETCONNECT_MODAL = ["https://api.web3modal.org", "https://api.web3modal.com", "https://explorer-api.walletconnect.com"];
@@ -81,7 +84,7 @@ export function zkapiHosts(configPath) {
 export function buildCsp(env = {}, extra = []) {
   const wc = !!env.VITE_WC_PROJECT_ID;
   const connect = ["'self'", ...connectHosts(env, extra)];
-  const img = ["'self'", "data:", "blob:", ...(wc ? [...WALLETCONNECT_MODAL, "https://*.walletconnect.com", "https://*.walletconnect.org", "https://*.reown.com"] : [])];
+  const img = ["'self'", "data:", "blob:", ...(wc ? WALLETCONNECT_MODAL : [])]; // the wallets' logos from the modal's API and the explorer, by exact host
   return [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",

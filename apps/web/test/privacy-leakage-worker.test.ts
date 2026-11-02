@@ -209,7 +209,7 @@ describe("the worker boundary (doc §83)", () => {
       await new Promise((r) => setTimeout(r, 10));
       session.lock();
       answer();
-      await expect(proof).rejects.toMatchObject({ code: "interrupted" });
+      await expect(proof).rejects.toMatchObject({ code: "locked_mid_flow" });
       expect(created.length, "no worker started after the lock").toBe(workers);
       expect(cryptoWorkerRunning()).toBe(false);
     } finally {

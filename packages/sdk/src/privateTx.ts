@@ -200,7 +200,7 @@ export async function submitShield(p: PreparedShield, o: Progress & { /** V6: th
  * What was sent stays sent, nothing more is asked, and the record reads interrupted (nothing moved by the missing prompt).
  */
 function assertStillUnlocked(): void {
-  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent"), { code: "interrupted" });
+  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent"), { code: "locked_mid_flow" });
 }
 async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?: bigint }): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
@@ -473,7 +473,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   const proof = await prove(o.spec, o.onStatus);
   // nothing is sent from a wallet that locked while it proved (audit round 2, r19): its record, locked out, still reads the
   // proof step, and a reconcile would call a mined spend "nothing moved"
-  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "interrupted" });
+  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });
   o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
   let txHash: Hex;
   let submittedBy: Submitted["submittedBy"];

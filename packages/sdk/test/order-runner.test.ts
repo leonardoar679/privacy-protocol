@@ -376,6 +376,12 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     await expect(runOrderTick(action(), deps(before.io))).rejects.toThrow("fetch failed");
     expect(stored().paused).toBeUndefined();
     expect(before.w.escrow).toBe(0n);
+    // the review round of 2026-11-02: a tick that threw holds the lock off no longer (a dead tick had kept the hold for the
+    // cap's thirty minutes); the next tick, before the hand-over, takes the critical section again
+    expect(session.holds().map((h) => h.reason)).not.toContain("hand-over");
+    const again = world({ fund: "ok" });
+    expect(await drive(again.io, 1)).toEqual(["funded"]);
+    expect(session.holds().map((h) => h.reason)).toContain("hand-over");
   });
 
   it("a funding sent and never confirmed stops once the order can no longer execute: past its deadline, the escrow read and empty", async () => {

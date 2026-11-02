@@ -305,7 +305,8 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.blocker.unsafeContractCall": "컨트랙트 호출이 점검을 통과하지 못했습니다.",
   "screen.review.blocker.inFlightLimit": "이 규모의 보호 작업은 한 번에 하나만 실행됩니다. 진행 중인 작업이 끝날 때까지 기다려 주세요.",
   "screen.review.blocker.routeNotQualified": "이 경로의 측정된 유동성이 금액보다 적습니다. 더 작은 금액을 시도해 주세요.",
-  "screen.review.blocker.oneAtATime": "같은 종류의 다른 작업이 아직 지갑의 응답을 기다리거나 전송 중입니다. 먼저 끝내세요. 활동에서 볼 수 있습니다.",
+  "screen.review.blocker.oneAtATime":
+    "같은 종류의 다른 작업이 아직 지갑의 응답을 기다리거나 전송 중입니다. 열려 있는 곳에서 응답하세요. 그 페이지가 사라졌다면 지갑이 체인에서 결과를 확인해 정리합니다(릴레이어를 통해 보낸 경우 몇 분, 지갑을 통해 보낸 경우 최대 한 시간). 활동에서 볼 수 있으며, 그 뒤에 이 작업을 진행할 수 있습니다.",
   "screen.progress.title": "진행 중",
   "screen.progress.preparing": "보호 거래를 준비하는 중…",
   "screen.progress.balance": "잔액 확인",
@@ -626,6 +627,9 @@ export const ko: Record<MessageKey, string> = {
     "이 지갑의 활동 기록을 읽을 수 없어서, 새 스왑의 기록은 다음 잠금 때 사라집니다. 아무것도 전송되지 않았습니다. 먼저 백업을 복원하거나 기록을 따로 보관하세요.",
   "op.error.interrupted.title": "전송되기 전에 중단되었습니다",
   "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
+  "op.error.locked_mid_flow.title": "중단됨: 두 단계 사이에 지갑이 잠겼습니다",
+  "op.error.locked_mid_flow.reason":
+    "다음 단계 전에 지갑이 잠겨 더 이상 전송되지 않았습니다. 이미 확정된 승인이 있을 수는 있지만 자금은 이동하지 않았습니다. 잠금을 해제하고 다시 시작하세요.",
   "op.error.outcome_unknown.title": "전송됨 — 트랜잭션을 아직 찾지 못함",
   "op.error.outcome_unknown.reason": "노트는 사용되었지만 트랜잭션을 아직 여기서 확인하지 못했습니다. 계속 확인하며, 찾을 때까지 더 보내지 않습니다.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",

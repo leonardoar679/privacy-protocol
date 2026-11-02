@@ -29,7 +29,11 @@ base-uri 'none'; form-action 'none'; object-src 'none'; upgrade-insecure-request
 - `img-src data: blob:`: the icons wallets announce through EIP-6963 arrive as data URIs; the QR of Receive is inline SVG.
 - `frame-src 'none'`: no frame — with a WalletConnect project id (V7 Stage 16, spec v3.0 §9) the verify iframe's two hosts, and
   the modal's wallet list and logos (`api.web3modal.org`, `api.web3modal.com`, `explorer-api.walletconnect.com`) join
-  `connect-src` and `img-src`; WalletConnect's telemetry host is never listed. `apps/web/scripts/csp.mjs` builds all of it.
+  `connect-src` and `img-src` — by exact host, never a wildcard (the review round of 2026-11-02: `*.walletconnect.org` had let
+  the telemetry host and the provider's RPC host through while the docs read "never"); WalletConnect's telemetry host
+  (`pulse`), its push host (`echo`) and its RPC host (`rpc`) are never allowed, and `apps/web/test/csp.test.ts` matches them
+  against every source as a browser would. The wallet reads the chain through its own endpoints; a method the provider
+  would route to its RPC host fails under the policy instead of leaking. `apps/web/scripts/csp.mjs` builds all of it.
 - `style-src-attr 'unsafe-inline'`: the design system sets no inline styles; a few V1.1–V4 components still mounted do.
 
 The headers (`SECURITY_HEADERS` in `csp.mjs`):

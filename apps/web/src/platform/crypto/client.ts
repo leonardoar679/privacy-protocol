@@ -30,7 +30,7 @@ const pending = new Map<number, Pending>();
 let locks = 0;
 
 /** A lock ended it before anything was sent: nothing moved (the catalog's `interrupted`). */
-const interrupted = (): Error => Object.assign(new Error("the wallet locked before anything was sent"), { code: "interrupted" });
+const interrupted = (): Error => Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });
 
 function failAll(error: () => Error): void {
   for (const p of pending.values()) p.reject(error());

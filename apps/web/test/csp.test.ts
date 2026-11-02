@@ -49,13 +49,25 @@ describe("the content security policy (spec §20)", () => {
     expect(buildCsp(ENV)).not.toContain("walletconnect");
     const wc = buildCsp({ ...ENV, VITE_WC_PROJECT_ID: "abc" });
     expect(wc).toContain("wss://relay.walletconnect.com");
-    expect(wc).toContain("https://*.walletconnect.com");
     // V7 Stage 16 (spec v3.0 §9): the modal's wallet list and logos, the verify iframe — with a project id only; never a frame otherwise
     const directiveOf = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(name + " "))!;
     expect(directiveOf(wc, "connect-src")).toContain("https://api.web3modal.org");
-    expect(directiveOf(wc, "img-src")).toBe(
-      "img-src 'self' data: blob: https://api.web3modal.org https://api.web3modal.com https://explorer-api.walletconnect.com https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
-    );
+    expect(directiveOf(wc, "img-src")).toBe("img-src 'self' data: blob: https://api.web3modal.org https://api.web3modal.com https://explorer-api.walletconnect.com");
+    // the review round of 2026-11-02: exact hosts only, matched as a browser would — a wildcard had let WalletConnect's
+    // telemetry host and the provider's RPC host through while a string check read "never"
+    const sourcesOf = (csp: string, name: string) => directiveOf(csp, name).split(" ").slice(1);
+    const allows = (csp: string, name: string, host: string) =>
+      sourcesOf(csp, name).some((src) => {
+        const h = src.replace(/^[a-z]+:\/\//, "");
+        return h === host || (h.startsWith("*.") && host.endsWith(h.slice(1)));
+      });
+    for (const name of ["connect-src", "img-src", "frame-src"]) expect(sourcesOf(wc, name).some((src) => src.includes("*")), `${name}: no wildcard source`).toBe(false);
+    for (const host of ["pulse.walletconnect.org", "pulse.walletconnect.com", "echo.walletconnect.com", "rpc.walletconnect.org", "rpc.walletconnect.com", "secure.walletconnect.org"]) {
+      expect(allows(wc, "connect-src", host), `${host} is never allowed`).toBe(false);
+      expect(allows(wc, "img-src", host), `${host} is never an image host`).toBe(false);
+    }
+    expect(allows(wc, "connect-src", "relay.walletconnect.org")).toBe(true);
+    expect(allows(wc, "frame-src", "verify.walletconnect.org")).toBe(true);
     expect(directiveOf(wc, "frame-src")).toBe("frame-src https://verify.walletconnect.com https://verify.walletconnect.org");
     expect(directiveOf(buildCsp(ENV), "frame-src")).toBe("frame-src 'none'");
     expect(wc, "WalletConnect's telemetry host is never allowed").not.toContain("pulse.walletconnect");

@@ -1,6 +1,7 @@
-// WalletConnect (spec §7; plan §11): loaded only when the user taps it and only when a project id is configured
-// (VITE_WC_PROJECT_ID). Its relay sees the session's metadata and the IPs of both ends — said on the "What stays
-// private" screen (spec §3.13), not mitigated here. The connector is an EIP-1193 provider like the others.
+// WalletConnect (spec §7; plan §11): loaded only when the user taps it — or, after a reload, when its own store holds a
+// session to take up (the review round of 2026-11-02: never an idle socket to the relay for nothing) — and only when a
+// project id is configured (VITE_WC_PROJECT_ID). Its relay sees the session's metadata and the IPs of both ends — said on
+// the "What stays private" screen (spec §3.13), not mitigated here. The connector is an EIP-1193 provider like the others.
 import type { Eip1193Provider } from "./injected";
 
 let projectId: string | undefined;
@@ -10,6 +11,26 @@ export function configureWalletConnect(id: string | undefined): void {
 }
 export const walletConnectProjectId = (): string | undefined => projectId;
 export const walletConnectAvailable = (): boolean => !!walletConnectProjectId();
+
+/**
+ * WalletConnect's own session store holds a session this origin can take up: its sign client keeps a list under
+ * `wc@2:client:<store version>//session` in localStorage. Nothing there (or no storage): nothing to initialize at a reload.
+ */
+export function hasWalletConnectSession(): boolean {
+  try {
+    const store = globalThis.localStorage;
+    if (!store) return false;
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (!key || !/^wc@2:client:[^/]*\/\/session$/.test(key)) continue;
+      const list = JSON.parse(store.getItem(key) ?? "[]") as unknown;
+      if (Array.isArray(list) && list.length) return true;
+    }
+  } catch {
+    // no storage, or unreadable: nothing to take up
+  }
+  return false;
+}
 
 interface WcProvider extends Eip1193Provider { disconnect(): Promise<void> }
 
