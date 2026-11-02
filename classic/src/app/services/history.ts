@@ -7,8 +7,8 @@ import type { PoolId } from "../../config";
 import type { DepositEvent, Hex, WithdrawalEvent } from "../../history/events";
 import { verifySnapshot, type SnapshotManifest } from "../../history/snapshot";
 import { depositFacts, indexHistory, type HistoryIndex } from "../../history/spent";
-import { eventsUpTo, findReorg, headBlockOf, mergeCheckpoints, syncDelta, type Rpc } from "../../history/sync";
-import { verifyAgainstChain } from "../../history/verify";
+import { eventsUpTo, findReorg, headBlockOf, mergeCheckpoints, MIN_WINDOW, syncDelta, SyncError, type Rpc } from "../../history/sync";
+import { call, SELECTORS, verifyAgainstChain, wordOf } from "../../history/verify";
 import type { DepositFacts, PoolStats } from "../../model/types";
 import type { FetchedSnapshot } from "../../net/snapshot";
 import type { PathResult, ProverProgress, TreeResult } from "../../prover/protocol";
@@ -26,6 +26,12 @@ export interface TreeClient {
 
 /** a ready history older than this syncs again when asked for (ensure): a deposit made meanwhile is found without a reload */
 export const STALE_MS = 60_000;
+/** How many times a delta the pool's count says is short is asked again, with a halved window, before the sync fails. */
+export const DELTA_ATTEMPTS = 6;
+const hexBlock = (n: number): string => `0x${n.toString(16)}`;
+/** The pool's `nextIndex()` at a block: the leaves a history synced to that block must hold. */
+const nextIndexAt = async (rpc: Rpc, address: Hex, block: number): Promise<number> =>
+  Number(wordOf(await call(rpc, address, SELECTORS.nextIndex, hexBlock(block))));
 
 export type HistoryStatus =
   | { kind: "idle" }
@@ -200,15 +206,31 @@ export class PoolHistory {
     }
     const current = this.state!;
     const head = await headBlockOf(rpc);
-    const delta = await syncDelta({
-      rpc,
-      address,
-      fromBlock: current.toBlock,
-      leaves: current.leaves,
-      headBlock: head,
-      window: current.window,
-      onWindow: (w) => this.set({ kind: "loading", step: "sync", loaded: w.to - current.toBlock, total: head - 12 - current.toBlock }),
-    });
+    // the delta is taken only when the pool's own count at the delta's block agrees with the leaves it would make (the review
+    // round of 2026-11-02): an endpoint that caps eth_getLogs and answers short with no error would otherwise leave a short
+    // history, persisted at an advanced block and past repair. A short answer halves the window and asks again; a chain that
+    // counts fewer than this history holds, or a shortfall that stays, fails the sync with both counts — nothing persisted
+    let window = current.window;
+    let delta: Awaited<ReturnType<typeof syncDelta>>;
+    for (let attempt = 1; ; attempt++) {
+      delta = await syncDelta({
+        rpc,
+        address,
+        fromBlock: current.toBlock,
+        leaves: current.leaves,
+        headBlock: head,
+        window,
+        onWindow: (w) => this.set({ kind: "loading", step: "sync", loaded: w.to - current.toBlock, total: head - 12 - current.toBlock }),
+      });
+      const counted = await nextIndexAt(rpc, address, delta.toBlock);
+      const made = current.leaves + delta.deposits.length;
+      if (counted === made) break;
+      const detail = `the pool counts ${counted} deposits at block ${delta.toBlock}, the endpoint's logs make ${made}`;
+      if (counted < made) throw new SyncError(`${detail}: this history is not the chain's`, "gap");
+      const used = window ?? delta.window;
+      if (attempt >= DELTA_ATTEMPTS || used <= MIN_WINDOW) throw new SyncError(`${detail}: the endpoint's logs come short (try another endpoint)`, "gap");
+      window = Math.max(MIN_WINDOW, Math.floor(used / 2));
+    }
     if (delta.deposits.length) {
       const r = await tree.appendLeaves(
         pool,
@@ -232,7 +254,9 @@ export class PoolHistory {
     const { address } = this.d;
     this.set({ kind: "loading", step: "verify" });
     const state = this.state!;
-    const chain = await verifyAgainstChain(rpc, address, { root: BigInt(this.root!), size: state.leaves });
+    // at the history's own block (the review round of 2026-11-02): read at `latest`, a deposit of the last twelve blocks had
+    // made the count disagree with a history that was right up to its block
+    const chain = await verifyAgainstChain(rpc, address, { root: BigInt(this.root!), size: state.leaves }, hexBlock(state.toBlock));
     const now = (this.d.now ?? Date.now)();
     this.syncedAt = now;
     this.state = { ...state, verifiedAt: now, verified: chain.ok };

@@ -5,6 +5,8 @@
 // anything is sent when the user declines; failed when the history is not verified; refused when the relayer is offline.
 import { describe, expect, it } from "vitest";
 import { depositFlow, FlowRefused, withdrawalFlow } from "../src/app/services/flows";
+import { feeLines } from "../src/model/fees";
+import { poolOf } from "../src/model/pools";
 import type { JobRecord } from "../src/app/services/operations";
 import { createServices, sourceOf, type ClassicServices } from "../src/app/services/source";
 import { WalletSession } from "../src/app/services/wallet";
@@ -41,6 +43,8 @@ interface SetupOptions {
   knownRoot?: boolean;
   verifiedProof?: boolean;
 }
+/** The fee the screen offers at the scripted 12 gwei: the original's 550,000 gas plus the relayer's 0.4 % — above the relayer's own 390,000-gas minimum. */
+const FEE = feeLines(poolOf("eth-100"), { feePercentE4: 4000 }, 12_000_000_000n).totalFeeWei;
 async function setup({ live = { "eth-100": ["deposit", "withdraw"] }, nextIndex = 1024, knownRoot = true, verifiedProof = true }: SetupOptions = {}) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   const chain = scriptedChain({
@@ -151,7 +155,7 @@ describe("the withdrawal flow", () => {
       recipient: RECIPIENT,
       via: "relayer",
       relayerId: "to-relayer.eth",
-      feeWei: 10n ** 17n,
+      feeWei: FEE,
       confirm: async () => true,
       onStep: (s) => steps.push(s.step === "following" ? `following:${s.relayerState}` : s.step),
       onJob: (j) => seen.push(j),
@@ -175,7 +179,7 @@ describe("the withdrawal flow", () => {
     const input = prover.proofs[0];
     expect(input.recipient).toBe(BigInt(RECIPIENT).toString());
     expect(input.relayer).toBe(BigInt(status.v4.body.rewardAccount).toString());
-    expect(input.fee).toBe((10n ** 17n).toString());
+    expect(input.fee).toBe(FEE.toString());
     expect(input.pathElements.length).toBe(20);
     expect(BigInt(input.root)).toBe(BigInt(snap.manifest.root));
     // the flow builds the input from the worker's derivation and the note's bytes: exactly what prover/input.ts (the vectors' builder) derives on its own
@@ -185,7 +189,7 @@ describe("the withdrawal flow", () => {
         root: BigInt(snap.manifest.root),
         recipient: RECIPIENT,
         relayer: status.v4.body.rewardAccount as `0x${string}`,
-        feeWei: 10n ** 17n,
+        feeWei: FEE,
         refundWei: 0n,
       }),
     );
@@ -195,10 +199,26 @@ describe("the withdrawal flow", () => {
     expect(posted.body.args[0]).toBe(snap.manifest.root);
     expect(posted.body.args[2]).toBe(RECIPIENT);
     expect(posted.body.args[3]).toBe(status.v4.body.rewardAccount.toLowerCase());
-    expect(posted.body.args[4]).toBe(`0x${word(10n ** 17n)}`);
+    expect(posted.body.args[4]).toBe(`0x${word(FEE)}`);
     expect(posted.body.proof).toMatch(/^0x[0-9a-f]{512}$/);
   });
 
+  it("a fee below the relayer's minimum at the live gas price is refused before any proof, with both numbers (the review round of 2026-11-02)", async () => {
+    const { services, prover, facts } = await ready();
+    const low = withdrawalFlow(services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: 10n ** 16n,
+      confirm: async () => true,
+    });
+    await expect(low).rejects.toBeInstanceOf(FlowRefused);
+    await expect(low).rejects.toThrow(/the fee offered \(10000000000000000 wei\) is below the relayer's minimum at the current gas price \(\d+ wei\)/);
+    expect(prover.proofs).toHaveLength(0);
+  });
   it("the root is checked again after the confirmation: aged out of the pool's hundred meanwhile → the history synced again, proved again once, then submitted (Stage 10)", async () => {
     const { services, chain, prover, transport, facts } = await ready();
     const oldRoot = snap.manifest.root.toLowerCase();
@@ -209,7 +229,7 @@ describe("the withdrawal flow", () => {
       recipient: RECIPIENT,
       via: "relayer",
       relayerId: "to-relayer.eth",
-      feeWei: 10n ** 17n,
+      feeWei: FEE,
       confirm: async () => {
         // while the user looked at the confirmation, another deposit landed and the pool's window moved past the proof's root
         chain.options.head = snap.manifest.toBlock + 300; // the chain moved on: the new deposit sits in the next window

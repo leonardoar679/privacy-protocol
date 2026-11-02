@@ -141,9 +141,31 @@ describe("a pool's history", () => {
     // the chain's hash of the snapshot's block is another one
     const other = history({ rpc: scriptedChain({ head: TO_BLOCK + 100, nextIndex: 1024 }).rpc });
     expect(await other.h.ensure()).toMatchObject({ kind: "failed", reason: expect.stringMatching(/not on this chain/) });
-    const disagree = history({ rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 999, knownRoot: false, blockHashes: realHash }).rpc });
+    // the review round of 2026-11-02: a chain that counts fewer deposits at the delta's block than this history holds is not
+    // this history's chain — the sync fails with both counts, nothing persisted
+    const fewer = history({ rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 999, knownRoot: false, blockHashes: realHash }).rpc });
+    expect(await fewer.h.ensure()).toMatchObject({
+      kind: "failed",
+      reason: expect.stringMatching(/counts 999 deposits at block \d+, the endpoint's logs make 1024: this history is not the chain's/),
+    });
+    // an endpoint whose logs come short (a capped answer with no error): asked again with halved windows, then failed — the
+    // history stays at its block, nothing persisted at an advanced one
+    const shortStore = memoryHistoryStore();
+    const short = history({
+      rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 1030, knownRoot: true, blockHashes: realHash }).rpc,
+      store: shortStore,
+    });
+    const chainShort = short.h;
+    expect(await chainShort.ensure()).toMatchObject({
+      kind: "failed",
+      reason: expect.stringMatching(/the endpoint's logs make 1024: the endpoint's logs come short/),
+    });
+    expect(await shortStore.read("eth-100"), "nothing persisted").toBeNull();
+    expect(chainShort.state?.toBlock, "the history stays at its block").toBe(TO_BLOCK);
+    // the count agreeing and the root unknown to the pool: ready, unverified, with the reason
+    const disagree = history({ rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 1024, knownRoot: false, blockHashes: realHash }).rpc });
     const s = await disagree.h.ensure();
-    expect(s).toMatchObject({ kind: "ready", verified: false, reason: expect.stringMatching(/counts 999 deposits/) });
+    expect(s).toMatchObject({ kind: "ready", verified: false, reason: expect.stringMatching(/does not know this history's root/) });
     expect(disagree.h.verified).toBe(false);
   });
 

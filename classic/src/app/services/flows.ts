@@ -7,6 +7,7 @@
 import { isLive, type PoolId } from "../../config";
 import type { Hex } from "../../history/events";
 import { verifyAgainstChain } from "../../history/verify";
+import { relayerMinimumWei } from "../../model/fees";
 import { formatNote, leBigInt, type ClassicNote } from "../../model/notes";
 import { poolOf } from "../../model/pools";
 import type { DepositFacts } from "../../model/types";
@@ -15,6 +16,7 @@ import type { ProofResult, ProverProgress } from "../../prover/protocol";
 import { followJob, submitWithdrawal, RelayerRefusal } from "../../relayer/client";
 import { relayerArgs } from "../../wallet/calldata";
 import { waitForReceipt } from "../../wallet/connection";
+import { gasPriceWei } from "./gas";
 import { fromRelayerState, move, newJob, type JobRecord } from "./operations";
 import type { ClassicServices } from "./source";
 
@@ -101,6 +103,16 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   const p = poolOf(pool);
   const relayer = via === "relayer" ? s.relayers.entry(input.relayerId ?? "") : null;
   if (via === "relayer" && (!relayer || relayer.status !== "online" || !relayer.facts)) throw new FlowRefused("the chosen relayer is not online");
+  // the fee offered was priced when the screen read the gas price; the relayer judges it at its own, now (the review round of
+  // 2026-11-02): below its minimum at the live price the job would be refused after the proof — refused here instead, with
+  // both numbers, before anything is proved; the screen reads the fees again
+  if (via === "relayer") {
+    const fresh = await gasPriceWei(s.rpc);
+    const minimum = relayerMinimumWei(p, relayer!.facts!, fresh);
+    const offered = input.feeWei ?? 0n;
+    if (offered < minimum)
+      throw new FlowRefused(`the fee offered (${offered} wei) is below the relayer's minimum at the current gas price (${minimum} wei): review the fees again`);
+  }
   let job = newJob(id(), "withdrawal", pool, now(), { via, ...(relayer ? { relayerUrl: relayer.url } : {}) });
   const keep = async (next: JobRecord) => {
     job = next;
