@@ -137,6 +137,23 @@ describe("the table", () => {
     for (const target of Object.values(STATE_EVENT_TARGET)) if (target !== null) expect(OPERATION_STATES).toContain(target);
     expect(OPERATION_STATES).toHaveLength(15);
   });
+  it("a spend the connected wallet submits (the review round of 2026-11-02): its submitting step is the wallet's prompt — the record waits, declinable back to the review; the relayer's is SUBMITTING, never back", () => {
+    const proved = at(record({ kind: "send" }), "PREPARING_PROOF", ["DRAFT", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF"]);
+    const prompt = transition(proved, { type: "progress", step: "submitting", by: "wallet", nullifiers: ["1", "2"] }, 9_000);
+    expect(prompt.ok && prompt.record, "the prompt: a field of the state, not a state").toMatchObject({ state: "PREPARING_PROOF", progress: { step: "submitting" }, refs: { nullifiers: ["1", "2"] } });
+    const declined = transition((prompt as { record: OperationRecord }).record, { type: "rejected" }, 9_001);
+    expect(declined.ok && declined.record, "declined: back to the review, nothing sent").toMatchObject({ state: "READY_TO_REVIEW", declined: { code: "user_rejected" } });
+    const sent = transition((prompt as { record: OperationRecord }).record, { type: "submitted", txHash: HASH, by: "wallet" }, 9_002);
+    expect(sent.ok && sent.record, "signed and sent: the chain").toMatchObject({ state: "SOURCE_CONFIRMING", refs: { txHashes: [HASH] } });
+    const handed = transition(proved, { type: "progress", step: "submitting", by: "relayer", nullifiers: ["1", "2"], relayerUrl: "http://relayer.test" }, 9_000);
+    expect(handed.ok && handed.record, "the relayer path: the proof handed over").toMatchObject({ state: "SUBMITTING" });
+    const back = transition((handed as { record: OperationRecord }).record, { type: "rejected" }, 9_001);
+    expect(!back.ok && back.reason, "never back").toBe("after-submission");
+    // the quote of a funded swap expiring: the user's choice, with the spec's reason (spec v3.0 §6)
+    const funded = transition(at(record({ kind: "swap" }), "SOURCE_CONFIRMING", ["AWAITING_AUTHORIZATION", "SUBMITTING", "SOURCE_CONFIRMING"]), { type: "quote-expired" }, 9_000);
+    expect(funded.ok && funded.record).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved" } });
+  });
+
   it("refuses what the table does not allow: DRAFT → SUBMITTED, REVIEW → COMPLETED, SUBMITTED → DRAFT, REFUNDING → COMPLETED", () => {
     const refused = (s: OperationState, ev: OperationEvent, history?: OperationState[]) => { const t = transition(at(record(), s, history), ev, 9_000); return t.ok ? "ok" : t.reason; };
     expect(refused("DRAFT", { type: "submitted", txHash: HASH })).toBe("not-allowed");

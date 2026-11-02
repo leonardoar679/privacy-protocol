@@ -207,7 +207,11 @@ export function transition(rec: OperationRecord, ev: OperationEvent, now = Date.
     // a Protect's progress never moves its state: it has no proof, and its "submitting" step is the external wallet's prompt,
     // which signs and sends in one step and may decline — the record waits as AWAITING_AUTHORIZATION and meets the chain at
     // SOURCE_CONFIRMING (SUBMITTING is that step's instant). The private spends (send, withdraw, swap, cross-chain) step through.
-    const stepped = rec.kind === "protect" ? null : (PROGRESS_STEP_STATE[ev.step] ?? null);
+    // The same for the "submitting" step of a spend the connected wallet submits (the review round of 2026-11-02): that step is
+    // the external wallet's prompt too — nothing is sent until it signs, and it may decline —, so the record waits as
+    // AWAITING_AUTHORIZATION; SUBMITTING is the relayer path's, the proof handed over.
+    const walletPrompt = ev.step === "submitting" && ev.by === "wallet";
+    const stepped = rec.kind === "protect" || walletPrompt ? null : (PROGRESS_STEP_STATE[ev.step] ?? null);
     if (!stepped || stepped === rec.state || !ALLOWED[rec.state].includes(stepped)) return fieldEvent(rec, ev, at);
     target = stepped;
   }
@@ -225,7 +229,7 @@ export function transition(rec: OperationRecord, ev: OperationEvent, now = Date.
     FAILURE_STATES.includes(target) || ev.type === "quote-expired"
       ? ev.type === "resume" && rec.reason
         ? rec.reason
-        : reasonOf(code, DEFAULT_CODES[ev.type] ?? "unknown", detail)
+        : reasonOf(code, ev.type === "quote-expired" && wasSubmitted(rec) ? "minimum_moved" : (DEFAULT_CODES[ev.type] ?? "unknown"), detail) // after the funding: the user's choice (spec v3.0 §6)
       : undefined;
   if (target === "FAILED" && reason) target = failureTarget(reason); // I-O6
 

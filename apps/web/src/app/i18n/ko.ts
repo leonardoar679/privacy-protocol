@@ -626,6 +626,8 @@ export const ko: Record<MessageKey, string> = {
     "이 지갑의 활동 기록을 읽을 수 없어서, 새 스왑의 기록은 다음 잠금 때 사라집니다. 아무것도 전송되지 않았습니다. 먼저 백업을 복원하거나 기록을 따로 보관하세요.",
   "op.error.interrupted.title": "전송되기 전에 중단되었습니다",
   "op.error.interrupted.reason": "보내기 전에 페이지가 닫히거나 새로고침되었습니다. 아무것도 이동하지 않았으니 다시 시작하세요.",
+  "op.error.outcome_unknown.title": "전송됨 — 트랜잭션을 아직 찾지 못함",
+  "op.error.outcome_unknown.reason": "노트는 사용되었지만 트랜잭션을 아직 여기서 확인하지 못했습니다. 계속 확인하며, 찾을 때까지 더 보내지 않습니다.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",
   "op.error.transaction_dropped.reason": "전송되었지만 처리되기 전에 누락되어 아무것도 이동하지 않았습니다. 다시 보내세요.",
   "op.error.payout_held.title": "받는 주소가 결제를 받지 않았습니다",

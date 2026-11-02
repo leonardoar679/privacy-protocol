@@ -53,7 +53,17 @@ export type OperationEvent =
   | { type: "edit" }
   | { type: "confirm"; checklist?: { destination: boolean; route: boolean; execution: boolean; limits: boolean } }
   /** at "submitting", what the record keeps to be settled from the chain if its page goes away (operations/stale.ts) */
-  | { type: "progress"; step: ProgressStep; i?: number; n?: number; noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string }
+  | {
+      type: "progress";
+      step: ProgressStep;
+      i?: number;
+      n?: number;
+      noteCounter?: number;
+      nullifiers?: [string, string];
+      relayerUrl?: string;
+      /** who a "submitting" step hands to: the relayer (irreversible: SUBMITTING), or the connected wallet, whose prompt it is (declinable: the record waits as AWAITING_AUTHORIZATION) */
+      by?: "relayer" | "wallet";
+    }
   | ({ type: "signed" } & EventRefs)
   | ({ type: "submitted"; by?: "relayer" | "wallet" } & EventRefs)
   | ({ type: "relayer-executing" } & EventRefs)

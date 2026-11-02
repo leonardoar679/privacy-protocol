@@ -73,7 +73,13 @@ describe("spec v2.0 §12 ↔ the code", () => {
     expect(upgradeStateV7("AWAITING_SIGNATURE", draft, true)).toBe("AWAITING_AUTHORIZATION");
     for (const step of ["witness", "proof", "local-verify"])
       expect(upgradeStateV7("AWAITING_SIGNATURE", { ...draft, progress: { step } }, true), step).toBe("PREPARING_PROOF");
-    expect(upgradeStateV7("AWAITING_SIGNATURE", { ...draft, progress: { step: "submitting" } }, true)).toBe("SUBMITTING");
+    expect(upgradeStateV7("AWAITING_SIGNATURE", { ...draft, progress: { step: "submitting" }, refs: { relayerUrl: "http://relayer.test" } }, true)).toBe(
+      "SUBMITTING",
+    );
+    expect(
+      upgradeStateV7("AWAITING_SIGNATURE", { ...draft, progress: { step: "submitting" } }, true),
+      "no relayer kept: the connected wallet's prompt, the authorization (the review round of 2026-11-02)",
+    ).toBe("AWAITING_AUTHORIZATION");
     expect(
       upgradeStateV7("AWAITING_SIGNATURE", { ...draft, kind: "protect", progress: { step: "submitting" } }, true),
       "a Protect's prompt is the authorization",

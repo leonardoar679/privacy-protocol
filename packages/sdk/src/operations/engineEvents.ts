@@ -76,6 +76,7 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
             ...(e.nullifiers ? { nullifiers: e.nullifiers } : {}),
             ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}),
             ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}),
+            ...(e.by ? { by: e.by } : {}),
           };
     case "relayer-retry":
       return opts.nested ? null : { type: "note", note: `relayer unreachable, attempt ${e.attempt}` };

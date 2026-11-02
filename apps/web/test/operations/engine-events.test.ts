@@ -35,7 +35,8 @@ describe("fromEngineEvent", () => {
     expect(fromEngineEvent({ type: "proved", ms: 1200, verifiedLocally: true })).toEqual({ type: "progress", step: "local-verify" });
     expect(fromEngineEvent({ type: "wallet-prompt", step: "approve", i: 1, n: 2 })).toEqual({ type: "progress", step: "submitting", i: 1, n: 2 });
     expect(fromEngineEvent({ type: "approved", txHash: H1 })).toEqual({ type: "note", note: `approval ${H1}` });
-    expect(fromEngineEvent({ type: "submitting", by: "relayer" })).toEqual({ type: "progress", step: "submitting" });
+    expect(fromEngineEvent({ type: "submitting", by: "relayer" })).toEqual({ type: "progress", step: "submitting", by: "relayer" });
+    expect(fromEngineEvent({ type: "submitting", by: "wallet", nullifiers: ["1", "2"] }), "the connected wallet's own send: its prompt (the review round of 2026-11-02)").toEqual({ type: "progress", step: "submitting", nullifiers: ["1", "2"], by: "wallet" });
     expect(fromEngineEvent({ type: "relayer-retry", attempt: 2 })).toEqual({ type: "note", note: "relayer unreachable, attempt 2" });
     expect(fromEngineEvent({ type: "submitted", txHash: H1, by: "relayer" })).toEqual({ type: "submitted", txHash: H1, by: "relayer" });
     expect(fromEngineEvent({ type: "waiting-receipt", txHash: H1 })).toEqual({ type: "confirming", txHash: H1 });

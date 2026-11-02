@@ -32,6 +32,11 @@ export const DRAFT_STATES: readonly OperationState[] = CONTRACT_DRAFT_STATES;
 export const PRE_SUBMISSION_STATES: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF"];
 /** Reached only once something was handed to the relayer or the network (I-O7 reads the history for them). */
 export const SUBMITTED_STATES: readonly OperationState[] = ["SUBMITTING", "SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];
+/** The states after the send itself reached the chain or the relayer accepted it: SUBMITTING is the send in progress, not yet one (the review round of 2026-11-02). */
+export const SENT_STATES: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING", "COMPLETED", "REFUNDED"];
+/** Whether the record's send reached the chain: a hash known, or a state at or after SOURCE_CONFIRMING now or in its history. */
+export const wasSent = (r: { state: OperationState; history: { state: OperationState }[]; refs: { txHashes: string[] } }): boolean =>
+  r.refs.txHashes.length > 0 || SENT_STATES.includes(r.state) || r.history.some((h) => SENT_STATES.includes(h.state));
 /** The happy path from the authorization to completion, in order (a Protect skips the proof; a Protect and a Send skip the provider's and the destination's states). */
 export const PROGRESS_STATES: readonly OperationState[] = [
   "AWAITING_AUTHORIZATION",

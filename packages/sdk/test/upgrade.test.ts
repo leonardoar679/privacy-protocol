@@ -248,11 +248,23 @@ describe("the V6 → V7 step (spec v3.0 §6; V7 Stage 15)", () => {
     }) as StoredOperationV2;
   it("renames by the crosswalk; the signature by its progress step; an expired quote by the record; the history merged; v: 3; a V7 record is itself", () => {
     expect(upgradeRecord(v6({ state: "AWAITING_SIGNATURE", progress: { step: "proof" } }))).toMatchObject({ v: 3, state: "PREPARING_PROOF" });
-    expect(upgradeRecord(v6({ state: "AWAITING_SIGNATURE", progress: { step: "submitting", i: 1, n: 2 } }))).toMatchObject({
+    expect(
+      upgradeRecord(
+        v6({
+          state: "AWAITING_SIGNATURE",
+          progress: { step: "submitting", i: 1, n: 2 },
+          refs: { txHashes: [], nullifiers: ["1", "2"], relayerUrl: "http://relayer.test" },
+        }),
+      ),
+    ).toMatchObject({
       v: 3,
       state: "SUBMITTING",
       progress: { step: "submitting" },
     });
+    expect(
+      upgradeRecord(v6({ state: "AWAITING_SIGNATURE", progress: { step: "submitting", i: 1, n: 1 }, refs: { txHashes: [], nullifiers: ["1", "2"] } })),
+      "a spend the connected wallet submits: its prompt is the authorization (the review round of 2026-11-02)",
+    ).toMatchObject({ v: 3, state: "AWAITING_AUTHORIZATION", progress: { step: "submitting" } });
     expect(upgradeRecord(v6({ state: "AWAITING_SIGNATURE" }))).toMatchObject({ v: 3, state: "AWAITING_AUTHORIZATION" });
     expect(
       upgradeRecord(v6({ kind: "protect", state: "AWAITING_SIGNATURE", progress: { step: "submitting", i: 1, n: 1 } })),
@@ -280,6 +292,21 @@ describe("the V6 → V7 step (spec v3.0 §6; V7 Stage 15)", () => {
       recovery: { state: "monitoring" },
     });
     expect(moved.history.map((h) => h.state)).toEqual(["AWAITING_AUTHORIZATION", "SOURCE_CONFIRMING", "RECOVERY_REQUIRED"]);
+    // SIGNED is a submitted state too (SUBMITTING in V7): a quote that expired after the signature waits for the user's choice
+    expect(
+      upgradeRecord(
+        v6({
+          kind: "cross-chain",
+          state: "QUOTE_EXPIRED",
+          history: [
+            { state: "AWAITING_SIGNATURE", at: 1 },
+            { state: "SIGNED", at: 2 },
+            { state: "QUOTE_EXPIRED", at: 3 },
+          ],
+        }),
+      ),
+      "signed, never a draft again (the review round of 2026-11-02)",
+    ).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved" } });
     const expired = upgradeRecord(
       v6({
         kind: "cross-chain",
@@ -296,6 +323,21 @@ describe("the V6 → V7 step (spec v3.0 §6; V7 Stage 15)", () => {
       state: "READY_TO_REVIEW",
       reason: { code: "quote_expired", fundsClass: "not-moved" },
     });
+    // a draft is never journaled: the journal's list drops it rather than keep an invisible record for good
+    expect(
+      upgradeOperations([
+        v6({
+          kind: "cross-chain",
+          state: "QUOTE_EXPIRED",
+          history: [
+            { state: "AWAITING_SIGNATURE", at: 1 },
+            { state: "QUOTE_EXPIRED", at: 2 },
+          ],
+        }),
+        v6({ state: "AWAITING_SIGNATURE" }),
+      ]).map((r) => r.state),
+      "the expired draft leaves the journal (the review round of 2026-11-02)",
+    ).toEqual(["AWAITING_AUTHORIZATION"]);
     const merged = upgradeRecord(
       v6({
         kind: "swap",

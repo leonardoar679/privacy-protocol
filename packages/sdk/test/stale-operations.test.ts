@@ -186,12 +186,19 @@ describe("operations whose flow is gone", () => {
     const spentElsewhere = record("withdraw", "submitting", 22, T0, { nullifiers: ["221", "222"], relayerUrl: relayer });
     resetOperationsMemory();
     const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"], spends: { 20: ["201", "202"] } });
-    expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(1);
+    expect(await reconcileStaleOperations(reads, T0 + 60_000), "the answered one completed; the spent one waits (the review round of 2026-11-02)").toBe(2);
     expect(getOperation(answered)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(20)] } });
     expect(getOperation(lost)!.state).toBe("SUBMITTING");
     expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
     expect(getOperation(lost)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
-    expect(getOperation(spentElsewhere)!.state, "sent, its transaction unknown here: never called interrupted").toBe("SUBMITTING");
+    expect(
+      getOperation(spentElsewhere),
+      "sent, its transaction unknown here: never called interrupted — and never left where it blocks the next Send for good",
+    ).toMatchObject({
+      state: "RECOVERY_REQUIRED",
+      reason: { code: "outcome_unknown", fundsClass: "unknown" },
+    });
+    expect(await reconcileStaleOperations(reads, T0 + 2 * STALE_DROP_MS), "read again, nothing new: no second move").toBe(0);
     // sent through the connected wallet (no relayer to ask): its change note, once the scan found it, completes it
     const own = record("send", "submitting", 23, T0, { nullifiers: ["231", "232"], noteCounter: 77 });
     resetOperationsMemory();
@@ -205,6 +212,15 @@ describe("operations whose flow is gone", () => {
     });
     await reconcileStaleOperations(chain({ spent: ["231"] }), T0 + 60_000);
     expect(getOperation(own)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 9, txHashes: [hash(23)] } });
+  });
+
+  it("a record that reached the submission but kept nothing (from before the keeping of 2026-10-14): past the limit it waits as RECOVERY_REQUIRED rather than block the wallet for good (the review round of 2026-11-02)", async () => {
+    const bare = record("send", "submitting", 60);
+    resetOperationsMemory();
+    expect(await reconcileStaleOperations(chain(), T0 + 60_000), "within the limit: left").toBe(0);
+    expect(getOperation(bare)!.state).toBe("SUBMITTING");
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
+    expect(getOperation(bare)).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "outcome_unknown", fundsClass: "unknown" } });
   });
 
   it("the relayer's word alone completes nothing: a transaction spending other notes is never adopted, and one a record already carries needs recovery (the audit round of 2026-10-16, c42)", async () => {

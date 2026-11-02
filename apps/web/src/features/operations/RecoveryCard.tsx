@@ -4,7 +4,7 @@
 // campaign's cancel) — never a blind Retry: a retry is a new quote or a tracked resume.
 import { Button, Card, StatusBadge, TransactionTimeline, type StepState } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { isDraft, wasSubmitted, type OperationRecord, type SettlementState } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, wasSent, type OperationRecord, type SettlementState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { actionsFor, verdict } from "./recovery";
 
 export interface RecoveryLegs { source: StepState; swap: StepState; destination: StepState }
@@ -26,7 +26,7 @@ export function legsOf(rec: OperationRecord): RecoveryLegs {
   // through to the state's legs — it had thrown
   const by: RecoveryLegs | undefined = rec.settlement ? BY_SETTLEMENT[rec.settlement] : undefined;
   if (by && !(rec.settlement === "COMPLETED" && (s === "REFUNDED" || s === "REFUNDING"))) return by;
-  const sourceDone = wasSubmitted(rec) || s === "COMPLETED" || s === "REFUNDED" || (s === "RECOVERY_REQUIRED" && rec.refs.txHashes.length > 0);
+  const sourceDone = wasSent(rec); // a hash known, or past the send: a step merely signed or submitting is still the source's (the review round of 2026-11-02)
   const swap: StepState = s === "COMPLETED" || s === "DESTINATION_CONFIRMING" ? "done" : s === "RECOVERY_REQUIRED" ? "failed" : s === "PROVIDER_EXECUTING" ? "active" : "waiting";
   const destination: StepState = s === "COMPLETED" ? "done" : s === "DESTINATION_CONFIRMING" ? "active" : "waiting";
   return { source: sourceDone ? "done" : s === "FAILED" || (!!rec.declined && isDraft(s)) ? "failed" : "active", swap, destination };

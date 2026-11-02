@@ -17,6 +17,7 @@
 // other name unchanged; the history renamed the same way and merged. A V5 record goes through both steps.
 import { STATE_CROSSWALK_V2, type OperationStateV2 } from "@privacy-wallet/protocol-types";
 import type { FundsClass, OperationKind, OperationPhase, OperationReason, OperationRecord, OperationState } from "../wallet/operationRecord";
+import { isDraft } from "../wallet/operationRecord";
 import { failureTarget } from "./errors/codes";
 
 /** A record as V5 wrote it (or as V6 does: `v: 2`, or V7: `v: 3`). */
@@ -112,20 +113,22 @@ export function upgradeRecordV6(stored: StoredOperation | StoredOperationV2): St
   return out;
 }
 
-const SUBMITTED_V2: readonly string[] = ["SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "REFUNDING"];
+const SUBMITTED_V2: readonly string[] = ["SIGNED", "SUBMITTED", "CONFIRMING", "EXECUTING", "SETTLING", "REFUNDING"]; // SIGNED → SUBMITTING, a submitted state in V7 (the review round of 2026-11-02)
 const PROOF_STEPS: readonly string[] = ["witness", "proof", "local-verify"];
 
 /** The V7 name of a V6 state (spec v3.0 §6); `last`: the record's current line (the progress step decides the signature's split). */
 export function upgradeStateV7(
   v2: string,
-  rec: { kind?: string; state: string; progress?: { step?: string }; history: { state: string }[] },
+  rec: { kind?: string; state: string; progress?: { step?: string }; history: { state: string }[]; refs?: { relayerUrl?: string } },
   last: boolean,
 ): OperationState {
   switch (v2) {
     case "AWAITING_SIGNATURE": {
-      // a Protect's step is the external wallet's prompt, never a proof or a send of its own: its state stays the authorization
+      // a Protect's step is the external wallet's prompt, never a proof or a send of its own: its state stays the authorization;
+      // so is a spend's "submitting" step through the connected wallet (no relayer kept: the review round of 2026-11-02)
       const step = last && rec.kind !== "protect" ? rec.progress?.step : undefined;
-      return step && PROOF_STEPS.includes(step) ? "PREPARING_PROOF" : step === "submitting" ? "SUBMITTING" : "AWAITING_AUTHORIZATION";
+      if (step && PROOF_STEPS.includes(step)) return "PREPARING_PROOF";
+      return step === "submitting" && rec.refs?.relayerUrl ? "SUBMITTING" : "AWAITING_AUTHORIZATION";
     }
     case "QUOTE_EXPIRED": {
       const submitted = SUBMITTED_V2.includes(rec.state) || rec.history.some((h) => SUBMITTED_V2.includes(h.state));
@@ -177,10 +180,13 @@ export function upgradeRecord(stored: StoredOperation | OperationRecord): Operat
  * read is kept as it is — one malformed record never makes the whole journal unreadable.
  */
 export const upgradeOperations = (list: readonly (StoredOperation | OperationRecord)[]): OperationRecord[] =>
-  list.map((r) => {
+  list.flatMap((r) => {
     try {
-      return upgradeRecord(r);
+      const u = upgradeRecord(r);
+      // a draft is never journaled (spec v3.0 §6): one an upgrade yields — a V6 quote expired before its funding — leaves the
+      // journal here rather than stay an invisible record for good (the review round of 2026-11-02)
+      return isDraft(u.state) ? [] : [u];
     } catch {
-      return r as OperationRecord;
+      return [r as OperationRecord];
     }
   });

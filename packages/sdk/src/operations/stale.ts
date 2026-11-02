@@ -114,6 +114,8 @@ async function notesSpent(r: OperationRecord, reads: StaleReads): Promise<boolea
 }
 
 const INTERRUPTED: OperationEvent = { type: "submission-failed", code: "interrupted", detail: "the page was closed or reloaded before it was sent" };
+/** Sent as far as the chain can tell (its notes spent), the transaction not known here: read again at every scan (the review round of 2026-11-02). */
+const OUTCOME_UNKNOWN: OperationEvent = { type: "recovery-required", code: "outcome_unknown", detail: "sent; its transaction is not known here yet" };
 
 /** What a record that was submitting when its page went away became: its settling events, the transaction it was sent as, or nothing yet. */
 async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolean): Promise<OperationEvent[] | Hex | null> {
@@ -134,10 +136,14 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
     const job = r.refs.relayerUrl ? await reads.relayerJob(r.refs.relayerUrl, nullifiers) : null;
     // the relayer names it; the transaction itself says whether it spends these notes (c42)
     if (job && (await spendsRecord(r, job.txHash, reads)) !== false) return job.txHash;
-    if ((await Promise.all(nullifiers.map((n) => reads.spent(n)))).some(Boolean)) return null; // sent; its transaction is not known here
+    // sent, its transaction not known here: never "nothing moved" (r23) — and never left where it blocks the next Send for good
+    // (one at a time, V7 Stage 16): the record waits as RECOVERY_REQUIRED, its outcome unknown, and is read again at every scan
+    if ((await Promise.all(nullifiers.map((n) => reads.spent(n)))).some(Boolean)) return r.state === "RECOVERY_REQUIRED" ? null : [OUTCOME_UNKNOWN];
   }
-  // nothing landed and nothing spent: past the limit, nothing moved; a record that kept nothing is left as it is
-  return r.refs.noteCounter !== undefined || r.refs.nullifiers ? (old ? [INTERRUPTED] : null) : null;
+  // nothing landed and nothing spent: past the limit, nothing moved. A record that kept nothing (from before the keeping of
+  // 2026-10-14) cannot be told either way: past the limit it waits as RECOVERY_REQUIRED rather than block the wallet for good
+  if (r.refs.noteCounter !== undefined || r.refs.nullifiers) return old ? [INTERRUPTED] : null;
+  return old && r.state !== "RECOVERY_REQUIRED" ? [OUTCOME_UNKNOWN] : null;
 }
 
 /** Move every open record whose flow is gone as the chain says; returns how many moved. */

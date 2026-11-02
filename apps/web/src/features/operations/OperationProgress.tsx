@@ -4,7 +4,7 @@
 import type { ReactNode } from "react";
 import { ErrorCard, ProgressIndicator, StatusBadge, TransactionTimeline, type StepState, type TimelineStep } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { isDraft, isOpen, wasSubmitted, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { isDraft, isOpen, wasSent, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
 import { AttemptLine, attemptIdOf } from "./AttemptLine";
 
@@ -12,8 +12,9 @@ const UNDER_WAY: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXE
 
 export function timelineOf(rec: OperationRecord, t: ReturnType<typeof useT>): TimelineStep[] {
   const s = rec.state;
-  // V6: submitted once the history holds a submitted state or a hash is known; a declined prompt leaves a draft
-  const sent = wasSubmitted(rec) || rec.refs.txHashes.length > 0 || s === "COMPLETED" || s === "REFUNDED";
+  // V6: submitted once a hash is known or the record is past the send (SUBMITTING is the send in progress: the step stays
+  // active — the review round of 2026-11-02); a declined prompt leaves a draft
+  const sent = wasSent(rec);
   const declined = !!rec.declined && isDraft(s);
   const expired = s === "READY_TO_REVIEW" && rec.reason?.code === "quote_expired"; // V7: the quote expired before the funding
   const prepared: StepState =
@@ -37,7 +38,8 @@ export function headlineOf(rec: OperationRecord, t: ReturnType<typeof useT>): st
   const step = rec.progress?.step;
   if (!step) return t("progress.preparing");
   if (step === "witness" || step === "proof") return t("progress.proving");
-  if (step === "submitting") return rec.kind === "protect" ? (rec.progress?.n && rec.progress.n > 1 ? t("progress.waitingWalletOf", { i: rec.progress.i ?? 1, n: rec.progress.n }) : t("progress.waitingWallet")) : t("progress.almost");
+  // the connected wallet's prompt: a Protect's, or a spend's that it submits (no relayer kept); the relayer path is "almost ready"
+  if (step === "submitting") return rec.kind === "protect" || !rec.refs.relayerUrl ? (rec.progress?.n && rec.progress.n > 1 ? t("progress.waitingWalletOf", { i: rec.progress.i ?? 1, n: rec.progress.n }) : t("progress.waitingWallet")) : t("progress.almost");
   if (step === "local-verify") return t("progress.almost");
   return t("progress.preparing");
 }
