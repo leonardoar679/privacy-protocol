@@ -104,3 +104,9 @@ code.
 - 2026-10-26 (V7 Stage 7) — `fake-indexeddb@6.2.5` (Apache-2.0), a devDependency in `classic/package-lock.json`: the
   IndexedDB the Classic history store's tests run against (the same package the root lockfile carries for apps/web).
   Test-only, never shipped; no install script; locked with its sha512 integrity from the registry.
+- 2026-11-02 (a V7 follow-up) — `follow-redirects@1.16.2` (MIT) replaces 1.16.1 in `package-lock.json`: GHSA-mrwp-f3q8-3g9p
+  (cross-realm `sensitiveHeaders` arrays discarded, so custom credentials could follow a redirect), a transitive dependency of
+  WalletConnect's modal stack (`@walletconnect/ethereum-provider` → `@reown/appkit` → `@base-org/account` → `@coinbase/cdp-sdk`
+  → `axios`). The wallet never calls axios — every request goes through the privacy engine's transport — and the connector
+  exists only with a project id; bumped with `npm update follow-redirects`, which also wrote npm's `license` fields into the
+  lockfile's entries (no other version moved; `scripts/check-lockfile.mjs` and `scripts/dependency-review.mjs` pass).
