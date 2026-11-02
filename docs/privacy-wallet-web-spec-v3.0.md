@@ -137,6 +137,13 @@ the operation (`bounds`, the reason shown) rather than pays; a campaign from bef
 fee is integer cents from the price where the fee is in the source asset (the provider's own dollar figure only for a fee
 in another asset). The fee code itself is unchanged: the formulas and the enforcement are v2.0 §3's.
 
+**As landed (the review round of 2026-11-02).** The band's protected steps carry the Review's terms: the Swap screen passes
+`terms` to `startCampaign`, so every step's funding is bound by the relayer's minimum and percentage the Review showed (the
+steps had run without the bound since Stage 13; `apps/web/test/swap-protected-steps.test.tsx`). The API's §46 quote values
+the route's qualification at what the user pays — the set is valued at the escrow's funding and `valuedAt` scales it to
+`grossAmount` (`apps/api/src/quote.ts`) — and `POST /v1/quotes` refuses a `grossAmount` below `amount` (400). The facade's
+parity test pins the commit's facts: the request as given reaches the service and the reviewed fee is journaled.
+
 ## 4. The amount policy (doc §8) — *Stage 13* (supersedes v2.0 §2; the owner's decisions 3 and 4 of §22)
 
 | Doc §8 band | Tier (code) | Behaviour |
@@ -172,6 +179,13 @@ section 5 meets the Advanced gate in Simple and switches, 8b is one order at $80
 8c the exposure limit (a second $80K names it and Review Swap stays closed). **Deviation:** the planned 8c "a staged order through
 a risk-database override" is covered by the unit tests instead (`staged` cannot be forced deterministically against live
 providers; the in-flight limit is the e2e's 8c); `docs/HighValuePolicyBenchmark.md` noted.
+
+**As landed (the review round of 2026-11-02).** The V5 screen (`/swap/protected`) is the Advanced experience's: the route
+renders it only under `prefs.experience === "advanced"` (the gate's flag — not the settings' detail toggle) or with a campaign
+id in the navigation state; the Simple experience reaches it only to see a campaign of its own, and closing it (or an id not in
+the journal) goes back to `/swap`. Reachable by URL, the screen judges the band's exposure limit and the service's route
+qualification itself before a commit (`protectedCommitBlocker` in `apps/web/src/features/swap/model.ts`, the same two words
+Review Swap closes on). The qualification is judged at what the user pays (§3).
 
 ## 5. The swap provider facade (doc §7) — *Stage 14* (supersedes v2.0 §13.1's declared interfaces)
 
@@ -280,6 +294,16 @@ RECOVERY_REQUIRED: a moved minimum, a price deviation, a campaign's reassessing 
 events' column following) and `apps/api/src/reconcile.ts`, the web's progress / activity / recovery / protect models and the
 `op.state.*` words (en, ko), the quick pass's `data-state` selectors, `packages/sdk/test/spec-sync.test.ts` and
 `packages/protocol-types/test/spec-sync.test.ts` pinned to this section (the states and the V6 → V7 table).
+
+**As landed (the review round of 2026-11-02).** The wallet's own prompt is a field of AWAITING_AUTHORIZATION, not a state: a
+spend's `submitting` step with `by: "wallet"` (the wallet's prompt, declinable) leaves the record there, and SUBMITTING is the
+relayer path's instant; the V6 → V7 upgrade reads `refs.relayerUrl` for a record at its submitting step (SUBMITTING with a
+relayer, AWAITING_AUTHORIZATION without) and drops drafts; a Protect's progress never moves its state. A spend sent without a
+known transaction (its nullifier spent, no hash kept) waits as RECOVERY_REQUIRED with `outcome_unknown` rather than FAILED
+(`packages/sdk/src/operations/stale.ts`); `wasSent` / `SENT_STATES` (`packages/sdk/src/wallet/operationRecord.ts`) say on the
+screens what left the wallet. The API's migration 4: an operation that expired before its funding waits as RECOVERY_REQUIRED
+until its refund time, then CANCELLED (`order_expired`) — a funding in the mempool at the deadline still lands —, and the rows
+migration 3 had cancelled with a refund time still ahead come back (`apps/api/src/db.ts`, `reconcile.ts`; the schema pin).
 
 ## 7. Tornado Classic (doc §1, §4, §10 "Tornado Classic", §11, §13 "Classic") — *Stages 1–3, 5–11* (supersedes v2.0 §11.3 and the Classic rows of §7.11 and §23)
 
@@ -621,6 +645,15 @@ imported, converted, stored or transferred into the Privacy Wallet; the two apps
 secret and no runtime code; no execution crosses the protocols; the wallet's 1 % is never applied to Classic; and no
 Classic pool is ever replaced by another contract.
 
+**As landed (the review round of 2026-11-02).** A pool's history takes a delta only when the pool's own `nextIndex` at the
+delta's block agrees with the leaves it would make (`classic/src/app/services/history.ts`): an endpoint that caps `eth_getLogs`
+and answers short with no error halves the window and is asked again (`DELTA_ATTEMPTS`), then fails the sync with both counts
+— nothing persisted at an advanced block; a chain that counts fewer than the history holds fails at once ("not the chain's").
+The one check reads the pool at the history's own block, not `latest` (a deposit of the last twelve blocks had made the count
+disagree with a history right up to its block). A relayed withdrawal's offered fee is checked against the relayer's minimum
+(390,000 gas plus its share) at the live gas price before anything is proved, and refused with both numbers
+(`classic/src/app/services/flows.ts`; `classic/test/{services,flows}.test.ts`).
+
 ## 8. Stack and layout (doc §9) — *Stage 0* (the owner's decisions 6 and 7 of §22)
 
 The lean stack stays (v2.0 §4, §8, §23): React + TypeScript + Vite, Tailwind for the design system's utilities, Radix
@@ -656,10 +689,13 @@ checklist (`docs/mobile-web-gate.md`: iOS Safari, Android Chrome, the wallets' i
 Code (Stage 16, as landed): `packages/sdk/src/session/autoLock.ts` (`pageHidden` in the verdict — due at once without a
 hold, deferred by a live one like every cause, at the safe point past the cap —, `pageHide` / `pageShow`),
 `apps/web/src/platform/autoLock.ts` (the `pageshow` listener), `packages/sdk/src/privateTx.ts` (`assertStillUnlocked`
-before every prompt of a Protect: locked, the error reads `interrupted` and nothing more is asked),
+before every prompt of a Protect: locked, the error reads `locked_mid_flow` — its own words since the review round of 2026-11-02;
+`interrupted` is the page's closing — and nothing more is asked),
 `packages/wallet-engine/src/walletConnect.ts` (`metadata.icons` = this origin's `/icon.svg`, `metadata.redirect.universal` =
 this origin), `packages/wallet-engine/src/connection.ts` (`reconnect` takes a WalletConnect session its provider restored,
-by `eth_accounts`, never a pairing), `apps/web/scripts/csp.mjs` (with a project id: the modal's hosts in `connect-src` and
+by `eth_accounts`, never a pairing — and only when WalletConnect's own store holds a session, `hasWalletConnectSession`, the
+review round of 2026-11-02; a remembered connector that was present and answered nothing is forgotten by `Providers`,
+`connectorAnsweredNothing`), `apps/web/scripts/csp.mjs` (with a project id: the modal's hosts in `connect-src` and
 `img-src`, the verify iframe's in `frame-src`; `frame-src 'none'` otherwise; WalletConnect's telemetry host never),
 `apps/web/src/platform/unloadGuard.ts` (`beforeunload` while a hold is live), `apps/web/src/hooks/index.ts` (the
 scheduler's catch-up on `visibilitychange` and `online`), `apps/web/src/storage/persist.ts` + `apps/web/src/app/Background.tsx`
@@ -667,6 +703,14 @@ scheduler's catch-up on `visibilitychange` and `online`), `apps/web/src/storage/
 (`unresolvedOperation`: a record of the kind in AWAITING_AUTHORIZATION, PREPARING_PROOF or SUBMITTING) with the Protect and
 Send Reviews' blocker `one_at_a_time` (`packages/protocol-types/src/risk.ts`). The checklist and the record of the
 owner's runs: `docs/mobile-web-gate.md`.
+
+**As landed (the review round of 2026-11-02).** A runner tick that threw releases the hand-over hold (`orderRunner.ts`: a
+dead tick had kept the lock off for the cap's thirty minutes) and the next tick of an open order before its hand-over takes
+the critical section again. The policy names WalletConnect's hosts exactly — never a wildcard: `*.walletconnect.org` had let
+the telemetry host and the provider's RPC host through — and `apps/web/test/csp.test.ts` matches `pulse`, `echo`, `rpc` and
+`secure` against every source as a browser would. WalletConnect is initialized at a reload only with a session its own store
+holds; a remembered connector that answered nothing is forgotten. The one-at-a-time words say how the earlier operation
+resolves when its page is gone (from the chain: within minutes through a relayer, up to an hour through the wallet).
 
 ## 10. Gates (doc §13) — *Stages 2, 10, 11, 17*
 

@@ -55,6 +55,7 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 | `packages/swap-engine/src/provider.ts`, `packages/sdk/src/swapProvider.ts` | the facade commits and prepares exactly what the direct flow does; `validate` signs nothing; the recovery options are pure |
 | `packages/sdk/src/operations/{reducer,upgrade,adapters}.ts`, `apps/api/src/db.ts` (migration 3), `apps/api/src/reconcile.ts` | the fifteen states and I-O7 from SUBMITTING; the V6 → V7 upgrade on read (idempotent, the history merged) and the API's migration (the rows renamed in place, an expired quote closed before its funding) |
 | `packages/sdk/src/session/autoLock.ts` (`pageHidden`), `apps/web/src/platform/{autoLock,unloadGuard}.ts`, `apps/web/src/storage/persist.ts`, `packages/sdk/src/privateTx.ts` (`assertStillUnlocked`), `packages/wallet-engine/src/{walletConnect,connection}.ts`, `apps/web/scripts/csp.mjs` | the mobile-web gate: a pagehide deferred by a live hold and resumed by pageshow; a Protect that stops prompting once locked; the unload guard; persistent storage; WalletConnect's metadata, the restored session, the policy's hosts (never a telemetry host) |
+| the review round of 2026-11-02 (`apps/web/src/features/swap/{SwapScreen,Swap}.tsx`, `apps/api/src/{quote.ts,routes/swap.ts,db.ts (migration 4),reconcile.ts}`, `packages/sdk/src/operations/{reducer,upgrade,stale}.ts`, `packages/sdk/src/wallet/orderRunner.ts`, `packages/wallet-engine/src/{walletConnect,connection}.ts`, `apps/web/scripts/csp.mjs`, `classic/src/app/services/{history,flows}.ts`) | the band's steps carry the Review's terms; the V5 screen is the Advanced experience's and judges the band's limit and the route qualification itself; the API values the qualification at what the user pays and refuses a gross below the funding; the wallet's own prompt is a field of AWAITING_AUTHORIZATION; a spend sent without a known transaction waits as RECOVERY_REQUIRED (`outcome_unknown`); an order expired before its funding waits until its refund time; a tick that threw releases the hand-over hold; the policy names WalletConnect's hosts exactly; WalletConnect is initialized at a reload only with a stored session; a lock between two steps reads `locked_mid_flow`; Classic takes a delta only when the pool's count at its block agrees and prices the relayer's minimum at the live gas price |
 
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
@@ -413,6 +414,27 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     verify iframe; the policy names those hosts and no telemetry host, and the metadata declares this origin's icon and
     `redirect`. The project id, the modal's own privacy terms and whether to ship the connector at all are the owner's
     (spec v2.0 §23's WalletConnect note stands).
+61. **V7 — a campaign paused on a moved fee has no "accept today's fee" (the review round of 2026-11-02; the owner's).** A
+    protected step whose relayer fee rose above the Review's bound pauses its campaign (`58ac5da`), and "Resume" meets the same
+    bound — paused again while the fee stays higher. The user's way out today is Cancel with "Return the rest" and a new Review
+    at today's fee. Whether the campaign should offer to re-bound its remaining steps to the current terms with one confirmation
+    (one more place a fee is accepted) is the owner's decision; until then the pause names the bound and the fee.
+62. **V7 — the API's route qualification needs a valued set (the review round of 2026-11-02; the owner's).** The §46 quote
+    carries `route_not_qualified` from the risk database's measured limit against the order's dollar value — now the value of
+    what the user pays (`apps/api/src/quote.ts` `valuedAt`). A set the engine could not value (no price answer) carries no
+    `usd`, and the qualification cannot fire: an unvalued order above a route's measured limit passes the service's check and is
+    held only by the wallet's own bands, which are unvalued too without prices. Refusing to quote a large order unvalued, or
+    carrying a `valuation_unavailable` warning the Review shows, is the owner's call.
+63. **V7 — the in-flight count's tier is the journaled one (a stated limit, not a gap).** `protectedInFlightOf` counts the
+    open orders and running campaigns whose journaled tier is `large-protected` — the higher of the service's and the wallet's
+    at the commit — so a price move after the commit never changes what counts, and a wallet whose prices were unavailable at
+    the commit counts that order at the fail-safe band it was journaled at.
+64. **V7 — WalletConnect's RPC host is not in the policy (the review round of 2026-11-02; the owner's real-device run tells).**
+    The policy had allowed `https://*.walletconnect.org`, which let the telemetry host (`pulse`) and the provider's RPC host
+    (`rpc`) through while the documents read "never"; every host is exact now and a test matches the forbidden hosts against
+    every source. The provider routes `eth_accounts`, `eth_chainId` and the wallet's methods locally or through the relay; a
+    read it would route to its RPC host (none of ours) fails under the policy instead of leaking. Gap 58's run is where a
+    wallet flow that needs it would show.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 
