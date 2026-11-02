@@ -15,6 +15,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { needsAttention } from "../operations/recovery";
 import { Recovery } from "../operations/RecoveryCard";
+import { AttemptLine } from "../operations/AttemptLine";
 import { syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
 import { campaignStatus } from "../swap/protected/CampaignProgress";
 import { campaignLineText, campaignStatusWords } from "../swap/protected/words";
@@ -98,6 +99,7 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
           {row.campaignLine}
         </p>
       ) : null}
+      <AttemptLine orderId={campaign.id} testId="campaign-attempt" />
       <label className="ds-switch-row ds-native-row">
         <span>{t("home.pauseLarge")}</span>
         <input type="checkbox" checked={protection.pauseLargeOperations} onChange={pauseLarge} data-testid="pause-large-operations" />

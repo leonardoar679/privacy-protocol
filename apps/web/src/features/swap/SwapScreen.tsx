@@ -65,6 +65,7 @@ import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review } from "../review/ReviewScreen";
 import { BLOCKER_WORDS, ReviewView, type ReviewModel } from "../review/View";
 import { OperationProgress } from "../operations/OperationProgress";
+import { AttemptLine, attemptIdOf } from "../operations/AttemptLine";
 import { ProgressView } from "../progress/View";
 import { campaignProgressModel, furthestLine, progressModelOf } from "../progress/model";
 import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
@@ -1186,6 +1187,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
   return (
     <div data-state={record.state} data-testid="swap-progress">
       <ProgressView model={progressModelOf(record, furthest)} />
+      <AttemptLine orderId={attemptIdOf(record)} testId="swap-attempt" />
       {intoProtected ? (
         <p className="ds-note" data-testid={shielding ? "swap-adding-to-protected" : "swap-into-protected"}>
           {t(shielding ? "screen.swap.addingToProtected" : "screen.swap.intoProtected")}

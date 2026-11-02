@@ -398,12 +398,16 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     background and under storage pressure is met in code and under unit tests (`docs/mobile-web-gate.md` §1), and the browser
     run drives Chrome under mobile emulation; the eleven scenarios of §2 there need iOS Safari, Android Chrome and the
     wallets' in-app browsers in hand. The record of runs (§5 there) is empty until the owner fills it.
-59. **V7 — a scheduler failure is silent on the screens.** A runner tick that throws is recorded in the journal's schedule
-    (`error`, the backoff: ten minutes, doubling) and in `schedulerStatus`, which no screen renders; the first full local run
-    since Stage 12 found a campaign's step "committed" for ten minutes with nothing to say (the step fee bound, fixed in
-    `58ac5da`, which also pauses the campaign on a moved fee). Other refusals of a funding still take the silent backoff —
-    a line on the operation's detail naming the last failure and the next attempt is the follow-up for the owner to
-    prioritise.
+59. **V7 — a scheduler failure is silent on the screens — closed (a V7 follow-up of 2026-11-02).** A runner tick that
+    throws is recorded in the journal's schedule (`error`, the backoff: ten minutes, doubling) and in `schedulerStatus`,
+    which no screen rendered; the first full local run since Stage 12 found a campaign's step "committed" for ten minutes
+    with nothing to say (the step fee bound, fixed in `58ac5da`, which also pauses the campaign on a moved fee). Now the
+    entry keeps the catalog's code of the failure (`errorCode`), the operation's detail — the swap's progress, the Activity
+    detail's campaign line, every `OperationProgress` — names the last failure in the catalog's words with the next attempt
+    (the message itself under Advanced), and "Try again now" drops the backoff and wakes the scheduler: the runners
+    reconcile before they send, so the user's tap is safe (`packages/sdk/src/wallet/schedule.ts` `failedAttempt` /
+    `retryNow`, `apps/web/src/features/operations/AttemptLine.tsx`; `packages/sdk/test/schedule-attempt.test.ts`,
+    `apps/web/test/attempt-line.test.tsx`). The browser run's campaign log names the line when it shows.
 60. **V7 — WalletConnect's modal is third-party code under the policy.** With a project id the bundle ships
     `@walletconnect/ethereum-provider` and its modal, which ask `api.web3modal.org` for the wallet list and logos and load the
     verify iframe; the policy names those hosts and no telemetry host, and the metadata declares this origin's icon and

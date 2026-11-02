@@ -427,7 +427,11 @@ async function campaignRun(page) {
       continue;
     }
     tranche1 = (await page.locator('[data-tranche="0"]').count()) ? await text(page.locator('[data-tranche="0"]')) : "";
-    if (i % 15 === 14) log(`step 1: ${tranche1 || "(not visible)"} · ${await text(byId(page, "campaign-status"))}`);
+    if (i % 15 === 14) {
+      // the scheduler's last failure, if any (audit gap 59): the campaign line names it with the next attempt
+      const attempt = (await byId(page, "campaign-attempt").count()) ? ` · ${(await text(byId(page, "campaign-attempt"))).slice(0, 160)}` : "";
+      log(`step 1: ${tranche1 || "(not visible)"} · ${await text(byId(page, "campaign-status"))}${attempt}`);
+    }
   }
   report.outcome.reroutes = reroutes;
   amounts = await panelAmounts(page);
@@ -925,7 +929,11 @@ try {
   check("the swap row never says a bare failed", !/\bfailed\b/i.test(activityText), activityText.slice(0, 300));
 
   // 7b. V6 Stage 12 (spec v2.0 §7.5, §11.2): a same-chain swap into the protected balance — 8,000 USDC → ETH ----------------
-  if (stack.usdc && stack.shieldFactory) {
+  // THORChain is the one same-chain provider: halted (the API's status, read above), no route can exist and the section is
+  // skipped by name rather than failed after five retries (2026-11-02: a network-wide halt stopped a quick pass at 53/53)
+  const thorchainHalted = !!vstatus?.providers?.thorchain?.halted;
+  if (thorchainHalted) log(`7b (a same-chain swap into the protected balance) skipped: THORChain, the one same-chain provider, is halted — chains ${JSON.stringify(vstatus?.providers?.thorchain?.haltedChains ?? [])}`);
+  if (stack.usdc && stack.shieldFactory && !thorchainHalted) {
     phase = "swap-protected";
     await openProtect(page, 10000, "USDC"); // 9,900 USDC more in the protected balance (2,450 are left from 2b)
     await clickId(page, "protect-review");

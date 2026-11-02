@@ -256,6 +256,11 @@ reason `quote_expired` ("Get new quote"). I-O1–I-O6 stand with the new names.
 | QUOTE_EXPIRED | before funding: READY_TO_REVIEW + `quote_expired`; after funding: RECOVERY_REQUIRED + `minimum_moved` |
 | every other name | unchanged |
 
+The scheduler's last failure for an operation — a runner tick that threw, retried with a growing backoff — is named on
+the operation's detail in the catalog's words with the next attempt, the message itself under Advanced, and "Try again
+now" drops the backoff and wakes the scheduler (the runners reconcile before they send; a V7 follow-up of 2026-11-02,
+audit gap 59).
+
 Stored records upgrade when the journal is decrypted and on every read (`v: 3`, idempotent, persisted at the next
 write), as the V5 → V6 mapping did; the API's `operations.state` column is migrated in place (migration 3); history
 lines are renamed the same way. The tracker's internal `OrderState` (`PROVIDER_EXECUTING` already among its names) is a

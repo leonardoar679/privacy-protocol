@@ -45,14 +45,47 @@ export function scheduleAction(a: Omit<ScheduledAction, "id">, s: WalletSession 
   return action;
 }
 
-/** Done (no error), or failed: the error is kept, the attempt counted and the next one scheduled with backoff. */
-export function completeAction(id: string, error?: string, s: WalletSession = defaultSession, now = Date.now()): void {
+/**
+ * Done (no error), or failed: the error is kept with the catalog's code when the thrown error had one (`code`), the attempt
+ * counted and the next one scheduled with backoff.
+ */
+export function completeAction(id: string, error?: string, s: WalletSession = defaultSession, now = Date.now(), code?: string): void {
   s.update((j) => {
     const a = j.schedule.find((x) => x.id === id);
     if (!a) return;
-    if (!error) { a.done = true; a.error = undefined; a.nextAttemptAt = undefined; return; }
-    a.done = false; a.error = error; a.attempts = (a.attempts ?? 0) + 1; a.nextAttemptAt = now + backoffMs(a.attempts);
+    if (!error) { a.done = true; a.error = undefined; a.errorCode = undefined; a.nextAttemptAt = undefined; return; }
+    a.done = false; a.error = error; a.errorCode = code; a.attempts = (a.attempts ?? 0) + 1; a.nextAttemptAt = now + backoffMs(a.attempts);
   });
+}
+
+/**
+ * The scheduler's last failure for an operation (a V7 follow-up, audit gap 59): the open action of the order or campaign id
+ * whose last run failed — the journal's own entry, so a screen's snapshot is stable until it changes —, or null. The
+ * operation's detail names it with the next attempt, and offers the attempt now (`retryNow`).
+ */
+export function failedAttempt(orderId: string, s: WalletSession = defaultSession): ScheduledAction | null {
+  if (!s.isUnlocked()) return null;
+  const failed = s.journal().schedule.filter((a) => a.orderId === orderId && !a.done && a.error);
+  if (!failed.length) return null;
+  return failed.reduce((latest, a) => ((a.nextAttemptAt ?? 0) > (latest.nextAttemptAt ?? 0) ? a : latest));
+}
+
+/**
+ * The user's "Try again now": the action's backoff is dropped, it is due at once and the scheduler woken. The runners
+ * reconcile before they send (never a second funding before its fate is known), so the tap is safe; the failure stays on
+ * record until the next attempt answers. False when no such action exists.
+ */
+export function retryNow(id: string, s: WalletSession = defaultSession, now = Date.now()): boolean {
+  let found = false;
+  s.update((j) => {
+    const a = j.schedule.find((x) => x.id === id && !x.done);
+    if (!a) return;
+    found = true;
+    a.nextAttemptAt = undefined;
+    a.dueAt = Math.min(a.dueAt, now);
+  });
+  if (found) kickScheduler();
+  return found;
 }
 
 /** Remove an action for good (an abandoned order, a cancelled housekeeping run): it is never retried. */

@@ -7,6 +7,8 @@ import { noteStore, type OwnedNote } from "@privacy-wallet/sdk/wallet/notes";
 import { poolStats, type PoolStats } from "@privacy-wallet/sdk/wallet/poolStats";
 import { session as defaultSession, type WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { operationsSnapshot, subscribeOperations } from "@privacy-wallet/sdk/operations/store";
+import { failedAttempt } from "@privacy-wallet/sdk/wallet/schedule";
+import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
 import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { postureFacts } from "@privacy-wallet/sdk/wallet/posture";
 import { privacyPosture, type Posture } from "@privacy-wallet/protocol/wallet/privacyCenter";
@@ -33,6 +35,12 @@ export const useOperation = (id: string | null | undefined, s: WalletSession = d
   useSyncExternalStore(
     (l) => subscribeOperations(l, s),
     () => (id ? (operationsSnapshot(s).all.find((r) => r.id === id) ?? null) : null),
+  );
+/** The scheduler's last failure for an operation (its order or campaign id), or null (a V7 follow-up, audit gap 59). */
+export const useFailedAttempt = (orderId: string | null | undefined, s: WalletSession = defaultSession): ScheduledAction | null =>
+  useSyncExternalStore(
+    (l) => s.subscribe(l),
+    () => (orderId ? failedAttempt(orderId, s) : null),
   );
 export const useOpenOperations = (s: WalletSession = defaultSession): OperationRecord[] =>
   useSyncExternalStore(

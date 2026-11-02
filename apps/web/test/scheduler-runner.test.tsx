@@ -55,6 +55,7 @@ describe("the scheduler runner", () => {
     const bad = session.journal().schedule.find((a) => a.orderId === "0xbad")!;
     expect(bad.done).toBe(false);
     expect(bad.error).toBe("relayer unreachable");
+    expect(bad.errorCode, "the catalog's code, for the operation's detail (gap 59)").toBe("relayer_unreachable");
     expect(bad.attempts).toBe(1);
     expect(bad.nextAttemptAt).toBeGreaterThan(Date.now() + BACKOFF_BASE_MS - 5_000);
     expect(pendingActions().map((a) => a.orderId)).toEqual(["0xbad"]);

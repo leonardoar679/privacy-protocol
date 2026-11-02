@@ -6,6 +6,7 @@ import { ErrorCard, ProgressIndicator, StatusBadge, TransactionTimeline, type St
 import { useT } from "../../app/i18n/useT";
 import { isDraft, isOpen, wasSubmitted, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { progressWords, stateWords, verdict } from "./recovery";
+import { AttemptLine, attemptIdOf } from "./AttemptLine";
 
 const UNDER_WAY: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];
 
@@ -52,6 +53,7 @@ export function OperationProgress({ record, actions, testId = "operation-progres
       {headline ? <ProgressIndicator value={null} label={headline} testId={`${testId}-bar`} /> : null}
       {record.state === "COMPLETED" ? <StatusBadge tone="ok" testId={`${testId}-completed`}>{stateWords("COMPLETED", t)}</StatusBadge> : null}
       {v ? <ErrorCard title={v.title} fundsLine={v.headline} fundsState={v.fundsClass} reason={v.reason} actions={actions} testId={`${testId}-error`} /> : null}
+      <AttemptLine orderId={attemptIdOf(record)} testId={`${testId}-attempt`} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import type { Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { completeAction, isDue, onSchedulerKick, pendingActions, schedulerStatus, type SchedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
 import type { ScheduledAction } from "@privacy-wallet/sdk/wallet/journal";
 import { session as defaultSession, type WalletSession } from "@privacy-wallet/sdk/wallet/session";
+import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { connectivity } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { useSession } from "./core";
 
@@ -68,7 +69,7 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
             if (again && again.dueAt === a.dueAt) completeAction(a.id, undefined, s);
           } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
-            completeAction(a.id, message, s);
+            completeAction(a.id, message, s, Date.now(), classify(e).code); // the code: the operation's detail names the failure (gap 59)
             schedulerStatus.failed(a.id, message);
           }
         }
