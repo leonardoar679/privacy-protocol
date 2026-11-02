@@ -85,9 +85,14 @@ export function stateFrom(
       return nowS >= row.refundAfter ? { state: "REFUNDING" } : { state: "PROVIDER_EXECUTING", code: "provider_timeout", delayed: true };
     return { state: "PROVIDER_EXECUTING" };
   }
-  if (nowS > row.executeDeadline && PRE_FUNDING.includes(row.state)) return { state: "CANCELLED", code: "order_expired" }; // V7: expired before its funding — nothing moved
+  // V7: expired before its funding — nothing moved; closed only once its refund time has passed (a funding in the mempool at
+  // the deadline still lands and is re-derived meanwhile: the review round of 2026-11-02), waiting as RECOVERY_REQUIRED until then
+  // a RECOVERY_REQUIRED row with no job and no funding is that expired order waiting (nothing else leaves a row there)
+  const beforeFunding = PRE_FUNDING.includes(row.state) || row.state === "RECOVERY_REQUIRED";
+  if (nowS > row.executeDeadline && beforeFunding)
+    return nowS >= row.refundAfter ? { state: "CANCELLED", code: "order_expired" } : { state: "RECOVERY_REQUIRED", code: "order_expired" };
   // not funded: before the funding the recorded state stands; after it, an empty escrow is a reorg — the funding is pending again
-  return { state: PRE_FUNDING.includes(row.state) ? row.state : "SOURCE_CONFIRMING" };
+  return { state: beforeFunding ? row.state : "SOURCE_CONFIRMING" };
 }
 
 export async function reconcileOperation(store: Store, row: OperationRow, reads: ReconcileReads, now = store.now()): Promise<Reconciled> {

@@ -93,7 +93,13 @@ describe("reconcile — the legs of doc §82", () => {
     h.clock.now = (row.executeDeadline + 60) * 1000;
     h.script.balance = 0n;
     let r = await reconcile();
-    expect(r.body).toMatchObject({ state: "CANCELLED", reason: { code: "order_expired" }, settlement: null });
+    expect(
+      r.body,
+      "past its window, before its refund time: waits — a funding in the mempool at the deadline still lands (the review round of 2026-11-02)",
+    ).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "order_expired" }, settlement: null });
+    h.clock.now = (row.refundAfter + 1) * 1000;
+    r = await reconcile();
+    expect(r.body, "past its refund time: closed, nothing moved").toMatchObject({ state: "CANCELLED", reason: { code: "order_expired" }, settlement: null });
     const c = await h.post("/v1/operations", orderBody());
     id = c.body.operationId;
     h.clock.now = (h.store.getOperation(id)!.executeDeadline + 60) * 1000;

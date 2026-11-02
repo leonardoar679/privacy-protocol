@@ -128,6 +128,13 @@ UPDATE system_events SET state = CASE state
   ELSE state END
 WHERE state IS NOT NULL;
 `,
+  // 4 — the review round of 2026-11-02: an operation that expired before its funding is closed only once its refund time has
+  // passed (a funding in the mempool at the deadline still lands, and is re-derived meanwhile); until then it waits as
+  // RECOVERY_REQUIRED. The rows migration 3 had cancelled, or the reconcile since, with a refund time still ahead come back.
+  `
+UPDATE operations SET state = 'RECOVERY_REQUIRED', terminal_at = NULL
+WHERE state = 'CANCELLED' AND refund_after > CAST(strftime('%s', 'now') AS INTEGER);
+`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

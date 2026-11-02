@@ -17,7 +17,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("the schema", () => {
   it("is pinned: a change to the DDL is a new migration, never an edit", () => {
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
     // one pin per migration: a new one adds a pin, an edit to an old one fails (LF everywhere, .gitattributes: a CRLF
     // checkout must not move a pin)
     expect(MIGRATIONS.map((m) => createHash("sha256").update(m.replace(/\r\n/g, "\n")).digest("hex"))).toEqual([
@@ -26,6 +26,8 @@ describe("the schema", () => {
       "497f73f9ea06d5518a0f108eda41d5fb2b8e92f9782ad01507c85253ed8077cf",
       // 3 (V7 Stage 15, spec v3.0 §6): the fifteen operation states — the rows renamed in place, an operation expired before its funding cancelled
       "5afd31f4ff1b8878268ab5aa2afee7de35e957df385d105be1397ee12f92363e",
+      // 4 (the review round of 2026-11-02): an operation expired before its funding waits as RECOVERY_REQUIRED until its refund time; the rows cancelled early come back
+      "47b5692fede6b6dd9520b38ac0be132aaf3a1846e0282d59618e8715353d25d2",
     ]);
   });
   it("a database at version 1 migrates to the current version: its executions kept, the plan's seconds empty until a finalize records them", () => {
@@ -105,7 +107,7 @@ describe("the schema", () => {
     ).toThrow();
     again.close();
   });
-  it("a database at version 2 migrates to 3 (V7 Stage 15): the V6 state names renamed in place, an operation expired before its funding cancelled with its terminal time, the system events' column following", () => {
+  it("a database at version 2 migrates to the current version (V7 Stage 15 + the review round of 2026-11-02): the V6 state names renamed in place, an operation expired before its funding cancelled with its terminal time once its refund time has passed and waiting until then, the system events' column following", () => {
     const path = join(dir, "v2.sqlite");
     const old = new DatabaseSync(path, { enableForeignKeyConstraints: false });
     old.exec(MIGRATIONS[0]);
@@ -124,11 +126,16 @@ describe("the schema", () => {
     ])
       row.run(id, state, id);
     old
+      .prepare(
+        "INSERT INTO operations (id, kind, state, provider, network, order_id, escrow, asset, amount, executor_tip, execute_deadline, refund_after, created_at, updated_at) VALUES ('op_g', 'swap', 'QUOTE_EXPIRED', 'thorchain', 'ethereum', 'op_g', '0xe', 'ETH', '1', '0', 1, 4102444800, 10, 20)",
+      )
+      .run(); // expired, its refund time (the year 2100) not reached: waits, never closed
+    old
       .prepare("INSERT INTO system_events (at, level, event, operation_id, state) VALUES (1, 'info', 'operation.created', 'op_a', 'AWAITING_SIGNATURE')")
       .run();
     old.close();
     const db = openDb(path);
-    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 4 });
     expect(db.prepare("SELECT id, state, terminal_at FROM operations ORDER BY id").all()).toEqual([
       { id: "op_a", state: "AWAITING_AUTHORIZATION", terminal_at: null },
       { id: "op_b", state: "SOURCE_CONFIRMING", terminal_at: null },
@@ -136,6 +143,7 @@ describe("the schema", () => {
       { id: "op_d", state: "DESTINATION_CONFIRMING", terminal_at: null },
       { id: "op_e", state: "CANCELLED", terminal_at: 20 },
       { id: "op_f", state: "COMPLETED", terminal_at: null },
+      { id: "op_g", state: "RECOVERY_REQUIRED", terminal_at: null },
     ]);
     expect(db.prepare("SELECT state FROM system_events").all()).toEqual([{ state: "AWAITING_AUTHORIZATION" }]);
     db.close();
