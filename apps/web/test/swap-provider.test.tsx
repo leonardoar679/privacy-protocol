@@ -17,7 +17,7 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { resetOrderRunnerMemory } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { BTC, calls, deployment, ETH_VAULT, fetchMock, LIMIT, resetWorld } from "./helpers/swapWorld";
+import { BTC, calls, deployment, ETH_VAULT, fetchMock, LIMIT, orders, resetWorld } from "./helpers/swapWorld";
 
 beforeAll(() => {
   globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -63,13 +63,18 @@ describe("the swap provider facade (spec v3.0 §5)", () => {
     expect(q.chosen?.provider).toBe("thorchain");
     expect(q.set.quotes).toHaveLength(1);
     // the two-phase commit: the order journaled and scheduled as confirmOrder journals it, the escrow the service's endpoint, the call read once
-    const prepared = await facade.prepare(q, { policy: "balanced", preference: "balanced", fromAsset, walletTier: "standard" });
+    const prepared = await facade.prepare(q, { policy: "balanced", preference: "balanced", fromAsset, walletTier: "standard", reviewedFee: 7n });
     expect(count("/v1/operations")).toBe(1);
     expect(count("/v1/operations/:id/prepare")).toBe(1);
     expect(session.journal().swaps).toHaveLength(1);
     const [stored] = session.journal().swaps;
     expect(stored.orderId).toBe(prepared.orderId);
     expect(stored).toMatchObject({ state: "committed", approvedMin: LIMIT.toString(), runner: { confirmedAt: expect.any(Number) } });
+    // the review round of 2026-11-02: the facade commits what the Review showed — the request as given reaches the service, the
+    // reviewed fee is journaled for the funding's bound (c46)
+    expect(stored.reviewedFee).toBe("7");
+    expect(stored.request).toMatchObject({ amount: request.amount, to: BTC, destination: DEST });
+    expect(orders.get(prepared.orderId)?.order.request, "the service's order is the request as given").toMatchObject({ amount: BigInt(request.amount), destination: DEST, slippageBps: 50 });
     expect(
       session.journal().schedule.some((a) => a.id === `order-tick:${prepared.orderId}`),
       "the runner's tick is planned by the commit",

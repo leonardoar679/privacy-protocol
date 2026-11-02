@@ -12,7 +12,7 @@
 // and the runner. The user never selects a provider, a relayer, a route, an RPC or a gas strategy; Compare routes is
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
-import { stepsAmountAtFixedPoint } from "./model";
+import { protectedCommitBlocker, stepsAmountAtFixedPoint } from "./model";
 import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
@@ -54,6 +54,7 @@ import { completeAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, resumeCampaign, startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { inFlightLimitReached } from "@privacy-wallet/sdk/wallet/inFlight";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
@@ -72,7 +73,7 @@ import { TARGETS, refOf, settlementWords, type Target } from "./targets";
 import { planDetail, planText, TIER_WORDS } from "../review/words";
 import { durationText, hoursText } from "../../app/i18n/duration";
 import { campaignLineText } from "./protected/words";
-import { useOperation, useSession, useSettings } from "../../hooks";
+import { useOperation, usePrefs, useSession, useSettings } from "../../hooks";
 
 const asTier = (x: unknown): Tier | null => (TIERS.includes(x as Tier) ? (x as Tier) : null);
 type ReviewState = { moment: "commit"; provider?: string } | { moment: "execute"; signed: Signed } | { moment: "campaign"; provider: string } | { moment: "reroute"; campaignId: string };
@@ -84,6 +85,7 @@ export interface SwapProps { masterSeed: Uint8Array; deployment: Deployment | nu
 export function Swap({ masterSeed, deployment, account = null, onBack, prefill = null, campaignId = null }: SwapProps) {
   const t = useT();
   const { submission, advanced, preference, verifyReads, secondFactor, protection } = useSettings();
+  const advancedExperience = usePrefs().experience === "advanced"; // the experience (spec v3.0 §4), not the settings' detail toggle above
   useSession(); // re-render when the journal-backed session changes
   const assets = useMemo(() => assetsOf(deployment), [deployment]);
   const [fromAsset, setFromAsset] = useState<Asset>(() => assets.find((a) => a.vault === prefill?.fromVault) ?? assets[0]);
@@ -258,10 +260,18 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     if (s.jobId && submission.kind === "relayer") relayerSwapStatus(submission.url, s.jobId).then(setJob).catch(() => {});
   }
 
+  /** The review round of 2026-11-02 (spec v3.0 §4): this screen is reachable by URL, so the band's exposure limit and the
+   *  service's route qualification — the two words Review Swap closes on — stop a commit here as well. */
+  function commitBlocked(): boolean {
+    const code = protectedCommitBlocker({ tier, limitReached: inFlightLimitReached(), serviceBlockers: quotes?.quote?.risk.blockers ?? [] });
+    if (code) setError(t(code === "in_flight_limit" ? "swap.inFlight" : "swap.routeLimit"));
+    return code !== null;
+  }
   /** The commit moment: the §3.8 notice at the band and above, the wizard for a protected execution, else the Review (every size). */
   function startCommit(provider?: string) {
     const prov = provider ?? quotes?.chosen?.provider;
     setRouteAck(false); setDestAck(false); setError("");
+    if (commitBlocked()) return;
     if (tier === "large-protected" && !interstitial && prov && !campaignMode) { setInterstitial(prov); return; } // spec §3.8 at the band; from enhanced the V3 wizard and Review carry the safeguards (the V4 tiers unchanged)
     if (campaignMode && protectionPlan) { setInterstitial(null); setWizard({ provider: prov ?? protectionPlan.provider, step: 0 }); return; }
     setInterstitial(null);
@@ -330,6 +340,12 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     try { return buildCampaign({ quotes, provider: protectionPlan.provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" }, usd, capBps: protection.capBps, terms: funding?.terms ?? null, now: Date.now(), rng: () => 0.5 }); } catch { return null; }
   })();
   useEffect(() => { if (review?.moment === "campaign" && submission.kind === "relayer") relayerInfo(submission.url).then((i) => setRelayerFee(BigInt(i.minFeeWei))).catch(() => setRelayerFee(null)); }, [review?.moment, submission]);
+  // the review round of 2026-11-02 (spec v3.0 §4): in the Simple experience this screen shows a campaign of the wallet's own and
+  // nothing else — its form and wizard are the Advanced experience's; closing the campaign, or an id not in the journal, goes back
+  const viewedCampaign = campaignView ? campaignById(campaignView) : null;
+  useEffect(() => {
+    if (!advancedExperience && !viewedCampaign && onBack) onBack();
+  }, [advancedExperience, viewedCampaign, onBack]);
   const orderAsset = stored ? assetOf(stored) : fromAsset;
   const window = DELAY_WINDOW[policy];
   const storedTier: Tier = asTier(stored?.tier) ?? tier;
@@ -351,6 +367,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
 
   // ---- the protected execution (High-Value Protection spec §14–§16)
   async function startProtected(provider: string) {
+    if (commitBlocked()) return;
     const f = campaignFacts(ctx, provider);
     const now = Date.now();
     let gasPriceWei: string | null = null;
@@ -484,7 +501,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     );
   }
 
-  const viewed = campaignView ? campaignById(campaignView) : null;
+  const viewed = viewedCampaign;
   if (viewed) {
     return (
       <Page title={pageTitle} back={() => setCampaignView(null)} testId="swap">

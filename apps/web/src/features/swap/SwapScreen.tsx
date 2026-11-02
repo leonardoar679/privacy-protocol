@@ -466,6 +466,7 @@ export function SwapScreen(p: SwapScreenProps) {
         lint: lintItems,
         capBps: protection.capBps,
         providerShareCapBps: protection.providerShareCapBps,
+        terms, // the Review's terms bound every step's funding — F × n (spec v3.0 §3; the review round of 2026-11-02: the band's steps had run without them)
         crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never),
         gasPriceWei,
         confirmations: edited && destAck ? { destinationVerified: at } : {},
@@ -893,14 +894,21 @@ export function SwapScreen(p: SwapScreenProps) {
       <Route
         path="protected"
         element={
-          <Swap
-            masterSeed={p.masterSeed}
-            deployment={p.deployment}
-            account={p.account}
-            onBack={() => navigate("/swap")}
-            prefill={(location.state as { prefill?: SwapPrefill } | null)?.prefill ?? null}
-            campaignId={(location.state as { campaignId?: string } | null)?.campaignId ?? null}
-          />
+          // the review round of 2026-11-02 (spec v3.0 §4): the V5 screen is the Advanced experience's (prefs.experience, the gate's
+          // flag — not the settings' detail toggle) — reachable by URL, so it is gated here as well as by the Review; the Simple
+          // experience reaches it only to see a campaign of the wallet's own
+          prefsNow.experience === "advanced" || (location.state as { campaignId?: string } | null)?.campaignId ? (
+            <Swap
+              masterSeed={p.masterSeed}
+              deployment={p.deployment}
+              account={p.account}
+              onBack={() => navigate("/swap")}
+              prefill={(location.state as { prefill?: SwapPrefill } | null)?.prefill ?? null}
+              campaignId={(location.state as { campaignId?: string } | null)?.campaignId ?? null}
+            />
+          ) : (
+            <Navigate to="/swap" replace />
+          )
         }
       />
       <Route path="*" element={<Navigate to="/swap" replace />} />

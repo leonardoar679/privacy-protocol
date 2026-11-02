@@ -137,6 +137,8 @@ function asset(a: any): AssetRef {
 function request(b: any): QuoteRequest {
   if (!UINT.test(String(b?.amount ?? ""))) throw new BadRequest("amount must be base units");
   if (b.grossAmount !== undefined && !UINT.test(String(b.grossAmount))) throw new BadRequest("grossAmount must be base units");
+  if (b.grossAmount !== undefined && BigInt(b.grossAmount) < BigInt(b.amount))
+    throw new BadRequest("grossAmount (what the user pays) is never below amount (the escrow's funding)");
   const slippageBps = b.slippageBps === undefined ? 50 : Number(b.slippageBps);
   if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps > 10_000) throw new BadRequest("slippageBps must be an integer from 0 to 10000");
   if (b.destination !== undefined && typeof b.destination !== "string") throw new BadRequest("destination must be a string");

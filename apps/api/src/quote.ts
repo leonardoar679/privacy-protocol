@@ -47,6 +47,10 @@ export interface QuoteFacts {
 }
 
 /** The §46 quote of the chosen route; null when nothing was chosen or an asset is not in the registry. */
+/** A dollar value measured for `amount`, scaled to `gross` at the same price (a millionth's rounding); as measured without an amount to scale by. */
+const valuedAt = (usd: number, amount: bigint, gross: bigint): number =>
+  amount > 0n && gross !== amount ? (usd * Number((gross * 1_000_000n) / amount)) / 1_000_000 : usd;
+
 export function quoteOf(f: QuoteFacts): Quote | null {
   const { set, request: req } = f;
   const chosen = set.quotes.find((q) => q.provider === set.chosen?.provider);
@@ -78,7 +82,9 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     provider: { healthy: f.healthy(chosen.provider), recentFailures: f.recentFailures(chosen.provider) },
     network: { expectedChainId: f.chainId, chainId: f.chainId },
     execution: { steps: chosen.plan && chosen.plan.mode !== "single" ? Math.min(chosen.plan.parts, 4) : 1, crossChain: req.from.chain !== req.to.chain },
-    ...(set.value && "usd" in set.value ? { usd: set.value.usd } : {}),
+    // the set is valued at the escrow's funding (W); the route's qualification judges what the user pays (A — spec v3.0 §3–§4;
+    // the review round of 2026-11-02: a $150K order had been judged at its $148.5K funding)
+    ...(set.value && "usd" in set.value ? { usd: valuedAt(set.value.usd, req.amount, gross) } : {}),
     largeTrade: !!tier && atLeast(tier, "large-protected"),
     route: { limitUsd: f.routeLimitUsd ?? null },
   });

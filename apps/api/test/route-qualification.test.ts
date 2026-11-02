@@ -62,4 +62,10 @@ describe("the route's liquidity qualification in the §46 quote (spec v3.0 §4)"
     expect(quoteOf(facts(150_000, undefined))!.risk.blockers, "no fact: nothing to refuse by").toEqual([]);
     expect(quoteOf(facts(150_000, 25_000_000))!.risk.blockers, "THORChain's measured $25M: a $150K order is qualified").toEqual([]);
   });
+  it("the qualification judges what the user pays: the set is valued at the escrow's funding, the gross amount scales it (the review round of 2026-11-02)", () => {
+    const f = facts(100_000, 100_000); // the funding W valued at the limit
+    const gross = (amount * 3n) / 2n; // what the user pays: $150,000 — over the route's measured limit
+    expect(quoteOf({ ...f, request: { ...request, grossAmount: gross } })!.risk.blockers).toEqual(["route_not_qualified"]);
+    expect(quoteOf({ ...f, request: { ...request, grossAmount: amount } })!.risk.blockers, "gross = funding: as valued").toEqual([]);
+  });
 });

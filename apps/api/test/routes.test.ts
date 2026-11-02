@@ -68,6 +68,11 @@ describe("quotes", () => {
     expect(r.status).toBe(400);
     expect(r.body.code).toBe("invalid_request");
   });
+  it("grossAmount below amount is a 400: what the user pays is never below the escrow's funding (the review round of 2026-11-02)", async () => {
+    const r = await h.post("/v1/quotes", swapRequest({ grossAmount: "1" }));
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe("invalid_request");
+  });
 });
 
 describe("operations", () => {

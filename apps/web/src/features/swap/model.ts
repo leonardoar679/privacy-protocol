@@ -6,6 +6,7 @@
 // and the blockers re-checked when the user confirms (packages/risk-engine assessRisk; V7 Stage 13: the band's exposure
 // limit and the service's route qualification among them). Pure: the screen gathers the facts.
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
+import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { SwapPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { assessRisk, BLOCKER_CODES, type BlockerCode } from "@privacy-wallet/risk-engine";
 import type { CheckState } from "@privacy-wallet/ui";
@@ -224,6 +225,19 @@ export interface ConfirmFacts {
 
 /** The time a strict quote must still have at the confirmation (sdk/tiers PROTECTED_EXECUTION.MIN_QUOTE_TTL_S). */
 export const STRICT_QUOTE_TTL_SECONDS = 60;
+
+/** V7 (the review round of 2026-11-02; spec v3.0 §4): the two words Review Swap closes on, judged again where the protected
+ *  screen commits — the band's exposure limit (one protected operation of the $50K band in flight) and the service's route
+ *  qualification. The rest the screen judges from its own facts (confirmBlockers). */
+export function protectedCommitBlocker(f: {
+  tier: Tier;
+  limitReached: boolean;
+  serviceBlockers: readonly BlockerCode[];
+}): "in_flight_limit" | "route_not_qualified" | null {
+  if (f.tier === "large-protected" && f.limitReached) return "in_flight_limit";
+  if (f.serviceBlockers.includes("route_not_qualified")) return "route_not_qualified";
+  return null;
+}
 
 /** The blockers re-checked when the user confirms (spec v2.0 §13.4): one stops the operation before anything moves. */
 export function confirmBlockers(f: ConfirmFacts): BlockerCode[] {

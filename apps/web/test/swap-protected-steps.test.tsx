@@ -26,7 +26,7 @@ import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
 import { campaignProgressModel } from "../src/features/progress/model";
-import { confirmBlockers, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
+import { confirmBlockers, protectedCommitBlocker, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
 import { prefs } from "../src/storage/prefs";
 import { deployment, ETH_VAULT, fetchMock, requests, resetWorld, world } from "./helpers/swapWorld";
 
@@ -86,7 +86,7 @@ async function wallet(ethNotes = 40n) {
   });
   await priceStore.refresh(deployment); // ETH at $2,500: 32 ETH is $80,000 — the $50K band; 50 ETH is $125,000 — over $100K
 }
-function mount(path = "/swap") {
+function mount(path: string | { pathname: string; state?: unknown } = "/swap") {
   const router = createMemoryRouter(
     [
       { path: "/swap/*", element: <SwapScreen masterSeed={session.state().seed!} deployment={deployment} /> },
@@ -235,6 +235,26 @@ describe("V7 Stage 13: the Protected Large Swap — one order by default (spec v
       "route_not_qualified",
     ]);
   });
+  it("the protected screen's own guard (pure): the band's limit, then the service's route qualification; the rest the screen judges itself (the review round of 2026-11-02)", () => {
+    expect(protectedCommitBlocker({ tier: "large-protected", limitReached: true, serviceBlockers: [] })).toBe("in_flight_limit");
+    expect(protectedCommitBlocker({ tier: "enhanced", limitReached: true, serviceBlockers: [] }), "the limit is the band's").toBeNull();
+    expect(protectedCommitBlocker({ tier: "enhanced", limitReached: false, serviceBlockers: ["route_not_qualified"] })).toBe("route_not_qualified");
+    expect(protectedCommitBlocker({ tier: "large-protected", limitReached: true, serviceBlockers: ["route_not_qualified"] })).toBe("in_flight_limit");
+    expect(protectedCommitBlocker({ tier: "large-protected", limitReached: false, serviceBlockers: ["quote_expired", "provider_unhealthy"] })).toBeNull();
+  });
+  it("the V5 screen (/swap/protected) is the Advanced experience's: by URL in the Simple experience it goes back to /swap, with a campaign id not in the journal too; under Advanced it opens (the review round of 2026-11-02)", async () => {
+    await wallet();
+    let router = mount("/swap/protected");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/swap"));
+    cleanup();
+    router = mount({ pathname: "/swap/protected", state: { campaignId: "0x" + "77".repeat(32) } });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/swap"));
+    cleanup();
+    prefs().update({ experience: "advanced" });
+    router = mount("/swap/protected");
+    await screen.findByTestId("swap");
+    expect(router.state.location.pathname).toBe("/swap/protected");
+  });
 });
 
 describe("V7 Stage 13: protected steps only when staged or asked (spec v3.0 §4)", () => {
@@ -296,6 +316,19 @@ describe("V7 Stage 13: protected steps only when staged or asked (spec v3.0 §4)
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     expect(campaignsOf(session.journal())).toHaveLength(1);
     expect(session.journal().swaps).toHaveLength(0);
+  });
+  it("the steps carry the Review's terms: the relayer's minimum and percentage the Review showed bound every step's funding (spec v3.0 §3; the review round of 2026-11-02)", async () => {
+    world.protection = stagedPlan;
+    world.relayerInfo = { minFeeWei: (2n * 10n ** 15n).toString(), feePercentBps: 100 };
+    await wallet();
+    const router = mount();
+    await typeAndReview("32");
+    await holdToConfirm();
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+    const [c] = campaignsOf(session.journal());
+    expect(c.bounds.relayerFeeBps).toBe(100);
+    expect(c.bounds.maxRelayerFee).toMatch(/^\d+$/);
+    expect(BigInt(c.bounds.maxRelayerFee!) >= 2n * 10n ** 15n, "at least the minimum the Review showed").toBe(true);
   });
 
   it("after the hold, Back never shows the confirmed Review again: one campaign, never a second from the same quote (audit round 2, r15)", async () => {
