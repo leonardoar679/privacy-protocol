@@ -55,7 +55,8 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
 - **The privacy fee of a swap is earned when the escrow is funded.** The fee note is paid to the relayer with the
   funding; the escrow's code (frozen on chain) does not hold it, so it cannot be returned by the escrow.
 - **A swap the provider does not deliver returns the swapped amount, not the fee.** The escrow's refund path returns
-  what was funded (less the executor tip already spent on the attempt, as the escrow's rules say) to a fresh note of
+  what was funded (less the executor tip already spent on the attempt, as the escrow's rules say; a balance of the tip or
+  less comes back whole, untipped) to a fresh note of
   the protected balance; the refund screen's funds line names the amount that comes back. The 1 % is not returned.
 - A protected execution's piece that is refunded and planned again pays its share of the privacy fee again, and the
   relayer's `F` again — the progress screen says so before it happens, under the Review's `F × n` bound.

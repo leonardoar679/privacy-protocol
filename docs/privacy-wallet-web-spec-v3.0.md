@@ -10,7 +10,11 @@ stays normative, v1.0 stays as the record of the V5 pass, and `docs/private-swap
 `docs/whale-execution-spec-v1.0.md`, `docs/high-value-protection-spec-v1.0.md` and
 `docs/high-value-execution-contract-v1.0.md` stay normative for the engines underneath, except where a section here is
 marked *V7*. **`PrivacyCore`, the vaults, the circuits, the `SwapOrderEscrow` / `SwapOrderFactory`, `ProtectRouter` and
-`ShieldReceiver` bytecode are unchanged by this document.** The Classic app never calls `PrivacyCore`; the Privacy
+`ShieldReceiver` bytecode are unchanged by this document.** *As landed (the third review round, 2026-11-03): a reviewer's
+line-by-line read of the contracts changed `ShieldReceiver` (wrapped ETH and ETH at a receiver are never swept to the
+fallback; at a token receipt they shield as ETH) and `SwapOrderEscrow` (`_payTip` leaves a balance of the tip or less whole),
+so the creation code of both factories changed with them — before any public deployment; the pins, the vectors and the
+real-proof fixture are of the new build (v2.0 §11.2; `docs/audit-package.md` §1.3).* The Classic app never calls `PrivacyCore`; the Privacy
 Wallet never calls a Classic pool; nothing moves a Classic note into the Privacy Wallet or a protected note into a
 Classic pool.
 
@@ -873,5 +877,6 @@ the privacy fee of an undelivered swap is earned at funding, stated in the publi
 bytecode cannot hold it (§3); a user-entered Classic relayer URL, a persisted "my deposits" list, Classic in languages
 beyond English and Korean, and a `classic.` subdomain are follow-ups. Out of scope and the owner's: the legal and
 sanctions review (the switches stay off until it is recorded), external audits, the production ceremony, the testnet
-and mainnet broadcasts, a real-funds route rehearsal, the real-device run, and any change to `PrivacyCore`, the vaults,
-the circuits, the swap escrow, `ProtectRouter` or `ShieldReceiver`.
+and mainnet broadcasts, a real-funds route rehearsal, the real-device run, and any further change to `PrivacyCore`, the vaults,
+the circuits, the swap escrow, `ProtectRouter` or `ShieldReceiver` (the third review round's two periphery fixes, noted in the
+preamble, excepted).

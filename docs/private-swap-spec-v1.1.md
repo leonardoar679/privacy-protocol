@@ -226,7 +226,8 @@ otherwise the route is quoted for information and filtered from selection.
 ## 7. Failure and refund handling (plan §33–§34, §57–§58)
 - `execute()` reverts if the provider call fails; the order stays funded and refundable.
 - After `refundAfter`, anyone may call `refund(noteData)` with the payload whose keccak equals
-  `refundNoteDataHash`; the escrow pays the tip and **re-shields the whole remaining balance** by
+  `refundNoteDataHash`; the escrow pays the tip (only when more than the tip is there: a balance of the tip or less re-shields whole, untipped — the
+  third review round, 2026-11-03) and **re-shields the whole remaining balance** by
   calling `vault.deposit` (ETH: `deposit{value}(oc, secret, noteData)`; ERC-20: `approve` + `deposit`).
   The funds return to private state as the pre-committed note with no user action; the wallet already
   holds the note's secret and can spend it. The payload is the order's random one, not a §12 envelope,

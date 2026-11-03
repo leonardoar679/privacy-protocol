@@ -777,8 +777,11 @@ for an ETH receiver, `vaultOf(asset) ≠ 0`, the tip `shieldTip ≤ minAmount/10
 `minAmount` (dust cannot claim it), the rest deposited as the committed note (`noteSecret` derived from the seed by
 counter, so a phrase restore finds it, and `ownerCommitment` the note's own, from that secret — the audit round of
 2026-10-16, c18; before, the privacy address's). An unsupported token can only be swept to the
-committed `fallbackRecipient`. Provider refunds still go to the order's escrow. No second 1 %: the receiver
-deposits directly.
+committed `fallbackRecipient` — never ETH or wrapped ETH, the pool's own asset in another form: at an ETH receipt WETH
+unwraps through `shield()`, at a token receipt ETH and WETH shield as ETH into the pool's native vault through
+`shieldToken` (the third review round, 2026-11-03; before, a WETH delivery could be swept to the public fallback by
+anyone who saw the receipt's parameters, and ETH at a token receipt could not move at all). Provider refunds still go
+to the order's escrow. No second 1 %: the receiver deposits directly.
 
 The receiver's `minAmount` is a hundred tips (`shieldMinAmount`): the tip may be at most 1 % of it, so claiming the tip
 with a donation costs the donor ninety-nine times what it pays (the engine filters a route whose minimum output is below
@@ -802,7 +805,7 @@ job); the order is COMPLETED when the delivered note is in the pool, whatever th
 Code (Stage 12): `contracts/src/periphery/shield/{ShieldReceiverTypes,ShieldReceiver,ShieldReceiverFactory}.sol`,
 `contracts/test/periphery/ShieldReceiver.t.sol` (predict = deploy, the 2300-gas send before and after the deployment,
 ETH / USDC / USDT-style outputs, dust below the minimum, the WETH unwrap, a foreign token into its existing vault, an
-unsupported one swept only to the fallback, a wrong payload, nothing to shield, re-entry, the fuzzed `tip + deposited ==
+unsupported one swept only to the fallback (never WETH or ETH: they shield — the third review round), a wrong payload, nothing to shield, re-entry, the fuzzed `tip + deposited ==
 balance`, the vector `test/periphery/vectors/shield.json`), the NoPrivilege scan, the gas bench (`shieldETH`,
 `shieldERC20` pinned in `packages/contracts/src/gas.ts`), `contracts/script/DeployShieldReceiver.s.sol`;
 `packages/contracts/src/shield.ts` (the parameters, `predictReceiver` checked against forge's vector,
