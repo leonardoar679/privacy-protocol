@@ -480,6 +480,12 @@ history answers first (nothing is disclosed); "Check on chain" and the moment be
 chain, and the screen says that this read discloses the note's nullifier hash to the RPC endpoint. The history is
 public data; it is cached in the Classic app's own IndexedDB `tornado-classic` (§7.8).
 
+**As landed (the fifth review round, 2026-11-03).** A tree loaded from its layers is copied, not hashed: the worker's `tree:path`
+folds every path back to the root and refuses one that does not (`TREE_INCONSISTENT`), and the history then rebuilds the tree
+from the deposits the chain agreed with, once, and persists it — a served or stored copy with wrong inner nodes under the
+right root word had passed every check and failed every proof with the note blamed. A window the chain keeps moving under
+is redone three times (`MAX_MOVED_RETRIES`), then the sync fails naming the block.
+
 **As landed (Stage 7, 2026-10-26).** `classic/scripts/snapshot.mjs` writes a pool's snapshot — `deposits.json`,
 `withdrawals.json`, `tree.json` (the layers) and `manifest.json` (sha256 and size per file, the block and its hash,
 the leaf count, the root, how it was held to the chain) — under `classic/public/data/<pool>/` (git-ignored; served at
@@ -524,6 +530,12 @@ with `relayer = 0x0` (as landed: the zero address, not the recipient — the poo
 original warning that the gas-paying address must not be linkable to
 the user. Every request leaves through the Classic app's own transport with timeouts and a bounded poll; before the
 first withdrawal the screen says that the relayer sees the IP address.
+
+**As landed (the fifth review round, 2026-11-03).** With two or more RPC endpoints configured, a wallet-mode send asks the second
+(`secondOpinion`) about the proof's root and the note's spent bit and refuses when it disagrees — one lying endpoint had the
+user's own `withdraw` revert and publish the nullifier hash beside the recipient; with one endpoint, that endpoint is the
+user's trust (audit gap 76). The prover worker is closed once a withdrawal's record is terminal, and websnark's sub-workers
+zero their scratch before resetting their allocation pointer: the witness carries the note's nullifier and secret.
 
 **As landed (Stage 8, 2026-10-26).** The relayer protocol lives in `classic/src/relayer/`: `schema.ts` parses GET
 `/v1/status`, GET `/v1/jobs/:id` and the POST `/v1/tornadoWithdraw` body with zod — `health.status` is read as the

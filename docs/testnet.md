@@ -18,6 +18,15 @@ FOUNDRY_OFFLINE=true DEV_VERIFIER=true forge script script/Deploy.s.sol --use $S
 FOUNDRY_OFFLINE=true forge script script/DeploySwapPeriphery.s.sol --use $SOLC -vv                 # 2.0M gas
 ```
 
+## Mainnet, once a ceremony verifier exists
+The deploy script takes the ceremony verifier by address AND by code (the fifth review round, 2026-11-03): `INNER_VERIFIER_CODEHASH`
+is the keccak256 of its runtime code as its own build produced it, and the script refuses an address whose code hashes to anything
+else — the development verifier's included, on any chain but a devnet. The wallet reads the same key back through the adapter's
+`INNER()` and keeps its code hash in the deployment fingerprint.
+```
+INNER_VERIFIER=0x… INNER_VERIFIER_CODEHASH=0x… forge script script/Deploy.s.sol --rpc-url $RPC --private-key $PRIVATE_KEY --broadcast --verify -vv
+```
+
 ## Sepolia procedure
 ```
 export SEPOLIA=https://…            # any Sepolia RPC (QuickNode/public); the key must hold ~0.05 Sepolia ETH

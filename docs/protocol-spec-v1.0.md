@@ -264,7 +264,8 @@ else is rejected at deposit, so it can never be inside a vault.
 release(recipient, amount)   onlyCore, nonReentrant
   require amount > 0 and accountedDeposits ≥ amount     else Undercollateralized
   accountedDeposits −= amount                            # EFFECT first
-  ok = softTransfer(recipient, amount)                   # never reverts: ETH call / ERC-20 call, false on failure
+  ok = softTransfer(recipient, amount)                   # never reverts: ETH call with 100,000 gas at most / ERC-20 call, false on failure
+                                                         # an ERC-20 32-byte answer is read as a word: non-zero = paid (the fifth review round, 2026-11-03)
   if ok:  emit Released(recipient, amount)
   else:   claimable[recipient] += amount; totalClaimable += amount; emit WithdrawalClaimCreated(recipient, amount)
 
@@ -425,6 +426,7 @@ assets. The core's ETH and ERC-20 balances are 0 forever (Invariants 1–2).
  5  nullifier0 != nullifier1 ; neither spent                                               DuplicateNullifier / SpentNullifier(n)
  6  VERIFIER.verify(encodePublicInputs(pi), proof) == true                                 InvalidProof
  7  mode == WITHDRAW: requireAddress(vault, recipient); requireAmount(amount); amount > 0;
+                      recipient ∉ { 0, vault, core }                                       InvalidRecipient (the fifth review round, 2026-11-03)
                       factory.isCanonical(vault)                                           InvalidAddress / ZeroWithdrawal / InvalidVault
     mode == TRANSFER: vault == 0 && amount == 0 && recipient == 0                          TransferMustCarryNoWithdrawal
  8  EFFECTS: spentNullifier[n0] = spentNullifier[n1] = true
@@ -490,7 +492,7 @@ interface IHasher        { function poseidon2(uint256[] memory input) external p
 ```
 Core:    InvalidField(), InvalidAddress(), InvalidAmount(), InvalidMode(), InvalidTxDomain(), MalformedNoteData(uint8),
          UnboundNoteData(uint8), UnknownRoot(), DuplicateNullifier(), SpentNullifier(uint256), InvalidProof(),
-         InvalidVault(), ZeroWithdrawal(), TransferMustCarryNoWithdrawal(), CallerNotCanonicalVault(), VerifierNotContract()
+         InvalidVault(), ZeroWithdrawal(), InvalidRecipient(), TransferMustCarryNoWithdrawal(), CallerNotCanonicalVault(), VerifierNotContract()
 Tree:    LevelsOutOfRange(), TreeFull(), ValueOutOfField()
 Vault:   CallerNotCore(), ZeroAmount(), ZeroCore(), ZeroToken(), Undercollateralized(), NothingToClaim(),
          ClaimTransferFailed(), TokenTransferFailed(), UnsupportedTokenBehavior()

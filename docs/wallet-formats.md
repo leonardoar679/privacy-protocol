@@ -32,7 +32,11 @@ ct       = XChaCha20-Poly1305(key, nonce, aad = "privacy-protocol/v1/keystore")(
 ```
 A keystore that fails authentication is "wrong password": implementations MUST NOT distinguish a
 wrong password from a tampered file. Unsafe parameters (N < 2^10, not a power of two, r or p < 1,
-dkLen ≠ 32) MUST be refused before any work is done.
+dkLen ≠ 32) MUST be refused before any work is done. A keystore has exactly these five fields, a 16-byte salt, a
+24-byte nonce and a 48-byte ciphertext; anything else is not a keystore of this wallet's (the fifth review round,
+2026-11-03). The device's keystore is wrapped at the build's scrypt cost: a backup restored, or a stored keystore below
+the configured N at an unlock, is encrypted again under a fresh salt and nonce — the file's own parameters never become
+the device's.
 ```
 journal  = { "v": 1, "nonce": hex(24 bytes), "ct": hex }
 key      = sha256("privacy-protocol/v1/journal-key" ‖ seed)
@@ -75,7 +79,11 @@ relayerUrl?, txHash?, at }` (the transaction once known); its ticks are schedule
 `order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. The
 audit round of 2026-10-16: `countersHeld: true` while a journal that began without the whole of an earlier one (a restore
 from the phrase or a backup) has had no complete scan — no note counter is handed out meanwhile (PP-P03); optional, never
-written by `emptyJournal()`. A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A swap order may carry
+written by `emptyJournal()`. Since the fifth review round (2026-11-03) the counters are held at every unlock as well, in
+memory only, until the scan after it has read the pool: the cipher proves a journal is this seed's, never that it is the
+newest (a profile restored from an older copy, a blob put back by a writer of the origin). A counter the scan finds that
+the loaded journal did not know marks the journal stale and the 256 reserve applies at the release; a current journal
+resumes where it was. A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A swap order may carry
 `reviewedFee` (decimal, the relayer's fee for its funding the Review showed; c46): its funding never pays more. A
 campaign's bounds may carry `minimumOutputNet` (decimal, 1e18 fixed point, per unit a step pays its provider — its escrow
 less its own tip; c55): a step's price is checked on it when present, else on `minimumOutput`. A campaign may carry
