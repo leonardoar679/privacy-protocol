@@ -5,6 +5,7 @@
 // unfunded order past its window; one read per 5 s; a cost above 1.5 × the tip logged once as fee.deviation, no amount.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RECONCILE_THROTTLE_MS, SwapApi } from "../src/routes/swap";
+import { stateFrom } from "../src/reconcile";
 import { harness, orderBody, TIP, type Harness } from "./helpers";
 
 let h: Harness;
@@ -106,6 +107,14 @@ describe("reconcile — the legs of doc §82", () => {
     h.script.balance = BigInt(c.body.order.params.amount);
     r = await reconcile();
     expect(r.body).toMatchObject({ state: "PROVIDER_EXECUTING", delayed: { code: "provider_timeout" }, settlement: "REFUND_AVAILABLE" });
+  });
+  it("a lapsed job — the executor's watch ended with the escrow empty, never executed — reads REFUNDING past the funding, never 'the funding is pending again' (the review round of 2026-11-03, F3)", () => {
+    const row = { state: "REFUNDING" as const, executeDeadline: 1_800_000_000, refundAfter: 1_800_007_200, amount: "1" };
+    const lapsed = { state: "lapsed" } as never;
+    expect(stateFrom(row, lapsed, null, false, 1_800_010_000)).toEqual({ state: "REFUNDING" });
+    expect(stateFrom({ ...row, state: "PROVIDER_EXECUTING" }, lapsed, null, false, 1_800_010_000)).toEqual({ state: "REFUNDING" });
+    // before the funding the expiry rule decides: past the refund time the order is cancelled as expired
+    expect(stateFrom({ ...row, state: "AWAITING_AUTHORIZATION" }, lapsed, null, false, 1_800_010_000)).toEqual({ state: "CANCELLED", code: "order_expired" });
   });
   it("one read per operation per 5 s: a second call inside the window answers the last result", async () => {
     h.script.balance = amount;

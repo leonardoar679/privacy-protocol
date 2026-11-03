@@ -28,6 +28,12 @@ describe("the database after a flow", () => {
       expect(dump.operations).toEqual([expect.objectContaining({ id, kind: "cross-chain", order_blob: null, provider: "thorchain", network: "ethereum" })]);
       expect(dump.executions).toEqual([expect.objectContaining({ operation_id: id, execution_tx: "0x" + "e1".repeat(32) })]);
       expect(dump.relayer_jobs).toEqual([expect.objectContaining({ operation_id: id, state: "executed" })]);
+      // the review round of 2026-11-03 (F6): the relayer dropped and re-sent the execution — its new hash is the authority (the stall
+      // rule had compared against the dead one for good)
+      h.script.job = { state: "executed", executionTx: "0x" + "e2".repeat(32) };
+      h.clock.now += 6_000;
+      await h.post(`/v1/operations/${id}/reconcile`, {});
+      expect(h.store.db.prepare("SELECT execution_tx FROM executions WHERE operation_id = ?").get(id)).toEqual({ execution_tx: "0x" + "e2".repeat(32) });
       expect(dump.quotes).toEqual([expect.objectContaining({ pair: "ethereum:ETH>bitcoin:BTC", provider: "thorchain" })]);
       expect(Object.keys(dump.quotes[0] as object).sort()).toEqual(["created_at", "expires_at", "id", "pair", "provider", "tier"]);
       expect(JSON.stringify(dump.quotes), "no amount").not.toContain((10n ** 18n).toString());

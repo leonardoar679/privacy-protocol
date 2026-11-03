@@ -147,6 +147,27 @@ export function loadEscrowCreationCode(): Hex {
   return BYTECODE.swapOrderEscrow;
 }
 
+/** The most provider calldata a call may carry: a route's deposit or swap call is a few hundred bytes (the review round of 2026-11-03, F2). */
+export const MAX_CALLDATA_BYTES = 65_536;
+const isUint = (x: unknown): boolean => (typeof x === "string" ? /^\d{1,78}$/.test(x) : typeof x === "number" && Number.isSafeInteger(x) && x >= 0);
+const isSeconds = (x: unknown): boolean => (typeof x === "number" && Number.isSafeInteger(x) && x >= 0) || (typeof x === "string" && /^\d{1,15}$/.test(x));
+/**
+ * The order's parameters as the executor keeps them — the twelve fields, nothing else a request carried (the review round of
+ * 2026-11-03, F2): the raw object had been journaled as sent, extra fields included, up to the body limit per job, and the
+ * journal is rewritten whole on every change.
+ */
+export function pickParams(p: SwapParamsJson): SwapParamsJson {
+  return {
+    orderId: p.orderId, assetType: Number(p.assetType), asset: p.asset, amount: String(p.amount), orderSigner: p.orderSigner,
+    executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter), refundVault: p.refundVault,
+    refundOwnerCommitment: String(p.refundOwnerCommitment), refundNoteSecret: String(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: String(p.executorTip),
+  };
+}
+/** The execution as the executor keeps it: the five fields (F2). */
+export function pickExecution(x: SwapExecutionJson): SwapExecutionJson {
+  return { provider: x.provider, value: String(x.value), providerCalldata: x.providerCalldata, deadline: Number(x.deadline), signature: x.signature };
+}
+
 export function toEngineParams(p: SwapParamsJson): OrderParams {
   return { orderId: p.orderId, assetType: p.assetType as 0 | 1, asset: p.asset, amount: BigInt(p.amount), orderSigner: p.orderSigner, executeDeadline: Number(p.executeDeadline), refundAfter: Number(p.refundAfter), refundVault: p.refundVault, refundOwnerCommitment: BigInt(p.refundOwnerCommitment), refundNoteSecret: BigInt(p.refundNoteSecret), refundNoteDataHash: p.refundNoteDataHash, executorTip: BigInt(p.executorTip) };
 }
@@ -227,6 +248,12 @@ export class SwapExecutor {
     if (!this.cfg.factory || !this.cfg.voucher || this.cfg.voucher.length === 0) throw new SwapJobError("swap_unavailable", "this relayer runs no swap executor (SWAP_FACTORY and API_VOUCHER are both needed)");
     if (req.factory.toLowerCase() !== this.cfg.factory.toLowerCase())
       throw new SwapJobError("unknown_swap_factory", `this relayer executes swaps for ${this.cfg.factory}, not ${req.factory}`);
+    // the shapes (the review round of 2026-11-03, F4): an order the API vouched for with a signer of any string, or an id of the
+    // wrong length, had reached the encoders — a plain Error (500) at admission, or a refund that erred every tick and never lapsed
+    if (!isHex(p.orderId, 32) || !isHex(p.asset, 20) || !isHex(p.orderSigner, 20) || !isHex(p.refundVault, 20) || !isHex(p.refundNoteDataHash, 32))
+      throw new SwapJobError("bad_request", "params need a 32-byte orderId and refundNoteDataHash, and 20-byte asset, orderSigner and refundVault");
+    if (![p.amount, p.executorTip, p.refundOwnerCommitment, p.refundNoteSecret].every(isUint) || !isSeconds(p.executeDeadline) || !isSeconds(p.refundAfter))
+      throw new SwapJobError("bad_request", "params need base-unit amounts and unix-second deadlines");
     if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
     if (!isHex(req.refundNoteData, 169)) throw new SwapJobError("bad_refund_payload", "refundNoteData must be the 169-byte payload");
     if (keccak256(req.refundNoteData) !== String(p.refundNoteDataHash).toLowerCase()) throw new SwapJobError("refund_payload_mismatch", "refundNoteData does not hash to the committed refundNoteDataHash");
@@ -245,6 +272,30 @@ export class SwapExecutor {
         throw new SwapJobError("bad_refund_floors", "refundFloors maps tokens listed in refundTokens to base-unit amounts");
       }
     }
+  }
+
+  /**
+   * Admission at the server, under its cap (the review round of 2026-11-03, F1): a job the executor already has is answered
+   * whatever the cap — the hand-over registers its execution again, and the cap had refused it before the lookup (the shield
+   * executor's r13); at capacity a new job is admitted only when its escrow already holds the order — a funded hand-over, a
+   * Return funds — which the cap must never refuse (the funds had sat in the escrow until the junk lapsed); an unfunded one is
+   * capacity. The chain is read only at capacity, after the shape checks (a malformed request is its own refusal).
+   */
+  async admitExecution(req: SwapJobRequest, o: { full: boolean }): Promise<SwapJob> {
+    return this.admitWith(req, o, () => this.add(req));
+  }
+  async admitRefund(req: SwapRefundRequest, o: { full: boolean }): Promise<SwapJob> {
+    return this.admitWith(req, o, () => this.addRefund(req));
+  }
+  private async admitWith(req: SwapJobRequest | SwapRefundRequest, o: { full: boolean }, add: () => SwapJob): Promise<SwapJob> {
+    await this.admissible(req);
+    if (o.full && !this.jobs.has(String(req?.params?.orderId ?? "").toLowerCase())) {
+      this.checkOrder(req);
+      const escrow = predictEscrow(req.factory, this.cfg.escrowCreationCode, toEngineParams(req.params));
+      const held = await this.escrowBalances({ params: req.params, escrow, factory: req.factory } as SwapJob).then((b) => b.spendable).catch(() => 0n);
+      if (held < BigInt(req.params.amount)) throw new SwapJobError("capacity", "too many open swap jobs");
+    }
+    return add();
   }
 
   /**
@@ -272,7 +323,7 @@ export class SwapExecutor {
       }
       return existing;
     }
-    const job: SwapJob = { id, escrow, factory: req.factory, params: p, refundNoteData: req.refundNoteData, ...mergeRefunds(undefined, req), state: "refund-only", createdAt: Date.now(), updatedAt: Date.now() };
+    const job: SwapJob = { id, escrow, factory: req.factory, params: pickParams(p), refundNoteData: req.refundNoteData, ...mergeRefunds(undefined, req), state: "refund-only", createdAt: Date.now(), updatedAt: Date.now() };
     this.jobs.set(id, job);
     this.persist();
     return job;
@@ -285,6 +336,7 @@ export class SwapExecutor {
     if (Number(p.assetType) === 1 && BigInt(x.value) !== 0n) throw new SwapJobError("bad_execution", "an ERC-20 order forwards no ETH value (the provider pulls the tokens)");
     if (!(Number(x.deadline) <= Number(p.executeDeadline))) throw new SwapJobError("bad_deadlines", "the signed deadline exceeds the committed executeDeadline");
     if (!isHex(x.signature, 65) || !isHex(x.providerCalldata) || !isHex(x.provider, 20)) throw new SwapJobError("bad_execution", "execution needs provider, calldata and a 65-byte signature");
+    if ((x.providerCalldata.length - 2) / 2 > MAX_CALLDATA_BYTES) throw new SwapJobError("bad_execution", `providerCalldata is over ${MAX_CALLDATA_BYTES} bytes`);
     const escrow = predictEscrow(req.factory, this.cfg.escrowCreationCode, toEngineParams(p));
     const digest = executionDigest(BigInt(this.cfg.chainId), escrow, p.orderId, x.provider, BigInt(x.value), x.providerCalldata, Number(x.deadline));
     let signer: string;
@@ -307,13 +359,13 @@ export class SwapExecutor {
       // a re-signed execution (fresh quote after expiry / a failed provider call) replaces the old one; an order already executing or settled is left alone
       if (REPLACEABLE.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
         const merged = mergeRefunds(existing, req);
-        existing.execution = x; existing.state = state; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
+        existing.execution = pickExecution(x); existing.state = state; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
         Object.assign(existing, merged);
         this.persist();
       }
       return existing;
     }
-    const job: SwapJob = { id, escrow, factory: req.factory, params: p, execution: x, refundNoteData: req.refundNoteData, ...mergeRefunds(undefined, req), state, createdAt: Date.now(), updatedAt: Date.now() };
+    const job: SwapJob = { id, escrow, factory: req.factory, params: pickParams(p), execution: pickExecution(x), refundNoteData: req.refundNoteData, ...mergeRefunds(undefined, req), state, createdAt: Date.now(), updatedAt: Date.now() };
     this.jobs.set(id, job);
     this.persist();
     return job;

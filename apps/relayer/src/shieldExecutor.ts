@@ -21,7 +21,15 @@
 // a race) is estimated again every ESTIMATE_RETRY_SECONDS until the watch ends, and a mined one that reverted goes back to
 // the state it was sent from, at most MAX_REVERTED_SHIELDS times (the audit round of 2026-10-16, c13: one revert ended the
 // job for good, and the wallet, finding the job, never registered it again, so a delivery it had seen stayed at the receiver).
-import { ABI, BYTECODE, predictReceiver, receiverParamsOf, receiverParamsProblem, type ReceiverParamsJson } from "@privacy-wallet/contracts";
+import {
+  ABI,
+  BYTECODE,
+  predictReceiver,
+  receiverParamsJson,
+  receiverParamsOf,
+  receiverParamsProblem,
+  type ReceiverParamsJson,
+} from "@privacy-wallet/contracts";
 import { encodeFunctionData, keccak256, parseAbi, parseEventLogs, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
@@ -235,7 +243,7 @@ export class ShieldExecutor {
       id,
       receiver,
       factory: req.factory,
-      params: req.params,
+      params: receiverParamsJson(params), // the fields the receiver takes, nothing else the request carried (the review round of 2026-11-03, F2)
       noteData: req.noteData,
       deliverBy: req.deliverBy,
       state: "waiting-delivery",

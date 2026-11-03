@@ -16,7 +16,7 @@ import { createPublicClient, createWalletClient, decodeFunctionData, encodeAbiPa
 import { DROP_AFTER_MS } from "../src/sender";
 import { VOUCHER, vouched } from "./vouch";
 import { privateKeyToAccount } from "viem/accounts";
-import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest, MAX_REFUND_REVERTS, REFUND_RETRY_SECONDS, EXECUTE_MARGIN_SECONDS } from "../src/swapExecutor";
+import { LAPSE_AFTER_SECONDS, SwapExecutor, SwapJobError, TERMINAL, factoryAbi, loadEscrowCreationCode, type SwapJobRequest, MAX_REFUND_REVERTS, REFUND_RETRY_SECONDS, EXECUTE_MARGIN_SECONDS, MAX_CALLDATA_BYTES, toEngineParams } from "../src/swapExecutor";
 import { executionDigest, orderSignerAddress, predictEscrow, signExecution } from "@privacy-wallet/swap-engine/endpoints";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -454,11 +454,13 @@ describe("the refund vault is the pool's own (a V6 follow-up of 2026-10-15)", ()
 
   it("the server reads it before it admits an execution or a refund", () => {
     const server = readFileSync(join(root, "apps/relayer/src/server.ts"), "utf8");
-    for (const add of ["executor.add(body)", "executor.addRefund(body)"]) {
-      const at = server.indexOf(add);
-      expect(at, add).toBeGreaterThan(0);
-      expect(server.slice(server.lastIndexOf("await executor.admissible(body)", at), at), add).toMatch(/^await executor\.admissible\(body\);[^\n]*\n\s*const job = $/);
-    }
+    // the review round of 2026-11-03 (F1): the server admits through admitExecution / admitRefund, which read the vault first
+    // (admissible), answer a job the executor has whatever the cap, and refuse a new one at capacity unless its escrow holds the order
+    for (const admit of ["executor.admitExecution(", "executor.admitRefund("]) expect(server.indexOf(admit), admit).toBeGreaterThan(0);
+    expect(server, "the cap is the executor's to apply, after the lookup").not.toMatch(/openSwapJobs\(\) >= MAX_SWAP_JOBS\) return send\(503/);
+    const source = readFileSync(join(root, "apps/relayer/src/swapExecutor.ts"), "utf8");
+    const admitWith = source.slice(source.indexOf("private async admitWith("));
+    expect(admitWith.indexOf("await this.admissible(req)"), "the vault read first").toBeLessThan(admitWith.indexOf("return add()"));
     expect(server).toMatch(/core: cfg\.core/);
   });
 });
@@ -734,5 +736,51 @@ describe("a rotation of the swap service's key (a V6 follow-up of 2026-10-16)", 
     expect(code(executorFor([VOUCHER as Hex, formerAddress]))).toBe("admitted");
     expect(code(executorFor(VOUCHER as Hex))).toBe("unvouched_order");
     expect(code(executorFor([])), "an empty list: no swaps").toBe("swap_unavailable");
+  });
+});
+
+// runs last: its jobs stay in the shared executor, which the suites above count
+describe("admission under the cap (the review round of 2026-11-03, F1) and what a job keeps (F2, F4)", () => {
+  /** another order of the vector's shape, re-signed by the key we hold and vouched */
+  const another = (orderId: Hex) => {
+    const params = { ...request.params, orderId };
+    const escrow = predictEscrow(vector.factory, creationCode, toEngineParams(params));
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, params.orderId, request.execution.provider, BigInt(request.execution.value), request.execution.providerCalldata, request.execution.deadline);
+    return vouched({ factory: vector.factory, params, execution: { ...request.execution, signature: signExecution(ORDER_KEY, digest) }, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode);
+  };
+  it("at capacity a job the executor already has is answered, a new unfunded one is refused 'capacity', and a new one whose escrow already holds the order is admitted: a funded hand-over or a Return funds the cap never refuses", async () => {
+    clock = 1000;
+    escrowBalance = 0n;
+    const have = executor.add(request);
+    expect(await executor.admitExecution(request, { full: true }), "known: answered whatever the cap").toBe(have);
+    const fresh = another(("0x" + "c1".repeat(32)) as Hex);
+    await expect(executor.admitExecution(fresh, { full: true })).rejects.toMatchObject({ code: "capacity" });
+    expect(executor.list().some((j) => j.id === fresh.params.orderId.toLowerCase()), "nothing admitted").toBe(false);
+    escrowBalance = BigInt(fresh.params.amount);
+    expect((await executor.admitExecution(fresh, { full: true })).id, "funded: admitted at capacity").toBe(fresh.params.orderId.toLowerCase());
+    const refundOf = another(("0x" + "c2".repeat(32)) as Hex);
+    const refund = vouched({ factory: vector.factory, params: refundOf.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode);
+    escrowBalance = 0n;
+    await expect(executor.admitRefund(refund, { full: true })).rejects.toMatchObject({ code: "capacity" });
+    escrowBalance = BigInt(refund.params.amount);
+    expect((await executor.admitRefund(refund, { full: true })).state, "a funded escrow's Return funds").toBe("refund-only");
+    const below = another(("0x" + "c5".repeat(32)) as Hex);
+    escrowBalance = 0n;
+    expect((await executor.admitExecution(below, { full: false })).id, "below the cap: admitted outright").toBe(below.params.orderId.toLowerCase());
+  });
+  it("a job keeps the fields it needs, nothing else a request carried; calldata over the cap and malformed shapes are refused before the vouch is read (F2, F4)", () => {
+    const junk = another(("0x" + "c3".repeat(32)) as Hex);
+    const job = executor.add({ ...junk, params: { ...junk.params, junk: "A".repeat(10_000) } as never, execution: { ...junk.execution, extra: "B".repeat(10_000) } as never });
+    expect(Object.keys(job.params).sort()).toEqual(
+      ["amount", "asset", "assetType", "executeDeadline", "executorTip", "orderId", "orderSigner", "refundAfter", "refundNoteDataHash", "refundNoteSecret", "refundVault", "refundOwnerCommitment"].sort(),
+    );
+    expect(Object.keys(job.execution!).sort()).toEqual(["deadline", "provider", "providerCalldata", "signature", "value"]);
+    const code = (f: () => unknown) => { try { f(); return "admitted"; } catch (e) { return (e as SwapJobError).code; } };
+    const big = another(("0x" + "c4".repeat(32)) as Hex);
+    expect(code(() => executor.add({ ...big, execution: { ...big.execution, providerCalldata: ("0x" + "ab".repeat(MAX_CALLDATA_BYTES + 1)) as Hex } }))).toBe("bad_execution");
+    const refund = vouched({ factory: vector.factory, params: request.params, refundNoteData: request.refundNoteData }, CHAIN_ID, creationCode);
+    expect(code(() => executor.addRefund({ ...refund, params: { ...refund.params, orderSigner: "123" as Hex } })), "a signer that is no address").toBe("bad_request");
+    expect(code(() => executor.addRefund({ ...refund, params: { ...refund.params, orderId: ("0x" + "aa".repeat(31)) as Hex } })), "a 31-byte id").toBe("bad_request");
+    expect(code(() => executor.addRefund({ ...refund, params: { ...refund.params, amount: "1e18" } })), "an amount that is no base-unit integer").toBe("bad_request");
   });
 });

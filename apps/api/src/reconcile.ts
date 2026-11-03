@@ -91,6 +91,10 @@ export function stateFrom(
   const beforeFunding = PRE_FUNDING.includes(row.state) || row.state === "RECOVERY_REQUIRED";
   if (nowS > row.executeDeadline && beforeFunding)
     return nowS >= row.refundAfter ? { state: "CANCELLED", code: "order_expired" } : { state: "RECOVERY_REQUIRED", code: "order_expired" };
+  // the executor's watch ended with the escrow empty, or holding dust, never executed (`lapsed`; the review round of 2026-11-03,
+  // F3): the funds came back — another relayer's refund-only job, anyone's deployAndRefund — or never arrived. Past the funding
+  // the row says REFUNDING (the refund note found makes it REFUNDED), never "the funding is pending again"
+  if (j === "lapsed" && !beforeFunding) return { state: "REFUNDING" };
   // not funded: before the funding the recorded state stands; after it, an empty escrow is a reorg — the funding is pending again
   return { state: beforeFunding ? row.state : "SOURCE_CONFIRMING" };
 }

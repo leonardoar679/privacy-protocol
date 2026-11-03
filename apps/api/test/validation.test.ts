@@ -3,8 +3,9 @@
 // error), and a slippage that was not a number went to every provider as NaN, where an error without a refusal's words
 // would have counted against the provider's health for every user. Now each answers 400 `invalid_request`, and no
 // provider is asked.
+import { getAddress } from "viem";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { harness, orderBody, signedRestore, swapRequest, type Harness } from "./helpers";
+import { harness, orderBody, signedRestore, swapRequest, type Harness, USDC } from "./helpers";
 
 let h: Harness;
 let asked = 0;
@@ -111,5 +112,18 @@ describe("the request bodies, checked at the edge", () => {
     const restored = await h.post("/v1/operations", signedRestore({ ...swapRequest(), provider: "thorchain", params }));
     expect(restored.status).toBe(200);
     expect(restored.body.operationId).toBe(committed.operationId);
+  });
+});
+
+describe("the pool's vault by the asset's lower case (the review round of 2026-11-03, F7)", () => {
+  it("a commit naming the token in checksum case finds the pool's vault: 200, never the 500 the case-sensitive lookup gave", async () => {
+    const h = await harness({ protectedDestinations: true });
+    try {
+      const checksummed = { ...USDC, asset: getAddress(USDC.asset) };
+      const r = await h.post("/v1/operations", orderBody({ from: checksummed }));
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+    } finally {
+      await h.close();
+    }
   });
 });

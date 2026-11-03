@@ -252,7 +252,7 @@ export class PrivateSwapEngine {
     const protectedDestination = gross.destinationType === "protected";
     if (protectedDestination) {
       if (!sameChain) throw new ProtectedDestinationError(`only a swap on ${gross.from.chain} itself delivers into the protected balance, not one to ${gross.to.chain}`);
-      if (!this.cfg.refundVaults[gross.to.asset]) throw new ProtectedDestinationError(`the pool has no canonical vault for ${gross.to.symbol}: it cannot be received into the protected balance`);
+      if (!this.vaultFor(gross.to.asset)) throw new ProtectedDestinationError(`the pool has no canonical vault for ${gross.to.symbol}: it cannot be received into the protected balance`);
       if (!this.cfg.tips.shieldTipFor) throw new ProtectedDestinationError("this service cannot price a shield tip");
     }
     // V6 (spec v2.0 §3): the execution's gas at today's fees, in the order's asset; refused when the escrow could not pay it
@@ -339,6 +339,11 @@ export class PrivateSwapEngine {
     });
   }
 
+  /** The pool's canonical vault for an asset, by the asset's lower case as the pool check reads it (the review round of 2026-11-03, F7: a checksummed address had missed the lookup — a 500). */
+  private vaultFor(asset: string): string | undefined {
+    return this.cfg.refundVaults[asset.toLowerCase()] ?? this.cfg.refundVaults[asset];
+  }
+
   /** Throws AssetMismatchError unless `a` is one of this pool's assets, under the pool's symbol and decimals (EngineConfig.poolAssets). */
   private poolAsset(a: AssetRef, what: string): void {
     const known = this.cfg.poolAssets;
@@ -366,7 +371,7 @@ export class PrivateSwapEngine {
     const params: OrderParams = {
       orderId, assetType: req.from.asset === "native" ? 0 : 1, asset: req.from.asset === "native" ? "0x0000000000000000000000000000000000000000" : req.from.asset,
       amount, orderSigner, executeDeadline, refundAfter: executeDeadline + this.cfg.refundWindowSeconds,
-      refundVault: this.cfg.refundVaults[req.from.asset], refundOwnerCommitment: keys.refundOwnerCommitment, refundNoteSecret: keys.refundNoteSecret,
+      refundVault: this.vaultFor(req.from.asset) as `0x${string}`, refundOwnerCommitment: keys.refundOwnerCommitment, refundNoteSecret: keys.refundNoteSecret,
       refundNoteDataHash: keys.refundNoteDataHash, executorTip,
     };
     if (!params.refundVault) throw new Error(`no canonical vault configured for ${req.from.asset}`);

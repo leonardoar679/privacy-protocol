@@ -123,19 +123,15 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/swap/refund") {
       // return a funded order to the pool after its window, without executing it (no execution needed)
       if (!swapsRun) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
-      if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
-      const body = (await readJson(req, 1_000_000)) as never;
-      await executor.admissible(body); // the refund vault is the pool's own for the order's asset
-      const job = executor.addRefund(body);
+      // the cap after the lookup, and never for a funded escrow (the review round of 2026-11-03, F1); the refund vault is the pool's own
+      const job = await executor.admitRefund((await readJson(req, 1_000_000)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
       executor.tick().catch(() => {}); // refund at once if the window has already passed
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/execute") {
       if (!swapsRun) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
-      if (openSwapJobs() >= MAX_SWAP_JOBS) return send(503, { error: "too many open swap jobs", code: "capacity" });
-      const body = (await readJson(req, 1_000_000)) as never;
-      await executor.admissible(body); // the refund vault is the pool's own for the order's asset
-      const job = executor.add(body);
+      // the cap after the lookup, and never for a funded escrow (the review round of 2026-11-03, F1); the refund vault is the pool's own
+      const job = await executor.admitExecution((await readJson(req, 1_000_000)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
       executor.tick().catch(() => {}); // act immediately if the escrow is already funded
       return send(200, job);
     }

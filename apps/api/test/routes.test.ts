@@ -76,6 +76,14 @@ describe("quotes", () => {
 });
 
 describe("operations", () => {
+  it("the commit checks the shapes (the review round of 2026-11-03, F4, F5): a signer that is no address, a hash of the wrong length or a commitment over 78 digits is a 400; a quote id not of the service's own shape is kept as none", async () => {
+    expect((await h.post("/v1/operations", orderBody({ orderSigner: "123" }))).status).toBe(400);
+    expect((await h.post("/v1/operations", orderBody({ refundNoteDataHash: "0x12" }))).status).toBe(400);
+    expect((await h.post("/v1/operations", orderBody({ refundOwnerCommitment: "1".repeat(80) }))).status).toBe(400);
+    const c = await h.post("/v1/operations", orderBody({ quoteId: "x".repeat(200) }));
+    expect(c.status).toBe(200);
+    expect(h.store.db.prepare("SELECT quote_id FROM operations WHERE id = ?").get(c.body.operationId)).toEqual({ quote_id: null });
+  });
   it("create → read → prepare → finalize: the op_ id, the record without the order, the digest, the execution; the blob is gone after finalize", async () => {
     const c = await h.post("/v1/operations", orderBody());
     expect(c.status).toBe(200);

@@ -200,7 +200,9 @@ export class Store {
         "INSERT INTO relayer_jobs (operation_id, state, execution_tx, actual_wei, read_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET state = excluded.state, execution_tx = COALESCE(excluded.execution_tx, relayer_jobs.execution_tx), actual_wei = COALESCE(excluded.actual_wei, relayer_jobs.actual_wei), read_at = excluded.read_at",
       )
       .run(id, j.state, j.executionTx ?? null, j.actualWei ?? null, this.now());
-    if (j.executionTx) this.db.prepare("UPDATE executions SET execution_tx = COALESCE(execution_tx, ?) WHERE operation_id = ?").run(j.executionTx, id);
+    // the relayer's execution transaction is the authority (the review round of 2026-11-03, F6): one it dropped and sent again has a
+    // new hash, and the stall rule compared against the dead one for good
+    if (j.executionTx) this.db.prepare("UPDATE executions SET execution_tx = ? WHERE operation_id = ?").run(j.executionTx, id);
   }
 
   /** An event: the log line and its row are the same sanitized record. */

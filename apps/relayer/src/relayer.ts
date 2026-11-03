@@ -138,7 +138,7 @@ export class Relayer {
   }
 
   /** Everything checkable without the chain. */
-  validateShape(req: SubmitRequest): { pi: PublicInputs; feeWei: bigint; feeVault: Address; feePayloadReadable: boolean } {
+  validateShape(req: SubmitRequest): { pi: PublicInputs; feeWei: bigint; feeVault: Address; feePayloadReadable: boolean; feeNoteSecret: string } {
     if (!isHex(req?.proof, 256)) throw new RelayerError("bad_proof", "proof must be abi.encode(a, b, c): 256 bytes");
     let pi: PublicInputs;
     try { pi = piFromStrings(req.publicInputs); } catch (e) { throw new RelayerError("bad_public_inputs", String((e as Error).message)); }
@@ -166,7 +166,7 @@ export class Relayer {
     const opened = decryptNoteData(this.identity.view, hexToBytes(req.noteData[f.outputIndex]));
     const feePayloadReadable = !!opened && opened.amount === amount && opened.noteSecret === secret && opened.vaultId === BigInt(fv.vault);
     if (this.cfg.requireReadableFeePayload && !feePayloadReadable) throw new RelayerError("fee_payload_unreadable", "the fee note's payload is not encrypted to this relayer's view key");
-    return { pi, feeWei: amount, feeVault: fv.vault, feePayloadReadable };
+    return { pi, feeWei: amount, feeVault: fv.vault, feePayloadReadable, feeNoteSecret: secret.toString() }; // the secret as the number checked, never the string as sent (F2)
   }
 
   /** The minimum this relayer takes in a vault right now: live from gas in the ETH vault, the configured floor elsewhere. */
@@ -177,7 +177,7 @@ export class Relayer {
   }
 
   async submit(req: SubmitRequest): Promise<{ txHash: Hex; feeWei: string; feeVault: Address; gas: string; feePayloadReadable: boolean }> {
-    const { pi, feeWei, feeVault, feePayloadReadable } = this.validateShape(req);
+    const { pi, feeWei, feeVault, feePayloadReadable, feeNoteSecret } = this.validateShape(req);
     const nullifiers: [string, string] = [pi.nullifier0.toString(), pi.nullifier1.toString()];
     // the notes in flight first (audit round 2, r44): a wallet retrying after a lost answer must hear that its first attempt
     // holds them — a fee re-priced meanwhile refused the retry as fee_too_low, and the wallet took that for "not moved"
@@ -222,7 +222,7 @@ export class Relayer {
       throw new RelayerError("send_failed", sent.error);
     }
     const txHash = sent.hash;
-    this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret: req.fee.noteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
+    this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
     this.persist();
     return { txHash, feeWei: feeWei.toString(), feeVault, gas: gas.toString(), feePayloadReadable };
   }

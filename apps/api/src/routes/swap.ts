@@ -37,7 +37,7 @@ import { predictEscrow, recoverExecutionSigner, restoreDigest, restoreRequestTex
 import type { Voucher } from "../vouch";
 import { predictReceiver, receiverParamsOf, receiverParamsProblem, type ReceiverParams, type ReceiverParamsJson } from "@privacy-wallet/contracts";
 import { decodeBlob, encodeBlob, wire } from "../blob";
-import { newId, OPERATION_ID } from "../ids";
+import { newId, OPERATION_ID, QUOTE_ID } from "../ids";
 import { quoteOf, type RelayerTerms } from "../quote";
 import { reconcileOperation, type ReconcileReads, type Reconciled } from "../reconcile";
 import type { Store } from "../store";
@@ -302,13 +302,19 @@ export class SwapApi {
         status: 400,
         body: { error: redactUrlsDeep(`route filtered: ${filtered}`), code: "route_filtered", competition: redactUrlsDeep(set.competition) },
       };
+    // the shapes (the review round of 2026-11-03, F4): a signer of any string had been encoded as a word and vouched for — an
+    // order no contract call could ever take, and a relayer job that erred every tick
     if (
       typeof b.orderSigner !== "string" ||
-      !/^\d+$/.test(String(b.refundOwnerCommitment)) ||
-      !/^\d+$/.test(String(b.refundNoteSecret)) ||
-      typeof b.refundNoteDataHash !== "string"
+      !ADDRESS.test(b.orderSigner) ||
+      !UINT.test(String(b.refundOwnerCommitment)) ||
+      !UINT.test(String(b.refundNoteSecret)) ||
+      typeof b.refundNoteDataHash !== "string" ||
+      !HEX32.test(b.refundNoteDataHash)
     )
-      throw new BadRequest("the order needs orderSigner, refundOwnerCommitment, refundNoteSecret and refundNoteDataHash");
+      throw new BadRequest(
+        "the order needs orderSigner (an address), refundOwnerCommitment and refundNoteSecret (base units) and refundNoteDataHash (32 bytes)",
+      );
     const order = this.engine.buildOrder(
       req,
       set.policy,
@@ -327,7 +333,8 @@ export class SwapApi {
     // follow-up of 2026-10-16, audit gap 47): the relayer shields only a receipt the API vouched for
     const shieldVouch = req.destinationType === "protected" && this.d.voucher ? this.receiptVouch(b.shield, req, set.shieldTip, quote.toAmountMin) : undefined;
     if (shieldVouch !== undefined && typeof shieldVouch !== "string") return shieldVouch;
-    const operationId = this.record(order, typeof b.quoteId === "string" ? b.quoteId : null, provider === set.chosen?.provider);
+    // a quote id of the service's own shape, or none (the review round of 2026-11-03, F5): the column had kept any string sent
+    const operationId = this.record(order, typeof b.quoteId === "string" && QUOTE_ID.test(b.quoteId) ? b.quoteId : null, provider === set.chosen?.provider);
     return {
       status: 200,
       body: wire({
