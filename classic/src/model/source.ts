@@ -18,4 +18,6 @@ export interface ClassicSource {
   gasPriceWei(): Promise<bigint>;
   availability(pool: PoolId): Promise<Availability>;
   history(): Promise<HistoryRow[]>;
+  /** every record of this device's history gone (the fourth review round, 2026-11-03) */
+  clearHistory(): Promise<void>;
 }

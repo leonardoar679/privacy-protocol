@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { config, isLive } from "../config";
 import { feeLines } from "../model/fees";
 import { isAddress } from "../model/format";
+import { refusedRecipient } from "../model/recipient";
 import { mockSource } from "../model/mock";
 import { formatNote, generateNote, noteFileName, parseNote, type ClassicNote } from "../model/notes";
 import { NET_ID, poolOf, type PoolId } from "../model/pools";
@@ -149,12 +150,16 @@ export function App(props: AppProps = {}) {
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
   // the pool the note was made for (C2-2): the selector stays reachable behind the modal, the deposit goes to this one
   const [notePool, setNotePool] = useState<PoolId>("eth-0.1");
+  // the deposit of this note left (a transaction hash exists): Send Deposit gives way to Close (the fourth review round, 2026-11-03 — a
+  // second click had asked the wallet to sign the same commitment again, which the pool reverts at the gas of a mainnet transaction)
+  const [depositDone, setDepositDone] = useState(false);
   const openNote = () => {
     setNotePool(pool);
     setNote(generateNote("eth", poolOf(pool).amount, NET_ID, (n) => crypto.getRandomValues(new Uint8Array(n))));
     setBackedUp(false);
     setCopied(false);
     setDepositMessage(null);
+    setDepositDone(false);
   };
   const closeNote = () => setNote(null);
   const copyNote = async () => {
@@ -168,7 +173,9 @@ export function App(props: AppProps = {}) {
   };
   const saveNote = () => note && download(noteFileName(note), formatNote(note));
   const [historyVersion, setHistoryVersion] = useState(0);
-  const routerDisabled = services?.facts.get(pool)?.router === "disabled";
+  // the modal's facts are the note's pool's (the fourth review round, 2026-11-03): two of its props had read the selector's pool
+  const noteRouterDisabled = services?.facts.get(notePool)?.router === "disabled";
+  const noteLive = isLive(c, notePool, "deposit");
   const sendDeposit = async () => {
     if (!services || !note || !isLive(c, notePool, "deposit")) return;
     setDepositBusy(true);
@@ -176,6 +183,7 @@ export function App(props: AppProps = {}) {
     try {
       const direct = services.facts.get(notePool)?.router === "disabled";
       const job = await depositFlow(services, { pool: notePool, note, direct, onJob: () => setHistoryVersion((v) => v + 1) });
+      if (job.txHash) setDepositDone(true);
       setDepositMessage(job.state === "FAILED" ? t("deposit.failed", { reason: job.failedReason ?? "" }) : t("deposit.sent"));
     } catch (e) {
       setDepositMessage(t("deposit.failed", { reason: e instanceof Error ? e.message : "" }));
@@ -223,6 +231,8 @@ export function App(props: AppProps = {}) {
   const relayer = relayers.find((r) => r.id === relayerId) ?? null;
   const fees: FeeLines | null = found && relayer && gasPriceWei !== null ? feeLines(poolOf(found.pool), relayer, gasPriceWei) : null;
   const recipientInvalid = recipient.trim() !== "" && !isAddress(recipient);
+  // a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03): the zero and burn addresses lose it, the pools' own contracts keep it
+  const recipientRefused = recipient.trim() !== "" && isAddress(recipient) ? refusedRecipient(recipient) : null;
   const withdrawLive = found ? isLive(c, found.pool, "withdraw") : false;
   const historyVerified = found ? (services ? services.histories.get(found.pool)?.verified === true : true) : false;
   // one withdrawal flow at a time (C2-4): the button had come back the moment the confirmation opened, and a second click meant a
@@ -232,6 +242,7 @@ export function App(props: AppProps = {}) {
     !!found &&
     !flowRunning &&
     isAddress(recipient) &&
+    recipientRefused === null &&
     historyVerified &&
     (!services || canWithdrawNow(factsOf(services, found.pool), mode)) && // the rows' own verdict (C2-6): the contract, the endpoint, the prover
     (mode === "wallet" ? !services || walletState.status === "connected" : !!relayer && relayer.status !== "offline" && !!fees && fees.receiveWei > 0n);
@@ -263,7 +274,7 @@ export function App(props: AppProps = {}) {
     };
   }, [source, now, flowMessage]);
   const startWithdrawal = async () => {
-    if (flowRunning || !services || !found || !parsed?.ok || !withdrawLive || !isAddress(recipient)) return;
+    if (flowRunning || !services || !found || !parsed?.ok || !withdrawLive || !isAddress(recipient) || recipientRefused !== null) return;
     setFlowRunning(true);
     setProving(true);
     setFlowMessage(null);
@@ -397,12 +408,13 @@ export function App(props: AppProps = {}) {
             copied={copied}
             onCopy={() => void copyNote()}
             onSave={saveNote}
-            live={live.deposit && (!services || canDeposit(factsOf(services, notePool)))} // the rows' own verdict (C2-6)
+            live={noteLive && (!services || canDeposit(factsOf(services, notePool)))} // the rows' own verdict (C2-6), of the note's pool
             onSend={() => void sendDeposit()}
             onClose={closeNote}
-            directWarning={live.deposit && routerDisabled}
+            directWarning={noteLive && noteRouterDisabled}
             message={depositMessage}
             busy={depositBusy}
+            done={depositDone}
           />
         </>
       ) : null}
@@ -417,6 +429,7 @@ export function App(props: AppProps = {}) {
           recipient={recipient}
           onRecipient={setRecipient}
           recipientInvalid={recipientInvalid}
+          recipientRefused={recipientRefused}
           donate={c.donationAddress !== null}
           onDonate={() => c.donationAddress && setRecipient(c.donationAddress)}
           mode={mode}
@@ -441,7 +454,15 @@ export function App(props: AppProps = {}) {
           flowMessage={flowMessage}
         />
       ) : null}
-      {route === "history" ? <History rows={history} filter={filter} onFilter={setFilter} now={now} /> : null}
+      {route === "history" ? (
+        <History
+          rows={history}
+          filter={filter}
+          onFilter={setFilter}
+          now={now}
+          onClear={() => void source.clearHistory().then(() => setHistoryVersion((v) => v + 1))}
+        />
+      ) : null}
       {route === "settings" ? (
         <SettingsPage
           rpcUrls={c.rpcUrls}

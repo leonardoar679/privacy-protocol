@@ -109,6 +109,47 @@ describe("a pool's history", () => {
     expect(second.statuses).not.toContain("loading:snapshot");
   });
 
+  it("a device copy the chain refused last time is dropped at the start, and a stored copy the chain does not know now is rebuilt from what is served, once (the fourth review round, 2026-11-03)", async () => {
+    const head = TO_BLOCK + 12 + 100;
+    const chainFor = (knownRoots?: (root: string) => boolean) =>
+      scriptedChain({ head, logs: [[]], nextIndex: 1024, knownRoot: true, ...(knownRoots ? { knownRoots } : {}), blockHashes: realHash });
+    const first = history({ rpc: chainFor().rpc });
+    const s1 = await first.h.ensure();
+    expect(s1).toMatchObject({ kind: "ready", verified: true, leaves: 1024 });
+    const store = first.store;
+    const stored = (await store.read("eth-100"))!;
+    // (a) refused last time: before, the copy was reloaded as it was at every start, and the device stayed refused until its site data was cleared
+    await store.write("eth-100", { ...stored, state: { ...stored.state, verified: false } });
+    const second = history({ rpc: chainFor().rpc, store });
+    expect(await second.h.ensure()).toMatchObject({ kind: "ready", verified: true, leaves: 1024 });
+    expect(second.statuses, "the snapshot was fetched: the copy was not read").toContain("loading:snapshot");
+    expect((await store.read("eth-100"))?.state.verified).toBe(true);
+    // (b) a copy the chain does not know now (one leaf of it is wrong): dropped during the run for the served snapshot, one rebuild
+    const good = (await store.read("eth-100"))!;
+    const layers = good.layers.map((l) => [...l]);
+    layers[layers.length - 1][0] = hex32(424_242n); // the root itself: the device's copy is loaded from its layers, the chain knows no such root
+    await store.write("eth-100", { ...good, layers });
+    const realRoot = String((s1 as { root: string }).root).toLowerCase();
+    let fetched = 0;
+    const third = history({
+      rpc: chainFor((root) => root.toLowerCase() === realRoot).rpc,
+      store,
+      fetchSnapshot: async () => {
+        fetched++;
+        return snap;
+      },
+    });
+    expect(await third.h.ensure()).toMatchObject({ kind: "ready", verified: true, leaves: 1024 });
+    expect(fetched).toBe(1);
+    expect(
+      third.statuses.filter((s) => s === "loading:stored"),
+      "the copy read once, then the rebuild starts over",
+    ).toHaveLength(2);
+    expect(third.statuses.filter((s) => s === "loading:snapshot")).toHaveLength(1);
+    expect((await store.read("eth-100"))?.state.verified).toBe(true);
+    expect((await store.read("eth-100"))?.layers.at(-1)?.[0].toLowerCase()).toBe(realRoot);
+  });
+
   it("without an endpoint: ready but unverified, saying why; the path of a leaf still answers", async () => {
     const { h } = history({ rpc: null });
     const s = await h.ensure();

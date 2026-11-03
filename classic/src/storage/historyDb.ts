@@ -48,6 +48,8 @@ export interface JobsStore {
   list(): Promise<JobRecord[]>;
   put(job: JobRecord): Promise<void>;
   remove(id: string): Promise<void>;
+  /** every record gone (the fourth review round, 2026-11-03): the device's withdrawal history is the user's to clear */
+  clear(): Promise<void>;
 }
 
 const key = (pool: PoolId, part: (typeof PARTS)[number]) => `${pool}:${part}`;
@@ -146,6 +148,11 @@ export function indexedDbJobsStore(factory: IDBFactory | undefined = platformFac
       tx.objectStore(JOBS_STORE).delete(id);
       await done(tx);
     },
+    async clear() {
+      const tx = (await databaseOf(factory)).transaction(JOBS_STORE, "readwrite");
+      tx.objectStore(JOBS_STORE).clear();
+      await done(tx);
+    },
   };
 }
 
@@ -172,6 +179,9 @@ export function memoryJobsStore(): JobsStore {
     },
     remove: async (id) => {
       map.delete(id);
+    },
+    clear: async () => {
+      map.clear();
     },
   };
 }

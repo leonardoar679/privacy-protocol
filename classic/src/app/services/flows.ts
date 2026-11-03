@@ -10,6 +10,7 @@ import { verifyAgainstChain } from "../../history/verify";
 import { relayerMinimumWei } from "../../model/fees";
 import { formatNote, leBigInt, type ClassicNote } from "../../model/notes";
 import { poolFor, poolOf } from "../../model/pools";
+import { refusedRecipient } from "../../model/recipient";
 import { canDeposit } from "../../model/availability";
 import { isSpentOnChain } from "../../history/spent";
 import type { DepositFacts } from "../../model/types";
@@ -60,9 +61,11 @@ export async function depositFlow(s: ClassicServices, input: DepositInput): Prom
     );
   const now = s.now;
   let job = newJob(id(), "deposit", pool, now());
+  // the page's record, never the device's (the fourth review round, 2026-11-03): a persisted deposit row beside this device's
+  // withdrawal rows was the link the pool exists to hide; the note is the user's receipt
   const keep = async (next: JobRecord) => {
     job = next;
-    await s.jobs.put(job);
+    await s.depositJobs.put(job);
     input.onJob?.(job);
     return job;
   };
@@ -111,6 +114,12 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   const { pool, note, facts, recipient, via } = input;
   if (!isLive(s.config, pool, "withdraw")) throw new FlowRefused("withdrawals are not switched on for this pool");
   if (!s.rpc) throw new FlowRefused("no RPC endpoint is configured");
+  // a recipient a withdrawal must not go to (the fourth review round, 2026-11-03): the zero and burn addresses lose it — the pool pays
+  // with a plain call that succeeds at an address without code — and the pools' own contracts keep it; the screen refuses first
+  if (refusedRecipient(recipient))
+    throw new FlowRefused(
+      "the recipient is the zero address, a burn address or a contract of the pools: a withdrawal sent there is lost, so nothing is proved or sent",
+    );
   const now = s.now;
   const history = s.histories.get(pool);
   if (!history) throw new FlowRefused("no history for this pool");
@@ -192,7 +201,13 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   };
   const provedAndKnown = async (current?: { proof: ProofResult; root: Hex }): Promise<{ proof: ProofResult; root: Hex }> => {
     let proved = current ?? (await prove());
-    if (!(await rootKnown(proved.root))) {
+    // the re-proof's root is checked too (the fourth review round, 2026-11-03): one synced history and one more proof, then a refusal —
+    // never a submission on a root the pool may not know (the relayer's, or in wallet mode the user's, gas on a revert)
+    for (let again = 0; !(await rootKnown(proved.root)); again++) {
+      if (again >= 1)
+        throw new FlowRefused(
+          "the proof's root is not among the pool's last hundred even after the history was synced and the proof made again: nothing is sent",
+        );
       await history.refresh();
       proved = await prove();
     }
@@ -262,7 +277,7 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
             relayerState: j.status,
             txHash: (j.txHash as Hex | null) ?? job.txHash,
             updatedAt: now(),
-            state: next === "COMPLETED" || next === "FAILED" ? job.state : next === job.state ? job.state : job.state,
+            state: next === "COMPLETED" || next === "FAILED" ? job.state : next, // MINED → SOURCE_CONFIRMING, RESUBMITTED → RECOVERY_REQUIRED while followed (the fourth review round, 2026-11-03: every branch had read job.state)
           });
         },
       });

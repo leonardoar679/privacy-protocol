@@ -117,7 +117,7 @@ async function setup({
     wallet,
     now: () => 1_700_000_000_000,
     followOptions: { intervalMs: 1, sleep: async () => undefined },
-    receiptOptions: { pollMs: 1, sleep: async () => undefined },
+    receiptOptions: { pollMs: 1, maxMs: 20, sleep: async () => undefined }, // a receipt that never comes ends the wait after 20 ms of wall clock
   });
   return { services, chain, prover, provider, transport, jobs, config };
 }
@@ -147,9 +147,28 @@ describe("the deposit flow", () => {
     expect(tx.data.startsWith(SELECTORS.routerDeposit)).toBe(true);
     expect(tx.data.slice(10, 74)).toBe(POOL_100.slice(2).padStart(64, "0"));
     expect(tx.data.slice(74, 138)).toBe(deposits[5].commitment.slice(2));
-    expect((await jobs.list()).map((j) => j.state)).toEqual(["COMPLETED"]);
+    // the device's store holds no deposit record — a deposit row beside this device's withdrawal rows is the link the pool hides (the
+    // fourth review round, 2026-11-03): the page's memory store holds it, and only until the page is gone
+    expect(await jobs.list()).toEqual([]);
+    expect((await services.depositJobs.list()).map((j) => j.state)).toEqual(["COMPLETED"]);
     // the record carries no note and no recipient
-    expect(JSON.stringify(await jobs.list())).not.toContain(formatNote(NOTE).slice(-40));
+    expect(JSON.stringify(await services.depositJobs.list())).not.toContain(formatNote(NOTE).slice(-40));
+  });
+
+  it("a deposit whose receipt did not arrive in time is read again when the history is read, and the chain's receipt completes it (the fourth review round, 2026-11-03)", async () => {
+    const { services, chain } = await setup();
+    const receipts = chain.options.receipts!;
+    const mined = { ...receipts };
+    for (const k of Object.keys(receipts)) delete receipts[k]; // nothing mined yet: an underpriced deposit
+    const job = await depositFlow(services, { pool: "eth-100", note: NOTE });
+    expect(job.state).toBe("FAILED");
+    expect(job.failedReason).toMatch(/not mined in time/);
+    expect(job.txHash).toBe(hex32(1000n));
+    Object.assign(receipts, mined); // mined later
+    const rows = await sourceOf(services).history();
+    expect(rows.map((r) => [r.kind, r.status])).toEqual([["deposit", "deposited"]]);
+    expect((await services.depositJobs.list()).map((j) => j.state)).toEqual(["COMPLETED"]);
+    expect(await services.jobs.list(), "the device's store holds no deposit").toEqual([]);
   });
 
   it("straight to the pool when asked (the router disabled the instance); a wallet refusal fails the record", async () => {
@@ -378,6 +397,51 @@ describe("the withdrawal flow", () => {
     const posted = transport.posted[0] as { body: { args: string[] } };
     expect(BigInt(posted.body.args[0])).toBe(BigInt(prover.proofs[1].root));
     expect(services.histories.get("eth-100")!.state!.leaves).toBe(1025);
+  });
+
+  it("a recipient a withdrawal must not go to — the zero address, a burn address, a contract of the pools — is refused before any proof (the fourth review round, 2026-11-03)", async () => {
+    const { services, prover, transport, facts } = await ready();
+    for (const recipient of ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dEaD", POOL_100, ROUTER] as const) {
+      const refused = withdrawalFlow(services, {
+        pool: "eth-100",
+        note: NOTE,
+        facts,
+        recipient,
+        via: "relayer",
+        relayerId: "to-relayer.eth",
+        feeWei: FEE,
+        confirm: async () => true,
+      });
+      await expect(refused).rejects.toBeInstanceOf(FlowRefused);
+      await expect(refused).rejects.toThrow(/the zero address, a burn address or a contract of the pools: a withdrawal sent there is lost/);
+    }
+    expect(prover.proofs).toHaveLength(0);
+    expect(transport.posted).toHaveLength(0);
+  });
+
+  it("a root the pool does not know even after the history was synced and the proof made again: FAILED with the reason, nothing sent (the fourth review round, 2026-11-03)", async () => {
+    const { services, chain, prover, transport, facts } = await ready();
+    const job = await withdrawalFlow(services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => {
+        // the pool's answers while the user looked at the confirmation: the proof's root unknown (1), the synced history's root
+        // known (2), the re-proof's root unknown again (3) — a window that moved twice. Before, the re-proof went out unchecked
+        let asked = 0;
+        chain.options.knownRoots = () => [false, true, false][asked++] ?? false;
+        chain.options.lastRoot = hex32(5n);
+        return true;
+      },
+    });
+    expect(job.state).toBe("FAILED");
+    expect(job.failedReason).toMatch(/not among the pool's last hundred even after the history was synced and the proof made again: nothing is sent/);
+    expect(prover.proofs.length).toBe(2);
+    expect(transport.posted).toHaveLength(0);
   });
 
   it("wallet mode: the proof with no relayer and no fee, the pool's own withdraw from the account, the receipt", async () => {

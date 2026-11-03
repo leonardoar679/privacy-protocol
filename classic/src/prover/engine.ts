@@ -61,7 +61,14 @@ export class Prover {
   /** The witness, then the proof; the public signals checked against the input's six. `onProof` fires when the witness is done. */
   async prove(input: CircuitInput, onProof?: () => void): Promise<Proof> {
     const t0 = now();
-    const witness = genWitness(input, this.artifacts.witness, compiled) as { witness: unknown[]; publicSignals: unknown[] };
+    let witness: { witness: unknown[]; publicSignals: unknown[] };
+    try {
+      witness = genWitness(input, this.artifacts.witness, compiled) as { witness: unknown[]; publicSignals: unknown[] };
+    } catch {
+      // the calculator's assert names both sides of the failed constraint — tree nodes, bits, in principle a private input: a fixed
+      // phrase instead (the fourth review round, 2026-11-03), since the words reach the record on the device
+      throw new Error("the witness does not satisfy the circuit: the note does not open this path or root");
+    }
     const witnessMs = now() - t0;
     const publicSignals = witness.publicSignals.map((x) => String(x));
     if (publicSignals.join(",") !== publicInputsOf(input).join(",")) throw new Error("the witness's public signals are not the input's six");

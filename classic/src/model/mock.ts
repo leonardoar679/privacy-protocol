@@ -110,5 +110,8 @@ export function mockSource(o: MockOptions): ClassicSource {
     gasPriceWei: () => answer(gas),
     availability: (pool) => answer(mockAvailability(pool)),
     history: () => answer(history),
+    clearHistory: async () => {
+      history.length = 0;
+    },
   };
 }

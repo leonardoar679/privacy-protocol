@@ -21,14 +21,13 @@ describe("configFromEnv", () => {
     const c = configFromEnv({
       VITE_CLASSIC_CHAIN_ID: "1",
       VITE_CLASSIC_RPC_URLS: "https://rpc-a.example/v1, https://rpc-b.example",
-      VITE_CLASSIC_RELAYER_URLS: "https://relayer.example",
       VITE_CLASSIC_LIVE: '{"eth-1":["withdraw","withdraw"],"eth-100":["deposit","withdraw"]}',
       VITE_CLASSIC_COMPLIANCE_ORACLE: "1",
       PROD: true,
       BASE_URL: "/classic/",
     });
     expect(c.rpcUrls).toEqual(["https://rpc-a.example/v1", "https://rpc-b.example"]);
-    expect(c.relayerUrls).toEqual(["https://relayer.example"]);
+    expect(c.relayerUrls).toEqual([]); // a production build names no relayer of its own (the fourth review round, 2026-11-03)
     expect(c.live).toEqual({ "eth-1": ["withdraw"], "eth-100": ["deposit", "withdraw"] });
     expect(isLive(c, "eth-1", "withdraw")).toBe(true);
     expect(isLive(c, "eth-1", "deposit")).toBe(false);
@@ -52,5 +51,8 @@ describe("configFromEnv", () => {
     expect(configFromEnv({}).curatedRelayers).toBe(true);
     expect(configFromEnv({ VITE_CLASSIC_RELAYERS_CURATED: "0" }).curatedRelayers).toBe(false);
     expect(() => configFromEnv({ VITE_CLASSIC_RELAYERS_CURATED: "0", PROD: true })).toThrow(/development chains only/);
+    // operator-named relayers skip the registry and the reward-account rule (the fourth review round, 2026-11-03): a dev build only
+    expect(configFromEnv({ VITE_CLASSIC_RELAYER_URLS: "https://relayer.example" }).relayerUrls).toEqual(["https://relayer.example"]);
+    expect(() => configFromEnv({ VITE_CLASSIC_RELAYER_URLS: "https://relayer.example", PROD: true })).toThrow(/development chains only/);
   });
 });

@@ -95,6 +95,9 @@ export function configFromEnv(env: Record<string, unknown>): ClassicConfig {
   const curatedRelayers = e.VITE_CLASSIC_RELAYERS_CURATED !== "0";
   if (!curatedRelayers && e.PROD === true)
     throw new Error("VITE_CLASSIC_RELAYERS_CURATED=0 is for development chains only: a production build offers the curated relayers");
+  // operator-named relayers skip the registry and the reward-account rule (the fourth review round, 2026-11-03): development only, as the two above
+  if (list(e.VITE_CLASSIC_RELAYER_URLS).length && e.PROD === true)
+    throw new Error("VITE_CLASSIC_RELAYER_URLS is for development chains only: a production build lists the curated relayers (classic/relayers.json)");
   return {
     chainId: Number(e.VITE_CLASSIC_CHAIN_ID ?? "1"),
     rpcUrls: list(e.VITE_CLASSIC_RPC_URLS),

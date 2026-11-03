@@ -111,7 +111,17 @@ export class PoolHistory {
       }
       if (this.d.rpc) {
         await this.sync(this.d.rpc);
-        return await this.verify(this.d.rpc);
+        const status = await this.verify(this.d.rpc);
+        // the device's copy the chain does not know (the fourth review round, 2026-11-03): dropped for what is served, once in this run
+        if (status.kind === "ready" && !status.verified && this.origin === "stored") {
+          await this.d.store.clear(this.d.pool);
+          this.state = null;
+          this.origin = "chain";
+          await this.load();
+          await this.sync(this.d.rpc);
+          return await this.verify(this.d.rpc);
+        }
+        return status;
       }
       await this.persist();
       return this.set({
@@ -133,7 +143,10 @@ export class PoolHistory {
     const { pool, address, tree, store } = this.d;
     this.set({ kind: "loading", step: "stored" });
     const stored = await store.read(pool);
-    if (stored && stored.state.address.toLowerCase() === address.toLowerCase() && stored.layers.length) {
+    // a device copy the chain refused last time is no start (the fourth review round, 2026-11-03): it had been reloaded as it was at
+    // every start — one wrong eth_getLogs answer, and withdrawals on the device stayed refused until its site data was cleared
+    if (stored && stored.state.verified === false) await store.clear(pool);
+    if (stored && stored.state.verified !== false && stored.state.address.toLowerCase() === address.toLowerCase() && stored.layers.length) {
       const r = await tree.loadTree(pool, stored.layers);
       this.manifest = stored.manifest;
       this.state = stored.state;

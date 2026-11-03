@@ -157,8 +157,11 @@ describe("the wired app", () => {
     await waitFor(() => expect(screen.getByTestId("classic-deposit-message")).toHaveTextContent("handed to your wallet"));
     expect(provider.sent.length).toBe(1);
     expect((provider.sent[0] as { to: string }).to).toBe(ROUTER);
+    // the deposit sent, the modal offers Close in place of Send Deposit (the fourth review round, 2026-11-03): a second tap had sent the same note again
+    await waitFor(() => expect(screen.getByTestId("classic-note-close")).toBeInTheDocument());
+    expect(screen.queryByTestId("classic-note-send")).toBeNull();
     // the note is nowhere but the modal
-    fireEvent.click(screen.getByTestId("classic-note-modal").querySelector("button[aria-label]") ?? screen.getByText("Close"));
+    fireEvent.click(screen.getByTestId("classic-note-close"));
     go("history");
     await waitFor(() => expect(screen.getByTestId("classic-history")).toHaveTextContent("Deposited"));
     expect(document.body.textContent).not.toContain(note.slice(-40));

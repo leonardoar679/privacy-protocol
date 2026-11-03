@@ -7,12 +7,27 @@ import { feeLines, MAX_FEE_PERCENT_E4, RELAYER_MIN_GAS, relayerMinimumWei, WITHD
 import { formatCount, fromWei, isAddress, shortHash, toDecimals, toGwei, weiOfEth } from "../src/model/format";
 import { FIXTURE_NOTE, mockLookup, mockStats, SPENT_NOTE } from "../src/model/mock";
 import { formatNote, generateNote, leBigInt, noteFileName, parseNote } from "../src/model/notes";
-import { NET_ID, poolFor, poolOf, POOLS } from "../src/model/pools";
+import { DEPLOYMENT, NET_ID, poolFor, poolOf, POOLS } from "../src/model/pools";
+import { protocolAddresses, refusedRecipient } from "../src/model/recipient";
 import { MIN_HOURS, MIN_SUBSEQUENT_DEPOSITS, notEnoughDeposits, notEnoughTime, timePassed } from "../src/model/time";
 import { percentOf } from "../src/views/Withdraw";
 
 const NOW = 1_793_361_600; // 2026-10-26T12:00:00Z
 const GWEI = 1_000_000_000n;
+
+describe("a recipient a withdrawal must not go to (the fourth review round, 2026-11-03)", () => {
+  it("the zero address, the burn address and the pools' own contracts are named — in any case —; a user's address and a non-address are not", () => {
+    expect(refusedRecipient("0x0000000000000000000000000000000000000000")).toBe("zero");
+    expect(refusedRecipient("0x000000000000000000000000000000000000dEaD")).toBe("burn");
+    expect(refusedRecipient(" 0x000000000000000000000000000000000000DEAD ")).toBe("burn");
+    expect(protocolAddresses()).toHaveLength(6); // the four pools, the router, the verifier
+    for (const a of protocolAddresses()) expect(refusedRecipient(a)).toBe("protocol");
+    expect(refusedRecipient(DEPLOYMENT.router.address.toUpperCase().replace(/^0X/, "0x"))).toBe("protocol");
+    expect(refusedRecipient("0x1111111111111111111111111111111111111111")).toBeNull();
+    expect(refusedRecipient("0x1234")).toBeNull(); // not an address: another check's word
+    expect(refusedRecipient("")).toBeNull();
+  });
+});
 
 describe("the note (spec v3.0 §7.3)", () => {
   it("formats and parses the original's note: tornado-<currency>-<amount>-<netId>-0x<31 B nullifier><31 B secret>", () => {

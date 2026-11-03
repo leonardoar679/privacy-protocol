@@ -18,7 +18,7 @@ import type { ProverClient } from "../../prover/client";
 import { jobOf, type followJob, type RelayerTransport } from "../../relayer/client";
 import type { waitForReceipt } from "../../wallet/connection";
 import { CURATED_RELAYERS, type CuratedRelayer } from "../../relayer/curated";
-import { historyStore, jobsStore, type HistoryStore, type JobsStore } from "../../storage/historyDb";
+import { historyStore, jobsStore, type HistoryStore, type JobsStore, memoryJobsStore } from "../../storage/historyDb";
 import { prover as appProver } from "../prover";
 import { checkPoolContract, routerInstanceState } from "./contract";
 import { gasPriceWei } from "./gas";
@@ -38,7 +38,11 @@ export interface ClassicServices {
   relayers: RelayerDirectory;
   relayerTransport: RelayerTransport;
   wallet: WalletSession;
+  /** the device's records of its relayed and wallet-mode withdrawals (IndexedDB) */
   jobs: JobsStore;
+  /** the page's records of its deposits, never persisted (the fourth review round, 2026-11-03; spec v3.0 §7.8 "never a deposit record"): a
+   *  deposit row beside a withdrawal row on one device is the link the pool exists to hide */
+  depositJobs: JobsStore;
   now: () => number;
   /** the facts the availability rows show, refreshed by `checkPool` */
   facts: Map<PoolId, { contract: ContractFact; router: RouterFact }>;
@@ -63,6 +67,8 @@ export interface ServiceOverrides {
   prover?: () => Promise<ProverLike>;
   historyStore?: HistoryStore;
   jobs?: JobsStore;
+  /** the page's deposit records (a memory store unless a test passes one) */
+  depositJobs?: JobsStore;
   fetchSnapshot?: (pool: PoolId) => Promise<FetchedSnapshot | null>;
   relayerTransport?: RelayerTransport;
   curated?: readonly CuratedRelayer[];
@@ -154,6 +160,7 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
     relayerTransport: transport,
     wallet,
     jobs: o.jobs ?? jobsStore(),
+    depositJobs: o.depositJobs ?? memoryJobsStore(),
     now,
     facts,
     proverFact: "idle",
@@ -225,6 +232,32 @@ export function factsOf(s: ClassicServices, pool: PoolId): AvailabilityFacts {
   };
 }
 
+/**
+ * A deposit whose receipt did not arrive in time, or is still awaited, is read again when the history is read (the fourth review
+ * round, 2026-11-03): an underpriced deposit mined later had left a "Failed" row for a deposit that exists.
+ */
+async function refreshDepositJobs(s: ClassicServices): Promise<void> {
+  if (!s.rpc) return;
+  for (const job of await s.depositJobs.list()) {
+    if (
+      job.kind !== "deposit" ||
+      !job.txHash ||
+      !(job.state === "SOURCE_CONFIRMING" || (job.state === "FAILED" && /not mined in time|never came/.test(job.failedReason ?? "")))
+    )
+      continue;
+    try {
+      const receipt = (await s.rpc("eth_getTransactionReceipt", [job.txHash])) as { status?: string } | null;
+      if (!receipt) continue;
+      const ok = receipt.status === "0x1";
+      const { failedReason: _dropped, ...rest } = job;
+      void _dropped;
+      await s.depositJobs.put({ ...rest, state: ok ? "COMPLETED" : "FAILED", updatedAt: s.now(), ...(ok ? {} : { failedReason: "the transaction reverted" }) });
+    } catch {
+      // the endpoint did not answer: the record stays as it is
+    }
+  }
+}
+
 /** A relayed withdrawal whose page is gone is asked about again when the history is read (the review round of 2026-11-03, C2-8). */
 const OPEN_RELAYED = new Set(["SUBMITTING", "SOURCE_CONFIRMING", "RECOVERY_REQUIRED"]);
 async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
@@ -251,7 +284,8 @@ async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
 export function sourceOf(s: ClassicServices): ClassicSource {
   const rows = async (): Promise<HistoryRow[]> => {
     await refreshRelayedJobs(s);
-    const jobs = await s.jobs.list();
+    await refreshDepositJobs(s);
+    const jobs = [...(await s.jobs.list()), ...(await s.depositJobs.list())].sort((a, b) => a.createdAt - b.createdAt);
     return jobs.map((job: JobRecord) => toHistoryRow(job)).reverse();
   };
   return {
@@ -286,6 +320,10 @@ export function sourceOf(s: ClassicServices): ClassicSource {
       return availabilityOf(pool, factsOf(s, pool));
     },
     history: rows,
+    async clearHistory(): Promise<void> {
+      await s.jobs.clear();
+      await s.depositJobs.clear();
+    },
   };
 }
 

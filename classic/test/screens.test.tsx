@@ -182,6 +182,15 @@ describe("the withdraw tab", () => {
     expect(recipient).toHaveAttribute("placeholder", "Please paste address here");
     type(recipient, "0x1234");
     expect(screen.getByTestId("classic-recipient-error")).toHaveTextContent("Recipient address is invalid");
+    // a recipient a withdrawal must not go to (the fourth review round, 2026-11-03): named before anything else is asked
+    type(recipient, "0x0000000000000000000000000000000000000000");
+    expect(screen.getByTestId("classic-recipient-error")).toHaveTextContent("The zero address: a withdrawal sent there is lost.");
+    type(recipient, "0x000000000000000000000000000000000000dEaD");
+    expect(screen.getByTestId("classic-recipient-error")).toHaveTextContent("A burn address: a withdrawal sent there is lost.");
+    type(recipient, "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b"); // the router
+    expect(screen.getByTestId("classic-recipient-error")).toHaveTextContent(
+      "A contract of the pools, the router or the verifier: a withdrawal sent there cannot come back.",
+    );
     fireEvent.click(screen.getByTestId("classic-donate"));
     expect(recipient.value).toBe(DONATION);
     expect(screen.queryByTestId("classic-recipient-error")).toBeNull();
@@ -292,6 +301,17 @@ describe("History and Settings", () => {
     fireEvent.click(screen.getByTestId("classic-filter-unspent"));
     expect(screen.getByTestId("classic-tx-d1")).toBeInTheDocument();
     expect(screen.queryByTestId("classic-tx-w1")).toBeNull();
+  });
+
+  it("History: the device note, and Clear history empties the records (the fourth review round, 2026-11-03)", async () => {
+    setup({}, [...rows]);
+    go("history");
+    await waitFor(() => expect(screen.getByTestId("classic-tx-d1")).toBeInTheDocument());
+    expect(screen.getByTestId("classic-history-note")).toHaveTextContent("These records are this device's");
+    expect(screen.getByTestId("classic-history-note")).toHaveTextContent("Deposits are listed for this page only.");
+    fireEvent.click(screen.getByTestId("classic-history-clear"));
+    await waitFor(() => expect(screen.getByTestId("classic-history-empty")).toBeInTheDocument());
+    expect(screen.queryByTestId("classic-tx-d1")).toBeNull();
   });
 
   it("Settings: no RPC in this build, the relayers, the honest availability rows; the language is the only thing stored", async () => {

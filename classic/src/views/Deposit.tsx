@@ -57,6 +57,8 @@ export function NoteModal(props: {
   /** what the flow last said */
   message?: string | null;
   busy?: boolean;
+  /** the deposit of this note left (the fourth review round, 2026-11-03): Send Deposit gives way to Close */
+  done?: boolean;
 }) {
   return (
     <Modal open={props.open} title={t("note.title")} onClose={props.onClose} testId="classic-note-modal">
@@ -92,7 +94,11 @@ export function NoteModal(props: {
           {props.message}
         </Notice>
       ) : null}
-      {props.live ? (
+      {props.done ? (
+        <Button variant="primary" full large testId="classic-note-close" onClick={props.onClose}>
+          {t("note.close")}
+        </Button>
+      ) : props.live ? (
         <Button variant="primary" full large testId="classic-note-send" disabled={!props.backedUp || !!props.busy} busy={props.busy} onClick={props.onSend}>
           {t("note.send")}
         </Button>

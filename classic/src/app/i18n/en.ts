@@ -56,6 +56,9 @@ export const en = {
   "withdraw.recipient": "Recipient Address",
   "withdraw.recipientPlaceholder": "Please paste address here",
   "withdraw.recipientInvalid": "Recipient address is invalid",
+  "withdraw.recipientRefused.zero": "The zero address: a withdrawal sent there is lost.",
+  "withdraw.recipientRefused.burn": "A burn address: a withdrawal sent there is lost.",
+  "withdraw.recipientRefused.protocol": "A contract of the pools, the router or the verifier: a withdrawal sent there cannot come back.",
   "withdraw.donate": "Donate",
   "withdraw.relayer": "Relayer",
   "withdraw.relayerTooltip":
@@ -112,6 +115,9 @@ export const en = {
   "history.txHash": "Tx Hash",
   "history.status": "Status",
   "history.pending": "pending",
+  "history.deviceNote":
+    "These records are this device's: a withdrawal's relayer, job and transaction, kept until you clear them. Deposits are listed for this page only.",
+  "history.clear": "Clear history",
   "status.waiting": "Waiting for receipt",
   "status.failed": "Failed",
   "status.withdrawn": "Withdrawn",

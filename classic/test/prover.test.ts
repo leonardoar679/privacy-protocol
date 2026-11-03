@@ -136,6 +136,9 @@ describe.skipIf(!haveArtifacts)("proving in Node with the vendored stack (public
       `PROVER  Node: witness ${Math.round(first.witnessMs)} ms, proof ${Math.round(first.proofMs)} ms (2 workers, 2,000 pages), second proof ${Math.round(second.proofMs)} ms`,
     );
     // a root the path does not prove: the witness calculator refuses (the circuit's root check fails)
-    await expect(prover.prove({ ...vector.input, root: (BigInt(vector.input.root) + 1n).toString() })).rejects.toThrow();
+    // in a fixed phrase (the fourth review round, 2026-11-03): the calculator's own assert named both sides of the failed constraint
+    await expect(prover.prove({ ...vector.input, root: (BigInt(vector.input.root) + 1n).toString() })).rejects.toThrow(
+      /^the witness does not satisfy the circuit: the note does not open this path or root$/,
+    );
   }, 300_000);
 });

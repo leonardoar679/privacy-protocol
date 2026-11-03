@@ -36,6 +36,8 @@ export interface WithdrawProps {
   recipient: string;
   onRecipient: (v: string) => void;
   recipientInvalid: boolean;
+  /** a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03) */
+  recipientRefused?: "zero" | "burn" | "protocol" | null;
   /** whether the build names a donation address (the original's "Donate" fills the recipient with it) */
   donate: boolean;
   onDonate: () => void;
@@ -149,14 +151,14 @@ export function WithdrawTab(p: WithdrawProps) {
           value={p.recipient}
           onChange={p.onRecipient}
           placeholder={t("withdraw.recipientPlaceholder")}
-          invalid={p.recipientInvalid}
+          invalid={p.recipientInvalid || !!p.recipientRefused}
           testId="classic-recipient"
-          describedBy={p.recipientInvalid ? "classic-recipient-error" : undefined}
+          describedBy={p.recipientInvalid || p.recipientRefused ? "classic-recipient-error" : undefined}
           mono
         />
-        {p.recipientInvalid ? (
+        {p.recipientInvalid || p.recipientRefused ? (
           <p className="tc-help tc-error" id="classic-recipient-error" role="alert" data-testid="classic-recipient-error">
-            {t("withdraw.recipientInvalid")}
+            {p.recipientRefused ? t(`withdraw.recipientRefused.${p.recipientRefused}` as "withdraw.recipientRefused.zero") : t("withdraw.recipientInvalid")}
           </p>
         ) : null}
       </Field>
