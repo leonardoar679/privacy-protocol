@@ -29,7 +29,9 @@ vi.mock("@privacy-wallet/sdk/verifiedReads", async (importOriginal) => ({
       : { kind: "verified", proof: { blockNumber: 1n, slot: 1, nextLeafIndex: proof.leaves, root: 0n }, leaves: proof.leaves },
   provenSpent: async (_d: unknown, nullifiers: bigint[]) => {
     proof.asked.push(nullifiers.length);
-    return proof.spentAll === null || !nullifiers.length ? null : { blockNumber: proof.spentBlock, spent: nullifiers.map(() => proof.spentAll!) };
+    return proof.spentAll === null || !nullifiers.length
+      ? null
+      : { blockNumber: proof.spentBlock, blocks: nullifiers.map(() => proof.spentBlock), spent: nullifiers.map(() => proof.spentAll!) };
   },
 }));
 

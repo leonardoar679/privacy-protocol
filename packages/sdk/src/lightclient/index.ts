@@ -34,16 +34,36 @@ export interface SyncOptions {
   maxCheckpointAgePeriods?: number;
 }
 
-/** A finalized block root that every reachable configured beacon API reports for the same slot (trust on first use, cross-checked). */
-export async function agreedFinalizedRoot(urls: string[], fetchFn: typeof fetch = fetchFor("beacon")): Promise<Hex> {
-  const [first, ...rest] = urls.map((u) => beaconApi(u, fetchFn));
-  const head = (await first<{ data: { root: Hex; header: { message: { slot: string } } } }>("/eth/v1/beacon/headers/finalized")).data;
-  const slot = head.header.message.slot;
-  for (const [i, api] of rest.entries()) {
-    const other = (await api<{ data: { root: Hex } }>(`/eth/v1/beacon/headers/${slot}`)).data.root;
-    if (other.toLowerCase() !== head.root.toLowerCase()) throw new LightClientError(`light client: beacon APIs disagree on the block at finalized slot ${slot} (${urls[0]} vs ${urls[i + 1]})`);
+/** A beacon API's header answer (beacon-APIs `headers/{block_id}`): the top-level `finalized` says whether the block is final. */
+interface HeaderAnswer { finalized?: boolean; data: { root: Hex; header: { message: { slot: string } } } }
+const hostOf = (u: string): string => { try { return new URL(u).host.toLowerCase(); } catch { return u.toLowerCase(); } };
+
+/**
+ * A finalized block root every configured beacon API reports identically (trust on first use, cross-checked). The fourth review
+ * round (2026-11-03): the first API had named the slot, and the others confirmed the root at that slot alone — neither its finality
+ * nor its age was checked, so one API listed first could anchor the client at its unfinalized head (any later reorg then
+ * "proven" away) or at a years-old slot whose retired committee's keys it held. Now every API answers its own finalized header,
+ * each must say `finalized`, the lowest slot is taken, every API must report the same root as finalized at that slot, the slot must
+ * be within the age limit a saved store has, and a first use needs two distinct hosts to agree.
+ */
+export async function agreedFinalizedRoot(urls: string[], fetchFn: typeof fetch = fetchFor("beacon"), o: { spec?: BeaconChainSpec; maxAgePeriods?: number } = {}): Promise<Hex> {
+  if (new Set(urls.map(hostOf)).size < 2)
+    throw new LightClientError("light client: a first use needs two beacon APIs on different hosts to agree on a finalized root (one alone could name any block); configure VITE_BEACON_URLS with two, or a checkpoint (VITE_LC_CHECKPOINT)");
+  const apis = urls.map((u) => beaconApi(u, fetchFn));
+  const own = await Promise.all(apis.map((a) => a<HeaderAnswer>("/eth/v1/beacon/headers/finalized")));
+  for (const [i, h] of own.entries()) if (h.finalized !== true) throw new LightClientError(`light client: ${urls[i]} does not report its finalized header as finalized`);
+  const slots = own.map((h) => Number(h.data.header.message.slot));
+  if (slots.some((s) => !Number.isSafeInteger(s) || s <= 0)) throw new LightClientError("light client: a beacon API answered a finalized header without a slot");
+  const slot = Math.min(...slots);
+  if (o.spec && o.maxAgePeriods !== undefined && periodAtSlot(currentSlot(o.spec)) - periodAtSlot(slot) > o.maxAgePeriods)
+    throw new LightClientError(`light client: the beacon APIs' finalized slot ${slot} is more than ${o.maxAgePeriods} sync-committee periods behind the clock: not a start`);
+  const at = await Promise.all(apis.map((a) => a<HeaderAnswer>(`/eth/v1/beacon/headers/${slot}`)));
+  const root = at[0].data.root.toLowerCase();
+  for (const [i, h] of at.entries()) {
+    if (h.finalized !== true) throw new LightClientError(`light client: ${urls[i]} does not report the block at slot ${slot} as finalized`);
+    if (h.data.root.toLowerCase() !== root) throw new LightClientError(`light client: beacon APIs disagree on the block at finalized slot ${slot} (${urls[0]} vs ${urls[i]})`);
   }
-  return head.root.toLowerCase() as Hex;
+  return root as Hex;
 }
 
 /** Bring a light client to the latest finalized header the network has signed. */
@@ -69,12 +89,12 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
     verified<Versioned<LightClientBootstrap>, LightClient>(`/eth/v1/beacon/light_client/bootstrap/${root}`, (b) => LightClient.fromBootstrap(o.spec, root, b.data, b.version));
   if (o.snapshot) lc = LightClient.fromSnapshot(o.spec, o.snapshot);
   else {
-    lc = await fromRoot(o.checkpoint ?? (await agreedFinalizedRoot(urls, o.fetchFn)));
+    lc = await fromRoot(o.checkpoint ?? (await agreedFinalizedRoot(urls, o.fetchFn, { spec: o.spec, maxAgePeriods: o.maxCheckpointAgePeriods })));
     // a configured checkpoint past the age limit is replaced as a saved store is (audit round 2, n43): a store discarded for its
     // age had been replaced by the checkpoint even when that was older still — walked across the long-retired committees the
     // limit keeps out, or failing once the beacon APIs no longer served that range
     if (o.checkpoint && o.maxCheckpointAgePeriods !== undefined && periodAtSlot(currentSlot(o.spec)) - lc.period > o.maxCheckpointAgePeriods)
-      lc = await fromRoot(await agreedFinalizedRoot(urls, o.fetchFn));
+      lc = await fromRoot(await agreedFinalizedRoot(urls, o.fetchFn, { spec: o.spec, maxAgePeriods: o.maxCheckpointAgePeriods }));
   }
   // walk the committees: while the next one is unknown, the store's own period's update teaches it;
   // then each following period's update (signed by that committee) moves the store into it

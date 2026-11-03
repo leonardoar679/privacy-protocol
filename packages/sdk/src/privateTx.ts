@@ -861,9 +861,11 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
   });
   const found = keyed.map((k) => k.f);
   const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
-  // where a spend read now was seen: the endpoints' latest block (the furthest ahead), so a finalized chain at or past it covers the read
-  const atBlock = Number((await Promise.all(clients.map((c) => c.getBlockNumber()))).reduce((m, b) => (b > m ? b : m), 0n));
   const rpcSpent = await Promise.all(nullifiers.map((nf) => agreedSpent(d, clients, nf)));
+  // where a spend read now was seen: the endpoints' latest block AFTER the reads (the fourth review round, 2026-11-03: read before
+  // them, a spend mined between the two reads sat past the block the mark named), the furthest ahead, so a finalized chain at or
+  // past it covers the read
+  const atBlock = Number((await Promise.all(clients.map((c) => c.getBlockNumber()))).reduce((m, b) => (b > m ? b : m), 0n));
   const known = (f: FoundNote) => noteStore.all().find((n) => n.leafIndex === f.leafIndex);
   const toProve = rpcSpent.flatMap((s, i) => {
     if (!s) return [i];
@@ -872,13 +874,15 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
   });
   const proven = await provenSpent(d, toProve.map((i) => nullifiers[i]));
   const provenAt = new Map<number, boolean>(proven ? toProve.map((i, j) => [i, proven.spent[j]] as [number, boolean]) : []);
+  // the block each nullifier's own proof reached (the fourth review round): a lift compares against it, never the latest batch's
+  const provenBlock = new Map<number, number>(proven ? toProve.map((i, j) => [i, Number(proven.blocks[j])] as [number, number]) : []);
   if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
   for (const [i, f] of found.entries()) {
     const spent = rpcSpent[i];
     const p = provenAt.get(i);
-    if (!spent && p === true) throw new TreeNotProven(`the RPC endpoints say the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven!.blockNumber}`);
+    if (!spent && p === true) throw new TreeNotProven(`the RPC endpoints say the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${provenBlock.get(i)}`);
     if (spent) spentCount++;
     const k = known(f);
     if (k) {
@@ -887,7 +891,7 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
         else if (k.spentUnproven) {
           if (p === true) noteStore.confirmSpent([f.leafIndex]);
           // the finalized chain at or past the block the spend was seen at does not have it: a dropped block, or an endpoint set that lies
-          else if (p === false && k.spentAtBlock !== undefined && Number(proven!.blockNumber) >= k.spentAtBlock) noteStore.markUnspent([f.leafIndex]);
+          else if (p === false && k.spentAtBlock !== undefined && (provenBlock.get(i) ?? 0) >= k.spentAtBlock) noteStore.markUnspent([f.leafIndex]);
         }
       } else if (k.spent && k.spentUnproven) {
         noteStore.markUnspent([f.leafIndex]); // the quorum no longer calls it spent: the block that spent it was dropped

@@ -10,6 +10,7 @@ import type { Deployment, TreeState } from "@privacy-wallet/sdk/chain";
 import { settings, defaultSettings } from "@privacy-wallet/sdk/wallet/settings";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
+import { currentSlot, MAINNET } from "@privacy-wallet/sdk/lightclient/spec";
 import { ZERO_LEAF } from "@privacy-wallet/protocol/merkle";
 import { readsLineOf } from "../src/features/more/statusLines";
 
@@ -17,7 +18,10 @@ const leaves = (n: number) => Array.from({ length: n }, (_, i) => (i % 4 === 3 ?
 async function tree(n: number): Promise<TreeState> { const ls = leaves(n); const layers = await treeLayers(ls, TX_LEVELS); return { leaves: ls, root: layers.root, nextLeafIndex: n, notes: n, layers }; }
 const rootOf = async (n: number) => (await treeLayers(leaves(n), TX_LEVELS)).root;
 const dep = (chainId: number): Deployment => ({ chainId, core: "0x00000000000000000000000000000000000000c0", ethVault: "0x00000000000000000000000000000000000000e7", rpcUrl: "http://rpc", rpcUrls: ["http://rpc"], fromBlock: 0n, erc20Vaults: [] });
-const stubSync = (slot: number) => (async () => ({ finalizedSlot: slot, snapshot: () => ({ finalized: { beacon: { slot: String(slot) } }, finalizedFork: "fulu", current: { pubkeys: [], aggregate_pubkey: "0x" } }) })) as any;
+// the stubs' finalized slot is recent (the fourth review round, 2026-11-03: a finalized block more than MAX_FINALITY_LAG_EPOCHS behind the clock is refused); the test's 15_000_00x numbering is kept as an offset
+const FRESH = currentSlot(MAINNET) - 64;
+const fresh = (slot: number) => FRESH + (slot - 15_000_000);
+const stubSync = (slot: number) => (async () => ({ finalizedSlot: fresh(slot), snapshot: () => ({ finalized: { beacon: { slot: String(fresh(slot)) } }, finalizedFork: "fulu", current: { pubkeys: [], aggregate_pubkey: "0x" } }) })) as any;
 const stubProver = (count: bigint, root: bigint, seen?: { slots?: string[] }) => (async (_lc: unknown, _rpc: string[], _core: string, slots: string[]) => { if (seen) seen.slots = slots; return { header: { number: 26_000_000n, hash: "0x", stateRoot: "0x", timestamp: 0n }, account: {}, values: [count, root] }; }) as any;
 
 afterEach(() => { settings.set(defaultSettings()); verifyStatus.set({ kind: "idle" }); resetLightClient(); session.forget(); });
@@ -65,7 +69,7 @@ describe("verifyTree in the spend flows", () => {
     expect(nullifierSlot(nf)).toBe(keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [nf, 8n]))); // forge: test_SpentNullifierSlot
     const seen: { slots?: string[] } = {};
     const prover = (async (_lc: unknown, _r: string[], _c: string, slots: string[]) => { seen.slots = slots; return { header: { number: 99n }, account: {}, values: slots.map((_, i) => (i === 0 ? 1n : 0n)) }; }) as any;
-    await expect(provenSpent(dep(1), [nf, nf + 1n], { sync: stubSync(15_000_000), prover })).resolves.toEqual({ blockNumber: 99n, spent: [true, false] });
+    await expect(provenSpent(dep(1), [nf, nf + 1n], { sync: stubSync(15_000_000), prover })).resolves.toEqual({ blockNumber: 99n, blocks: [99n, 99n], spent: [true, false] });
     expect(seen.slots).toEqual([nullifierSlot(nf), nullifierSlot(nf + 1n)]);
     await expect(provenSpent(dep(31337), [nf])).resolves.toBeNull();
     settings.set({ verifyReads: false });
@@ -86,7 +90,7 @@ describe("verifyTree in the spend flows", () => {
     await verifyTree(dep(1), t, undefined, { sync, prover: good });
     // minutes later the endpoints no longer serve state at the first sync's block
     const window = (async (lc: { finalizedSlot: number }, ...rest: unknown[]) => {
-      if (lc.finalizedSlot === 15_000_001) throw new Error("no RPC answered eth_getProof: distance to target block exceeds maximum proof window");
+      if (lc.finalizedSlot === fresh(15_000_001)) throw new Error("no RPC answered eth_getProof: distance to target block exceeds maximum proof window");
       return (good as any)(lc, ...rest);
     }) as any;
     await expect(verifyTree(dep(1), t, undefined, { sync, prover: window })).resolves.toMatchObject({ kind: "verified" });
@@ -134,6 +138,8 @@ describe("verifyTree in the spend flows", () => {
     expect(sizes).toEqual([PROOF_BATCH_SLOTS, PROOF_BATCH_SLOTS, 6]);
     expect(r!.spent).toEqual(nfs.map((nf) => BigInt(nullifierSlot(nf)) % 2n === 1n));
     expect(r!.blockNumber, "the latest of the batches' blocks").toBe(102n);
+    // each nullifier carries the block its own batch was proven at (the fourth review round, 2026-11-03): a spent mark's lift reads this one
+    expect(r!.blocks).toEqual([...Array(32).fill(100n), ...Array(32).fill(101n), ...Array(6).fill(102n)]);
   });
   it("provenPool refuses a chain it has no light client for", async () => {
     await expect(provenPool(dep(31337))).rejects.toThrow(/no light client/);

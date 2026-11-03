@@ -178,10 +178,13 @@ describe("a configured checkpoint past the age limit (audit round 2, n43)", () =
   const recent = bootstrap(NOW * PERIOD_SLOTS + 2, C); // the finalized root every beacon API reports
   const fu = update({ attSlot: NOW * PERIOD_SLOTS + 5, finSlot: NOW * PERIOD_SLOTS + 3, signer: C });
   const answer = (v: unknown) => new Response(JSON.stringify(v));
+  // two hosts (the fourth review round, 2026-11-03: a first use needs two to agree), each reporting its finalized header as finalized
+  const URLS = ["http://beacon.test", "http://beacon-two.test"];
   const beacon = (asked: string[]) =>
     (async (url: string) => {
       asked.push(url);
-      if (url.includes("/headers/finalized")) return answer({ data: { root: recent.root, header: { message: { slot: String(NOW * PERIOD_SLOTS + 2) } } } });
+      if (url.includes("/headers/finalized")) return answer({ finalized: true, data: { root: recent.root, header: { message: { slot: String(NOW * PERIOD_SLOTS + 2) } } } });
+      if (url.includes(`/headers/${NOW * PERIOD_SLOTS + 2}`)) return answer({ finalized: true, data: { root: recent.root, header: { message: { slot: String(NOW * PERIOD_SLOTS + 2) } } } });
       if (url.includes(`/bootstrap/${old.root}`)) return answer({ version: "electra", data: old.data });
       if (url.includes(`/bootstrap/${recent.root}`)) return answer({ version: "electra", data: recent.data });
       if (url.includes("/light_client/updates")) return answer([]);
@@ -190,15 +193,57 @@ describe("a configured checkpoint past the age limit (audit round 2, n43)", () =
     }) as unknown as typeof fetch;
   it("is not walked from: the beacon APIs' agreed finalized root is the start, as with no checkpoint", async () => {
     const asked: string[] = [];
-    const lc = await syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked), maxCheckpointAgePeriods: 12 });
+    const lc = await syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: URLS, fetchFn: beacon(asked), maxCheckpointAgePeriods: 12 });
     expect(lc.period).toBe(NOW);
     expect(lc.finalizedSlot).toBe(NOW * PERIOD_SLOTS + 3);
     expect(asked.some((u) => u.includes(`start_period=${P}&`)), "no walk across the retired committees").toBe(false);
+    expect(asked.filter((u) => u.includes("/headers/finalized")), "every API asked for its own finalized header").toHaveLength(2);
+  });
+
+  it("a first use (the fourth review round, 2026-11-03): one host alone is refused; an API that does not call its header finalized, or the block at the agreed slot finalized, is refused; a finalized slot past the age limit is refused; the lowest slot is the one agreed on", async () => {
+    const slot = NOW * PERIOD_SLOTS + 2;
+    const fin = (root: Hex, s: number, finalized = true) => answer({ finalized, data: { root, header: { message: { slot: String(s) } } } });
+    const with_ = (answers: (url: string) => Response | null) =>
+      (async (url: string) => {
+        const a = answers(url);
+        if (a) return a;
+        if (url.includes(`/bootstrap/${recent.root}`)) return answer({ version: "electra", data: recent.data });
+        if (url.includes("/light_client/updates")) return answer([]);
+        if (url.includes("/light_client/finality_update")) return answer({ version: "electra", data: fu });
+        return new Response("{}", { status: 404 });
+      }) as unknown as typeof fetch;
+    const honest = (url: string) => (url.includes("/headers/finalized") || url.includes(`/headers/${slot}`) ? fin(recent.root, slot) : null);
+    await expect(syncLightClient({ spec: s, beaconUrls: ["http://beacon.test"], fetchFn: with_(honest), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/two beacon APIs on different hosts/);
+    await expect(syncLightClient({ spec: s, beaconUrls: ["http://beacon.test", "http://beacon.test/"], fetchFn: with_(honest), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/two beacon APIs on different hosts/);
+    expect((await syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(honest), maxCheckpointAgePeriods: 12 })).finalizedSlot).toBe(NOW * PERIOD_SLOTS + 3);
+    // the first API names its head as "finalized"; the honest one reports the block at that slot, but not as finalized
+    const head = slot + 40;
+    const lying = (url: string) =>
+      url.startsWith("http://beacon.test") && url.includes("/headers/finalized") ? fin(recent.root, head)
+      : url.startsWith("http://beacon-two.test") && url.includes("/headers/finalized") ? fin(recent.root, slot)
+      : url.includes(`/headers/${head}`) ? fin(recent.root, head, url.startsWith("http://beacon.test"))
+      : url.includes(`/headers/${slot}`) ? fin(recent.root, slot)
+      : null;
+    // the lowest finalized slot wins: the honest API's, which both report as finalized
+    expect((await syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(lying), maxCheckpointAgePeriods: 12 })).finalizedSlot).toBe(NOW * PERIOD_SLOTS + 3);
+    // both name the head: the second does not call it finalized
+    const bothHead = (url: string) => (url.includes("/headers/finalized") ? fin(recent.root, head, true) : url.includes(`/headers/${head}`) ? fin(recent.root, head, url.startsWith("http://beacon.test")) : null);
+    await expect(syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(bothHead), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/does not report the block at slot .* as finalized/);
+    // an API that does not call its own finalized header finalized
+    const unfinal = (url: string) => (url.includes("/headers/finalized") ? fin(recent.root, slot, !url.startsWith("http://beacon-two.test")) : honest(url));
+    await expect(syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(unfinal), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/does not report its finalized header as finalized/);
+    // a finalized slot fourteen periods behind the clock, agreed by both: past the age limit, no start
+    const oldSlot = P * PERIOD_SLOTS + 100;
+    const aged = (url: string) => (url.includes("/headers/finalized") || url.includes(`/headers/${oldSlot}`) ? fin(old.root, oldSlot) : null);
+    await expect(syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(aged), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/sync-committee periods behind the clock: not a start/);
+    // the two disagree on the root at the agreed slot
+    const split = (url: string) => (url.includes("/headers/finalized") ? fin(recent.root, slot) : url.includes(`/headers/${slot}`) ? fin(url.startsWith("http://beacon-two.test") ? old.root : recent.root, slot) : null);
+    await expect(syncLightClient({ spec: s, beaconUrls: URLS, fetchFn: with_(split), maxCheckpointAgePeriods: 12 })).rejects.toThrow(/disagree on the block at finalized slot/);
   });
   it("within the limit it is the start, as before; without the limit an aged one is walked from", async () => {
     const asked: string[] = [];
-    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked) })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
-    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: ["http://beacon.test"], fetchFn: beacon(asked), maxCheckpointAgePeriods: 14 })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
+    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: URLS, fetchFn: beacon(asked) })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
+    await expect(syncLightClient({ spec: s, checkpoint: old.root, beaconUrls: URLS, fetchFn: beacon(asked), maxCheckpointAgePeriods: 14 })).rejects.toThrow(new RegExp(`no update for sync-committee period ${P}`));
   });
 });
 
