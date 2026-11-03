@@ -18,6 +18,7 @@ has to answer and where its answers take effect.
 | The words: the statistics labels ("Anonymity set"), the disclosures, the notices, the Korean catalog | `classic/src/app/i18n/{en,ko}.ts` under the word policy (`classic/scripts/words.mjs`) |
 | Whether the original's donation address may be offered | `VITE_CLASSIC_DONATION_ADDRESS` (none hides the button) |
 | Record-keeping: the interface keeps no note, no account, no IP, no log; what, if anything, the review requires | `classic/docs/security-review.md` §2; nothing is collected today |
+| Recipient screening: the application refuses a withdrawal to the zero address, a burn address or the pools' own contracts — funds lost or stuck, not a compliance rule (the fourth review round, 2026-11-03); no sanctions screening of recipients exists (the oracle switch, off by default, screens the connecting account) | whether the review requires more than the switch |
 
 ## The record
 

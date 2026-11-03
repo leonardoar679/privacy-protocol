@@ -81,11 +81,33 @@ server {
   location /assets/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }
   location /artifacts/ { include snippets/privacy-wallet-headers.conf; add_header Cache-Control "public, max-age=31536000, immutable" always; }   # the 31 MB proving key: cached, pinned
   location / { try_files $uri /index.html; }   # the client-side routes (/send, /privacy, /settings, …): the server's headers
-  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
-  location /zkapi-deployment/ { proxy_pass https://zkapi-sepolia.openanonymity.ai/; proxy_ssl_server_name on; include snippets/privacy-wallet-headers.conf; }
+  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment manifest behind this same-origin rewrite. A third
+  # party's server must never answer as a document of the wallet's origin (the fourth review round, 2026-11-03: a reverse proxy had
+  # served any of its answers, HTML included, as the wallet itself — a script in it would have run as 'self'): the upstream's
+  # certificate is verified, its answer is served as JSON whatever it says, under a policy that lets nothing in it run and puts any
+  # document from it in an opaque origin. A build without the zkAPI assets drops this block.
+  location /zkapi-deployment/ {
+    proxy_pass https://zkapi-sepolia.openanonymity.ai/;
+    proxy_ssl_server_name on;
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    proxy_hide_header Content-Type;
+    proxy_hide_header Content-Security-Policy;
+    proxy_hide_header Set-Cookie;
+    include snippets/privacy-wallet-headers.conf;      # a location with headers of its own sends the server's again (r51)
+    include snippets/zkapi-deployment-headers.conf;    # and the record's own: JSON whatever the upstream says, sandboxed, uncached
+  }
   # V7 (spec v3.0 §7.8): Tornado Classic — another application with its own build and policy, under its own location (the snippets below)
   location /classic/ { include snippets/tornado-classic.conf; }
 }
+```
+
+```nginx
+# /etc/nginx/snippets/zkapi-deployment-headers.conf: the proxied deployment record is data, never a document (the fourth review round, 2026-11-03)
+add_header Content-Type application/json always;
+add_header Content-Security-Policy "default-src 'none'; sandbox" always;
+add_header X-Content-Type-Options nosniff always;
+add_header Cache-Control "no-store" always;
 ```
 
 ```nginx
@@ -114,6 +136,14 @@ location ~ ^/classic/(?<dir>assets|artifacts|data)/(?<rest>.*)$ {
   add_header Cache-Control "public, max-age=31536000, immutable" always;
 }
 ```
+
+**Prefer its own origin (the fourth review round, 2026-11-03).** Under `/classic/` the Classic application runs as the wallet's
+origin: in the browser it shares the wallet's IndexedDB, localStorage, Cache storage, BroadcastChannel and Web Lock — rule 9 keeps
+the two source trees apart, the browser does not. A script that runs inside Classic (its own threat model names the host as the
+residual) could overwrite the wallet's two ciphertext blobs, hold the wallet's lock so no wallet tab opens, or lock the wallet's
+tab at will. Serve it from a `classic.` host of its own and point the wallet's More entry at it (`VITE_CLASSIC_URL=https://classic.<your host>/`);
+the same-origin location above is the development recipe (the local stack's), and a host that keeps it accepts that residual
+(audit gap 68).
 
 The Classic application (`classic/`, GPL-3.0; spec v3.0 §7.8) is built apart (`cd classic && npm ci && npm run build`; its
 `VITE_CLASSIC_*` environment names the RPC endpoints, extra relayers, where the snapshots and the artifacts are served, and
@@ -167,10 +197,19 @@ wallet.example {
     try_files {path} /dist/index.html
     file_server { root /srv/tornado-classic/dist }
   }
-  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment behind this same-origin rewrite
+  # Private AI only (a build with the zkAPI assets): the SDK reads its deployment manifest behind this same-origin rewrite — served
+  # as JSON under a policy that lets nothing in it run, whatever the upstream answers (the fourth review round, 2026-11-03; Caddy
+  # verifies the upstream's certificate by default). A build without the zkAPI assets drops this block.
   handle_path /zkapi-deployment/* {
     reverse_proxy https://zkapi-sepolia.openanonymity.ai {
       header_up Host {upstream_hostport}
+      header_down -Content-Type
+      header_down -Content-Security-Policy
+      header_down -Set-Cookie
+      header_down Content-Type application/json
+      header_down Content-Security-Policy "default-src 'none'; sandbox"
+      header_down X-Content-Type-Options nosniff
+      header_down Cache-Control no-store
     }
   }
   try_files {path} /index.html
@@ -264,7 +303,8 @@ through anyone's `deployAndRefund`; a wallet stops one it has not funded yet (`s
 reach an order whose vouches nobody takes any longer.
 
 The relayer's job lists (`GET /swap`, `GET /jobs`) are operator data: they answer only with `RELAYER_ADMIN_TOKEN` as a
-bearer token, and are closed when it is unset. The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
+bearer token, and are closed when it is unset; a token shorter than 32 characters stops the relayer at start (the fourth
+review round, 2026-11-03 — a short token was guessable from the open internet, and the lists hold every job's words). The relayer answers `GET /jobs/by-nullifier/<nullifier>` with the job's transaction hash and status only. That is how a
 wallet whose answer was lost (the network dropped mid-submission) finds its submission again instead of sending it
 twice (spec v2.0 §7.11).
 

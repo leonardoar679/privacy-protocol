@@ -429,7 +429,8 @@ build time** (`classic/scripts/compile-circuit.mjs` turns the JSON's 39 template
 and strips the constraints into a smaller `witness.json`, both hash-pinned) so that no `eval` runs and the CSP stays
 `script-src 'self' 'wasm-unsafe-eval'`; and the Node-only requires are shimmed. **Everything runs in one dedicated
 prover worker** (snarkjs 0.1 patches `BigInt.prototype`; the main thread never loads it); websnark's Blob sub-workers
-spawn from it (`worker-src 'self' blob:`), falling back to the main thread where nested workers are unsupported; the
+spawn from it (`worker-src 'self' blob:`) — as landed there is no main-thread fallback: in a browser whose workers cannot spawn
+workers the prover's build fails with the worker's error, and nothing is proved (the fourth review round, 2026-11-03); the
 worker uses `min(cores, 4)` sub-workers and 1,000 WebAssembly pages each on a phone. A proof is **verified locally**
 before it leaves the device. Vectors: `classic/vectors/notes.json` (note → commitment, nullifierHash),
 `classic/vectors/proof.json` (a synthetic tree and a proof) verified offline and **accepted by the deployed verifier**
@@ -519,7 +520,8 @@ tornadoServiceFee % × denomination`, `Network fee = gas price × 550,000` at th
 fee %`) is checked so a job is never refused for a fee below it; the service fee is capped at 20 %. **No 1 % privacy
 fee exists in Classic**; should the operator ever add a service charge it is a separate line named "service charge",
 never implied to be the contract's. **Wallet mode** (the original's): the connected wallet calls `withdraw` itself
-with `relayer = recipient`, `fee = 0`, after the original warning that the gas-paying address must not be linkable to
+with `relayer = 0x0` (as landed: the zero address, not the recipient — the pool pays no fee either way), `fee = 0`, after the
+original warning that the gas-paying address must not be linkable to
 the user. Every request leaves through the Classic app's own transport with timeouts and a bounded poll; before the
 first withdrawal the screen says that the relayer sees the IP address.
 
@@ -636,6 +638,12 @@ record**; `localStorage` stays empty; nothing is logged; no analytics, no error 
 anything (doc §4.3 E). The old in-app module (`apps/web/src/features/classic-privacy/`, the journal's `classic` field
 and `packages/sdk/src/wallet/classicRecord.ts`) is removed in Stage 11 and rule 8 of `scripts/check-boundaries.mjs`
 becomes rule 9: nothing under `apps/` or `packages/` imports `classic/` and nothing under `classic/` imports them.
+
+**As landed (the fourth review round, 2026-11-03).** The IndexedDB holds the withdrawal records only (relayer, job id,
+status, transaction hash), until the user clears them from History; a deposit's record lives in the page's memory and goes
+with the tab — a deposit row beside a withdrawal row on one device was the link the pool exists to hide. The wallet's More
+entry can point the Classic application at its own origin (`VITE_CLASSIC_URL`): the stricter hosting, since `/classic/` on
+the wallet's origin shares the browser's storage partition and Web Locks with it (audit gap 68).
 
 **As landed (Stage 11, 2026-10-27).** The V6 module is gone: `apps/web/src/features/classic-privacy/`, its two test files,
 its four fixtures and their sixteen baselines, its 62 words in each catalog, the journal's `classic` field and

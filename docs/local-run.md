@@ -68,7 +68,8 @@ curl -s http://127.0.0.1:8790/info                  # minFeeWei, the relayer's p
 ```
 V3 (`docs/high-value-protection-spec-v1.0.md`): the API reads its risk database from `packages/swap-engine/risk/`
 (`RISK_DB_DIR` to point elsewhere; `INCIDENTS_FILE` for an operator's incident list, re-read every minute) and answers
-`GET /v1/risk/:provider`; the relayer's `GET /swap` and `GET /jobs` (the whole job lists) open only to `RELAYER_ADMIN_TOKEN`. V6 (spec
+`GET /v1/risk/:provider`; the relayer's `GET /swap` and `GET /jobs` (the whole job lists) open only to `RELAYER_ADMIN_TOKEN` (at
+least 32 characters since the fourth review round, 2026-11-03 — `start-services.mjs` sets the devnet's). V6 (spec
 v2.0 §15): the API keeps swap records in `DB_PATH` (WAL), purges them on its retention schedule and logs one JSON line
 per event, never an address, a hash or an amount; `scripts/local-stack/start-services.mjs service` starts it on 8787
 with `run/api.sqlite`.
