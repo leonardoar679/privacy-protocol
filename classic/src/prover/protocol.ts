@@ -4,6 +4,9 @@
 // repeats an input. A note crosses this boundary in memory only, never a URL, a log or a store.
 import type { CircuitInput } from "./input";
 
+/** A tree whose path does not fold to its root (the fifth review round, 2026-11-03): the history rebuilds it from the deposits. */
+export const TREE_INCONSISTENT = "the tree on the device is not consistent: its path does not hash to its root";
+
 export type ProverStep = "artifacts" | "prover" | "witness" | "proof" | "verify";
 
 /** websnark's knobs: how many sub-workers it spawns and how many 64 KB WebAssembly pages each reserves. */

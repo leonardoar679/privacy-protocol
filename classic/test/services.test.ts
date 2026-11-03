@@ -150,6 +150,30 @@ describe("a pool's history", () => {
     expect((await store.read("eth-100"))?.layers.at(-1)?.[0].toLowerCase()).toBe(realRoot);
   });
 
+  it("a stored copy whose inner layers do not hash to its root is rebuilt from the deposits at the first path asked (the fifth review round, 2026-11-03)", async () => {
+    const head = TO_BLOCK + 12 + 100;
+    const first = history({ rpc: scriptedChain({ head, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash }).rpc });
+    expect(await first.h.ensure()).toMatchObject({ kind: "ready", verified: true, leaves: 1024 });
+    const good = (await first.store.read("eth-100"))!;
+    const layers = good.layers.map((l) => [...l]);
+    layers[3][1] = hex32(777_777n); // an inner node on leaf 5's path wrong under the right root word: every check passed, every proof would have failed with the note blamed
+    await first.store.write("eth-100", { ...good, layers });
+    const second = history({
+      rpc: scriptedChain({ head: head + 5, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash }).rpc,
+      store: first.store,
+      fetchSnapshot: async () => {
+        throw new Error("the snapshot must not be fetched");
+      },
+    });
+    expect(await second.h.ensure(), "the copy's root is the chain's: verified").toMatchObject({ kind: "ready", verified: true });
+    const path = await second.h.pathFor(5);
+    expect(path.pathElements).toHaveLength(20);
+    expect(second.trees.calls, "the inconsistent tree was rebuilt from the deposits").toContain("build");
+    expect((await first.store.read("eth-100"))!.layers[3][1], "the stored copy is consistent again").toBe(good.layers[3][1]);
+    expect(await second.h.pathFor(5), "the second ask needs no rebuild").toEqual(path);
+    expect(second.trees.calls.filter((c) => c === "build")).toHaveLength(1);
+  });
+
   it("without an endpoint: ready but unverified, saying why; the path of a leaf still answers", async () => {
     const { h } = history({ rpc: null });
     const s = await h.ensure();

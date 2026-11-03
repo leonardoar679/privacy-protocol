@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { commitmentOf, nullifierHashOf, toHex32 } from "../../src/crypto/hashes";
-import { MerkleTree } from "../../src/crypto/tree";
+import { MerkleTree, rootOfPath } from "../../src/crypto/tree";
 import type { Hex, RawLog } from "../../src/history/events";
 import type { SnapshotManifest, SnapshotTexts } from "../../src/history/snapshot";
 import type { Rpc } from "../../src/history/sync";
@@ -12,7 +12,7 @@ import { SELECTORS } from "../../src/history/verify";
 import { parseNote } from "../../src/model/notes";
 import type { FetchedSnapshot } from "../../src/net/snapshot";
 import type { CircuitInput } from "../../src/prover/input";
-import type { PathResult, ProofResult, ProverProgress, TreeResult, WarmResult } from "../../src/prover/protocol";
+import { TREE_INCONSISTENT, type PathResult, type ProofResult, type ProverProgress, type TreeResult, type WarmResult } from "../../src/prover/protocol";
 import type { RelayerAnswer, RelayerTransport } from "../../src/relayer/client";
 import type { ProverLike } from "../../src/app/services/source";
 import type { Eip1193Provider } from "../../src/wallet/injected";
@@ -58,7 +58,11 @@ export function fakeTrees() {
       return result(pool);
     },
     async pathOf(pool: string, index: number): Promise<PathResult> {
-      const p = trees.get(pool)!.path(index);
+      const tree = trees.get(pool)!;
+      const p = tree.path(index);
+      // as the worker does (the fifth review round, 2026-11-03): a path that does not fold to the root is refused
+      const leaf = tree.leaf(index);
+      if (leaf === undefined || rootOfPath(leaf, p) !== tree.root) throw new Error(TREE_INCONSISTENT);
       return { ...result(pool), pathElements: p.pathElements.map(toHex32), pathIndices: p.pathIndices };
     },
     async layersOf(pool: string) {
@@ -81,9 +85,13 @@ export interface FakeProverOptions {
 export function fakeProver(o: FakeProverOptions = {}) {
   const trees = fakeTrees();
   const proofs: CircuitInput[] = [];
-  const prover: ProverLike & { proofs: CircuitInput[]; warmed: number } = {
+  const prover: ProverLike & { proofs: CircuitInput[]; warmed: number; closed: number } = {
     proofs,
     warmed: 0,
+    closed: 0,
+    close() {
+      prover.closed++;
+    },
     async warm(): Promise<WarmResult> {
       prover.warmed++;
       return { workers: 2, wasmPages: 2000, fromCache: false, artifactsMs: 1, buildMs: 1 };

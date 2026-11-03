@@ -10,6 +10,8 @@ export type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
 export const CONFIRMATIONS = 12;
 export const MAX_WINDOW = 500_000;
 export const MIN_WINDOW = 50;
+/** How many times in a row one window is redone because the chain moved under it, before the sync fails (the fifth review round, 2026-11-03). */
+export const MAX_MOVED_RETRIES = 3;
 export const KEEP_CHECKPOINTS = 24;
 
 export interface Checkpoint {
@@ -88,6 +90,9 @@ export async function syncDelta(input: SyncInput): Promise<SyncResult> {
   let from = input.fromBlock + 1;
   let windows = 0;
   let successes = 0;
+  // a window the chain moved under is redone at most MAX_MOVED_RETRIES times in a row (the fifth review round, 2026-11-03): an endpoint
+  // whose logs and block hashes disagree for good — two nodes behind one host, one of them behind — had the sync spin here forever
+  let moved = 0;
   while (from <= target) {
     const to = Math.min(target, from + window - 1);
     let logs: RawLog[];
@@ -106,9 +111,15 @@ export async function syncDelta(input: SyncInput): Promise<SyncResult> {
     const endHash = await blockHashOf(rpc, to);
     // a log of the window's last block must carry that block's hash, or the chain moved under the window: redo it
     if (logs.some((l) => l.blockNumber !== undefined && Number.parseInt(l.blockNumber, 16) === to && l.blockHash && l.blockHash.toLowerCase() !== endHash)) {
+      if (++moved > MAX_MOVED_RETRIES)
+        throw new SyncError(
+          `the endpoint's logs and block hashes disagree at block ${to} after ${MAX_MOVED_RETRIES} retries: a reorg that does not settle, or an endpoint at odds with itself`,
+          "rpc",
+        );
       successes = 0;
       continue;
     }
+    moved = 0;
     const decoded = decodeLogs(logs, address);
     checkContinuity(decoded.deposits, leaves);
     leaves += decoded.deposits.length;

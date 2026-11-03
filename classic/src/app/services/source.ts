@@ -28,11 +28,13 @@ import { RelayerDirectory } from "./relayers";
 import { WalletSession } from "./wallet";
 
 /** What the flows and the source need of the prover worker (the ProverClient has it all). */
-export type ProverLike = Pick<ProverClient, "warm" | "prove" | "verify" | "note"> & TreeClient;
+export type ProverLike = Pick<ProverClient, "warm" | "prove" | "verify" | "note"> & Partial<Pick<ProverClient, "close">> & TreeClient; // close: the flows stop the worker after a terminal record (the fifth review round, 2026-11-03)
 
 export interface ClassicServices {
   config: ClassicConfig;
   rpc: Rpc | null;
+  /** a second endpoint's word, read before a wallet-mode send (the fifth review round, 2026-11-03); null with one endpoint configured */
+  secondOpinion: Rpc | null;
   prover: () => Promise<ProverLike>;
   histories: Map<PoolId, PoolHistory>;
   relayers: RelayerDirectory;
@@ -64,6 +66,7 @@ export type ReceiptOptions = Parameters<typeof waitForReceipt>[2];
 export interface ServiceOverrides {
   config?: ClassicConfig;
   rpc?: Rpc | null;
+  secondOpinion?: Rpc | null;
   prover?: () => Promise<ProverLike>;
   historyStore?: HistoryStore;
   jobs?: JobsStore;
@@ -106,6 +109,9 @@ export function configuredRelayers(config: ClassicConfig, curated: readonly Cura
 export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const config = o.config ?? readConfig();
   const rpc = o.rpc !== undefined ? o.rpc : config.rpcUrls.length ? makeRpc(config.rpcUrls) : null;
+  // the endpoints after the first, asked once more before a wallet-mode send (the fifth review round, 2026-11-03)
+  const secondOpinion =
+    o.secondOpinion !== undefined ? o.secondOpinion : o.rpc !== undefined ? null : config.rpcUrls.length >= 2 ? makeRpc(config.rpcUrls.slice(1)) : null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((l) => l());
   const store = o.historyStore ?? historyStore();
@@ -154,6 +160,7 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const services: ClassicServices = {
     config,
     rpc,
+    secondOpinion,
     prover,
     histories,
     relayers,

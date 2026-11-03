@@ -6,13 +6,13 @@
 import PINS from "./artifacts.json";
 import { commitmentOf, FIELD_SIZE, nullifierHashOf, toHex32 } from "../crypto/hashes";
 import { sha256Hex } from "../crypto/digest";
-import { MerkleTree } from "../crypto/tree";
+import { MerkleTree, rootOfPath } from "../crypto/tree";
 import { parseNote } from "../model/notes";
 import { fetchVerified, type ArtifactPin } from "../net/artifacts";
 import { cachedArtifact, forgetArtifact, storeArtifact } from "../storage/artifactCache";
 import { defaultOptions, Prover } from "./engine";
 import { verifyOffline } from "./offline";
-import type { ProverEvent, ProverOptions, ProverRequest, ProverResult, TreeResult, WarmResult } from "./protocol";
+import { TREE_INCONSISTENT, type ProverEvent, type ProverOptions, type ProverRequest, type ProverResult, type TreeResult, type WarmResult } from "./protocol";
 
 interface WorkerScope {
   postMessage(message: ProverEvent): void;
@@ -158,6 +158,11 @@ async function handle(req: ProverRequest): Promise<ProverResult | null> {
     case "tree:path": {
       const tree = treeOf(req.pool);
       const path = tree.path(req.index);
+      // the path folds back to the root (the fifth review round, 2026-11-03): a tree loaded from layers is copied, not hashed, so a
+      // served or stored copy with the right root word over wrong inner nodes had passed every check — and every proof then failed
+      // with the note blamed. Twenty hashes here; the history rebuilds the tree from the deposits on this error
+      const leaf = tree.leaf(req.index);
+      if (leaf === undefined || rootOfPath(leaf, path) !== tree.root) throw new Error(TREE_INCONSISTENT);
       return { ...treeResult(req.pool, tree), pathElements: path.pathElements.map(toHex32), pathIndices: path.pathIndices };
     }
     case "tree:layers":

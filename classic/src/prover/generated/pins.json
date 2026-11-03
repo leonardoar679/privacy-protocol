@@ -1,0 +1,7 @@
+{
+  "comment": "The precompiled templates (templates.js) are derived from the pinned circuit at build time (scripts/compile-circuit.mjs) and committed; nothing re-derives them on a machine without the circuit, so their LF bytes are pinned here and held by test/vendored.test.ts (the fifth review round, 2026-11-03). Regenerating templates.js means re-pinning it here.",
+  "templates.js": {
+    "sha256": "fdb678018f6336d8a00ac1f2e7994578b25925f67ba8fabb3e8a5b3282c56b1a",
+    "bytes": 87529
+  }
+}

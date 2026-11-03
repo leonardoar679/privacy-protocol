@@ -35,9 +35,13 @@ import {
   syncDelta,
   SyncError,
   type Rpc,
+  MAX_MOVED_RETRIES,
 } from "../src/history/sync";
 import { readFrontier, SELECTORS, verifyAgainstChain } from "../src/history/verify";
 import logs from "./fixtures/history/logs.json";
+
+/** the window's last-block log carries a stale hash every time (the fifth review round, 2026-11-03): an endpoint at odds with itself */
+let movedAlways = false;
 
 const FIXTURE = join(__dirname, "fixtures", "history", "first-1024", "eth-100");
 const POOL = "0xa160cdab225685da1d56aa342ad8841c3b53f291" as const;
@@ -190,7 +194,7 @@ function scriptedChain({
             data: `0x${word(d.leaf)}${word(1_700_000_000 + d.leaf)}`,
             blockNumber: `0x${d.block.toString(16)}`,
             // a log of the window's last block reports a stale hash once, as a chain moving under the window would
-            blockHash: d.block === to && !movedOnce.has(to) && (movedOnce.add(to), true) ? `0x${word(7n)}` : hashOf(d.block),
+            blockHash: d.block === to && (movedAlways || (!movedOnce.has(to) && (movedOnce.add(to), true))) ? `0x${word(7n)}` : hashOf(d.block),
             transactionHash: `0x${word(BigInt(d.leaf) + 99n)}`,
             logIndex: "0x0",
           });
@@ -264,6 +268,17 @@ describe("the delta sync", () => {
     const m = await syncDelta({ rpc: moving.rpc, address: POOL, fromBlock: 1_000_000, leaves: 5 });
     expect(m.deposits.length).toBe(1);
     expect(moving.calls.filter((c) => c === "eth_getLogs").length).toBe(2);
+    // an endpoint whose logs and block hashes disagree for good (the fifth review round, 2026-11-03): the window was redone forever
+    movedAlways = true;
+    try {
+      const stuck = scriptedChain({ head: 1_000_000 + CONFIRMATIONS + 100, maxWindow: MAX_WINDOW, deposits: [{ block: 1_000_100, leaf: 5, commitment: 11n }] });
+      await expect(syncDelta({ rpc: stuck.rpc, address: POOL, fromBlock: 1_000_000, leaves: 5 })).rejects.toThrow(
+        /logs and block hashes disagree at block 1000100 after 3 retries/,
+      );
+      expect(stuck.calls.filter((c) => c === "eth_getLogs").length).toBe(MAX_MOVED_RETRIES + 1);
+    } finally {
+      movedAlways = false;
+    }
   });
 
   it("an endpoint error that is not a range refusal surfaces as a sync error; a too-small window is never halved below the floor", async () => {

@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { keccak256 } from "js-sha3";
 import { describe, expect, it } from "vitest";
+import type { Rpc } from "../src/history/sync";
 import { depositFlow, FlowRefused, withdrawalFlow } from "../src/app/services/flows";
 import { sourceOf as sourceOfServices } from "../src/app/services/source";
 import { DEPLOYMENT } from "../src/model/pools";
@@ -50,6 +51,8 @@ interface SetupOptions {
   jobStates?: string[];
   knownRoot?: boolean;
   verifiedProof?: boolean;
+  /** a second endpoint's word before a wallet-mode send (the fifth review round, 2026-11-03) */
+  secondOpinion?: Rpc | null;
 }
 /** The fee the screen offers at the scripted 12 gwei: the original's 550,000 gas plus the relayer's 0.4 % — above the relayer's own 390,000-gas minimum. */
 const FEE = feeLines(poolOf("eth-100"), { feePercentE4: 4000 }, 12_000_000_000n).totalFeeWei;
@@ -74,6 +77,7 @@ async function setup({
   verifiedProof = true,
   code = POOL_CODE,
   jobStates,
+  secondOpinion,
 }: SetupOptions = {}) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   const chain = scriptedChain({
@@ -115,6 +119,7 @@ async function setup({
     relayerTransport: transport,
     curated,
     wallet,
+    ...(secondOpinion !== undefined ? { secondOpinion } : {}),
     now: () => 1_700_000_000_000,
     followOptions: { intervalMs: 1, sleep: async () => undefined },
     receiptOptions: { pollMs: 1, maxMs: 20, sleep: async () => undefined }, // a receipt that never comes ends the wait after 20 ms of wall clock
@@ -442,6 +447,43 @@ describe("the withdrawal flow", () => {
     expect(job.failedReason).toMatch(/not among the pool's last hundred even after the history was synced and the proof made again: nothing is sent/);
     expect(prover.proofs.length).toBe(2);
     expect(transport.posted).toHaveLength(0);
+  });
+
+  it("wallet mode asks a second endpoint before sending (the fifth review round, 2026-11-03): one that does not know the root, or calls the note spent, stops the send; one that agrees lets it through, and the prover is closed after the record", async () => {
+    const other = (o: { knownRoot: boolean; spent?: boolean }) =>
+      scriptedChain({
+        head: snap.manifest.toBlock + 200,
+        logs: [[]],
+        nextIndex: 1024,
+        knownRoot: o.knownRoot,
+        lastRoot: hex32(5n),
+        spent: o.spent ?? false,
+        blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+      }).rpc;
+    const input = (facts: Parameters<typeof withdrawalFlow>[1]["facts"]) => ({
+      pool: "eth-100" as const,
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "wallet" as const,
+      confirm: async () => true,
+    });
+    const a = await ready({ secondOpinion: other({ knownRoot: false }) });
+    const refused = await withdrawalFlow(a.services, input(a.facts));
+    expect(refused.state).toBe("FAILED");
+    expect(refused.failedReason).toMatch(/second RPC endpoint does not know the proof's root/);
+    expect(a.provider.sent, "nothing sent").toEqual([]);
+    const b = await ready({ secondOpinion: other({ knownRoot: true, spent: true }) });
+    const spent = await withdrawalFlow(b.services, input(b.facts));
+    expect(spent.state).toBe("FAILED");
+    expect(spent.failedReason).toMatch(/second RPC endpoint reports this note as spent/);
+    expect(b.provider.sent).toEqual([]);
+    const c = await ready({ secondOpinion: other({ knownRoot: true }) });
+    const done = await withdrawalFlow(c.services, input(c.facts));
+    expect(done.state, done.failedReason ?? "").toBe("COMPLETED");
+    expect(c.provider.sent).toHaveLength(1);
+    expect(c.prover.closed, "the prover worker is closed once the record is terminal").toBeGreaterThanOrEqual(1);
+    expect(a.prover.closed, "and after a refused one").toBeGreaterThanOrEqual(1);
   });
 
   it("wallet mode: the proof with no relayer and no fee, the pool's own withdraw from the account, the receipt", async () => {

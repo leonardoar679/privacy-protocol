@@ -109,8 +109,24 @@ export interface WithdrawalInput {
   onJob?: (job: JobRecord) => void;
 }
 
-/** The withdrawal: path → proof (verified in the worker) → the root still known → confirm → relayer job or wallet transaction. */
+/**
+ * The withdrawal, and the prover closed once the record is terminal (the fifth review round, 2026-11-03): the witness — the note's
+ * nullifier and secret among its 28,300 signals — had stayed in the prover worker's heap and its sub-workers' WebAssembly memory for
+ * the page's lifetime. The next proof builds the prover again from the cached artifacts.
+ */
 export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput): Promise<JobRecord> {
+  try {
+    return await withdrawalFlowInner(s, input);
+  } finally {
+    await s
+      .prover()
+      .then((p) => p.close?.())
+      .catch(() => undefined);
+  }
+}
+
+/** The withdrawal: path → proof (verified in the worker) → the root still known → confirm → relayer job or wallet transaction. */
+async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): Promise<JobRecord> {
   const { pool, note, facts, recipient, via } = input;
   if (!isLive(s.config, pool, "withdraw")) throw new FlowRefused("withdrawals are not switched on for this pool");
   if (!s.rpc) throw new FlowRefused("no RPC endpoint is configured");
@@ -305,6 +321,23 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
     }
   }
 
+  // a second endpoint's word before the user's own transaction (the fifth review round, 2026-11-03): one lying endpoint — fake deposits
+  // in its logs, a root it calls known, a note it calls unspent — had the wallet send a withdraw that reverts (some 300,000 gas) and
+  // publishes the nullifier hash beside the recipient; a relayer's node refuses such a job for free. With two or more endpoints
+  // configured the second must agree on the root and on the spent bit; with one, the endpoint is the user's trust, as the screen says
+  if (s.secondOpinion) {
+    const other = await verifyAgainstChain(s.secondOpinion, p.address, { root: BigInt(proved.root), size: history.state!.leaves }).catch(() => null);
+    if (!other || !(other.known || other.lastRoot === proved.root))
+      return keep(
+        move(job, "FAILED", now(), { failedReason: "the second RPC endpoint does not know the proof's root: the endpoints disagree, so nothing is sent" }),
+      );
+    if (await isSpentOnChain(s.secondOpinion, p.address, derived.nullifierHash).catch(() => true))
+      return keep(
+        move(job, "FAILED", now(), {
+          failedReason: "the second RPC endpoint reports this note as spent, or did not answer: the endpoints disagree, so nothing is sent",
+        }),
+      );
+  }
   // wallet mode: the pool's own withdraw from the connected account
   let txHash: Hex;
   try {

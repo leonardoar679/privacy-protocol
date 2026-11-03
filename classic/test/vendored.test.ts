@@ -91,3 +91,16 @@ describe("the precompiled circuit", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("the precompiled templates (the fifth review round, 2026-11-03)", () => {
+  it("are the committed bytes the pin names: a derivation of the circuit that nothing re-derives on a machine without it", () => {
+    const pins = JSON.parse(readFileSync(join(VENDOR_DIR, "..", "src", "prover", "generated", "pins.json"), "utf8")) as Record<
+      string,
+      { sha256: string; bytes: number }
+    >;
+    const pin = pins["templates.js"];
+    const bytes = lf(readFileSync(join(VENDOR_DIR, "..", "src", "prover", "generated", "templates.js")));
+    expect(bytes.length).toBe(pin.bytes);
+    expect(sha256(bytes)).toBe(pin.sha256);
+  });
+});

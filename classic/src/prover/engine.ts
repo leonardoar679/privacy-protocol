@@ -64,10 +64,14 @@ export class Prover {
     let witness: { witness: unknown[]; publicSignals: unknown[] };
     try {
       witness = genWitness(input, this.artifacts.witness, compiled) as { witness: unknown[]; publicSignals: unknown[] };
-    } catch {
+    } catch (e) {
       // the calculator's assert names both sides of the failed constraint — tree nodes, bits, in principle a private input: a fixed
-      // phrase instead (the fourth review round, 2026-11-03), since the words reach the record on the device
-      throw new Error("the witness does not satisfy the circuit: the note does not open this path or root");
+      // phrase instead (the fourth review round, 2026-11-03), since the words reach the record on the device. Only the calculator's
+      // own refusals read as the note's (the fifth review round): anything else — a template that throws, memory — is the prover's
+      const m = e instanceof Error ? e.message : String(e);
+      if (/^(Constraint doesn't match|Signal not initialized|Input Signal not assigned|Signal not assigned|Signal not defined)/.test(m))
+        throw new Error("the witness does not satisfy the circuit: the note does not open this path or root");
+      throw new Error("the prover failed before the witness was complete");
     }
     const witnessMs = now() - t0;
     const publicSignals = witness.publicSignals.map((x) => String(x));

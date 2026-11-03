@@ -114,6 +114,7 @@ function thread(self) {
             instance.exports.g1_multiexp2(pScalars, pPoints, data.n, 7, pRes);
 
             data.result = getBin(pRes, 96);
+            new Uint8Array(memory.buffer).fill(0, oldAlloc, i32[0]); // the scratch zeroed before the pointer goes back (the fifth review round, 2026-11-03)
             i32[0] = oldAlloc;
             self.postMessage(data.result, [data.result]);
         } else if (data.command == "G2_MULTIEXP") {
@@ -126,6 +127,7 @@ function thread(self) {
             instance.exports.g2_multiexp(pScalars, pPoints, data.n, 7, pRes);
 
             data.result = getBin(pRes, 192);
+            new Uint8Array(memory.buffer).fill(0, oldAlloc, i32[0]); // the scratch zeroed before the pointer goes back (the fifth review round, 2026-11-03)
             i32[0] = oldAlloc;
             self.postMessage(data.result, [data.result]);
         } else if (data.command == "CALC_H") {
@@ -167,6 +169,7 @@ function thread(self) {
             instance.exports.fft_fromMontgomeryN(pPolA2+domainSize*32, pPolA2+domainSize*32, domainSize);
 
             data.result = getBin(pPolA2+domainSize*32, domainSize*32);
+            new Uint8Array(memory.buffer).fill(0, oldAlloc, i32[0]); // the scratch zeroed before the pointer goes back (the fifth review round, 2026-11-03)
             i32[0] = oldAlloc;
             self.postMessage(data.result, [data.result]);
         } else if (data.command == "TERMINATE") {

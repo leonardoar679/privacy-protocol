@@ -11,7 +11,7 @@ import { eventsUpTo, findReorg, headBlockOf, mergeCheckpoints, MIN_WINDOW, syncD
 import { call, SELECTORS, verifyAgainstChain, wordOf } from "../../history/verify";
 import type { DepositFacts, PoolStats } from "../../model/types";
 import type { FetchedSnapshot } from "../../net/snapshot";
-import type { PathResult, ProverProgress, TreeResult } from "../../prover/protocol";
+import { TREE_INCONSISTENT, type PathResult, type ProverProgress, type TreeResult } from "../../prover/protocol";
 import type { HistoryStore, SyncState } from "../../storage/historyDb";
 
 /** What the history needs of the worker (the ProverClient has it). */
@@ -329,7 +329,21 @@ export class PoolHistory {
     try {
       return await fn();
     } catch (e) {
-      if (!/no tree for .* is loaded/.test(e instanceof Error ? e.message : String(e))) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      // a tree whose path does not fold to its root (the fifth review round, 2026-11-03): the device's or a served copy with wrong
+      // inner nodes under the right root word. Rebuilt once from the deposits the chain agreed with (by root and count), persisted,
+      // and the call made again; before, the stored copy's verified flag stood and every withdrawal failed with the note blamed
+      if (message.includes(TREE_INCONSISTENT)) {
+        await this.d.store.clear(this.d.pool);
+        const r = await this.d.tree.buildTree(
+          this.d.pool,
+          this.deposits.map((d) => d.commitment),
+        );
+        this.root = r.root;
+        await this.persist();
+        return await fn();
+      }
+      if (!/no tree for .* is loaded/.test(message)) throw e;
       const stored = await this.d.store.read(this.d.pool);
       if (!stored?.layers.length) throw e;
       const r = await this.d.tree.loadTree(this.d.pool, stored.layers);

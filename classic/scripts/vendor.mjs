@@ -152,6 +152,13 @@ export const FILES = [
         'import bigInt from "big-integer";\nimport * as groth16_wasm from "./groth16_wasm.js";\nconst assert = (c) => { if (!c) throw new Error("assertion failed"); };\n\n// a browser page or a Web Worker (the Classic prover runs in one); Node otherwise (the tests)\nconst inBrowser = !(typeof process !== "undefined" && process.versions && process.versions.node);\nlet NodeWorker;\nlet NodeCrypto;\nasync function loadNode() {\n    if (inBrowser || NodeWorker) return;\n    const wt = "node:worker_threads";\n    const cr = "node:crypto";\n    NodeWorker = (await import(/* @vite-ignore */ wt)).Worker;\n    NodeCrypto = await import(/* @vite-ignore */ cr);\n}',
       ),
       r("    const defaultParams = { wasmInitialMemory: 5000 };", "    const defaultParams = { wasmInitialMemory: 5000, maxWorkers: 8 };"),
+      // a sub-worker's scratch — the witness it was handed, the polynomials — zeroed before its allocation pointer is reset (the fifth
+      // review round, 2026-11-03): the bytes had stayed in the WebAssembly memory for the worker's lifetime
+      r(
+        "            i32[0] = oldAlloc;\n            self.postMessage(data.result, [data.result]);",
+        "            new Uint8Array(memory.buffer).fill(0, oldAlloc, i32[0]); // the scratch zeroed before the pointer goes back (the fifth review round, 2026-11-03)\n            i32[0] = oldAlloc;\n            self.postMessage(data.result, [data.result]);",
+        3,
+      ),
       r(
         "    const groth16 = new Groth16();\n\n    groth16.q = bigInt(",
         "    const groth16 = new Groth16();\n    await loadNode();\n\n    groth16.q = bigInt(",
