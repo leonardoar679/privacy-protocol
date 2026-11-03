@@ -304,7 +304,8 @@ export const en = {
   "screen.review.blocker.unsafeContractCall": "The contract call did not pass our checks.",
   "screen.review.blocker.inFlightLimit": "One protected operation of this size runs at a time. Wait until the open one completes.",
   "screen.review.blocker.routeNotQualified": "This route's measured liquidity is below your amount. Try a smaller amount.",
-  "screen.review.blocker.oneAtATime": "Another operation of this kind is still waiting for your wallet's answer or being sent. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within minutes when sent through a relayer, up to an hour through your wallet — and Activity lists it. Then this one can go.",
+  "screen.review.blocker.oneAtATime":
+    "Another operation of this kind is still waiting for your wallet's answer or being sent. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within minutes when sent through a relayer, up to an hour through your wallet — and Activity lists it. Then this one can go.",
   "screen.progress.title": "In progress",
   "screen.progress.preparing": "Preparing your protected transaction…",
   "screen.progress.balance": "Checking balance",
@@ -626,9 +627,11 @@ export const en = {
   "op.error.interrupted.title": "Stopped before anything was sent",
   "op.error.interrupted.reason": "The page was closed or reloaded before it was sent. Nothing moved: start it again.",
   "op.error.locked_mid_flow.title": "Stopped: the wallet locked between two steps",
-  "op.error.locked_mid_flow.reason": "The wallet locked before the next step, so nothing more was sent: at most an approval already confirmed, never the funds. Unlock and start again.",
+  "op.error.locked_mid_flow.reason":
+    "The wallet locked before the next step, so nothing more was sent: at most an approval already confirmed, never the funds. Unlock and start again.",
   "op.error.outcome_unknown.title": "Sent — its transaction not found yet",
-  "op.error.outcome_unknown.reason": "Your notes were spent, but the transaction is not known here yet. We keep checking; nothing more is sent until it is found.",
+  "op.error.outcome_unknown.reason":
+    "Your notes were spent, but the transaction is not known here yet. We keep checking; nothing more is sent until it is found.",
   "op.error.journal_unreadable.title": "Swaps wait for your activity record",
   "op.error.journal_unreadable.reason":
     "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
@@ -1410,7 +1413,8 @@ export const en = {
   "swap.inFlight": "One protected swap of this size at a time: yours is still running. Review Swap opens when it completes.",
   "swap.routeLimit": "The route's measured liquidity is below this amount. Try a smaller amount.",
   "swap.advancedGate.title": "Over $100,000 needs the Advanced experience",
-  "swap.advancedGate.body": "Swaps over $100,000 use the high-value review and protected execution. Turn on the Advanced experience to continue; you can turn it off again under Settings.",
+  "swap.advancedGate.body":
+    "Swaps over $100,000 use the high-value review and protected execution. Turn on the Advanced experience to continue; you can turn it off again under Settings.",
   "swap.advancedGate.switch": "Advanced experience",
   "swap.open": "Open",
   "swap.yourOpenSwaps": "Your open swaps",
@@ -1588,7 +1592,8 @@ export const en = {
   "wallet.switch": "Switch network",
   "wallet.disconnect": "Disconnect",
   "wallet.connectionNote": "The public wallet pays deposits and signs nothing else; it never sees your protected balance.",
-  "wallet.preference.body": "How swaps choose their route. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
+  "wallet.preference.body":
+    "How swaps choose their route. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
   "wallet.allowances.title": "Token allowances",
   "wallet.allowances.body":
     "A deposit approves the exact amount; what a failed deposit left behind can be revoked here. Read through the connected wallet's own provider, never this wallet's endpoints.",
@@ -1632,7 +1637,8 @@ export const en = {
   "advanced.protection.offConfirm": "I understand, turn it off",
   "advanced.protection.keepOn": "Keep it on",
   "advanced.protection.offNotice": "Protected execution is off: large orders run as one execution. Turn it back on above.",
-  "advanced.protection.stepsAtBand": "Split a $50,000–$100,000 swap into protected steps (pieces of varied size, one at a time); otherwise it runs as one order",
+  "advanced.protection.stepsAtBand":
+    "Split a $50,000–$100,000 swap into protected steps (pieces of varied size, one at a time); otherwise it runs as one order",
   "advanced.protection.fromEnhanced": "Protect every order from $100K (steps of at most 5 % at a time), not only when the route is thin or unreliable",
   "advanced.protection.modeLine": "at most {cap} % exposed",
   "advanced.protection.exposure": "Exposure fraction (% of the order outside your balance at once, {min}–{max})",
@@ -1702,7 +1708,8 @@ export const en = {
   "privacyCenter.why.rpc.noLightClient": "Reads rest on the endpoints' agreement alone (no light client for this chain).",
   "privacyCenter.why.rpc.reads":
     "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
-  "privacyCenter.why.timing.immediate": "Swaps are funded as soon as you confirm, so funding and acting are linked by time; Delay for more privacy on a swap adds a random 1–24 h.",
+  "privacyCenter.why.timing.immediate":
+    "Swaps are funded as soon as you confirm, so funding and acting are linked by time; Delay for more privacy on a swap adds a random 1–24 h.",
   "privacyCenter.why.timing.window": "Swaps are funded at a random moment inside {from}–{to}; a patient observer still sees when money moves.",
   "privacyCenter.why.crossChain.escrow":
     "A swap pays from a one-time escrow to a fresh address of this wallet; the provider never sees your permanent address.",
@@ -1740,7 +1747,8 @@ export const en = {
   "privacyCenter.stored.settings": "Settings",
   "privacyCenter.storedNote": "All of it is encrypted with your password on this device; nothing is kept in plain text.",
   "privacyCenter.sent.rpc": "Your RPC endpoints",
-  "privacyCenter.sent.rpc.what": "Public chain reads: every event of the pool, as every user reads them — and, when the wallet checks whether its own notes were spent (every scan, every check of a stale record), the nullifiers of those notes.",
+  "privacyCenter.sent.rpc.what":
+    "Public chain reads: every event of the pool, as every user reads them — and which spent notes were this wallet's: at every scan and stale-record check it asks the endpoints whether its own notes were spent.",
   "privacyCenter.sent.relayer": "The relayer",
   "privacyCenter.sent.relayer.what":
     "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",
@@ -1830,7 +1838,8 @@ export const en = {
   "settings.feesAndRefundsWhy": "When the 1 % is charged, the relayer's bound, what comes back",
   // V7 Stage 12 (spec v3.0 §3; doc §6): the published fee & refund policy, in the app — the same words as docs/fee-policy.md
   "feePolicy.title": "Fees & refunds",
-  "feePolicy.intro": "The privacy fee is 1 % of what you put in, once per operation you confirm. The relayer's cost is shown as a bound before you sign. These are the rules; the Review carries the figures.",
+  "feePolicy.intro":
+    "The privacy fee is 1 % of what you put in, once per operation you confirm. The relayer's cost is shown as a bound before you sign. These are the rules; the Review carries the figures.",
   "feePolicy.privacyTitle": "The privacy fee",
   "feePolicy.onePercent": "1 % of what you put in, rounded up to the next unit — exactly 1 % of a round amount.",
   "feePolicy.oncePerOperation": "Charged once per operation you confirm: a protect, a send, a withdrawal, a swap. A swap's internal steps are one operation.",
@@ -1838,20 +1847,25 @@ export const en = {
   "feePolicy.noFeeOnHousekeeping": "Merging or splitting notes, refunds and re-shields pay no privacy fee — only the relayer's cost where a relayer acts.",
   "feePolicy.protectThenSwap": "Protecting funds and swapping them later are two operations: each pays its 1 %.",
   "feePolicy.relayerTitle": "The relayer and the network",
-  "feePolicy.relayerCost": "A send, a withdrawal and a swap's funding pay the relayer that submits them: its live minimum plus a 10 % margin, read right before the Review.",
+  "feePolicy.relayerCost":
+    "A send, a withdrawal and a swap's funding pay the relayer that submits them: its live minimum plus a 10 % margin, read right before the Review.",
   "feePolicy.bound": "The fee shown is a bound: if the relayer asks more when the wallet is about to submit, nothing is sent and the Review is shown again.",
   "feePolicy.boundSteps": "A protected execution's pieces are bound the same way; the Review shows the relayer's cost times the number of steps.",
   "feePolicy.oneFeeNote": "On chain, the privacy fee and the relayer's cost travel as one fee note; a relayer asking more than the 1 % is not used.",
   "feePolicy.executorTip": "A swap's executor tip is the execution's gas cost, never a percentage and never a fixed gas price.",
   "feePolicy.nothingTitle": "When nothing is charged",
   "feePolicy.nothingReview": "An operation that never leaves the Review costs nothing.",
-  "feePolicy.nothingStopped": "An operation stopped before anything is sent — a fee that moved, a tip the wallet could not check, a closed execution window, a relayer not ready — costs nothing.",
+  "feePolicy.nothingStopped":
+    "An operation stopped before anything is sent — a fee that moved, a tip the wallet could not check, a closed execution window, a relayer not ready — costs nothing.",
   "feePolicy.neverTwice": "A funding is never sent twice: a lost answer is found again by its nullifier first.",
   "feePolicy.refundsTitle": "Refunds",
   "feePolicy.earnedAtFunding": "A swap's privacy fee is earned when its escrow is funded; the escrow's code cannot hold or return it.",
-  "feePolicy.undelivered": "A swap the provider does not deliver returns the swapped amount to your protected balance — not the fee. The refund screen names the amount that comes back.",
-  "feePolicy.pieceAgain": "A protected execution's piece that is refunded and planned again pays its share again; the progress screen says so before it happens.",
-  "feePolicy.classic": "Tornado Classic charges no privacy fee: a relayed withdrawal pays the relayer's own percentage and the network fee, both shown apart before the proof.",
+  "feePolicy.undelivered":
+    "A swap the provider does not deliver returns the swapped amount to your protected balance — not the fee. The refund screen names the amount that comes back.",
+  "feePolicy.pieceAgain":
+    "A protected execution's piece that is refunded and planned again pays its share again; the progress screen says so before it happens.",
+  "feePolicy.classic":
+    "Tornado Classic charges no privacy fee: a relayed withdrawal pays the relayer's own percentage and the network fee, both shown apart before the proof.",
   "settings.notificationsBody": "How the wallet tells you about an operation: on the screen, as a system notification, or with the amount left out.",
   "home.wallet": "Public wallet",
   "home.receive": "Receive",
@@ -1873,7 +1887,8 @@ export const en = {
   "wallet.preference.native.help": "Balanced, but a route that keeps the assets native wins over one with a wrapped leg.",
   "wallet.preference.fastest.label": "Fastest",
   "wallet.preference.fastest.help": "No delay and a public submission: the least private choice, for when time matters more.",
-  "wallet.preference.funding": "Swaps are funded as soon as you confirm. Choose Delay for more privacy on a swap to fund it at a random time within 1–24 h instead.",
+  "wallet.preference.funding":
+    "Swaps are funded as soon as you confirm. Choose Delay for more privacy on a swap to fund it at a random time within 1–24 h instead.",
 } as const;
 
 export type MessageKey = keyof typeof en;
