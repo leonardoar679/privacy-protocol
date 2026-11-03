@@ -18,6 +18,9 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const base = argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : "HEAD";
+// `--all`: every installed package reviewed, not the change since a base (the fourth review round, 2026-11-03): the diff-only review
+// had never swept the lockfile's first population, so an install script that entered before the gate was never asked about
+const all = argv.includes("--all");
 // `--path <repo-relative lockfile>`: which lockfile is reviewed, at the base and in the working tree (default: the root's)
 const lockRel = argv.includes("--path") ? argv[argv.indexOf("--path") + 1].replace(/\\/g, "/") : "package-lock.json";
 const SENSITIVE = [/^@noble\//, /^@scure\//, /^snarkjs$/, /^ffjavascript$/, /^circomlibjs$/, /^viem$/, /^ox$/, /^@walletconnect\//];
@@ -40,18 +43,20 @@ function packagesAt(text) {
 }
 
 let baseText;
-try {
-  baseText = execFileSync("git", ["show", `${base}:${lockRel}`], {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 << 20,
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-} catch {
-  // a lockfile that is new (the Classic app's first commit) is reviewed whole: every package of it is "added"
-  baseText = JSON.stringify({ packages: {} });
-  console.log(`dependency review: no ${lockRel} at ${base} — every package reviewed as added`);
-}
+if (all) baseText = JSON.stringify({ packages: {} });
+else
+  try {
+    baseText = execFileSync("git", ["show", `${base}:${lockRel}`], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 << 20,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    // a lockfile that is new (the Classic app's first commit) is reviewed whole: every package of it is "added"
+    baseText = JSON.stringify({ packages: {} });
+    console.log(`dependency review: no ${lockRel} at ${base} — every package reviewed as added`);
+  }
 const before = packagesAt(baseText);
 // `--lockfile <path>`: review a candidate lockfile instead of the working tree's
 const lockPath = argv.includes("--lockfile") ? argv[argv.indexOf("--lockfile") + 1] : join(root, lockRel);
@@ -91,9 +96,13 @@ if (!added.length && !removed.length) {
   console.log(`dependency review: the lockfile installs the same packages as ${base}`);
   process.exit(0);
 }
-console.log(`dependency review against ${base}: ${added.length} added or changed, ${removed.length} removed`);
+console.log(
+  all
+    ? `dependency review of every installed package (${added.length})`
+    : `dependency review against ${base}: ${added.length} added or changed, ${removed.length} removed`,
+);
 for (const p of added) {
-  console.log(line("+", p));
+  if (!all || p.install || SENSITIVE.some((rx) => rx.test(p.name))) console.log(line("+", p));
   if (SENSITIVE.some((rx) => rx.test(p.name)) && !reviewed(p))
     problems.push(`${p.name}@${p.version} is cryptography-sensitive: add a dated review line naming \`${p.name}@${p.version}\` to docs/dependency-reviews.md`);
   if (p.install && !reviewed(p))
@@ -106,4 +115,8 @@ if (problems.length) {
   console.error(problems.join("\n"));
   process.exit(1);
 }
-console.log("dependency review: every sensitive change has its review line");
+console.log(
+  all
+    ? "dependency review: every installed package with an install script or a cryptography-sensitive name has its review line"
+    : "dependency review: every sensitive change has its review line",
+);

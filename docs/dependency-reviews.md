@@ -24,6 +24,7 @@ code.
 | `snarkjs@0.7.6`, `ffjavascript@0.3.1`, `ffjavascript@0.3.0` — 2026-10-13 | root (0.3.0 nested) | Groth16 proving in the browser's worker; verification in tests |
 | `viem@2.57.3`, `ox@0.14.45`, `ox@0.9.3`, `ox@0.6.9` — 2026-10-13 | root (ox nested under viem and WalletConnect) | RPC, ABI encoding, transaction building |
 | `@walletconnect/ethereum-provider@2.26.0` and its `@walletconnect/*` closure (2.26.0, 2.23.7 nested, the 1.x helpers) — 2026-10-13 | root | the lazily loaded WalletConnect connector |
+| `@reown/appkit@1.8.19` — 2026-11-03 | root (under `@walletconnect/ethereum-provider@2.26.0`; the only shipped package with an install script, in the lockfile since 2026-10-08, before the gate — the fourth review round's `--all` sweep found it unreviewed) | postinstall its own postinstall file (appkit-version-check, in the package's scripts directory), read on 2026-11-03: walks up to the consumer's package.json, compares the `@reown/appkit*` versions with `semver` and prints a notice when they differ — no network, no writes, nothing of it runs in the shipped bundle |
 
 ## Reviews
 
@@ -110,3 +111,42 @@ code.
   → `axios`). The wallet never calls axios — every request goes through the privacy engine's transport — and the connector
   exists only with a project id; bumped with `npm update follow-redirects`, which also wrote npm's `license` fields into the
   lockfile's entries (no other version moved; `scripts/check-lockfile.mjs` and `scripts/dependency-review.mjs` pass).
+
+## The --all sweep — 2026-11-03 (the fourth review round)
+
+`node scripts/dependency-review.mjs --all` reviews every installed package, not the change since a base: the diff-only review had never
+swept the lockfile's first population, so the one shipped package with an install script (`@reown/appkit@1.8.19`, named above) and the
+members of the WalletConnect closure — recorded on 2026-10-13 as one closure row, which the sweep reads per `name@version` — had no line
+of their own. The gate runs the sweep over both lockfiles. What each line below records: the package is the one the 2026-10-13
+closure row covers (the lazily loaded WalletConnect connector, the modal stack under it), locked to the tarball the lockfile's
+sha512 pins, no install script, and nothing of it runs before the user taps WalletConnect.
+
+| Package | Locked | Used for |
+|---|---|---|
+| `@walletconnect/core@2.23.7` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/core@2.26.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/environment@1.0.1` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/events@1.0.1` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/heartbeat@1.2.2` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/jsonrpc-http-connection@1.0.8` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/jsonrpc-provider@1.0.14` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/jsonrpc-types@1.0.4` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/jsonrpc-utils@1.0.8` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/jsonrpc-ws-connection@1.0.16` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/keyvaluestorage@1.1.1` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/logger@3.0.2` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/relay-api@1.0.11` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/relay-auth@1.1.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/safe-json@1.0.2` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/sign-client@2.23.7` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/sign-client@2.26.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/time@1.0.2` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/types@2.23.7` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/types@2.26.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/universal-provider@2.23.7` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/universal-provider@2.26.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/utils@2.23.7` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/utils@2.26.0` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/window-getters@1.0.1` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `@walletconnect/window-metadata@1.0.1` — 2026-11-03 | root (the WalletConnect closure of 2026-10-13) | the lazily loaded WalletConnect connector's stack |
+| `esbuild@0.28.2` — 2026-11-03 | root, development only (under `tsx`, the test and script runner); not shipped | postinstall `install.js`, read on 2026-11-03: validates the installed platform binary's version and downloads the matching one only when it is missing — the registry's own tarball, pinned by the lockfile |
