@@ -151,7 +151,9 @@ first-time explanation. What a devnet cannot show stays with the vitest flows an
   exposure dashboard under Advanced; Pause large operations on Home pauses on the next tick (⚠ Review); Return the rest
   winds down (the planned steps skipped, the executed step tracked); the campaign comes back after a reload; Activity
   has one row for it. The devnet never delivers: settlement, multi-step progression and partial fills are pinned by
-  the vitest suites (`campaign-runner`, `campaign-flow`), not here.
+  the vitest suites (`campaign-runner`, `campaign-flow`), not here. The section quotes the real providers: while
+  THORChain — the one route the risk records measure at $10M — is halted, no provider quotes the order and the run skips
+  the section by name (as it skips 7b), so a full run under a halt is the quick pass plus 8b, 8c and the Classic sections.
 
 The devnet keeps state across runs (each run makes a new wallet and new deposits); restart `npm run chain` and
 `npm run deploy` for a clean chain. The relayer's journal lives in `run/relayer-journal` (`swap-jobs.json`, and V6 Stage 12's

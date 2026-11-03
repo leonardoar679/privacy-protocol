@@ -1025,7 +1025,17 @@ try {
   }
 
   // 8. the $10M protected swap (V3 on the V5 screens) ----------------------------------------------------------------------
-  if (!process.env.SKIP_CAMPAIGN) { phase = "campaign"; await campaignRun(page); }
+  // THORChain is the one route the risk records measure at this size (servedUpToUsd $25M; Chainflip's $2M): while it is halted no
+  // provider quotes the order (Chainflip and NEAR Intents answer "insufficient liquidity") and the section is skipped by name
+  // rather than failed after four minutes waiting for a quote (the review round of 2026-11-02: a network-wide halt did that)
+  if (process.env.SKIP_CAMPAIGN) {
+    // the quick pass
+  } else if (thorchainHalted) {
+    log("8 (the $10M protected swap) skipped: THORChain, the one route measured at this size, is halted — no provider quotes the order");
+  } else {
+    phase = "campaign";
+    await campaignRun(page);
+  }
 
   // 8b. V7 Stage 13 (spec v3.0 §4; the owner's decision 3): the $80K Protected Large Swap — ONE order by default (after the $10M campaign, so the two never share its list) --------------
   {
