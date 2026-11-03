@@ -71,6 +71,8 @@ export interface SdkConfig {
   thorchainRouter?: string;
   /** WalletConnect's project id: the connector is offered only with one */
   walletConnectProjectId?: string;
+  /** where the Tornado Classic application is served (the fourth review round, 2026-11-03): `/classic/` on this origin, or its own origin — the stricter hosting, since the two share the browser's storage and locks under one origin */
+  classicUrl?: string;
   /** where the circuit artifacts are served from */
   artifactBase: string;
   /** a deployment's own price feeds (devnets); null = the table of mainnet and Sepolia */

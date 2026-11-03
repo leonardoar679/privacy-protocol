@@ -2,14 +2,19 @@
 // the unload guard (V7 Stage 16), the connectivity state and one unlocked tab at a time (a V6 follow-up). What a lock forgets is registered by the
 // modules that hold it. Tests start the one they exercise.
 import { session } from "@privacy-wallet/sdk/wallet/session";
-import { startActiveTab } from "./activeTab";
+import { anotherTabHoldsWallet, startActiveTab } from "./activeTab";
 import { stepAside, startAutoLock } from "./autoLock";
 import { startConnectivity } from "./connectivity";
 import { startUnloadGuard } from "./unloadGuard";
 import { prefs } from "../storage/prefs";
 import { secureStore } from "../storage/secureStore";
 
+/** The platform's word on a REPLACE (the fourth review round, 2026-11-03): refused while another tab of this browser holds the wallet. */
+export const replaceGuard = async (): Promise<string | null> =>
+  (await anotherTabHoldsWallet()) ? "another tab of this browser holds the wallet: lock it there first" : null;
+
 export function startPlatform(): () => void {
+  session.setReplaceGuard(replaceGuard);
   const stops = [
     startAutoLock(),
     startConnectivity(),
@@ -17,6 +22,7 @@ export function startPlatform(): () => void {
     startActiveTab({ session, stepAside, refresh: () => prefs().reload(), flush: () => secureStore().flush() }),
   ];
   return () => {
+    session.setReplaceGuard(null);
     for (const s of stops) s();
   };
 }

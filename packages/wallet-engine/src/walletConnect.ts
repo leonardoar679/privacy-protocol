@@ -68,6 +68,27 @@ export async function endWalletConnect(): Promise<void> {
   const p = cached;
   cached = null;
   if (p) await p.disconnect().catch(() => {});
+  clearWalletConnectStorage();
+}
+
+/**
+ * WalletConnect's and AppKit's own localStorage entries — the session, the pairings, the keychain, the connected account's
+ * record — gone with the session (the fourth review round, 2026-11-03): they stayed after a Disconnect, a link between the public
+ * account and this origin's storage that the "localStorage holds nothing" rule did not count. Called by Disconnect and Forget.
+ */
+export function clearWalletConnectStorage(): void {
+  try {
+    const store = globalThis.localStorage;
+    if (!store) return;
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (k && (/^wc@2:/.test(k) || /^(@appkit|@w3m|W3M_|WALLETCONNECT_|wagmi\.)/i.test(k) || /appkit/i.test(k))) keys.push(k);
+    }
+    for (const k of keys) store.removeItem(k);
+  } catch {
+    // no storage, or unreadable: nothing to clear
+  }
 }
 
 /** Tests: forget the cached provider. */

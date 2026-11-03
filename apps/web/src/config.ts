@@ -36,6 +36,7 @@ const EnvSchema = z.object({
   VITE_THORNODE_QUORUM: int(1, 16).optional(),
   VITE_THORCHAIN_ROUTER: address.optional(),
   VITE_WC_PROJECT_ID: z.string().min(1).optional(),
+  VITE_CLASSIC_URL: z.string().min(1).optional(),
   VITE_ARTIFACT_BASE: z.string().min(1).optional(),
   VITE_HOLD_MS: int(1, 60_000).optional(),
   VITE_REVIEW_HOLD_MINUTES: int(1, 24 * 60).optional(),
@@ -62,6 +63,9 @@ export function configFromEnv(raw: Env): SdkConfig {
   for (const u of [...list(e.VITE_RPC_URLS ?? e.VITE_RPC_URL), ...list(e.VITE_RELAYER_URLS), ...list(e.VITE_BEACON_URLS), ...list(e.VITE_THORNODE_URLS)]) {
     if (!url.safeParse(u).success) throw new Error(`the wallet's environment: "${u}" is not a URL`);
   }
+  // the Classic application's place (the fourth review round, 2026-11-03): this origin's /classic/, or its own https origin, nothing else
+  if (e.VITE_CLASSIC_URL !== undefined && e.VITE_CLASSIC_URL !== "/classic/" && !/^https:\/\/[^\s/?#]+(?::\d+)?\/(?:[^\s?#]*\/)?$/.test(e.VITE_CLASSIC_URL))
+    throw new Error(`the wallet's environment: VITE_CLASSIC_URL must be /classic/ or an https URL ending in /, not "${e.VITE_CLASSIC_URL}"`);
   const relayers = list(e.VITE_RELAYER_URLS);
   return defaultConfig({
     deployment: deploymentFromEnv(strings),
@@ -75,6 +79,7 @@ export function configFromEnv(raw: Env): SdkConfig {
     },
     ...(e.VITE_THORCHAIN_ROUTER ? { thorchainRouter: e.VITE_THORCHAIN_ROUTER } : {}),
     ...(e.VITE_WC_PROJECT_ID ? { walletConnectProjectId: e.VITE_WC_PROJECT_ID } : {}),
+    ...(e.VITE_CLASSIC_URL ? { classicUrl: e.VITE_CLASSIC_URL } : {}),
     artifactBase: e.VITE_ARTIFACT_BASE ?? DEFAULTS.artifactBase,
     priceFeeds: feedsFromEnv(strings),
     holdMs: e.VITE_HOLD_MS ?? DEFAULTS.holdMs,

@@ -52,6 +52,23 @@ export class TabStateStore {
 export const activeTab = new TabStateStore();
 export const useActiveTab = (): TabState => useSyncExternalStore(activeTab.subscribe, activeTab.get, activeTab.get);
 
+/**
+ * Whether a tab of this browser holds the wallet now (the fourth review round, 2026-11-03): asked before a REPLACE — a create or
+ * a restore over the wallet another tab has open, whose next write (a tick, a proof's result, a settings mirror) had put the
+ * old journal over the new wallet's under a key it does not have. A locked tab holds no lock, so the one asking never counts
+ * itself (a lock still on its way back after this tab's own lock, FLUSH_WAIT_MS at most, reads as held: the user tries again).
+ * Without Web Locks, or without `query`, nothing is known and nothing changes.
+ */
+export async function anotherTabHoldsWallet(locks: LockManager | null = typeof navigator !== "undefined" ? (navigator.locks ?? null) : null): Promise<boolean> {
+  if (!locks || typeof locks.query !== "function") return false;
+  try {
+    const { held } = await locks.query();
+    return (held ?? []).some((l) => l.name === ACTIVE_LOCK);
+  } catch {
+    return false;
+  }
+}
+
 const defaultChannel = (): Channel | null => (typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(TAB_CHANNEL));
 const randomId = (): string => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
 

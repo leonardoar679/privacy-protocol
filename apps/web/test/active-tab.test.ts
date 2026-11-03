@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { memoryStorage, type KeyValueStorage } from "@privacy-wallet/sdk/wallet/storage";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { ACTIVE_LOCK, startActiveTab, TabStateStore } from "../src/platform/activeTab";
+import { ACTIVE_LOCK, anotherTabHoldsWallet, startActiveTab, TabStateStore } from "../src/platform/activeTab";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const settle = async () => {
@@ -412,5 +412,25 @@ describe("one unlocked tab at a time", () => {
     startActiveTab({ session, stepAside: () => session.lock(), locks: null, store });
     await settle();
     expect([session.isUnlocked(), store.get()]).toEqual([true, "active"]);
+  });
+});
+
+describe("whether another tab holds the wallet (the fourth review round, 2026-11-03): asked before a REPLACE", () => {
+  it("true while the active lock is held, false when it is free, when another lock is held, without Web Locks or when the query fails", async () => {
+    const query = (held: string[]) =>
+      ({ query: async () => ({ held: held.map((name) => ({ name, mode: "exclusive", clientId: "c" })), pending: [] }) }) as unknown as LockManager;
+    expect(await anotherTabHoldsWallet(query([ACTIVE_LOCK]))).toBe(true);
+    expect(await anotherTabHoldsWallet(query(["privacy-wallet:other", ACTIVE_LOCK]))).toBe(true);
+    expect(await anotherTabHoldsWallet(query([]))).toBe(false);
+    expect(await anotherTabHoldsWallet(query(["privacy-wallet:other"]))).toBe(false);
+    expect(await anotherTabHoldsWallet(null)).toBe(false);
+    expect(await anotherTabHoldsWallet({} as LockManager)).toBe(false);
+    expect(
+      await anotherTabHoldsWallet({
+        query: async () => {
+          throw new Error("no");
+        },
+      } as unknown as LockManager),
+    ).toBe(false);
   });
 });

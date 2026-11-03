@@ -4,6 +4,7 @@
 // Center and Settings; the Advanced experience adds Private AI. Receive, Security, Wallet, Language and Advanced live
 // under Settings now (features/settings/Settings.tsx).
 import type { IconName } from "@privacy-wallet/ui";
+import { config } from "@privacy-wallet/sdk/config";
 import type { MessageKey } from "../../app/i18n/en";
 
 export interface MoreEntry {
@@ -25,4 +26,6 @@ export const MORE_ENTRIES: readonly MoreEntry[] = [
   { to: "/more/ai", title: "route.ai", subtitle: "more.aiWhy", icon: "globe", id: "ai", advancedOnly: true },
 ];
 
-export const moreEntries = (experience: "simple" | "advanced"): MoreEntry[] => MORE_ENTRIES.filter((e) => !e.advancedOnly || experience === "advanced");
+/** The entries of the experience; the Classic entry points where the build serves the Classic application (VITE_CLASSIC_URL — its own origin is the stricter hosting; the fourth review round, 2026-11-03). */
+export const moreEntries = (experience: "simple" | "advanced"): MoreEntry[] =>
+  MORE_ENTRIES.filter((e) => !e.advancedOnly || experience === "advanced").map((e) => (e.id === "classic" ? { ...e, to: config().classicUrl ?? e.to } : e));

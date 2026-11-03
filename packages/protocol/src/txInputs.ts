@@ -71,7 +71,7 @@ export function buildTxInputs(spec: TxSpec, opts: { check?: boolean } = {}): Cir
   if (check) {
     const inSum = ins.reduce((s, x) => s + x.amount * x.isReal, 0n);
     const outSum = spec.outputs.reduce((s, o) => s + o.amount, 0n) + (w?.amount ?? 0n);
-    if (inSum !== outSum) throw new Error(`value not conserved: in ${inSum} != out ${outSum}`);
+    if (inSum !== outSum) throw new Error("value not conserved: the inputs and the outputs differ"); // no amounts in the words (the fourth review round, 2026-11-03): they reach the record and the console
     if (spec.inputs[1] && spec.inputs[1].vaultId !== asset) throw new Error("inputs mix assets");
     if (spec.outputs.some((o) => o.vaultId !== asset)) throw new Error("output asset != input asset");
     if (w && w.vault !== asset) throw new Error("withdrawal vault != input asset");

@@ -75,6 +75,7 @@ export const ko: Record<MessageKey, string> = {
     "이 기기의 지갑을 대체합니다. 키 저장소와 암호화된 기록이 삭제되며, 이후에는 그 지갑의 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 REPLACE를 입력하세요.",
   "lock.replacePlaceholder": "REPLACE",
   "lock.walletExists": "다른 탭에서 이 기기에 지갑이 만들어졌습니다. 그 지갑을 잠금 해제하거나, 바꾸려면 아래에 REPLACE를 입력하세요.",
+  "lock.replaceRefused": "이 브라우저의 다른 탭에서 지갑이 열려 있습니다. 먼저 그 탭에서 잠근 뒤 REPLACE를 다시 시도하세요. 아무것도 바뀌지 않았습니다.",
   "lock.guest": "지갑 없이 스왑",
   "lock.toUnlock": "대신 잠금 해제",
   "phrase.title": "복구 문구",

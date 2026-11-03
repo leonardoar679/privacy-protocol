@@ -9,6 +9,7 @@ import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { creditWalletProvider, fundingChainOk } from "../zkapi/creditWallet";
 import { aiSession } from "../zkapi/aiSession";
+import { ADDRESS_LIKE } from "../zkapi/tradeCheck";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
@@ -151,6 +152,12 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
 
   async function send() {
     if (!access || !input.trim()) return;
+    // nothing that looks like an address, a hash or a note leaves for the provider (the fourth review round, 2026-11-03): the trade
+    // check already refuses such values; a typed or pasted one in the free text had gone out as it was
+    if (ADDRESS_LIKE.test(input)) {
+      setStatus("Not sent: the message carries something that looks like an address, a transaction hash or a note. Remove it first — nothing of yours should reach the provider.");
+      return;
+    }
     const next: ChatMessage[] = [...messages, { role: "user", content: input.trim() }];
     setMessages([...next, { role: "assistant", content: "" }]);
     setInput("");
@@ -260,7 +267,7 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
       {snapshot && (
         <>
           <button className="tab" onClick={() => setShowDetails((v) => !v)} style={{ marginTop: 8 }}>{showDetails ? "Hide" : "Show"} credit-wallet details</button>
-          {showDetails && <pre className="muted" style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify({ initialized: snapshot.initialized, loading: snapshot.loading, lastError: snapshot.lastError, deposits: snapshot.deposits?.length, withdrawals: snapshot.withdrawals?.length, activities: snapshot.activities?.slice(-3), note, testnetAuthenticated: zkapiClient.testnetAuthenticated }, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2)}</pre>}
+          {showDetails && <pre className="muted" style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify({ initialized: snapshot.initialized, loading: snapshot.loading, lastError: snapshot.lastError, deposits: snapshot.deposits?.length, withdrawals: snapshot.withdrawals?.length, activities: snapshot.activities?.slice(-3), testnetAuthenticated: zkapiClient.testnetAuthenticated }, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2)}</pre>}
         </>
       )}
       <p className="muted" style={{ fontSize: 12 }}>

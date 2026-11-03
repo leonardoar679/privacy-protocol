@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { session, WalletExists } from "@privacy-wallet/sdk/wallet/session";
+import { ReplaceRefused, session, WalletExists } from "@privacy-wallet/sdk/wallet/session";
 import { useSession } from "../../hooks/core";
 import { lockedElsewhere } from "../../platform/autoLock";
 import { StorageNotice } from "../../app/StorageNotice";
@@ -17,7 +17,8 @@ const newWallet = () => void prefs().update({ backup: undefined });
 export type LockMode = "unlock" | "create" | "restore";
 
 /** A wallet another tab created meanwhile (audit round 2, r27): said in the reader's words; the screen now asks for REPLACE. */
-const worded = (e: unknown, t: ReturnType<typeof useT>) => (e instanceof WalletExists ? new Error(t("lock.walletExists")) : e);
+const worded = (e: unknown, t: ReturnType<typeof useT>) =>
+  e instanceof WalletExists ? new Error(t("lock.walletExists")) : e instanceof ReplaceRefused ? new Error(t("lock.replaceRefused")) : e;
 
 function useRun() {
   const [busy, setBusy] = useState(false);
@@ -145,7 +146,7 @@ export function Restore() {
           <form onSubmit={submit} className="ds-page-body">
             {kind === "phrase" ? (
               <>
-                <Field label={t("lock.phraseLabel")} htmlFor="restore-words" hint={t("lock.phraseRescan")}><Input id="restore-words" value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("lock.phrasePlaceholder")} autoComplete="off" spellCheck={false} /></Field>
+                <Field label={t("lock.phraseLabel")} htmlFor="restore-words" hint={t("lock.phraseRescan")}><Input id="restore-words" value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("lock.phrasePlaceholder")} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} /></Field>
                 <Field label={t("lock.passwordNew")} htmlFor="restore-password"><Input id="restore-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>
                 <Field label={t("lock.passwordConfirm")} htmlFor="restore-confirm" error={error || undefined}><Input id="restore-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
               </>

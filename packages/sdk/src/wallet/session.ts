@@ -66,6 +66,15 @@ export function assertJournalSaved(s: WalletSession): void {
  * and journal with no REPLACE asked. The store is read again first; creating or restoring over a wallet takes the user's
  * typed REPLACE (`replace`).
  */
+/** A REPLACE refused: another tab of this browser holds the wallet (the fourth review round, 2026-11-03). Nothing was written. */
+export class ReplaceRefused extends Error {
+  readonly code = "replace_refused";
+  constructor(why: string) {
+    super(why);
+    this.name = "ReplaceRefused";
+  }
+}
+
 export class WalletExists extends Error {
   readonly code = "wallet_exists";
   constructor() {
@@ -196,20 +205,35 @@ export class WalletSession {
   private journalOf(seed: Uint8Array, key: string = JOURNAL_KEY): JournalData | null {
     const blob = this.store.get(key);
     if (!blob) return null;
+    const k = journalKey(seed);
     try {
-      return decryptJournal(journalKey(seed), JSON.parse(blob) as EncryptedJournal);
+      return decryptJournal(k, JSON.parse(blob) as EncryptedJournal);
     } catch {
       return null;
+    } finally {
+      k.fill(0); // a key for one read (the fourth review round, 2026-11-03)
     }
   }
 
   /** What the store holds now (another tab may have created a wallet since this page opened): a wallet there is replaced only with `replace`. */
   private async guardExisting(replace: boolean | undefined): Promise<void> {
     await this.store.refresh?.();
-    if (replace || !this.hasKeystore()) return;
+    if (!this.hasKeystore()) return;
+    if (replace) {
+      // a REPLACE while another tab of this browser holds the wallet (the fourth review round, 2026-11-03): that tab's next write — a
+      // tick, a proof's result, a settings mirror — had put the old wallet's journal over the restored one, under a key the new wallet
+      // does not have, and the restore's journal was lost. The platform says whether another tab holds it (the Web Lock)
+      const why = this.replaceGuard ? await this.replaceGuard() : null;
+      if (why) throw new ReplaceRefused(why);
+      return;
+    }
     this.emit(); // its status reads "locked" now: the screens ask for REPLACE
     throw new WalletExists();
   }
+
+  /** The platform's say on a REPLACE: a word why not (another tab holds the wallet), or null. */
+  setReplaceGuard(fn: (() => Promise<string | null>) | null): void { this.replaceGuard = fn; }
+  private replaceGuard: (() => Promise<string | null>) | null = null;
 
   /** The user has written the phrase down: forget it (the seed stays, encrypted at rest and in memory while unlocked). */
   acknowledgePhrase(): void {
@@ -232,6 +256,7 @@ export class WalletSession {
     if (blob) {
       try { journal = decryptJournal(key, JSON.parse(blob) as EncryptedJournal); } catch { journal = null; }
     }
+    key.fill(0); // open() derives the session's own (the fourth review round, 2026-11-03: this copy had stayed in memory)
     this.unreadable = !!blob && journal === null; // kept as it is: nothing overwrites it
     this.open(seed, journal ?? emptyJournal());
     // the journal in memory starts empty: which counters were used is unknown until one complete scan (PP-P03) — and so with
@@ -295,8 +320,12 @@ export class WalletSession {
    */
   async restoreFromPhrase(phrase: string, password: string, opts: { replace?: boolean } = {}): Promise<void> {
     const seed = phraseToSeed(phrase);
-    // the counters are held from its first journal on, unless its own journal was kept: the counters it used are known then
-    await this.create(password, seed, { ...opts, holdCounters: true });
+    try {
+      // the counters are held from its first journal on, unless its own journal was kept: the counters it used are known then
+      await this.create(password, seed, { ...opts, holdCounters: true });
+    } finally {
+      seed.fill(0); // create() keeps its own copy (the fourth review round, 2026-11-03: this one had stayed in memory)
+    }
     this.firstLaunch = false; // a restore looks for its notes at once (wallet/discovery.ts)
   }
 
@@ -317,6 +346,7 @@ export class WalletSession {
     if (!seed) return false;
     // a journal set aside as unreadable goes unless this seed opens it (audit round 2, n49): another wallet's had stayed
     if (this.store.get(UNREADABLE_JOURNAL_KEY) !== null && !this.journalOf(seed, UNREADABLE_JOURNAL_KEY)) this.store.remove(UNREADABLE_JOURNAL_KEY);
+    seed.fill(0); // unlock() below derives the session's own from the keystore (the fourth review round, 2026-11-03)
     this.store.set(KEYSTORE_KEY, JSON.stringify(b.keystore));
     if (b.journal) this.store.set(JOURNAL_KEY, JSON.stringify(b.journal)); else this.store.remove(JOURNAL_KEY);
     const ok = await this.unlock(password);
@@ -339,7 +369,12 @@ export class WalletSession {
     const raw = this.store.get(KEYSTORE_KEY);
     if (!raw) return null;
     const seed = await unlockKeystore(JSON.parse(raw) as Keystore, password);
-    return seed ? seedToPhrase(seed) : null;
+    if (!seed) return null;
+    try {
+      return seedToPhrase(seed);
+    } finally {
+      seed.fill(0); // the phrase is the screen's for a moment; this copy of the seed was not (the fourth review round, 2026-11-03)
+    }
   }
 
   lock(): void {
