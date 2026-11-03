@@ -278,6 +278,9 @@ describe("V7 Stage 13: protected steps only when staged or asked (spec v3.0 §4)
     const router = mount();
     await typeAndReview("32");
     expect(screen.getByTestId("review-large-order").textContent).toMatch(/Protected steps: \d+ pieces of varied size, one at a time/);
+    // the steps' Review states the campaign's price bound, never "Quote locked" (the third review round, 2026-11-03)
+    expect(screen.getByTestId("review-view").textContent).toContain("Price bound: each step guarantees the quote's minimum per unit, less 0.5 %");
+    expect(screen.getByTestId("review-view").textContent).not.toContain("Quote locked");
     expect(screen.queryByTestId("review-confirm"), "never a tap from $50K").toBeNull();
     await holdToConfirm();
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));

@@ -287,6 +287,7 @@ export const en = {
   "screen.review.large.body": "Because this is a large transaction, we added additional safety checks.",
   "screen.review.large.destination": "Destination verified",
   "screen.review.large.quote": "Quote locked",
+  "screen.review.large.quoteSteps": "Price bound: each step guarantees the quote's minimum per unit, less 0.5 %",
   "screen.review.large.route": "Route health checked",
   "screen.review.large.limits": "Execution limits enabled",
   "screen.review.large.oneOrder": "One order — no automatic split",

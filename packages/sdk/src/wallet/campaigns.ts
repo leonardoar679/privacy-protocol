@@ -27,6 +27,25 @@ import { capBpsFor, type ExposureTier } from "@privacy-wallet/protocol/wallet/ex
 export const BOUNDS_SLIPPAGE_BPS = 50;
 /** The tip (≤ 25 bps, V1.1) plus the relayer fee ceiling per tranche (§3). */
 export const DEFAULT_MAX_FEE_BPS = 100;
+
+/**
+ * What `steps` pieces over `amount` must deliver in all (V3 §3), as the band's Review states it (the third review round, 2026-11-03;
+ * before, it stated the one order's minimum and "Quote locked", which no step was held to): the per-unit floor the bounds carry — the
+ * quote's minimum per unit of what the set was quoted for, less BOUNDS_SLIPPAGE_BPS — over the steps' amount (smaller than the funding:
+ * each step pays its own fee note), net of each step's tip when the set names one, as the steps are committed (trancheMinimum); a unit
+ * per step under the sum of the steps' own floors, so the figure is never above what the steps guarantee together.
+ */
+export function campaignMinimumOutput(i: { toAmountMin: bigint; quoted: bigint; amount: bigint; executorTip?: bigint | null; steps: number }): bigint {
+  const slip = (rate: bigint) => (rate * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
+  const tip = i.executorTip ?? null;
+  const n = BigInt(Math.max(1, i.steps));
+  let total: bigint;
+  if (tip !== null && tip > 0n && tip < i.quoted) {
+    const paid = i.amount > tip * n ? i.amount - tip * n : 0n;
+    total = (paid * slip(rateE18(i.toAmountMin, i.quoted - tip))) / RATE_SCALE;
+  } else total = (i.amount * slip(rateE18(i.toAmountMin, i.quoted))) / RATE_SCALE;
+  return total > n ? total - n : 0n;
+}
 /** The campaign expiry: twice the estimated duration plus this margin (§3). */
 export const EXPIRY_MARGIN_SECONDS = 48 * 3600;
 export const TERMINAL_STATES: readonly Campaign["state"][] = ["completed", "cancelled"];

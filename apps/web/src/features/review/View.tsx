@@ -25,6 +25,8 @@ export interface ReviewFee {
   also?: Amount;
   /** words in place of an amount (the review round of 2026-11-03, W5: "Paid by your connected wallet") */
   note?: string;
+  /** the amount is an estimate in part — a protected execution's steps each pay their own tip at their time (the third review round, 2026-11-03) */
+  approx?: boolean;
 }
 export interface ReviewModel {
   kind: "protect" | "send" | "swap" | "cross-chain";
@@ -122,10 +124,10 @@ export function ReviewView({
     ) : f.amount ? (
       f.also ? (
         <>
-          <Amt a={f.amount} rounding="up" /> + <Amt a={f.also} rounding="up" />
+          <Amt a={f.amount} approx={f.approx} rounding={f.approx ? undefined : "up"} /> + <Amt a={f.also} rounding="up" />
         </>
       ) : (
-        <Amt a={f.amount} rounding="up" />
+        <Amt a={f.amount} approx={f.approx} rounding={f.approx ? undefined : "up"} />
       )
     ) : (
       "—"
@@ -191,7 +193,10 @@ export function ReviewView({
                 <h2 className="ds-card-title">{t("screen.review.large.title")}</h2>
                 <p className="ds-callout-body">{t("screen.review.large.body")}</p>
                 <ul className="ds-checks ds-checks-block">
-                  {LARGE_CHECKS.map((k) => (
+                  {(m.steps && m.steps > 1
+                    ? LARGE_CHECKS.map((k) => (k === "screen.review.large.quote" ? ("screen.review.large.quoteSteps" as MessageKey) : k))
+                    : LARGE_CHECKS
+                  ).map((k) => (
                     <li key={k} data-state="ok">
                       ✓ {t(k)}
                     </li>

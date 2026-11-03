@@ -52,7 +52,16 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
-import { buildCampaign, cancelCampaign, cryptoSeed, resumeCampaign, seededUniform, startCampaign, TERMINAL_STATES } from "@privacy-wallet/sdk/wallet/campaigns";
+import {
+  buildCampaign,
+  cancelCampaign,
+  cryptoSeed,
+  resumeCampaign,
+  seededUniform,
+  startCampaign,
+  TERMINAL_STATES,
+  campaignMinimumOutput,
+} from "@privacy-wallet/sdk/wallet/campaigns";
 import { inFlightLimitReached, protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
 import { campaignLineText } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
@@ -814,11 +823,23 @@ export function SwapScreen(p: SwapScreenProps) {
     const mergeTotal = mergeEach * BigInt(mergeCount);
     const mergeCents = mergeCount ? cents(mergeTotal) : 0n;
     const large = atLeast(tier, "large-protected");
+    // the steps' price bound (V3 §3; the third review round, 2026-11-03): the band's Review had stated the one order's minimum and "Quote
+    // locked" while the steps were held to the quote's minimum per unit less 0.5 % over their smaller amount — it states that bound now
+    const stepsMinimum =
+      stepsPlan && stepsPlan.n > 1
+        ? campaignMinimumOutput({
+            toAmountMin: BigInt(quote.toAmountMin),
+            quoted: split.delivered,
+            amount: stepsPlan.amount,
+            executorTip: quotes.executorTip !== undefined ? tip : null,
+            steps: stepsPlan.n,
+          })
+        : null;
     const review: ReviewModel = {
       kind: crossChain ? "cross-chain" : "swap",
       pay: { usdCents: cents(units), amount: amountOf(units, fromAsset.symbol, fromAsset.decimals) },
       receive: { amount: amountOf(BigInt(quote.toAmount) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain), approx: true },
-      minimum: amountOf(BigInt(quote.toAmountMin) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain),
+      minimum: amountOf((stepsMinimum ?? BigInt(quote.toAmountMin)) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain),
       fees: [
         ...(split.privacy > 0n
           ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, fromAsset.symbol, fromAsset.decimals) }]
@@ -826,6 +847,7 @@ export function SwapScreen(p: SwapScreenProps) {
         {
           kind: "relayer" as const,
           ...(stepsN > 1n ? { count: Number(stepsN) } : {}), // F × n: the Review names the steps (spec v3.0 §3)
+          ...(stepsN > 1n && tip > 0n ? { approx: true } : {}), // the tips are today's estimate: each step pays its own at its time, within the bounds (the third review round)
           usdCents: relayerCents,
           amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
           ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),

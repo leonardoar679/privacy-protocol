@@ -289,6 +289,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.large.body": "큰 거래이므로 추가 안전 점검을 적용했습니다.",
   "screen.review.large.destination": "목적지 확인됨",
   "screen.review.large.quote": "견적 고정됨",
+  "screen.review.large.quoteSteps": "가격 하한: 각 단계는 견적 최소 수령액의 단위당 가격에서 0.5 % 차감한 금액 이상을 보장합니다",
   "screen.review.large.route": "경로 상태 점검됨",
   "screen.review.large.limits": "실행 한도 적용됨",
   "screen.review.large.oneOrder": "주문 하나 — 자동 분할 없음",

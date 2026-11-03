@@ -30,7 +30,8 @@ export interface Quote {
   totalFee: BaseUnits;
   /**
    * V7 (spec v3.0 §3; doc §6 rule 2): the fee terms the quote is bound to — the privacy fee's basis points, the relayer's F,
-   * the executor tip, their sum as the bound a funding never exceeds, and when the terms were read (unix seconds)
+   * the executor tip, their sum (indicative: the wallet binds a funding by its own reviewedFee, read from its relayer at the Review —
+   * the third review round, 2026-11-03), and when the terms were read (unix seconds)
    */
   feeTerms?: { privacyFeeBps: number; relayerFee: BaseUnits; executorTip: BaseUnits; maxFee: BaseUnits; termsAt: number };
   /** unix seconds; an expired quote is never executed */
