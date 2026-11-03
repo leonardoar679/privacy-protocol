@@ -14,6 +14,7 @@ interface VmDeploy {
     function stopBroadcast() external;
     function envOr(string calldata, address) external view returns (address);
     function envOr(string calldata, bool) external view returns (bool);
+    function envBytes32(string calldata) external view returns (bytes32);
     function toString(address) external pure returns (string memory);
 }
 
@@ -31,7 +32,8 @@ interface VmDeploy {
 ///
 /// Dry run (no network):   DEV_VERIFIER=true forge script script/Deploy.s.sol
 /// Sepolia rehearsal:      SEPOLIA_DEV_VERIFIER=true forge script script/Deploy.s.sol --rpc-url $SEPOLIA --broadcast
-/// Broadcast:              INNER_VERIFIER=0x… forge script script/Deploy.s.sol --rpc-url $RPC --broadcast --verify
+/// Broadcast:              INNER_VERIFIER=0x… INNER_VERIFIER_CODEHASH=0x… forge script script/Deploy.s.sol --rpc-url $RPC --broadcast --verify
+///                         (the code hash of the ceremony verifier as its build produced it — the address alone proves nothing)
 contract Deploy {
     VmDeploy internal constant vm = VmDeploy(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 internal constant LEVELS = 32; // the circuit's depth
@@ -47,6 +49,18 @@ contract Deploy {
         vm.startBroadcast();
         if (dev) inner = address(new TransactionVerifierDev());
         require(inner.code.length != 0, "INNER_VERIFIER must be the deployed ceremony verifier");
+        if (!dev) {
+            // the ceremony verifier by its code (the fifth review round, 2026-11-03): an address alone proved nothing about the key
+            // behind it, and the development verifier — which accepts any proof — was kept out by discipline alone
+            require(
+                inner.codehash == vm.envBytes32("INNER_VERIFIER_CODEHASH"),
+                "INNER_VERIFIER is not the ceremony verifier INNER_VERIFIER_CODEHASH names"
+            );
+            require(
+                inner.codehash != keccak256(type(TransactionVerifierDev).runtimeCode),
+                "the development verifier never leaves a devnet"
+            );
+        }
         IProofVerifier verifier = new Groth16Verifier(ITransactionGroth16Verifier(inner));
         IHasher hasher = new Poseidon2Hasher();
         PrivacyCore core = new PrivacyCore(verifier, hasher, LEVELS);

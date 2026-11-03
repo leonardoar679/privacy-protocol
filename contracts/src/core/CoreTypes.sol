@@ -49,6 +49,8 @@ library CoreTypes {
     error InvalidProof();
     error InvalidVault();
     error ZeroWithdrawal();
+    /// a recipient the funds cannot come back from: address(0), the vault itself, the core (the fifth review round, 2026-11-03)
+    error InvalidRecipient();
     error TransferMustCarryNoWithdrawal();
     error CallerNotCanonicalVault();
     error VerifierNotContract();

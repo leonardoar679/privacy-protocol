@@ -53,10 +53,14 @@ contract ERC20AssetVault is BaseAssetVault {
     }
 
     /// @dev Soft: never reverts; returns false on any failure so release() can fall back to
-    /// claimable. A blacklisted recipient simply yields a claimable obligation.
+    /// claimable. A blacklisted recipient simply yields a claimable obligation. A 32-byte answer is read as a word, not a bool
+    /// (the fifth review round, 2026-11-03): `abi.decode(data, (bool))` reverted on a word that is neither 0 nor 1 — a token
+    /// answering with a status code or the amount, as an upgraded one may start to —, and the whole transact with it, after a
+    /// valid proof, for every recipient of that asset. A non-zero word means the transfer went through (the token moved the funds;
+    /// `true` is 1), zero means it did not.
     function _softTransfer(address to, uint256 amount) internal returns (bool) {
         (bool success, bytes memory data) =
             asset.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
-        return success && (data.length == 0 || (data.length == 32 && abi.decode(data, (bool))));
+        return success && (data.length == 0 || (data.length == 32 && abi.decode(data, (uint256)) != 0));
     }
 }

@@ -25,4 +25,9 @@ for (const c of PERIPHERY) {
   const a = art(c);
   writeFileSync(join(root, "abi", "periphery", `${c}.json`), JSON.stringify({ abi: a.abi, bytecode: a.bytecode.object }, null, 2) + "\n");
 }
-console.log(`exported ${CORE.length} frozen core ABIs (+SHA256SUMS) and ${PERIPHERY.length} periphery artifacts with bytecode`);
+// the development verifier's runtime code (the fifth review round, 2026-11-03): the wallet refuses a production deployment whose inner
+// verifier is this key, which accepts any proof; exported as its deployed bytecode, hashed where it is read
+mkdirSync(join(root, "abi", "dev"), { recursive: true });
+const dev = art("TransactionVerifierDev");
+writeFileSync(join(root, "abi", "dev", "TransactionVerifierDev.json"), JSON.stringify({ deployedBytecode: dev.deployedBytecode.object }, null, 2) + "\n");
+console.log(`exported ${CORE.length} frozen core ABIs (+SHA256SUMS), ${PERIPHERY.length} periphery artifacts with bytecode and the development verifier's runtime code`);

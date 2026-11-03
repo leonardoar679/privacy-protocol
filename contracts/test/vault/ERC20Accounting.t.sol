@@ -13,6 +13,7 @@ import {FalseReturnToken} from "../mocks/FalseReturnToken.sol";
 import {NoReturnToken} from "../mocks/NoReturnToken.sol";
 import {PauseToken} from "../mocks/PauseToken.sol";
 import {MalformedToken} from "../mocks/MalformedToken.sol";
+import {OddReturnToken} from "../mocks/OddReturnToken.sol";
 import {BurnToken} from "../mocks/BurnToken.sol";
 
 /// Strict balance-delta accounting (spec §8.2) + canonical factory behaviour (§7.2). The token zoo
@@ -99,6 +100,22 @@ contract ERC20AccountingTest is PPTestBase {
         v.claim(bob);
         assertEq(tok.balanceOf(bob), 10e18);
         assertEq(v.totalClaimable(), 0);
+    }
+
+    function test_OddReturnWord_ReleasePaysInsteadOfReverting() public {
+        // a 32-byte word that is neither 0 nor 1 from `transfer` (the fifth review round, 2026-11-03): the decoder had reverted, and the
+        // whole transact with it after a valid proof — the asset could never leave the vault; a non-zero word reads as the transfer it is
+        OddReturnToken tok = new OddReturnToken();
+        ERC20AssetVault v = _vault(address(tok));
+        tok.mint(alice, 100e18);
+        vm.prank(alice);
+        tok.approve(address(v), type(uint256).max);
+        _depositERC20(v, alice, 10e18, 1);
+        CoreTypes.PublicInputs memory pi = _withdrawPI(address(v), bob, 10e18, 1, 2);
+        _transact(pi);
+        assertEq(tok.balanceOf(bob), 10e18, "paid: the token moved the funds and said so in its own word");
+        assertEq(v.claimable(bob), 0, "no claim booked for a payout that went through");
+        assertTrue(v.isSolvent());
     }
 
     function test_MalformedReturnToken_RejectedOnDeposit() public {

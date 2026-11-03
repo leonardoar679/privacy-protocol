@@ -709,6 +709,11 @@
   },
   {
     "type": "error",
+    "name": "InvalidRecipient",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidTxDomain",
     "inputs": []
   },

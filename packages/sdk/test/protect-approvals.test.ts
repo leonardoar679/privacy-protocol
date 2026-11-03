@@ -57,14 +57,19 @@ const client = {
   readContract: async ({ address, functionName, args }: { address: string; functionName: string; args?: readonly unknown[] }) => {
     if (address === CORE)
       return (
-        { PROTOCOL_ID: ID(1), CIRCUIT_ID: ID(2), HASH_ID: ID(3), VERIFIER: "0x00000000000000000000000000000000000000Ab", VAULT_FACTORY: FACTORY } as Record<
-          string,
-          unknown
-        >
+        {
+          PROTOCOL_ID: ID(1),
+          CIRCUIT_ID: ID(2),
+          HASH_ID: ID(3),
+          VERIFIER: "0x00000000000000000000000000000000000000Ab",
+          VAULT_FACTORY: FACTORY,
+          LEVELS: 32n,
+        } as Record<string, unknown>
       )[functionName];
     if (address === FACTORY && functionName === "vaultOf")
       return ({ [ZERO]: ETH_VAULT, [USDT.toLowerCase()]: USDT_VAULT } as Record<string, string>)[String(args![0]).toLowerCase()] ?? ZERO;
     if (functionName === "VAULT_VERSION") return 1n;
+    if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
     if (address === ROUTER && functionName === "CORE") return CORE;
     if (address === USDT && functionName === "decimals") return 6; // the token's own, as configured (critic gap 1)
     throw new Error(`unexpected read ${address}.${functionName}`);

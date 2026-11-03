@@ -75,6 +75,9 @@ export function buildTxInputs(spec: TxSpec, opts: { check?: boolean } = {}): Cir
     if (spec.inputs[1] && spec.inputs[1].vaultId !== asset) throw new Error("inputs mix assets");
     if (spec.outputs.some((o) => o.vaultId !== asset)) throw new Error("output asset != input asset");
     if (w && w.vault !== asset) throw new Error("withdrawal vault != input asset");
+    // what the contract refuses after a 30-second proof (the fifth review round, 2026-11-03): ZeroWithdrawal, InvalidAddress
+    if (w && w.amount <= 0n) throw new Error("the withdrawal amount is zero");
+    if (w && (w.recipient < 0n || w.recipient >= 1n << 160n || w.vault < 0n || w.vault >= 1n << 160n)) throw new Error("the withdrawal's recipient or vault is not an address");
     if (ins[0].nf === ins[1].nf) throw new Error("duplicate input");
   }
 

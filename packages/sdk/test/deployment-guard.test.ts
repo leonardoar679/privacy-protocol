@@ -60,8 +60,10 @@ function chain(
             HASH_ID: ID(3),
             VERIFIER: o.verifier ?? "0x00000000000000000000000000000000000000Ab",
             VAULT_FACTORY: FACTORY,
+            LEVELS: 32n,
           } as Record<string, unknown>
         )[functionName];
+      if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
       if (address === FACTORY && functionName === "vaultOf")
         return ({ [ZERO]: ETH_VAULT, [USDC.toLowerCase()]: USDC_VAULT } as Record<string, string>)[String(args![0]).toLowerCase()] ?? ZERO;
       if (functionName === "VAULT_VERSION") return 1n;

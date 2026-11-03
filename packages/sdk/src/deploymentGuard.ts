@@ -44,6 +44,8 @@ export function claimOf(d: Deployment): DeploymentClaim {
     ...(d.swapFactory ? { swapFactory: d.swapFactory } : {}),
     ...(d.protectRouter ? { protectRouter: d.protectRouter } : {}),
     ...(d.shieldFactory ? { shieldFactory: d.shieldFactory } : {}),
+    // a production build never uses a deployment whose inner verifier is the development key (the fifth review round, 2026-11-03)
+    ...(config().production ? { production: true } : {}),
   };
 }
 

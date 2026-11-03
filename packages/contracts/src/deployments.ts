@@ -14,6 +14,7 @@ import {
   type Hex,
 } from "viem";
 import type { DeploymentFingerprint, ProtocolDeployment } from "@privacy-wallet/protocol-types";
+import devVerifier from "../../../contracts/abi/dev/TransactionVerifierDev.json";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -23,7 +24,9 @@ const CORE_ABI = [
   { type: "function", name: "HASH_ID", stateMutability: "pure", inputs: [], outputs: [{ type: "bytes32" }] },
   { type: "function", name: "VERIFIER", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "VAULT_FACTORY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "LEVELS", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
+const VERIFIER_ABI = [{ type: "function", name: "INNER", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 const FACTORY_ABI = [{ type: "function", name: "vaultOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "address" }] }] as const;
 const VAULT_ABI = [{ type: "function", name: "VAULT_VERSION", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }] as const;
 const SHIELD_FACTORY_ABI = [{ type: "function", name: "VAULT_FACTORY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
@@ -32,7 +35,14 @@ const SHIELD_FACTORY_ABI = [{ type: "function", name: "VAULT_FACTORY", stateMuta
 export interface DeploymentReader {
   getChainId(): Promise<number>;
   readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown>;
+  /** the code at an address (viem's getCode); without it the inner verifier's code is not read (a test's reader) */
+  getCode?(args: { address: Address }): Promise<Hex | undefined>;
 }
+
+/** The development verifier's runtime code hash: a key that accepts any proof, for devnets only (the fifth review round, 2026-11-03). */
+export const DEV_VERIFIER_CODEHASH: Hex = keccak256(devVerifier.deployedBytecode as Hex);
+/** The circuit's depth: Transaction(32, 2, 3); a core built at another depth can never verify a spend. */
+export const CIRCUIT_LEVELS = 32;
 
 export interface DeploymentClaim {
   chainId: number;
@@ -43,6 +53,8 @@ export interface DeploymentClaim {
   protectRouter?: Address;
   shieldFactory?: Address;
   feeRecipient?: Address;
+  /** a production build (the fifth review round, 2026-11-03): the development verifier is a problem there, never on a devnet */
+  production?: boolean;
 }
 
 export interface DeploymentCheck {
@@ -87,13 +99,24 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
   if (chainId !== claim.chainId) problems.push(`the endpoints answer chain ${chainId}, the configuration names chain ${claim.chainId}`);
   const core = claim.core;
   const read = (functionName: (typeof CORE_ABI)[number]["name"]) => client.readContract({ address: core, abi: CORE_ABI, functionName });
-  const [protocolId, circuitId, hashId, verifier, vaultFactory] = (await Promise.all([
+  const [protocolId, circuitId, hashId, verifier, vaultFactory, levels] = (await Promise.all([
     read("PROTOCOL_ID"),
     read("CIRCUIT_ID"),
     read("HASH_ID"),
     read("VERIFIER"),
     read("VAULT_FACTORY"),
-  ])) as [Hex, Hex, Hex, Address, Address];
+    read("LEVELS"),
+  ])) as [Hex, Hex, Hex, Address, Address, bigint];
+  // the depth and the key behind the adapter (the fifth review round, 2026-11-03): the fingerprint had named the adapter's address and
+  // nothing of the inner Groth16 verifier — the ceremony's or the development one, which accepts any proof —, nor the tree's depth,
+  // which the core takes from 3 to 32 while the circuit is fixed at 32 (a wrong depth locks every spend for good)
+  if (Number(levels) !== CIRCUIT_LEVELS) problems.push(`the core's tree depth is ${levels}, the circuit's is ${CIRCUIT_LEVELS}: no proof can ever verify`);
+  const inner = (await client.readContract({ address: verifier, abi: VERIFIER_ABI, functionName: "INNER" })) as Address;
+  const innerCode = client.getCode ? await client.getCode({ address: inner }) : undefined;
+  const innerCodehash: Hex | null = innerCode && innerCode !== "0x" ? keccak256(innerCode) : null;
+  if (client.getCode && innerCodehash === null) problems.push(`the proof verifier's inner key ${inner} has no code`);
+  if (claim.production && innerCodehash !== null && innerCodehash.toLowerCase() === DEV_VERIFIER_CODEHASH.toLowerCase())
+    problems.push("the proof verifier is the development key, which accepts any proof: not a deployment to use");
   const vaults: Record<string, Address> = {};
   let vaultVersion = 0;
   for (const [id, token] of Object.entries(claim.assets).sort(([a], [b]) => a.localeCompare(b))) {
@@ -126,6 +149,8 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
     verifier: lower(verifier),
     vaultFactory: lower(vaultFactory),
     vaults,
+    innerVerifier: lower(inner),
+    ...(innerCodehash ? { innerVerifierCodehash: innerCodehash.toLowerCase() as Hex } : {}),
     ...(claim.swapFactory ? { swapFactory: lower(claim.swapFactory) } : {}),
     ...(claim.protectRouter ? { protectRouter: lower(claim.protectRouter) } : {}),
     ...(claim.shieldFactory ? { shieldFactory: lower(claim.shieldFactory) } : {}),

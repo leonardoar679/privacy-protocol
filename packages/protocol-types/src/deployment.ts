@@ -9,6 +9,9 @@ export interface ProtocolDeployment {
   privacyCore: Address;
   verifier: Address;
   vaultFactory: Address;
+  /** the Groth16 verifier behind the adapter, and its runtime code hash (the fifth review round, 2026-11-03): the key a deployment verifies with */
+  innerVerifier?: Address;
+  innerVerifierCodehash?: Hex;
   /** asset id → canonical vault */
   vaults: Record<string, Address>;
   swapFactory?: Address;

@@ -30,8 +30,10 @@ function chain(
             HASH_ID: ID(3),
             VERIFIER: o.verifier ?? "0x00000000000000000000000000000000000000Ab",
             VAULT_FACTORY: FACTORY,
+            LEVELS: 32n,
           } as Record<string, unknown>
         )[functionName];
+      if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
       if (address === FACTORY && functionName === "vaultOf") return vaults[String(args![0]).toLowerCase()] ?? "0x0000000000000000000000000000000000000000";
       if (functionName === "VAULT_VERSION") return BigInt(o.versions?.[address] ?? 1);
       if (address === SHIELD_FACTORY && functionName === "VAULT_FACTORY") return o.shieldPool ?? FACTORY;

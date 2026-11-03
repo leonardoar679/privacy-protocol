@@ -120,6 +120,16 @@ contract PrivacyCore is IPrivacyCore, MerkleAccumulator, ReentrancyGuard {
             FieldLib.requireAddress(pi.withdrawalRecipient);
             FieldLib.requireAmount(pi.withdrawalAmount);
             if (pi.withdrawalAmount == 0) revert CoreTypes.ZeroWithdrawal();
+            // a recipient the funds cannot come back from (the fifth review round, 2026-11-03): address(0) — the ETH vault's plain
+            // call succeeds there and the amount is burnt, a token's transfer reverts into a claim nobody can collect —, the vault
+            // itself (its accounting drops, its balance does not) and this core (neither receives nor claims). The clients refused
+            // these already; the core does too, for every client
+            if (
+                pi.withdrawalRecipient == 0 || pi.withdrawalRecipient == pi.withdrawalVault
+                    || pi.withdrawalRecipient == uint256(uint160(address(this)))
+            ) {
+                revert CoreTypes.InvalidRecipient();
+            }
             if (!IAssetVaultFactory(_VAULT_FACTORY).isCanonical(address(uint160(pi.withdrawalVault)))) {
                 revert CoreTypes.InvalidVault();
             }

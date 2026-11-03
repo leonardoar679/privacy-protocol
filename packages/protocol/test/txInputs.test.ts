@@ -137,6 +137,15 @@ describe("buildTxInputs", () => {
     expect(() => assertPublicInputsOfSpec({} as typeof want, spec)).toThrow(/root, nullifier0/);
   });
 
+  it("refuses a plan the contract would refuse after the proof (the fifth review round, 2026-11-03): a zero withdrawal, a recipient or a vault that is not an address", () => {
+    const w = { vault: VAULT, recipient: BigInt("0x1111111111111111111111111111111111111111"), amount: 4n * 10n ** 17n };
+    const withW: TxSpec = { ...spec, outputs: [out(6n * 10n ** 17n), dummyOutput(VAULT, rnd), dummyOutput(VAULT, rnd)], withdrawal: w };
+    expect(() => buildTxInputs(withW)).not.toThrow();
+    expect(() => buildTxInputs({ ...withW, withdrawal: { ...w, amount: 0n }, outputs: [out(6n * 10n ** 17n), out(4n * 10n ** 17n), dummyOutput(VAULT, rnd)] })).toThrow(/withdrawal amount is zero/);
+    expect(() => buildTxInputs({ ...withW, withdrawal: { ...w, recipient: 1n << 160n } })).toThrow(/not an address/);
+    expect(() => buildTxInputs({ ...withW, withdrawal: { ...w, vault: 1n << 160n } })).toThrow(/not an address|withdrawal vault != input asset/);
+  });
+
   it("takes the synced layers when the wallet has them and builds the same witness", () => {
     const layers = MerkleLayers.build(t.leaves, 32);
     expect(buildTxInputs({ ...spec, tree: layers })).toEqual(buildTxInputs(spec));
