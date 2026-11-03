@@ -32,7 +32,9 @@ user of the Classic application; the pools' own model is the original's and is n
 
 ## What the application does not attempt
 
-- Hiding the IP address from the RPC endpoints or the relayer (a web build cannot; stated on the screen).
+- Hiding the IP address from the RPC endpoints or the relayer (a web build cannot; stated on the screen). Every listed relayer
+  is asked for its status when the Withdraw tab or the relayer settings open — not at page load (the second review round,
+  2026-11-03) — and the chosen one again right before proving.
 - Judging whether a withdrawal's timing is safe (the figures are shown; the choice is the user's).
 - Keeping a deposit list (the note is the only key; a device-kept, encrypted list is an owner follow-up).
 - Replacing a pool, a verifier or a relayer protocol (nothing but the original's is used).

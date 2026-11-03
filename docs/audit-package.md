@@ -56,6 +56,7 @@ own contracts, the UI shell (`apps/web`), gas optimisation.
 | `packages/sdk/src/operations/{reducer,upgrade,adapters}.ts`, `apps/api/src/db.ts` (migration 3), `apps/api/src/reconcile.ts` | the fifteen states and I-O7 from SUBMITTING; the V6 → V7 upgrade on read (idempotent, the history merged) and the API's migration (the rows renamed in place, an expired quote closed before its funding) |
 | `packages/sdk/src/session/autoLock.ts` (`pageHidden`), `apps/web/src/platform/{autoLock,unloadGuard}.ts`, `apps/web/src/storage/persist.ts`, `packages/sdk/src/privateTx.ts` (`assertStillUnlocked`), `packages/wallet-engine/src/{walletConnect,connection}.ts`, `apps/web/scripts/csp.mjs` | the mobile-web gate: a pagehide deferred by a live hold and resumed by pageshow; a Protect that stops prompting once locked; the unload guard; persistent storage; WalletConnect's metadata, the restored session, the policy's hosts (never a telemetry host) |
 | the review round of 2026-11-02 (`apps/web/src/features/swap/{SwapScreen,Swap}.tsx`, `apps/api/src/{quote.ts,routes/swap.ts,db.ts (migration 4),reconcile.ts}`, `packages/sdk/src/operations/{reducer,upgrade,stale}.ts`, `packages/sdk/src/wallet/orderRunner.ts`, `packages/wallet-engine/src/{walletConnect,connection}.ts`, `apps/web/scripts/csp.mjs`, `classic/src/app/services/{history,flows}.ts`) | the band's steps carry the Review's terms; the V5 screen is the Advanced experience's and judges the band's limit and the route qualification itself; the API values the qualification at what the user pays and refuses a gross below the funding; the wallet's own prompt is a field of AWAITING_AUTHORIZATION; a spend sent without a known transaction waits as RECOVERY_REQUIRED (`outcome_unknown`); an order expired before its funding waits until its refund time; a tick that threw releases the hand-over hold; the policy names WalletConnect's hosts exactly; WalletConnect is initialized at a reload only with a stored session; a lock between two steps reads `locked_mid_flow`; Classic takes a delta only when the pool's count at its block agrees and prices the relayer's minimum at the live gas price |
+| the second review round (2026-11-03): `packages/sdk/src/{swapFunding,privateTx}.ts`, `packages/sdk/src/wallet/{orderRunner,campaignRunner}.ts`, `apps/relayer/src/{swapExecutor,server,shieldExecutor,relayer}.ts`, `apps/api/src/{reconcile,store}.ts`, `apps/api/src/routes/swap.ts`, `packages/swap-engine/src/engine.ts`, `apps/web/src/features/{swap,send,protect,review,activity,more}`, `packages/sdk/src/wallet/posture.ts`, `classic/src/app/services/{flows,source,relayers,history}.ts`, `classic/src/model/format.ts` | one funding of an order at a time and the spend's turn re-reads the journal; a funding on its way is never abandoned; the merges a swap needs are named and bound; the relayer's cap answers a known job and admits a funded escrow; a job keeps only its fields; a lapsed job reads REFUNDING; the shapes checked at the commit and the executor; the preference words and the posture say what the runner does; Remove removes the record; no Protect Review without a wallet; Classic checks the recipient's checksum, the note's pool, the facts and the chain before sending, keeps one withdrawal at a time, asks the relayers only when the tab opens |
 
 ## 2. Pinning and reproducing
 - Repository: this directory (`privacy-protocol`); the auditor pins the commit hash of the handed-over
@@ -435,6 +436,18 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     every source. The provider routes `eth_accounts`, `eth_chainId` and the wallet's methods locally or through the relay; a
     read it would route to its RPC host (none of ours) fails under the policy instead of leaking. Gap 58's run is where a
     wallet flow that needs it would show.
+65. **V7 — the Home badge follows the honest timing score (the second review round, 2026-11-03; the owner's to re-weigh).**
+    The Privacy Center scored Timing privacy for the preference's random funding window (1–24 h, 6–72 h) and the Home badge
+    read "Protected" on it, while the one-confirmation runner (spec v2.0 §7.6) funds a swap as soon as it is confirmed — only
+    "Delay for more privacy", chosen on a swap, adds a random 1–24 h. The posture now scores the funding as immediate, so the
+    Timing category reads Reduced and the badge — the lowest category — reads "Low protection" for every wallet. The words are
+    true; whether the overall level should be the lowest category, or weight timing differently, or offer the delay as a
+    setting, is the owner's product decision.
+66. **V7 — a campaign's merges are bounded, not named per step (a stated limit).** A swap's funding bounds the merges it needs
+    by the Review's F (`reviewedMergeFee`, the second review round), and the Swap Review names them for a one-order swap;
+    a protected execution's steps bound theirs by the same F (`bounds.maxRelayerFee`) but the Review shows no per-step merge
+    count — the pieces are drawn when the steps run. A step whose notes need more merges than F × n allows pauses as a
+    fee bound (`fee_moved`), never pays more.
 
 Running the stack on a workstation (browser + chain), in the order that exercises every flow: `docs/local-run.md`.
 

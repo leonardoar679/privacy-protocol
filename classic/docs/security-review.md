@@ -88,6 +88,7 @@ accepted the recorded proof).
 | R-8 | the fee under the cap the user sees (20 %) and the relayer's own percentage shown; the relayer re-checks at submission | `rules.ts` `MAX_FEE_PERCENT`, `classic/src/model/fees.ts` |
 | R-9 | every request through the app's own transport with a timeout, the job poll bounded; the endpoints and the relayers listed under Settings | `classic/src/net/relayer.ts`, `classic/src/net/rpc.ts`, `FOLLOW_DEFAULTS` |
 | R-10 | the relayer sees the IP address: said under the choice | `withdraw.ipNotice` |
+| R-11 | the relayers are asked for their status when the Withdraw tab or the relayer settings open — never at page load — and the chosen one again right before proving (the second review round, 2026-11-03) | `classic/src/app/App.tsx`, `RelayerDirectory.refreshOne`, `flows.ts` |
 
 ## 5. The earlier review's open items
 
@@ -98,6 +99,16 @@ accepted the recorded proof).
 | C-3 no timing guidance | closed: "Time passed" and "Subsequent deposits" with the original's warnings before every withdrawal |
 | C-4 the clipboard | closed: the file download first, the copy second; the note never stored |
 | C-5 the relayer checks R-6 to R-10 | closed: §4 |
+| C2-1 a mixed-case recipient without its checksum (the second review round, 2026-11-03) | closed: EIP-55 checked when the address carries both cases (`classic/src/model/format.ts`) |
+| C2-2 the deposit's pool was the selector's, reachable behind the note modal | closed: the flow refuses a pool that is not the note's; the App deposits into the note's pool |
+| C2-3 a relayer answer that did not arrive read FAILED | closed: RECOVERY_REQUIRED with the words to check on chain first; a refusal stays FAILED |
+| C2-4 the Withdraw button came back at the confirmation | closed: one flow at a time |
+| C2-5 the gas price read once per page | closed: read again every minute and after a flow's message |
+| C2-6 canDeposit / canWithdraw unwired | closed: the buttons follow the facts, the flows check them, the note's pool is checked too |
+| C2-7 every listed relayer received the IP at page load; the chosen one's status was stale | closed: asked when the Withdraw tab or the relayer settings open, the chosen one again before proving; the notices say so |
+| C2-8 a relayed job whose page was gone stayed "Sent" | closed: read again (`jobOf`) when the history is read, never re-submitted |
+| C2-9 a crashed prover worker lost every tree until a reload | closed: the tree is loaded again from the device's copy; a phone's sub-workers get 1,000 pages |
+| C2-10 no on-chain isSpent before a withdrawal | closed: read before proving and again right before anything is sent |
 | N-4 the served code | open as stated (§2): the policy, pins and scan bound it; the host's integrity remains |
 
 ## 6. What awaits the external security review

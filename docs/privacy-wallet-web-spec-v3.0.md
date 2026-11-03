@@ -144,6 +144,13 @@ the route's qualification at what the user pays — the set is valued at the esc
 `grossAmount` (`apps/api/src/quote.ts`) — and `POST /v1/quotes` refuses a `grossAmount` below `amount` (400). The facade's
 parity test pins the commit's facts: the request as given reaches the service and the reviewed fee is journaled.
 
+**As landed (the second review round, 2026-11-03).** The merges a swap's funding needs first — a spend of three notes or
+more — are named on the Swap Review (the merges row, each at the relayer's minimum, as the Send Review has had them since
+r43), journaled as `reviewedMergeFee` and passed to the funding as the merges' bound; a protected execution's steps bound
+theirs by the Review's F (`bounds.maxRelayerFee`) at the commit and in the note shaping. A send the connected wallet submits
+(Advanced) pays no privacy fee and no relayer fee: its Review's relayer row says the wallet pays the network fee and the fee
+statement says no privacy fee is charged (gap 31's rule, now stated).
+
 ## 4. The amount policy (doc §8) — *Stage 13* (supersedes v2.0 §2; the owner's decisions 3 and 4 of §22)
 
 | Doc §8 band | Tier (code) | Behaviour |
@@ -304,6 +311,17 @@ known transaction (its nullifier spent, no hash kept) waits as RECOVERY_REQUIRED
 screens what left the wallet. The API's migration 4: an operation that expired before its funding waits as RECOVERY_REQUIRED
 until its refund time, then CANCELLED (`order_expired`) — a funding in the mempool at the deadline still lands —, and the rows
 migration 3 had cancelled with a refund time still ahead come back (`apps/api/src/db.ts`, `reconcile.ts`; the schema pin).
+
+**As landed (the second review round, 2026-11-03), the engines.** One funding of an order at a time in a tab: a second
+caller (Fund now beside the runner's tick, or the scheduler's) is refused as a funding on its way, and the spend's own turn
+reads the journal again before anything is proved (`beforeSpend`); an order whose funding is on its way is never abandoned
+(the Advanced screen hides Abandon and disables Fund now, the runners read the attempt's fate first); a tick that threw
+releases the hand-over hold and the next tick takes it again — a tick under the reconcile pause too; the legacy scheduled
+funding stops on the one-confirmation runner's permanent refusals; a funding that landed into an escrow read short asks the
+executor before waiting; a campaign whose relayer runs no swaps pauses for the user. On the service side the relayer's cap
+answers a job it has and admits a funded escrow (a hand-over, a Return funds) whatever the cap; a job keeps the twelve order
+fields and the five execution fields; a `lapsed` job reads REFUNDING past the funding; the commit and the executor check
+the shapes; the API's execution hash follows the relayer's re-send; the engine's vault lookup is by the asset's lower case.
 
 ## 7. Tornado Classic (doc §1, §4, §10 "Tornado Classic", §11, §13 "Classic") — *Stages 1–3, 5–11* (supersedes v2.0 §11.3 and the Classic rows of §7.11 and §23)
 
@@ -654,6 +672,16 @@ disagree with a history right up to its block). A relayed withdrawal's offered f
 (390,000 gas plus its share) at the live gas price before anything is proved, and refused with both numbers
 (`classic/src/app/services/flows.ts`; `classic/test/{services,flows}.test.ts`).
 
+**As landed (the second review round, 2026-11-03).** A mixed-case recipient must carry its EIP-55 checksum (the original's
+web3-utils rule); the deposit goes to the pool the note was made for, whatever the selector says behind the modal; a relayer
+whose answer did not arrive leaves the record RECOVERY_REQUIRED with the words to check on chain first (a refusal stays
+FAILED); one withdrawal flow at a time; the gas price is read again every minute and after a flow's message; the deposit and
+withdraw buttons follow the availability facts and the flows check them (the contract verified, an endpoint, the wallet on
+mainnet); the relayers are asked for their status when the Withdraw tab or the relayer settings open — never at page load —
+and the chosen one again right before proving; a relayed job whose page is gone is asked about again when the history is
+read (never re-submitted); a prover worker that crashed has its trees loaded again from the device's copy; a phone's websnark
+sub-workers get 1,000 pages each; the pool's `isSpent` is read before proving and again right before anything is sent.
+
 ## 8. Stack and layout (doc §9) — *Stage 0* (the owner's decisions 6 and 7 of §22)
 
 The lean stack stays (v2.0 §4, §8, §23): React + TypeScript + Vite, Tailwind for the design system's utilities, Radix
@@ -711,6 +739,15 @@ the telemetry host and the provider's RPC host through — and `apps/web/test/cs
 `secure` against every source as a browser would. WalletConnect is initialized at a reload only with a session its own store
 holds; a remembered connector that answered nothing is forgotten. The one-at-a-time words say how the earlier operation
 resolves when its page is gone (from the chain: within minutes through a relayer, up to an hour through the wallet).
+
+**As landed (the second review round, 2026-11-03), the screens.** The trading preference rows and the Privacy Center say
+what the runner does: a swap is funded as soon as it is confirmed, and only "Delay for more privacy" on a swap adds a random
+1–24 h — the posture scores the funding as immediate (the Home badge follows; audit gap 65); the Privacy Center says the
+RPC endpoints learn the wallet's own nullifiers when it checks whether its notes were spent (gap 48); "Remove from this
+device" removes a finished record with its line; a Protect's Review stays closed without a wallet to pay, and "no injected
+wallet" is `wallet_disconnected`; a reveal of the recovery phrase reads "Phrase shown … no backup yet", only an export reads
+"backup created"; the enhanced Send Review closes its confirmation offline as the V6 Review does; the Korean fee-policy
+sentence says "a round amount" the right way round.
 
 ## 10. Gates (doc §13) — *Stages 2, 10, 11, 17*
 

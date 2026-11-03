@@ -81,3 +81,6 @@ None yet — the owner's to run. One row per device and wallet; a scenario that 
 - One Protect or Send at a time: the Review's blocker says how the earlier one resolves when its page is gone — the wallet
   settles it from the chain within minutes when it went through a relayer (`STALE_DROP_MS`), up to an hour through the
   wallet (`STALE_DROP_WALLET_MS`); until then the second cannot start.
+- One funding of an order at a time in a tab (the second review round, 2026-11-03): a second caller — Fund now beside the
+  runner's tick — is refused as a funding on its way, and the spend's turn reads the journal again; a reconciling tick signs
+  and hands over under the hand-over hold like any other.

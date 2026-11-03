@@ -16,7 +16,10 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
   settlement — are one operation and pay one `p(A)`.
 - **A protected execution** (a large swap run in pieces) pays `p(A)` of the whole: each piece's note carries its share,
   rounded up by at most one base unit a piece.
-- **Merges, splits, refunds and re-shields pay no privacy fee.** They pay the relayer's cost `F` where a relayer acts.
+- **Merges, splits, refunds and re-shields pay no privacy fee.** They pay the relayer's cost `F` where a relayer acts. The
+  merges a swap's funding needs are named on its Review and bound by the Review's `F` (the second review round, 2026-11-03).
+- **A send your connected wallet submits (Advanced) pays no privacy fee and no relayer fee**: the wallet pays the network fee
+  itself, and the Review says so (audit gap 31 records the unpaid fee).
 - **A Protect followed later by a Swap are two operations, and each pays its 1 %.** Protecting funds costs 1 % of the
   deposit; swapping them later costs 1 % of the swap. The Swap Review says so in one sentence: _Your funds paid 1 % when
   they were protected; this swap pays 1 % again._
