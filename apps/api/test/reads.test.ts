@@ -72,3 +72,54 @@ describe("the API's reads end", () => {
     expect(await reads.escrowBalance("0x00000000000000000000000000000000000000e5", "native")).toBe(16n);
   });
 });
+
+describe("the relayer's answers in the shape the API acts on (the fifth review round, 2026-11-03)", () => {
+  const answering = (bodies: Record<string, unknown>) =>
+    ((input: unknown) => {
+      const url = String(input);
+      const key = Object.keys(bodies).find((k) => url.endsWith(k));
+      return Promise.resolve(
+        new Response(JSON.stringify(key ? bodies[key] : {}), { status: key ? 200 : 404, headers: { "content-type": "application/json" } }),
+      );
+    }) as typeof fetch;
+  it("a job without a known state, or with a malformed hash, reads as unreachable; terms without a numeric minimum are no terms; a malformed fee vault is dropped", async () => {
+    let clock = 1_000_000;
+    const bad = makeReads({
+      relayerUrl: "http://relayer.test",
+      rpcUrls: [],
+      engine,
+      timeoutMs: 1000,
+      now: () => clock,
+      fetch: answering({
+        "/info": {},
+        [`/swap/0x${"ab".repeat(32)}`]: { foo: 1 },
+        [`/swap/0x${"ac".repeat(32)}`]: { state: "executed", executionTx: "0x12" },
+        [`/swap/0x${"ad".repeat(32)}`]: { state: "completed", executionTx: "0x" + "11".repeat(32), actualNetworkWei: "123" },
+        [`/swap/0x${"ae".repeat(32)}`]: { state: "on-the-moon" },
+      }),
+    });
+    expect(await bad.job("0x" + "ab".repeat(32))).toBeNull();
+    expect(await bad.job("0x" + "ac".repeat(32))).toBeNull();
+    expect(await bad.job("0x" + "ae".repeat(32)), "a state the relayer has no such word for").toBeNull();
+    expect(await bad.job("0x" + "ad".repeat(32))).toEqual({ state: "completed", executionTx: "0x" + "11".repeat(32), actualNetworkWei: "123" });
+    expect(await bad.relayerTerms(), "{} is no terms").toBeNull();
+    clock += 31_000;
+    const good = makeReads({
+      relayerUrl: "http://relayer.test",
+      rpcUrls: [],
+      engine,
+      timeoutMs: 1000,
+      now: () => clock,
+      fetch: answering({
+        "/info": {
+          minFeeWei: "1000",
+          feeVaults: [
+            { vault: "0xv", symbol: "USDC", decimals: 6, minFee: "5" },
+            { vault: "0xw", symbol: "BAD", decimals: "x", minFee: "nope" },
+          ],
+        },
+      }),
+    });
+    expect(await good.relayerTerms()).toEqual({ minFeeWei: "1000", feeVaults: [{ vault: "0xv", symbol: "USDC", decimals: 6, minFee: "5" }] });
+  });
+});

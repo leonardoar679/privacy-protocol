@@ -45,3 +45,20 @@ describe("the order blob", () => {
     expect(store.blob("op_a")).toBe("blob-5");
   });
 });
+
+describe("the blob while nothing is finalized (the fifth review round, 2026-11-03)", () => {
+  it("setBlobUnlessFinalized writes while no execution row exists, in one statement; false once finalize wrote one, and false for an unknown operation", () => {
+    const store = new Store(
+      openDb(":memory:"),
+      createLogger(() => undefined),
+      () => 2_000,
+    );
+    store.createOperation(op("op_b"), "blob-1");
+    expect(store.setBlobUnlessFinalized("op_b", "blob-2")).toBe(true);
+    expect(store.blob("op_b")).toBe("blob-2");
+    store.finalize("op_b", { providerRef: "ref" });
+    expect(store.setBlobUnlessFinalized("op_b", "blob-3"), "finalized: no destination goes back into the row").toBe(false);
+    expect(store.blob("op_b")).toBeNull();
+    expect(store.setBlobUnlessFinalized("op_zzz", "x")).toBe(false);
+  });
+});

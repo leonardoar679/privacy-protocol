@@ -164,6 +164,19 @@ export class Store {
     const r = this.db.prepare("UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND order_blob IS NOT NULL").run(blob, this.now(), id);
     return Number(r.changes) > 0;
   }
+  /**
+   * The blob written back only while nothing of the operation is finalized (the fifth review round, 2026-11-03): a restore or a resume
+   * had checked `execution()` and written in two statements, and a finalize between them put the destination and the refund material
+   * back into a finalized row. False when an execution row exists.
+   */
+  setBlobUnlessFinalized(id: string, blob: string): boolean {
+    const r = this.db
+      .prepare(
+        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)",
+      )
+      .run(blob, this.now(), id);
+    return Number(r.changes) > 0;
+  }
   /** Several statements as one (the fourth review round, 2026-11-03): node:sqlite is synchronous, so a handler's block is atomic once wrapped. */
   private transaction(fn: () => void): void {
     this.db.exec("BEGIN");

@@ -431,7 +431,7 @@ export class SwapApi {
     // an order is its escrow, not its id (the audit's unverified m16, 2026-10-17): an order id is public once a relayer or the
     // chain names it, and other params under it replaced that order's stored order and were answered with its operation id
     if (known && !sameEscrow(known.escrow, order.endpoint)) return otherOrder;
-    if (known && !this.d.store.execution(known.id)) this.d.store.setBlob(known.id, encodeBlob({ order, ...this.chosenOf(known.id) } satisfies Blob)); // finalized: never again
+    if (known) this.d.store.setBlobUnlessFinalized(known.id, encodeBlob({ order, ...this.chosenOf(known.id) } satisfies Blob)); // finalized: never again (one statement — the fifth review round, 2026-11-03)
     const operationId = known?.id ?? this.record(order, null);
     return {
       status: 200,
@@ -502,7 +502,7 @@ export class SwapApi {
     const order = await this.rebuilt(b, request(b));
     if ("status" in order) return order;
     if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
-    if (!this.d.store.execution(id)) this.d.store.setBlob(id, encodeBlob({ order, ...this.chosenOf(id) } satisfies Blob));
+    this.d.store.setBlobUnlessFinalized(id, encodeBlob({ order, ...this.chosenOf(id) } satisfies Blob)); // never into a finalized row (the fifth review round, 2026-11-03)
     return { status: 200, body: wire({ operationId: id, order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: order.policy }) };
   }
 

@@ -93,7 +93,7 @@ function makeRequest(orderId: Hex, deadline: number, assetType: 0 | 1 = 0, value
 }
 /** a refund-only request for the order of `req`, with the order's vouch */
 const refundOf = (req: SwapJobRequest) => vouched({ factory: req.factory, params: req.params, refundNoteData: req.refundNoteData }, CHAIN_ID, creationCode);
-const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds });
+const executorWith = (journal?: any, lateRefundWatchSeconds = 0) => new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, ...clients, now: () => clock, journal, lateRefundWatchSeconds, lastCallSeconds: 150 });
 
 beforeAll(async () => {
   server = createServer((req, res) => { let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => { const j = JSON.parse(body); res.setHeader("content-type", "application/json"); res.end(JSON.stringify(Array.isArray(j) ? j.map(handle) : handle(j))); }); });
@@ -200,7 +200,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   it("a listed foreign token re-shields through the escrow's refundToken before the order's asset; a token its vault refuses is dropped, never blocking", async () => {
     const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7", ODD = "0x00000000000000000000000000000000000000dd";
     const ex = executorWith(undefined, DAY);
-    const req = { ...makeRequest(("0x" + "1c".repeat(32)) as Hex, 1500), refundTokens: [USDT, ODD] as any };
+    const req = { ...makeRequest(("0x" + "1c".repeat(32)) as Hex, 1500), refundTokens: [USDT, ODD] as any, refundFloors: { [USDT]: "1", [ODD]: "1" } as any };
     const job = await executed(ex, req);
     expect(job.refundTokens).toEqual([USDT, ODD]);
     escrowCode = "0x6080"; tokenBalances[USDT] = 2_500_000_000n; tokenBalances[ODD] = 1n; refusedToken = ODD; ethBalance = 3n * 10n ** 16n;
@@ -228,7 +228,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   it("a listed token whose refund reverts for its own reasons now (paused) is kept and re-shielded once it answers; only a final refusal drops it (audit round 2, n02)", async () => {
     const USDC = TOKEN.toLowerCase();
     const ex = executorWith(undefined, DAY);
-    const req = { ...makeRequest(("0x" + "3c".repeat(32)) as Hex, 1500), refundTokens: [USDC] as any };
+    const req = { ...makeRequest(("0x" + "3c".repeat(32)) as Hex, 1500), refundTokens: [USDC] as any, refundFloors: { [USDC]: "1" } as any };
     const job = await executed(ex, req);
     escrowCode = "0x6080"; tokenBalances[USDC] = 2_500_000_000n; pausedToken = USDC;
     clock = Number(req.params.refundAfter);
@@ -255,6 +255,12 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(() => ex.add({ ...base, refundTokens: Array.from({ length: 5 }, (_, i) => "0x" + (i + 1).toString(16).padStart(40, "0")) as any })).toThrow(/at most/);
     expect(() => ex.addRefund({ factory: base.factory, params: base.params, refundNoteData: base.refundNoteData, refundTokens: ["0xnope"] as any })).toThrow(/at most/);
     expect(ex.add({ ...base, refundTokens: [ZERO] as any }).refundTokens, "an ERC-20 order's escrow re-shields ETH, as ETH").toEqual([ZERO]);
+    // every listed token but ETH needs a floor above zero (the fifth review round, 2026-11-03): dust at the escrow had cost a refundToken for nothing
+    const OTHER = "0x" + "11".repeat(20);
+    const fresh = makeRequest(("0x" + "2d".repeat(32)) as Hex, 1500, 1);
+    expect(() => ex.add({ ...fresh, refundTokens: [OTHER] as any })).toThrow(/names no floor above zero/);
+    expect(() => ex.add({ ...fresh, refundTokens: [OTHER] as any, refundFloors: { [OTHER]: "0" } as any })).toThrow(/names no floor above zero/);
+    expect(ex.add({ ...fresh, refundTokens: [OTHER, ZERO] as any, refundFloors: { [OTHER]: "1" } as any }).refundTokens, "ETH needs none: the relayer's gas floor covers it").toEqual([OTHER, ZERO]);
   });
 
   it("an ERC-20 order paid back in ETH: address(0) watches the escrow's ETH, and refundToken(address(0)) re-shields it as ETH", async () => {
@@ -319,7 +325,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   it("PP-S12: a listed token re-shields only into a vault its pool already has, and only above the floor the wallet stated", async () => {
     const LISTED = "0x00000000000000000000000000000000000000c1", NOVAULT = "0x00000000000000000000000000000000000000c2";
     const ex = executorWith(undefined, DAY);
-    const req = { ...makeRequest(("0x" + "2b".repeat(32)) as Hex, 1500), refundTokens: [LISTED, NOVAULT] as any, refundFloors: { [LISTED]: "1000000" } };
+    const req = { ...makeRequest(("0x" + "2b".repeat(32)) as Hex, 1500), refundTokens: [LISTED, NOVAULT] as any, refundFloors: { [LISTED]: "1000000", [NOVAULT]: "1" } };
     const job = await executed(ex, req);
     escrowCode = "0x6080"; noVault.add(NOVAULT); tokenBalances[NOVAULT] = 5_000_000n; tokenBalances[LISTED] = 999_999n;
     clock = Number(req.params.refundAfter);
@@ -357,7 +363,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     const LISTED = "0x00000000000000000000000000000000000000c3";
     factoryWrappedNative = WETH;
     const ex = executorWith(undefined, DAY);
-    const req = { ...makeRequest(("0x" + "2d".repeat(32)) as Hex, 1500), refundTokens: [LISTED] as any };
+    const req = { ...makeRequest(("0x" + "2d".repeat(32)) as Hex, 1500), refundTokens: [LISTED] as any, refundFloors: { [LISTED]: "1" } as any };
     const job = await executed(ex, req);
     escrowCode = "0x6080"; tokenBalances[LISTED] = 2_500_000_000n; wethBalance = 4n * 10n ** 17n; estimateOutage = true;
     clock = Number(req.params.refundAfter);
@@ -393,9 +399,9 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     const job = ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "100" } });
     ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "1" } });
     expect(job.refundFloors, "a lower floor does not replace a higher one").toEqual({ [A]: "100" });
-    ex.add({ ...base, refundTokens: [B, C, D] as any });
+    ex.add({ ...base, refundTokens: [B, C, D] as any, refundFloors: { [B]: "1", [C]: "1", [D]: "1" } });
     expect(job.refundTokens).toHaveLength(4);
-    expect(() => ex.add({ ...base, refundTokens: [E] as any })).toThrow(/at most 4 refund tokens per order/);
+    expect(() => ex.add({ ...base, refundTokens: [E] as any, refundFloors: { [E]: "1" } })).toThrow(/at most 4 refund tokens per order/);
     expect(job.refundTokens, "a refused request changes nothing").toHaveLength(4);
   });
 });

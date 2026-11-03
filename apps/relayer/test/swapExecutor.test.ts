@@ -97,7 +97,7 @@ beforeAll(async () => {
   const chain = { id: CHAIN_ID, name: "test", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } } as const;
   const transport = http(rpcUrl, { batch: true });
   const account = privateKeyToAccount(RELAYER_KEY);
-  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0 });
+  executor = new SwapExecutor({ chainId: CHAIN_ID, escrowCreationCode: creationCode, factory: vector.factory, voucher: VOUCHER, account, publicClient: createPublicClient({ chain, transport }), walletClient: createWalletClient({ account, chain, transport }), now: () => clock, lateRefundWatchSeconds: 0, lastCallSeconds: 150 }); // the vector's deadlines are seconds away: a short last call
   // a job for the vector's order, re-signed by a key we hold (the vector's signer key is forge's)
   const refundNoteData = ("0x" + "cd".repeat(169)) as Hex;
   const params = { ...vector.params, orderSigner: orderSignerAddress(ORDER_KEY), refundNoteDataHash: keccak256(refundNoteData) };
@@ -263,6 +263,28 @@ describe("execution", () => {
       gasPrice = "0xee6b2800"; // 4 gwei: 0.002 ETH, exactly the tip
       await executor.tick();
       expect(job.state).toBe("executing");
+      expect(raws.length).toBe(before + 1);
+    } finally {
+      gasPrice = "0x3b9aca00";
+    }
+  });
+  it("the last call (the fifth review round, 2026-11-03): inside the deadline's last half hour an execution the tip no longer pays goes out anyway — the refund that would follow costs more", async () => {
+    const late: SwapJobRequest = { ...request, params: { ...request.params, orderId: ("0x" + "04".repeat(32)) as Hex } };
+    const escrow = predictEscrow(late.factory, creationCode, { ...late.params, assetType: 0, amount: BigInt(late.params.amount), refundOwnerCommitment: BigInt(late.params.refundOwnerCommitment), refundNoteSecret: BigInt(late.params.refundNoteSecret), executorTip: BigInt(late.params.executorTip) });
+    const digest = executionDigest(BigInt(CHAIN_ID), escrow, late.params.orderId, late.execution.provider, BigInt(late.execution.value), late.execution.providerCalldata, late.execution.deadline);
+    late.execution = { ...late.execution, signature: signExecution(ORDER_KEY, digest) };
+    clock = 1000; escrowBalance = BigInt(late.params.amount);
+    const job = executor.add(vouched(late, CHAIN_ID, creationCode));
+    const before = raws.length;
+    gasPrice = "0x12a05f200"; // 5 gwei: above the tip, as in the test before
+    try {
+      clock = Number(late.execution.deadline) - 150 - 30; // the call's own deadline is the last moment
+      await executor.tick();
+      expect(job.state, "time left for a cheaper block: it waits").toBe("waiting-funding");
+      expect(raws.length).toBe(before);
+      clock = Number(late.execution.deadline) - 150 + 30;
+      await executor.tick();
+      expect(job.state, "the last call: sent below the tip rather than into a costlier refund").toBe("executing");
       expect(raws.length).toBe(before + 1);
     } finally {
       gasPrice = "0x3b9aca00";
@@ -648,7 +670,7 @@ describe("the escrow's own fate (a V6 follow-up of 2026-10-16, audit c07/c08/c30
     try {
       clock = 1000; escrowBalance = 0n; foreignBalance = 5n;
       const r = fresh("c7");
-      const job = own.addRefund(vouched({ factory: r.factory, params: r.params, refundNoteData: r.refundNoteData, refundTokens: [FOREIGN] }, CHAIN_ID, creationCode));
+      const job = own.addRefund(vouched({ factory: r.factory, params: r.params, refundNoteData: r.refundNoteData, refundTokens: [FOREIGN], refundFloors: { [FOREIGN]: "1" } }, CHAIN_ID, creationCode));
       clock = Number(job.params.refundAfter) + LAPSE_AFTER_SECONDS;
       await own.tick();
       expect(job.state).toBe("lapsed");

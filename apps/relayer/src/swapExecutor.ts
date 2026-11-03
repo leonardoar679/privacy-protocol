@@ -142,6 +142,12 @@ const firstLine = (e: unknown, n: number) => redactUrls(String((e as Error)?.mes
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 /** The states a job ends in: no pass looks at it again (but a refunded executed order's late-refund watch), and it is not open. */
 export const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed", "lapsed"];
+/**
+ * The last call (the fifth review round, 2026-11-03): an ETH execution the tip no longer pays waits for a cheaper block — but past the
+ * deadline the only path is a refund at 3.45M gas against the same tip, costlier than the 2.05M-gas execution whatever the price, so
+ * inside the window's last stretch the execution goes out below the tip rather than wait into the refund.
+ */
+export const LAST_CALL_SECONDS = 30 * 60;
 
 /** The escrow's creation code, as forge exported it (@privacy-wallet/contracts; part of every escrow's CREATE2 address). */
 export function loadEscrowCreationCode(): Hex {
@@ -212,7 +218,7 @@ export class SwapExecutor {
   private vaultFactories = new Map<string, Address>();
   /** the account's one sender, shared with the submissions and the shield executor (server.ts); a test's own otherwise */
   private readonly sender: Sender;
-  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number; /** default LAPSE_AFTER_SECONDS */ lapseAfterSeconds?: number; /** default MAX_REFUND_REVERTS */ maxRefundReverts?: number }) {
+  constructor(readonly cfg: { chainId: number; escrowCreationCode: Hex; account: PrivateKeyAccount; publicClient: PublicClient; walletClient: WalletClient; sender?: Sender; /** the SwapOrderFactory this relayer executes for (SWAP_FACTORY); unset: it admits no order */ factory?: Address; /** PrivacyCore: an order refunds into its pool's own vault for its asset (`admissible`) */ core?: Address; /** the API's signer (API_VOUCHER), or its signers while it rotates its key: the executor runs only what they vouched for; unset, nothing */ voucher?: Address | readonly Address[]; now?: () => number; journal?: Journal<SwapJob>; /** default LATE_REFUND_WATCH_SECONDS */ lateRefundWatchSeconds?: number; /** default LAST_CALL_SECONDS (the fifth review round, 2026-11-03) */ lastCallSeconds?: number; /** default MAX_UNPAID_REFUNDS */ maxUnpaidRefunds?: number; /** default LAPSE_AFTER_SECONDS */ lapseAfterSeconds?: number; /** default MAX_REFUND_REVERTS */ maxRefundReverts?: number }) {
     this.sender = cfg.sender ?? new Sender(cfg.account, cfg);
     for (const j of cfg.journal?.load() ?? []) this.jobs.set(j.id, j); // restart: resume every open job
   }
@@ -271,6 +277,15 @@ export class SwapExecutor {
       const listed = new Set(((t as string[] | undefined) ?? []).map((x) => String(x).toLowerCase()));
       if (typeof f !== "object" || f === null || Array.isArray(f) || !Object.entries(f).every(([k, v]) => listed.has(k.toLowerCase()) && typeof v === "string" && /^[0-9]{1,78}$/.test(v))) {
         throw new SwapJobError("bad_refund_floors", "refundFloors maps tokens listed in refundTokens to base-unit amounts");
+      }
+    }
+    // every listed token but ETH needs a floor above zero (the fifth review round, 2026-11-03): without one, dust sent to the escrow had
+    // the relayer pay a refundToken for nothing, MAX_UNPAID_REFUNDS times per order; ETH and WETH carry the relayer's own gas floor
+    if (Array.isArray(t)) {
+      const floors = Object.fromEntries(Object.entries((f as Record<string, string> | undefined) ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+      for (const token of t as string[]) {
+        const key = String(token).toLowerCase();
+        if (key !== ZERO_ADDRESS && !(floors[key] && BigInt(floors[key]) > 0n)) throw new SwapJobError("bad_refund_floors", `refundFloors names no floor above zero for ${token}: every refund token needs one`);
       }
     }
   }
@@ -534,6 +549,11 @@ export class SwapExecutor {
     }
     const cost = gas * price;
     if (cost <= BigInt(job.params.executorTip)) return { wait: false, gas };
+    const lastMoment = Math.min(Number(job.params.executeDeadline), Number(job.execution?.deadline ?? job.params.executeDeadline)); // the call's own deadline, or the order's
+    if (lastMoment - this.now() <= (this.cfg.lastCallSeconds ?? LAST_CALL_SECONDS)) {
+      this.note(job, "executing below the tip: the deadline is near, and the refund that would follow costs more than the execution"); // the fifth review round, 2026-11-03
+      return { wait: false, gas };
+    }
     this.note(job, "waiting: executing now costs more than the order's tip; priced again next tick"); // no figures: they changed every tick and rewrote the journal each time (the fourth review round, 2026-11-03)
     return { wait: true };
   }
