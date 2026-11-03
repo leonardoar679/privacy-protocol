@@ -146,6 +146,11 @@ describe("formatting", () => {
     expect(isAddress(" 0x1111111111111111111111111111111111111111 ")).toBe(true);
     expect(isAddress("0x1234")).toBe(false);
     expect(isAddress("1111111111111111111111111111111111111111")).toBe(false);
+    // the review round of 2026-11-03 (C2-1): a mixed-case address carries its EIP-55 checksum, or one typo pays a stranger
+    expect(isAddress("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed")).toBe(true);
+    expect(isAddress("0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"), "all lower: no checksum to check").toBe(true);
+    expect(isAddress("0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED"), "all upper: none either").toBe(true);
+    expect(isAddress("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD"), "one case flipped").toBe(false);
   });
 });
 

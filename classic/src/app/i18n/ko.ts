@@ -64,7 +64,10 @@ export const ko: Record<MessageKey, string> = {
   "withdraw.name": "이름",
   "withdraw.fee": "수수료",
   "withdraw.chooseRelayer": "릴레이어 선택",
-  "withdraw.ipNotice": "선택한 릴레이어는 출금을 제출할 때 내 IP 주소를 봅니다.",
+  "withdraw.ipNotice":
+    "이 탭이나 릴레이어 설정을 열면 이 빌드가 나열한 모든 릴레이어에 상태를 묻습니다(그때 각 릴레이어가 내 IP 주소를 봅니다). 선택한 릴레이어가 출금을 받습니다.",
+  "withdraw.answerLost":
+    "릴레이어의 응답이 도착하지 않았습니다. 작업을 받았을 수도 있으니 다시 시도하기 전에 체인에서 노트가 사용되었는지 확인하세요. 사용된 노트를 다시 출금하면 트랜잭션이 되돌려집니다.",
   "withdraw.total": "합계",
   "withdraw.noteBalance": "노트 잔액",
   "withdraw.gasPrice": "가스 가격",
@@ -119,7 +122,8 @@ export const ko: Record<MessageKey, string> = {
   "settings.rpc": "RPC 엔드포인트",
   "settings.rpcNone": "이 빌드에는 RPC 엔드포인트가 설정되어 있지 않아 풀을 읽지 않습니다.",
   "settings.relayers": "릴레이어",
-  "settings.relayersNote": "이 빌드가 나열하는 릴레이어입니다. 상태는 출금을 준비할 때 각 릴레이어에서 읽습니다.",
+  "settings.relayersNote":
+    "이 빌드가 나열하는 릴레이어입니다. 상태는 출금 탭이나 이 페이지를 열 때 각 릴레이어에서 읽고, 출금 직전에 선택한 릴레이어에 다시 묻습니다.",
   "settings.language": "언어",
   "settings.languageAuto": "자동",
   "settings.languageEn": "English",

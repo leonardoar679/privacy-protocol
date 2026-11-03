@@ -58,9 +58,16 @@ export class RelayerDirectory {
     }));
   }
 
-  private async doRefresh(): Promise<RelayerInfo[]> {
-    const limit = Math.max(1, this.d.concurrency ?? 2);
-    let next = 0;
+  /** One relayer's status read again, now (the review round of 2026-11-03, C2-7): the flow asks the chosen one right before proving. */
+  async refreshOne(id: string): Promise<RelayerEntry | null> {
+    const e = this.entry(id);
+    if (!e) return null;
+    await this.probe(e);
+    this.d.onChange?.(this.list());
+    return e;
+  }
+
+  private async probe(e: RelayerEntry): Promise<void> {
     const one = async (e: RelayerEntry) => {
       try {
         const status = await statusOf(this.d.transport, e.url);
@@ -77,6 +84,13 @@ export class RelayerDirectory {
       }
       e.checkedAt = (this.d.now ?? Date.now)();
     };
+    await one(e);
+  }
+
+  private async doRefresh(): Promise<RelayerInfo[]> {
+    const limit = Math.max(1, this.d.concurrency ?? 2);
+    let next = 0;
+    const one = (e: RelayerEntry) => this.probe(e);
     await Promise.all(
       Array.from({ length: Math.min(limit, this.entries.length) }, async () => {
         for (;;) {

@@ -9,7 +9,9 @@ import type { Hex } from "../../history/events";
 import { verifyAgainstChain } from "../../history/verify";
 import { relayerMinimumWei } from "../../model/fees";
 import { formatNote, leBigInt, type ClassicNote } from "../../model/notes";
-import { poolOf } from "../../model/pools";
+import { poolFor, poolOf } from "../../model/pools";
+import { canDeposit } from "../../model/availability";
+import { isSpentOnChain } from "../../history/spent";
 import type { DepositFacts } from "../../model/types";
 import type { CircuitInput } from "../../prover/input";
 import type { ProofResult, ProverProgress } from "../../prover/protocol";
@@ -18,7 +20,7 @@ import { relayerArgs } from "../../wallet/calldata";
 import { waitForReceipt } from "../../wallet/connection";
 import { gasPriceWei } from "./gas";
 import { fromRelayerState, move, newJob, type JobRecord } from "./operations";
-import type { ClassicServices } from "./source";
+import { factsOf, type ClassicServices } from "./source";
 
 export type FlowStep =
   | { step: "proof"; progress?: ProverProgress }
@@ -44,6 +46,18 @@ const id = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? cryp
 export async function depositFlow(s: ClassicServices, input: DepositInput): Promise<JobRecord> {
   const { pool } = input;
   if (!isLive(s.config, pool, "deposit")) throw new FlowRefused("deposits are not switched on for this pool");
+  // the note's pool is the pool deposited into (the review round of 2026-11-03, C2-2): the selector stayed reachable behind the
+  // note modal, and a pool changed there sent another denomination for a note whose withdrawal could not find the deposit
+  const noted = poolFor(input.note.currency, input.note.amount, input.note.netId);
+  if (!noted || noted.id !== pool)
+    throw new FlowRefused(`the note is for the ${input.note.amount} ${input.note.currency.toUpperCase()} pool, not the one selected`);
+  // the pool's facts (C2-6; spec v3.0 §7.2, §7.7): an unverified contract, no endpoint or no wallet on mainnet sends nothing —
+  // the availability rows had said so while the button stayed live
+  await s.checkPool(pool);
+  if (!canDeposit(factsOf(s, pool)))
+    throw new FlowRefused(
+      "the pool is not ready for a deposit: its contract is not verified, no RPC endpoint is configured, or the wallet is not connected on Ethereum",
+    );
   const now = s.now;
   let job = newJob(id(), "deposit", pool, now());
   const keep = async (next: JobRecord) => {
@@ -103,6 +117,17 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
   const p = poolOf(pool);
   const relayer = via === "relayer" ? s.relayers.entry(input.relayerId ?? "") : null;
   if (via === "relayer" && (!relayer || relayer.status !== "online" || !relayer.facts)) throw new FlowRefused("the chosen relayer is not online");
+  // the pool's facts (C2-6): the contract verified and an endpoint configured, or nothing is proved or sent
+  await s.checkPool(pool);
+  const poolFacts = factsOf(s, pool);
+  if (!poolFacts.rpcConfigured || poolFacts.contract !== "verified")
+    throw new FlowRefused("the pool is not ready for a withdrawal: its contract is not verified, or no RPC endpoint is configured");
+  // the chosen relayer's status read again now (C2-7): the directory's was the page load's — one gone offline, or asking more
+  // since, had refused the job after the proof
+  if (via === "relayer") {
+    await s.relayers.refreshOne(relayer!.id);
+    if (relayer!.status !== "online" || !relayer!.facts) throw new FlowRefused("the chosen relayer is no longer online");
+  }
   // the fee offered was priced when the screen read the gas price; the relayer judges it at its own, now (the review round of
   // 2026-11-02): below its minimum at the live price the job would be refused after the proof — refused here instead, with
   // both numbers, before anything is proved; the screen reads the fees again
@@ -126,15 +151,22 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
 
   // the proof over the current root; proved again once if the root aged out of the pool's window meanwhile
   const rpc = s.rpc;
+  // the note's hashes come from the worker (the main thread never loads the vendored arithmetic); the rest is the note's bytes
+  const derived = await prover.note(formatNote(note));
+  if (!derived.ok) throw new FlowRefused("the note is not readable");
+  // spent on chain, as the pool says now (C2-10; spec §7.1, §7.4 "right before a withdrawal"): the history's events end twelve
+  // blocks back, and a note spent since — another device, a relayer whose answer was lost — had cost a proof and, in wallet
+  // mode, the gas of a reverting transaction. Disclosed as such on the screen (withdraw.checkOnChainNotice)
+  const assertUnspent = async (): Promise<void> => {
+    if (await isSpentOnChain(rpc, p.address, derived.nullifierHash)) throw new FlowRefused("this note was already spent on chain: nothing is proved or sent");
+  };
   const prove = async (): Promise<{ proof: ProofResult; root: Hex }> => {
     await history.settled(); // never read in the middle of a sync
     if (!history.verified) throw new FlowRefused("the history is not verified");
+    await assertUnspent();
     const path = await history.pathFor(facts.leafIndex);
     const feeWei = via === "relayer" ? (input.feeWei ?? 0n) : 0n;
     const relayerAddress = via === "relayer" ? relayer!.facts!.rewardAccount : ZERO_ADDRESS;
-    // the note's hashes come from the worker (the main thread never loads the vendored arithmetic); the rest is the note's bytes
-    const derived = await prover.note(formatNote(note));
-    if (!derived.ok) throw new FlowRefused("the note is not readable");
     const circuit: CircuitInput = {
       root: BigInt(path.root).toString(),
       nullifierHash: BigInt(derived.nullifierHash).toString(),
@@ -183,6 +215,12 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
     return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
   }
 
+  // once more right before anything is sent (C2-10): the confirmation can take a while
+  try {
+    await assertUnspent();
+  } catch (e) {
+    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the note was spent" }));
+  }
   await keep(move(job, "SUBMITTING", now()));
   input.onStep?.({ step: "submitting" });
   const [root, nullifierHash, recipientArg, relayerArg, feeArg, refundArg] = proved.proof.publicSignals.map((x) => BigInt(x));
@@ -200,11 +238,17 @@ export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput)
     try {
       relayerJobId = (await submitWithdrawal(s.relayerTransport, relayer!.url, { proof: proved.proof.proof, contract: p.address, args })).id;
     } catch (e) {
-      return keep(
-        move(job, "FAILED", now(), {
-          failedReason: e instanceof RelayerRefusal ? `the relayer refused: ${e.message}` : e instanceof Error ? e.message : "the relayer did not answer",
-        }),
-      );
+      if (e instanceof RelayerRefusal) return keep(move(job, "FAILED", now(), { failedReason: `the relayer refused: ${e.message}` }));
+      // the answer did not arrive (the review round of 2026-11-03, C2-3): the relayer may have taken the job — FAILED had sent the
+      // user to a second relayer or the wallet, where the second transaction reverted on the spent nullifier
+      const lost = {
+        ...job,
+        state: "RECOVERY_REQUIRED" as const,
+        updatedAt: now(),
+        failedReason: `the relayer's answer did not arrive (${e instanceof Error ? e.message : "no answer"}): check on chain whether the withdrawal went through before trying again`,
+      };
+      await keep(lost);
+      return lost;
     }
     await keep({ ...job, relayerJobId, updatedAt: now() });
     try {

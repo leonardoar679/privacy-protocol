@@ -193,7 +193,7 @@ export class PoolHistory {
         }
         const keepDeposits = eventsUpTo(this.deposits, reorg.rollbackTo.blockNumber);
         this.events(keepDeposits, eventsUpTo(this.withdrawals, reorg.rollbackTo.blockNumber));
-        const r = await tree.truncateTree(pool, keepDeposits.length);
+        const r = await this.withTree(() => tree.truncateTree(pool, keepDeposits.length));
         this.root = r.root;
         this.state = {
           ...state,
@@ -232,9 +232,11 @@ export class PoolHistory {
       window = Math.max(MIN_WINDOW, Math.floor(used / 2));
     }
     if (delta.deposits.length) {
-      const r = await tree.appendLeaves(
-        pool,
-        delta.deposits.map((d) => d.commitment),
+      const r = await this.withTree(() =>
+        tree.appendLeaves(
+          pool,
+          delta.deposits.map((d) => d.commitment),
+        ),
       );
       this.root = r.root;
     }
@@ -302,7 +304,25 @@ export class PoolHistory {
   }
 
   pathFor(leafIndex: number): Promise<PathResult> {
-    return this.d.tree.pathOf(this.d.pool, leafIndex);
+    return this.withTree(() => this.d.tree.pathOf(this.d.pool, leafIndex));
+  }
+
+  /**
+   * A tree call, repeated once after the tree is loaded again from the device's copy when the worker lost it (the review round of
+   * 2026-11-03, C2-9): a crashed prover worker is replaced by a fresh one with no trees, and every path and sync had failed
+   * from then until a reload of the page.
+   */
+  private async withTree<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!/no tree for .* is loaded/.test(e instanceof Error ? e.message : String(e))) throw e;
+      const stored = await this.d.store.read(this.d.pool);
+      if (!stored?.layers.length) throw e;
+      const r = await this.d.tree.loadTree(this.d.pool, stored.layers);
+      this.root = r.root;
+      return await fn();
+    }
   }
 
   currentRoot(): Hex | null {

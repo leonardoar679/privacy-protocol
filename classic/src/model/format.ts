@@ -1,3 +1,4 @@
+import { keccak256 } from "js-sha3";
 // Amounts, hashes and addresses as the screens show them: wei to a fixed number of decimals (the original's
 // toDecimals), gwei with one decimal, a shortened hash.
 const WEI = 1_000_000_000_000_000_000n;
@@ -33,4 +34,20 @@ export const shortHash = (h: string, head = 6, tail = 4): string => (h.length > 
 /** A thousands-separated count ("96,432"). */
 export const formatCount = (n: number, locale = "en-US"): string => new Intl.NumberFormat(locale).format(n);
 
-export const isAddress = (s: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(s.trim());
+/**
+ * An Ethereum address: 20 bytes of hex — and, when it carries both cases, a correct EIP-55 checksum (the review round of
+ * 2026-11-03, C2-1: the original's web3-utils check; a mistyped character in a checksummed address had been accepted as the
+ * proof's recipient, which nothing can undo). All-lower or all-upper hex carries no checksum and passes as before.
+ */
+export const isAddress = (s: string): boolean => {
+  const a = s.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return false;
+  const hex = a.slice(2);
+  if (hex === hex.toLowerCase() || hex === hex.toUpperCase()) return true;
+  const hash = keccak256(hex.toLowerCase());
+  for (let i = 0; i < 40; i++) {
+    const upper = parseInt(hash[i], 16) >= 8;
+    if (hex[i] !== (upper ? hex[i].toUpperCase() : hex[i].toLowerCase())) return false;
+  }
+  return true;
+};

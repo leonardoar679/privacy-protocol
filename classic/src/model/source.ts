@@ -12,6 +12,8 @@ export interface ClassicSource {
   /** the verified history first — nothing is disclosed to any endpoint by a lookup (spec §7.4) */
   lookup(note: ClassicNote): Promise<NoteLookup>;
   relayers(): Promise<RelayerInfo[]>;
+  /** every listed relayer asked again (the review round of 2026-11-03, C2-7): when the Withdraw tab or the relayer settings open, never at page load */
+  refreshRelayers(): Promise<RelayerInfo[]>;
   /** the live gas price in wei (never a constant) */
   gasPriceWei(): Promise<bigint>;
   availability(pool: PoolId): Promise<Availability>;

@@ -169,6 +169,31 @@ describe("a pool's history", () => {
     expect(disagree.h.verified).toBe(false);
   });
 
+  it("a path asked of a worker that lost its trees loads the tree again from the device's copy and answers (the review round of 2026-11-03, C2-9)", async () => {
+    const head = TO_BLOCK + 12 + 100;
+    const chain = scriptedChain({ head, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash });
+    const trees = fakeTrees();
+    let lost = true;
+    const client = {
+      ...trees.client,
+      pathOf: async (pool: string, leaf: number) => {
+        if (lost) {
+          lost = false;
+          throw new Error(`no tree for ${pool} is loaded`);
+        }
+        return trees.client.pathOf(pool, leaf);
+      },
+    };
+    const { h, store } = history({ rpc: chain.rpc, tree: client });
+    expect(await h.ensure()).toMatchObject({ kind: "ready", verified: true });
+    expect(await store.read("eth-100"), "the layers are on the device").not.toBeNull();
+    const path = await h.pathFor(5);
+    expect(path.pathElements).toHaveLength(20);
+    expect(
+      trees.calls.filter((c) => c === "load"),
+      "loaded once at the start, once again after the loss",
+    ).toHaveLength(2);
+  });
   it("a checkpoint that fell rolls the history back to the newest that stands, then syncs again", async () => {
     const head = TO_BLOCK + 12 + 100;
     const store = memoryHistoryStore();

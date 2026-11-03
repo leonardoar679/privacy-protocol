@@ -3,8 +3,12 @@
 // and a withdrawal — the verified history's path, the proof in the (fake) prover, the root still known, the user's
 // confirmation, then the relayer's job followed to CONFIRMED or the wallet-mode transaction awaited; cancelled before
 // anything is sent when the user declines; failed when the history is not verified; refused when the relayer is offline.
+import { readFileSync } from "node:fs";
+import { keccak256 } from "js-sha3";
 import { describe, expect, it } from "vitest";
 import { depositFlow, FlowRefused, withdrawalFlow } from "../src/app/services/flows";
+import { sourceOf as sourceOfServices } from "../src/app/services/source";
+import { DEPLOYMENT } from "../src/model/pools";
 import { feeLines } from "../src/model/fees";
 import { poolOf } from "../src/model/pools";
 import type { JobRecord } from "../src/app/services/operations";
@@ -40,18 +44,45 @@ const NOTE = generateNote("eth", "100", 1, seeded(99));
 interface SetupOptions {
   live?: Record<string, string[]>;
   nextIndex?: number;
+  /** the pool's code the chain serves (the real one unless a test says otherwise) */
+  code?: string;
+  /** the relayer's job states, in order of the polls */
+  jobStates?: string[];
   knownRoot?: boolean;
   verifiedProof?: boolean;
 }
 /** The fee the screen offers at the scripted 12 gwei: the original's 550,000 gas plus the relayer's 0.4 % — above the relayer's own 390,000-gas minimum. */
 const FEE = feeLines(poolOf("eth-100"), { feePercentE4: 4000 }, 12_000_000_000n).totalFeeWei;
-async function setup({ live = { "eth-100": ["deposit", "withdraw"] }, nextIndex = 1024, knownRoot = true, verifiedProof = true }: SetupOptions = {}) {
+// the pool's real code and its pins (the review round of 2026-11-03, C2-6): the flows refuse an unverified contract, so the scripted
+// chain serves the Sourcify record's bytecode (the 1, 10 and 100 ETH pools share it) and answers the pinned facts
+const POOL_CODE = (
+  JSON.parse(readFileSync(new URL("../contracts/verified/pool-eth-1.json", import.meta.url), "utf8")) as { runtimeBytecode: { onchainBytecode: string } }
+).runtimeBytecode.onchainBytecode;
+const sel = (signature: string) => "0x" + keccak256(signature).slice(0, 8);
+const PIN = DEPLOYMENT.pools["eth-100"];
+const PIN_CALLS: Record<string, string> = {
+  [sel("verifier()")]: `0x${PIN.verifier.slice(2).padStart(64, "0")}`,
+  [sel("levels()")]: `0x${word(PIN.levels)}`,
+  [sel("denomination()")]: `0x${word(BigInt(PIN.denominationWei))}`,
+  [sel("instances(address)")]: `0x${word(0)}${word(0)}${word(1)}${word(0)}${word(30)}`, // the router lists the pool as enabled
+};
+
+async function setup({
+  live = { "eth-100": ["deposit", "withdraw"] },
+  nextIndex = 1024,
+  knownRoot = true,
+  verifiedProof = true,
+  code = POOL_CODE,
+  jobStates,
+}: SetupOptions = {}) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   const chain = scriptedChain({
     head: snap.manifest.toBlock + 200,
     logs: [[]],
     nextIndex,
     knownRoot,
+    code,
+    calls: PIN_CALLS,
     blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
     receipts: Object.fromEntries(Array.from({ length: 5 }, (_, i) => [hex32(BigInt(1000 + i)), { status: "0x1" as const, blockNumber: "0x1" }])),
   });
@@ -60,7 +91,7 @@ async function setup({ live = { "eth-100": ["deposit", "withdraw"] }, nextIndex 
   const wallet = new WalletSession({ router: ROUTER, discover: async () => [{ info: { id: "fake", name: "Fake Wallet" }, provider }] });
   await wallet.discover();
   await wallet.connect("fake");
-  const transport = fakeRelayerTransport(status.v4.body);
+  const transport = fakeRelayerTransport(status.v4.body, jobStates);
   const curated = [
     {
       ensName: "to-relayer.eth",
@@ -100,6 +131,10 @@ describe("the deposit flow", () => {
     expect(off.provider.sent).toEqual([]);
 
     const { services, provider, jobs } = await setup();
+    // the note's pool is the pool deposited into (the review round of 2026-11-03, C2-2): a 100 ETH note never goes to the 1 ETH pool
+    const both = await setup({ live: { "eth-100": ["deposit"], "eth-1": ["deposit"] } });
+    await expect(depositFlow(both.services, { pool: "eth-1", note: NOTE })).rejects.toThrow(/not the one selected/);
+    expect(both.provider.sent).toEqual([]);
     const seen: JobRecord[] = [];
     const job = await depositFlow(services, { pool: "eth-100", note: NOTE, onJob: (j) => seen.push(j) });
     expect(job.state).toBe("COMPLETED");
@@ -218,6 +253,101 @@ describe("the withdrawal flow", () => {
     await expect(low).rejects.toBeInstanceOf(FlowRefused);
     await expect(low).rejects.toThrow(/the fee offered \(10000000000000000 wei\) is below the relayer's minimum at the current gas price \(\d+ wei\)/);
     expect(prover.proofs).toHaveLength(0);
+  });
+  it("a contract that is not the pinned one, or no endpoint: nothing is sent, deposit or withdrawal (the review round of 2026-11-03, C2-6)", async () => {
+    const differs = await setup({ code: "0x6001" });
+    await expect(depositFlow(differs.services, { pool: "eth-100", note: NOTE })).rejects.toThrow(/not ready for a deposit/);
+    expect(differs.provider.sent).toEqual([]);
+    const lookup = await sourceOf(differs.services).lookup(NOTE);
+    const facts = lookup.kind === "found" ? lookup.facts : null!;
+    const job = await withdrawalFlow(differs.services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => true,
+    }).catch((e: unknown) => e);
+    expect(job).toBeInstanceOf(FlowRefused);
+    expect(differs.prover.proofs).toHaveLength(0);
+    expect(differs.transport.posted).toEqual([]);
+  });
+  it("a note spent on chain since the history's last block is refused before any proof, and again before anything is sent (the review round of 2026-11-03, C2-10)", async () => {
+    const { services, prover, transport, facts, chain } = await ready();
+    chain.options.spent = true;
+    const job = await withdrawalFlow(services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => true,
+    });
+    expect(job.state).toBe("FAILED");
+    expect(job.failedReason).toMatch(/spent on chain/);
+    expect(prover.proofs, "nothing proved").toHaveLength(0);
+    expect(transport.posted).toEqual([]);
+    // spent between the proof and the confirmation: refused before the submission
+    const again = await ready();
+    const late = await withdrawalFlow(again.services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts: again.facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => {
+        again.chain.options.spent = true;
+        return true;
+      },
+    });
+    expect(late.state).toBe("FAILED");
+    expect(late.failedReason).toMatch(/spent on chain/);
+    expect(again.transport.posted, "nothing sent").toEqual([]);
+  });
+  it("a relayer whose answer did not arrive leaves the record waiting as RECOVERY_REQUIRED, never FAILED (the review round of 2026-11-03, C2-3): the job may have been taken", async () => {
+    const { services, prover, transport, facts } = await ready();
+    transport.postJson = async () => {
+      throw new Error("The operation was aborted");
+    };
+    const job = await withdrawalFlow(services, {
+      pool: "eth-100",
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer",
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => true,
+    });
+    expect(job.state).toBe("RECOVERY_REQUIRED");
+    expect(job.failedReason).toMatch(/answer did not arrive.*check on chain/);
+    expect(job.relayerUrl, "kept for the follow-up").toBe("https://eth.to-relayer.com");
+    expect(prover.proofs).toHaveLength(1);
+  });
+  it("a relayed job whose page is gone is asked about again when the history is read, never re-submitted (the review round of 2026-11-03, C2-8)", async () => {
+    const { services, transport } = await setup({ jobStates: ["CONFIRMED"] });
+    const now = services.now();
+    await services.jobs.put({
+      id: "j1",
+      kind: "withdrawal",
+      pool: "eth-100",
+      state: "SUBMITTING",
+      createdAt: now,
+      updatedAt: now,
+      via: "relayer",
+      relayerUrl: "https://eth.to-relayer.com",
+      relayerJobId: "job-1",
+    });
+    const rows = await sourceOfServices(services).history();
+    expect(rows[0]).toMatchObject({ id: "j1", status: "CONFIRMED", txHash: hex32(777n) });
+    expect((await services.jobs.list())[0]).toMatchObject({ state: "COMPLETED", relayerState: "CONFIRMED" });
+    expect(transport.posted, "read, never sent").toEqual([]);
   });
   it("the root is checked again after the confirmation: aged out of the pool's hundred meanwhile → the history synced again, proved again once, then submitted (Stage 10)", async () => {
     const { services, chain, prover, transport, facts } = await ready();

@@ -7,7 +7,11 @@ import type { ProverClient } from "../prover/client";
 let client: Promise<ProverClient> | null = null;
 
 export function prover(): Promise<ProverClient> {
-  return (client ??= import("../prover/client").then((m) => new m.ProverClient({ artifactBase: config().artifactBase })));
+  // a phone gets websnark's sub-workers 1,000 pages each (spec v3.0 §7.3) — four at 2,000 pages are 500 MB a phone's browser ends (C2-9)
+  const phone = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  return (client ??= import("../prover/client").then(
+    (m) => new m.ProverClient({ artifactBase: config().artifactBase, ...(phone ? { options: { wasmInitialMemory: 1000 } } : {}) }),
+  ));
 }
 
 /** Starts fetching and verifying the artifacts and building websnark; a failure surfaces at the withdrawal, not here. */

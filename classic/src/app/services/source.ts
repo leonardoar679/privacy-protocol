@@ -15,7 +15,7 @@ import { fetchSnapshot as fetchSnapshotFromHost, type FetchedSnapshot } from "..
 import { relayerTransport } from "../../net/relayer";
 import { makeRpc } from "../../net/rpc";
 import type { ProverClient } from "../../prover/client";
-import type { followJob, RelayerTransport } from "../../relayer/client";
+import { jobOf, type followJob, type RelayerTransport } from "../../relayer/client";
 import type { waitForReceipt } from "../../wallet/connection";
 import { CURATED_RELAYERS, type CuratedRelayer } from "../../relayer/curated";
 import { historyStore, jobsStore, type HistoryStore, type JobsStore } from "../../storage/historyDb";
@@ -23,7 +23,7 @@ import { prover as appProver } from "../prover";
 import { checkPoolContract, routerInstanceState } from "./contract";
 import { gasPriceWei } from "./gas";
 import { PoolHistory, type HistoryStatus, type TreeClient } from "./history";
-import { toHistoryRow, type JobRecord } from "./operations";
+import { fromRelayerState, toHistoryRow, type JobRecord } from "./operations";
 import { RelayerDirectory } from "./relayers";
 import { WalletSession } from "./wallet";
 
@@ -225,9 +225,32 @@ export function factsOf(s: ClassicServices, pool: PoolId): AvailabilityFacts {
   };
 }
 
+/** A relayed withdrawal whose page is gone is asked about again when the history is read (the review round of 2026-11-03, C2-8). */
+const OPEN_RELAYED = new Set(["SUBMITTING", "SOURCE_CONFIRMING", "RECOVERY_REQUIRED"]);
+async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
+  for (const job of await s.jobs.list()) {
+    if (job.kind !== "withdrawal" || !job.relayerUrl || !job.relayerJobId || !OPEN_RELAYED.has(job.state)) continue;
+    try {
+      const j = await jobOf(s.relayerTransport, job.relayerUrl, job.relayerJobId); // never a submission: the job is read, nothing sent
+      const next = fromRelayerState(j.status);
+      await s.jobs.put({
+        ...job,
+        relayerState: j.status,
+        txHash: (j.txHash as Hex | null) ?? job.txHash,
+        state: next,
+        updatedAt: s.now(),
+        ...(j.failedReason ? { failedReason: j.failedReason } : {}),
+      });
+    } catch {
+      // the relayer did not answer: the record stays as it is
+    }
+  }
+}
+
 /** The screens' data over the services. A lookup derives the note's hashes in the worker; the note itself stays in memory. */
 export function sourceOf(s: ClassicServices): ClassicSource {
   const rows = async (): Promise<HistoryRow[]> => {
+    await refreshRelayedJobs(s);
     const jobs = await s.jobs.list();
     return jobs.map((job: JobRecord) => toHistoryRow(job)).reverse();
   };
@@ -250,6 +273,9 @@ export function sourceOf(s: ClassicServices): ClassicSource {
     },
     async relayers(): Promise<RelayerInfo[]> {
       return s.relayers.onlineCount() === null ? s.relayers.refresh() : s.relayers.list();
+    },
+    refreshRelayers(): Promise<RelayerInfo[]> {
+      return s.relayers.refresh();
     },
     async gasPriceWei(): Promise<bigint> {
       if (!s.rpc) throw new Error("no RPC endpoint is configured");

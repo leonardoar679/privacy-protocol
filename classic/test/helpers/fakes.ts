@@ -134,6 +134,8 @@ export interface ScriptedChainOptions {
   receipts?: Record<string, { status: "0x1" | "0x0"; blockNumber: string } | null>;
   gasPrice?: string;
   code?: string;
+  /** isSpent's answer for every nullifier (the review round of 2026-11-03, C2-10) */
+  spent?: boolean;
   calls?: Record<string, string>;
   /** block hashes the chain answers (the fixture's own for its block), others derived from the number */
   blockHashes?: Record<number, Hex>;
@@ -172,7 +174,7 @@ export function scriptedChain(o: ScriptedChainOptions) {
           return `0x${word(known ? 1 : 0)}`;
         }
         if (sel === SELECTORS.getLastRoot) return o.lastRoot ?? hex32(1n);
-        if (sel === SELECTORS.isSpent) return `0x${word(0)}`;
+        if (sel === SELECTORS.isSpent) return `0x${word(o.spent ? 1 : 0)}`;
         throw new Error(`no answer for selector ${sel}`);
       }
       default:

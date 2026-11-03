@@ -68,7 +68,10 @@ export const en = {
   "withdraw.name": "Name",
   "withdraw.fee": "Fee",
   "withdraw.chooseRelayer": "Choose a relayer",
-  "withdraw.ipNotice": "The relayer you choose sees your IP address when it submits the withdrawal.",
+  "withdraw.ipNotice":
+    "Every relayer this build lists is asked for its status when this tab or the relayer settings open (each sees your IP address then); the one you choose receives the withdrawal.",
+  "withdraw.answerLost":
+    "The relayer's answer did not arrive. It may have taken the job: check on chain whether the note is spent before trying again — a second withdrawal of a spent note reverts.",
   "withdraw.total": "Total",
   "withdraw.noteBalance": "Note balance",
   "withdraw.gasPrice": "Gas Price",
@@ -124,7 +127,8 @@ export const en = {
   "settings.rpc": "RPC endpoint",
   "settings.rpcNone": "No RPC endpoint is configured in this build; the pools are not read.",
   "settings.relayers": "Relayers",
-  "settings.relayersNote": "The relayers this build lists; their status is read from each one when a withdrawal is prepared.",
+  "settings.relayersNote":
+    "The relayers this build lists; their status is read from each one when the Withdraw tab or this page opens, and the chosen one is asked again right before a withdrawal.",
   "settings.language": "Language",
   "settings.languageAuto": "Automatic",
   "settings.languageEn": "English",

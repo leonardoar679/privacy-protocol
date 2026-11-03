@@ -5,6 +5,9 @@
 // the on-chain spent check with its disclosure; and, with the switch off, every sending button reads Not connected and
 // the wallet is never asked to send.
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { keccak256 } from "js-sha3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App, NOT_CONNECTED } from "../src/app/App";
 import { resetRoute } from "../src/app/router";
@@ -13,8 +16,9 @@ import { WalletSession } from "../src/app/services/wallet";
 import { applyConfig, configFromEnv } from "../src/config";
 import type { DepositEvent } from "../src/history/events";
 import { formatNote, generateNote } from "../src/model/notes";
+import { DEPLOYMENT } from "../src/model/pools";
 import { memoryHistoryStore, memoryJobsStore } from "../src/storage/historyDb";
-import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, scriptedChain } from "./helpers/fakes";
+import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, scriptedChain, word } from "./helpers/fakes";
 import status from "./fixtures/relayers/status.json";
 
 const ROUTER = "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b" as const;
@@ -33,6 +37,19 @@ const seeded = (seed: number) => {
 };
 const NOTE = formatNote(generateNote("eth", "100", 1, seeded(99)));
 
+// the pool's real code and its pins (C2-6): the live buttons need the contract verified
+const POOL_CODE = (
+  JSON.parse(readFileSync(join(__dirname, "..", "contracts", "verified", "pool-eth-1.json"), "utf8")) as { runtimeBytecode: { onchainBytecode: string } }
+).runtimeBytecode.onchainBytecode;
+const selOf = (signature: string) => "0x" + keccak256(signature).slice(0, 8);
+const PIN = DEPLOYMENT.pools["eth-100"];
+const PIN_CALLS: Record<string, string> = {
+  [selOf("verifier()")]: `0x${PIN.verifier.slice(2).padStart(64, "0")}`,
+  [selOf("levels()")]: `0x${word(PIN.levels)}`,
+  [selOf("denomination()")]: `0x${word(BigInt(PIN.denominationWei))}`,
+  [selOf("instances(address)")]: `0x${word(0)}${word(0)}${word(1)}${word(0)}${word(30)}`,
+};
+
 function build(live: Record<string, string[]>) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   applyConfig(config);
@@ -41,6 +58,8 @@ function build(live: Record<string, string[]>) {
     logs: [[]],
     nextIndex: 1024,
     knownRoot: true,
+    code: POOL_CODE, // the review round of 2026-11-03 (C2-6): the buttons follow the contract's verification
+    calls: PIN_CALLS,
     blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
     receipts: Object.fromEntries(Array.from({ length: 5 }, (_, i) => [hex32(BigInt(1000 + i)), { status: "0x1" as const, blockNumber: "0x1" }])),
   });
@@ -129,7 +148,8 @@ describe("the wired app", () => {
     expect(note).toMatch(/^tornado-eth-100-1-0x[0-9a-f]{124}$/);
     expect(screen.getByTestId("classic-note-send")).toBeDisabled();
     fireEvent.click(screen.getByTestId("classic-note-backed"));
-    expect(screen.getByTestId("classic-note-send")).toBeEnabled();
+    // live once the contract's verification is in (the review round of 2026-11-03, C2-6), not before
+    await waitFor(() => expect(screen.getByTestId("classic-note-send")).toBeEnabled());
     expect(screen.getByTestId("classic-note-send")).toHaveTextContent("Send Deposit");
     await act(async () => {
       fireEvent.click(screen.getByTestId("classic-note-send"));

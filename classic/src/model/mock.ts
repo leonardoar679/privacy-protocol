@@ -106,6 +106,7 @@ export function mockSource(o: MockOptions): ClassicSource {
     stats: (pool) => answer(mockStats(pool, o.now)),
     lookup: (note) => answer(mockLookup(note, o.now)),
     relayers: () => answer(MOCK_RELAYERS),
+    refreshRelayers: () => answer(MOCK_RELAYERS),
     gasPriceWei: () => answer(gas),
     availability: (pool) => answer(mockAvailability(pool)),
     history: () => answer(history),
