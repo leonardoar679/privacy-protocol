@@ -349,7 +349,10 @@ decided it, and its false "spent" hid a note for good), and proves the marks bot
 chain at or past the block it was seen at does not have the spend, or the quorum no longer makes it. A result that arrives after
 a lock — or after another phrase replaced the wallet in the same tab — writes nothing (the session's epoch; the right wallet's
 scan records it). Every note new to the store past the proven pool waits for the scan whose proof covers its leaf, not only a
-transfer received: a protect's opening is public calldata, so the quorum could replay this wallet's own note in the tail.
+transfer received: a protect's opening is public calldata, so the quorum could replay this wallet's own note in the tail. The
+proof's public inputs are the plan's: recomputed on the main thread from the spec it made (`expectedPublicInputs`), so a
+prover — the crypto worker — that answered another recipient, amount, nullifier or payload hash sends nothing (defence in
+depth; before, its answer was taken as the plan's).
 
 ## 7. Tornado Classic (doc §1, §4, §10 "Tornado Classic", §11, §13 "Classic") — *Stages 1–3, 5–11* (supersedes v2.0 §11.3 and the Classic rows of §7.11 and §23)
 

@@ -6,12 +6,17 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Address, Hex } from "viem";
 import type { Deployment, TreeState } from "../src/chain";
-import type { PublicInputs } from "@privacy-wallet/protocol/prover";
+import { expectedPublicInputs } from "@privacy-wallet/protocol/prover";
 
 const HASH = ("0x" + "6b".repeat(32)) as Hex;
 const RECIPIENT = "0x00000000000000000000000000000000000000d1" as Address;
 const VAULT = "0x00000000000000000000000000000000000000E7" as Address;
-const w = vi.hoisted(() => ({ tree: null as unknown, spec: null as unknown, claims: [] as { vault: string; recipient: string; amount: bigint }[] }));
+const w = vi.hoisted(() => ({
+  nf: [0n, 0n] as [bigint, bigint],
+  tree: null as unknown,
+  spec: null as unknown,
+  claims: [] as { vault: string; recipient: string; amount: bigint }[],
+}));
 vi.mock("../src/deploymentGuard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/deploymentGuard")>()),
   guardDeployment: async () => undefined,
@@ -33,7 +38,7 @@ vi.mock("../src/chain", async (importOriginal) => {
       return {
         inserted: outputs.map((n, i) => ({ leafIndex: 2 + i, commitment: noteCommitment(noteBody(n), BigInt(2 + i)) })),
         costWei: 1n,
-        spends: [[N0, N1]],
+        spends: [w.nf],
         claims: w.claims,
       };
     },
@@ -52,26 +57,6 @@ import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { mainOwnerCommitment } from "../src/keys/ownerKeys";
 
-const N0 = 2_001n;
-const N1 = 2_002n;
-const ZERO_INPUTS = Object.fromEntries(
-  [
-    "root",
-    "nullifier0",
-    "nullifier1",
-    "outputBody0",
-    "outputBody1",
-    "outputBody2",
-    "mode",
-    "withdrawalVault",
-    "withdrawalAmount",
-    "withdrawalRecipient",
-    "noteData0Hash",
-    "noteData1Hash",
-    "noteData2Hash",
-    "txDomain",
-  ].map((k) => [k, 0n]),
-) as unknown as PublicInputs;
 const deployment = {
   chainId: 1,
   core: "0x00000000000000000000000000000000000000c0",
@@ -91,9 +76,11 @@ beforeAll(async () => {
       kdfLog2N: 12,
       prover: async (spec) => {
         w.spec = spec;
+        const publicInputs = expectedPublicInputs(spec); // what the main thread checks the answer against (the third review round)
+        w.nf = [publicInputs.nullifier0, publicInputs.nullifier1];
         return {
           proof: ("0x" + "00".repeat(256)) as Hex,
-          publicInputs: { ...ZERO_INPUTS, nullifier0: N0, nullifier1: N1 },
+          publicInputs,
           publicSignals: [],
           ms: 1,
           verifiedLocally: false,

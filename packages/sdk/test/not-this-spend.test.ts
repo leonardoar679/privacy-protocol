@@ -7,10 +7,17 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hex } from "viem";
 import type { Deployment, TreeState } from "../src/chain";
-import type { PublicInputs } from "@privacy-wallet/protocol/prover";
+import { expectedPublicInputs } from "@privacy-wallet/protocol/prover";
 
 const HASH = ("0x" + "5a".repeat(32)) as Hex;
-const w = vi.hoisted(() => ({ spends: [] as [bigint, bigint][], tree: null as unknown, sent: 0, spec: null as unknown, gate: null as Promise<void> | null }));
+const w = vi.hoisted(() => ({
+  spends: [] as [bigint, bigint][] | "own",
+  tree: null as unknown,
+  sent: 0,
+  spec: null as unknown,
+  gate: null as Promise<void> | null,
+  nf: [0n, 0n] as [bigint, bigint],
+}));
 vi.mock("../src/deploymentGuard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/deploymentGuard")>()),
   guardDeployment: async () => undefined,
@@ -33,7 +40,11 @@ vi.mock("../src/chain", async (importOriginal) => {
     minedTx: async () => {
       if (w.gate) await w.gate; // a receipt that takes its time (the third review round: a lock and a REPLACE in between)
       const outputs = (w.spec as { outputs: Parameters<typeof noteBody>[0][] }).outputs;
-      return { inserted: outputs.map((n, i) => ({ leafIndex: 2 + i, commitment: noteCommitment(noteBody(n), BigInt(2 + i)) })), costWei: 1n, spends: w.spends };
+      return {
+        inserted: outputs.map((n, i) => ({ leafIndex: 2 + i, commitment: noteCommitment(noteBody(n), BigInt(2 + i)) })),
+        costWei: 1n,
+        spends: w.spends === "own" ? [w.nf] : w.spends,
+      };
     },
   };
 });
@@ -50,26 +61,6 @@ import { MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { mainOwnerCommitment } from "../src/keys/ownerKeys";
 
-const N0 = 1_001n;
-const ZERO_INPUTS = Object.fromEntries(
-  [
-    "root",
-    "nullifier0",
-    "nullifier1",
-    "outputBody0",
-    "outputBody1",
-    "outputBody2",
-    "mode",
-    "withdrawalVault",
-    "withdrawalAmount",
-    "withdrawalRecipient",
-    "noteData0Hash",
-    "noteData1Hash",
-    "noteData2Hash",
-    "txDomain",
-  ].map((k) => [k, 0n]),
-) as unknown as PublicInputs;
-const N1 = 1_002n;
 const VAULT = "0x00000000000000000000000000000000000000e7";
 const deployment = {
   chainId: 1,
@@ -91,9 +82,11 @@ beforeAll(async () => {
       // the proof: its public inputs carry the spend's nullifiers, as the circuit's do
       prover: async (spec) => {
         w.spec = spec;
+        const publicInputs = expectedPublicInputs(spec); // what the main thread checks the answer against (the third review round)
+        w.nf = [publicInputs.nullifier0, publicInputs.nullifier1];
         return {
           proof: ("0x" + "00".repeat(256)) as Hex,
-          publicInputs: { ...ZERO_INPUTS, nullifier0: N0, nullifier1: N1 },
+          publicInputs,
           publicSignals: [],
           ms: 1,
           verifiedLocally: false,
@@ -150,7 +143,7 @@ describe("a spend is the transaction that spends its notes", () => {
 
   it("a receipt whose event names the spend's nullifiers marks its notes spent and records the merged note", async () => {
     const [a, b] = twoNotes();
-    w.spends = [[N0, N1]];
+    w.spends = "own";
     const r = await mergeNotes({ masterSeed: seed, deployment, a, b, submission: { kind: "wallet" } });
     expect(r.txHash).toBe(HASH);
     expect(
@@ -164,7 +157,7 @@ describe("a spend is the transaction that spends its notes", () => {
 
   it("a receipt that lands after a lock and a REPLACE with another phrase in the same tab records nothing into the new wallet (the third review round, 2026-11-03)", async () => {
     const [a, b] = twoNotes();
-    w.spends = [[N0, N1]];
+    w.spends = "own";
     let release!: () => void;
     w.gate = new Promise<void>((r) => {
       release = r;

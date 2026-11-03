@@ -47,6 +47,23 @@ export function expectedPublicSignals(inputs: CircuitInputs): bigint[] {
   ];
 }
 
+/**
+ * The public inputs a spend plan implies, recomputed from the spec (the third review round, 2026-11-03; defence in depth): what the
+ * platform's prover — the crypto worker on the web — must answer before anything is signed or sent. A prover that answered another
+ * root, nullifier, output body, withdrawal recipient or amount, payload hash or domain is refused on the main thread, which made
+ * the plan; before, its answer was taken as the plan's.
+ */
+export function expectedPublicInputs(spec: TxSpec): PublicInputs {
+  return publicInputsFromSignals(expectedPublicSignals(buildTxInputs(spec)));
+}
+
+/** Throws, naming the fields that differ, unless `got` is exactly what `spec` implies. */
+export function assertPublicInputsOfSpec(got: PublicInputs, spec: TxSpec): void {
+  const want = expectedPublicInputs(spec);
+  const differ = PUBLIC_SIGNALS.filter((k) => got?.[k] !== want[k]);
+  if (differ.length) throw new Error(`the proof's public inputs are not the plan's (${differ.join(", ")}): nothing is sent`);
+}
+
 const word = (v: bigint, out: Uint8Array, at: number) => { let x = v; for (let i = 31; i >= 0; i--) { out[at + i] = Number(x & 0xffn); x >>= 8n; } };
 
 /**

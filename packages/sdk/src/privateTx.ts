@@ -36,6 +36,7 @@ import { connectivity, whenOnline } from "@privacy-wallet/privacy-engine/transpo
 import { poolStats } from "./wallet/poolStats";
 import { olderNotes, selectionOf } from "./wallet/privacyTiming";
 import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
+import { assertPublicInputsOfSpec } from "@privacy-wallet/protocol/prover";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
 import { guardDeployment } from "./deploymentGuard";
@@ -476,6 +477,9 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   // crypto worker on the web) — and throws, as the builder always did, when a note does not open its leaf or the value
   // is not conserved
   const proof = await prove(o.spec, o.onStatus);
+  // the proof's public inputs are the plan's (the third review round, 2026-11-03; defence in depth): recomputed here from the spec this
+  // thread made, so a prover that answered another recipient, amount, nullifier or payload hash sends nothing
+  assertPublicInputsOfSpec(proof.publicInputs, o.spec);
   // nothing is sent from a wallet that locked while it proved (audit round 2, r19): its record, locked out, still reads the
   // proof step, and a reconcile would call a mined spend "nothing moved"
   if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });

@@ -8,6 +8,7 @@ import { noteBody, noteCommitment, ownerCommitmentOf, encodeNote, decodeNote } f
 import { nullifier, phantomNullifier } from "../src/nullifier";
 import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
 import { noteDataHash, testNoteData, txDomain, NOTE_DATA_BYTES } from "../src/payload";
+import { assertPublicInputsOfSpec, expectedPublicInputs } from "../src/prover";
 import { buildTxInputs, dummyOutput, type SpendNote, type TxSpec } from "../src/txInputs";
 
 const vectors = JSON.parse(
@@ -124,6 +125,16 @@ describe("buildTxInputs", () => {
     expect(i.inIsReal).toEqual(["1", "0"]);
     expect(i.inOwnerKey).toEqual([keys.spendKey.toString(), "0"]);
     expect((i.inPathElements as string[][])[0].length).toBe(32);
+  });
+
+  it("the public inputs a plan implies are checked against a prover's answer: a changed recipient, nullifier or payload hash is named and refused (the third review round, 2026-11-03)", () => {
+    const want = expectedPublicInputs(spec);
+    expect(want.root).toBe(BigInt(buildTxInputs(spec).root as string));
+    expect(want.nullifier0).toBe(nullifier(c0, keys.spendKey));
+    expect(() => assertPublicInputsOfSpec(want, spec)).not.toThrow();
+    expect(() => assertPublicInputsOfSpec({ ...want, withdrawalRecipient: 0xbadn }, spec)).toThrow(/not the plan's \(withdrawalRecipient\)/);
+    expect(() => assertPublicInputsOfSpec({ ...want, nullifier0: want.nullifier0 + 1n, noteData2Hash: 0n }, spec)).toThrow(/nullifier0, noteData2Hash/);
+    expect(() => assertPublicInputsOfSpec({} as typeof want, spec)).toThrow(/root, nullifier0/);
   });
 
   it("takes the synced layers when the wallet has them and builds the same witness", () => {
