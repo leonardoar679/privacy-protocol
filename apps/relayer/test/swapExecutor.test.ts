@@ -50,7 +50,10 @@ const SEL_BALANCE_OF = toFunctionSelector("balanceOf(address)");
 const taken = new Set<Hex>(); // what the node took
 const dropped = new Set<Hex>(); // what it no longer knows
 const block = { number: "0x10", hash: "0x" + "11".repeat(32), parentHash: "0x" + "00".repeat(32), nonce: "0x0000000000000000", sha3Uncles: "0x" + "00".repeat(32), logsBloom: "0x" + "00".repeat(256), transactionsRoot: "0x" + "00".repeat(32), stateRoot: "0x" + "00".repeat(32), receiptsRoot: "0x" + "00".repeat(32), miner: "0x" + "00".repeat(20), difficulty: "0x0", totalDifficulty: "0x0", extraData: "0x", size: "0x1", gasLimit: "0x1c9c380", gasUsed: "0x0", timestamp: "0x1", baseFeePerGas: "0x3b9aca00", mixHash: "0x" + "00".repeat(32), transactions: [], uncles: [] };
+/** every method the mock node was asked (the fourth review round, 2026-11-03: a request of the wrong shape must cost none) */
+const rpcMethods: string[] = [];
 function handle(req: { id: number; method: string; params: any[] }) {
+  rpcMethods.push(req.method);
   const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
   switch (req.method) {
     case "eth_chainId": return res(toHex(CHAIN_ID));
@@ -120,6 +123,14 @@ describe("job admission", () => {
     expect(code({ ...request, execution: { ...request.execution, value: (BigInt(request.params.amount)).toString() } })).toBe("bad_signature"); // a changed value changes the digest
     expect(code({ ...request, execution: { ...request.execution, deadline: Number(request.params.executeDeadline) + 1 } })).toBe("bad_deadlines");
     expect(code({ ...request, params: { ...request.params, assetType: 1 } })).toBe("bad_execution"); // an ERC-20 order must forward no ETH value
+  });
+  it("a request of the wrong shape, or for another factory, is refused before any chain read (the fourth review round, 2026-11-03): every junk request had cost an RPC call", async () => {
+    rpcMethods.length = 0;
+    await expect(executor.admitExecution({ ...request, params: { ...request.params, amount: "not-a-number" } }, { full: false })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(executor.admitExecution({ ...request, params: { ...request.params, executeDeadline: "soon" as never } }, { full: true })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(executor.admitExecution({ ...request, factory: "0x00000000000000000000000000000000000000ff" as never }, { full: false })).rejects.toMatchObject({ code: "unknown_swap_factory" });
+    await expect(executor.admitRefund({ ...request, refundNoteData: "0x12" as never }, { full: false })).rejects.toMatchObject({ code: "bad_refund_payload" });
+    expect(rpcMethods).toEqual([]);
   });
   it("admits orders for the factory it serves only, and none without one: no other contract is ever called (2026-10-15)", () => {
     // before, a request's own "factory" was called with deployAndExecute and deployAndRefund at the relayer's gas
@@ -247,7 +258,7 @@ describe("execution", () => {
     try {
       await executor.tick();
       expect(job.state).toBe("waiting-funding");
-      expect(job.error).toMatch(/waiting: executing now costs 2500000000000000 wei, above the order's 2000000000000000 wei tip/);
+      expect(job.error).toMatch(/waiting: executing now costs more than the order's tip/);
       expect(raws.length, "nothing sent below cost").toBe(before);
       gasPrice = "0xee6b2800"; // 4 gwei: 0.002 ETH, exactly the tip
       await executor.tick();

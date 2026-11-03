@@ -54,7 +54,7 @@ export interface FeeOpening { outputIndex: 0 | 1 | 2; amount: string; noteSecret
 export interface SubmitRequest { proof: Hex; publicInputs: (string | bigint)[]; noteData: [Hex, Hex, Hex]; fee: FeeOpening }
 /** V6 (spec v2.0 §3): `gasUsed` and `actualNetworkWei` (gasUsed × effectiveGasPrice) from the receipt, once mined */
 /** `dropped`: the node no longer knew the transaction and its nullifiers were unspent (`monitor`); they were released */
-export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "submitted" | "mined" | "reverted" | "dropped"; gasUsed?: string; actualNetworkWei?: string; droppedAt?: number }
+export interface Job { txHash: Hex; nullifiers: [string, string]; feeWei: string; feeVault: Address; feeOutputIndex: number; feeNoteSecret: string; feePayloadReadable: boolean; submittedAt: number; status: "sending" | "submitted" | "mined" | "reverted" | "dropped"; gasUsed?: string; actualNetworkWei?: string; droppedAt?: number }
 
 /** How long a submitted transaction may be unknown to the node before its job counts as dropped (`monitor`). */
 export { DROP_AFTER_MS };
@@ -65,6 +65,8 @@ export { DROP_AFTER_MS };
  * gas, for free — the notes stay unspent.
  */
 export const REVERTED_HOLD_MS = 24 * 3600 * 1000;
+/** The gas price behind /info and the minimum fee is read at most this often (the fourth review round, 2026-11-03). */
+export const GAS_PRICE_CACHE_MS = 5_000;
 
 /** An output's amount as the circuit proves it: Num2Bits(248) (circuits/transaction.circom). */
 const OUTPUT_AMOUNT_BOUND = 1n << 248n;
@@ -98,6 +100,8 @@ export class Relayer {
     this.sender = new Sender(this.account, clients);
     this.identity = relayerIdentity(cfg.masterSeed);
     for (const j of cfg.journal?.load() ?? []) {
+      // journaled before its broadcast (the fourth review round, 2026-11-03): the node has it, or monitor() drops it unseen
+      if (j.status === "sending") j.status = "submitted";
       this.jobs.set(j.txHash, j);
       if (j.status === "submitted") j.nullifiers.forEach((n) => this.inflight.add(n));
     }
@@ -113,10 +117,15 @@ export class Relayer {
 
   /** The live minimum fee in the ETH vault: gas for one transact at the current price plus the margin, never below the floor. */
   async minFeeWei(): Promise<{ minFeeWei: bigint; gasPriceWei: bigint }> {
+    // the price read once per few seconds (the fourth review round, 2026-11-03): every GET /info had cost the operator an RPC call
+    if (this.gasCache && Date.now() - this.gasCache.at < GAS_PRICE_CACHE_MS) return this.gasCache.v;
     const gasPriceWei = await this.clients.publicClient.getGasPrice();
     const dynamic = (this.cfg.gasEstimate * gasPriceWei * BigInt(10_000 + this.cfg.feeMarginBps)) / 10_000n;
-    return { minFeeWei: dynamic > this.cfg.minFeeWei ? dynamic : this.cfg.minFeeWei, gasPriceWei };
+    const v = { minFeeWei: dynamic > this.cfg.minFeeWei ? dynamic : this.cfg.minFeeWei, gasPriceWei };
+    this.gasCache = { at: Date.now(), v };
+    return v;
   }
+  private gasCache: { at: number; v: { minFeeWei: bigint; gasPriceWei: bigint } } | null = null;
 
   /** The vault a fee opening names (default: the ETH vault), or null when the relayer does not take fees there. */
   feeVaultOf(fee: { vault?: Address }): { vault: Address; erc20: FeeVaultTerms | null } | null {
@@ -216,13 +225,26 @@ export class Relayer {
     }
     // one send of this account at a time; a broadcast whose answer was lost, the node holding it, is submitted (`monitor`
     // drops it if it never lands), and only one that never left or that the node refused is send_failed
-    const sent = await this.sender.send({ to: this.cfg.core, data, gas: (gas * 12n) / 10n });
+    // journaled before it leaves (the fourth review round, 2026-11-03): a crash between the broadcast and the record had left a
+    // transaction this relayer did not know it sent — the fee note's only opening with it, and a wallet retrying after the
+    // restart was sent a second transact that one reverted
+    let pending: Hex | null = null;
+    const sent = await this.sender.send({ to: this.cfg.core, data, gas: (gas * 12n) / 10n }, {
+      beforeBroadcast: (hash) => {
+        pending = hash;
+        this.jobs.set(hash, { txHash: hash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret, feePayloadReadable, submittedAt: Date.now(), status: "sending" });
+        this.persist();
+      },
+    });
     if (!sent.ok) {
+      if (pending) { this.jobs.delete(pending); this.persist(); } // never left, or the node refused it
       nullifiers.forEach((n) => this.inflight.delete(n));
       throw new RelayerError("send_failed", sent.error);
     }
     const txHash = sent.hash;
-    this.jobs.set(txHash, { txHash, nullifiers, feeWei: feeWei.toString(), feeVault, feeOutputIndex: req.fee.outputIndex, feeNoteSecret, feePayloadReadable, submittedAt: Date.now(), status: "submitted" });
+    const job = this.jobs.get(txHash)!;
+    job.status = "submitted";
+    job.submittedAt = Date.now();
     this.persist();
     return { txHash, feeWei: feeWei.toString(), feeVault, gas: gas.toString(), feePayloadReadable };
   }

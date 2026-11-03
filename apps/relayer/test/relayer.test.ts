@@ -289,3 +289,20 @@ describe("shape validation without a fixture", () => {
     expect(toHex(1)).toBe("0x1");
   });
 });
+
+describe("the submission journal (the fourth review round, 2026-11-03)", () => {
+  it("a job journaled as sending — a crash between the broadcast and its answer — loads as submitted, its nullifiers held and its receipt tracked", () => {
+    const job = { txHash: "0x" + "ab".repeat(32), nullifiers: ["11", "22"], feeWei: "1", feeVault: "0x00000000000000000000000000000000000000e7", feeOutputIndex: 0, feeNoteSecret: "3", feePayloadReadable: false, submittedAt: 1, status: "sending" };
+    const r = new Relayer({ ...cfg, journal: { load: () => [job as never], save: () => undefined } }, relayer.clients);
+    expect(r.jobByNullifier("11")).toEqual({ txHash: job.txHash, status: "submitted" });
+    expect(r.jobByNullifier("22")).toEqual({ txHash: job.txHash, status: "submitted" });
+  });
+  it.skipIf(!have)("a submission is journaled as sending before the broadcast and as submitted right after it", async () => {
+    const saved: string[][] = [];
+    const r = new Relayer({ ...cfg, journal: { load: () => [], save: (jobs) => void saved.push(jobs.map((j) => j.status)) } }, relayer.clients);
+    const { req } = fixtureRequest();
+    const answer = await r.submit(req); // the node already holds this exact transaction (the tests above sent it): still a send, from this relayer's view
+    expect(saved.slice(0, 2)).toEqual([["sending"], ["submitted"]]);
+    expect(r.jobByNullifier(String(piFromStrings(req.publicInputs).nullifier0))).toEqual({ txHash: answer.txHash, status: "submitted" });
+  });
+});

@@ -81,3 +81,24 @@ describe("the relayer's file journals", () => {
     );
   });
 });
+
+describe("what every entry must look like (the fourth review round, 2026-11-03)", () => {
+  it("an entry the validator refuses stops the load, by its index; a list of valid entries loads; the default asks only for records", () => {
+    const path = join(dir(), "swap-jobs.json");
+    const valid = (x: unknown) => typeof (x as { id?: unknown }).id === "string";
+    writeFileSync(path, JSON.stringify([{ id: "a" }, { nope: 1 }]));
+    expect(() => new FileJournal(path, valid).load()).toThrow(JournalUnreadable);
+    expect(() => new FileJournal(path, valid).load()).toThrow(/entry 1 is not a job of this journal/);
+    expect(() => new FileJournal(path).load()).not.toThrow();
+    writeFileSync(path, JSON.stringify([{ id: "a" }, { id: "b" }]));
+    expect(new FileJournal(path, valid).load()).toEqual([{ id: "a" }, { id: "b" }]);
+    writeFileSync(path, JSON.stringify([{ id: "a" }, 7]));
+    expect(() => new FileJournal(path).load()).toThrow(/entry 1 is not a job of this journal/);
+  });
+  it("the server hands each of its three journals a validator", () => {
+    const server = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const calls = server.match(/new FileJournal\(join\(.*?\.json"\), \(x\) =>/g) ?? [];
+    expect(calls).toHaveLength(3);
+    expect(server.match(/new FileJournal\(/g)).toHaveLength(3);
+  });
+});

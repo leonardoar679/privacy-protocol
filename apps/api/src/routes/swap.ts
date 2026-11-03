@@ -533,7 +533,13 @@ export class SwapApi {
     const guard = tier && atLeast(tier, "enhanced") ? await this.guardFor(blob.order, tier) : undefined;
     try {
       const prepared = await this.engine.prepareExecution(blob.order, adapter, guard, approvedMin);
-      this.d.store.setBlob(id, encodeBlob({ order: blob.order, prepared, ...(blob.chosen ? { chosen: true } : {}) } satisfies Blob));
+      // written back only while the operation still has its blob (the fourth review round, 2026-11-03): a finalize that ran during the
+      // provider's round-trip nulled it, and this write had put the destination, the refund material and the signer back for the
+      // retention window — and let a second finalize follow. A blob rebuilt from a restore (none was there) is written as before
+      const next = encodeBlob({ order: blob.order, prepared, ...(blob.chosen ? { chosen: true } : {}) } satisfies Blob);
+      if (raw) {
+        if (!this.d.store.setBlobIfPresent(id, next)) return unknownOperation;
+      } else this.d.store.setBlob(id, next);
       return {
         status: 200,
         body: wire({

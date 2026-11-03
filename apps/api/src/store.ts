@@ -159,18 +159,42 @@ export class Store {
   setBlob(id: string, blob: string): void {
     this.db.prepare("UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ?").run(blob, this.now(), id);
   }
+  /** The blob written back only while the operation still has one (the fourth review round, 2026-11-03): false once finalize nulled it. */
+  setBlobIfPresent(id: string, blob: string): boolean {
+    const r = this.db.prepare("UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND order_blob IS NOT NULL").run(blob, this.now(), id);
+    return Number(r.changes) > 0;
+  }
+  /** Several statements as one (the fourth review round, 2026-11-03): node:sqlite is synchronous, so a handler's block is atomic once wrapped. */
+  private transaction(fn: () => void): void {
+    this.db.exec("BEGIN");
+    try {
+      fn();
+      this.db.exec("COMMIT");
+    } catch (e) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        /* nothing to roll back */
+      }
+      throw e;
+    }
+  }
   /**
    * Finalize: the execution is recorded (its provider, the provider's reference, and the plan's seconds that time a
    * settlement stall) and the blob — the destination and the refund material — is gone.
    */
   finalize(id: string, e: { providerRef?: string; expectedSeconds?: number }): void {
     const t = this.now();
-    this.db.prepare("UPDATE operations SET order_blob = NULL, updated_at = ? WHERE id = ?").run(t, id);
-    this.db
-      .prepare(
-        "INSERT INTO executions (operation_id, execution_tx, provider_ref, finalized_at, expected_seconds) VALUES (?, NULL, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET provider_ref = excluded.provider_ref, finalized_at = excluded.finalized_at, expected_seconds = excluded.expected_seconds",
-      )
-      .run(id, e.providerRef ?? null, t, e.expectedSeconds ?? null);
+    // one transaction (the fourth review round, 2026-11-03): a crash between the two statements had left an operation with no blob
+    // and no execution row — prepare answered unknown until a restore
+    this.transaction(() => {
+      this.db.prepare("UPDATE operations SET order_blob = NULL, updated_at = ? WHERE id = ?").run(t, id);
+      this.db
+        .prepare(
+          "INSERT INTO executions (operation_id, execution_tx, provider_ref, finalized_at, expected_seconds) VALUES (?, NULL, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET provider_ref = excluded.provider_ref, finalized_at = excluded.finalized_at, expected_seconds = excluded.expected_seconds",
+        )
+        .run(id, e.providerRef ?? null, t, e.expectedSeconds ?? null);
+    });
   }
   execution(id: string): { executionTx: string | null; providerRef: string | null; finalizedAt: number; expectedSeconds: number | null } | null {
     const r = this.db.prepare("SELECT execution_tx, provider_ref, finalized_at, expected_seconds FROM executions WHERE operation_id = ?").get(id) as
@@ -195,14 +219,16 @@ export class Store {
       .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, id);
   }
   putJob(id: string, j: { state: string; executionTx?: string; actualWei?: string }): void {
-    this.db
-      .prepare(
-        "INSERT INTO relayer_jobs (operation_id, state, execution_tx, actual_wei, read_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET state = excluded.state, execution_tx = COALESCE(excluded.execution_tx, relayer_jobs.execution_tx), actual_wei = COALESCE(excluded.actual_wei, relayer_jobs.actual_wei), read_at = excluded.read_at",
-      )
-      .run(id, j.state, j.executionTx ?? null, j.actualWei ?? null, this.now());
-    // the relayer's execution transaction is the authority (the review round of 2026-11-03, F6): one it dropped and sent again has a
-    // new hash, and the stall rule compared against the dead one for good
-    if (j.executionTx) this.db.prepare("UPDATE executions SET execution_tx = ? WHERE operation_id = ?").run(j.executionTx, id);
+    this.transaction(() => {
+      this.db
+        .prepare(
+          "INSERT INTO relayer_jobs (operation_id, state, execution_tx, actual_wei, read_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(operation_id) DO UPDATE SET state = excluded.state, execution_tx = COALESCE(excluded.execution_tx, relayer_jobs.execution_tx), actual_wei = COALESCE(excluded.actual_wei, relayer_jobs.actual_wei), read_at = excluded.read_at",
+        )
+        .run(id, j.state, j.executionTx ?? null, j.actualWei ?? null, this.now());
+      // the relayer's execution transaction is the authority (the review round of 2026-11-03, F6): one it dropped and sent again has a
+      // new hash, and the stall rule compared against the dead one for good
+      if (j.executionTx) this.db.prepare("UPDATE executions SET execution_tx = ? WHERE operation_id = ?").run(j.executionTx, id);
+    });
   }
 
   /** An event: the log line and its row are the same sanitized record. */

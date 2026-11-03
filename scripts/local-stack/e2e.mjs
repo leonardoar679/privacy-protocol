@@ -102,7 +102,7 @@ async function until(page, f, timeout, ms = 2000) {
 }
 /** the relayer's swap jobs created by this run (its journal keeps earlier runs' jobs) */
 async function jobsOfThisRun() {
-  const jobs = await (await fetch(`${RELAYER}/swap`, { headers: { authorization: "Bearer local-stack" } })).json().catch(() => null); // the operator token start-services.mjs sets
+  const jobs = await (await fetch(`${RELAYER}/swap`, { headers: { authorization: "Bearer local-stack-admin-token-devnet-only-0001" } })).json().catch(() => null); // the operator token start-services.mjs sets
   const list = Array.isArray(jobs) ? jobs : Array.isArray(jobs?.jobs) ? jobs.jobs : Object.values(jobs ?? {});
   return list.filter((j) => j && Number(j.createdAt ?? j.updatedAt ?? 0) >= RUN_START - 60_000).sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0));
 }
@@ -1193,7 +1193,7 @@ try {
 
     // a Send whose answer is lost as the network drops: the banner, nothing submitted offline, the one transaction found again
     phase = "offline-send";
-    const jobsOf = async () => { const j = await (await fetch(`${RELAYER}/jobs`, { headers: { authorization: "Bearer local-stack" } })).json().catch(() => []); return Array.isArray(j) ? j.length : 0; }; // operator data: the token start-services.mjs sets
+    const jobsOf = async () => { const j = await (await fetch(`${RELAYER}/jobs`, { headers: { authorization: "Bearer local-stack-admin-token-devnet-only-0001" } })).json().catch(() => []); return Array.isArray(j) ? j.length : 0; }; // operator data: the token start-services.mjs sets
     const jobsBefore = await jobsOf();
     const { recipient: rOff, receive: receiveOff } = await sendPublic(page, 0.05);
     await clickId(page, "send-review");
@@ -1367,9 +1367,17 @@ try {
         const poolAfter = await balanceEth(classicPool(amount));
         check(`the ${amount} ETH deposit went through the router from the connected wallet: the pool holds ${amount} ETH more, the app says it was handed to the wallet`, /handed to your wallet/.test(msg) && Math.abs(poolAfter - poolBefore - Number(amount)) < 1e-9, `${msg} — pool ${poolBefore} → ${poolAfter} ETH`);
         await snap(page, `classic-deposit-${amount}-sent`);
-        await page.keyboard.press("Escape");
+        // the deposit sent, the modal offers Close in place of Send Deposit (the fourth review round, 2026-11-03): a second tap had sent the same note again
+        check("once the deposit is sent the modal offers Close and no second Send Deposit", (await byId(page, "classic-note-close").count()) === 1 && (await byId(page, "classic-note-send").count()) === 0);
+        await clickId(page, "classic-note-close");
         await byId(page, "classic-note-modal").waitFor({ state: "hidden", timeout: 10_000 });
         check("the note modal closed: the note is nowhere in the page", !(await page.content()).includes(note.slice(-124)));
+        // this page's History lists the deposit (the fourth review round, 2026-11-03): a deposit's record is the page's, never the device's
+        await clickId(page, "classic-link-history");
+        await byId(page, "classic-history").waitFor({ timeout: 30_000 });
+        for (let i = 0; i < 25 && !/Deposited/.test(await text(byId(page, "classic-history"))); i++) await page.waitForTimeout(400);
+        const pageHistory = await text(byId(page, "classic-history"));
+        check(`this page's History lists the ${amount} ETH deposit as Deposited, with no note`, /Deposited/.test(pageHistory) && !pageHistory.includes(note.slice(-124)), pageHistory.slice(0, 160));
         // twelve confirmations, then a reload: the history comes back from the device's copy and syncs to the deposit
         await rpc("hardhat_mine", ["0xc"]);
         await page.reload({ waitUntil: "load" });
@@ -1445,10 +1453,12 @@ try {
       await byId(page, "classic-history").waitFor({ timeout: 30_000 });
       // the rows come from the Classic database after the page mounts: waited for (a full run of 2026-10-27 counted 0 at once, 4 in the run before)
       const rowsOf = () => page.locator('[data-testid^="classic-tx-"]').count();
-      for (let i = 0; i < 25 && (await rowsOf()) < 4; i++) await page.waitForTimeout(400);
+      for (let i = 0; i < 25 && (await rowsOf()) < 2; i++) await page.waitForTimeout(400);
       const rows = await rowsOf();
       const historyText = await text(byId(page, "classic-history"));
-      check("History lists the four operations (two deposits, two withdrawals) with their status words and no note", rows >= 4 && /Deposited|Withdrawn|Confirmed/.test(historyText) && !notes.some((n) => historyText.includes(n.slice(-124))), `${rows} rows`);
+      // the two deposits were this page's before the reload (the fourth review round, 2026-11-03): the device keeps the withdrawals only
+      check("History lists the device's two withdrawals with their status words and no note, and no deposit row survived the reload", rows === 2 && /Withdrawn|Confirmed/.test(historyText) && !/Deposited/.test(historyText) && !notes.some((n) => historyText.includes(n.slice(-124))), `${rows} rows`);
+      check("the History note says whose the records are, and Clear history is offered", /this device's/.test(await text(byId(page, "classic-history-note"))) && (await byId(page, "classic-history-clear").count()) === 1);
       await snap(page, "classic-history");
     }
 

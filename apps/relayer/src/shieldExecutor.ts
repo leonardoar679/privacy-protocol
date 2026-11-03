@@ -21,6 +21,7 @@
 // a race) is estimated again every ESTIMATE_RETRY_SECONDS until the watch ends, and a mined one that reverted goes back to
 // the state it was sent from, at most MAX_REVERTED_SHIELDS times (the audit round of 2026-10-16, c13: one revert ended the
 // job for good, and the wallet, finding the job, never registered it again, so a delivery it had seen stayed at the receiver).
+import { redactUrls } from "@privacy-wallet/server-kit/redact";
 import {
   ABI,
   BYTECODE,
@@ -120,10 +121,7 @@ export class ShieldJobError extends Error {
 }
 
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
-const firstLine = (e: unknown, n: number) =>
-  String((e as Error)?.message ?? e)
-    .split("\n")[0]
-    .slice(0, n);
+const firstLine = (e: unknown, n: number) => redactUrls(String((e as Error)?.message ?? e).split("\n")[0]).slice(0, n); // never an endpoint's URL in a job's words (the fourth review round, 2026-11-03)
 const TERMINAL: ShieldJobState[] = ["shield-failed", "expired"];
 
 export const encodeDeployAndShield = (params: ReceiverParamsJson, noteData: Hex): Hex =>
@@ -287,16 +285,30 @@ export class ShieldExecutor {
 
   /** The shield, through the account's one sender (src/sender.ts); one that never left is noted and tried again next tick. */
   private async send(job: ShieldJob, data: Hex, gas: bigint, unpaid: boolean): Promise<void> {
-    const sent = await this.sender.send({ to: job.factory, data, gas: (gas * 12n) / 10n });
+    const before = { state: job.state, txHash: job.txHash, sent: job.sent, unpaidShields: job.unpaidShields };
+    const sent = await this.sender.send(
+      { to: job.factory, data, gas: (gas * 12n) / 10n },
+      {
+        // journaled before it leaves (the fourth review round, 2026-11-03): see SwapExecutor.dispatch
+        beforeBroadcast: (hash) => {
+          job.sent = { from: before.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
+          job.txHash = hash;
+          job.state = "shielding";
+          if (unpaid) job.unpaidShields = (job.unpaidShields ?? 0) + 1;
+          job.updatedAt = Date.now();
+          this.persist();
+        },
+      },
+    );
     if (!sent.ok) {
+      job.state = before.state;
+      job.txHash = before.txHash;
+      job.sent = before.sent;
+      job.unpaidShields = before.unpaidShields;
       this.note(job, `not sent: ${sent.error}; retried next tick`);
       return;
     }
-    job.sent = { from: job.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
-    job.txHash = sent.hash;
-    job.state = "shielding";
     job.error = sent.note;
-    if (unpaid) job.unpaidShields = (job.unpaidShields ?? 0) + 1;
     job.updatedAt = Date.now();
     this.persist();
   }
@@ -451,7 +463,7 @@ export class ShieldExecutor {
       if (paidPath) {
         // the tip pays the shield's gas: an ETH receipt waits while shielding costs more than its tip — until the swap is over
         if (native && price !== null && now < job.deliverBy && gas * price > BigInt(job.params.shieldTip)) {
-          this.note(job, `waiting: shielding now costs ${gas * price} wei, above the receipt's ${job.params.shieldTip} wei tip`);
+          this.note(job, "waiting: shielding now costs more than the receipt's tip; priced again next tick"); // no figures: they rewrote the journal every tick (the fourth review round, 2026-11-03)
           continue;
         }
         await this.send(job, data, gas, false);

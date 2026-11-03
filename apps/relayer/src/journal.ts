@@ -28,8 +28,13 @@ export class JournalUnreadable extends Error {
   }
 }
 
+/** An entry that is a record at all: the least a journal's job must be. */
+const isRecord = (x: unknown): boolean => !!x && typeof x === "object" && !Array.isArray(x);
+
 export class FileJournal<T> implements Journal<T> {
-  constructor(readonly path: string) {}
+  /** `valid`: what every entry must look like (the fourth review round, 2026-11-03): one damaged entry — a hand edit, a partial write — had
+   *  crashed the start with a bare TypeError, or loaded a job without its id that failed every tick and skipped every job after it */
+  constructor(readonly path: string, private readonly valid: (x: unknown) => boolean = isRecord) {}
   load(): T[] {
     if (!existsSync(this.path)) return [];
     let parsed: unknown;
@@ -39,6 +44,7 @@ export class FileJournal<T> implements Journal<T> {
       throw new JournalUnreadable(this.path, String((e as Error).message).split("\n")[0].slice(0, 120));
     }
     if (!Array.isArray(parsed)) throw new JournalUnreadable(this.path, "not a list");
+    for (const [i, x] of parsed.entries()) if (!isRecord(x) || !this.valid(x)) throw new JournalUnreadable(this.path, `entry ${i} is not a job of this journal`);
     return parsed as T[];
   }
   save(items: T[]): void {

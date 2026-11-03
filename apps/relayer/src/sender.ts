@@ -25,6 +25,10 @@ export interface SentTx<S extends string> {
 
 /** A transaction the node took (or holds after all), by its hash; or one that never left, or that the node refused: nothing to wait for. */
 export type SendResult = { ok: true; hash: Hex; note?: string } | { ok: false; error: string };
+/** What a caller does with the signed transaction's hash before it is broadcast: its record (the fourth review round, 2026-11-03). */
+export interface SendHooks {
+  beforeBroadcast?: (hash: Hex) => void;
+}
 
 /** An error in one line: viem's summary, then the node's own words when it gave any, and no URL's path (a key lives there). */
 export function reasonOf(e: unknown, n = 200): string {
@@ -54,13 +58,13 @@ export class Sender {
   ) {}
 
   /** Sends once every earlier send of this account was broadcast or refused; never throws. */
-  send(tx: { to: Address; data: Hex; gas: bigint }): Promise<SendResult> {
-    const run = this.queue.then(() => this.sendNow(tx));
+  send(tx: { to: Address; data: Hex; gas: bigint }, hooks: SendHooks = {}): Promise<SendResult> {
+    const run = this.queue.then(() => this.sendNow(tx, hooks));
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  private async sendNow(tx: { to: Address; data: Hex; gas: bigint }): Promise<SendResult> {
+  private async sendNow(tx: { to: Address; data: Hex; gas: bigint }, hooks: SendHooks): Promise<SendResult> {
     const { publicClient, walletClient } = this.clients;
     let signed: Hex;
     try {
@@ -70,6 +74,13 @@ export class Sender {
       return { ok: false, error: reasonOf(e) }; // nothing left the relayer
     }
     const hash = keccak256(signed);
+    // the caller's record first (the fourth review round, 2026-11-03): a crash between the broadcast and its record had left a
+    // transaction this relayer did not know it sent — a fee note's only opening with it, or a re-send that reverted at its gas
+    try {
+      hooks.beforeBroadcast?.(hash);
+    } catch (e) {
+      return { ok: false, error: `not sent: its record failed (${reasonOf(e, 120)})` };
+    }
     try {
       await walletClient.sendRawTransaction({ serializedTransaction: signed });
       return { ok: true, hash };

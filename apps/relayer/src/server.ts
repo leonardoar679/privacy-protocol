@@ -19,6 +19,7 @@ import { LATE_REFUND_WATCH_SECONDS, MAX_UNPAID_REFUNDS, SwapExecutor, TERMINAL a
 import { LATE_DELIVERY_WATCH_SECONDS, MAX_UNPAID_SHIELDS, ShieldExecutor } from "./shieldExecutor";
 import { FileJournal } from "./journal";
 import { RateLimiter } from "@privacy-wallet/server-kit/rateLimit";
+import { reasonOf } from "./sender";
 import { originsFrom, proxyHopsFrom } from "@privacy-wallet/server-kit/http";
 import { addressListSetting, bigintSetting, intSetting } from "@privacy-wallet/server-kit/env";
 import { edge } from "./edge";
@@ -45,7 +46,7 @@ const cfg: RelayerConfig = {
   minFeeWei: bigintSetting(process.env, "MIN_FEE_WEI", 0n), gasEstimate: bigintSetting(process.env, "GAS_ESTIMATE", 1_800_000n), feeMarginBps: int("FEE_MARGIN_BPS", 2000, 0, 100_000),
   privateKey: env("RELAYER_PRIVATE_KEY") as Hex, masterSeed: relayerSeed(process.env.RELAYER_SEED) /* 32 random bytes only (audit round 2, r50) */, rpcUrl: env("RPC_URL"),
   requireReadableFeePayload: env("REQUIRE_READABLE_FEE_PAYLOAD", "1") === "1",
-  journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json")),
+  journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "submissions.json"), (x) => typeof (x as { txHash?: unknown }).txHash === "string" && Array.isArray((x as { nullifiers?: unknown }).nullifiers)),
   feePercentBps: int("FEE_PERCENT_BPS", 0, 0, 9_999), // 10000 passed and answered every withdrawal 500 (the fee rule takes [0, 10000); unverified m03) // V6 (spec v2.0 §3): the privacy fee on every withdrawal; the product default is 100
 };
 const relayer = Relayer.fromConfig(cfg);
@@ -60,23 +61,29 @@ const apiVouchers = addressListSetting(process.env, "API_VOUCHER");
 const apiVoucher = apiVouchers.length ? apiVouchers : null;
 const swapsRun = swapFactory !== null && apiVoucher !== null;
 // every transaction of the relayer's account goes through its one sender (src/sender.ts): one at a time
-const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, ...(swapFactory ? { factory: swapFactory } : {}), ...(apiVoucher ? { voucher: apiVoucher } : {}), core: cfg.core, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json")), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });
+const executor = new SwapExecutor({ chainId: cfg.chainId, escrowCreationCode: loadEscrowCreationCode(), account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, ...(swapFactory ? { factory: swapFactory } : {}), ...(apiVoucher ? { voucher: apiVoucher } : {}), core: cfg.core, journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "swap-jobs.json"), (x) => typeof (x as { id?: unknown }).id === "string" && typeof (x as { state?: unknown }).state === "string"), lateRefundWatchSeconds: int("LATE_REFUND_WATCH_SECONDS", LATE_REFUND_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidRefunds: int("MAX_UNPAID_REFUNDS", MAX_UNPAID_REFUNDS, 0, 100) });
 // shield executor (spec v2.0 §11.2): deployAndShield once a same-chain swap's receiver holds its delivery
 const shieldFactory = process.env.SHIELD_FACTORY && /^0x[0-9a-fA-F]{40}$/.test(process.env.SHIELD_FACTORY) ? (process.env.SHIELD_FACTORY as Hex) : null;
 const shields = shieldFactory
-  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, chainId: cfg.chainId, ...(apiVoucher ? { voucher: apiVoucher } : {}), journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json")), lateDeliveryWatchSeconds: int("LATE_DELIVERY_WATCH_SECONDS", LATE_DELIVERY_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidShields: int("MAX_UNPAID_SHIELDS", MAX_UNPAID_SHIELDS, 0, 100) })
+  ? new ShieldExecutor({ factory: shieldFactory, account: relayer.account, publicClient: relayer.clients.publicClient, walletClient: relayer.clients.walletClient, sender: relayer.sender, chainId: cfg.chainId, ...(apiVoucher ? { voucher: apiVoucher } : {}), journal: new FileJournal(join(env("RELAYER_JOURNAL_DIR", "journal"), "shield-jobs.json"), (x) => typeof (x as { id?: unknown }).id === "string" && typeof (x as { state?: unknown }).state === "string"), lateDeliveryWatchSeconds: int("LATE_DELIVERY_WATCH_SECONDS", LATE_DELIVERY_WATCH_SECONDS, 0, 30 * DAY), maxUnpaidShields: int("MAX_UNPAID_SHIELDS", MAX_UNPAID_SHIELDS, 0, 100) })
   : null;
 const pollMs = int("SWAP_POLL_MS", 15_000, 500, 600_000);
-setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", (e as Error).message)), pollMs).unref();
-if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", (e as Error).message)), pollMs).unref();
+// a tick's error in the log without an endpoint's URL or a request body (the fourth review round, 2026-11-03): viem's messages carry both
+setInterval(() => executor.tick().catch((e) => console.error("swap executor tick failed:", reasonOf(e))), pollMs).unref();
+if (shields) setInterval(() => shields.tick().catch((e) => console.error("shield executor tick failed:", reasonOf(e))), pollMs).unref();
 // the submissions: a receipt settles a job, a dropped transaction releases its notes (Relayer.monitor)
-setInterval(() => relayer.monitor().catch((e) => console.error("submission monitor failed:", (e as Error).message)), pollMs).unref();
+setInterval(() => relayer.monitor().catch((e) => console.error("submission monitor failed:", reasonOf(e))), pollMs).unref();
 const ORIGINS = originsFrom(process.env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]);
 const TLS = process.env.TLS === "1"; // the relayer terminates TLS itself: HSTS (the API's setting of the same name)
 const PROXY_HOPS = proxyHopsFrom(process.env.TRUST_PROXY_HOPS); // the proxies in front of it (the API's setting of the same name)
 const RATE_PER_MINUTE = int("RATE_PER_MINUTE", 60, 1, 1_000_000);
 const limiter = new RateLimiter({ perMinute: RATE_PER_MINUTE, burst: Math.min(20, RATE_PER_MINUTE) });
 const MAX_SWAP_JOBS = int("MAX_SWAP_JOBS", 1000, 1, 1_000_000);
+// the operator token opens every fee-note opening and every campaign's escrows: never a short one (the fourth review round, 2026-11-03)
+if (process.env.RELAYER_ADMIN_TOKEN !== undefined && process.env.RELAYER_ADMIN_TOKEN.length < 32) throw new Error("RELAYER_ADMIN_TOKEN must be at least 32 characters: it opens the job lists");
+// the bodies this relayer takes (the fourth review round, 2026-11-03): a submission is about 2 KB, a swap request at most ~140 KB with
+// its 64 KB of calldata; the caps had been a megabyte, buffered per request
+const SUBMIT_BODY_MAX = 16_384, SWAP_BODY_MAX = 262_144, SHIELD_BODY_MAX = 16_384;
 const openSwapJobs = () => executor.list().filter((j) => !SWAP_TERMINAL.includes(j.state)).length;
 const json = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 
@@ -93,7 +100,9 @@ const server = createServer(async (req, res) => {
       return auth.ok ? send(200, relayer.jobs_()) : send(auth.status, { error: auth.error, code: auth.code });
     }
     if (req.method === "GET" && url.pathname.startsWith("/jobs/by-nullifier/")) {
-      const job = relayer.jobByNullifier(decodeURIComponent(url.pathname.slice("/jobs/by-nullifier/".length)));
+      let nullifier: string;
+      try { nullifier = decodeURIComponent(url.pathname.slice("/jobs/by-nullifier/".length)); } catch { return send(400, { error: "the nullifier is not a valid path segment", code: "bad_request" }); }
+      const job = relayer.jobByNullifier(nullifier);
       return job ? send(200, job) : send(404, { error: "no job spends this nullifier", code: "unknown_nullifier" });
     }
     if (req.method === "GET" && url.pathname.startsWith("/status/")) {
@@ -116,7 +125,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/shield") {
       if (!shields || !apiVoucher) return send(503, { error: "this relayer runs no shield executor", code: "shield_unavailable" });
       // a receipt it already watches is answered at capacity too (audit round 2, r13): the hand-over registers it again
-      const job = await shields.add((await readJson(req, 100_000)) as never, { full: shields.open() >= MAX_SWAP_JOBS });
+      const job = await shields.add((await readJson(req, SHIELD_BODY_MAX)) as never, { full: shields.open() >= MAX_SWAP_JOBS });
       shields.tick().catch(() => {}); // shield at once if the delivery is already there
       return send(200, job);
     }
@@ -124,19 +133,19 @@ const server = createServer(async (req, res) => {
       // return a funded order to the pool after its window, without executing it (no execution needed)
       if (!swapsRun) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
       // the cap after the lookup, and never for a funded escrow (the review round of 2026-11-03, F1); the refund vault is the pool's own
-      const job = await executor.admitRefund((await readJson(req, 1_000_000)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
+      const job = await executor.admitRefund((await readJson(req, SWAP_BODY_MAX)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
       executor.tick().catch(() => {}); // refund at once if the window has already passed
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/swap/execute") {
       if (!swapsRun) return send(503, { error: "this relayer runs no swap executor", code: "swap_unavailable" });
       // the cap after the lookup, and never for a funded escrow (the review round of 2026-11-03, F1); the refund vault is the pool's own
-      const job = await executor.admitExecution((await readJson(req, 1_000_000)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
+      const job = await executor.admitExecution((await readJson(req, SWAP_BODY_MAX)) as never, { full: openSwapJobs() >= MAX_SWAP_JOBS });
       executor.tick().catch(() => {}); // act immediately if the escrow is already funded
       return send(200, job);
     }
     if (req.method === "POST" && url.pathname === "/submit") {
-      return send(200, await relayer.submit((await readJson(req, 1_000_000)) as never));
+      return send(200, await relayer.submit((await readJson(req, SUBMIT_BODY_MAX)) as never));
     }
     send(404, { error: "not found" });
   } catch (e) {

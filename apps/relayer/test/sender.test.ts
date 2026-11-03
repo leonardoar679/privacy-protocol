@@ -230,3 +230,20 @@ describe("no transaction leaves the relayer any other way", () => {
     expect(server.match(/sender: relayer\.sender/g)).toHaveLength(2);
   });
 });
+
+describe("a hook between the signature and the broadcast (the fourth review round, 2026-11-03)", () => {
+  it("is called with the hash before the node sees the transaction; a hook that throws stops the send, and nothing was broadcast", async () => {
+    const seen: { hash: Hex; inPool: number }[] = [];
+    const r = await new Sender(account, clients).send(tx(1), { beforeBroadcast: (hash) => void seen.push({ hash, inPool: pool.size }) });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(seen, "the hash known, the mempool still empty").toEqual([{ hash: r.hash, inPool: 0 }]);
+    expect(pool.size).toBe(1);
+    const refused = await new Sender(account, clients).send(tx(2), {
+      beforeBroadcast: () => {
+        throw new Error("the journal could not be written");
+      },
+    });
+    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/the journal could not be written/) });
+    expect(pool.size, "nothing more broadcast").toBe(1);
+  });
+});

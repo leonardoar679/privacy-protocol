@@ -28,6 +28,7 @@
 // the floor the wallet stated for it); a token goes only into a vault its pool already has. What is
 // left stays re-shieldable by anyone: refund() and refundToken() are permissionless.
 import { BYTECODE } from "@privacy-wallet/contracts";
+import { redactUrls } from "@privacy-wallet/server-kit/redact";
 import { encodeFunctionData, keccak256, parseAbi, parseAbiItem, toFunctionSelector, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
@@ -137,7 +138,7 @@ const finalRefusal = (e: unknown): boolean => {
   }
   return false;
 };
-const firstLine = (e: unknown, n: number) => String((e as Error)?.message ?? e).split("\n")[0].slice(0, n);
+const firstLine = (e: unknown, n: number) => redactUrls(String((e as Error)?.message ?? e).split("\n")[0]).slice(0, n); // never an endpoint's URL in a job's words (the fourth review round, 2026-11-03)
 const isHex = (x: unknown, bytes?: number) => typeof x === "string" && /^0x[0-9a-fA-F]*$/.test(x) && (bytes === undefined || (x.length - 2) / 2 === bytes);
 /** The states a job ends in: no pass looks at it again (but a refunded executed order's late-refund watch), and it is not open. */
 export const TERMINAL: SwapJobState[] = ["refunded", "completed", "refund-failed", "lapsed"];
@@ -288,6 +289,7 @@ export class SwapExecutor {
     return this.admitWith(req, o, () => this.addRefund(req));
   }
   private async admitWith(req: SwapJobRequest | SwapRefundRequest, o: { full: boolean }, add: () => SwapJob): Promise<SwapJob> {
+    this.checkOrder(req); // the shapes first, the chain read after (the fourth review round, 2026-11-03): every junk request had cost an RPC call
     await this.admissible(req);
     if (o.full && !this.jobs.has(String(req?.params?.orderId ?? "").toLowerCase())) {
       this.checkOrder(req);
@@ -333,6 +335,9 @@ export class SwapExecutor {
     const p = req?.params, x = req?.execution;
     if (!x) throw new SwapJobError("bad_request", "factory, params and execution are required");
     this.checkOrder(req);
+    // the execution's own shapes before anything is converted (the fourth review round, 2026-11-03): a value that is not a base-unit
+    // amount, or a deadline that is not seconds, had reached BigInt()/Number() — a 500 for a caller's mistake
+    if (!isUint(x.value) || !isSeconds(x.deadline)) throw new SwapJobError("bad_execution", "execution needs a base-unit value and a unix-second deadline");
     if (Number(p.assetType) === 1 && BigInt(x.value) !== 0n) throw new SwapJobError("bad_execution", "an ERC-20 order forwards no ETH value (the provider pulls the tokens)");
     if (!(Number(x.deadline) <= Number(p.executeDeadline))) throw new SwapJobError("bad_deadlines", "the signed deadline exceeds the committed executeDeadline");
     if (!isHex(x.signature, 65) || !isHex(x.providerCalldata) || !isHex(x.provider, 20)) throw new SwapJobError("bad_execution", "execution needs provider, calldata and a 65-byte signature");
@@ -529,7 +534,7 @@ export class SwapExecutor {
     }
     const cost = gas * price;
     if (cost <= BigInt(job.params.executorTip)) return { wait: false, gas };
-    this.note(job, `waiting: executing now costs ${cost} wei, above the order's ${job.params.executorTip} wei tip`);
+    this.note(job, "waiting: executing now costs more than the order's tip; priced again next tick"); // no figures: they changed every tick and rewrote the journal each time (the fourth review round, 2026-11-03)
     return { wait: true };
   }
 
@@ -626,12 +631,26 @@ export class SwapExecutor {
 
   /** The transaction moving the job to `next`, through the account's one sender; false when it never left (noted, tried again next tick). */
   private async dispatch(job: SwapJob, to: Address, data: Hex, gas: bigint, next: SwapJobState, unpaid = false): Promise<boolean> {
-    const sent = await this.sender.send({ to, data, gas: (gas * 12n) / 10n });
-    if (!sent.ok) { this.note(job, `not sent: ${sent.error}; retried next tick`); return false; }
-    job.sent = { from: job.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
-    job.txHash = sent.hash; job.state = next; job.error = sent.note;
-    if (next === "executing") job.executionTx = sent.hash;
-    if (unpaid) job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
+    const before = { state: job.state, txHash: job.txHash, sent: job.sent, executionTx: job.executionTx, unpaidRefunds: job.unpaidRefunds };
+    const sent = await this.sender.send({ to, data, gas: (gas * 12n) / 10n }, {
+      // journaled before it leaves (the fourth review round, 2026-11-03): a crash between the broadcast and the record had the job back
+      // in its pre-send state at the restart, and sent again — the first copy landed, the second reverted at this relayer's gas
+      beforeBroadcast: (hash) => {
+        job.sent = { from: before.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
+        job.txHash = hash; job.state = next;
+        if (next === "executing") job.executionTx = hash;
+        if (unpaid) job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
+        job.updatedAt = Date.now();
+        this.persist();
+      },
+    });
+    if (!sent.ok) {
+      // never left, or the node refused it: the record goes back to where it was
+      job.state = before.state; job.txHash = before.txHash; job.sent = before.sent; job.executionTx = before.executionTx; job.unpaidRefunds = before.unpaidRefunds;
+      this.note(job, `not sent: ${sent.error}; retried next tick`);
+      return false;
+    }
+    job.error = sent.note;
     job.updatedAt = Date.now();
     this.persist();
     return true;
