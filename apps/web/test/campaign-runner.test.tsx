@@ -40,7 +40,7 @@ import type { Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
 import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
-import { OrderOutdated, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
+import { OrderOutdated, RelayerNotReady, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
 import { FeeMoved } from "@privacy-wallet/sdk/privateTx";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -993,6 +993,18 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).pause?.detail).toMatch(/nothing was sent/);
   });
 
+  it("a step whose relayer runs no swaps pauses the campaign with the reason, nothing sent (the review round of 2026-11-03, E4): never the backoff that re-committed it every window for good", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    clock += 2000;
+    world.fundThrows = new RelayerNotReady("the relayer at http://relayer.test runs no swap executor");
+    r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error", trancheIndex: 0 } });
+    expect(current(c).pause?.detail).toMatch(/cannot be funded.*runs no swap executor/);
+    expect(current(c).tranches[0].state, "the step stays committed for the resume").toBe("committed");
+  });
   it("a step whose relayer fee rose past the Review's bound pauses the campaign with the reason, nothing sent (V7 Stage 12 follow-up): never the silent backoff that left the step committed", async () => {
     const c = await fresh();
     let r = await tick(c);

@@ -35,7 +35,18 @@ import {
 } from "../swapExecute";
 import { shieldJobRequest } from "../shieldReceiver";
 import { recoverShieldDelivery } from "../privateTx";
-import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, isOpenSwap, patchSwap, windowEndOf, type FundingFate } from "../swapFunding";
+import {
+  abandonSwap,
+  fundEscrow,
+  FundingAlreadySent,
+  fundingFate,
+  fundingReads,
+  FUNDING_MARGIN_MS,
+  isOpenSwap,
+  patchSwap,
+  windowEndOf,
+  type FundingFate,
+} from "../swapFunding";
 import type { Prepared, ServiceOrder } from "../swapService";
 import { escrowBalance } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
@@ -297,7 +308,12 @@ export async function returnFunds(orderId: string, deps: OrderDeps): Promise<"re
   const bal = stored.fundedTx || stored.state === "funded" ? 1n : await io.escrowBalance(stored);
   if (bal === null) throw new Error("The order's escrow could not be read; nothing was changed. Try again in a moment.");
   if (bal <= 0n) {
-    abandonSwap(orderId, s);
+    // a funding on its way is never abandoned (the review round of 2026-11-03, E2): it would land in an escrow nothing reads again
+    if (stored.fundingAttempt && !stored.fundedTx) {
+      const fate = await (io.fundingFate?.(stored) ?? Promise.resolve<FundingFate>("unknown"));
+      if (fate !== "dead") throw new FundingAlreadySent(fate);
+    }
+    abandonSwap(orderId, s, { fundingDead: true });
     cancelAction(actionId(orderId), s);
     syncSwapRecord(journaled(orderId, s)!, null, null, now);
     return "abandoned";
@@ -349,7 +365,9 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
   schedulerStatus.start(a.id, "Swap: checking the order…");
   // the critical section is taken again at every tick of an open order before its hand-over (unpaused, due): a tick that
   // threw releases it below — a dead tick had kept the lock off for the cap's thirty minutes (the review round of 2026-11-02)
-  if (!stored0.paused && !stored0.jobId && (stored0.runner?.delayUntil ?? 0) <= now) holdUntilHandedOver(a.orderId, s, now);
+  // a tick under the reconcile pause clears it and may sign and hand over (the review round of 2026-11-03, E5): held like any other
+  if ((!stored0.paused || stored0.paused.code === "reconcile") && !stored0.jobId && (stored0.runner?.delayUntil ?? 0) <= now)
+    holdUntilHandedOver(a.orderId, s, now);
   let threw = false;
   try {
     // 1. handed over (journaled, or the executor answers by orderId — a hand-over whose answer was lost): track it
@@ -408,10 +426,21 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         // the funding's fate, and a funding that landed after it stayed in the escrow with no way back. Only an order
         // reconciling with no journaled funding (a journal from before those were kept) stops at the window's end, with the
         // escrow read and still short. (Before that, a funding sent and dropped had kept the order reconciling for good.)
+        // a funding that landed into an escrow read short (the review round of 2026-11-03, E7): another copy of this wallet funded and
+        // handed the order over, and the executor has it (gap 51's mechanism) — asked before the order waits as reconciling for good
+        if (fate === "landed") {
+          const elsewhere = await io.job(stored).catch(() => null);
+          if (elsewhere) {
+            patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
+            syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now);
+            tickAt(a.orderId, now + 1000, s, now);
+            return { step: "track", stored: journaled(a.orderId, s)! };
+          }
+        }
         if (fate === "dead" || (fate === null && bal !== null && now > windowEndOf(stored))) {
           const detail = "Its funding was sent but never confirmed; a funding is never sent twice on its own.";
           patchSwap(a.orderId, { paused: { code: "funding_unconfirmed", detail, at: now } }, s);
-          abandonSwap(a.orderId, s);
+          abandonSwap(a.orderId, s, { fundingDead: fate === "dead" });
           cancelAction(a.id, s);
           const st = journaled(a.orderId, s)!;
           syncSwapRecord(st, null, null, now);

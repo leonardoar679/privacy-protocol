@@ -242,6 +242,19 @@ describe("V7 Stage 13: the Protected Large Swap — one order by default (spec v
     expect(protectedCommitBlocker({ tier: "large-protected", limitReached: true, serviceBlockers: ["route_not_qualified"] })).toBe("in_flight_limit");
     expect(protectedCommitBlocker({ tier: "large-protected", limitReached: false, serviceBlockers: ["quote_expired", "provider_unhealthy"] })).toBeNull();
   });
+  it("the merges a swap's funding needs first are on the Review, each at the relayer's minimum, and bound the funding (the review round of 2026-11-03, E3)", async () => {
+    world.relayerInfo = { minFeeWei: (10n ** 15n).toString() };
+    await wallet(10n);
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n * ETH, ownerCommitment: 1n, noteSecret: 3n }, leafIndex: 1, noteData: "0x", spent: false });
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n * ETH, ownerCommitment: 1n, noteSecret: 4n }, leafIndex: 2, noteData: "0x", spent: false });
+    const router = mount();
+    await typeAndReview("25"); // three notes of 10: one merge first
+    expect(screen.getByTestId("review-fee-merges").textContent).toMatch(/1/);
+    await holdToConfirm();
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/progress\//));
+    const [sw] = session.journal().swaps;
+    expect(sw.reviewedMergeFee, "each merge at most the Review's F: the relayer's minimum with its margin").toBe((11n * 10n ** 14n).toString());
+  });
   it("the V5 screen (/swap/protected) is the Advanced experience's: by URL in the Simple experience it goes back to /swap, with a campaign id not in the journal too; under Advanced it opens (the review round of 2026-11-02)", async () => {
     await wallet();
     let router = mount("/swap/protected");

@@ -1411,6 +1411,7 @@ export const ko: Record<MessageKey, string> = {
   "order.orderKey": "주문 키 (일회용)",
   "order.holdNotPassed": "검토 대기 시간이 아직 지나지 않았습니다",
   "order.fundNowHint": "지금 자금을 투입하면 임의 지연이 줄어 타이밍 프라이버시가 약해집니다",
+  "order.fundingOnItsWay": "자금 투입이 진행 중입니다. 결과가 확인되기 전에는 다시 보내지 않습니다",
   "order.fundNowEarly": "1 · 지금 자금 투입 (임의 지연 없음)",
   "order.fundNow": "1 · 지금 자금 투입",
   "order.confirmAgain": "2 · 새 견적으로 다시 확인",

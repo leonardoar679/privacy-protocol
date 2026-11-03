@@ -1430,6 +1430,7 @@ export const en = {
   "order.orderKey": "Order key (one-time)",
   "order.holdNotPassed": "The review hold has not passed",
   "order.fundNowHint": "Funding now shortens the random delay and weakens timing privacy",
+  "order.fundingOnItsWay": "A funding is on its way; nothing is sent again until its outcome is known",
   "order.fundNowEarly": "1 · Fund now (lose the random delay)",
   "order.fundNow": "1 · Fund now",
   "order.confirmAgain": "2 · Confirm again with a fresh quote",

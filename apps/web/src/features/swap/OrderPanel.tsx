@@ -80,7 +80,7 @@ export function OrderPanel(p: OrderPanelProps) {
           </Collapsible>
         ) : null}
         <div className="ds-actions">
-          <Button onClick={p.onFundNow} disabled={!!p.busy || funded || p.holdActive} title={p.holdActive ? t("order.holdNotPassed") : dueAt ? t("order.fundNowHint") : undefined} data-testid="order-fund">{dueAt && !funded ? t("order.fundNowEarly") : t("order.fundNow")}</Button>
+          <Button onClick={p.onFundNow} disabled={!!p.busy || funded || p.holdActive || !!p.stored?.fundingAttempt} title={p.stored?.fundingAttempt ? t("order.fundingOnItsWay") : p.holdActive ? t("order.holdNotPassed") : dueAt ? t("order.fundNowHint") : undefined} data-testid="order-fund">{dueAt && !funded ? t("order.fundNowEarly") : t("order.fundNow")}</Button>
           <Button onClick={() => p.onSign()} disabled={!!p.busy || !funded || (!!p.job && !OPEN_FOR_RESIGN.includes(p.job.state))} data-testid="order-confirm">{p.job && OPEN_FOR_RESIGN.includes(p.job.state) ? t("order.confirmAgain") : t("order.confirm")}</Button>
           {funded && canReturn(p.job?.state) ? <Button variant="secondary" onClick={p.onReturn} disabled={!!p.busy} title={t("order.returnHint")} data-testid="order-return">{t("order.return")}</Button> : null}
           {p.canExport && p.stored ? <Button variant="secondary" icon="download" onClick={p.onExport}>{t("review.export")}</Button> : null}

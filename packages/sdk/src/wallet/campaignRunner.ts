@@ -139,6 +139,8 @@ export function defaultIo(d: IoDeps): CampaignIo {
         policy: (c.policy ?? "balanced") as never, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
         // V7 (spec v3.0 §3): the piece's funding pays at most its privacy share plus the relayer's F the Review showed (the Review's F × n)
         ...(stepReviewedFee(c.bounds, BigInt(t.amount)) !== undefined ? { reviewedFee: stepReviewedFee(c.bounds, BigInt(t.amount)) } : {}),
+        // each merge a step's funding needs pays at most the Review's F (the review round of 2026-11-03, E3)
+        ...(c.bounds.maxRelayerFee ? { reviewedMergeFee: BigInt(c.bounds.maxRelayerFee) } : {}),
         // V6 Stage 13: at the $50K band every step takes the route the user approved (a smaller piece of the same route keeps
         // or betters its rate); above it the competition at the step's size decides and a change is reviewed (V3 §8)
         ...(c.tier === "large-protected" && c.provider ? { provider: c.provider } : {}),
@@ -162,7 +164,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
     risk: (provider) => swapService.risk(provider).catch(() => null),
     gasPriceWei: () => (relayerUrl ? relayerInfo(relayerUrl).then((i) => i.gasPriceWei).catch(() => null) : Promise.resolve(null)),
     crossRateE18: crossRateFromPrices,
-    shape: async (c, needed, onStatus) => { if (!d.deployment) throw new Error("No deployment configured."); await ensureSpendable({ masterSeed: d.masterSeed, deployment: d.deployment, needed, vault: assetOf(d.deployment, c).vault as Hex, onStatus }); },
+    shape: async (c, needed, onStatus) => { if (!d.deployment) throw new Error("No deployment configured."); await ensureSpendable({ masterSeed: d.masterSeed, deployment: d.deployment, needed, vault: assetOf(d.deployment, c).vault as Hex, onStatus, ...(c.bounds.maxRelayerFee ? { maxMergeFee: BigInt(c.bounds.maxRelayerFee) } : {}) }); },
     notesShaped: (c, needed) => notesShapedFor(assetOf(d.deployment, c).vault, needed),
     freshDestination: (c) => (c.bounds.destination.kind === "fresh-per-tranche" ? (() => { const a = consumeFreshAddress(d.masterSeed, chainKindOf(c.request.to.chain), d.session); return { address: a.address, index: a.index }; })() : { address: c.bounds.destination.address }),
   };
@@ -533,6 +535,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           // the step "committed" for ten minutes at a time with nothing to say
           if (!sent && (e as { code?: unknown })?.code === "fee_moved") {
             c = pauseWith(c, "bounds", `Step ${t.index + 1}'s relayer fee rose above what you approved; nothing was sent. Resume to fund it once today's fee fits, or return the rest.`, now, t.index);
+            break;
+          }
+          // the relayer that would execute the steps runs no swaps, or the wallet submits through the connected wallet (the review
+          // round of 2026-11-03, E4): to the backoff, the window closing, the step abandoned and committed again — a fresh order,
+          // destination and refund counter — every window for good, while the campaign read "running". Paused for the user instead
+          if (!sent && (e as { code?: unknown })?.code === "relayer_not_ready") {
+            c = pauseWith(c, "provider-error", `Step ${t.index + 1} cannot be funded: ${m} Resume once the relayer runs swaps, or return the rest.`, now, t.index);
             break;
           }
           if (!sent) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick

@@ -588,7 +588,8 @@ export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]):
 /** Perform one split on chain (private self-transfer) and record both notes. */
 export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
 
-async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint } & Progress): Promise<Submitted> {
+async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** run inside the spend's turn before anything is read or proved (the review round of 2026-11-03, E1): a caller's own re-check */ beforeSpend?: () => void | Promise<void> } & Progress): Promise<Submitted> {
+  await o.beforeSpend?.();
   await guardDeployment(o.deployment);
   // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
   // this deployment or of one of its tokens) — refused before anything is proved or sent

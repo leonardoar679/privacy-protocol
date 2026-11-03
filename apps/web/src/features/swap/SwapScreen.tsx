@@ -47,6 +47,7 @@ import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { walletLint, topBucket } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { mergeSchedule } from "@privacy-wallet/sdk/wallet/mergeSchedule";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
@@ -166,6 +167,17 @@ export function SwapScreen(p: SwapScreenProps) {
   const destCheck = edited && parsed?.ok ? destinationCheck(chain, destination, { tier }) : null;
   const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   const balance = fromAsset ? noteStore.balance(BigInt(fromAsset.vault)) : 0n;
+  // the merges the funding needs first, each paying the relayer's minimum (the review round of 2026-11-03, E3; the Send Review has
+  // had them since r43): named on the Review, bounded at the funding — they had been paid at the live fee, unshown and unbounded
+  const mergeEach = terms?.minimum ?? 0n;
+  const mergeCount =
+    fromAsset && units > 0n && mergeEach > 0n
+      ? mergeSchedule(
+          noteStore.unspent(BigInt(fromAsset.vault)).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })),
+          units,
+          mergeEach,
+        ).pairs.length
+      : 0;
   const policy = quotes?.policy ?? policyFromPreference(preference);
   useEffect(() => {
     if (priced) void priceStore.refresh(p.deployment);
@@ -544,6 +556,7 @@ export function SwapScreen(p: SwapScreenProps) {
           ...(shield ? { shield } : {}),
           // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
           ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
+          ...(terms && mergeCount ? { reviewedMergeFee: terms.minimum } : {}), // each merge at most the Review's F (E3)
           delay: delayOn,
           ...(older ? { maxTiming: older.maxTiming } : {}),
           withCall: false,
@@ -798,6 +811,8 @@ export function SwapScreen(p: SwapScreenProps) {
     const shieldCents = shieldTip > 0n ? (priceTo ? centsOf(shieldTip, to.ref.decimals, priceTo.usd1e8) : null) : 0n;
     const sourceRelayerCents = cents((split.network + tip) * stepsN);
     const relayerCents = sourceRelayerCents !== null && shieldCents !== null ? sourceRelayerCents + shieldCents : null;
+    const mergeTotal = mergeEach * BigInt(mergeCount);
+    const mergeCents = mergeCount ? cents(mergeTotal) : 0n;
     const large = atLeast(tier, "large-protected");
     const review: ReviewModel = {
       kind: crossChain ? "cross-chain" : "swap",
@@ -815,9 +830,13 @@ export function SwapScreen(p: SwapScreenProps) {
           amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
           ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),
         },
+        ...(mergeCount
+          ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeTotal, fromAsset.symbol, fromAsset.decimals) }]
+          : []),
         { kind: "provider" as const, usdCents: providerCents },
       ],
-      totalFeesUsdCents: privacyCents !== null && relayerCents !== null ? privacyCents + relayerCents + providerCents : null,
+      totalFeesUsdCents:
+        privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents + providerCents : null,
       destination: {
         label: crossChain ? (edited ? `${destination.slice(0, 6)}…${destination.slice(-4)}` : t("send.freshEntry")) : t("screen.swap.protectedBalance"),
         verified: !edited || destAck,

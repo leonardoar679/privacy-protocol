@@ -20,7 +20,7 @@ import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
 import { OlderNotesUnavailable } from "../src/privateTx";
 import { OrderOutdated, OrderWindowClosed, RelayerNotReady, ServiceKeyChanged, TipStale } from "../src/swapFunding";
 import { FeeMoved } from "../src/privateTx";
-import { FUNDING_MARGIN_MS, patchSwap, swapFactoryOf, type FundingFate } from "../src/swapFunding";
+import { FUNDING_MARGIN_MS, FundingAlreadySent, patchSwap, swapFactoryOf, type FundingFate } from "../src/swapFunding";
 import { actionsFor } from "../src/operations/recovery";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
 import { swapRecordId, reconcileOpenSwaps } from "../src/operations/swapRecords";
@@ -350,6 +350,18 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(fresh.w.refunds).toBe(0);
     expect(stored().state).toBe("abandoned");
     expect(record()!.state).toBe("CANCELLED");
+    // the review round of 2026-11-03 (E2): a never-funded order whose funding is on its way is not abandoned — its fate is read first
+    session.update((j) => {
+      j.swaps = [];
+    });
+    resetOperationsMemory();
+    order({ fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 } } as Partial<StoredSwap>);
+    const sent = world();
+    sent.io.fundingFate = async () => "pending";
+    await expect(returnFunds(ORDER, deps(sent.io))).rejects.toBeInstanceOf(FundingAlreadySent);
+    expect(stored().state, "still open: the funding may land").toBe("committed");
+    sent.io.fundingFate = async () => "dead";
+    expect(await returnFunds(ORDER, deps(sent.io))).toBe("abandoned");
   });
 
   it("a funding whose outcome is unknown is reconciled from the escrow and never sent again; a failure before sending goes to the backoff", async () => {
@@ -361,8 +373,16 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(await drive(io, 1)).toEqual(["paused"]);
     expect(stored().paused?.code).toBe("reconcile");
     expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "reconcile" } });
+    // the review round of 2026-11-03 (E5): the tick that clears the reconcile pause signs and hands over under the hand-over hold
+    const sign = io.sign;
+    const heldAtSigning: string[][] = [];
+    io.sign = async (st, reuse) => {
+      heldAtSigning.push(session.holds().map((h) => h.reason));
+      return sign(st, reuse);
+    };
     // the reload: the next tick reads the escrow (funded), signs and hands over — the withdrawal is not sent twice
     expect(await drive(io, 3, T0 + 20_000)).toEqual(["funded", "handed-over", "track"]);
+    expect(heldAtSigning[0], "signed under the hold").toContain("hand-over");
     expect(w.funds).toBe(1);
     expect(stored().paused).toBeUndefined();
     // a failure before anything was sent: thrown to the scheduler (its backoff retries the tick), nothing paused
@@ -443,6 +463,18 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "funding_unconfirmed", fundsClass: "still-protected" } });
   });
 
+  it("a funding that landed into an escrow read short asks the executor — another copy funded and handed the order over — and tracks it, never left reconciling (the review round of 2026-11-03, E7)", async () => {
+    order({ fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: T0 } } as Partial<StoredSwap>);
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    io.fundingFate = async () => "landed";
+    w.job = { id: "job-9", escrow: stored().endpoint as `0x${string}`, state: "executing", updatedAt: T0 } as SwapJob;
+    expect(await drive(io, 1)).toEqual(["track"]);
+    expect(stored()).toMatchObject({ jobId: "job-9", state: "executing" });
+    expect(w.funds, "never funded again").toBe(0);
+  });
   it("a funding that may still land keeps the order past its window; landing late, it is returned, never left in the escrow", async () => {
     // 2026-10-14: the window's end had stopped such an order whatever its funding's fate, and a funding that landed after
     // it stayed in the escrow with no way back

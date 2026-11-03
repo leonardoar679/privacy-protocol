@@ -52,6 +52,8 @@ export interface PrepareOptions {
   shield?: { shieldTip: bigint; fallbackRecipient: Address };
   /** the relayer's fee the Review showed: the funding never pays more (c46) */
   reviewedFee?: bigint;
+  /** each merge the funding needs first pays at most this: the Review's F (the review round of 2026-11-03, E3) */
+  reviewedMergeFee?: bigint;
   /** "Delay for more privacy": the funding at a random time, or at once from older notes (maxTiming) */
   delay?: boolean;
   maxTiming?: number;
@@ -167,6 +169,7 @@ export function walletSwapProvider(d: WalletSwapProviderDeps): WalletSwapProvide
         walletTier: o.walletTier,
         ...(o.shield ? { shield: o.shield } : {}),
         ...(o.reviewedFee !== undefined ? { reviewedFee: o.reviewedFee } : {}),
+        ...(o.reviewedMergeFee !== undefined ? { reviewedMergeFee: o.reviewedMergeFee } : {}),
         ...(o.delay !== undefined ? { delay: o.delay } : {}),
         ...(o.maxTiming !== undefined ? { maxTiming: o.maxTiming } : {}),
         now: o.now ?? now(),

@@ -63,6 +63,8 @@ export interface CommitInput {
   shield?: { shieldTip: bigint; fallbackRecipient: Address };
   /** the relayer's fee for the funding the Review showed: the funding never pays more (the audit round of 2026-10-16, c46) */
   reviewedFee?: bigint;
+  /** each merge the funding needs first pays at most this: the Review's F (the review round of 2026-11-03, E3) */
+  reviewedMergeFee?: bigint;
   now?: number;
 }
 export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { privateKey: Hex; address: Hex }; refund: RefundNote; response: Awaited<ReturnType<typeof swapService.order>> }
@@ -115,6 +117,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     ...(i.campaign ? { campaign: i.campaign } : {}),
     ...(shield ? { shield: { ...shield, ...(response.vouch?.shield ? { vouch: response.vouch.shield } : {}) } } : {}),
     ...(i.reviewedFee !== undefined ? { reviewedFee: i.reviewedFee.toString() } : {}),
+    ...(i.reviewedMergeFee !== undefined ? { reviewedMergeFee: i.reviewedMergeFee.toString() } : {}),
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });

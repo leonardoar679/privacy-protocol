@@ -187,8 +187,15 @@ export function patchSwap(orderId: string, patch: Partial<StoredSwap>, s: Wallet
   if (patch.state) updateActivity(activityId("swap", orderId), { status: patch.state }, s);
 }
 
-/** Give up an order that was never funded: its scheduled funding is removed (never retried) and its line says so. */
-export function abandonSwap(orderId: string, s: WalletSession = defaultSession): void {
+/**
+ * Give up an order that was never funded: its scheduled funding is removed (never retried) and its line says so. Never an
+ * order whose funding is on its way (the review round of 2026-11-03, E2): abandoned, it is no longer open — no tick, no
+ * Return funds — and a funding that lands then sits in the escrow with no way back in the app. A caller that has read the
+ * attempt dead says so (`fundingDead`); every other one is refused with the attempt's fate.
+ */
+export function abandonSwap(orderId: string, s: WalletSession = defaultSession, o: { fundingDead?: boolean } = {}): void {
+  const stored = s.journal().swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase());
+  if (stored?.fundingAttempt && !stored.fundedTx && stored.state !== "funded" && !o.fundingDead) throw new FundingAlreadySent("pending");
   cancelAction(`fund-escrow:${orderId}`, s);
   patchSwap(orderId, { state: "abandoned" }, s);
 }
@@ -317,7 +324,28 @@ async function checkTipCovers(d: Deployment, stored: StoredSwap, readFees: (d: D
   if (BigInt(p.executorTip) < cost) throw new TipStale(BigInt(p.executorTip), cost);
 }
 
-export async function fundEscrow(o: {
+/** The orders whose funding is under way in this tab (the review round of 2026-11-03, E1). */
+const fundingInFlight = new Set<string>();
+
+/**
+ * Fund an order's escrow from the private balance — one funding of an order at a time in this tab (the review round of
+ * 2026-11-03, E1): a second caller (Fund now beside the runner's tick, or the scheduler's) had passed every check below while
+ * the first was still proving (no attempt journaled yet), waited its turn in the spend queue and funded the escrow a second
+ * time from the notes that were left. The second is refused at once as a funding on its way; the spend's own turn reads the
+ * journal again before anything is proved (`beforeSpend`).
+ */
+export async function fundEscrow(o: Parameters<typeof fundEscrowUnguarded>[0]): Promise<Submitted> {
+  const key = String(o.stored?.orderId ?? "").toLowerCase(); // a malformed order is the checks' to refuse, not this guard's
+  if (key && fundingInFlight.has(key)) throw new FundingAlreadySent("pending");
+  if (key) fundingInFlight.add(key);
+  try {
+    return await fundEscrowUnguarded(o);
+  } finally {
+    if (key) fundingInFlight.delete(key);
+  }
+}
+
+async function fundEscrowUnguarded(o: {
   masterSeed: Uint8Array;
   deployment: Deployment | null;
   stored: StoredSwap;
@@ -403,6 +431,15 @@ export async function fundEscrow(o: {
     ...(stored.runner?.maxTiming !== undefined ? { maxTiming: stored.runner.maxTiming } : {}),
     // never a fee above the one the Review showed (c46): a higher one stops the order unfunded (fee_moved)
     ...(stored.reviewedFee !== undefined && /^[0-9]+$/.test(stored.reviewedFee) ? { maxFee: BigInt(stored.reviewedFee) } : {}),
+    // nor a merge above the Review's F (the review round of 2026-11-03, E3): the merges a funding needs first had paid the live fee, unshown
+    ...(stored.reviewedMergeFee !== undefined && /^[0-9]+$/.test(stored.reviewedMergeFee) ? { maxMergeFee: BigInt(stored.reviewedMergeFee) } : {}),
+    // inside the spend's turn (E1): funded or sent meanwhile by another caller of this tab, nothing more is proved or sent
+    beforeSpend: () => {
+      const latest = s.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
+      if (!latest) return; // not journaled (a test's order): nothing to read again
+      if (latest.fundedTx || latest.state === "funded") throw new FundingAlreadySent("landed");
+      if (latest.fundingAttempt) throw new FundingAlreadySent("pending");
+    },
   }); // V6 (spec v2.0 §3): the fee note pays the percentage like any withdrawal
   patchSwap(stored.orderId, { fundedTx: w.txHash, state: "funded", ...(w.feeWei !== undefined ? { fundedFee: w.feeWei.toString() } : {}) }, s);
   return w;
@@ -412,6 +449,9 @@ export async function fundEscrow(o: {
  * The scheduler's runner for a `fund-escrow` action: funds the order if it is still open and unfunded;
  * an order that was abandoned or funded by hand has its action cancelled instead of failing forever.
  */
+/** The funding refusals that stop an order unfunded (the one-confirmation runner's list; nothing was sent on any of them). */
+export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "older_notes_unavailable"];
+
 export async function runScheduledAction(
   a: ScheduledAction,
   o: { masterSeed: Uint8Array; deployment: Deployment | null; session?: WalletSession; /** the escrow's balance (tests); the deployment's endpoints otherwise */ escrowBalance?: (stored: StoredSwap) => Promise<bigint | null> },
@@ -447,10 +487,16 @@ export async function runScheduledAction(
   } catch (e) {
     // its funding landed while its page was gone (r10): the order is funded and journaled so, nothing more runs here
     if (e instanceof FundingAlreadySent && e.fate === "landed") { cancelAction(a.id, s); return; }
-    // an order an older build committed under the privacy address's owner commitment (c18): given up, never funded
-    if ((e as { code?: unknown })?.code !== "order_outdated") throw e;
-    patchSwap(stored.orderId, { paused: { code: "order_outdated", detail: (e as Error).message, at: Date.now() } }, s);
-    abandonSwap(stored.orderId, s);
+    // the refusals the one-confirmation runner stops an order on (the review round of 2026-11-03, E6): an order an older build
+    // committed under the privacy address's owner commitment (c18), its window closed, the relayer not running swaps, the swap
+    // service's key changed, a stale tip, a fee above the Review's, the older notes gone, a funding read dead — here they had gone
+    // to the backoff for good (six hours at most, forever), the order open and counted in flight until the user abandoned it
+    const code = (e as { code?: unknown })?.code;
+    const dead = e instanceof FundingAlreadySent && e.fate === "dead";
+    if (!dead && !PERMANENT_FUNDING_REFUSALS.includes(String(code))) throw e;
+    patchSwap(stored.orderId, { paused: { code: dead ? "funding_unconfirmed" : String(code), detail: (e as Error).message, at: Date.now() } }, s);
+    abandonSwap(stored.orderId, s, { fundingDead: dead });
+    cancelAction(a.id, s);
   } finally {
     schedulerStatus.finish();
   }

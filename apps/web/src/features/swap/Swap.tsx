@@ -601,7 +601,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
               const a = assetOf(s);
               return (
                 <ListRow key={s.orderId} title={`${formatAmount(a, BigInt((s.params as { amount: string }).amount))} ${a.symbol} → ${(s.request as { to: { symbol: string } }).to.symbol}`} subtitle={`${s.state}${s.dueAt && !s.fundedTx ? ` · ${t("swap.fundingAt", { time: formatDateTime(s.dueAt) })}` : ""}`}
-                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!s.fundedTx ? <TextButton onClick={() => abandonSwap(s.orderId)}>{t("swap.abandon")}</TextButton> : null}</span>} />
+                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!s.fundedTx && !s.fundingAttempt ? <TextButton onClick={() => { try { abandonSwap(s.orderId); } catch (e) { setError(classify(e).detail || String(e)); } }}>{t("swap.abandon")}</TextButton> : null}</span>} />
               );
             })}
           </Card>

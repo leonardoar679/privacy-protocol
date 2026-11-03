@@ -17,7 +17,16 @@ import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 
 // the private withdrawal has its own suites: here what the funding hands it is recorded
-const withdrawals = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[], events: [] as unknown[], afterEach: undefined as ((e: unknown) => void) | undefined, feeWei: undefined as bigint | undefined }));
+const withdrawals = vi.hoisted(() => ({
+  calls: [] as Record<string, unknown>[],
+  events: [] as unknown[],
+  afterEach: undefined as ((e: unknown) => void) | undefined,
+  feeWei: undefined as bigint | undefined,
+  /** a withdrawal under way waits here (the review round of 2026-11-03, E1): a second caller of the same order meanwhile */
+  gate: null as Promise<void> | null,
+  /** what happens in the journal between the call and the spend's own turn (E1: another tab's write, a reconcile) */
+  before: undefined as (() => void) | undefined,
+}));
 // the relayer's /info: a relayer that names nothing (an older one), so the funding's own rules are what is tested here
 vi.mock("@privacy-wallet/sdk/relayer", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/relayer")>()),
@@ -27,6 +36,9 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   privateWithdrawal: async (o: Record<string, unknown>) => {
     withdrawals.calls.push(o);
+    if (withdrawals.gate) await withdrawals.gate;
+    withdrawals.before?.();
+    await (o.beforeSpend as (() => void | Promise<void>) | undefined)?.(); // the spend's turn runs the caller's re-check first (E1)
     const on = o.onEvent as ((e: unknown) => void) | undefined;
     for (const e of withdrawals.events) { on?.(e); withdrawals.afterEach?.(e); }
     return { txHash: "0x" + "33".repeat(32), ...(withdrawals.feeWei !== undefined ? { feeWei: withdrawals.feeWei } : {}) };
@@ -117,6 +129,13 @@ describe("swap funding", () => {
     scheduleAction({ kind: "fund-escrow", orderId: "0xzz", dueAt: 0 }, s);
     await runScheduledAction(pendingActions(s).find((a) => a.orderId === "0xzz")!, { masterSeed: seed, deployment: null, session: s });
     expect(pendingActions(s)).toEqual([]);
+    // the review round of 2026-11-03 (E2): an order whose funding is on its way is never abandoned — abandoned, it is no longer open,
+    // and a funding that lands then sits in the escrow with no way back in the app; a caller that read the attempt dead says so
+    s.update((j) => { j.swaps = [{ ...order("0xf"), fundingAttempt: { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: 1 } }]; });
+    expect(() => abandonSwap("0xf", s)).toThrow(FundingAlreadySent);
+    expect(s.journal().swaps[0].state, "still open").toBe("committed");
+    abandonSwap("0xf", s, { fundingDead: true });
+    expect(s.journal().swaps[0].state).toBe("abandoned");
   });
 
   it("a scheduled funding whose escrow already holds the order journals it funded and sends nothing (audit round 2, n36)", async () => {
@@ -162,6 +181,9 @@ describe("swap funding", () => {
     await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0, maxTiming: 0.3 }), session: s, relayerUrl: "http://relayer.test" });
     expect(withdrawals.calls[0]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint, maxTiming: 0.3, record: false });
     expect(s.journal().swaps[0]).toMatchObject({ state: "funded", fundedTx: "0x" + "33".repeat(32) });
+    // a second funding of the same order: the journal says funded, so the spend's turn would refuse a stale copy (the review round of
+    // 2026-11-03, E1) — the order is journaled unfunded again for the second case
+    s.update((j) => { j.swaps = [stored({ confirmedAt: 0 })]; });
     await fundEscrow({ masterSeed: seed, deployment, stored: stored({ confirmedAt: 0 }), session: s, relayerUrl: "http://relayer.test" });
     expect(withdrawals.calls[1]).toMatchObject({ amount: 5n * 10n ** 17n, recipient: endpoint });
     expect(withdrawals.calls[1]).not.toHaveProperty("maxTiming");
@@ -253,6 +275,34 @@ describe("swap funding", () => {
     // the user's word replaces a dead funding, once
     await fundEscrow({ ...relayed, stored: sent, reads: reads("dead"), replaceDead: true });
     expect(withdrawals.calls).toHaveLength(1);
+    // the review round of 2026-11-03 (E1): one funding of an order at a time — a second caller is refused while the first is under way
+    // (it had passed every check while the first was proving, waited its turn in the spend queue and funded the escrow again).
+    // `stored` is the journal's own object, patched funded by the fundings above: each case starts from an unfunded copy
+    const unfunded = (): StoredSwap => ({ ...stored, fundedTx: undefined, fundingAttempt: undefined, fundedFee: undefined, state: "committed" });
+    s.update((j) => { j.swaps = [unfunded()]; });
+    withdrawals.calls.length = 0;
+    let release!: () => void;
+    withdrawals.gate = new Promise<void>((r) => { release = r; });
+    const first = fundEscrow({ ...relayed, stored: s.journal().swaps[0] });
+    await expect(fundEscrow({ ...relayed, stored: s.journal().swaps[0] }), "a second caller while the first proves").rejects.toMatchObject({ fate: "pending" });
+    release();
+    withdrawals.gate = null;
+    await first;
+    expect(withdrawals.calls, "one funding").toHaveLength(1);
+    // the spend's own turn reads the journal first: funded meanwhile (another tab's write, a reconcile), nothing is proved or sent
+    s.update((j) => { j.swaps = [unfunded()]; });
+    withdrawals.before = () => s.update((j) => { j.swaps[0].fundedTx = "0x" + "44".repeat(32); j.swaps[0].state = "funded"; });
+    await expect(fundEscrow({ ...relayed, stored: s.journal().swaps[0] })).rejects.toMatchObject({ fate: "landed" });
+    withdrawals.before = undefined;
+    // the review round of 2026-11-03 (E6): a scheduled funding stopped by a permanent refusal — here the relayer not running swaps, the
+    // wallet submitting through the connected wallet — is abandoned with the reason and its action done: never the backoff for good
+    s.update((j) => { j.swaps = [unfunded()]; j.schedule = []; });
+    scheduleAction({ kind: "fund-escrow", orderId: stored.orderId, dueAt: 0 }, s);
+    settings.set({ ...settings.get(), submission: { kind: "wallet" } });
+    await runScheduledAction(pendingActions(s)[0], { masterSeed: seed, deployment, session: s });
+    expect(s.journal().swaps[0]).toMatchObject({ state: "abandoned", paused: { code: "relayer_not_ready" } });
+    expect(pendingActions(s), "its action done").toEqual([]);
+    settings.reset();
   });
 
   it("a funding reads the window by the later of the device's clock and the chain's: a device clock behind funds nothing past the deadline (audit round 2, critic gap 5)", async () => {

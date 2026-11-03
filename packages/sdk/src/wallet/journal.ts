@@ -34,6 +34,9 @@ export interface StoredSwap {
   /** the relayer's fee for the funding the Review showed (base units of the source asset; the audit round of 2026-10-16, c46):
    *  a funding that would pay more is stopped (`fee_moved`), never paid whatever the fee had become; optional */
   reviewedFee?: string;
+  /** each merge the funding needs first pays at most this (base units; the review round of 2026-11-03, E3): the relayer's minimum the
+   *  Review showed — a merge is a self-transfer, F alone; optional (an order from before, or one whose Review saw no merges) */
+  reviewedMergeFee?: string;
   /** the fee note the funding paid (base units of the source asset; audit round 2, n25): at most `reviewedFee` — a relayer
    *  asking less, hours later or as a fallback, paid less; optional (a funding from before, or one read landed after a reload) */
   fundedFee?: string;
