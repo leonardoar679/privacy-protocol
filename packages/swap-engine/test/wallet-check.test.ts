@@ -8,6 +8,15 @@ import { describe, it, expect } from "vitest";
 import { sha256 } from "@noble/hashes/sha256";
 import { defaultEngine } from "../src/config";
 import { MayanAdapter } from "../src/adapters/mayan";
+import { RpcValuer } from "../src/valuation";
+import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
+
+/** The service's own agreed ETH price, read live: an ETH-source Mayan quote's leg is bounded against it, and the wallet's check needs it too (the third review round, 2026-11-03). */
+const liveValuer = new RpcValuer(1, (process.env.RPC_URLS ?? "https://ethereum-rpc.publicnode.com").split(",").map((s) => s.trim()).filter(Boolean));
+const liveUsd = async (): Promise<Record<string, bigint>> => {
+  const eth = availablePrice(await liveValuer.prices(), "ETH");
+  return eth ? { ETH: eth.usd1e8 } : {};
+};
 import { orderSignerAddress } from "../src/endpoints";
 import type { AssetRef, Quote, QuoteRequest } from "../src/types";
 import { shareTips } from "./helpers/tips";
@@ -101,13 +110,13 @@ describe("the wallet's provider-call check agrees with the engine on live provid
   }, 240_000);
 
   it("Mayan SWIFT: ETH → SOL and USDC → SOL, built by the adapter, read the same by the wallet: the minimum, the fresh address, a refund to the escrow", async () => {
-    const a = new MayanAdapter({ orderTypes: ["SWIFT"] });
+    const a = new MayanAdapter({ orderTypes: ["SWIFT"], valuer: liveValuer });
     const escrow = "0x2b8Dc27605bF11214247aE11a013fcADf2c1Cb65" as `0x${string}`;
     for (const [from, net] of [[ETH, 10n ** 18n], [USDC_ETH, 2_000_000_000n]] as const) {
       const req: QuoteRequest = { from, to: SOL, amount: net, destination: DEST_SOL, source: escrow, slippageBps: 100 };
       const q = await a.quote(req);
       const ing = await a.prepareIngress(req, q);
-      const c = await checkProviderCall({ provider: ing.to as `0x${string}`, value: ing.value, calldata: ing.calldata }, { escrow, from, to: SOL, destination: DEST_SOL, net, policy: "fastest", pooled: [{ token: USDC_ETH.asset, symbol: USDC_ETH.symbol, decimals: USDC_ETH.decimals }] });
+      const c = await checkProviderCall({ provider: ing.to as `0x${string}`, value: ing.value, calldata: ing.calldata }, { escrow, from, to: SOL, destination: DEST_SOL, net, policy: "fastest", pooled: [{ token: USDC_ETH.asset, symbol: USDC_ETH.symbol, decimals: USDC_ETH.decimals }], usd: await liveUsd() });
       expect(c, `${from.symbol} -> SOL`).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: q.toAmountMin, refundTo: "escrow" });
       expect(q.refundTarget).toBe("escrow");
     }

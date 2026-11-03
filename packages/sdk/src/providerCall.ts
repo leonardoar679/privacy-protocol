@@ -107,6 +107,14 @@ const CF_MAX_RETRY_BLOCKS = 14_400;
 /** A THORChain stream this wallet signs (whale spec §12): an explicit quantity (0 would let the network choose), at most THORNode's own day of 6-second blocks, at most 100 blocks apart. */
 const THOR_MAX_STREAM_PARTS = 14_400;
 const THOR_MAX_INTERVAL_BLOCKS = 100;
+/**
+ * The third review round (2026-11-03): an ETH → USDC leg a Mayan order runs first (a router Mayan names, bounded on chain by the
+ * forwarder's minMiddleAmount) must be bounded at this share of the ETH's value at this wallet's own agreed Chainlink price, or
+ * the call is refused. Before, any positive floor passed: a swap service could route the whole order through its own pool with
+ * the Mayan order holding one USDC unit — the order's own minimum is conditional on a fill — while the wallet's minimum check
+ * still passed. Two per cent covers the feed's deviation threshold, the leg's slippage and the router's fee.
+ */
+export const MAYAN_MIDDLE_MAX_SHORTFALL_BPS = 200n;
 
 export type ProviderName = "thorchain" | "chainflip" | "mayan" | "lifi" | "across";
 
@@ -126,6 +134,8 @@ export interface CallExpectation {
   chainId?: bigint;
   /** tokens the pool has a vault for (this wallet's configured ERC-20 assets, as its deployment names them): a token a provider pays back in re-shields there through the escrow's refundToken, and this wallet sees the note */
   pooled?: { token: string; symbol: string; decimals: number }[];
+  /** this wallet's own agreed, fresh Chainlink prices by symbol (`usd1e8`), read through its RPC quorum at signing (the third review round, 2026-11-03): a swap-first Mayan leg is bounded against ETH's (and USDC's, when a feed gives one) and refused without */
+  usd?: Record<string, bigint>;
   /** unix seconds (tests) */
   now?: number;
 }
@@ -375,7 +385,7 @@ export async function checkProviderCall(call: ProviderCall, e: CallExpectation, 
   else if (same(call.provider, PINNED.acrossSpokePool)) checked = await guarded("across", () => across(call, e, now));
   else if (same(call.provider, PINNED.acrossPeriphery)) checked = await guarded("across", () => acrossSwap(call, e, now));
   else if (same(call.provider, PINNED.mayanForwarder)) checked = await guarded("mayan", () => mayan(call, e, now));
-  else if (same(call.provider, PINNED.lifiDiamond)) checked = await guarded("lifi", () => lifi(call, e));
+  else if (same(call.provider, PINNED.lifiDiamond)) checked = await guarded("lifi", () => lifi(call, e, now));
   else if (e.from.asset !== "native" && same(call.provider, e.from.asset)) {
     throw new ProviderCallMismatch("deposit address", "receiver", "a token transfer to a provider's deposit address: where that address pays out is the provider's promise, not something this wallet can read");
   } else if (call.calldata === "0x") {
@@ -424,7 +434,8 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   let planFact = "one swap";
   if (interval !== undefined) {
     const i = Number(interval), n = Number(quantity);
-    must(i >= 1 && i <= THOR_MAX_INTERVAL_BLOCKS && n >= 1 && n <= THOR_MAX_STREAM_PARTS, P, "streaming", `${n} sub-swaps every ${i} block(s) is outside what this wallet accepts (1–${THOR_MAX_STREAM_PARTS} sub-swaps, 1–${THOR_MAX_INTERVAL_BLOCKS} blocks apart; a quantity of 0 would let the network choose)`);
+    // the whole stream within a day of blocks too (the third review round, 2026-11-03): the parts and the spacing had been bounded apart
+    must(i >= 1 && i <= THOR_MAX_INTERVAL_BLOCKS && n >= 1 && n <= THOR_MAX_STREAM_PARTS && i * n <= THOR_MAX_STREAM_PARTS, P, "streaming", `${n} sub-swaps every ${i} block(s) is outside what this wallet accepts (1–${THOR_MAX_STREAM_PARTS} sub-swaps, 1–${THOR_MAX_INTERVAL_BLOCKS} blocks apart, the whole stream within ${THOR_MAX_STREAM_PARTS} blocks; a quantity of 0 would let the network choose)`);
     planFact = `streams ${n} sub-swaps, one every ${i} block(s): the limit applies per sub-swap; sub-swaps that do not execute refund the escrow`;
   }
   const minOut = from1e8(BigInt(limit), e.to.decimals);
@@ -577,6 +588,22 @@ function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCal
   return { provider: P, receiver: recipient, minOut: outputAmount, refundTo: "escrow", facts: ["SpokePool pinned", "pays your fresh address", "exact fill amount, an unfilled deposit refunds the escrow"] };
 }
 
+/** The least USDC (base units) an ETH → USDC leg may be bounded at: the ETH at the agreed prices, less MAYAN_MIDDLE_MAX_SHORTFALL_BPS. */
+export function middleFloorUsdc(ethWei: bigint, ethUsd1e8: bigint, usdcUsd1e8: bigint = 10n ** 8n): bigint {
+  const expected = (ethWei * ethUsd1e8 * 10n ** 6n) / (10n ** 18n * usdcUsd1e8);
+  return (expected * (10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS)) / 10_000n;
+}
+
+/** A swap-first leg (ETH → USDC by a router the provider names): in USDC, and bounded at the floor this wallet's own price gives. */
+function mustBoundMiddle(e: CallExpectation, P: ProviderName, swap: { middleToken: Address; minMiddle: bigint }, ethWei: bigint): void {
+  must(same(swap.middleToken, USDC_ETHEREUM) && swap.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+  const ethUsd = e.usd?.ETH;
+  must(ethUsd !== undefined && ethUsd > 0n, P, "swap", "the ETH → USDC leg cannot be bounded: this wallet has no fresh agreed ETH price (its price feeds are unavailable or stale), so the floor a router must meet cannot be checked; not signing it");
+  const floor = middleFloorUsdc(ethWei, ethUsd, e.usd?.USDC);
+  must(swap.minMiddle >= floor, P, "swap", `the ETH → USDC leg is bounded at ${swap.minMiddle} USDC base units, below ${floor} — ${(10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100n} % of the ${ethWei} wei at this wallet's own price; a router could keep the difference`);
+}
+const MIDDLE_FACT = `within ${(10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100n === 98n ? "2" : String(MAYAN_MIDDLE_MAX_SHORTFALL_BPS / 100n)} % of the ETH at this wallet's own price`;
+
 /**
  * A Mayan SWIFT order (Swift V2): decoded in full. ETH must be wrapped 1:1 by the pinned wrapper (wrap(), the whole amount
  * bounded in WETH) and locked as "wrap & lock" (tokenIn 0), so a refund pays ETH; an ERC-20 locks itself. The trader, where an
@@ -596,7 +623,7 @@ function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; 
       must(swap!.data.toLowerCase() === SEL_WRAP, P, "swap", "the ETH is not wrapped by the pinned wrapper's wrap()");
       must(same(swap!.middleToken, WETH.ethereum) && swap!.minMiddle === e.net, P, "swap", "the wrap is not bounded to the whole amount in WETH");
     } else {
-      must(same(swap!.middleToken, USDC_ETHEREUM) && swap!.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+      mustBoundMiddle(e, P, swap!, e.net);
       must(reshieldable(e, USDC_ETHEREUM), P, "refund", "swaps the ETH into USDC first: an unfilled order would refund USDC to the escrow, which cannot re-shield it (no USDC vault)");
       swapAndLock = true;
     }
@@ -625,7 +652,7 @@ function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; 
   const refundTokens = swapAndLock ? [USDC_ETHEREUM] : undefined;
   return {
     provider: P, receiver: e.destination, minOut, refundTo: "escrow", ...(refundTokens ? { refundTokens, refundFloors: floorOf(refundTokens, swap!.minMiddle, 100n) } : {}),
-    facts: ["forwarder and Swift V2 pinned; the order is decoded", native ? (swapAndLock ? `the ETH is swapped into USDC by a router Mayan names, bounded on chain at ${swap!.minMiddle} USDC base units` : "the ETH is wrapped 1:1 by the pinned wrapper") : `${e.from.symbol} is locked as is`, "the order pays your fresh address", swapAndLock ? "an unfilled order is cancelled after its deadline and refunds USDC to the escrow, re-shielded into its vault" : "an unfilled order is cancelled after its deadline and refunded to the escrow"],
+    facts: ["forwarder and Swift V2 pinned; the order is decoded", native ? (swapAndLock ? `the ETH is swapped into USDC by a router Mayan names, bounded on chain at ${swap!.minMiddle} USDC base units, ${MIDDLE_FACT}` : "the ETH is wrapped 1:1 by the pinned wrapper") : `${e.from.symbol} is locked as is`, "the order pays your fresh address", swapAndLock ? "an unfilled order is cancelled after its deadline and refunds USDC to the escrow, re-shielded into its vault" : "an unfilled order is cancelled after its deadline and refunded to the escrow"],
   };
 }
 
@@ -646,7 +673,7 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
     mayanProtocol = protocol; protocolData = data;
   }
   if (same(mayanProtocol, PINNED.mayanSwiftV2)) return mayanSwift(e, now, swap, protocolData);
-  if (swap) must(same(swap.middleToken, USDC_ETHEREUM) && swap.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
+  if (swap) mustBoundMiddle(e, P, swap, e.net);
   must(same(mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
   const order = decode(P, FAST_MCTP_ABI, protocolData);
   const [tokenIn, amountIn, circleMaxFee, destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; redeemFee: bigint; refundFee: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
@@ -673,10 +700,57 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
   must(circleMaxFee * 10_000n <= usdc * FAST_MCTP_MAX_FEES_BPS, P, "fees", `Circle's maximum fee ${circleMaxFee} is above 1 % of the order`);
   // amountOutMin carries min(8, decimals) decimals
   const minOut = e.to.decimals > 8 ? payload.amountOutMin * 10n ** BigInt(e.to.decimals - 8) : payload.amountOutMin;
-  return { provider: P, receiver: e.destination, minOut, refundTo: "destination", facts: ["forwarder and Fast-MCTP pinned", "the order pays your fresh address", "an unfilled order refunds USDC to your fresh address, not to the pool"] };
+  return {
+    provider: P, receiver: e.destination, minOut, refundTo: "destination",
+    facts: ["forwarder and Fast-MCTP pinned", ...(swap ? [`the ETH is swapped into USDC by a router Mayan names, bounded on chain at ${swap.minMiddle} USDC base units, ${MIDDLE_FACT}`] : []), "the order pays your fresh address", "an unfilled order refunds USDC to your fresh address, not to the pool"],
+  };
 }
 
-function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
+/**
+ * The Mayan order inside LI.FI's MayanFacet (the third review round, 2026-11-03): the facet hands `protocolData` to `mayanProtocol`
+ * as is, so the trader a cancelled Swift order refunds, the receiver, the asset and the minimum are read as a direct Mayan call's
+ * are — before, only the facet's own sweep recipient was, and a service could name itself the trader of an order it then let
+ * lapse. A swap leg inside (ETH → USDC) is bounded as the direct call's is. Gives the route a minimum this wallet can read.
+ */
+function lifiMayanOrder(e: CallExpectation, now: number, m: { mayanProtocol: Address; protocolData: Hex; swapProtocol: Address; middleToken: Address; minMiddleAmount: bigint; mayanAmountIn: bigint }, bridged: Address): { minOut: bigint; refundTo: "escrow" | "destination"; fact: string } {
+  const P: ProviderName = "lifi";
+  if (BigInt(m.swapProtocol) !== 0n || BigInt(m.middleToken) !== 0n || m.minMiddleAmount !== 0n) {
+    must(same(bridged, ZERO), P, "swap", "a swap leg inside Mayan on a token the facet already bridges");
+    mustBoundMiddle(e, P, { middleToken: m.middleToken, minMiddle: m.minMiddleAmount }, m.mayanAmountIn);
+  }
+  const dest32 = bytes32Of(e.to.chain, e.destination);
+  const wantTokenOut = e.to.asset === "native" ? padHex("0x", { size: 32 }) : bytes32Of(e.to.chain, e.to.asset);
+  const scaled = (x: bigint) => (e.to.decimals > 8 ? x * 10n ** BigInt(e.to.decimals - 8) : x);
+  if (same(m.mayanProtocol, PINNED.mayanSwiftV2)) {
+    const { args } = decode(P, SWIFT_V2_ABI, m.protocolData);
+    const [, , o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
+    must(o.payloadType === 1 && customPayload === "0x", P, "order", "the Mayan order carries a custom payload");
+    must(same(o.trader, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled Mayan order would be refunded to another address than the escrow");
+    must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `the Mayan order delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
+    must(same(o.destAddr, dest32), P, "receiver", "the Mayan order pays another address than your fresh one");
+    must(same(o.tokenOut, wantTokenOut), P, "asset", `the Mayan order delivers ${o.tokenOut}, not ${e.to.symbol}`);
+    must(o.gasDrop === 0n && BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop or carries a referrer fee");
+    must(o.deadline > BigInt(now) && o.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS) && o.auctionMode > 0, P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead, or it has no auction mode");
+    const minOut = scaled(o.minAmountOut);
+    must(minOut > 0n, P, "minimum", "the Mayan order binds a zero minimum");
+    return { minOut, refundTo: "escrow", fact: "the Swift order inside is decoded: it pays your fresh address; unfilled, it is cancelled after its deadline and refunded to the escrow" };
+  }
+  must(same(m.mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${m.mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
+  const order = decode(P, FAST_MCTP_ABI, m.protocolData);
+  const [tokenIn, , , destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
+  must(same(tokenIn, USDC_ETHEREUM), P, "order", "the Mayan order is not funded in USDC");
+  must(CCTP_DOMAIN[e.to.chain] !== undefined && destDomain === CCTP_DOMAIN[e.to.chain], P, "chain", `the Mayan order delivers to CCTP domain ${destDomain}, not ${e.to.chain}`);
+  must(payload.payloadType === 3, P, "order", `the Mayan order's payload type ${payload.payloadType}`);
+  must(same(payload.destAddr, dest32), P, "receiver", "the Mayan order pays another address than your fresh one");
+  must(same(payload.tokenOut, wantTokenOut), P, "asset", `the Mayan order delivers ${payload.tokenOut}, not ${e.to.symbol}`);
+  must(payload.gasDrop === 0n && BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop or carries a referrer fee");
+  must(payload.deadline > BigInt(now) && payload.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead");
+  const minOut = scaled(payload.amountOutMin);
+  must(minOut > 0n, P, "minimum", "the Mayan order binds a zero minimum");
+  return { minOut, refundTo: "destination", fact: "the Fast-MCTP order inside is decoded: it pays your fresh address; unfilled, it refunds USDC to your fresh address" };
+}
+
+function lifi(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
   const P: ProviderName = "lifi";
   const { functionName, args } = decode(P, LIFI_ABI, call.calldata);
   const bd = args[0] as { sendingAssetId: Address; receiver: Address; minAmount: bigint; destinationChainId: bigint; hasSourceSwaps: boolean; hasDestinationCall: boolean };
@@ -687,7 +761,9 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
   must(!bd.hasDestinationCall, P, "receiver", "a destination call is attached (the bridge would pay a contract, not your fresh address)");
   const ours = e.from.asset === "native" ? ZERO : getAddress(e.from.asset);
   if (bd.hasSourceSwaps) must(swaps.length > 0 && same(swaps[0].sendingAssetId, ours) && swaps[0].fromAmount === e.net, P, "amount", `the first swap spends ${swaps[0]?.fromAmount} of ${swaps[0]?.sendingAssetId}, not ${e.net} ${e.from.symbol}`);
-  else must(same(bd.sendingAssetId, ours) && bd.minAmount > 0n && bd.minAmount <= e.net, P, "amount", `bridges ${bd.minAmount} of ${bd.sendingAssetId}, not up to ${e.net} ${e.from.symbol}`);
+  // exactly what the escrow forwards (the third review round, 2026-11-03): a smaller minAmount left the rest in the escrow, below the
+  // floors that re-shield or offer it back — LI.FI's quotes bridge the whole amount
+  else must(same(bd.sendingAssetId, ours) && bd.minAmount === e.net, P, "amount", `bridges ${bd.minAmount} of ${bd.sendingAssetId}, not the ${e.net} ${e.from.symbol} the escrow forwards`);
   must(call.value === (e.from.asset === "native" ? e.net : 0n), P, "value", `${call.value} forwarded`);
   // what comes back to the escrow is the bridged token: an unfilled Across deposit refunds it, the Mayan facet sweeps
   // the swap surplus in it; a source swap into a token the escrow cannot re-shield would strand it there (PP-S08)
@@ -724,9 +800,10 @@ function lifi(call: ProviderCall, e: CallExpectation): CheckedCall {
   }
   // MayanFacet: the facet checks the receiver against Mayan's order on chain; it sweeps excess value
   // and, in the swap variant, everything above mayanAmountIn to refundRecipient
-  const m = facet as { nonEVMReceiver: Hex; refundRecipient: Address; mayanAmountIn: bigint };
+  const m = facet as { nonEVMReceiver: Hex; mayanProtocol: Address; protocolData: Hex; swapProtocol: Address; swapData: Hex; middleToken: Address; minMiddleAmount: bigint; refundRecipient: Address; mayanAmountIn: bigint };
   if (!evmDest) must(same(m.nonEVMReceiver, destination32), P, "receiver", "Mayan would pay another address than your fresh one");
   must(same(m.refundRecipient, e.escrow), P, "refund", `excess value and swap surplus would go to ${m.refundRecipient}, not the escrow`);
   if (bd.hasSourceSwaps) must(m.mayanAmountIn === bd.minAmount, P, "amount", `hands Mayan ${m.mayanAmountIn} of the ${bd.minAmount} bridged; the rest would be swept away`);
-  return { provider: P, receiver: e.destination, minOut: null, refundTo: "provider", ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", "a failed Mayan order refunds by Mayan's rules"] };
+  const inner = lifiMayanOrder(e, now, m, getAddress(bd.sendingAssetId));
+  return { provider: P, receiver: e.destination, minOut: inner.minOut, refundTo: inner.refundTo, ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", inner.fact] };
 }

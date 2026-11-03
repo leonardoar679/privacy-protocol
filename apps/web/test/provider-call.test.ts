@@ -33,6 +33,8 @@ const DEST_EVM = getAddress("0x1111111111111111111111111111111111111111");
 const DEST_SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 const NET = 10n ** 18n;
 const NOW = 1_790_000_000;
+/** this wallet's own agreed ETH price at signing (the third review round, 2026-11-03): 1 ETH = 2,540 USD, so a 1 ETH leg's floor is 2,489.2 USDC */
+const PRICED = { ETH: 2_540_00000000n };
 const expectation = (over: Partial<CallExpectation> = {}): CallExpectation => ({ escrow: ESCROW, from: ETH, to: BTC, destination: DEST_BTC, net: NET, policy: "best-privacy", now: NOW, ...over });
 const refused = async (p: Promise<unknown>, field: RegExp) => { await expect(p).rejects.toThrow(ProviderCallMismatch); await expect(p).rejects.toThrow(field); };
 
@@ -143,6 +145,9 @@ describe("THORChain: router pinned, vault from the gateways, the memo pays the f
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 0, quantity: 5 }) }), e, { inbound: inbound() }), /streaming/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 1, quantity: 14_401 }) }), e, { inbound: inbound() }), /streaming/);
     await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 101, quantity: 5 }) }), e, { inbound: inbound() }), /streaming/);
+    // the whole stream within a day of blocks too (the third review round, 2026-11-03): 200 parts 100 blocks apart are 20,000 blocks
+    await refused(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 100, quantity: 200 }) }), e, { inbound: inbound() }), /streaming/);
+    await expect(checkProviderCall(call({ memo: buildMemo(thorAsset(BTC), DEST_BTC, LIMIT, ESCROW, { interval: 10, quantity: 1_440 }) }), e, { inbound: inbound() })).resolves.toMatchObject({ provider: "thorchain" });
     await refused(checkProviderCall(call({ value: NET / 2n }), e, { inbound: inbound() }), /value/);
     await refused(checkProviderCall(call({ expiry: BigInt(NOW - 1) }), e, { inbound: inbound() }), /expiry/);
   });
@@ -326,7 +331,20 @@ describe("Mayan: forwarder and Fast-MCTP pinned, the order pays the fresh addres
       { t: "uint", v: o.minMiddle ?? 2_500_000_000n }, { t: "address", v: o.protocol ?? MAYAN_FAST_MCTP }, { t: "bytes", v: o.data ?? order() },
     ]) as Hex,
   });
-  const e = expectation({ to: SOL, destination: DEST_SOL });
+  const e = expectation({ to: SOL, destination: DEST_SOL, usd: PRICED });
+  it("the ETH → USDC leg's floor is this wallet's own price less 2 % (the third review round, 2026-11-03): a floor of one unit, or half the ETH, is refused; no fresh price, no signature", async () => {
+    // before, any positive floor passed: a service could route the ETH through its own pool with the order holding one USDC unit
+    await refused(checkProviderCall(ethCall({ minMiddle: 1n }), e), /below/);
+    await refused(checkProviderCall(ethCall({ minMiddle: 1_270_000_000n }), e), /below/);
+    await refused(checkProviderCall(ethCall(), { ...e, usd: undefined }), /no fresh agreed ETH price/);
+    await refused(checkProviderCall(ethCall(), { ...e, usd: { USDC: 10n ** 8n } }), /no fresh agreed ETH price/);
+    await expect(checkProviderCall(ethCall({ minMiddle: 2_489_200_000n }), e), "exactly the floor").resolves.toMatchObject({ provider: "mayan" });
+    await refused(checkProviderCall(ethCall({ minMiddle: 2_489_199_999n }), e), /below/);
+    // a USDC feed under a dollar raises the floor: more USDC units make the same value
+    await refused(checkProviderCall(ethCall({ minMiddle: 2_489_200_000n }), { ...e, usd: { ETH: 2_540_00000000n, USDC: 99_000_000n } }), /below/);
+    const c = await checkProviderCall(ethCall(), e);
+    expect(c.facts.join(" ")).toMatch(/bounded on chain at 2500000000 USDC base units, within 2 % of the ETH at this wallet's own price/);
+  });
   it("the engine's ETH-source call passes: minimum = amountOutMin scaled to SOL's 9 decimals; refunds land at the destination", async () => {
     await expect(checkProviderCall(ethCall(), e)).resolves.toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN_UNITS * 10n, refundTo: "destination" });
   });
@@ -411,13 +429,18 @@ describe("Mayan SWIFT: Swift V2 and the ETH wrapper pinned, the order pays the f
     const ROUTER = "0x0000000000000000000000000000000000000e77";
     const MIN_MIDDLE = 2_500_000_000n;
     const lock = (o: Parameters<typeof swiftEth>[0] = {}) => swiftEth({ wrapper: ROUTER, wrapData: "0x1234", middle: USDC.asset, minMiddle: MIN_MIDDLE, tokenIn: USDC.asset, amountIn: MIN_MIDDLE, ...o });
-    const pooled = { ...e, pooled: POOL_USDC };
+    const pooled = { ...e, pooled: POOL_USDC, usd: PRICED };
     const c = await checkProviderCall(lock(), pooled);
     expect(c).toMatchObject({ provider: "mayan", receiver: DEST_SOL, minOut: MIN * 10n, refundTo: "escrow", refundTokens: [USDC.asset] });
     expect(c.refundFloors?.[USDC.asset.toLowerCase()]).toBe((MIN_MIDDLE / 100n).toString());
     expect(c.facts.join(" ")).toMatch(/swapped into USDC .* bounded on chain at 2500000000/);
-    await refused(checkProviderCall(lock(), e), /refund/); // no USDC vault: the refund could not be re-shielded
+    await refused(checkProviderCall(lock(), { ...e, usd: PRICED }), /refund/); // no USDC vault: the refund could not be re-shielded
     await refused(checkProviderCall(lock({ minMiddle: 0n }), pooled), /swap/);
+    // the leg's floor is this wallet's own price less 2 % (the third review round, 2026-11-03)
+    await refused(checkProviderCall(lock({ minMiddle: 1n }), pooled), /below/);
+    await refused(checkProviderCall(lock({ minMiddle: 2_489_199_999n }), pooled), /below/);
+    await refused(checkProviderCall(lock(), { ...pooled, usd: undefined }), /no fresh agreed ETH price/);
+    expect((await checkProviderCall(lock({ minMiddle: 2_489_200_000n, amountIn: 2_489_200_000n }), pooled)).facts.join(" ")).toMatch(/within 2 % of the ETH at this wallet's own price/);
     await refused(checkProviderCall(lock({ middle: WETH_ETHEREUM }), pooled), /swap/);
     await refused(checkProviderCall(lock({ tokenIn: ZERO }), pooled), /order/);
     await refused(checkProviderCall(lock({ amountIn: MIN_MIDDLE - 1n }), pooled), /order/);
@@ -552,6 +575,10 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     expect(serviceVerify(plain(NET - 1000n).calldata, NET - 1000n).verified).toContain("bridged amount backs the output");
     await refused(checkProviderCall(plain(NET + 1n), e), /minimum/);
     expect(() => serviceVerify(plain(NET + 1n).calldata, NET)).toThrow(/more than the \d+ bridged/);
+    // exactly what the escrow forwards (the third review round, 2026-11-03): a smaller bridge amount would strand the rest in the escrow, below the refund floors
+    const less = { provider: PINNED.lifiDiamond, value: NET, calldata: encodeFunctionData({ abi: LIFI_ABI, functionName: "startBridgeTokensViaAcrossV4", args: [bridgeData({ hasSourceSwaps: false, minAmount: NET - 1n }) as any, acrossData({ outputAmount: NET - 2000n }) as any] }) };
+    await refused(checkProviderCall(less, e), /amount/);
+    expect(() => serviceVerify(less.calldata, NET - 2000n)).toThrow(/order amount/);
   });
   it("refuses: another receiver (either field), refund address, delivered asset, chain; a destination call; another spend or value", async () => {
     await refused(checkProviderCall(acrossCall(undefined, undefined, acrossData({ receiverAddress: bytes32Of("base", ATTACKER) })), e), /receiver/);
@@ -595,20 +622,42 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
   });
 
   const SOL32 = bytes32Of("solana", DEST_SOL);
-  const mayanData = (o: Record<string, unknown> = {}) => ({ nonEVMReceiver: SOL32, mayanProtocol: "0x40ffe85a28dc9993541449464d7529a922142960" as Address, protocolData: "0x1234" as Hex, swapProtocol: "0x529863940bf6065d8c122a550c2ff37c1cfefa16" as Address, swapData: "0x" as Hex, middleToken: ENGINE_WETH.ethereum as Address, minMiddleAmount: 1n, refundRecipient: ESCROW, mayanAmountIn: MIN_AMOUNT, ...o });
+  const INNER_MIN = 2_189_073_633n; // 21.89073633 SOL in Swift's 8 decimals
+  const inner = (o: Partial<SwiftOrder> = {}): SwiftOrder => ({ payloadType: 1, trader: addressHex32("ethereum", ESCROW), destAddr: addressHex32("solana", DEST_SOL), destChainId: 1, referrerAddr: Buffer.alloc(32), tokenOut: Buffer.alloc(32), minAmountOut: INNER_MIN, gasDrop: 0n, cancelFee: 53n, refundFee: 10_651n, deadline: BigInt(NOW + 1500), referrerBps: 0, auctionMode: 2, random: Buffer.alloc(32, 7), ...o });
+  // the facet hands protocolData to mayanProtocol as is — here a Swift order of the bridged ETH (the third review round, 2026-11-03: the order inside is read)
+  const mayanData = (o: Record<string, unknown> = {}, order: SwiftOrder = inner()) => ({ nonEVMReceiver: SOL32, mayanProtocol: MAYAN_SWIFT_V2 as Address, protocolData: encodeSwiftCreateOrder(ZERO, MIN_AMOUNT, order) as Hex, swapProtocol: ZERO, swapData: "0x" as Hex, middleToken: ZERO, minMiddleAmount: 0n, refundRecipient: ESCROW, mayanAmountIn: MIN_AMOUNT, ...o });
   const mayanCall = (md = mayanData(), bd = bridgeData({ bridge: "mayan", receiver: "0x11f111f111f111f111f111f111f111f111f111f1", destinationChainId: 1151111081099710n })) => ({ provider: PINNED.lifiDiamond, value: NET, calldata: encodeFunctionData({ abi: LIFI_ABI, functionName: "swapAndStartBridgeTokensViaMayan", args: [bd as any, feeSwap() as any, md as any] }) });
   const es = expectation({ to: SOL, destination: DEST_SOL });
-  it("Mayan facet: accepted only under Fastest (its minimum is inside Mayan's order); its sweep goes to the escrow", async () => {
-    await refused(checkProviderCall(mayanCall(), es), /minimum/);
-    const c = await checkProviderCall(mayanCall(), { ...es, policy: "fastest" });
-    expect(c).toMatchObject({ provider: "lifi", minOut: null, receiver: DEST_SOL });
-    expect(c.facts.join(" ")).toMatch(/not readable/);
+  it("Mayan facet: the Swift order inside is read — its minimum (so any policy may sign it), its trader the escrow, its receiver the fresh address; the sweep goes to the escrow", async () => {
+    const c = await checkProviderCall(mayanCall(), es);
+    expect(c).toMatchObject({ provider: "lifi", minOut: INNER_MIN * 10n, receiver: DEST_SOL, refundTo: "escrow" });
+    expect(c.facts.join(" ")).toMatch(/Swift order inside is decoded/);
+    expect(() => checkMinimum(c, INNER_MIN * 10n)).not.toThrow();
+    expect(() => checkMinimum(c, INNER_MIN * 10n + 1n)).toThrow(MinimumMoved);
   });
-  it("Mayan facet: refuses another non-EVM receiver, a sweep to someone else, a smaller mayanAmountIn", async () => {
-    const f = { ...es, policy: "fastest" as const };
-    await refused(checkProviderCall(mayanCall(mayanData({ nonEVMReceiver: bytes32Of("solana", "11111111111111111111111111111112") })), f), /receiver/);
-    await refused(checkProviderCall(mayanCall(mayanData({ refundRecipient: ATTACKER })), f), /refund/);
-    await refused(checkProviderCall(mayanCall(mayanData({ mayanAmountIn: 1n })), f), /amount/);
+  it("Mayan facet: refuses another non-EVM receiver, a sweep to someone else, a smaller mayanAmountIn; inside the order another trader, receiver or asset, a zero minimum, a gas drop, a passed deadline; a protocol or data it cannot read", async () => {
+    await refused(checkProviderCall(mayanCall(mayanData({ nonEVMReceiver: bytes32Of("solana", "11111111111111111111111111111112") })), es), /receiver/);
+    await refused(checkProviderCall(mayanCall(mayanData({ refundRecipient: ATTACKER })), es), /refund/);
+    await refused(checkProviderCall(mayanCall(mayanData({ mayanAmountIn: 1n })), es), /amount/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ trader: addressHex32("ethereum", ATTACKER) }))), es), /refund/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ destAddr: addressHex32("solana", "11111111111111111111111111111112") }))), es), /receiver/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ tokenOut: addressHex32("ethereum", USDC.asset) }))), es), /asset/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ minAmountOut: 0n }))), es), /minimum/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ gasDrop: 1n }))), es), /fees/);
+    await refused(checkProviderCall(mayanCall(mayanData({}, inner({ deadline: BigInt(NOW) }))), es), /deadline/);
+    await refused(checkProviderCall(mayanCall(mayanData({ mayanProtocol: ATTACKER })), es), /protocol/);
+    await refused(checkProviderCall(mayanCall(mayanData({ protocolData: "0x1234" as Hex })), es), /call/);
+  });
+  it("Mayan facet: a swap leg inside (ETH → USDC by a router Mayan names) is bounded at this wallet's own price less 2 %, as the direct call's is", async () => {
+    const ROUTER = "0x0000000000000000000000000000000000000e77" as Address;
+    const leg = (minMiddleAmount: bigint) => mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: USDC.asset as Address, minMiddleAmount });
+    const priced = { ...es, usd: PRICED, pooled: POOL_USDC };
+    // MIN_AMOUNT (0.9975 ETH) at 2,540 USD is 2,533.65 USDC; the floor is 98 % of it
+    await expect(checkProviderCall(mayanCall(leg(2_482_977_000n)), priced)).resolves.toMatchObject({ provider: "lifi", minOut: INNER_MIN * 10n });
+    await refused(checkProviderCall(mayanCall(leg(2_482_976_999n)), priced), /below/);
+    await refused(checkProviderCall(mayanCall(leg(1n)), priced), /below/);
+    await refused(checkProviderCall(mayanCall(leg(2_482_977_000n)), { ...es, pooled: POOL_USDC }), /no fresh agreed ETH price/);
+    await refused(checkProviderCall(mayanCall(mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: ENGINE_WETH.ethereum as Address, minMiddleAmount: MIN_AMOUNT })), priced), /not bounded in USDC/);
   });
   it("any other facet is a call this wallet cannot read", async () => {
     const other = acrossCall();

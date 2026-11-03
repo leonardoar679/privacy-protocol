@@ -49,7 +49,10 @@ describe("Mayan helpers (offline)", () => {
     // ETH -> SOL as Mayan quoted it on 2026-10-16 (1 ETH, the swap's floor 2,460.75 USDC)
     const live: any = { type: "FAST_MCTP", fromChain: "ethereum", toChain: "solana", toToken: { contract: "0x0000000000000000000000000000000000000000", decimals: 9 }, gasDrop: 0, redeemRelayerFee: 0.738673, refundRelayerFee64: "485684", circleMaxFee64: "270887", deadline64: String(NOW + 1794), minMiddleAmount: 2460.750906422056 };
     const req = { from: ETH, to: SOL, amount: 10n ** 18n };
-    expect(() => checkFastMctpQuote(live, req, NOW)).not.toThrow();
+    // the service's agreed ETH price (the third review round, 2026-11-03): at 2,480 USD the leg's floor is 2,430.4 USDC, under Mayan's 2,460.75
+    const PRICED = { ethUsd1e8: 2_480_00000000n };
+    expect(() => checkFastMctpQuote(live, req, NOW, PRICED)).not.toThrow();
+    expect(() => checkFastMctpQuote(live, req, NOW), "no agreed ETH price: an ETH-source quote is refused, never bounded by the API's word").toThrow(/agreed ETH price/);
     const bent: [string, any, RegExp][] = [
       ["another chain", { toChain: "base" }, /delivers on/],
       ["another token", { toToken: { contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 } }, /delivers/],
@@ -61,9 +64,12 @@ describe("Mayan helpers (offline)", () => {
       ["redeem + refund fees a unit above 1 %", { redeemRelayerFee: 24.121825, refundRelayerFee64: "485685" }, /fees/],
       ["Circle's fee above 1 %", { circleMaxFee64: "24607510" }, /Circle/],
       ["no floor for an ETH order", { minMiddleAmount: undefined }, /minMiddleAmount/],
+      ["the leg's floor a tenth of the ETH (the third review round)", { minMiddleAmount: 246.075 }, /below/],
+      ["the leg's floor a unit under 98 % of the ETH", { minMiddleAmount: 2430.399999 }, /below/],
     ];
-    for (const [what, over, why] of bent) expect(() => checkFastMctpQuote({ ...live, ...over }, req, NOW), what).toThrow(why);
-    expect(() => checkFastMctpQuote({ ...live, redeemRelayerFee: 24.121824, refundRelayerFee64: "485685" }, req, NOW), "exactly 1 % passes").not.toThrow();
+    for (const [what, over, why] of bent) expect(() => checkFastMctpQuote({ ...live, ...over }, req, NOW, PRICED), what).toThrow(why);
+    expect(() => checkFastMctpQuote({ ...live, redeemRelayerFee: 24.121824, refundRelayerFee64: "485685" }, req, NOW, PRICED), "exactly 1 % passes").not.toThrow();
+    expect(() => checkFastMctpQuote({ ...live, minMiddleAmount: 2430.4 }, req, NOW, PRICED), "exactly the floor passes").not.toThrow();
     // a 100 USDC order: the 2 USDC floor covers Mayan's 0.49 + 0.49, and nothing above it
     const small: any = { ...live, redeemRelayerFee: 0.485407, refundRelayerFee64: "485407", circleMaxFee64: "11001", minMiddleAmount: 100 };
     const reqU = { from: USDC, to: SOL, amount: 100_000_000n };

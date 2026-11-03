@@ -54,7 +54,8 @@ export function walletLintFacts(i: WalletLintInput): LintFacts {
     providerIdentityDetached: i.action === "swap" ? (i.quotes ? !!i.quotes.competition : null) : null,
     delaySeconds: i.delaySeconds,
     amountIsBucket: i.amountIsBucket,
-    minOutVerified: i.action === "swap" ? (i.checked ? i.checked.minOut !== null && (i.approvedMin === undefined || i.approvedMin === null || i.checked.minOut >= i.approvedMin) : null) : null,
+    // an approved minimum this call must meet; without one on record nothing is verified (the third review round, 2026-11-03)
+    minOutVerified: i.action === "swap" ? (i.checked ? i.checked.minOut !== null && i.approvedMin !== undefined && i.approvedMin !== null && i.checked.minOut >= i.approvedMin : null) : null,
     privateSubmission: i.settings.submission.kind === "relayer",
     rpcEndpoints: i.deployment ? (i.deployment.rpcUrls?.length ? i.deployment.rpcUrls.length : 1) : 0,
     lightClient: !!i.deployment && i.settings.verifyReads && !!specForChain(i.deployment.chainId),

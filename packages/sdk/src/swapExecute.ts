@@ -21,6 +21,7 @@ import { ProviderCallMismatch, type CheckedCall, type MinimumMoved } from "./pro
 import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote } from "./keys/swapKeys";
 import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
+import { agreedUsd } from "./prices";
 import { DELAY_WINDOW } from "./policy";
 import { noteStore } from "./wallet/notes";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
@@ -234,9 +235,11 @@ export async function prepareAndSign(i: PrepareInput): Promise<Signed | { moved:
     if (health.deployment.factory.toLowerCase() !== factory.toLowerCase()) throw new OrderMismatch("factory", `the swap service builds for ${health.deployment.factory}, this wallet for ${factory}`);
   }
   let prepared = i.reuse ?? (await fresh());
+  // this wallet's own prices (the third review round, 2026-11-03): a swap-first Mayan leg is bounded against them, never the service's word
+  const usd = await agreedUsd(deployment);
   // the digest is of exactly the call shown; the call pays your fresh address from a pinned provider, refunds to the escrow, and guarantees the approved minimum
   const check = (p: Prepared) =>
-    checkBeforeSigning({ prepared: p, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed });
+    checkBeforeSigning({ prepared: p, order, journaled, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed, usd });
   let gate: SignCheck;
   try {
     gate = await check(prepared);

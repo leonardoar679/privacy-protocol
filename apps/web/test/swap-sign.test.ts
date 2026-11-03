@@ -70,6 +70,10 @@ const active: ActiveVaultLookup = async (_chain, v) => {
 const gate = (x: Awaited<ReturnType<typeof commitAndPrepare>>, acceptMin?: bigint) => checkBeforeSigning({ ...x, factory: FACTORY, chainId: 1n, inbound, active, acceptMin });
 
 describe("checkBeforeSigning: the engine's honest THORChain call passes; a bent one is not signed", () => {
+  it("a record without the minimum it approved signs nothing — never a default of zero (the third review round, 2026-11-03)", async () => {
+    const x = await commitAndPrepare();
+    await expect(checkBeforeSigning({ ...x, journaled: { ...x.journaled, approvedMin: undefined }, factory: FACTORY, chainId: 1n, inbound, active })).rejects.toThrow(/minimum you approved is not in this order's record/);
+  });
   it("honest: the escrow is recomputed from the journal, the call pays the fresh address, refunds to the escrow, at the approved minimum", async () => {
     const x = await commitAndPrepare();
     const g = await gate(x);

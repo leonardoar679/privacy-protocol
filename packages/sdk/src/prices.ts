@@ -118,6 +118,25 @@ export class PriceStore {
 
 export const priceStore = new PriceStore(session, undefined, priceState);
 
+/**
+ * The agreed, fresh prices by symbol (`usd1e8`) for a check that must not guess (the third review round, 2026-11-03: the floor a Mayan
+ * order's ETH → USDC leg must meet): the store's read when it is fresh, else a read now through the RPC quorum; a symbol without
+ * an agreed, unstale price is left out, and no feeds for the chain gives nothing. Never throws.
+ */
+export async function agreedUsd(d: Deployment, now = Math.floor(Date.now() / 1000), feeds: FeedSpec[] | null = config().priceFeeds): Promise<Record<string, bigint>> {
+  const specs = feedsFor(d.chainId, feeds);
+  if (!specs.length) return {};
+  let p: Prices | null = priceStore.state().prices;
+  const fresh = (x: Prices | null) => !!x && x.chainId === d.chainId && now - x.at < 300 && specs.every((s) => availablePrice(x, s.symbol, now));
+  if (!fresh(p)) p = await readPrices(d, specs, now).catch(() => null);
+  const out: Record<string, bigint> = {};
+  for (const s of specs) {
+    const a = availablePrice(p, s.symbol, now);
+    if (a) out[s.symbol] = a.usd1e8;
+  }
+  return out;
+}
+
 /** Whether valuation is configured at all for this deployment (spec §13: without feeds for the chain the wallet shows no USD and the tiers are off). */
 export const feedsConfigured = (d: Deployment | null, feeds: FeedSpec[] | null = config().priceFeeds): boolean => !!d && feedsFor(d.chainId, feeds).length > 0;
 

@@ -22,6 +22,7 @@ import type { CheckedCall } from "./providerCall";
 import type { SwapJob } from "./relayer";
 import type { Committed } from "./swapExecute";
 import { CLOSED_STATES, swapFactoryOf } from "./swapFunding";
+import { agreedUsd } from "./prices";
 import { swapService, type Policy, type Preference, type Prepared, type QuoteSet, type ServiceOrder, type ServiceQuote, type SwapRequest } from "./swapService";
 import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
 import type { StoredSwap } from "./wallet/journal";
@@ -203,6 +204,7 @@ export function walletSwapProvider(d: WalletSwapProviderDeps): WalletSwapProvide
         pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })),
         deployment,
         masterSeed: d.masterSeed,
+        usd: await agreedUsd(deployment), // this wallet's own prices bound a swap-first Mayan leg (the third review round, 2026-11-03)
       });
       if (!gate.ok)
         return {

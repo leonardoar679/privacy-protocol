@@ -30,6 +30,8 @@ import { randomBytes } from "node:crypto";
 import { encodeCall, hexBuf, padLeft32, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
 import { escrowCanReshield } from "../escrowAssets";
+import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
+import type { Valuer } from "../valuation";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { AdapterRefusal, SINGLE_PLAN, categoryOf } from "../types";
 
@@ -37,6 +39,21 @@ export const MAYAN_PRICE_API = process.env.MAYAN_PRICE_API ?? "https://price-api
 export const MAYAN_EXPLORER_API = process.env.MAYAN_EXPLORER_API ?? "https://explorer-api.mayan.finance/v3";
 export const MAYAN_SDK_VERSION = "15_2_2"; // the price API rejects requests without a recent sdkVersion
 export const MAYAN_FORWARDER = "0x337685fdab40d39bd02028545a4ffa7d287cc3e2"; // pinned (SDK 15.2.2 addresses)
+/**
+ * The third review round (2026-11-03): an ETH → USDC leg a Mayan order runs first must be bounded (minMiddleAmount) at this share of
+ * the ETH at the service's own agreed Chainlink price, or the quote is refused — the same rule the wallet applies before signing
+ * (packages/sdk/src/providerCall.ts). Before, any positive floor passed, and the Mayan order's own minimum is conditional on a fill.
+ */
+export const MAYAN_MIDDLE_MAX_SHORTFALL_BPS = 200;
+/** The least USDC (base units) an ETH → USDC leg may be bounded at: the ETH at the agreed ETH price, less MAYAN_MIDDLE_MAX_SHORTFALL_BPS. */
+export const middleFloorUsdc = (ethWei: bigint, ethUsd1e8: bigint): bigint => ((ethWei * ethUsd1e8 * 10n ** 6n) / 10n ** 26n) * BigInt(10_000 - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 10_000n;
+/** The agreed ETH price a Mayan quote's leg is bounded against (null: none agreed or stale — an ETH-source quote is then refused). */
+export interface LegPrice { ethUsd1e8?: bigint | null }
+function boundMiddle(minMiddle: bigint, ethWei: bigint, v: LegPrice, what: string): void {
+  if (v.ethUsd1e8 === undefined || v.ethUsd1e8 === null || v.ethUsd1e8 <= 0n) throw new Error(`Mayan ${what}: the ETH → USDC leg cannot be bounded without the service's own agreed ETH price (RPC_URLS feeds): not offered`);
+  const floor = middleFloorUsdc(ethWei, v.ethUsd1e8);
+  if (minMiddle < floor) throw new Error(`Mayan ${what}: minMiddleAmount ${minMiddle} USDC base units is below ${floor}, ${(10_000 - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100} % of the ETH at the agreed price`);
+}
 export const MAYAN_SOLANA_PROGRAM = "FC4eXxkyrMPTjiYUpp4EAnkmwMbQyZ6NDCh1kfLn6vsf";
 /** Fast-MCTP contract the forwarder may hand the order to (pinned from the price API on 2026-10-06; MAYAN_FAST_MCTP overrides). A quote naming another contract is refused. */
 export const MAYAN_FAST_MCTP = (process.env.MAYAN_FAST_MCTP ?? "0xc1062b7c5dc8e4b1df9f200fe360cdc0ed6e7741").toLowerCase();
@@ -142,7 +159,7 @@ export function encodeCreateOrder(tokenIn: string, amountIn: bigint, circleMaxFe
  * asset, in its decimals; no gas drop (none is asked for); a deadline within FAST_MCTP_MIN_DEADLINE_SECONDS .. SWIFT_MAX_DEADLINE_SECONDS;
  * redeem + refund fees within FAST_MCTP_MAX_FEES_BPS of the USDC the order carries (or FAST_MCTP_MIN_FEE_CAP), Circle's fee within 1 %.
  */
-export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): void {
+export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number, v: LegPrice = {}): void {
   if (q.fromChain !== "ethereum") throw new Error("Mayan Fast-MCTP: only orders from Ethereum, the escrow's chain");
   if (q.toChain !== req.to.chain) throw new Error(`Mayan Fast-MCTP: delivers on ${q.toChain}, not ${req.to.chain}`);
   if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase()) || Number(q.toToken.decimals) !== req.to.decimals) throw new Error(`Mayan Fast-MCTP: delivers ${q.toToken.contract} (${q.toToken.decimals} decimals), not ${req.to.symbol}`);
@@ -153,6 +170,7 @@ export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from"
   // the USDC the order carries: the order's own amount, or for ETH the swap's floor (the forwarder hands the order what the router produced)
   if (req.from.asset === "native" && q.minMiddleAmount === undefined) throw new Error("Mayan: minMiddleAmount missing");
   const usdc = req.from.asset === "native" ? fractionalToUnits(q.minMiddleAmount!, CCTP_TOKEN_DECIMALS) : req.amount;
+  if (req.from.asset === "native") boundMiddle(usdc, req.amount, v, "Fast-MCTP");
   const share = (usdc * BigInt(FAST_MCTP_MAX_FEES_BPS)) / 10000n;
   const cap = share > FAST_MCTP_MIN_FEE_CAP ? share : FAST_MCTP_MIN_FEE_CAP;
   const fees = fractionalToUnits(q.redeemRelayerFee, CCTP_TOKEN_DECIMALS) + BigInt(q.refundRelayerFee64);
@@ -191,14 +209,15 @@ export interface SwiftOrder { payloadType: number; trader: Buffer; destAddr: Buf
  * PP-S08); an ERC-20 order locks its own token. The deadline must leave solvers time and still refund inside the watch, and
  * cancel + refund fees stay within SWIFT_MAX_REFUND_FEES_BPS.
  */
-export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number): { tokenIn: string; wrap: boolean; swapToMiddle: boolean } {
+export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number, v: LegPrice = {}): { tokenIn: string; wrap: boolean; swapToMiddle: boolean } {
   if (q.type !== "SWIFT") throw new Error(`Mayan: quote type ${q.type} is not SWIFT`);
   if (q.swiftVersion !== "V2") throw new Error(`Mayan: Swift ${q.swiftVersion ?? "(no version)"} is not supported (V2 only)`);
   if (String(q.swiftMayanContract ?? "").toLowerCase() !== MAYAN_SWIFT_V2) throw new Error(`Mayan: quote names Swift contract ${q.swiftMayanContract}, not the pinned ${MAYAN_SWIFT_V2}`);
   if (q.fromChain !== "ethereum") throw new Error("Mayan SWIFT: only orders from Ethereum, the escrow's chain");
   const destChainId = WORMHOLE_CHAIN[q.toChain];
   if (destChainId === undefined || q.toChain !== req.to.chain || (q.toToken.wChainId !== undefined && Number(q.toToken.wChainId) !== destChainId)) throw new Error(`Mayan SWIFT: delivers on ${q.toChain}, not ${req.to.chain}`);
-  if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase())) throw new Error(`Mayan SWIFT: delivers ${q.toToken.contract}, not ${req.to.symbol}`);
+  // the decimals pinned as Fast-MCTP's are (the third review round, 2026-11-03): minAmountOut is read in min(8, decimals)
+  if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase()) || Number(q.toToken.decimals) !== req.to.decimals) throw new Error(`Mayan SWIFT: delivers ${q.toToken.contract} (${q.toToken.decimals} decimals), not ${req.to.symbol}`);
   const input = String(q.swiftInputContract ?? "").toLowerCase();
   let tokenIn: string, wrap: boolean, swapToMiddle = false;
   if (req.from.asset === "native") {
@@ -218,6 +237,7 @@ export function checkSwiftQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | 
   // Swift's 8-decimal amounts; a swap & lock order is in USDC (6 decimals), at least minMiddleAmount of it
   const inDecimals = swapToMiddle ? CCTP_TOKEN_DECIMALS : req.from.asset === "native" ? 18 : req.from.decimals;
   const orderIn = swapToMiddle ? fractionalToUnits(q.minMiddleAmount!, CCTP_TOKEN_DECIMALS) : req.amount;
+  if (swapToMiddle) boundMiddle(orderIn, req.amount, v, "SWIFT");
   const normalizedIn = inDecimals > 8 ? orderIn / 10n ** BigInt(inDecimals - 8) : orderIn;
   const fees = BigInt(q.cancelRelayerFee64) + BigInt(q.refundRelayerFee64);
   if (fees * 10000n > normalizedIn * BigInt(SWIFT_MAX_REFUND_FEES_BPS)) throw new Error(`Mayan SWIFT: cancel + refund fees (${fees}) above ${SWIFT_MAX_REFUND_FEES_BPS} bps of the order`);
@@ -235,9 +255,9 @@ export function swiftRandom(q: Pick<MayanQuote, "quoteId" | "memoHex">, tail: Bu
 }
 
 /** Build the Swift V2 order from a quote the way the SDK does (`getEvmSwiftParams`), with the escrow as trader: where an unfilled order is refunded. */
-export function swiftOrderFromQuote(q: MayanQuote, req: QuoteRequest, now = Math.floor(Date.now() / 1000), tail?: Buffer): { tokenIn: string; wrap: boolean; swapToMiddle: boolean; order: SwiftOrder } {
+export function swiftOrderFromQuote(q: MayanQuote, req: QuoteRequest, now = Math.floor(Date.now() / 1000), tail?: Buffer, v: LegPrice = {}): { tokenIn: string; wrap: boolean; swapToMiddle: boolean; order: SwiftOrder } {
   if (!req.source) throw new Error("Mayan SWIFT: the escrow address (req.source) is required: it is the trader an unfilled order is refunded to");
-  const { tokenIn, wrap, swapToMiddle } = checkSwiftQuote(q, req, now);
+  const { tokenIn, wrap, swapToMiddle } = checkSwiftQuote(q, req, now, v);
   const order: SwiftOrder = {
     payloadType: SWIFT_PAYLOAD_TYPE_DEFAULT, trader: addressHex32("ethereum", req.source), destAddr: addressHex32(q.toChain, req.destination),
     destChainId: WORMHOLE_CHAIN[q.toChain], referrerAddr: Buffer.alloc(32), tokenOut: q.toToken.contract === ZERO ? Buffer.alloc(32) /* SystemProgram id */ : addressHex32(q.toChain, q.toToken.contract),
@@ -272,8 +292,18 @@ export class MayanAdapter implements ProviderAdapter {
   readonly id = "mayan" as const;
   readonly implemented = true;
   readonly orderTypes: MayanOrderType[];
-  constructor(opts: { orderTypes?: MayanOrderType[] } = {}) {
+  /** the service's own Chainlink reads (whale spec §13): an ETH-source quote's leg is bounded against ETH's agreed price (the third review round, 2026-11-03) */
+  private readonly valuer: Valuer | null;
+  constructor(opts: { orderTypes?: MayanOrderType[]; valuer?: Valuer | null } = {}) {
     this.orderTypes = opts.orderTypes ?? MAYAN_ORDER_TYPES;
+    this.valuer = opts.valuer ?? null;
+  }
+
+  /** The agreed, fresh ETH price (null without one): what an ETH-source quote's leg is bounded against. */
+  private async legPrice(req: QuoteRequest, now: number): Promise<LegPrice> {
+    if (req.from.asset !== "native") return {};
+    const prices = (await this.valuer?.prices(now).catch(() => null)) ?? null;
+    return { ethUsd1e8: availablePrice(prices, "ETH", now)?.usd1e8 ?? null };
   }
 
   capabilities(): Capabilities {
@@ -290,9 +320,10 @@ export class MayanAdapter implements ProviderAdapter {
     const { data, status } = await getJson<{ quotes?: MayanQuote[]; code?: string; msg?: string }>(`${MAYAN_PRICE_API}/quote?${qs}`);
     if (status !== 200) throw new Error(`Mayan quote: HTTP ${status} ${JSON.stringify(data).slice(0, 200)}`);
     const offered = (data.quotes ?? []).filter((x) => this.orderTypes.includes(x.type as MayanOrderType));
+    const leg = await this.legPrice(req, Math.floor(Date.now() / 1000));
     const built: Quote[] = [], refused: string[] = [];
     for (const q of offered) {
-      try { built.push(q.type === "SWIFT" ? this.swiftQuote(req, q) : this.fastQuote(req, q)); } catch (e) { refused.push(`${q.type}: ${(e as Error).message}`); }
+      try { built.push(q.type === "SWIFT" ? this.swiftQuote(req, q, leg) : this.fastQuote(req, q, leg)); } catch (e) { refused.push(`${q.type}: ${(e as Error).message}`); }
     }
     // every quote Mayan offered failed this adapter's own checks: a refusal for this request, never an outage (audit round 2, r03)
     if (!built.length) throw refused.length ? new AdapterRefusal(refused.join("; ")) : new Error(`Mayan: no ${this.orderTypes.join("/")} quote (${(data.quotes ?? []).map((x) => x.type).join(",") || "none"})`);
@@ -302,10 +333,10 @@ export class MayanAdapter implements ProviderAdapter {
     return built[0];
   }
 
-  private swiftQuote(req: QuoteRequest, q: MayanQuote): Quote {
+  private swiftQuote(req: QuoteRequest, q: MayanQuote, leg: LegPrice): Quote {
     if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
     const now = Math.floor(Date.now() / 1000);
-    const { swapToMiddle } = checkSwiftQuote(q, req, now);
+    const { swapToMiddle } = checkSwiftQuote(q, req, now, leg);
     const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
     const toAmountMin = minOutBaseUnits(q);
     if (toAmountMin * 10000n < toAmount * BigInt(10000 - req.slippageBps - 200)) throw new Error(`Mayan: minAmountOut ${toAmountMin} is more than ${req.slippageBps + 200} bps below expectedAmountOut ${toAmount}`);
@@ -320,10 +351,10 @@ export class MayanAdapter implements ProviderAdapter {
     };
   }
 
-  private fastQuote(req: QuoteRequest, q: MayanQuote): Quote {
+  private fastQuote(req: QuoteRequest, q: MayanQuote, leg: LegPrice): Quote {
     const to = mayanToken(req.to), from = mayanToken(req.from);
     if (BigInt(q.effectiveAmountIn64) !== req.amount) throw new Error("Mayan: effectiveAmountIn64 differs from the requested amount");
-    checkFastMctpQuote(q, req, Math.floor(Date.now() / 1000));
+    checkFastMctpQuote(q, req, Math.floor(Date.now() / 1000), leg);
     const toAmount = q.expectedAmountOutBaseUnits ? BigInt(q.expectedAmountOutBaseUnits) : fractionalToUnits(q.expectedAmountOut, req.to.decimals);
     const toAmountMin = minOutBaseUnits(q);
     // a lowered minimum is a changed quote (plan §71/§74): it must sit within slippage + 2 % of the expected output
@@ -348,7 +379,8 @@ export class MayanAdapter implements ProviderAdapter {
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as MayanQuote;
     if (q.type === "SWIFT") {
-      const { tokenIn, wrap, swapToMiddle, order } = swiftOrderFromQuote(q, req);
+      // the leg's floor is checked again at the ingress, at the price agreed now (the third review round, 2026-11-03)
+      const { tokenIn, wrap, swapToMiddle, order } = swiftOrderFromQuote(q, req, Math.floor(Date.now() / 1000), undefined, await this.legPrice(req, Math.floor(Date.now() / 1000)));
       if (swapToMiddle) {
         // swap & lock: the ETH → USDC router call from Mayan, bounded on chain by the forwarder's minMiddleAmount; the forwarder then
         // overwrites the order's amountIn with the USDC the router produced (replaceMiddleAmount, verified source) and Swift locks it

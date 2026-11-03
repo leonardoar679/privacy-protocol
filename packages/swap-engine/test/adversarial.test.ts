@@ -11,6 +11,7 @@ import { LifiAdapter, LIFI_DIAMOND, decodeLifiCall, isAcrossV4Call, verifyLifiTr
 import { escrowCanReshield } from "../src/escrowAssets";
 import { ChainflipAdapter } from "../src/adapters/chainflip";
 import { MayanAdapter, MAYAN_ETH_WRAPPER } from "../src/adapters/mayan";
+import { RpcValuer } from "../src/valuation";
 import { decodeParams, hexBuf } from "../src/abi";
 import { NearIntentsAdapter } from "../src/adapters/nearIntents";
 import { AcrossAdapter } from "../src/adapters/across";
@@ -468,7 +469,8 @@ describe("§74 Chainflip backend malicious — vault pinned, calldata decoded an
 
 // ---------------------------------------------------------------------------------------------------
 describe("§74 Mayan API malicious — payload built locally, contracts pinned, claimed minimum checked (live, tampered)", () => {
-  const a = new MayanAdapter({ orderTypes: ["FAST_MCTP"] });
+  // an ETH-source quote's leg is bounded against the service's own agreed ETH price (the third review round, 2026-11-03): read live
+  const a = new MayanAdapter({ orderTypes: ["FAST_MCTP"], valuer: new RpcValuer(1, (process.env.RPC_URLS ?? "https://ethereum-rpc.publicnode.com").split(",").map((s) => s.trim()).filter(Boolean)) });
   const req: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
   const tamperQuote = (mut: (q: any) => any) =>
     withTamper([{ match: "mayan.finance/v3/quote", json: (b) => ({ ...b, quotes: (b.quotes ?? []).map(mut) }) }], () => a.quote(req));
@@ -497,7 +499,7 @@ describe("§74 Mayan API malicious — payload built locally, contracts pinned, 
 
 // ---------------------------------------------------------------------------------------------------
 describe("§74 Mayan SWIFT API malicious — the order built locally, Swift V2 and the wrapper pinned, fees and deadline bounded (live, tampered)", () => {
-  const a = new MayanAdapter({ orderTypes: ["SWIFT"] });
+  const a = new MayanAdapter({ orderTypes: ["SWIFT"], valuer: new RpcValuer(1, (process.env.RPC_URLS ?? "https://ethereum-rpc.publicnode.com").split(",").map((s) => s.trim()).filter(Boolean)) });
   const req: QuoteRequest = { from: ETH, to: SOL, amount: 10n ** 18n, destination: DEST_SOL, source: ESCROW, slippageBps: 100 };
   const tamperQuote = (mut: (q: any) => any) =>
     withTamper(

@@ -136,7 +136,8 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
     if (d.firstSwap.fromAmount !== req.amount) throw new Error(`LI.FI calldata: first swap amount ${d.firstSwap.fromAmount} != ${req.amount}`);
   } else {
     if (bd.sendingAssetId !== ourAsset) throw new Error(`LI.FI calldata: sendingAssetId ${bd.sendingAssetId} != ${ourAsset}`);
-    if (bd.minAmount > req.amount) throw new Error("LI.FI calldata: minAmount exceeds the order amount");
+    // exactly the order amount (the third review round, 2026-11-03): a smaller minAmount left the rest in the escrow, below the floors
+    if (bd.minAmount !== req.amount) throw new Error("LI.FI calldata: minAmount is not the order amount (a remainder would stay in the escrow)");
   }
   if (bd.minAmount === 0n) throw new Error("LI.FI calldata: minAmount is zero");
   verified.push("destination chain", "no destination call", "spent asset/amount");
