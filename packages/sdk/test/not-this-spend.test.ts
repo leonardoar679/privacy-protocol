@@ -10,7 +10,7 @@ import type { Deployment, TreeState } from "../src/chain";
 import type { PublicInputs } from "@privacy-wallet/protocol/prover";
 
 const HASH = ("0x" + "5a".repeat(32)) as Hex;
-const w = vi.hoisted(() => ({ spends: [] as [bigint, bigint][], tree: null as unknown, sent: 0, spec: null as unknown }));
+const w = vi.hoisted(() => ({ spends: [] as [bigint, bigint][], tree: null as unknown, sent: 0, spec: null as unknown, gate: null as Promise<void> | null }));
 vi.mock("../src/deploymentGuard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/deploymentGuard")>()),
   guardDeployment: async () => undefined,
@@ -31,6 +31,7 @@ vi.mock("../src/chain", async (importOriginal) => {
     },
     // the receipt: the merge's outputs at the next leaves, and the nullifier pair its event names
     minedTx: async () => {
+      if (w.gate) await w.gate; // a receipt that takes its time (the third review round: a lock and a REPLACE in between)
       const outputs = (w.spec as { outputs: Parameters<typeof noteBody>[0][] }).outputs;
       return { inserted: outputs.map((n, i) => ({ leafIndex: 2 + i, commitment: noteCommitment(noteBody(n), BigInt(2 + i)) })), costWei: 1n, spends: w.spends };
     },
@@ -159,5 +160,28 @@ describe("a spend is the transaction that spends its notes", () => {
         .map((n) => n.leafIndex),
     ).toEqual([0, 1]);
     expect(r.merged.note.amount).toBe(2n * 10n ** 17n);
+  });
+
+  it("a receipt that lands after a lock and a REPLACE with another phrase in the same tab records nothing into the new wallet (the third review round, 2026-11-03)", async () => {
+    const [a, b] = twoNotes();
+    w.spends = [[N0, N1]];
+    let release!: () => void;
+    w.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const merge = mergeNotes({ masterSeed: seed, deployment, a, b, submission: { kind: "wallet" } }).catch((x: unknown) => x);
+    for (let i = 0; i < 200 && w.sent === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(w.sent, "sent, the receipt not yet in").toBe(1);
+    const before = session.epoch();
+    session.lock();
+    await session.create("another password", new Uint8Array(32).fill(9), { replace: true });
+    expect(session.epoch()).not.toBe(before);
+    release();
+    const e = await merge;
+    expect(e).toMatchObject({ code: "locked_mid_flow" });
+    expect(noteStore.all(), "the other wallet's store holds nothing of the old wallet's spend").toEqual([]);
+    w.gate = null;
+    session.lock();
+    await session.create("a strong password", undefined, { replace: true });
   });
 });

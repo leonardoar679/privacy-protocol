@@ -18,6 +18,45 @@ beforeEach(() => {
   store = new NoteStore();
 });
 
+describe("a spent mark and its proof (the third review round, 2026-11-03)", () => {
+  it("a mark from a receipt or the quorum waits for its proof with the block it was seen at; the proof makes it final; only an unproven mark can be lifted", () => {
+    const n = note(5n, 21n);
+    store.add(owned(n, 3));
+    store.markSpent([3], { atBlock: 1_000 });
+    expect(store.all()[0]).toMatchObject({ spent: true, spentUnproven: true, spentAtBlock: 1_000 });
+    expect(store.unspent(VAULT)).toEqual([]);
+    store.markUnspent([3]);
+    expect(store.all()[0]).toMatchObject({ spent: false });
+    expect(store.all()[0].spentUnproven, "lifted: the fields go").toBeUndefined();
+    expect(store.all()[0].spentAtBlock).toBeUndefined();
+    store.markSpent([3], { atBlock: 1_200, proven: true });
+    expect(store.all()[0]).toMatchObject({ spent: true });
+    expect(store.all()[0].spentUnproven, "proven at once: nothing to prove later").toBeUndefined();
+    store.markUnspent([3]);
+    expect(store.all()[0].spent, "a proven mark is never lifted").toBe(true);
+    store.markSpent([3], { atBlock: 1_300 });
+    expect(store.all()[0].spentUnproven, "marking a spent note again does not reopen a proven mark").toBeUndefined();
+  });
+  it("confirmSpent makes an unproven mark final; a second copy carries its mark into the first; the journal keeps both fields", () => {
+    const n = note(6n, 22n);
+    store.add(owned(n, 4));
+    store.markSpent([4], { atBlock: 77 });
+    store.confirmSpent([4]);
+    expect(store.all()[0]).toMatchObject({ spent: true });
+    expect(store.all()[0].spentUnproven).toBeUndefined();
+    const m = note(7n, 23n);
+    store.add(owned(m, 5));
+    store.add(owned(m, 5, { spent: true, spentUnproven: true, spentAtBlock: 90 }));
+    expect(store.all()[1]).toMatchObject({ spent: true, spentUnproven: true, spentAtBlock: 90 });
+    const again = new NoteStore();
+    again.load(store.serialize());
+    expect(again.all()[1]).toMatchObject({ spent: true, spentUnproven: true, spentAtBlock: 90 });
+    expect(again.all()[0].spentUnproven).toBeUndefined();
+    expect(store.serialize().notes[0]).not.toHaveProperty("spentUnproven");
+    expect(store.serialize().notes[1]).toMatchObject({ spentUnproven: true, spentAtBlock: 90 });
+  });
+});
+
 describe("one note per leaf", () => {
   it("a scan's copy, then the flow's: one note, counted once, with the flow's label, counter, time and transaction", () => {
     const n = note(10n ** 18n, 11n);

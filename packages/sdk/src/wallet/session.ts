@@ -99,6 +99,13 @@ export class WalletSession {
   private holdList = new Map<number, Hold>();
   private holdSeq = 0;
   private lockHooks = new Set<() => void>();
+  /**
+   * The third review round (2026-11-03): which opening of a wallet a flow belongs to — raised at every open and lock, so a result
+   * that arrives after a lock, or after another phrase replaced this wallet in the same tab, is never written into the wrong store
+   * or journal (the scan records it for the right wallet).
+   */
+  private epochCount = 0;
+  epoch(): number { return this.epochCount; }
   private safeHooks = new Set<() => void>();
   /** resolves once the store has hydrated and the status reflects the device (V5); started by the first read (V6 Stage 4) */
   get ready(): Promise<void> {
@@ -336,6 +343,7 @@ export class WalletSession {
   }
 
   lock(): void {
+    this.epochCount++;
     this.pendingPhrase = null;
     this.firstLaunch = false;
     this.seed?.fill(0);
@@ -400,6 +408,7 @@ export class WalletSession {
   }
 
   private open(seed: Uint8Array, journal: JournalData): void {
+    this.epochCount++;
     this.seed = seed;
     this.key = journalKey(seed);
     this.data = journal;

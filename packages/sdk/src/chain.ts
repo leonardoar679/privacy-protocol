@@ -286,6 +286,8 @@ export async function minedTx(
   spends: [bigint, bigint][];
   /** payouts a recipient refused, each held by its vault as that address's claim (audit round 2, r42) */
   claims: { vault: Address; recipient: Address; amount: bigint }[];
+  /** the receipt's block (the third review round, 2026-11-03): where a spend was seen, for the mark the scan proves later */
+  blockNumber: number;
 }> {
   const receipt = await client.waitForTransactionReceipt({ hash });
   if (others.length) {
@@ -298,7 +300,8 @@ export async function minedTx(
   const inserted = parseEventLogs({ abi: coreAbi, logs, eventName: "NoteInserted" }).map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment }));
   const spends = parseEventLogs({ abi: coreAbi, logs, eventName: "ShieldedTransaction" }).map((l) => [l.args.nullifier0, l.args.nullifier1] as [bigint, bigint]);
   const claims = parseEventLogs({ abi: [claimCreated], logs: receipt.logs }).map((l) => ({ vault: getAddress(l.address), recipient: getAddress(l.args.recipient), amount: l.args.amount }));
-  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends, claims }; // an RPC that omits the price: no cost known
+  // the receipt's block too (the third review round, 2026-11-03): where a spend was seen, for the mark the scan proves later
+  return { inserted, costWei: receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n), spends, claims, blockNumber: Number(receipt.blockNumber) }; // an RPC that omits the price: no cost known
 }
 
 /**

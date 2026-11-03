@@ -9,7 +9,7 @@
 // relayer's fee note to its privacy address, dummies are indistinguishable filler — so every note
 // can be recovered from chain by rescanning (scanNotes).
 import type { OnEvent } from "./operations/engineEvents";
-import type { Address, Hex } from "viem";
+import type { Address, Hex, PublicClient } from "viem";
 import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@privacy-wallet/protocol/keys";
 import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
@@ -28,7 +28,7 @@ import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
 import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
-import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { RpcDisagreement, clientFor, clientsFor, depositedLogsQuorum, minedTx, otherClientsFor, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
@@ -155,9 +155,13 @@ export async function trackShield(p: PreparedShield, txHash: Hex): Promise<numbe
 
 /** trackShield, with what the deposit really cost (V6, spec v2.0 §3). */
 export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{ leafIndex: number; costWei: bigint }> {
+  const epoch = session.epoch();
   const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment)); // every endpoint's receipt (audit round 2, r23)
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
+  // the wallet this flow belongs to (the third review round, 2026-11-03): after a lock — and a REPLACE with another phrase in the same tab —
+  // the deposit's note had gone into whatever store was open; the right wallet's scan finds it from its self-envelope
+  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the deposit was recorded; it is mined, and the next scan records its note"), { code: "locked_mid_flow" });
   noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield", addedAt: Date.now() });
   return { leafIndex: mine.leafIndex, costWei };
 }
@@ -466,6 +470,7 @@ async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Pr
 }
 async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
+  const epoch = session.epoch();
   o.onEvent?.({ type: "proving" });
   // V6 Stage 15 (spec v2.0 §14.3): the plan goes to the prover, which builds the circuit inputs where it proves (the
   // crypto worker on the web) — and throws, as the builder always did, when a note does not open its leaf or the value
@@ -498,11 +503,15 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   }
   o.onStatus?.("Waiting for the transaction to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
-  const { inserted, costWei, spends, claims } = await minedTx(client, txHash, o.deployment.core, otherClientsFor(o.deployment)); // every endpoint's receipt (audit round 2, r23)
+  const { inserted, costWei, spends, claims, blockNumber } = await minedTx(client, txHash, o.deployment.core, otherClientsFor(o.deployment)); // every endpoint's receipt (audit round 2, r23)
   // the notes are spent by this transaction, or by none the wallet knows of (c31)
   const [n0, n1] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
   if (!spends.some(([a, b]) => a === n0 && b === n1)) throw new NotThisSpend(txHash);
-  noteStore.markSpent(o.spent.map((n) => n.leafIndex));
+  // the wallet this flow belongs to (the third review round, 2026-11-03): after a lock — and a REPLACE with another phrase in the same tab —
+  // the spent marks, the change note and the Activity line had gone into whatever store and journal were open; the right wallet's
+  // scan reads the spends and finds its change note from its self-envelope
+  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the result was recorded; the transaction stands, and the next scan records it"), { code: "locked_mid_flow" });
+  noteStore.markSpent(o.spent.map((n) => n.leafIndex), { atBlock: blockNumber }); // one confirmation: proven by the scan at a finalized block
   const find = (n: Note) => inserted.find((i) => i.commitment === noteCommitment(noteBody(n), BigInt(i.leafIndex)));
   let change: OwnedNote | undefined;
   if (o.change) {
@@ -822,9 +831,23 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
  */
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
-/** Found notes into the store, each with its spent status: the RPC quorum's answer and, where a light client applies, the proven one. */
+/** One nullifier's spent bit from every configured endpoint; they must agree (RpcDisagreement otherwise). */
+async function agreedSpent(d: Deployment, clients: readonly PublicClient[], nf: bigint): Promise<boolean> {
+  const all = await Promise.all(clients.map(async (c) => (await c.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
+  if (new Set(all).size !== 1) throw new RpcDisagreement("a nullifier", all.map(String));
+  return all[0];
+}
+
+/**
+ * Found notes into the store, each with its spent status: every endpoint's answer, agreed (the third review round, 2026-11-03;
+ * threat-model A2 — the first endpoint alone had decided it, and its false "spent" hid a note for good, since no path lifted the
+ * flag and no rescan starts from nothing), and, where a light client applies, the proven one: what the quorum calls unspent
+ * (an endpoint hiding a spend, n44) and a spent mark not yet proven — new, or marked at an earlier scan or from a receipt — a
+ * batch at a time, never the whole history of spent notes. A mark the finalized chain at or past its block does not confirm, or
+ * the quorum no longer makes, is lifted: the chain does not have that spend.
+ */
 async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], stop?: () => boolean): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
-  const client = clientFor(d);
+  const clients = clientsFor(d);
   // each note's nullifier is its own key's (the audit round of 2026-10-16, c18): with the spend key, a spent deposited note
   // would read unspent for good. A note neither key opens is left out, not the whole scan
   const main = mainOwnerCommitment(keys);
@@ -834,26 +857,40 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
   });
   const found = keyed.map((k) => k.f);
   const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
-  const rpcSpent = await Promise.all(nullifiers.map(async (nf) => (await client.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
-  // only what the endpoint calls unspent is proven, a batch at a time (audit round 2, n44): the proof catches an endpoint hiding
-  // a spend, and one eth_getProof over every note ever found — spent ones included — grew with the wallet's history past the
-  // endpoints' response limits and the 20 s timeout, failing every scan of a long-lived wallet
-  const unspent = rpcSpent.flatMap((s, i) => (s ? [] : [i]));
-  const proven = await provenSpent(d, unspent.map((i) => nullifiers[i]));
-  const provenSpentAt = new Set(proven ? unspent.filter((_, j) => proven.spent[j]) : []);
+  // where a spend read now was seen: the endpoints' latest block (the furthest ahead), so a finalized chain at or past it covers the read
+  const atBlock = Number((await Promise.all(clients.map((c) => c.getBlockNumber()))).reduce((m, b) => (b > m ? b : m), 0n));
+  const rpcSpent = await Promise.all(nullifiers.map((nf) => agreedSpent(d, clients, nf)));
+  const known = (f: FoundNote) => noteStore.all().find((n) => n.leafIndex === f.leafIndex);
+  const toProve = rpcSpent.flatMap((s, i) => {
+    if (!s) return [i];
+    const k = known(found[i]);
+    return !k || !k.spent || k.spentUnproven ? [i] : [];
+  });
+  const proven = await provenSpent(d, toProve.map((i) => nullifiers[i]));
+  const provenAt = new Map<number, boolean>(proven ? toProve.map((i, j) => [i, proven.spent[j]] as [number, boolean]) : []);
   if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
   for (const [i, f] of found.entries()) {
-    if (provenSpentAt.has(i)) throw new TreeNotProven(`the RPC endpoint says the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven!.blockNumber}`);
     const spent = rpcSpent[i];
+    const p = provenAt.get(i);
+    if (!spent && p === true) throw new TreeNotProven(`the RPC endpoints say the note at leaf ${f.leafIndex} is unspent; it was spent by finalized block ${proven!.blockNumber}`);
     if (spent) spentCount++;
-    const known = noteStore.all().find((n) => n.leafIndex === f.leafIndex);
-    if (known) {
-      if (spent && !known.spent) noteStore.markSpent([f.leafIndex]);
+    const k = known(f);
+    if (k) {
+      if (spent) {
+        if (!k.spent) noteStore.markSpent([f.leafIndex], { atBlock, proven: p === true });
+        else if (k.spentUnproven) {
+          if (p === true) noteStore.confirmSpent([f.leafIndex]);
+          // the finalized chain at or past the block the spend was seen at does not have it: a dropped block, or an endpoint set that lies
+          else if (p === false && k.spentAtBlock !== undefined && Number(proven!.blockNumber) >= k.spentAtBlock) noteStore.markUnspent([f.leafIndex]);
+        }
+      } else if (k.spent && k.spentUnproven) {
+        noteStore.markUnspent([f.leafIndex]); // the quorum no longer calls it spent: the block that spent it was dropped
+      }
       continue;
     }
-    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}) });
+    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}), ...(spent && p !== true ? { spentUnproven: true as const, spentAtBlock: atBlock } : {}) });
     added++;
     addedNotes.push(f);
   }
@@ -960,9 +997,12 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // deposited note's own owner commitment), and that is no swap's refund or delivery: someone sent it here
   const refundLeaves = new Set(refunds.map((x) => x.leafIndex));
   const isReceived = (f: FoundNote) => f.counter === undefined && !refundLeaves.has(f.leafIndex) && f.note.ownerCommitment === main;
-  // one received past the proven pool waits for the scan whose proof covers its leaf (audit round 2, r24): there an endpoint
-  // quorum can invent a note made out to a published privacy address, and it entered the balance as received for good
-  const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && isReceived(f) && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
+  // a note past the proven pool waits for the scan whose proof covers its leaf (audit round 2, r24: there an endpoint quorum can
+  // invent a note made out to a published privacy address, and it entered the balance as received for good; the third review round,
+  // 2026-11-03: every note new to the store, not only a transfer received — a protect's opening is public calldata, so the quorum
+  // could replay this wallet's own note at a leaf in the tail just as well). This wallet's own flows record their notes from a
+  // quorum-agreed receipt, so nothing of theirs waits
+  const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, locked);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
@@ -977,8 +1017,8 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   }
   const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });
   const received = addedNotes.filter(isReceived).map(asReceived);
-  o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}${waiting.length ? `, ${waiting.length} received waiting for finality` : ""}).`);
-  return { scanned: logs.length, ...r, refunds: refunds.length, received, pending: waiting.map(asReceived), proven };
+  o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}${waiting.length ? `, ${waiting.length} waiting for finality` : ""}).`);
+  return { scanned: logs.length, ...r, refunds: refunds.length, received, pending: waiting.filter(isReceived).map(asReceived), proven };
 }
 
 /** V6 Stage 12: the delivered note of a same-chain swap into the protected balance, once the executor reports a shield. */

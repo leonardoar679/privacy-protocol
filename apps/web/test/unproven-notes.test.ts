@@ -16,10 +16,11 @@ import { useCoreModule } from "@privacy-wallet/sdk/core";
 import { scanNotes } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { RpcDisagreement } from "@privacy-wallet/sdk/chain";
 import { startMockCore } from "./helpers/mockRpc";
 
-/** The leaves the light client proves at the latest finalized block (null: no light client for this chain). */
-const proof = vi.hoisted(() => ({ leaves: null as number | null, asked: [] as number[] }));
+/** The leaves the light client proves at the latest finalized block (null: no light client for this chain); the spent bits it proves (spentAll: null = no proof) and that block. */
+const proof = vi.hoisted(() => ({ leaves: null as number | null, asked: [] as number[], spentAll: null as boolean | null, spentBlock: 32n }));
 vi.mock("@privacy-wallet/sdk/verifiedReads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/verifiedReads")>()),
   verifyTree: async () =>
@@ -28,7 +29,7 @@ vi.mock("@privacy-wallet/sdk/verifiedReads", async (importOriginal) => ({
       : { kind: "verified", proof: { blockNumber: 1n, slot: 1, nextLeafIndex: proof.leaves, root: 0n }, leaves: proof.leaves },
   provenSpent: async (_d: unknown, nullifiers: bigint[]) => {
     proof.asked.push(nullifiers.length);
-    return null;
+    return proof.spentAll === null || !nullifiers.length ? null : { blockNumber: proof.spentBlock, spent: nullifiers.map(() => proof.spentAll!) };
   },
 }));
 
@@ -52,6 +53,11 @@ const tree = new MerkleTree(TX_LEVELS);
 for (const leaf of [0, 4]) tree.insertGroup([events[leaf].commitment, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
 
 let mock: Awaited<ReturnType<typeof startMockCore>>;
+/** a second endpoint serving the same pool (the third review round: the spent bits must agree across endpoints) */
+let other: Awaited<ReturnType<typeof startMockCore>>;
+/** a pool with this wallet's second own note (counter 1) at leaf 8, in the tail no proof covers yet */
+let tailed: Awaited<ReturnType<typeof startMockCore>>;
+const own2: Note = { vaultId: BigInt(VAULT), amount: 2n * 10n ** 18n, ownerCommitment: main, noteSecret: deriveNoteSecret(keys.noteKey, 1) };
 const deployment = (): Deployment => ({ chainId: 1, core: CORE, ethVault: VAULT, rpcUrl: mock.url, rpcUrls: [mock.url], fromBlock: 0n, erc20Vaults: [] });
 const leaves = () =>
   noteStore
@@ -60,12 +66,25 @@ const leaves = () =>
     .sort((a, b) => a - b);
 beforeAll(async () => {
   mock = await startMockCore({ core: CORE, events, nextLeafIndex: 8, root: tree.root });
+  other = await startMockCore({ core: CORE, events, nextLeafIndex: 8, root: tree.root });
+  const tailEvents = { ...events, 8: { commitment: noteCommitment(noteBody(own2), 8n), noteData: hex(encryptNoteData(view.publicKey, plain(own2))) } };
+  const tailTree = new MerkleTree(TX_LEVELS);
+  for (const leaf of [0, 4, 8]) tailTree.insertGroup([tailEvents[leaf as 0 | 4 | 8].commitment, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
+  tailed = await startMockCore({ core: CORE, events: tailEvents, nextLeafIndex: 12, root: tailTree.root });
 });
-afterAll(() => mock.close());
+afterAll(() => {
+  mock.close();
+  other.close();
+  tailed.close();
+});
 beforeEach(() => {
   useCoreModule(null);
   noteStore.clear();
   proof.leaves = null;
+  proof.spentAll = null;
+  proof.spentBlock = 32n;
+  mock.state.spent = false;
+  other.state.spent = false;
 });
 
 describe("notes past the pool the light client proved (audit round 2, r24)", () => {
@@ -91,19 +110,39 @@ describe("notes past the pool the light client proved (audit round 2, r24)", () 
     expect(r).toMatchObject({ pending: [], proven: null });
   });
 
-  it("a scan proves only the notes the endpoint calls unspent: the spent ones of a wallet's history are not proven again (audit round 2, n44)", async () => {
+  it("a scan proves what the endpoints call unspent and the spent marks not yet proven — never the proven history of spent notes (audit round 2, n44; the third review round, 2026-11-03)", async () => {
     proof.leaves = 8;
     await scanNotes({ masterSeed: seed, deployment: deployment() });
     expect(proof.asked.at(-1), "both unspent: both proven").toBe(2);
     noteStore.clear();
     mock.state.spent = true;
+    proof.spentAll = true;
     try {
       await scanNotes({ masterSeed: seed, deployment: deployment() });
-      expect(proof.asked.at(-1), "both spent: none").toBe(0);
-      expect(noteStore.all().every((n) => n.spent)).toBe(true);
+      expect(proof.asked.at(-1), "both spent, new to the store: both marks proven once").toBe(2);
+      expect(
+        noteStore.all().every((n) => n.spent && n.spentUnproven === undefined),
+        "and final",
+      ).toBe(true);
+      await scanNotes({ masterSeed: seed, deployment: deployment() });
+      expect(proof.asked.at(-1), "a wallet's spent history is not proven again").toBe(0);
     } finally {
       mock.state.spent = false;
     }
+  });
+
+  it("this wallet's own note in the unproven tail waits too (the third review round, 2026-11-03): a protect's opening is public, so the quorum could replay it there; it enters when the proof covers its leaf, never as received", async () => {
+    const d = { ...deployment(), rpcUrl: tailed.url, rpcUrls: [tailed.url] };
+    proof.leaves = 8;
+    const first = await scanNotes({ masterSeed: seed, deployment: d });
+    expect(leaves(), "the received note at 4 is proven; the own note at 8 is in the tail").toEqual([0, 4]);
+    expect(first.pending, "an own note is never a transfer received").toEqual([]);
+    expect(noteStore.nextCounter(), "its counter is still observed").toBe(2);
+    proof.leaves = 12;
+    const second = await scanNotes({ masterSeed: seed, deployment: d });
+    expect(leaves()).toEqual([0, 4, 8]);
+    expect(second.received).toEqual([]);
+    expect(noteStore.all().find((n) => n.leafIndex === 8)).toMatchObject({ counter: 1, spent: false });
   });
 
   it("a stored note at a proven leaf that holds another commitment is dropped; one past the proven pool is left", async () => {
@@ -114,5 +153,66 @@ describe("notes past the pool the light client proved (audit round 2, r24)", () 
     await scanNotes({ masterSeed: seed, deployment: deployment() });
     expect(leaves()).toEqual([0, 4, 9]);
     expect(noteStore.balance(BigInt(VAULT))).toBe(own.amount + received.amount + phantom.amount);
+  });
+});
+
+describe("the spent bits come from every endpoint and are proven both ways (the third review round, 2026-11-03)", () => {
+  const two = (): Deployment => ({ ...deployment(), rpcUrls: [mock.url, other.url] });
+  it("one endpoint's false 'spent' fails the scan instead of hiding the note: the endpoints must agree, and nothing is written", async () => {
+    other.state.spent = true;
+    await expect(scanNotes({ masterSeed: seed, deployment: two() })).rejects.toBeInstanceOf(RpcDisagreement);
+    expect(noteStore.all()).toEqual([]);
+    other.state.spent = false;
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(noteStore.all().map((n) => n.spent)).toEqual([false, false]);
+  });
+  it("a spent mark the quorum makes waits for its proof at the block it was seen at (16): a finalized chain before that decides nothing; at or past it without the spend lifts the mark; with the spend confirms it", async () => {
+    mock.state.spent = true;
+    other.state.spent = true;
+    proof.leaves = 8;
+    proof.spentAll = false;
+    proof.spentBlock = 8n; // finalized before the read: undecided
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(noteStore.all().map((n) => [n.spent, n.spentUnproven, n.spentAtBlock])).toEqual([
+      [true, true, 16],
+      [true, true, 16],
+    ]);
+    expect(proof.asked.at(-1), "both marks proven (none unspent)").toBe(2);
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(
+      noteStore.all().every((n) => n.spent && n.spentUnproven),
+      "still undecided: finalized 8 < 16",
+    ).toBe(true);
+    proof.spentBlock = 16n; // the finalized chain reaches the block of the read and has no such spend: the quorum lies, or the block was dropped
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(
+      noteStore.all().map((n) => n.spent),
+      "lifted",
+    ).toEqual([false, false]);
+    expect(noteStore.all().every((n) => n.spentUnproven === undefined && n.spentAtBlock === undefined)).toBe(true);
+    proof.spentAll = true; // the proof confirms the spends
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(noteStore.all().map((n) => [n.spent, n.spentUnproven])).toEqual([
+      [true, undefined],
+      [true, undefined],
+    ]);
+    expect(proof.asked.at(-1), "proven marks are not proven again (n44)").toBe(2);
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(proof.asked.at(-1), "nothing left to prove").toBe(0);
+  });
+  it("without a light client, a mark the quorum no longer makes is lifted (a dropped block); a proven mark is never lifted on the quorum's word", async () => {
+    mock.state.spent = true;
+    other.state.spent = true;
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(noteStore.all().map((n) => [n.spent, n.spentUnproven])).toEqual([
+      [true, true],
+      [true, true],
+    ]);
+    mock.state.spent = false;
+    other.state.spent = false;
+    noteStore.confirmSpent([0]); // as the light client would have
+    await scanNotes({ masterSeed: seed, deployment: two() });
+    expect(noteStore.all().find((n) => n.leafIndex === 0)!.spent, "a proven mark stands").toBe(true);
+    expect(noteStore.all().find((n) => n.leafIndex === 4)!.spent, "an unproven one is lifted").toBe(false);
   });
 });
