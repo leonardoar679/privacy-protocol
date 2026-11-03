@@ -38,7 +38,9 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
   owes the protocol the 1 %. A relayer whose terms ask more than the 1 % (`feePercentBps` above 100) is not used. There is
   no other relayer percentage.
 - **The executor tip** of a swap is the execution's gas cost, estimated from the chain's fee history — never a
-  percentage and never a fixed gas price; the escrow caps it at 1 % of the funding.
+  percentage and never a fixed gas price; the escrow caps it at 1 % of the funding. A protected execution's steps each pay
+  their own tip at their time, within the bounds; the Review's relayer row for steps carries today's estimate of them,
+  marked as an estimate (the third review round, 2026-11-03).
 - A Protect pays its own network cost from the connected wallet, in the chain's coin, as any transaction does.
 
 ## 3. When nothing is charged

@@ -155,6 +155,13 @@ theirs by the Review's F (`bounds.maxRelayerFee`) at the commit and in the note 
 (Advanced) pays no privacy fee and no relayer fee: its Review's relayer row says the wallet pays the network fee and the fee
 statement says no privacy fee is charged (gap 31's rule, now stated).
 
+**As landed (the third review round, 2026-11-03).** The band's steps Review states the campaign's price bound as its Minimum —
+the quote's minimum per unit less 0.5 % over the steps' amount, net of the tips, a unit per step under the steps' own floors
+(`campaignMinimumOutput`) — and its Protected execution card reads "Price bound: each step guarantees the quote's minimum per
+unit, less 0.5 %" in place of "Quote locked"; the relayer row for steps is marked an estimate, as the tips are (each step pays
+its own at its time, within the bounds). Before, it stated the one order's minimum, which no step was held to, and the campaign
+could deliver about half a per cent under it without a pause.
+
 ## 4. The amount policy (doc §8) — *Stage 13* (supersedes v2.0 §2; the owner's decisions 3 and 4 of §22)
 
 | Doc §8 band | Tier (code) | Behaviour |
@@ -326,6 +333,23 @@ executor before waiting; a campaign whose relayer runs no swaps pauses for the u
 answers a job it has and admits a funded escrow (a hand-over, a Return funds) whatever the cap; a job keeps the twelve order
 fields and the five execution fields; a `lapsed` job reads REFUNDING past the funding; the commit and the executor check
 the shapes; the API's execution hash follows the relayer's re-send; the engine's vault lookup is by the asset's lower case.
+
+**As landed (the third review round, 2026-11-03), the engines and the guard.** A Mayan order's ETH → USDC leg (a router Mayan
+names, bounded on chain by the forwarder's `minMiddleAmount`) is bounded at this wallet's own agreed Chainlink ETH price less
+2 % (`MAYAN_MIDDLE_MAX_SHORTFALL_BPS`; the price read through the wallet's RPC quorum at signing, `agreedUsd`) and the call is
+refused without a fresh agreed price; the engine applies the same bound to the quotes it ranks and at the ingress — before, any
+positive floor passed, and a swap service could route the whole order through its own pool with the Mayan order holding one
+USDC unit, the order's own minimum being conditional on a fill. The order inside LI.FI's Mayan facet is read (a Swift order's
+trader must be the escrow, the receiver the fresh address, the asset the one asked, the minimum read — the route has a
+minimum now); the minimum the user approved is never defaulted to zero (a record without it signs nothing); LI.FI's
+bridge-only variant bridges exactly the escrow's amount; a THORChain stream's parts × interval fit a day of blocks. The scan
+reads every found note's spent bit from every endpoint, agreed (`RpcDisagreement` otherwise — the first endpoint alone had
+decided it, and its false "spent" hid a note for good), and proves the marks both ways: a spent mark waits for its proof
+(`spentUnproven`, `spentAtBlock` in the journal's notes; proven once, never the history again) and is lifted when the finalized
+chain at or past the block it was seen at does not have the spend, or the quorum no longer makes it. A result that arrives after
+a lock — or after another phrase replaced the wallet in the same tab — writes nothing (the session's epoch; the right wallet's
+scan records it). Every note new to the store past the proven pool waits for the scan whose proof covers its leaf, not only a
+transfer received: a protect's opening is public calldata, so the quorum could replay this wallet's own note in the tail.
 
 ## 7. Tornado Classic (doc §1, §4, §10 "Tornado Classic", §11, §13 "Classic") — *Stages 1–3, 5–11* (supersedes v2.0 §11.3 and the Classic rows of §7.11 and §23)
 

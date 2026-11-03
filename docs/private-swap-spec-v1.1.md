@@ -148,7 +148,9 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
   variant `minAmount × outputAmountMultiplier / 1e18`, because the facet recomputes it on chain, with
   the multiplier at most one in the units of the bridged token, which must be the asset delivered, so
   that `minAmount`, the source swap's floor, backs it — and
-  for MayanFacet the sweep recipient (the escrow) and `mayanAmountIn`; the Across swap leg pins the
+  for MayanFacet the sweep recipient (the escrow), `mayanAmountIn` and the order inside (`protocolData`, handed to Mayan as is: a
+  Swift order's trader must be the escrow, its receiver the fresh address, its asset the one asked, its minimum read; a Fast-MCTP
+  order's receiver, asset and minimum; a swap leg inside is bounded as the direct call's — the third review round, 2026-11-03); the Across swap leg pins the
   SpokePoolPeriphery and the SpokePool it deposits into (the periphery accepts any and approves it for
   the swapped tokens), takes the guaranteed output from the deposit's `outputAmount` (proportional
   adjustment only raises it), which the swap's own floor `minExpectedInputTokenAmount` must cover in the
@@ -175,6 +177,16 @@ C Uniswap-Across/LI.FI; D Mayan/NEAR/LI.FI; E THORChain/Chainflip/NEAR/LI.FI.
 - Where a provider offers no limit, the engine MUST mark the route `minOutEncoded: false` and the
   wallet MUST either refuse it under `best-privacy`/`best-price` or show an explicit warning.
 - A quote older than `quote.expiresAt − 30 s` at COMMIT time MUST be re-quoted.
+
+- A swap-first leg a Mayan order runs (ETH → USDC by a router Mayan names, bounded on chain by the forwarder's
+  `minMiddleAmount`) MUST be bounded at no less than 98 % of the ETH at the wallet's own agreed Chainlink price
+  (`MAYAN_MIDDLE_MAX_SHORTFALL_BPS`, read through the wallet's RPC quorum at signing), and the wallet MUST refuse the call
+  without a fresh agreed price; the engine applies the same bound to the quotes it ranks and at the ingress (the third review
+  round, 2026-11-03: any positive floor had passed, and a swap service could route the whole order through its own pool with
+  the Mayan order holding one USDC unit — the order's own minimum is conditional on a fill). LI.FI's bridge-only variant MUST
+  bridge exactly the escrow's amount (a remainder stays in the escrow below the refund floors); a THORChain stream's parts ×
+  interval MUST fit a day of blocks; the minimum the user approved MUST be on the order's record — a record without it signs
+  nothing, never a default of zero.
 
 ## 6. One-time endpoints (plan §26–§28)
 **EVM source endpoint = `SwapOrderEscrow`**, a minimal periphery contract at a counterfactual CREATE2
