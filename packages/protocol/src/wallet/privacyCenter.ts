@@ -113,7 +113,7 @@ export function privacyPosture(f: PostureFacts): Posture {
   const timing = clamp(100 / TIMING_FACTOR(delay));
   cats.push(
     cat("timing", "Timing privacy", timing, levelOf(timing), f.delayWindow[1] === 0
-      ? [line("timing.immediate", "Your preference acts immediately: funding and acting are linked by time.")]
+      ? [line("timing.immediate", "Swaps are funded as soon as you confirm, so funding and acting are linked by time; Delay for more privacy on a swap adds a random 1–24 h.")]
       : [line("timing.window", `Swaps are funded at a random moment inside ${hours(f.delayWindow[0])}–${hours(f.delayWindow[1])}; a patient observer still sees when money moves.`, { from: f.delayWindow[0], to: f.delayWindow[1] })]),
   );
 

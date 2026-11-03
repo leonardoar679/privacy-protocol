@@ -230,6 +230,14 @@ describe("the screens (spec §3.10)", () => {
     await waitFor(() => expect(refundCalls).toEqual([ORDER]));
     expect(trackCalls, "the refund tracks the order again").toEqual([ORDER]);
   });
+  it("Remove from this device removes the record too (the review round of 2026-11-03, W3): a finished record without a line offers Remove, and nothing comes back", () => {
+    const rec = newOperation({ kind: "protect", amounts: { asset: "ETH", decimals: 18, input: (10n ** 18n).toString() }, destination: { kind: "privacy-address", display: "Your protected balance", chain: "ethereum" }, tier: "standard" });
+    putOperation({ ...rec, state: "COMPLETED", history: [...rec.history, { state: "COMPLETED", at: NOW - 100 }] });
+    render(<Detail id={rec.id} onBack={() => {}} />);
+    fireEvent.click(screen.getByTestId("detail-advanced-toggle"));
+    fireEvent.click(screen.getByTestId("detail-remove"));
+    expect(getOperation(rec.id)).toBeFalsy();
+  });
   it("the detail of a record without a line (a declined protect, stored as cancelled) and an unknown id", () => {
     const rec = newOperation({ kind: "protect", amounts: { asset: "ETH", decimals: 18, input: (10n ** 18n).toString() }, destination: { kind: "privacy-address", display: "Your protected balance", chain: "ethereum" }, tier: "standard" }, NOW - 500);
     putOperation({ ...rec, state: "CANCELLED", reason: { code: "user_rejected", fundsClass: "not-moved" }, declined: { at: NOW - 400, code: "user_rejected" }, history: [...rec.history, { state: "CANCELLED", at: NOW - 400 }] });

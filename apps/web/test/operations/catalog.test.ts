@@ -111,3 +111,9 @@ describe("classify", () => {
     expect(fundsHeadline("unknown", t)).toBe("We are checking where your funds are.");
   });
 });
+
+describe("the wallet's own messages (the review round of 2026-11-03)", () => {
+  it("a Protect confirmed with no wallet to submit with is wallet_disconnected — not moved — never unknown (W4)", () => {
+    expect(classify(new Error("no injected wallet to submit with"))).toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+  });
+});

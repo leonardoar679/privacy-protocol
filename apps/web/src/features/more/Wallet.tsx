@@ -11,7 +11,6 @@ import { allowancesFor, revokeAllowance, type AllowanceLine } from "@privacy-wal
 import { classify, reasonKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { formatAmount } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
-import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { PREFERENCES, settings, type Preference } from "@privacy-wallet/sdk/wallet/settings";
 import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { useConnection, useSettings } from "../../hooks";
@@ -92,12 +91,6 @@ export function WalletSection({ deployment, onConnect }: { deployment: Deploymen
 export function TradePreferenceSection() {
   const t = useT();
   const s = useSettings();
-  // the funding window in the catalog's words ("1–24 h", "지연 없음"), not the SDK's English windowLabel
-  const windowWords = ([min, max]: [number, number]): string => {
-    if (max === 0) return t("wallet.preference.window.noDelay");
-    if (min >= 3600) return t("wallet.preference.window.hours", { min: Math.round(min / 3600), max: Math.round(max / 3600) });
-    return t("wallet.preference.window.minutes", { min: Math.round(min / 60), max: Math.round(max / 60) });
-  };
   return (
     <Card testId="trade-preference">
       <div className="ds-stack-sm">
@@ -105,9 +98,11 @@ export function TradePreferenceSection() {
         {PREFERENCES.map((pref: Preference) => (
           <label key={pref} className="ds-radio-row" data-testid={`preference-${pref}`}>
             <input type="radio" name="preference" className="ds-radio" checked={s.preference === pref} onChange={() => settings.set({ preference: pref })} />
-            <span className="ds-radio-text"><b>{t(`wallet.preference.${pref}.label` as MessageKey)}</b> <span className="ds-note">· {t("wallet.preference.fundedWithin", { window: windowWords(DELAY_WINDOW[policyFromPreference(pref)]) })}</span><span className="ds-radio-desc">{t(`wallet.preference.${pref}.help` as MessageKey)}</span></span>
+            <span className="ds-radio-text"><b>{t(`wallet.preference.${pref}.label` as MessageKey)}</b><span className="ds-radio-desc">{t(`wallet.preference.${pref}.help` as MessageKey)}</span></span>
           </label>
         ))}
+        {/* the funding's timing is the runner's, not the preference's (the review round of 2026-11-03, W1): at once, or the swap's own Delay */}
+        <p className="ds-note" data-testid="preference-funding">{t("wallet.preference.funding")}</p>
       </div>
     </Card>
   );

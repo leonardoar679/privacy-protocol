@@ -525,6 +525,7 @@ export function SendScreen(p: SendScreenProps) {
             secondDevice={controls.secondDevice ? { credentialId: protection.secondDevice.credentialId } : null}
             busy={busy ? status : undefined}
             error={!busy && status ? status : undefined}
+            confirmDisabled={!net.online}
             onConfirm={() => void run()}
             onCancel={() => navigate("/send")}
           />
@@ -541,12 +542,18 @@ export function SendScreen(p: SendScreenProps) {
       receive: { amount: amountOf(split.delivered, asset.symbol, asset.decimals), approx: false },
       fees: [
         ...(split.privacy > 0n ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, asset.symbol, asset.decimals) }] : []),
-        ...(split.network > 0n ? [{ kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network, asset.symbol, asset.decimals) }] : []),
+        ...(split.network > 0n
+          ? [{ kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network, asset.symbol, asset.decimals) }]
+          : selfSubmitted
+            ? [{ kind: "relayer" as const, usdCents: null, note: t("screen.send.paidByWallet") }] // the wallet pays the network (W5)
+            : []),
         ...(mergeCount
           ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeFees, asset.symbol, asset.decimals) }]
           : []),
       ],
       totalFeesUsdCents: privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents : null,
+      // no privacy fee on a send the connected wallet submits (gap 31): the statement says so instead of "charged on each" (W5)
+      ...(selfSubmitted ? { feeStatement: t("screen.review.feeStatementWallet") } : {}),
       destination: {
         label: dest.kind === "private" ? short(dest.address) : destinationKind === "fresh" ? t("send.freshEntry") : short(dest.address),
         verified: dest.kind === "private" || destinationKind === "fresh" || destAck,

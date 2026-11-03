@@ -46,6 +46,19 @@ describe("the fee statement on the Review (spec v3.0 §3)", () => {
       cleanup();
     }
   });
+  it("a send the connected wallet submits: the relayer row says the wallet pays, and the statement says no privacy fee is charged (the review round of 2026-11-03, W5)", () => {
+    const model = {
+      ...(REVIEW_FIXTURES.send as ReviewModel),
+      fees: [{ kind: "relayer" as const, usdCents: null, note: "Paid by your connected wallet" }],
+      feeStatement: "No privacy fee: your connected wallet submits this send and pays the network fee itself.",
+    };
+    render(<ReviewView model={model} actions={{ onConfirm: noop, onEdit: noop }} />);
+    expect(screen.getByTestId("review-fee-relayer").textContent).toContain("Paid by your connected wallet");
+    const note = screen.getByTestId("review-fee-statement").textContent ?? "";
+    expect(note).toContain("No privacy fee");
+    expect(note).not.toContain("charged on each");
+    cleanup();
+  });
   it("a protected execution's relayer row counts its steps (F × n); a single order's does not", () => {
     const large = REVIEW_FIXTURES.large as ReviewModel;
     const stepped: ReviewModel = { ...large, fees: large.fees.map((f) => (f.kind === "relayer" ? { ...f, count: 4 } : f)) };

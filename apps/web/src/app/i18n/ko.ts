@@ -277,6 +277,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.mergeFees": "먼저 노트 합치기 ({n} × 릴레이어 수수료)",
   "screen.review.totalFees": "총 수수료",
   "screen.review.feeStatement": "프라이버시 수수료(1 %) — 보호, 전송, 스왑마다 부과됩니다.",
+  "screen.review.feeStatementWallet": "프라이버시 수수료 없음: 연결된 지갑이 이 전송을 직접 제출하고 네트워크 수수료도 직접 냅니다.",
   "screen.review.feeAgain": "자금이 보호될 때 1 %를 지불했고, 이 스왑은 다시 1 %를 지불합니다.",
   "screen.review.relayerFeeSteps": "릴레이어/네트워크 ({n}단계)",
   "screen.review.confirm": "확인",
@@ -1511,6 +1512,7 @@ export const ko: Record<MessageKey, string> = {
   // More → Security
   "security.backupStatus": "복구 백업",
   "security.backedUp": "✓ 복구 백업 생성됨 · {date}",
+  "security.phraseShown": "문구 표시됨 · {date} — 백업 없음",
   "security.notBackedUp": "아직 백업하지 않음",
   "security.backupBody":
     "백업 파일에는 키 저장소와 암호화된 기록(노트, 주문, 활동, 설정)이 들어 있으며, 비밀번호로만 열립니다. 24단어 복구 문구로 어디서든 키를 복원할 수 있고, 노트는 다시 스캔하면 돌아옵니다.",
@@ -1566,8 +1568,7 @@ export const ko: Record<MessageKey, string> = {
   "wallet.disconnect": "연결 해제",
   "wallet.connectionNote": "공개 지갑은 입금 비용만 지불하고 다른 것에는 서명하지 않으며, 보호 잔액을 볼 수 없습니다.",
   "wallet.preference.body":
-    "스왑이 경로를 고르는 방식과 자금이 투입되는 시점입니다. 이 기기에만 저장되며 체인에 기록되지 않습니다. 대규모 이체에는 프라이버시와 실행 통제가 자동으로 추가됩니다.",
-  "wallet.preference.fundedWithin": "{window} 안에 자금 투입",
+    "스왑이 경로를 고르는 방식입니다. 이 기기에만 저장되며 체인에 기록되지 않습니다. 대규모 이체에는 프라이버시와 실행 통제가 저절로 더해집니다.",
   "wallet.allowances.title": "토큰 승인 한도",
   "wallet.allowances.body":
     "입금은 정확한 금액만 승인합니다. 실패한 입금이 남긴 승인은 여기서 철회할 수 있습니다. 이 지갑의 엔드포인트가 아니라 연결된 지갑의 자체 제공자를 통해 읽습니다.",
@@ -1679,7 +1680,8 @@ export const ko: Record<MessageKey, string> = {
   "privacyCenter.why.rpc.noLightClient": "읽기는 엔드포인트들의 일치에만 의존합니다(이 체인에는 라이트 클라이언트가 없습니다).",
   "privacyCenter.why.rpc.reads":
     "모든 엔드포인트는 IP 주소와 이 지갑이 읽는 내용을 봅니다. 모든 사용자처럼 풀의 이벤트를 읽지만, 이 지갑 노트의 사용 여부, 거래의 영수증, 스왑의 에스크로도 읽습니다. 또한 각 엔드포인트는 확인하는 모든 스왑의 에스크로, 금액, 목적지를 시뮬레이션합니다.",
-  "privacyCenter.why.timing.immediate": "설정에 따라 즉시 실행됩니다. 자금 투입과 실행이 시간으로 연결됩니다.",
+  "privacyCenter.why.timing.immediate":
+    "스왑은 확인하는 즉시 자금이 투입되어 자금 투입과 실행이 시간으로 연결됩니다. 스왑에서 '더 높은 프라이버시를 위한 지연'을 선택하면 1–24시간의 임의 지연이 더해집니다.",
   "privacyCenter.why.timing.window":
     "스왑은 {from}–{to} 사이의 임의 시점에 자금이 투입됩니다. 끈기 있는 관찰자는 여전히 자금이 움직이는 시점을 볼 수 있습니다.",
   "privacyCenter.why.crossChain.escrow": "스왑은 일회용 에스크로에서 이 지갑의 새 주소로 지불합니다. 제공자는 당신의 영구 주소를 보지 못합니다.",
@@ -1716,7 +1718,8 @@ export const ko: Record<MessageKey, string> = {
   "privacyCenter.stored.settings": "설정",
   "privacyCenter.storedNote": "모두 이 기기에서 비밀번호로 암호화되며, 평문으로 보관되는 것은 없습니다.",
   "privacyCenter.sent.rpc": "내 RPC 엔드포인트",
-  "privacyCenter.sent.rpc.what": "공개 체인 조회: 풀의 모든 이벤트를 읽으며, 내 노트에 관해 묻지 않습니다.",
+  "privacyCenter.sent.rpc.what":
+    "공개 체인 조회: 풀의 모든 이벤트를 다른 사용자처럼 읽습니다. 다만 지갑이 자기 노트의 사용 여부를 확인할 때(스캔마다, 오래된 기록을 점검할 때마다)에는 그 노트의 널리파이어도 엔드포인트에 전달됩니다.",
   "privacyCenter.sent.relayer": "릴레이어",
   "privacyCenter.sent.relayer.what":
     "증명된 거래와 그 비용을 내는 수수료 노트의 공개 정보, 스왑이라면 실행할 주문. 상태를 알려 주기 위해 각 작업과 그 거래를 보관합니다. 키는 절대 보내지 않습니다.",
@@ -1805,7 +1808,7 @@ export const ko: Record<MessageKey, string> = {
   "feePolicy.intro":
     "프라이버시 수수료는 확인하는 작업마다 한 번, 넣는 금액의 1 %입니다. 릴레이어 비용은 서명 전에 상한으로 표시됩니다. 여기에는 규칙을, 검토 화면에는 금액을 보여 드립니다.",
   "feePolicy.privacyTitle": "프라이버시 수수료",
-  "feePolicy.onePercent": "넣는 금액의 1 %를 다음 단위로 올림합니다 — 반올림되는 금액이면 정확히 1 %입니다.",
+  "feePolicy.onePercent": "넣는 금액의 1 %를 다음 단위로 올림합니다 — 딱 떨어지는 금액이면 정확히 1 %입니다.",
   "feePolicy.oncePerOperation": "확인하는 작업마다 한 번 부과됩니다: 보호, 전송, 출금, 스왑. 스왑의 내부 단계들은 하나의 작업입니다.",
   "feePolicy.protectedExecution": "보호 실행은 전체의 1 %를 지불하며, 각 조각이 자기 몫을 담습니다.",
   "feePolicy.noFeeOnHousekeeping": "노트 합치기나 나누기, 환불, 재보호에는 프라이버시 수수료가 없습니다 — 릴레이어가 움직이는 곳에서 릴레이어 비용만 냅니다.",
@@ -1840,17 +1843,15 @@ export const ko: Record<MessageKey, string> = {
   "wallet.sheet.kind.injected": "브라우저 지갑",
   "wallet.sheet.kind.walletconnect": "다른 기기의 지갑",
   "wallet.preference.balanced.label": "균형",
-  "wallet.preference.balanced.help":
-    "프라이버시, 가격, 시간을 함께 고려합니다. 1–24시간 안의 임의의 시각에 자금이 투입되며, 큰 금액은 저절로 프라이버시와 실행 품질을 우선합니다.",
+  "wallet.preference.balanced.help": "프라이버시, 가격, 시간을 함께 고려합니다. 큰 금액은 저절로 프라이버시와 실행 품질을 우선합니다.",
   "wallet.preference.best-privacy.label": "최고의 프라이버시",
-  "wallet.preference.best-privacy.help": "가장 비공개적인 경로와 가장 긴 임의 지연(6–72시간)을, 가격이 다소 나빠도 선택합니다.",
+  "wallet.preference.best-privacy.help": "가장 비공개적인 경로를, 가격이 다소 나빠도 선택합니다.",
   "wallet.preference.best-price.label": "최고의 가격",
-  "wallet.preference.best-price.help": "안전한 경로 중 순수익이 가장 큰 경로를 택하고, 1–24시간 안에 자금을 투입합니다.",
+  "wallet.preference.best-price.help": "안전한 경로 중 순수익이 가장 큰 경로를 택합니다.",
   "wallet.preference.native.label": "네이티브 자산",
   "wallet.preference.native.help": "균형과 같지만, 자산을 네이티브로 유지하는 경로가 래핑 구간이 있는 경로보다 우선합니다.",
   "wallet.preference.fastest.label": "가장 빠름",
   "wallet.preference.fastest.help": "지연 없이 공개 제출합니다. 시간이 더 중요할 때를 위한, 가장 덜 비공개적인 선택입니다.",
-  "wallet.preference.window.hours": "{min}–{max}시간",
-  "wallet.preference.window.minutes": "{min}–{max}분",
-  "wallet.preference.window.noDelay": "지연 없음",
+  "wallet.preference.funding":
+    "스왑은 확인하는 즉시 자금이 투입됩니다. 스왑에서 '더 높은 프라이버시를 위한 지연'을 선택하면 대신 1–24시간 안의 임의 시각에 투입됩니다.",
 };

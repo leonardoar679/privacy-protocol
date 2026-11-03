@@ -65,6 +65,8 @@ export interface ReviewProps {
   tradeCheck?: { available: boolean; reason?: string; run: () => Promise<TradeCheck> } | null;
   busy?: string;
   error?: string;
+  /** the caller's own block (the review round of 2026-11-03, W7: offline — spec v2.0 §7.11 closes every confirmation): the lines shown, the confirmation closed */
+  confirmDisabled?: boolean;
   /** the §3.8 checks shown as the Protection line at the band and above */
   protectedExecution?: boolean;
   onConfirm: () => void | Promise<void>;
@@ -92,7 +94,7 @@ export function Review(p: ReviewProps) {
   const buttonWords = t(`review.moment.${p.moment}.button` as MessageKey);
   const blocks = unacknowledgedBlocks(p.lint);
   const pendingLines = p.lines.filter((l) => !l.ok);
-  const ready = blocks.length === 0 && pendingLines.length === 0 && !p.busy;
+  const ready = blocks.length === 0 && pendingLines.length === 0 && !p.busy && !p.confirmDisabled;
   const needsFactor = p.controls.secondFactor && factor !== "passed";
   // the tier's own rule (audit round 2, r28): a Review whose caller passed no device — a Send, a one-order swap — had confirmed
   // an institutional operation after the platform factor alone, the separate device never asked

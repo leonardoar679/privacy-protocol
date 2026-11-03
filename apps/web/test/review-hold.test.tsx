@@ -55,6 +55,12 @@ describe("the hold keeps its size and survives a layout shift (spec §3.9)", () 
     expect(b.querySelector(".ds-hold-hidden")).toBeNull();
     expect(b.textContent).toBe(LABEL);
   });
+  it("a caller's own block closes the confirmation while the lines stay (the review round of 2026-11-03, W7: the enhanced Send Review offline)", async () => {
+    const c = await mount(<Review {...props()} confirmDisabled />);
+    const b = c.querySelector('[data-testid="hold-to-confirm"]') as HTMLButtonElement | null;
+    const tap = c.querySelector('[data-testid="confirm-tap"]') as HTMLButtonElement | null;
+    expect((b ?? tap)?.disabled, "the confirmation is closed").toBe(true);
+  });
   it("the campaign Review at institutional: with Advanced details expanded, the hold still leads to the password prompt", async () => {
     const c = await mount(<Review {...props()} />);
     await act(async () => { (c.querySelector('[data-testid="review-advanced-toggle"]') as HTMLButtonElement).click(); });

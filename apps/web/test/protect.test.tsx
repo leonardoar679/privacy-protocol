@@ -382,6 +382,7 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     fireEvent.click(screen.getByTestId("protect-connect"));
     expect(onConnect).toHaveBeenCalled();
     type(screen.getByTestId("amount-input"), "1");
+    expect(screen.getByTestId("protect-review"), "no wallet to pay: Review stays closed (the review round of 2026-11-03, W4)").toBeDisabled();
     expect(screen.getByTestId("protect-receive").textContent).toContain("0.99 ETH");
     expect(screen.getByTestId("protect-network-fee").textContent).toMatch(/—$/);
     expect(fetchSpy).not.toHaveBeenCalled();

@@ -262,6 +262,6 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
         : swapFees(r, t),
     steps: rec ? stepsOf(rec, t) : [],
     advanced,
-    canRemove: r.finished && !!r.activity,
+    canRemove: r.finished && (!!r.activity || !!r.record), // a finished record without a line too (W3)
   };
 }

@@ -23,6 +23,8 @@ export interface ReviewFee {
   amount?: Amount;
   /** a part in another asset, shown after the amount when no price joins them (V6 Stage 12: a same-chain swap's shield tip) */
   also?: Amount;
+  /** words in place of an amount (the review round of 2026-11-03, W5: "Paid by your connected wallet") */
+  note?: string;
 }
 export interface ReviewModel {
   kind: "protect" | "send" | "swap" | "cross-chain";
@@ -42,6 +44,8 @@ export interface ReviewModel {
   blocked?: BlockerCode | null;
   /** V7 Stage 13 (spec v3.0 §4): the protected steps planned (the plan staged, or asked under Advanced); absent or 1 = one order */
   steps?: number | null;
+  /** the fee section's statement when the default does not hold (W5: a send the connected wallet submits pays no privacy fee) */
+  feeStatement?: string;
 }
 export interface ReviewActions {
   onConfirm: () => void;
@@ -111,7 +115,9 @@ export function ReviewView({
     );
   }
   const fee = (f: ReviewFee) =>
-    f.usdCents !== null ? (
+    f.note ? (
+      f.note
+    ) : f.usdCents !== null ? (
       <Usd cents={f.usdCents} />
     ) : f.amount ? (
       f.also ? (
@@ -162,8 +168,8 @@ export function ReviewView({
       // the fee policy's statement (spec v3.0 §3, doc §6; V7 Stage 12): once per operation — and a swap of protected funds pays again
       note: (
         <span data-testid="review-fee-statement">
-          {t("screen.review.feeStatement")}
-          {m.kind === "swap" || m.kind === "cross-chain" ? ` ${t("screen.review.feeAgain")}` : ""}
+          {m.feeStatement ?? t("screen.review.feeStatement")}
+          {!m.feeStatement && (m.kind === "swap" || m.kind === "cross-chain") ? ` ${t("screen.review.feeAgain")}` : ""}
         </span>
       ),
     },

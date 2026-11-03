@@ -44,7 +44,9 @@ export function SecuritySection() {
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState<string | null>(null);
   const [phraseError, setPhraseError] = useState("");
-  const backedUp = p.backup?.exportedAt ?? p.backup?.phraseAcknowledgedAt;
+  // a backup exported is a backup; a phrase merely shown is not (the review round of 2026-11-03, W6): the badge says which
+  const exported = p.backup?.exportedAt;
+  const shown = p.backup?.phraseAcknowledgedAt;
 
   function applyTiers() {
     const next: TierThresholds = { large: Number(tiers.large), largeProtected: Number(tiers.largeProtected), enhanced: Number(tiers.enhanced), highValue: Number(tiers.highValue), highValueSecondary: Number(tiers.highValueSecondary), institutional: Number(tiers.institutional) };
@@ -68,7 +70,7 @@ export function SecuritySection() {
       <div className="ds-stack" data-testid="security">
         <Card testId="backup-status">
           <div className="ds-stack-sm">
-            <div className="ds-kv"><span className="ds-kv-label">{t("security.backupStatus")}</span><StatusBadge tone={backedUp ? "ok" : "warn"} testId="backup-badge">{backedUp ? t("security.backedUp", { date: formatDate(backedUp) }) : t("security.notBackedUp")}</StatusBadge></div>
+            <div className="ds-kv"><span className="ds-kv-label">{t("security.backupStatus")}</span><StatusBadge tone={exported ? "ok" : "warn"} testId="backup-badge">{exported ? t("security.backedUp", { date: formatDate(exported) }) : shown ? t("security.phraseShown", { date: formatDate(shown) }) : t("security.notBackedUp")}</StatusBadge></div>
             <p className="ds-note">{t("security.backupBody")}</p>
             <div className="ds-actions">
               <Button onClick={downloadBackup} icon="download" data-testid="backup-now">{t("backup.now")}</Button>

@@ -10,6 +10,8 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
 import { returnOrderToBalance } from "@privacy-wallet/sdk/swapExecute";
 import { deleteActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { isTerminal } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { removeOperation } from "@privacy-wallet/sdk/operations/store";
 import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -114,6 +116,9 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
         onRefresh={swap ? () => void refresh() : undefined}
         onRemove={() => {
           if (row.activity) deleteActivity(row.activity.id);
+          // the record too, once it is over (the review round of 2026-11-03, W3): without this the row came back from the record —
+          // amounts and destination kept on the device — with no Remove any more
+          if (rec && isTerminal(rec.state)) removeOperation(rec.id);
           onBack();
         }}
         busy={busy || null}

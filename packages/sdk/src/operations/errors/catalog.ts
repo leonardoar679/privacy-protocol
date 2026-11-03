@@ -32,6 +32,7 @@ const SERVICE_MESSAGES: [RegExp, string][] = [
   [/minimum moved|guarantees at least/i, "minimum_moved"],
 ];
 const WALLET_MESSAGES: [RegExp, string][] = [
+  [/no injected wallet/i, "wallet_disconnected"], // a Protect confirmed with no wallet to pay (the review round of 2026-11-03, W4): not moved, never "unknown"
   [/insufficient shielded balance/i, "insufficient_balance"],
   [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"],
   [/spread over \d+ notes|needs a private merge/i, "housekeeping_needed"],

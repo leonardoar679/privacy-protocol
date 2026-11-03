@@ -57,7 +57,7 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
       back={a.onBack}
       testId="protect-view"
       primaryAction={
-        <Button size="lg" full disabled={!m.quote || !!m.error} onClick={a.onReview} data-testid="protect-review">
+        <Button size="lg" full disabled={!m.quote || !!m.error || m.source.account === null} onClick={a.onReview} data-testid="protect-review">
           {t("screen.protect.review")}
         </Button>
       }

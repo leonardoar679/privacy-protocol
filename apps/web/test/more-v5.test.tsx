@@ -79,6 +79,7 @@ describe("More → Security (spec §3.12, §9)", () => {
     fireEvent.click(screen.getByTestId("reveal-phrase"));
     expect((await screen.findByTestId("phrase-words", {}, { timeout: 20_000 })).textContent).toBe(phrase);
     expect(prefs().get().backup?.phraseAcknowledgedAt).toBeTypeOf("number");
+    expect(screen.getByTestId("backup-badge").textContent, "a reveal is not a backup (the review round of 2026-11-03, W6)").toContain("Phrase shown");
     const enhanced = screen.getByTestId("tier-enhanced") as HTMLInputElement;
     type(enhanced, "250000"); fireEvent.focusOut(enhanced);
     expect(settings.get().tiers.enhanced).toBe(250_000);
@@ -111,7 +112,9 @@ describe("More → Wallet (spec §7)", () => {
     fireEvent.click(screen.getByTestId("preference-best-privacy").querySelector("input")!);
     expect(settings.get().preference).toBe("best-privacy");
     expect((session.journal().settings as { preference?: string }).preference).toBe("best-privacy");
-    expect(screen.getByTestId("trade-preference").textContent).toContain("funded within");
+    // the funding's timing is the runner's, not the preference's (the review round of 2026-11-03, W1)
+    expect(screen.getByTestId("trade-preference").textContent).not.toContain("funded within");
+    expect(screen.getByTestId("preference-funding").textContent).toContain("funded as soon as you confirm");
     expect(screen.getByTestId("read-allowances")).toBeInTheDocument();
   });
   it("a wallet on another network reads no allowances from that chain: the switch first (a V6 follow-up of 2026-10-16)", async () => {

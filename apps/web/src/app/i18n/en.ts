@@ -275,6 +275,7 @@ export const en = {
   "screen.review.totalFees": "Total fees",
   // V7 Stage 12 (spec v3.0 §3): the fee policy's statement on every Review, the swap's second sentence, the steps of a protected execution
   "screen.review.feeStatement": "Privacy fee (1 %) — charged on each protect, send and swap.",
+  "screen.review.feeStatementWallet": "No privacy fee: your connected wallet submits this send and pays the network fee itself.",
   "screen.review.feeAgain": "Your funds paid 1 % when they were protected; this swap pays 1 % again.",
   "screen.review.relayerFeeSteps": "Relayer/network ({n} steps)",
   "screen.review.confirm": "Confirm",
@@ -1531,6 +1532,7 @@ export const en = {
   // V5 Stage 10 — More → Security (spec §3.12, §9, §11)
   "security.backupStatus": "Recovery backup",
   "security.backedUp": "✓ Recovery backup created · {date}",
+  "security.phraseShown": "Phrase shown · {date} — no backup yet",
   "security.notBackedUp": "Not backed up yet",
   "security.backupBody":
     "The backup file holds your keystore and your encrypted journal (notes, orders, activity, settings). It opens only with your password. The 24-word phrase restores the keys anywhere; the notes then come back with a rescan.",
@@ -1586,9 +1588,7 @@ export const en = {
   "wallet.switch": "Switch network",
   "wallet.disconnect": "Disconnect",
   "wallet.connectionNote": "The public wallet pays deposits and signs nothing else; it never sees your protected balance.",
-  "wallet.preference.body":
-    "How swaps choose their route and when they are funded. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
-  "wallet.preference.fundedWithin": "funded within {window}",
+  "wallet.preference.body": "How swaps choose their route. Saved here only; never written on chain. Large transfers add privacy and execution controls by themselves.",
   "wallet.allowances.title": "Token allowances",
   "wallet.allowances.body":
     "A deposit approves the exact amount; what a failed deposit left behind can be revoked here. Read through the connected wallet's own provider, never this wallet's endpoints.",
@@ -1702,7 +1702,7 @@ export const en = {
   "privacyCenter.why.rpc.noLightClient": "Reads rest on the endpoints' agreement alone (no light client for this chain).",
   "privacyCenter.why.rpc.reads":
     "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
-  "privacyCenter.why.timing.immediate": "Your preference acts immediately: funding and acting are linked by time.",
+  "privacyCenter.why.timing.immediate": "Swaps are funded as soon as you confirm, so funding and acting are linked by time; Delay for more privacy on a swap adds a random 1–24 h.",
   "privacyCenter.why.timing.window": "Swaps are funded at a random moment inside {from}–{to}; a patient observer still sees when money moves.",
   "privacyCenter.why.crossChain.escrow":
     "A swap pays from a one-time escrow to a fresh address of this wallet; the provider never sees your permanent address.",
@@ -1740,7 +1740,7 @@ export const en = {
   "privacyCenter.stored.settings": "Settings",
   "privacyCenter.storedNote": "All of it is encrypted with your password on this device; nothing is kept in plain text.",
   "privacyCenter.sent.rpc": "Your RPC endpoints",
-  "privacyCenter.sent.rpc.what": "Public chain reads: every event of the pool, never a question about your notes.",
+  "privacyCenter.sent.rpc.what": "Public chain reads: every event of the pool, as every user reads them — and, when the wallet checks whether its own notes were spent (every scan, every check of a stale record), the nullifiers of those notes.",
   "privacyCenter.sent.relayer": "The relayer",
   "privacyCenter.sent.relayer.what":
     "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",
@@ -1864,19 +1864,16 @@ export const en = {
   "wallet.sheet.kind.walletconnect": "A wallet on another device",
   // V7 Stage 4: the trading preference's words in the catalog (the SDK's PREFERENCE_LABELS said them in English only)
   "wallet.preference.balanced.label": "Balanced",
-  "wallet.preference.balanced.help":
-    "Privacy, price and time weighed together; funded at a random time within 1–24 h. Large transfers favour privacy and execution quality by themselves.",
+  "wallet.preference.balanced.help": "Privacy, price and time weighed together. Large transfers favour privacy and execution quality by themselves.",
   "wallet.preference.best-privacy.label": "Best privacy",
-  "wallet.preference.best-privacy.help": "The most private route and the longest random delay (6–72 h), even at a worse price.",
+  "wallet.preference.best-privacy.help": "The most private route, even at a worse price.",
   "wallet.preference.best-price.label": "Best price",
-  "wallet.preference.best-price.help": "The best net output among safe routes; funded within 1–24 h.",
+  "wallet.preference.best-price.help": "The best net output among safe routes.",
   "wallet.preference.native.label": "Native assets",
   "wallet.preference.native.help": "Balanced, but a route that keeps the assets native wins over one with a wrapped leg.",
   "wallet.preference.fastest.label": "Fastest",
   "wallet.preference.fastest.help": "No delay and a public submission: the least private choice, for when time matters more.",
-  "wallet.preference.window.hours": "{min}–{max} h",
-  "wallet.preference.window.minutes": "{min}–{max} min",
-  "wallet.preference.window.noDelay": "no delay",
+  "wallet.preference.funding": "Swaps are funded as soon as you confirm. Choose Delay for more privacy on a swap to fund it at a random time within 1–24 h instead.",
 } as const;
 
 export type MessageKey = keyof typeof en;
