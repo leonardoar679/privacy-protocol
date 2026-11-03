@@ -79,6 +79,7 @@ describe("over a configured engine", () => {
     expect(() => sdk.createNote({ vault: VAULT, amount: 1n }, session)).toThrow(/locked/);
     expect(await sdk.unlockWallet("wrong password", session)).toBe(false);
     expect(await sdk.unlockWallet(PASSWORD, session)).toBe(true);
+    noteStore.releaseCounters(0); // the counters held at the unlock until the scan after it (the fifth review round, 2026-11-03): released here as the scan would
   });
 
   it("makes notes from the seed: each made out to its own owner commitment (audit c18), the next counter each time, a payload of its own", () => {

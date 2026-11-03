@@ -96,6 +96,10 @@ describe("session", () => {
     expect(bytesToHex(s.state().seed!)).toBe(seedHex);
     expect(noteStore.all()).toHaveLength(1);
     expect(noteStore.all()[0].note.amount).toBe(5n * 10n ** 17n);
+    // held until the scan after the unlock has read the pool (the fifth review round, 2026-11-03); the scan releases them
+    expect(noteStore.countersHeld()).toBe(true);
+    expect(() => noteStore.allocateCounter()).toThrow(/one complete scan/);
+    noteStore.releaseCounters(0);
     expect(noteStore.allocateCounter()).toBe(1); // counters continue, never reused
     expect(settings.get().advanced).toBe(true);
     expect(settings.get().submission).toEqual({ kind: "relayer", url: "http://relayer.test" });

@@ -168,14 +168,22 @@ export class WalletSession {
     for (const l of this.listeners) l();
   }
 
+  /** The scrypt cost this session wraps a keystore with: the configuration's, with a production floor under it (kdfFromConfig). */
+  private kdfParams(): KdfParams {
+    return typeof this.kdf === "function" ? this.kdf() : this.kdf;
+  }
+
   /** New wallet: a fresh seed, encrypted under `password`; returns the recovery phrase to show once. Over a wallet already
    *  here only with `replace` (the user's typed REPLACE): WalletExists otherwise. */
-  async create(password: string, seed: Uint8Array = generateMasterSeed(), opts: { replace?: boolean; holdCounters?: boolean } = {}): Promise<string> {
+  async create(password: string, seed?: Uint8Array, opts: { replace?: boolean; holdCounters?: boolean } = {}): Promise<string> {
     await this.guardExisting(opts.replace);
     // over a wallet already here (the typed REPLACE): its settings are not the new one's either (r30)
     if (this.hasKeystore() && isConfigured()) settings.reset();
-    const own = seed.slice(); // the session owns (and later zeroes) its own copy
-    const ks = await createKeystore(own, password, typeof this.kdf === "function" ? this.kdf() : this.kdf);
+    const generated = seed === undefined;
+    const source = seed ?? generateMasterSeed();
+    const own = source.slice(); // the session owns (and later zeroes) its own copy
+    if (generated) source.fill(0); // the generated original is nobody's: zeroed, not left for the collector (the fifth review round, 2026-11-03)
+    const ks = await createKeystore(own, password, this.kdfParams());
     // the journal this very seed opens stays (audit round 2, n45/n69): it is encrypted under the seed, never the password, so
     // a restore of this device's own phrase — the forgotten-password path — had deleted the open orders and campaigns, the
     // address book and the fresh-address counters it still opened
@@ -246,8 +254,13 @@ export class WalletSession {
     await this.store.refresh?.();
     const raw = this.store.get(KEYSTORE_KEY);
     if (!raw) return false;
-    const seed = await unlockKeystore(JSON.parse(raw) as Keystore, password);
+    const ks = JSON.parse(raw) as Keystore;
+    const seed = await unlockKeystore(ks, password);
     if (!seed) return false;
+    // a keystore below this build's scrypt cost is wrapped again at today's (the fifth review round, 2026-11-03): the production
+    // floor had applied to a creation only — a backup restored from a dev build, or an edited header, kept the device at the
+    // weaker cost for every later unlock and backup
+    if (ks.kdf.N < this.kdfParams().N) this.store.set(KEYSTORE_KEY, JSON.stringify(await createKeystore(seed, password, this.kdfParams())));
     // and again after the derivation (audit round 2, r17): it takes 0.5–2 s, and the tab that holds the wallet journals meanwhile
     await this.store.refresh?.();
     const key = journalKey(seed);
@@ -263,7 +276,22 @@ export class WalletSession {
     // no journal at all (audit round 2, n71): a create or a restore whose tab closed between its keystore's write and its
     // journal's; a restored wallet's counters were in use
     if (this.unreadable || !blob) noteStore.holdCounters();
+    // and at every unlock (the fifth review round, 2026-11-03): the journal's cipher proves this seed wrote it, not that it is the
+    // newest — a profile restored from an older copy, a same-origin writer putting an earlier blob back — and its counter then
+    // repeats a note's secret, and a deposit's own owner commitment with it (PP-P03). Held until the scan after this unlock has
+    // read the pool; a counter it finds that the journal did not know makes the journal stale, and the reserve applies
+    noteStore.holdUntilScanned();
     this.firstLaunch = false;
+    return true;
+  }
+
+  /** Whether `password` opens this device's keystore; nothing else is derived or kept (the fifth review round, 2026-11-03: the check had built the phrase). */
+  async verifyPassword(password: string): Promise<boolean> {
+    const raw = this.store.get(KEYSTORE_KEY);
+    if (!raw) return false;
+    const seed = await unlockKeystore(JSON.parse(raw) as Keystore, password);
+    if (!seed) return false;
+    seed.fill(0);
     return true;
   }
 
@@ -346,8 +374,11 @@ export class WalletSession {
     if (!seed) return false;
     // a journal set aside as unreadable goes unless this seed opens it (audit round 2, n49): another wallet's had stayed
     if (this.store.get(UNREADABLE_JOURNAL_KEY) !== null && !this.journalOf(seed, UNREADABLE_JOURNAL_KEY)) this.store.remove(UNREADABLE_JOURNAL_KEY);
+    // wrapped again at this build's scrypt cost (the fifth review round, 2026-11-03): the file's own parameters — a dev build's, an
+    // edited header's — had become the device's for good, every later unlock and backup at the weaker cost
+    const ks = await createKeystore(seed, password, this.kdfParams());
     seed.fill(0); // unlock() below derives the session's own from the keystore (the fourth review round, 2026-11-03)
-    this.store.set(KEYSTORE_KEY, JSON.stringify(b.keystore));
+    this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
     if (b.journal) this.store.set(JOURNAL_KEY, JSON.stringify(b.journal)); else this.store.remove(JOURNAL_KEY);
     const ok = await this.unlock(password);
     // a backup may be older than the wallet's last notes: its counter is held until one complete scan (PP-P03)

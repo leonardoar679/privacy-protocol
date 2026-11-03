@@ -1576,7 +1576,7 @@ export const en = {
   "security.tier.institutional": "Institutional review from (USD)",
   "security.forget.title": "Forget this wallet on this device",
   "security.forget.body":
-    "Removes the keystore and the encrypted journal from this device. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
+    "Removes the keystore and the encrypted journal from this device, disconnects the public wallet and clears its WalletConnect pairing, the preferences, the proving files kept for speed and, when Tornado Classic is served here, its records. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
   "security.forget.open": "Forget this wallet…",
   "security.forget.typeWord": "Type FORGET",
   "security.forget.confirm": "Forget this wallet",

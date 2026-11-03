@@ -35,10 +35,16 @@ type Listener = () => void;
  * Thrown when a note counter is asked for while the counters are held (NoteStore.holdCounters): after a start without the
  * whole journal, until one complete scan has seen the counters this wallet already used. Nothing was made or sent.
  */
+/**
+ * How long a flow waits for the scan after an unlock before it asks for a counter (the fifth review round, 2026-11-03): on a
+ * devnet the scan takes seconds, on mainnet with the light client up to a minute or two. Past it the allocation throws CountersHeld.
+ */
+export const SCAN_WAIT_MS = 120_000;
+
 export class CountersHeld extends Error {
   readonly code = "notes_loading";
   constructor() {
-    super("the wallet is still looking for its notes after a restore: no new note until one complete scan of the pool");
+    super("the wallet is still looking for its notes in the pool (after an unlock or a restore): no new note until one complete scan");
     this.name = "CountersHeld";
   }
 }
@@ -81,6 +87,11 @@ export class NoteStore {
   private listeners = new Set<Listener>();
   private counter = 0;
   private held = false;
+  /** held since the unlock, until the scan after it has read the pool (the fifth review round, 2026-11-03); never journaled */
+  private scanHold = false;
+  /** the journal's counter as loaded: a counter the scan finds at or past it is one the journal did not know */
+  private loadedCounter = 0;
+  private stale = false;
 
   /**
    * A note of this wallet at its leaf. The same note already there is completed instead of added again (a V6 follow-up of
@@ -137,13 +148,14 @@ export class NoteStore {
   }
   /** Next noteSecret counter for a note of ours (spec §5.5: never reused); none while the counters are held. */
   allocateCounter(): number {
-    if (this.held) throw new CountersHeld();
+    if (this.held || this.scanHold) throw new CountersHeld();
     const c = this.counter++;
     this.emit();
     return c;
   }
   /** A counter this wallet is known to have used (a rescan found a note derived from it): the next one is past it. */
   observeCounter(used: number): void {
+    if (used >= this.loadedCounter) this.stale = true; // the journal did not know this counter: it is behind the chain
     if (used + 1 <= this.counter) return;
     this.counter = used + 1;
     this.emit();
@@ -159,8 +171,39 @@ export class NoteStore {
     this.held = true;
     this.emit();
   }
+  /**
+   * Held until the scan after this unlock has read the pool (the fifth review round, 2026-11-03): a journal is proved to be this
+   * seed's, never to be the newest — restored from an older copy of the profile, or put back by a writer of the origin, its
+   * counter repeats a secret already on chain. Not journaled: a reload before the scan holds again at its unlock.
+   */
+  holdUntilScanned(): void {
+    if (this.scanHold) return;
+    this.scanHold = true;
+    this.emit();
+  }
   countersHeld(): boolean {
-    return this.held;
+    return this.held || this.scanHold;
+  }
+  /**
+   * Resolves once the unlock's hold is released — the scan after the unlock has read the pool — or at once when there is none;
+   * after `timeoutMs` it resolves too, and the allocation that follows throws CountersHeld. A restore's hold is not waited on:
+   * the screens show that scan. (A Protect started a second after an unlock had failed on the hold before the scan could run.)
+   */
+  untilScanned(timeoutMs = SCAN_WAIT_MS): Promise<void> {
+    if (!this.scanHold) return Promise.resolve();
+    return new Promise((resolve) => {
+      let off = () => {};
+      const timer = setTimeout(() => {
+        off();
+        resolve();
+      }, timeoutMs);
+      off = this.subscribe(() => {
+        if (this.scanHold) return;
+        clearTimeout(timer);
+        off();
+        resolve();
+      });
+    });
   }
   /**
    * One complete scan has seen the counters it found (observeCounter): the next one is `reserve` past them, so a counter
@@ -168,9 +211,14 @@ export class NoteStore {
    * counters are handed out again.
    */
   releaseCounters(reserve: number): void {
-    if (!this.held) return;
+    if (!this.held && !this.scanHold) return;
+    // the reserve after a restore (the journal unknown), and after an unlock whose scan found a counter the journal did not know
+    // (the fifth review round, 2026-11-03): a current journal resumes where it was
+    const reserved = this.held || this.stale;
     this.held = false;
-    this.counter += reserve;
+    this.scanHold = false;
+    this.stale = false;
+    if (reserved) this.counter += reserve;
     this.emit();
   }
   /** Everything the journal keeps. */
@@ -186,6 +234,8 @@ export class NoteStore {
     // a journal written before notes were one per leaf may hold a leaf twice: it loads once
     this.notes = onePerLeaf(data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}), ...(s.spent && s.spentUnproven ? { spentUnproven: true as const, ...(s.spentAtBlock !== undefined ? { spentAtBlock: s.spentAtBlock } : {}) } : {}) })));
     this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
+    this.loadedCounter = this.counter;
+    this.stale = false;
     this.held = !!data.countersHeld;
     this.emit();
   }
@@ -194,6 +244,9 @@ export class NoteStore {
     this.notes = [];
     this.counter = 0;
     this.held = false;
+    this.scanHold = false;
+    this.stale = false;
+    this.loadedCounter = 0;
     this.emit();
   }
   subscribe(l: Listener): () => void {

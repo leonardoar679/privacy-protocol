@@ -357,6 +357,8 @@ async function fundEscrowUnguarded(o: {
   replaceDead?: boolean;
   /** the reads of a journaled funding's fate (tests); the deployment's own otherwise */
   reads?: FundingReads;
+  /** the escrow's balance (tests); this wallet's own RPC otherwise */
+  escrowBalance?: (stored: StoredSwap) => Promise<bigint | null>;
   /** today's gas fees (tests); this wallet's own RPC otherwise */
   fees?: (d: Deployment) => Promise<GasFees>;
   /** the chain's latest block time (tests); this wallet's own RPC otherwise */
@@ -377,6 +379,15 @@ async function fundEscrowUnguarded(o: {
   // the money goes only to the escrow these params create under our factory (recomputed again here)
   const predicted = predictEscrow(swapFactoryOf(o.deployment), stored.params as Parameters<typeof predictEscrow>[1]);
   if (predicted.toLowerCase() !== String(stored.endpoint).toLowerCase()) throw new OrderMismatch("endpoint", `${stored.endpoint} is not the escrow these params create (${predicted})`);
+  // the escrow itself before the journal (the fifth review round, 2026-11-03): a journal behind the chain — a profile restored from
+  // an older copy, a write a lock discarded — knew no funding of this order, and this by-hand path trusted it; the scheduled
+  // runner read the escrow first already (audit round 2, n36). A read that fails leaves the journal's word
+  const fundedAsset = (stored.request as { from?: { asset?: string } })?.from?.asset;
+  const inEscrow = await (o.escrowBalance ? o.escrowBalance(stored) : escrowBalance(o.deployment, stored.endpoint as Address, fundedAsset && fundedAsset !== "native" ? (fundedAsset as Address) : null)).catch(() => null);
+  if (inEscrow !== null && inEscrow >= gross) {
+    patchSwap(stored.orderId, { state: "funded" }, s);
+    throw new FundingAlreadySent("landed");
+  }
   // never an order an older build committed under the privacy address's owner commitment (c18): stopped before anything is sent
   if (!stored.fundingAttempt && committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
   // the relayer that will execute it runs it, and the order's own vouch still counts (a V6 follow-up of 2026-10-16): a funded

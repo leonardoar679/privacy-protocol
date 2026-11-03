@@ -96,6 +96,14 @@ describe("the secure store (spec §8)", () => {
     expect(() => s.set(KEYSTORE_KEY, journalJson())).toThrow(/not an encrypted keystore/);
     expect(() => s.set(JOURNAL_KEY, keystoreJson())).toThrow(/not an encrypted journal/);
     expect(() => s.set(JOURNAL_KEY, JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "22".repeat(48), note: "plain" }))).toThrow(/not an encrypted journal/);
+    // the keystore's shape is exact too (the fifth review round, 2026-11-03): no extra field, no other length
+    expect(() => s.set(KEYSTORE_KEY, JSON.stringify({ ...JSON.parse(keystoreJson()), owner: "a name" }))).toThrow(/not an encrypted keystore/);
+    expect(() => s.set(KEYSTORE_KEY, JSON.stringify({ ...JSON.parse(keystoreJson()), salt: "" }))).toThrow(/not an encrypted keystore/);
+    expect(() => s.set(KEYSTORE_KEY, JSON.stringify({ ...JSON.parse(keystoreJson()), nonce: "00".repeat(25) }))).toThrow(/not an encrypted keystore/);
+    expect(() => s.set(KEYSTORE_KEY, keystoreJson("11".repeat(49)))).toThrow(/not an encrypted keystore/);
+    expect(() => s.set(KEYSTORE_KEY, JSON.stringify({ ...JSON.parse(keystoreJson()), kdf: { name: "scrypt", N: 4096, r: 8, p: 1, dkLen: 32, note: 1 } }))).toThrow(/not an encrypted keystore/);
+    expect(() => s.set(KEYSTORE_KEY, keystoreJson())).not.toThrow();
+    s.remove(KEYSTORE_KEY);
     expect(() => s.set("pp.other", journalJson())).toThrow(/unknown key/);
     expect(() => assertSecureShape(UNREADABLE_JOURNAL_KEY, journalJson())).not.toThrow();
     expect(s.keys()).toEqual([]);

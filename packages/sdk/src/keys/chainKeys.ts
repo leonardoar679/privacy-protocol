@@ -8,6 +8,25 @@ import { assertJournalSaved, session as defaultSession, type WalletSession } fro
 import { recordFreshAddress } from "../wallet/addressBook";
 
 const seeds = new WeakMap<Uint8Array, { of: Uint8Array; seed64: Uint8Array }>();
+/** the seed objects the cache holds entries for: zeroed and dropped at the lock (the fifth review round, 2026-11-03) */
+const cachedFor = new Set<Uint8Array>();
+
+/**
+ * The cache's copies of the master seed and of the BIP-32 root go with the lock (the fifth review round, 2026-11-03): the session
+ * zeroes its seed, and these two had stayed in the heap until the collector came — a memory read after a lock still had them.
+ */
+export function dropChainSeeds(): void {
+  for (const s of cachedFor) {
+    const hit = seeds.get(s);
+    if (hit) {
+      hit.of.fill(0);
+      hit.seed64.fill(0);
+      seeds.delete(s);
+    }
+  }
+  cachedFor.clear();
+}
+defaultSession.onLock(dropChainSeeds);
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** The 64-byte BIP-39 seed of the master seed's phrase (PBKDF2 once per unlock). Cached on the seed object and re-checked against its bytes, so a zeroed or reused buffer never yields a stale value. */
@@ -16,6 +35,7 @@ export function chainSeed(masterSeed: Uint8Array): Uint8Array {
   if (hit && same(hit.of, masterSeed)) return hit.seed64;
   const seed64 = bip39Seed(seedToPhrase(masterSeed));
   seeds.set(masterSeed, { of: masterSeed.slice(), seed64 });
+  cachedFor.add(masterSeed);
   return seed64;
 }
 

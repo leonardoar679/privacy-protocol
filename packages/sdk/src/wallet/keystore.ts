@@ -45,6 +45,10 @@ export async function createKeystore(seed: Uint8Array, password: string, params:
 /** The seed, or null when the password is wrong or the keystore was tampered with (AEAD failure). */
 export async function unlockKeystore(ks: Keystore, password: string): Promise<Uint8Array | null> {
   if (!ks || ks.v !== 1 || ks.kdf?.name !== "scrypt" || ks.kdf.dkLen !== 32) return null;
+  // the shapes (the fifth review round, 2026-11-03): a 16-byte salt, a 24-byte nonce, the 32-byte seed under its 16-byte tag — a
+  // file with an empty salt, or a longer ciphertext, is not a keystore of this wallet's
+  if (typeof ks.salt !== "string" || typeof ks.nonce !== "string" || typeof ks.ct !== "string") return null;
+  if (!/^[0-9a-fA-F]{32}$/.test(ks.salt) || !/^[0-9a-fA-F]{48}$/.test(ks.nonce) || !/^[0-9a-fA-F]{96}$/.test(ks.ct)) return null;
   let key: Uint8Array;
   try { key = await deriveKey(password, hexToBytes(ks.salt), ks.kdf); } catch { return null; }
   try {

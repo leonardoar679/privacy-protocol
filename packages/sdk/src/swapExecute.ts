@@ -85,6 +85,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
   const attemptId = randomHex32();
   const key = deriveOrderKey(i.masterSeed, attemptId);
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the refund note's counter is handed out after it
   const refundCounter = noteStore.allocateCounter();
   const refund = deriveRefundNote(i.masterSeed, refundCounter);
   // a same-chain swap into the protected balance pays a one-time shield receiver: its note, tip and fallback fixed now

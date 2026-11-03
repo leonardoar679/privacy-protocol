@@ -48,6 +48,5 @@ export async function assertSecondFactor(credentialId: string, o: { rpId?: strin
 
 /** The fallback: the wallet password, checked against the keystore (nothing is revealed; the phrase is discarded at once). */
 export async function verifyPassword(password: string, s: WalletSession = defaultSession): Promise<boolean> {
-  const phrase = await s.revealPhrase(password);
-  return phrase !== null;
+  return s.verifyPassword(password); // the keystore opened and the seed zeroed (the fifth review round, 2026-11-03: the phrase had been built for it)
 }

@@ -14,8 +14,12 @@ export function isKeystoreShaped(x: unknown): boolean {
   if (!x || typeof x !== "object") return false;
   const k = x as Record<string, unknown>;
   const kdf = k.kdf as Record<string, unknown> | undefined;
-  return k.v === 1 && !!kdf && typeof kdf === "object" && typeof kdf.name === "string" && typeof kdf.N === "number" && typeof kdf.r === "number" && typeof kdf.p === "number"
-    && isHex(k.salt) && isHex(k.nonce) && isHex(k.ct);
+  // the exact keys and lengths (the fifth review round, 2026-11-03): a 16-byte salt, a 24-byte nonce, the 32-byte seed under its
+  // 16-byte tag, and nothing beside them — a backup's extra field had ridden into the store as a wallet record
+  const only = (o: object, allowed: readonly string[]) => Object.keys(o).every((key) => allowed.includes(key));
+  const hexOf = (v: unknown, chars: number) => isHex(v, chars) && (v as string).length === chars;
+  return k.v === 1 && !!kdf && typeof kdf === "object" && kdf.name === "scrypt" && typeof kdf.N === "number" && typeof kdf.r === "number" && typeof kdf.p === "number" && kdf.dkLen === 32
+    && only(kdf, ["name", "N", "r", "p", "dkLen"]) && hexOf(k.salt, 32) && hexOf(k.nonce, 48) && hexOf(k.ct, 96) && only(k, ["v", "kdf", "salt", "nonce", "ct"]);
 }
 
 /** The encrypted journal: {v, nonce, ct}. */

@@ -249,6 +249,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
 
 /** Public shield of `amount` wei into the canonical ETH vault (prepare → submit → track). */
 export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the note's counter is handed out after it
   const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount }), o);
   return { txHash: r.txHash, leafIndex: r.leafIndex };
 }
@@ -259,6 +260,7 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
  * connected wallet; the second waits for the first to be mined.
  */
 export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deployment; token: Address; vault: Address; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
   const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount, token: o.token, vault: o.vault }), o);
   return { ...(r.approveTx ? { approveTx: r.approveTx } : {}), txHash: r.txHash, leafIndex: r.leafIndex }; // none when an open approval was used
 }
@@ -623,6 +625,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const from = o.maxTiming !== undefined ? olderInputs(vault, o.maxTiming, needed) : undefined;
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the change note's counter is handed out after it
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee, from);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee, payout: { vault, recipient: o.recipient } });
   if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
@@ -682,6 +685,7 @@ async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deploym
   o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
@@ -773,6 +777,7 @@ async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployme
   o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
+  await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
   const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
   const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note });
   const pieceNote: OwnedNote = { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };

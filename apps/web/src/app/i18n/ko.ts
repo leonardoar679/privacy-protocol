@@ -1551,7 +1551,7 @@ export const ko: Record<MessageKey, string> = {
   "security.tier.institutional": "기관 검토 기준 (USD)",
   "security.forget.title": "이 기기에서 이 지갑 지우기",
   "security.forget.body":
-    "이 기기에서 키 저장소와 암호화된 기록을 삭제합니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
+    "이 기기에서 키 저장소와 암호화된 기록을 삭제하고, 공개 지갑의 연결과 WalletConnect 페어링, 환경 설정, 속도를 위해 보관한 증명 파일, 그리고 Tornado Classic이 여기서 제공되는 경우 그 기록도 지웁니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
   "security.forget.open": "이 지갑 지우기…",
   "security.forget.typeWord": "FORGET 입력",
   "security.forget.confirm": "이 지갑 지우기",
