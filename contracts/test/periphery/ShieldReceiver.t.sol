@@ -263,6 +263,83 @@ contract ShieldReceiverTest is PPTestBase {
         r.sweepUnsupported(address(0));
     }
 
+    /// Review round 3 (C1): wrapped ETH is the pool's own asset in another form — at an ETH receipt it unwraps through
+    /// `shield()`, at a token receipt it shields as ETH through `shieldToken` — so nobody can sweep a WETH delivery to
+    /// the public fallback before the relayer's shield lands (the receipt's parameters are public once anything is on chain).
+    function test_WETHCannotBeSweptToTheFallback() public {
+        (T.ReceiverParams memory p, bytes memory nd) = _eth();
+        ShieldReceiver r = f.deploy(p);
+        vm.deal(address(this), 2 ether);
+        weth.deposit{value: 2 ether}();
+        weth.transfer(address(r), 2 ether); // a route that settles in WETH
+        vm.expectRevert(T.NotAForeignToken.selector);
+        r.sweepUnsupported(address(weth));
+        assertEq(weth.balanceOf(fallbackAddr), 0, "nothing at the fallback");
+        uint256 before = nativeVault.accountedDeposits();
+        vm.prank(relayer);
+        f.deployAndShield(p, nd);
+        assertEq(nativeVault.accountedDeposits() - before, 2 ether - TIP, "the committed note, as ETH");
+        // and at a token receipt
+        ERC20Mock usdc = new ERC20Mock();
+        factory.getOrCreateERC20Vault(address(usdc));
+        ShieldReceiver ru = f.deploy(_params(address(usdc), 8_000e6, 80e6, nd));
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 1 ether}();
+        weth.transfer(address(ru), 1 ether);
+        vm.expectRevert(T.NotAForeignToken.selector);
+        ru.sweepUnsupported(address(weth));
+        vm.expectRevert(T.NotAForeignToken.selector);
+        ru.sweepUnsupported(address(0));
+        assertEq(weth.balanceOf(fallbackAddr), 0);
+    }
+
+    /// Review round 3 (C1/C2): ETH or wrapped ETH that lands at a token receipt (a route's fallback `send`, a WETH
+    /// settlement, a mistaken transfer) shields as ETH into the pool's native vault as the committed note — before,
+    /// nothing could move it. No tip: the tip is the receipt's asset's.
+    function test_ETHAndWETHAtATokenReceiptShieldAsETH() public {
+        ERC20Mock usdc = new ERC20Mock();
+        factory.getOrCreateERC20Vault(address(usdc));
+        bytes memory nd = _noteData(12);
+        T.ReceiverParams memory p = _params(address(usdc), 8_000e6, 80e6, nd);
+        address payable to = payable(f.predict(p));
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 1 ether}();
+        weth.transfer(to, 1 ether);
+        vm.deal(to, 0.5 ether);
+        uint256 before = nativeVault.accountedDeposits();
+        vm.prank(relayer);
+        f.deployAndShieldToken(p, address(weth), nd); // unwraps, then shields all the ETH here
+        assertEq(weth.balanceOf(to), 0, "unwrapped");
+        assertEq(to.balance, 0, "nothing stays");
+        assertEq(nativeVault.accountedDeposits() - before, 1.5 ether, "the committed note, in the native vault");
+        assertEq(relayer.balance, 0, "no tip on ETH at a token receipt");
+        vm.expectRevert(T.NothingToShield.selector);
+        f.deployAndShieldToken(p, address(0), nd);
+        // ETH alone, through shieldToken(address(0))
+        vm.deal(to, 0.25 ether);
+        vm.prank(relayer);
+        f.deployAndShieldToken(p, address(0), nd);
+        assertEq(nativeVault.accountedDeposits() - before, 1.75 ether);
+        // a broken wrapped token reverts its own call only; the ETH here still shields through address(0)
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 1 ether}();
+        weth.transfer(to, 1 ether);
+        weth.setBroken(true);
+        vm.deal(to, 0.1 ether);
+        vm.expectRevert("WETH: broken");
+        f.deployAndShieldToken(p, address(weth), nd);
+        vm.prank(relayer);
+        f.deployAndShieldToken(p, address(0), nd);
+        assertEq(nativeVault.accountedDeposits() - before, 1.85 ether);
+        assertEq(weth.balanceOf(to), 1 ether, "the broken wrapped token waits for a later unwrap");
+        // an ETH receipt's ETH and WETH still go through shield(), never shieldToken
+        (T.ReceiverParams memory pe, bytes memory nde) = _eth();
+        vm.expectRevert(T.NotAForeignToken.selector);
+        f.deployAndShieldToken(pe, address(0), nde);
+        vm.expectRevert(T.NotAForeignToken.selector);
+        f.deployAndShieldToken(pe, address(weth), nde);
+    }
+
     // ---- reentrancy ----------------------------------------------------------------------------------------------------
 
     function test_ATipRecipientCannotReenter() public {

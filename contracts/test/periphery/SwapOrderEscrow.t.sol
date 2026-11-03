@@ -273,6 +273,29 @@ contract SwapOrderEscrowTest is PPTestBase {
         assertEq(nativeVault.accountedDeposits(), 1 ether - TIP);
     }
 
+    /// Review round 3 (C3): an escrow holding exactly the tip (a partial provider refund, dust) paid the tip and then
+    /// reverted with nothing left to re-shield — stuck until someone donated a wei. The tip is paid only when something
+    /// remains for the user's note; a balance of the tip or less re-shields whole, untipped.
+    function test_Refund_ExactlyTheTip_ReShieldsWholeWithoutTip() public {
+        T.OrderParams memory p = _ethParams();
+        address escrow = swapFactory.predict(p);
+        vm.deal(escrow, TIP); // a partial refund of exactly the tip; the order was never funded in full
+        uint256 before = nativeVault.accountedDeposits();
+        vm.warp(block.timestamp + 3 hours);
+        vm.prank(relayer);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(relayer.balance, 0, "no tip: it would have left nothing to re-shield");
+        assertEq(escrow.balance, 0, "the escrow emptied");
+        assertEq(nativeVault.accountedDeposits() - before, TIP, "the whole balance is the user's note");
+        assertFalse(swapFactory.deploy(p).tipPaid(), "the tip stays payable by a later refund that leaves something");
+        // a later arrival above the tip pays it, once
+        vm.deal(escrow, TIP + 1);
+        vm.prank(relayer);
+        swapFactory.deployAndRefund(p, _noteData(778));
+        assertEq(relayer.balance, TIP);
+        assertEq(nativeVault.accountedDeposits() - before, TIP + 1);
+    }
+
     // ---- authorization binding ----
     function test_ExecutionNotSignedByOrderKey_Rejected() public {
         T.OrderParams memory p = _ethParams();

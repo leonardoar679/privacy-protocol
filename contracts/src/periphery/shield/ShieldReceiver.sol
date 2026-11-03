@@ -31,8 +31,10 @@ interface IShieldReceiverFactoryConfig {
 /// vault as the note the wallet committed (its owner, its secret, the hash of its payload). The relayer is paid the
 /// committed tip once, and only when a delivery of at least the swap's minimum is shielded, so dust cannot claim it. An
 /// ETH receipt unwraps wrapped ETH first. Another token that arrives goes into its own canonical vault (when one exists)
-/// as the same note; a token with no vault can only be swept to the committed fallback, a fresh address of the wallet.
-/// Provider refunds still go to the swap's escrow. No owner, no setters, no upgrade; it never creates a vault.
+/// as the same note; ETH or wrapped ETH at a token receipt shields as ETH into the pool's native vault as the same note;
+/// a token with no vault can only be swept to the committed fallback, a fresh address of the wallet — never ETH, never
+/// wrapped ETH (the pool's own asset in another form), never the receipt's asset. Provider refunds still go to the swap's
+/// escrow. No owner, no setters, no upgrade; it never creates a vault.
 contract ShieldReceiver is ReentrancyGuard {
     bytes32 public immutable RECEIPT_ID;
     address public immutable ASSET;
@@ -104,10 +106,27 @@ contract ShieldReceiver is ReentrancyGuard {
 
     /// @notice Shield another token that arrived (a route that paid in something else) into ITS canonical vault, when
     /// one exists, as the same committed note. No tip: the tip is the receipt's asset's. The receipt's own asset — and,
-    /// for an ETH receipt, wrapped ETH — go through `shield`.
+    /// for an ETH receipt, wrapped ETH — go through `shield`. At a token receipt, ETH (`token == address(0)`) and the
+    /// wrapped native token are the pool's own asset in another form: the wrapped is unwrapped, and the ETH here goes into
+    /// the pool's native vault as the same note — nothing else could move it, and the fallback never may.
     function shieldToken(address token, bytes calldata noteData) external nonReentrant returns (uint32 leafIndex) {
         if (keccak256(noteData) != NOTE_DATA_HASH) revert T.NoteDataMismatch();
-        if (token == ASSET || token == address(0) || (ASSET == address(0) && token == WRAPPED_NATIVE)) revert T.NotAForeignToken();
+        if (token == ASSET || (ASSET == address(0) && (token == address(0) || token == WRAPPED_NATIVE))) revert T.NotAForeignToken();
+        if (token == address(0) || token == WRAPPED_NATIVE) {
+            // strict here: a wrapped token that fails to unwrap reverts this call only; the ETH already here still
+            // shields through shieldToken(address(0))
+            if (token != address(0)) {
+                uint256 wrapped = IWrappedNative(token).balanceOf(address(this));
+                if (wrapped != 0) IWrappedNative(token).withdraw(wrapped);
+            }
+            uint256 eth = address(this).balance;
+            if (eth == 0) revert T.NothingToShield();
+            address nativeVault = IAssetVaultFactory(VAULT_FACTORY).vaultOf(address(0));
+            if (nativeVault == address(0)) revert T.NoVault();
+            leafIndex = _deposit(address(0), nativeVault, eth, noteData);
+            emit Shielded(nativeVault, eth, 0, leafIndex, msg.sender);
+            return leafIndex;
+        }
         address vault = IAssetVaultFactory(VAULT_FACTORY).vaultOf(token);
         if (vault == address(0)) revert T.NoVault();
         uint256 amount = IERC20(token).balanceOf(address(this));
@@ -117,9 +136,10 @@ contract ShieldReceiver is ReentrancyGuard {
     }
 
     /// @notice A token the pool has no vault for cannot be shielded: it can only go to the committed fallback, a fresh
-    /// address of the wallet. Never a token with a vault, never ETH, never the receipt's own asset.
+    /// address of the wallet. Never a token with a vault, never ETH or the wrapped native token (the pool's own asset in
+    /// another form: they shield), never the receipt's own asset.
     function sweepUnsupported(address token) external nonReentrant {
-        if (token == address(0) || token == ASSET) revert T.NotAForeignToken();
+        if (token == address(0) || token == ASSET || token == WRAPPED_NATIVE) revert T.NotAForeignToken();
         if (IAssetVaultFactory(VAULT_FACTORY).vaultOf(token) != address(0)) revert T.VaultExists();
         uint256 amount = IERC20(token).balanceOf(address(this));
         if (amount == 0) revert T.NothingToShield();

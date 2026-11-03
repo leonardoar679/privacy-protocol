@@ -203,7 +203,9 @@ contract SwapOrderEscrow is ReentrancyGuard {
 
     function _payTip(address to) private {
         if (tipPaid || EXECUTOR_TIP == 0) return;
-        if (balance() < EXECUTOR_TIP) return; // nothing to tip from (e.g. a dust refund)
+        // nothing to tip from (a dust refund) — and a balance of exactly the tip re-shields whole, untipped: paying it
+        // would leave nothing to deposit and revert the refund until someone added a wei
+        if (balance() <= EXECUTOR_TIP) return;
         tipPaid = true;
         if (ASSET_TYPE == T.ASSET_ETH) {
             (bool ok,) = payable(to).call{value: EXECUTOR_TIP}("");
