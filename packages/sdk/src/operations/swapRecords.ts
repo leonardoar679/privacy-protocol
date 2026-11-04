@@ -37,7 +37,7 @@ export function syncSwapRecord(
   now = Date.now(),
   s: WalletSession = defaultSession,
 ): OperationRecord {
-  const req = stored.request as {
+  const req = (stored.request ?? {}) as {
     from?: { symbol?: string; decimals?: number; chain?: string };
     to?: { symbol?: string; decimals?: number; chain?: string };
     destination?: string;
@@ -58,11 +58,19 @@ export function syncSwapRecord(
   );
   // a partial fill whose rest is accounted for — the executor's watch ended, or its refund came back — is finished (the ninth review round,
   // 2026-11-04, C-03): it had stayed "needs attention" for good, its only action changing nothing; while the rest may still come back it waits
-  const settledPartial = tracked?.state === "PARTIAL" && (job?.state === "completed" || job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0);
+  const restBack = job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0;
+  const settledPartial = tracked?.state === "PARTIAL" && (job?.state === "completed" || restBack);
   const m = settledPartial ? { state: "COMPLETED" as const, phase: "settlement" as const } : mapped;
-  // what such an order came to, beside its state (C-03, C-07: a refund the provider paid at the destination had read "Swap complete")
+  // what such an order came to, beside its state (C-03, C-07: a refund the provider paid at the destination had read "Swap complete") — and
+  // only what the record knows (the tenth review round, A10-2): "the rest came back" with a refund note found or a refunded job; a completed job
+  // re-shielded nothing, so the rest did not come back; a delivery in another token (LI.FI's) is its own outcome, the round-7 rule for steps
+  const otherToken = tracked?.state === "PARTIAL" && !!tracked.deliveredAsset;
   const outcome: OperationOutcome | undefined = settledPartial
-    ? "partial"
+    ? otherToken
+      ? "other-token"
+      : restBack
+        ? "partial"
+        : "partial-unreturned"
     : tracked?.state === "REFUNDED_AT_DESTINATION"
       ? "refunded-at-destination"
       : undefined;
@@ -128,7 +136,13 @@ export function syncSwapRecord(
     ...(reason ? { reason } : {}),
     ...(delayed ? { delayed } : {}),
     ...(prev?.recovery ? { recovery: prev.recovery } : {}),
-    ...(terminal ? (prev!.outcome ? { outcome: prev!.outcome } : {}) : outcome && state === "COMPLETED" ? { outcome } : {}),
+    ...(terminal
+      ? prev!.outcome
+        ? { outcome: prev!.outcome, ...(prev!.outcomeAsset ? { outcomeAsset: prev!.outcomeAsset } : {}) }
+        : {}
+      : outcome && state === "COMPLETED"
+        ? { outcome, ...(outcome === "other-token" && tracked?.deliveredAsset ? { outcomeAsset: tracked.deliveredAsset } : {}) }
+        : {}),
     history: prev && prev.state === state ? prev.history : [...(prev?.history ?? []), { state, at: now, ...(tracked ? { note: tracked.label } : {}) }],
   };
   // the recovery follows where the money is (spec v2.0 §12.4); a delay is watched

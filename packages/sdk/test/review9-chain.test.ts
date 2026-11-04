@@ -224,7 +224,10 @@ describe("D-1: notes recorded past the pool", () => {
     const line = () => (session.journal().activity ?? []).find((x) => x.id === `receive:${LEAF}`);
     expect(line()).toMatchObject({ status: "pending" });
     serve([{ leafIndex: 0, commitment: 11n, noteData: ("0x" + "11".repeat(169)) as Hex }], 4);
+    // a view that does not reach the line's leaf may only lag (the tenth review round, B10-3): within the grace a recorded note gets, it waits
     await runDiscovery(action, { masterSeed: seed, deployment: d(), session });
+    expect(line()?.status).toBe("pending");
+    await runDiscovery(action, { masterSeed: seed, deployment: d(), session, now: () => Date.now() + PAST_POOL_GRACE_MS + 1000 });
     expect(line()?.status).toBe("failed");
     expect(noteStore.balance(BigInt(VAULT))).toBe(0n);
   });

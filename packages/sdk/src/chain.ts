@@ -79,11 +79,19 @@ export interface SpendLog { nullifier0: bigint; nullifier1: bigint; transactionH
 /** The block range a fetch-all read falls back to when an endpoint refuses one request for the whole history. */
 export const LOG_WINDOW_BLOCKS = 10_000n;
 /**
- * A windowed read takes at most this many windows and this long (the ninth review round, 2026-11-04, D-6): an endpoint that refused the
- * whole range for its size and then named a head of 1e15 had sent the read through 1e11 windows, the scheduler waiting behind it.
+ * A windowed read is bounded (the ninth review round, 2026-11-04, D-6: an endpoint that refused the whole range for its size and then named a
+ * head of 1e15 had sent the read through 1e11 windows, the scheduler waiting behind it) — by the span a chain can have, by a count of
+ * windows, and by its own pace: refused once the windows read so far say the rest would take more than MAX_PROJECTED_READ_MS. Never by a
+ * fixed deadline (the tenth review round, B10-1): the ninth round's ten minutes had stopped an honest capped endpoint's every sync for good
+ * once the pool's history outgrew them, each sync starting again at fromBlock.
  */
-export const MAX_LOG_WINDOWS = 50_000;
-export const MAX_WINDOWED_READ_MS = 10 * 60_000;
+export const MAX_LOG_SPAN = 10_000_000_000n; // decades of the fastest chains' blocks: a head past it is no chain's
+export const MAX_LOG_WINDOWS = 1_000_000;
+export const MAX_PROJECTED_READ_MS = 2 * 60 * 60_000;
+/** the pace is judged once this many windows were read */
+const PACE_AFTER_WINDOWS = 64;
+/** a window halved by a refusal grows back after this many answered in a row (a dense stretch had kept them small for the rest of the read) */
+const GROW_AFTER = 16;
 /** An endpoint's refusal of a range too large (a result or response cap, a block-range limit), in the words providers use. */
 const RANGE_REFUSED = /more than \d+ results|response size|block range|range (is )?too (large|wide|big)|exceed(s|ed)? (the )?max(imum)?|too many (results|logs)|query timeout|limited to an? \d/i; // never a rate limit: that is a retry
 const refusedForSize = (e: unknown): boolean => {
@@ -99,8 +107,9 @@ const WINDOWED = new Set<string>();
  * whole history, as before; an endpoint that refuses it for its size — once the pool passes the providers' caps — is read in
  * windows instead, each halved again on a refusal. Before, a large pool left no spend, funding or scan able to run. An
  * endpoint that refused once is read in windows at once afterwards (audit round 2, n13): every sync had asked it the whole
- * history first again. A refused window stays halved for the rest of the read: against a fixed range cap a window grown
- * back would be refused again, one request more each time.
+ * history first again. A halved window grows back after GROW_AFTER answers in a row (the tenth review round, B10-1): kept halved
+ * for the rest of the read, one dense stretch had kept every later sparse one small; against a fixed range cap the regrowth costs
+ * one refused request in seventeen.
  */
 export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumber">, fromBlock: bigint, read: (from: bigint, to: bigint | "latest") => Promise<T[]>, window = LOG_WINDOW_BLOCKS, upTo?: bigint): Promise<T[]> {
   const url = (client as { transport?: { url?: unknown } }).transport?.url; // the endpoint, when the client names one (viem's http transport does)
@@ -114,21 +123,33 @@ export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumbe
     }
   }
   const last = upTo ?? (await client.getBlockNumber());
+  if (last - fromBlock > MAX_LOG_SPAN) throw new Error(`the endpoint names block ${last}, more blocks past the pool's first (${fromBlock}) than any chain has: refused`);
   const out: T[] = [];
   let from = fromBlock;
   let size = window;
-  const deadline = Date.now() + MAX_WINDOWED_READ_MS;
+  const started = Date.now();
   let windows = 0;
+  let streak = 0;
   while (from <= last) {
-    if (++windows > MAX_LOG_WINDOWS || Date.now() > deadline)
-      throw new Error(`the endpoint's logs from block ${fromBlock} to ${last} take more than ${MAX_LOG_WINDOWS} windows or ${MAX_WINDOWED_READ_MS / 60_000} minutes: refused`);
+    if (++windows > MAX_LOG_WINDOWS) throw new Error(`the endpoint's logs from block ${fromBlock} to ${last} take more than ${MAX_LOG_WINDOWS} windows: refused`);
+    // the read's own pace: what the windows so far took, for the blocks they covered, projected over the rest
+    if (windows > PACE_AFTER_WINDOWS && from > fromBlock) {
+      const elapsed = Date.now() - started;
+      if (elapsed + (elapsed * Number(last - from + 1n)) / Number(from - fromBlock) > MAX_PROJECTED_READ_MS)
+        throw new Error(`the endpoint's logs from block ${fromBlock} to ${last} would take more than ${MAX_PROJECTED_READ_MS / 3_600_000} hours at its pace: refused`);
+    }
     const to = from + size - 1n < last ? from + size - 1n : last;
     try {
       out.push(...(await read(from, to)));
       from = to + 1n;
+      if (++streak >= GROW_AFTER && size < window) {
+        size = size * 2n > window ? window : size * 2n;
+        streak = 0;
+      }
     } catch (e) {
       if (!refusedForSize(e) || size <= 1n) throw e;
       size /= 2n;
+      streak = 0;
     }
   }
   return out;
@@ -155,7 +176,14 @@ export async function coreLogs(client: PublicClient, d: Deployment, upTo?: bigin
   )) as unknown as { eventName?: string; args?: Record<string, unknown>; transactionHash: Hex; blockNumber: bigint }[];
   const logs: NoteInsertedLog[] = [];
   const spends: SpendLog[] = [];
+  // one event listed twice — an endpoint's overlapping pages, a log repeated — is one event (the tenth review round, B10-10): the ninth
+  // round's refusal of two events at one leaf (D-9) had stopped every scan and spend for it. Two different events at one leaf stay refused
+  const listed = new Set<string>();
   for (const l of raw) {
+    const a0 = l.args ?? {};
+    const key = `${l.transactionHash}|${String((l as { logIndex?: unknown }).logIndex ?? "")}|${String(a0.leafIndex ?? a0.nullifier0 ?? "")}|${String(a0.commitment ?? a0.nullifier1 ?? "")}|${String(a0.noteData ?? "")}`;
+    if (listed.has(key)) continue;
+    listed.add(key);
     const a = l.args ?? {};
     if (l.eventName === "ShieldedTransaction" || (l.eventName === undefined && "nullifier0" in a))
       spends.push({ nullifier0: field(BigInt(a.nullifier0 as bigint), "a spend's nullifier"), nullifier1: field(BigInt(a.nullifier1 as bigint), "a spend's nullifier"), transactionHash: l.transactionHash, blockNumber: l.blockNumber });

@@ -936,6 +936,53 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(pending(), "a settled order plans no more ticks").toBeUndefined();
   });
 
+  it("a delivery the executor reported that the pool's proven part does not hold yet is looked for every two minutes, never at every tick (the tenth review round, B10-5)", async () => {
+    const shield = {
+      factory: "0x00000000000000000000000000000000000000f2",
+      receiver: "0x00000000000000000000000000000000000000c7",
+      params: {
+        receiptId: "0x" + "5f".repeat(32),
+        asset: "0x0000000000000000000000000000000000000000",
+        minAmount: "200",
+        shieldTip: "2",
+        ownerCommitment: "1",
+        noteSecret: "2",
+        noteDataHash: "0x" + "00".repeat(32),
+        fallbackRecipient: "0x00000000000000000000000000000000000000fa",
+      },
+      counter: 9,
+      noteData: "0x01",
+      registeredAt: T0,
+    };
+    order({ fundedTx: "0xf00d", state: "executing", jobId: "job-1", shield });
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    w.job = { id: "job-1", escrow: "0x00000000000000000000000000000000000000e5", state: "executed", updatedAt: T0 } as SwapJob;
+    w.shield = {
+      id: shield.params.receiptId,
+      receiver: shield.receiver as `0x${string}`,
+      state: "shielded",
+      updatedAt: T0,
+      shields: [{ txHash: ("0x" + "78".repeat(32)) as `0x${string}`, leafIndex: 43, amount: "1", tip: "2", at: T0 }],
+    };
+    io.recoverShield = async () => {
+      w.shieldRecoveries++;
+      return 0; // in the tail: held until a proof covers its leaf
+    };
+    io.track = async () => ({
+      tracked: { state: "PROVIDER_EXECUTING", label: "Executing", steps: [true, true, false, false], detail: "" } as Tracked,
+      job: w.job,
+    });
+    await runOrderTick(action(), deps(io));
+    await runOrderTick(action(T0 + 15_000), deps(io, T0 + 15_000));
+    await runOrderTick(action(T0 + 60_000), deps(io, T0 + 60_000));
+    expect(w.shieldRecoveries, "once, then nothing for two minutes").toBe(1);
+    await runOrderTick(action(T0 + 121_000), deps(io, T0 + 121_000));
+    expect(w.shieldRecoveries).toBe(2);
+  });
+
   it("'Delay for more privacy' funds no earlier than its drawn time (1–24 h); a campaign's tranche is never run here", async () => {
     const delayUntil = T0 + 3 * 3600_000;
     order({ runner: { confirmedAt: T0, delayUntil } });

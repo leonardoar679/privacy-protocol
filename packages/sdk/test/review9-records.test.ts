@@ -7,7 +7,8 @@ import type { Hex } from "viem";
 import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
-import { applyEvent, getOperation, newOperation, putOperation, resetOperationsMemory, unresolvedOf } from "../src/operations/store";
+import { applyEvent, getOperation, MAY_STILL_LAND_MS, newOperation, putOperation, resetOperationsMemory, unresolvedOf } from "../src/operations/store";
+import { upgradeRecord } from "../src/operations/upgrade";
 import { reconcileStaleOperations, RELAYER_GONE_MS, STALE_DROP_MS, type StaleReads } from "../src/operations/stale";
 import { swapRecordId, syncSwapRecord } from "../src/operations/swapRecords";
 import { notificationFor } from "../src/operations/notify";
@@ -186,6 +187,36 @@ describe("C-11: a Send whose outcome is unknown", () => {
   });
 });
 
+describe("A10-1 (the tenth review round): a Send that never settles holds the next back no longer", () => {
+  it("a relayer that keeps naming a transaction no endpoint knows: past the drop limit, the notes unspent, nothing moved", async () => {
+    const id = record("send", "submitting", 21, T0, { nullifiers: ["211", "212"], relayerUrl: RELAYER, inputsDigest: DIGEST });
+    const reads = chain({ jobs: { "211": 22 } }); // hash 22 is known nowhere
+    await reconcileStaleOperations(reads, T0 + 60_000);
+    expect(getOperation(id)).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "outcome_unknown" } });
+    await reconcileStaleOperations(reads, T0 + 60_000 + STALE_DROP_MS + 60_000);
+    expect(getOperation(id)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped", fundsClass: "not-moved" } });
+    expect(unresolvedOf([getOperation(id)!], "send")).toBeNull();
+  });
+
+  it("a transaction that spends other notes: past the drop limit with the record's own notes unspent, its call never landed", async () => {
+    const id = record("send", "confirming", 23, T0, { nullifiers: ["231", "232"], relayerUrl: RELAYER, inputsDigest: DIGEST });
+    const reads = chain({ mined: [23], spends: { 23: ["991", "992"] } });
+    await reconcileStaleOperations(reads, T0 + 60_000);
+    expect(getOperation(id)).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "not_this_spend" } });
+    await reconcileStaleOperations(reads, T0 + 60_000 + STALE_DROP_MS + 60_000);
+    expect(getOperation(id)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped" } });
+  });
+
+  it("an outcome still unknown a day after the Send was made holds nothing back", () => {
+    const made = Date.now() - MAY_STILL_LAND_MS - 60_000;
+    const id = record("send", "submitting", 25, made, { nullifiers: ["251", "252"], relayerUrl: RELAYER, inputsDigest: DIGEST });
+    applyEvent(id, { type: "recovery-required", code: "relayer_unreachable", detail: "the answer was lost" }, session, made + 1000);
+    const rec = getOperation(id)!;
+    expect(rec.reason?.fundsClass).toBe("unknown");
+    expect(unresolvedOf([rec], "send")).toBeNull();
+  });
+});
+
 describe("C-08: a record written while locked", () => {
   it("is not kept past the lock; a draft beside a journaled record never replaces it", async () => {
     const id = record("send", "confirming", 17, T0, { nullifiers: ["171", "172"], relayerUrl: RELAYER });
@@ -230,10 +261,53 @@ describe("C-03, C-07: a finished swap names what it came to", () => {
       state: "RECOVERY_REQUIRED",
       reason: { code: "partial_delivery" },
     });
+    // the watch ended with nothing re-shielded (a completed job, no refund note): the rest did not come back — never "it came back" (the
+    // tenth review round, A10-2; the ninth round's case had pinned "partial" here)
     const done = syncSwapRecord(stored(), tracked("PARTIAL"), job("completed"), T0 + 1000);
-    expect(done).toMatchObject({ state: "COMPLETED", outcome: "partial", amounts: { delivered: "600" } });
+    expect(done).toMatchObject({ state: "COMPLETED", outcome: "partial-unreturned", amounts: { delivered: "600" } });
     // read again later without the amount: the record keeps it
-    expect(syncSwapRecord(stored(), null, null, T0 + 2000)).toMatchObject({ state: "COMPLETED", outcome: "partial", amounts: { delivered: "600" } });
+    expect(syncSwapRecord(stored(), null, null, T0 + 2000)).toMatchObject({ state: "COMPLETED", outcome: "partial-unreturned", amounts: { delivered: "600" } });
+  });
+
+  it("delivered in part with the rest back — a refund note found, or a refunded job — or delivered in another token: each its own outcome (the tenth review round, A10-2)", () => {
+    session.update((j) => {
+      j.operations = [];
+    });
+    expect(
+      syncSwapRecord(
+        stored({ refunds: [{ leafIndex: 9, vault: "0x01", amount: "400" }] }),
+        tracked("PARTIAL", { deliveredUnits: "600" }),
+        job("completed"),
+        T0,
+      ),
+    ).toMatchObject({
+      state: "COMPLETED",
+      outcome: "partial",
+    });
+    session.update((j) => {
+      j.operations = [];
+    });
+    expect(syncSwapRecord(stored(), tracked("PARTIAL", { deliveredUnits: "600" }), job("refunded"), T0)).toMatchObject({
+      state: "COMPLETED",
+      outcome: "partial",
+    });
+    session.update((j) => {
+      j.operations = [];
+    });
+    expect(syncSwapRecord(stored(), tracked("PARTIAL", { deliveredAsset: "USDC.e" }), job("completed"), T0)).toMatchObject({
+      state: "COMPLETED",
+      outcome: "other-token",
+      outcomeAsset: "USDC.e",
+    });
+  });
+
+  it("an outcome this build does not know is dropped as the journal is read (the tenth review round, A10-8)", () => {
+    const rec = { v: 3, id: "x", kind: "swap", state: "COMPLETED", outcome: "lost-in-space", outcomeAsset: "X" } as unknown as OperationRecord;
+    const read = upgradeRecord(rec);
+    expect(read.outcome).toBeUndefined();
+    expect(read.outcomeAsset).toBeUndefined();
+    const known = { ...rec, outcome: "partial" } as unknown as OperationRecord;
+    expect(upgradeRecord(known), "a known one is the same object").toBe(known);
   });
 
   it("a refund the provider paid at the destination is a finished record that says so — and its notification never 'complete', no expected amount", () => {

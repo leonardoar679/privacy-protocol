@@ -51,12 +51,17 @@ export function Usd({ cents, approx, size, testId }: { cents: bigint; approx?: b
 }
 
 /** The states a person sees (spec §7.8): one word each, from the operation's state. */
-export type Status = "preparing" | "executing" | "action-needed" | "completed" | "refunded" | "failed" | "cancelled";
+export type Status =
+  "preparing" | "executing" | "action-needed" | "completed" | "partial" | "other-token" | "refunded-at-destination" | "refunded" | "failed" | "cancelled";
 export const STATUS_TONE: Record<Status, StatusTone> = {
   preparing: "pending",
   executing: "pending",
   "action-needed": "warn",
   completed: "ok",
+  // a finished swap that is not the whole delivery (the tenth review round, A10-4): its chip had read "Completed" or "Returned"
+  partial: "warn",
+  "other-token": "warn",
+  "refunded-at-destination": "warn",
   refunded: "neutral",
   failed: "danger",
   cancelled: "neutral",
@@ -66,6 +71,9 @@ export const STATUS_WORD: Record<Status, MessageKey> = {
   executing: "operation.executing",
   "action-needed": "operation.actionNeeded",
   completed: "operation.completed",
+  partial: "operation.partial",
+  "other-token": "operation.otherToken",
+  "refunded-at-destination": "operation.refundedAtDestination",
   refunded: "operation.refunded",
   failed: "operation.failed",
   cancelled: "operation.cancelled",

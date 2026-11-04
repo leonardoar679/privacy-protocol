@@ -35,8 +35,12 @@ describe("a finished swap's outcome", () => {
     expect(finishedWords(rec({}), t)).toBe("Completed");
     expect(finishedWords(rec({ outcome: "partial" }), t)).toBe("Delivered in part");
     expect(recordWords(rec({ outcome: "refunded-at-destination" }), t)).toBe("Refunded at destination");
-    expect(statusOf(rec({ outcome: "refunded-at-destination" }))).toBe("refunded");
-    expect(statusOf(rec({ outcome: "partial" }))).toBe("completed");
+    // the outcome's own chip (the tenth review round, A10-4): "Completed" and "Returned" had said more than the record knows
+    expect(statusOf(rec({ outcome: "refunded-at-destination" }))).toBe("refunded-at-destination");
+    expect(statusOf(rec({ outcome: "partial" }))).toBe("partial");
+    expect(statusOf(rec({ outcome: "partial-unreturned" }))).toBe("partial");
+    expect(statusOf(rec({ outcome: "other-token" }))).toBe("other-token");
+    expect(statusOf(rec({}))).toBe("completed");
   });
 
   it("the notification: its own words, a warning for a refund at the destination", () => {

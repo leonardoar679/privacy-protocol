@@ -143,7 +143,10 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
       try {
         from = (await update(period, from)) + 1;
       } catch (e) {
-        if (boundary && e instanceof LightClientError && /no update for sync-committee period/.test(e.message)) {
+        // at the boundary the store one period behind is valid for these reads (r26): an API that has no update ends the walk, and so does
+        // any failure once an API served a verified update that did not advance the store (the tenth review round, B10-4: the second API
+        // down had thrown the whole sync, where the store had stood before the ninth round)
+        if (boundary && (from > 0 || (e instanceof LightClientError && /no update for sync-committee period/.test(e.message)))) {
           ended = true;
           break;
         }

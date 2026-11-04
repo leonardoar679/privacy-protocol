@@ -209,6 +209,26 @@ describe("D-5 (i): an update that verifies without advancing the store", () => {
   });
 });
 
+describe("B10-4 (the tenth review round): at the period boundary, the second API down", () => {
+  const s = at(P + 1);
+  const start = P * PERIOD_SLOTS + 100;
+  it("ends the walk with the store as it is, as before the ninth round — the first API's update verified without advancing it", async () => {
+    const b = bootstrap(start, A);
+    const lc0 = LightClient.fromBootstrap(s, b.root, b.data, "electra");
+    lc0.applyUpdate(update({ attSlot: start + 200, finSlot: start + 150, signer: A, next: B, spec: s }), "electra");
+    // signed in P+1, finalizing a block of P: genuine, and no rotation — the boundary's first minutes
+    const notRotating = update({ attSlot: (P + 1) * PERIOD_SLOTS + 2, finSlot: P * PERIOD_SLOTS + 8000, signer: B, spec: s });
+    const first = beacons({ "first.test": { updates: { [P + 1]: [notRotating] } } });
+    const fetchFn = (async (url: string) => {
+      if (new URL(url).host === "second.test") throw new Error("connect ECONNREFUSED");
+      return first(url);
+    }) as unknown as typeof fetch;
+    const lc = await syncLightClient({ spec: s, snapshot: lc0.snapshot(), beaconUrls: ["http://first.test", "http://second.test"], fetchFn });
+    expect(lc.period).toBe(P);
+    expect(lc.knowsNextCommittee).toBe(true);
+  });
+});
+
 describe("D-5 (ii): a finality update older than the store's", () => {
   const s = at(P, 8000);
   const start = P * PERIOD_SLOTS + 100;

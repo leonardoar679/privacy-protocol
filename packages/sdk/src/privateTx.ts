@@ -32,6 +32,7 @@ import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, receiptViaInj
 import { indexSpends, rememberSpendIndex, type SpendIndex } from "./wallet/spends";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
+import { syncSwapRecord } from "./operations/swapRecords";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
 import { connectivity, whenOnline } from "@privacy-wallet/privacy-engine/transport/connectivity";
 import { poolStats } from "./wallet/poolStats";
@@ -1002,7 +1003,8 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
       }
       continue;
     }
-    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}), ...(spent && p !== true ? { spentUnproven: true as const, spentAtBlock: markAt } : {}) });
+    // its time, as every flow's note has (the tenth review round, B10-3): without one a view a block behind dropped it past the pool at once
+    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, addedAt: Date.now(), ...(f.counter !== undefined ? { counter: f.counter } : {}), ...(spent && p !== true ? { spentUnproven: true as const, spentAtBlock: markAt } : {}) });
     added++;
     addedNotes.push(f);
   }
@@ -1011,8 +1013,12 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
 
 /** A spent mark's block is at most this far past the light client's finalized block (about a day of 12-second blocks; D-2). */
 export const FINALIZED_LEAD_BLOCKS = 7200;
-/** ...and at most this far past the block a later view was read at (an endpoint a few blocks behind another; D-2). */
-export const VIEW_SLACK_BLOCKS = 64;
+/**
+ * ...and at most this far past the block a later view was read at (an endpoint behind another; D-2) — two hours of blocks (the tenth review
+ * round, B10-3): at 64 a view thirteen minutes behind a spend's receipt lifted the genuine mark, and the note read unspent until the next
+ * caught-up scan. A lying head is past it either way, and the light client's finalized lead bounds it where there is one.
+ */
+export const VIEW_SLACK_BLOCKS = 600;
 /** How long a note recorded past the pool the endpoints agree on is kept for them to catch up (the ninth review round, D-1). */
 export const PAST_POOL_GRACE_MS = 15 * 60_000;
 
@@ -1065,13 +1071,23 @@ function journalRefunds(refunds: RecoveredRefund[]): void {
       if (s.state !== "completed") s.state = "refunded";
     }
   });
+  // the record of each order the refund closed moves with it (the tenth review round, A10-6): it had stayed "Refunding" until a Refresh by hand
+  const closed = new Set(refunds.filter((r) => r.kind !== "shield").map((r) => r.orderId.toLowerCase()));
+  for (const stored of session.journal().swaps) {
+    if (!closed.has(stored.orderId.toLowerCase()) || stored.campaign) continue;
+    try {
+      syncSwapRecord(stored, null, null, Date.now(), session);
+    } catch {
+      // a record's sync never stops the scan: the next Refresh or tick writes it
+    }
+  }
 }
 
 /**
  * What a scan found: the transfers received it added, those it holds back past the proven pool (`pending`, audit round 2,
  * r24), and how many leaves the light client proved (null where none applies: the reads rest on the RPC quorum).
  */
-export interface ScanResult { scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[]; pending: ReceivedNote[]; proven: number | null }
+export interface ScanResult { scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[]; pending: ReceivedNote[]; proven: number | null; /** the leaves the scan's view holds */ leaves?: number }
 
 export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<ScanResult> {
   // a lock during the scan empties the store: nothing found afterwards goes into it, nor raises the next wallet's counter
@@ -1125,7 +1141,9 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // quorum-agreed receipt, so nothing of theirs waits
   const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, index, locked);
-  journalRefunds(refunds);
+  // only the refunds and deliveries recorded: one waiting past the proven pool is journaled once a proof covers it, as recoverSwapRefunds
+  // does (the tenth review round, B10-2: a lying quorum's replay at a tail leaf had marked an order refunded for good, nothing in the store)
+  journalRefunds(waiting.length ? refunds.filter((x) => !waiting.some((f) => f.leafIndex === x.leafIndex)) : refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
   if (o.refunds === undefined) noteStore.releaseCounters(COUNTER_RESERVE);
@@ -1147,7 +1165,7 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });
   const received = addedNotes.filter(isReceived).map(asReceived);
   o.onStatus?.(`Scanned ${logs.length} payloads: ${r.found} ours (${r.added} new, ${r.spent} spent${refunds.length ? `, ${refunds.length} swap refund${refunds.length > 1 ? "s" : ""}` : ""}${waiting.length ? `, ${waiting.length} waiting for finality` : ""}).`);
-  return { scanned: logs.length, ...r, refunds: refunds.length, received, pending: waiting.filter(isReceived).map(asReceived), proven };
+  return { scanned: logs.length, ...r, refunds: refunds.length, received, pending: waiting.filter(isReceived).map(asReceived), proven, leaves: tree.nextLeafIndex };
 }
 
 /** V6 Stage 12: the delivered note of a same-chain swap into the protected balance, once the executor reports a shield. */

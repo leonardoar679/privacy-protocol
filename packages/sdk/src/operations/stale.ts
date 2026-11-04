@@ -200,6 +200,12 @@ const SPENT_ELSEWHERE: OperationEvent = {
 };
 /** Sent as far as the chain can tell (its notes spent), the transaction not known here: read again at every scan (the review round of 2026-11-02). */
 const OUTCOME_UNKNOWN: OperationEvent = { type: "recovery-required", code: "outcome_unknown", detail: "sent; its transaction is not known here yet" };
+/** Past the drop limit, its notes unspent, the transaction the record holds never landed for it: nothing moved (the tenth review round, A10-1). */
+const droppedEvent = (hash: string): OperationEvent => ({
+  type: "submission-failed",
+  code: "transaction_dropped",
+  detail: `transaction ${hash} was dropped before it was mined`,
+});
 
 /**
  * The call a transaction the wallet replaced landed as (the ninth review round, 2026-11-04, C-02: a speed-up — the same call under a new hash):
@@ -259,7 +265,12 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
     if (job && (await spendsRecord(r, job.txHash, reads)) !== false) {
       const own = await ownCall(r, job.txHash, reads);
       if (own === true) return job.txHash;
-      if (own === null) return r.state === "RECOVERY_REQUIRED" ? null : [OUTCOME_UNKNOWN];
+      if (own === null) {
+        // a hash no endpoint knows, past the drop limit, the notes unspent: the dropped-transaction rule, as before the ninth round (the tenth
+        // review round, A10-1) — a relayer that kept naming it had held this record, and every later Send behind it, for good
+        if (old && !(await reads.txKnown(job.txHash)) && !(await notesSpent(r, reads))) return [droppedEvent(job.txHash)];
+        return r.state === "RECOVERY_REQUIRED" ? null : [OUTCOME_UNKNOWN];
+      }
     }
     // sent, its transaction not known here: never "nothing moved" (r23) — and never left where it blocks the next Send for good
     // (one at a time, V7 Stage 16): the record waits as RECOVERY_REQUIRED, its outcome unknown, and is read again at every scan
@@ -305,7 +316,14 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
         }
         const ours = status === null ? null : await spendsRecord(r, hash, reads);
         if (Array.isArray(moved)) moved.forEach(apply);
-        else if (ours === false) apply({ type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` });
+        // a transaction that spends other notes is not this record's (c42); past the drop limit with the record's own notes unspent, its own call
+        // never landed (the tenth review round, A10-1): nothing moved — left "unknown", it had held every later Send for good
+        else if (ours === false)
+          apply(
+            old && !(await notesSpent(r, reads))
+              ? droppedEvent(hash)
+              : { type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` },
+          );
         else if (status === "success") apply({ type: "completed", ref: { txHash: hash } });
         // "nothing moved" only while its notes are unspent, as the relayer judges its own jobs (audit round 2, r23): a node
         // that never saw the relayer's pending transaction, or an endpoint's "reverted", had failed a Send on its way

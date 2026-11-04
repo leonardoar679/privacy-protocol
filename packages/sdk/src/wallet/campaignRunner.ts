@@ -650,6 +650,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const m = (e as Error)?.message ?? String(e);
           // the funding's own window check, by the later of the device's clock and the chain's (audit round 2, critic gap 5): a
           // device clock behind the chain had passed the step's check above — abandoned unfunded and planned again, as there
+          // an order closed while its funding was proved (the tenth review round, A10-7): nothing was sent — the status line had marked it sent
+          // before the event that refused it, and the step paused as "ended without a known outcome"
+          if ((e as { code?: unknown })?.code === "order_closed") {
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order was closed while its funding was prepared; nothing was sent and the step is planned again");
+            nextAt = now + 1000;
+            break;
+          }
           if (!sent && (e as { code?: unknown })?.code === "order_expired") {
             abandonSwap(stored.orderId, s);
             c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's execution window had closed by the chain's clock before it was funded: the order is abandoned and the step planned again");

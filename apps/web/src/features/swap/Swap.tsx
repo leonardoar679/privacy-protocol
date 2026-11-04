@@ -25,7 +25,8 @@ import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, Lis
 import { useT } from "../../app/i18n/useT";
 import { formatDateTime } from "../../app/i18n/intl";
 import { feeSummary, swapService, type AssetRef, type ExecutionPlan, type Policy, type QuoteSet, type RouteScore, type ServiceOrder, type Protection } from "@privacy-wallet/sdk/swapService";
-import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "@privacy-wallet/sdk/swapExecute";
+import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, type Signed } from "@privacy-wallet/sdk/swapExecute";
+import { returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { controlsFor, exportOrderReview, issuerControlled, reviewHoldMinutes, routeKind, PROTECTED_EXECUTION } from "@privacy-wallet/sdk/tiers";
 import { downloadText } from "@privacy-wallet/sdk/download";
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
@@ -45,7 +46,7 @@ import { relayerInfo, relayerSwapStatus, type SwapJob } from "@privacy-wallet/sd
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
-import { abandonSwap, assetOfStored, fundEscrow, isOpenSwap, patchSwap, swapFactoryOf } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, assetOfStored, fundEscrow, fundingUnderWay, isOpenSwap, patchSwap, swapFactoryOf } from "@privacy-wallet/sdk/swapFunding";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { fundedOf, type StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
@@ -193,23 +194,29 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   }, [trackedOrderId, deployment, submission, tick]);
 
   // the executor re-shielded the order: its refund note goes into the wallet now, not at the next rescan (PP-S09)
+  // a refund in the pool's unproven tail is recorded once a proof covers its leaf (the tenth review round, B10-5): looked for again every
+  // minute, for half an hour — once had left the refund line unrecorded for good
   useEffect(() => {
     if (job?.state !== "refunded" || !deployment || !stored) return;
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const orderId = stored.orderId.toLowerCase();
-    recoverSwapRefunds({ masterSeed, deployment })
-      .then((rs) => {
-        if (!live) return;
-        const mine = rs.filter((r) => r.orderId.toLowerCase() === orderId);
-        const amountOf = (r: (typeof rs)[number]) => { const a = assetByVault(deployment, r.note.vaultId); return a ? `${formatAmount(a, r.note.amount)} ${a.symbol}` : `${r.note.amount} base units`; };
-        for (const r of mine) {
-          const a = assetByVault(deployment, r.note.vaultId);
-          recordActivity({ id: activityId("refund", `${orderId}:${r.leafIndex}`), kind: "refund", asset: a?.symbol ?? "units", decimals: a?.decimals ?? 0, amount: r.note.amount.toString(), status: "completed", ref: stored.orderId, note: t("swap.refundNote") });
-        }
-        setRefundLine(mine.length ? t("swap.refunded", { amounts: mine.map(amountOf).join(" + ") }) : t("swap.refundedNotSeen"));
-      })
-      .catch((e) => live && setRefundLine(t("swap.refundedRecordFailed", { reason: e instanceof Error ? e.message : String(e) })));
-    return () => { live = false; };
+    const look = (tries: number) =>
+      recoverSwapRefunds({ masterSeed, deployment })
+        .then((rs) => {
+          if (!live) return;
+          const mine = rs.filter((r) => r.orderId.toLowerCase() === orderId);
+          const amountOf = (r: (typeof rs)[number]) => { const a = assetByVault(deployment, r.note.vaultId); return a ? `${formatAmount(a, r.note.amount)} ${a.symbol}` : `${r.note.amount} base units`; };
+          for (const r of mine) {
+            const a = assetByVault(deployment, r.note.vaultId);
+            recordActivity({ id: activityId("refund", `${orderId}:${r.leafIndex}`), kind: "refund", asset: a?.symbol ?? "units", decimals: a?.decimals ?? 0, amount: r.note.amount.toString(), status: "completed", ref: stored.orderId, note: t("swap.refundNote") });
+          }
+          setRefundLine(mine.length ? t("swap.refunded", { amounts: mine.map(amountOf).join(" + ") }) : t("swap.refundedNotSeen"));
+          if (!mine.length && tries < 30) timer = setTimeout(() => void look(tries + 1), 60_000);
+        })
+        .catch((e) => live && setRefundLine(t("swap.refundedRecordFailed", { reason: e instanceof Error ? e.message : String(e) })));
+    void look(0);
+    return () => { live = false; if (timer) clearTimeout(timer); };
   }, [job?.state, stored?.orderId, deployment]);
 
   function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setCompare(false); setRefundLine(""); setReview(null); setInterstitial(null); setRouteAck(false); setDestAck(false); setError(""); }
@@ -293,12 +300,16 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     });
     if (w) { completeAction(`fund-escrow:${stored.orderId}`); setTick((n) => n + 1); }
   }
+  // the runner's own return, as the Swap screen's and Activity's (the tenth review round, A10-8): it refuses during a funding, clears the
+  // pause and plans the next tick — this page's own call had done none of it
   async function returnToBalance() {
     if (!order || !stored || !refundNoteData) return;
-    const j = await run(t("swap.handingRefund"), () => returnOrderToBalance({ deployment, stored, submission }));
-    if (!j) return;
-    setMoved(null); setJob(j);
-    setStored((x) => (x && x.orderId.toLowerCase() === order.orderId.toLowerCase() ? { ...x, jobId: j.id, state: j.state } : x));
+    const ok = await run(t("swap.handingRefund"), () => returnFunds(stored.orderId, { masterSeed, deployment }).then(() => true));
+    if (!ok) return;
+    setMoved(null);
+    const back = session.isUnlocked() ? session.journal().swaps.find((x) => x.orderId.toLowerCase() === order.orderId.toLowerCase()) : undefined;
+    if (back) setStored(back);
+    setTick((n) => n + 1);
   }
   async function prepareSigned(acceptMin?: bigint): Promise<Signed | { moved: MinimumMoved } | undefined> {
     if (!order || !orderKey || !refundNoteData) return;
@@ -632,7 +643,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
               const a = assetOf(s);
               return (
                 <ListRow key={s.orderId} title={`${formatAmount(a, BigInt((s.params as { amount: string }).amount))} ${a.symbol} → ${(s.request as { to: { symbol: string } }).to.symbol}`} subtitle={`${s.state}${s.dueAt && !s.fundedTx ? ` · ${t("swap.fundingAt", { time: formatDateTime(s.dueAt) })}` : ""}`}
-                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!fundedOf(s) && !s.fundingAttempt ? <TextButton onClick={() => { try { abandonSwap(s.orderId); } catch (e) { setError(classify(e).detail || String(e)); } }}>{t("swap.abandon")}</TextButton> : null}</span>} />
+                  trailing={<span className="ds-actions"><Button variant="secondary" onClick={() => void resume(s)} disabled={!!busy}>{t("swap.open")}</Button>{!fundedOf(s) && !s.fundingAttempt && !fundingUnderWay(s.orderId) ? <TextButton onClick={() => { try { abandonSwap(s.orderId); } catch (e) { setError(classify(e).detail || String(e)); } }}>{t("swap.abandon")}</TextButton> : null}</span>} />
               );
             })}
           </Card>

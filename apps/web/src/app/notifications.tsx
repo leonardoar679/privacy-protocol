@@ -22,9 +22,15 @@ const TONE: Record<OperationNotification["kind"], "info" | "success" | "warn"> =
 const amountText = (a: NotifiedAmount): string => `${displayAmount(amountFrom(a.value, a.asset, a.decimals))} ${a.asset}`;
 
 /** A finished swap that is not the whole delivery has its own words (the ninth review round, C-03/C-07), never "Your transaction is complete". */
-const wordsOf = (n: OperationNotification): string => (n.kind === "completed" && n.outcome ? (n.outcome === "partial" ? "partial" : "notDelivered") : n.kind);
+const OUTCOME_WORDS: Record<NonNullable<OperationNotification["outcome"]>, string> = {
+  partial: "partial",
+  "partial-unreturned": "partialUnreturned", // the tenth review round, A10-2: "the rest came back" had been said with nothing back
+  "other-token": "otherToken",
+  "refunded-at-destination": "notDelivered",
+};
+const wordsOf = (n: OperationNotification): string => (n.kind === "completed" && n.outcome ? OUTCOME_WORDS[n.outcome] : n.kind);
 const toneOf = (n: OperationNotification): "info" | "success" | "warn" =>
-  n.kind === "completed" && n.outcome === "refunded-at-destination" ? "warn" : TONE[n.kind];
+  n.kind === "completed" && n.outcome && n.outcome !== "partial" ? "warn" : TONE[n.kind];
 
 /** The words of a notification: its kind's title and body, the amounts in front only when the user allowed them. */
 export function notificationWords(n: OperationNotification): { title: string; body: string } {

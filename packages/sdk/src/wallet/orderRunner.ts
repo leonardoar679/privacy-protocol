@@ -88,6 +88,11 @@ const TERMINAL_JOB = ["refunded"];
 export const ORDER_LATE_TRACK_MS = 10 * 60_000;
 /** A hand-over whose outcome is not known past the window's end: the executor is asked again this often (the ninth review round, C-09). */
 export const HANDOVER_RECHECK_MS = 60_000;
+/**
+ * Past the execution window, an escrow that still holds the whole order is conclusive once the endpoints had this long to see an execution of
+ * the window's last minutes (the tenth review round, A10-3): nothing executes past the deadline, attempt journaled or not.
+ */
+export const HANDOVER_SETTLE_MS = 10 * 60_000;
 
 /** Everything the runner reads or moves, behind one interface: the wallet's modules by default, fakes in the tests. */
 export interface OrderIo {
@@ -97,7 +102,8 @@ export interface OrderIo {
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
   /** `reuse`: the call whose moved minimum the user accepted, checked again and signed instead of a fresh quote */
   sign(stored: StoredSwap, reuse?: Prepared): Promise<Signed | { moved: MinimumMoved; prepared?: Prepared }>;
-  handOver(stored: StoredSwap, signed: Signed): Promise<{ job?: SwapJob }>;
+  /** `onSending`: called right before the executor is asked, with its relayer (the tenth review round, A10-3) */
+  handOver(stored: StoredSwap, signed: Signed, onSending?: (relayerUrl: string) => void): Promise<{ job?: SwapJob }>;
   /** the executor's job for this order, if it has one (keyed by orderId) */
   job(stored: StoredSwap): Promise<SwapJob | null>;
   track(stored: StoredSwap): Promise<{ tracked: Tracked; job: SwapJob | null }>;
@@ -187,8 +193,16 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
         ...(reuse ? { reuse } : {}),
         onStatus: (l) => schedulerStatus.progress(l),
       }),
-    handOver: async (stored, signed) =>
-      handOverSigned({ deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), signed, submission: d.submission }),
+    handOver: async (stored, signed, onSending) =>
+      handOverSigned({
+        deployment: d.deployment,
+        session: d.session,
+        stored,
+        order: await orderFor(stored),
+        signed,
+        submission: d.submission,
+        ...(onSending ? { onSending } : {}),
+      }),
     job: async (stored) => {
       const own = relayerOf(stored);
       if (!own) return null;
@@ -231,6 +245,13 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
 }
 
 /**
+ * A delivery the executor reported and the pool's proven part does not hold yet is looked for at most this often (the tenth review round,
+ * B10-5): it waits for the proof that covers its leaf, minutes after it is mined, and every 15-second tick had read the whole pool again.
+ */
+export const SHIELD_RECHECK_MS = 120_000;
+const shieldLookedAt = new Map<string, number>();
+
+/**
  * V6 Stage 12: the shield job's last state journaled — registered again when the executor does not know it (a restart
  * without its journal) — and, once it reports a shield the journal has no note for, the delivered note looked for in the
  * pool. A failed read changes nothing: the next tick asks again.
@@ -241,7 +262,12 @@ async function refreshShield(orderId: string, stored: StoredSwap, io: OrderIo, s
     const sh = journaled(orderId, s)?.shield ?? stored.shield!;
     patchSwap(orderId, { shield: { ...sh, registeredAt: sh.registeredAt ?? now, job: shieldJobView(job, now) } }, s);
     const reported = job.shields?.filter((x) => x.leafIndex !== undefined).length ?? 0;
-    if (reported > (sh.leaves?.length ?? 0)) await io.recoverShield(journaled(orderId, s) ?? stored);
+    const looked = shieldLookedAt.get(orderId);
+    if (reported > (sh.leaves?.length ?? 0) && (looked === undefined || now - looked >= SHIELD_RECHECK_MS || now < looked)) {
+      const found = await io.recoverShield(journaled(orderId, s) ?? stored);
+      if (found > 0) shieldLookedAt.delete(orderId);
+      else shieldLookedAt.set(orderId, now);
+    }
   } catch {
     // the executor or the pool could not be read: asked again at the next tick
   }
@@ -371,6 +397,15 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
   const now = deps.now?.() ?? Date.now();
   const stored0 = journaled(a.orderId, s);
   if (!stored0 || stored0.campaign || !isOpenSwap(stored0)) {
+    // an order closed since the last tick (a lapsed job, a refund the scan found) has its record moved once more (the tenth review round,
+    // A10-6): it had stayed "Refunding", and Home said "still executing", until a Refresh by hand
+    if (stored0 && !stored0.campaign) {
+      try {
+        syncSwapRecord(stored0, null, null, now, s);
+      } catch {
+        // the record's sync never keeps the closed order's tick: it is cancelled all the same
+      }
+    }
     cancelAction(a.id, s);
     return null;
   }
@@ -580,9 +615,15 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       // holds the order — past its deadline nothing executes it. A hand-over whose answer was lost, or an escrow read short or not at all,
       // is an outcome not known yet: the executor is asked again (step 1) until it answers, and Return funds stays offered. Before, the
       // window's end had replaced the reconcile pause with "nothing was swapped" and stopped the ticks, the swap possibly executed
-      const held = stored.handOverAttempt === undefined ? await io.escrowBalance(stored) : null;
+      // with an attempt journaled, the escrow still holding the whole order HANDOVER_SETTLE_MS past the window settles it too (the tenth review
+      // round, A10-3): nothing executes past the deadline, and a hand-over the service refused had been asked of the executor every minute for good
+      const settled = stored.handOverAttempt === undefined || now >= windowEndOf(stored) + HANDOVER_SETTLE_MS;
+      const held = settled ? await io.escrowBalance(stored) : null;
       if (held !== null && held >= amount)
-        return pause("execution_window_closed", "Its execution window closed before it was signed and handed over; nothing was swapped.");
+        return pause(
+          "execution_window_closed",
+          "Its execution window closed before it was carried out; the escrow still holds the order, so nothing was swapped.",
+        );
       const unknown =
         stored.paused?.code === "handover_unknown"
           ? { step: "waiting" as const, stored }
@@ -592,7 +633,9 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
                 ? "Its hand-over's answer was lost and its execution window has closed; the executor is asked again until it answers."
                 : "Its execution window has closed and its escrow does not read as holding the order; the executor is asked again until it answers.",
             );
-      tickAt(a.orderId, now + HANDOVER_RECHECK_MS, s, now);
+      // asked again soon after the window, then less often (A10-3): every minute for ten minutes, every ten for the hour, hourly after
+      const past = now - windowEndOf(stored);
+      tickAt(a.orderId, now + (past < 10 * 60_000 ? HANDOVER_RECHECK_MS : past < 3_600_000 ? 10 * 60_000 : 3_600_000), s, now);
       return unknown;
     }
     if (stored.paused?.code === "reconcile") patchSwap(a.orderId, { paused: undefined }, s);
@@ -655,11 +698,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       }
       schedulerStatus.progress("Swap: handing the signed execution to the executor…");
       // the attempt journaled before it is sent (the ninth review round, 2026-11-04, C-09), as a funding's is: a hand-over whose answer is
-      // lost is never read "nothing was swapped" at the window's end. A refusal that sent nothing puts the earlier mark back
+      // lost is never read "nothing was swapped" at the window's end. Journaled right before the executor is asked, after the swap service's
+      // finalize, with the relayer it goes to (the tenth review round, A10-3): one the service refused had reached no executor. A refusal that
+      // sent nothing puts the earlier mark back
       const before = stored.handOverAttempt;
-      patchSwap(a.orderId, { handOverAttempt: now }, s);
       try {
-        await io.handOver(stored, r);
+        await io.handOver(stored, r, (relayerUrl) => patchSwap(a.orderId, { handOverAttempt: now, relayerUrl }, s));
       } catch (e) {
         const m = (e as Error)?.message ?? String(e);
         // the call came too close to its deadline, here or at the relayer (audit round 2, r02): nothing was handed over, and

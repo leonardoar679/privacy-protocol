@@ -211,7 +211,8 @@ describe("C-09: a hand-over whose answer was lost, at the window's end", () => {
       escrowBalance: async () => escrow,
       job: async () => answers.job,
       sign: async () => ({ sim: { ok: true, gas: 1n }, label: "signed" }) as never,
-      handOver: async () => {
+      handOver: async (_st, _signed, onSending) => {
+        onSending?.("http://relayer.test"); // the swap service finalized it and the executor was asked (the tenth review round, A10-3)
         throw new TypeError("fetch failed"); // the hand-over reached the executor; its answer is lost
       },
       track: async () => ({
@@ -243,6 +244,44 @@ describe("C-09: a hand-over whose answer was lost, at the window's end", () => {
     due(end + HANDOVER_RECHECK_MS);
     expect(await tick(o, end + HANDOVER_RECHECK_MS)).toBe("track");
     expect(stored()).toMatchObject({ jobId: "job-1", paused: undefined });
+  });
+
+  it("a hand-over the swap service refused reached no executor: no attempt journaled, and at the window's end the escrow read decides (the tenth review round, A10-3)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d" });
+    session.update((j) => {
+      j.schedule = [action(T0)];
+    });
+    const refused = baseIo({
+      escrowBalance: async () => AMOUNT,
+      job: async () => null,
+      sign: async () => ({ sim: { ok: true, gas: 1n }, label: "signed" }) as never,
+      handOver: async () => {
+        throw new ApiError(503, "service_capacity", "the swap service is busy"); // the finalize: nothing was handed to an executor
+      },
+      track: unused,
+    });
+    expect(await tick(refused, T0)).toBe("paused");
+    expect(stored().handOverAttempt, "nothing reached the executor").toBeUndefined();
+    const end = DEADLINE_S * 1000 + 1;
+    due(end);
+    expect(await tick(refused, end)).toBe("paused");
+    expect(stored().paused?.code).toBe("execution_window_closed");
+  });
+
+  it("with an attempt, the escrow still holding the whole order ten minutes past the window settles it too; before, it is asked again less and less often (A10-3)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d", handOverAttempt: T0, relayerUrl: "http://relayer.test" });
+    const end = DEADLINE_S * 1000 + 1;
+    session.update((j) => {
+      j.schedule = [action(end)];
+    });
+    const o = baseIo({ escrowBalance: async () => AMOUNT, job: async () => null, track: unused });
+    expect(await tick(o, end)).toBe("paused");
+    expect(stored().paused?.code).toBe("handover_unknown");
+    expect(pending()?.dueAt).toBe(end + HANDOVER_RECHECK_MS);
+    const later = end + 20 * 60_000;
+    due(later);
+    expect(await tick(o, later)).toBe("paused");
+    expect(stored().paused?.code, "nothing executes past the deadline: the full escrow says nothing was swapped").toBe("execution_window_closed");
   });
 
   it("without a hand-over attempt, the escrow holding the order: 'nothing was swapped' stands, read from the escrow", async () => {

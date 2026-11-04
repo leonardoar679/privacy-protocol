@@ -106,7 +106,12 @@ export function Home() {
   // "still executing" only for a swap that is (the ninth review round, 2026-11-04, C-03): one that needs attention had said so for good
   const returningSwap = operations.find(
     (r) =>
-      isOpen(r.state) && !isDraft(r.state) && r.state !== "RECOVERY_REQUIRED" && (r.kind === "swap" || r.kind === "cross-chain") && r.createdAt < OPENED_AT,
+      isOpen(r.state) &&
+      !isDraft(r.state) &&
+      r.state !== "RECOVERY_REQUIRED" &&
+      r.state !== "REFUNDING" && // coming back, never "still executing" (the tenth review round, A10-6)
+      (r.kind === "swap" || r.kind === "cross-chain") &&
+      r.createdAt < OPENED_AT,
   );
   const model = homeModel(
     {

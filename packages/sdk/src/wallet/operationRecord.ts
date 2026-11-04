@@ -165,8 +165,14 @@ export interface OperationRecord {
    * in its own refund asset. A COMPLETED record only; optional
    */
   outcome?: OperationOutcome;
+  /** the token an `other-token` delivery came in (the tenth review round, A10-2) */
+  outcomeAsset?: string;
   history: { state: OperationState; at: number; note?: string }[];
 }
 
-/** C-03/C-07: a finished swap's outcome beside its state. */
-export type OperationOutcome = "partial" | "refunded-at-destination";
+/**
+ * C-03/C-07: a finished swap's outcome beside its state — and (the tenth review round, A10-2) `partial-unreturned`, a part delivered while
+ * the rest did not come back (the executor's watch ended with nothing re-shielded), `other-token`, the order delivered in another token.
+ */
+export const OPERATION_OUTCOMES = ["partial", "partial-unreturned", "other-token", "refunded-at-destination"] as const;
+export type OperationOutcome = (typeof OPERATION_OUTCOMES)[number];

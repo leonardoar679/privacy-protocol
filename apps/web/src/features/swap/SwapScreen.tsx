@@ -1232,6 +1232,23 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
           <WarningCard testId="swap-not-delivered" title={t("screen.swap.notDelivered", { symbol: sym })} action={finish} />
         </Page>
       );
+    // the rest did not come back, or the order came in another token (the tenth review round, A10-2): "the rest came back" had been said of both
+    if (record.state === "COMPLETED" && (record.outcome === "partial-unreturned" || record.outcome === "other-token"))
+      return (
+        <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
+          <WarningCard
+            testId={record.outcome === "other-token" ? "swap-other-token" : "swap-partial-unreturned"}
+            title={
+              record.outcome === "other-token"
+                ? t("screen.swap.otherToken", { asset: record.outcomeAsset ?? t("screen.swap.anotherToken"), symbol: sym })
+                : delivered
+                  ? t("screen.swap.partialUnreturned", { amount: amountOf(delivered), symbol: sym })
+                  : t("screen.swap.partialUnreturnedNoAmount")
+            }
+            action={finish}
+          />
+        </Page>
+      );
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
         <SuccessCard

@@ -151,11 +151,15 @@ const UNRESOLVED_STATES: readonly OperationState[] = ["AWAITING_AUTHORIZATION", 
  * A Send or a withdrawal whose outcome is unknown — sent as far as anyone can tell, its notes not seen spent in the pool — may still land
  * (the ninth review round, 2026-11-04, C-11): a second one from the form could pick other notes, and both land. It holds the next back
  * until the chain settles it (an hour, a day when its relayer cannot be reached: operations/stale.ts); its notes spent, it never lands twice.
+ * At most a day after it was made (the tenth review round, A10-1): a relayer that keeps answering with a transaction nobody knows had held
+ * every later Send and withdrawal for good, with no action that moved it.
  */
-const mayStillLand = (r: OperationRecord): boolean =>
+export const MAY_STILL_LAND_MS = 24 * 3600_000;
+const mayStillLand = (r: OperationRecord, now = Date.now()): boolean =>
   r.state === "RECOVERY_REQUIRED" &&
   r.reason?.fundsClass === "unknown" &&
   (r.kind === "send" || r.kind === "withdraw") &&
+  now - r.createdAt < MAY_STILL_LAND_MS &&
   !!r.refs.nullifiers &&
   !r.refs.nullifiers.some((n) => spentInAnyIndex(BigInt(n)));
 /** The record of `kind` still before the chain among `records` (or one that may still land), or null. */

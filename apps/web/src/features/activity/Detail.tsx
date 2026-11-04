@@ -60,9 +60,12 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
     if (!swap) return;
     setBusy(t("activity.trackingOne"));
     setError("");
+    // this opening of the wallet only (the tenth review round, A10-5): a lock and another phrase during the read had written this wallet's
+    // swap record into the other one's journal
+    const s = session.pinned();
     try {
-      const r = await trackOrder(swap, { deployment, relayerUrl: submission.kind === "relayer" ? submission.url : null });
-      syncSwapRecord(swap, r.tracked, r.job);
+      const r = await trackOrder(swap, { deployment, relayerUrl: submission.kind === "relayer" ? submission.url : null, session: s });
+      syncSwapRecord(swap, r.tracked, r.job, Date.now(), s);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

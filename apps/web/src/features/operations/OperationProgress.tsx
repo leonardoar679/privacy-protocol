@@ -53,7 +53,7 @@ export function OperationProgress({ record, actions, testId = "operation-progres
     <div className="ds-stack" data-testid={testId} data-state={record.state} data-code={record.reason?.code}>
       <TransactionTimeline steps={timelineOf(record, t)} />
       {headline ? <ProgressIndicator value={null} label={headline} testId={`${testId}-bar`} /> : null}
-      {record.state === "COMPLETED" ? <StatusBadge tone={record.outcome === "refunded-at-destination" ? "warn" : "ok"} testId={`${testId}-completed`}>{finishedWords(record, t)}</StatusBadge> : null}
+      {record.state === "COMPLETED" ? <StatusBadge tone={record.outcome && record.outcome !== "partial" ? "warn" : "ok"} testId={`${testId}-completed`}>{finishedWords(record, t)}</StatusBadge> : null}
       {v ? <ErrorCard title={v.title} fundsLine={v.headline} fundsState={v.fundsClass} reason={v.reason} actions={actions} testId={`${testId}-error`} /> : null}
       <AttemptLine orderId={attemptIdOf(record)} testId={`${testId}-attempt`} />
     </div>

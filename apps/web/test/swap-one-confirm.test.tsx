@@ -278,14 +278,26 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await wallet();
     const { orderId } = await confirmed();
     const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
-    // the executor's watch ended on a partial fill: finished, delivered in part
-    syncSwapRecord(
-      st,
-      { state: "PARTIAL", label: "Partial", steps: [true, true, true, true], detail: "Part delivered.", deliveredUnits: "1500000" } as never,
-      { id: orderId, escrow: st.endpoint, state: "completed", updatedAt: Date.now() } as never,
-    );
-    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "COMPLETED", outcome: "partial" });
+    // the executor's watch ended on a partial fill with nothing re-shielded: finished, delivered in part, the rest not back (the tenth review
+    // round, A10-2: "the rest came back" had been said with nothing back)
+    const partial = { state: "PARTIAL", label: "Partial", steps: [true, true, true, true], detail: "Part delivered.", deliveredUnits: "1500000" } as never;
+    const completed = { id: orderId, escrow: st.endpoint, state: "completed", updatedAt: Date.now() } as never;
+    syncSwapRecord(st, partial, completed);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "COMPLETED", outcome: "partial-unreturned" });
     cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    expect((await screen.findByTestId("swap-partial-unreturned")).textContent).toContain(
+      "Delivered in part: 0.015 BTC arrived; the rest did not come back to your protected balance.",
+    );
+    expect(screen.queryByTestId("swap-done")).toBeNull();
+    cleanup();
+    // the rest's refund found in the pool: delivered in part, the rest back
+    session.update((j) => {
+      j.operations = (j.operations ?? []).filter((r) => r.id !== swapRecordId(orderId));
+    });
+    const vault = String((st.params as { refundVault: string }).refundVault);
+    syncSwapRecord({ ...st, refunds: [{ leafIndex: 7, vault, amount: "1" }] }, partial, completed);
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "COMPLETED", outcome: "partial" });
     mount(`/swap/progress/${swapRecordId(orderId)}`);
     expect((await screen.findByTestId("swap-done")).textContent).toContain(
       "Delivered in part: 0.015 BTC arrived; the rest came back to your protected balance.",

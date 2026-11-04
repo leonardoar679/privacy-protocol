@@ -63,6 +63,7 @@ export class FundingAlreadySent extends Error {
  * re-opened as funded and was handed over, and its record stayed "Cancelled. Nothing left your protected balance".
  */
 export class FundingUnderWay extends Error {
+  readonly code = "funding_under_way";
   constructor() {
     super("This order's funding is being prepared or sent right now; nothing was changed. Try again once it has finished.");
     this.name = "FundingUnderWay";

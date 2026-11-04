@@ -17,7 +17,7 @@
 // other name unchanged; the history renamed the same way and merged. A V5 record goes through both steps.
 import { STATE_CROSSWALK_V2, type OperationStateV2 } from "@privacy-wallet/protocol-types";
 import type { FundsClass, OperationKind, OperationPhase, OperationReason, OperationRecord, OperationState } from "../wallet/operationRecord";
-import { isDraft } from "../wallet/operationRecord";
+import { isDraft, OPERATION_OUTCOMES } from "../wallet/operationRecord";
 import { failureTarget } from "./errors/codes";
 
 /** A record as V5 wrote it (or as V6 does: `v: 2`, or V7: `v: 3`). */
@@ -169,9 +169,18 @@ export function upgradeRecordV7(r: StoredOperationV2): OperationRecord {
   return out;
 }
 
-/** One record in the V7 vocabulary; a V7 record (`v: 3`) is returned unchanged (the same object); a V5 one takes both steps. */
+/** An outcome this build does not know is dropped as the journal is read (the tenth review round, A10-8): it had rendered a missing key. */
+function knownOutcome(r: OperationRecord): OperationRecord {
+  if (r.outcome === undefined || (OPERATION_OUTCOMES as readonly string[]).includes(r.outcome)) return r;
+  const { outcome: _dropped, outcomeAsset: _asset, ...rest } = r;
+  void _dropped;
+  void _asset;
+  return rest;
+}
+
+/** One record in the V7 vocabulary; a V7 record (`v: 3`) is returned unchanged (the same object, its outcome read as known); a V5 one takes both steps. */
 export function upgradeRecord(stored: StoredOperation | OperationRecord): OperationRecord {
-  if (stored.v === 3) return stored as OperationRecord;
+  if (stored.v === 3) return knownOutcome(stored as OperationRecord);
   return upgradeRecordV7(upgradeRecordV6(stored as StoredOperation | StoredOperationV2));
 }
 

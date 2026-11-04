@@ -314,7 +314,7 @@ export class CallTooClose extends Error {
   }
 }
 
-export interface HandOverInput { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; order: ServiceOrder; signed: Signed; submission: Submission }
+export interface HandOverInput { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; order: ServiceOrder; signed: Signed; submission: Submission; /** right before the executor is asked, with its relayer (A10-3) */ onSending?: (relayerUrl: string) => void }
 
 /** Hand a checked, signed and simulated execution to the service (finalize) and the relayer's executor. */
 export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob }> {
@@ -338,6 +338,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   const factory = swapFactoryOf(i.deployment); // the swap service's own was read before the call was prepared (prepareAndSign)
   const { refundTokens, refundFloors } = signed.call;
   if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
+  i.onSending?.(i.submission.url); // from here the executor may have it (the tenth review round, A10-3)
   const job = await relayerSwapExecute(i.submission.url, {
     factory,
     params: signed.params,

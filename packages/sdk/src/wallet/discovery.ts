@@ -14,7 +14,7 @@
 // — until a scan proves its leaf; one the proven leaf does not hold reads failed (audit round 2, r24).
 import type { Deployment } from "../chain";
 import { assetByVault } from "../assets";
-import { scanNotes } from "../privateTx";
+import { PAST_POOL_GRACE_MS, scanNotes } from "../privateTx";
 import { reconcileStaleOperations, staleReads } from "../operations/stale";
 import { activityId, recordActivity, updateActivity } from "./activity";
 import { noteStore } from "./notes";
@@ -104,6 +104,7 @@ export async function runDiscovery(
           amount: n.amount.toString(),
           status: "completed",
           ref: n.txHash,
+          note: undefined, // a line once failed while the endpoints lagged says so no more (the tenth review round, B10-3)
         },
         s,
       );
@@ -129,9 +130,13 @@ export async function runDiscovery(
     // "pending" for good once the endpoints were honest again)
     const proven = r.proven ?? null;
     const stillPending = new Set((r.pending ?? []).map((n) => n.leafIndex));
+    const viewLeaves = r.leaves ?? null;
     for (const x of s.journal().activity ?? []) {
       const leaf = x.kind === "receive" && x.status !== "failed" ? Number(x.id.slice("receive:".length)) : NaN;
       if (!Number.isInteger(leaf) || noteStore.all().some((n) => n.leafIndex === leaf)) continue;
+      // a pending line whose leaf this scan's view does not reach is the endpoints' lag, not a lie (the tenth review round, B10-3): it fails
+      // once a view holds its leaf without the note, or after the grace a recorded note gets
+      if (x.status === "pending" && viewLeaves !== null && leaf >= viewLeaves && now() - x.at <= PAST_POOL_GRACE_MS) continue;
       if ((proven !== null && leaf < proven) || (x.status === "pending" && !stillPending.has(leaf)))
         updateActivity(x.id, { status: "failed", note: NOT_IN_POOL }, s);
     }
