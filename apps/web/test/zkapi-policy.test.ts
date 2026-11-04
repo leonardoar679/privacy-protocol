@@ -1,12 +1,24 @@
-// Private AI policy (plan §5, spec §3/§5): the transport never proxies, never sends credentials,
+// Private AI policy (plan §5, spec §3/§5): the transport takes the SDK's proxy hint as a hint (it has no proxy), never sends credentials,
 // never follows redirects; zkAPI is enabled only by a clean, recent pin check; the provider stream
 // is parsed correctly and errors surface. No SDK import (src/zkapi/policy.ts is pure).
 import { describe, it, expect, vi } from "vitest";
 import { chatStream, newSessionId, parseSseDeltas, privateTransport, zkapiEnabled, type InferenceAccess, type PinCheck } from "../src/zkapi/policy";
 
 describe("transport policy", () => {
-  it("refuses the proxy hint (runtime-key mode only)", async () => {
-    await expect(privateTransport("https://zkapi-sepolia.openanonymity.ai/v2/x", {}, { preferProxy: true })).rejects.toThrow(/proxy mode is disabled/);
+  it("treats the SDK's preferProxy as the routing hint it is: the request goes through the policy like any other (the eighth review round, C-M1)", async () => {
+    const spy = vi.fn(async () => new Response("ok"));
+    const orig = globalThis.fetch;
+    globalThis.fetch = spy as unknown as typeof fetch;
+    try {
+      // the SDK's every RPC read and protocol call carries the hint; refused, no deposit, lease or price read had ever succeeded
+      await privateTransport("https://example.invalid/rpc", { method: "POST", body: "{}" }, { preferProxy: true });
+    } finally {
+      globalThis.fetch = orig;
+    }
+    expect(spy).toHaveBeenCalledTimes(1);
+    const init = (spy.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(init.credentials).toBe("omit");
+    expect(init.redirect).toBe("error");
   });
   it("sends without credentials and without following redirects, keeping the SDK's init", async () => {
     const spy = vi.fn(async () => new Response("ok"));

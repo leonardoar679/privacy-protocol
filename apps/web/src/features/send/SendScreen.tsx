@@ -321,6 +321,7 @@ export function SendScreen(p: SendScreenProps) {
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (the audit round of 2026-10-16, c46)
           // nor for a merge (audit round 2, r43), nor more merges than it named (the eighth review round, B-2): none named is none run
           ...(selfSubmitted ? {} : { ...(mergeEach > 0n ? { maxMergeFee: mergeEach } : {}), maxMerges: mergeCount }),
+          ...(selfSubmitted && p.account ? { account: p.account } : {}), // sent from the account the Review showed, or refused (C-L6)
           onStatus: setProgress,
           onEvent,
         });
@@ -334,6 +335,7 @@ export function SendScreen(p: SendScreenProps) {
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (c46)
           ...(selfSubmitted ? {} : { ...(mergeEach > 0n ? { maxMergeFee: mergeEach } : {}), maxMerges: mergeCount }), // nor for a merge (r43), nor more of them (B-2)
+          ...(selfSubmitted && p.account ? { account: p.account } : {}), // from the account the Review showed (C-L6)
           onStatus: setProgress,
           onEvent,
         });

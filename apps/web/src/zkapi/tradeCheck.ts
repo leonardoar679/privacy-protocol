@@ -12,20 +12,35 @@ import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 
 export interface TradeSummary {
-  kind: "privacy-protocol/trade-check/v1";
+  kind: "privacy-protocol/trade-check/v2";
   from: { chain: string; symbol: string };
   to: { chain: string; symbol: string };
-  /** three significant digits, in the asset */
+  /** one significant digit, in the asset (the eighth review round, C-M3: three had matched the escrow funded minutes later) */
   amount: string;
-  /** three significant digits, when valued */
+  /** one significant digit, when valued */
   usd?: string;
   tier: Tier;
   preference?: string;
-  chosen?: { provider: string; plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; linkPublic?: boolean; components?: RouteScore["components"]; total?: number; receiveMinRounded: string };
-  competition: { provider: string; outcome: string; reason?: string; ms: number }[];
+  /** the route's mode only, never its parts, interval, ETA or impact (the memo that lands carries those) */
+  chosen?: { provider: string; plan?: { mode: ExecutionPlan["mode"] }; nativeAssets: boolean; linkPublic?: boolean; components?: RouteScore["components"]; total?: number; receiveMinRounded: string };
+  /** each provider's answer as a closed code, never its words (they carried exact amounts and addresses) */
+  competition: { provider: string; outcome: string; reason?: ReasonCode }[];
   lint: { id: string; level: string; category: string }[];
   /** V3 (High-Value Protection spec §16): the protection plan — class, band, cap, steps, gate, ELPF, concentration; never an amount in base units, never an address */
   protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: number; gate: string; concurrency: string; elpfUsd?: string; concentration: string; staged: boolean };
+}
+
+/** A provider's answer as one of a few codes (C-M3): its own words carried exact base-unit amounts and addresses. */
+export type ReasonCode = "liquidity" | "minimum" | "limit" | "halted" | "timeout" | "unsupported" | "filtered" | "other";
+export function reasonCode(reason: string): ReasonCode {
+  if (/halt|pause/i.test(reason)) return "halted";
+  if (/timed? ?out|timeout|aborted/i.test(reason)) return "timeout";
+  if (/liquidity|insufficient|impact/i.test(reason)) return "liquidity";
+  if (/minimum|too small|below|dust/i.test(reason)) return "minimum";
+  if (/limit|above|too (large|high)|exceed/i.test(reason)) return "limit";
+  if (/not supported|does not (support|list|serve)|not offered|cannot|unsupported|not implemented/i.test(reason)) return "unsupported";
+  if (/filtered|skipped|breaker/i.test(reason)) return "filtered";
+  return "other";
 }
 
 /** Round to `digits` significant digits, as a plain decimal string ("1360" → "1360", "1364.2" → "1360", "0.030012" → "0.03"). */
@@ -36,8 +51,28 @@ export function roundSignificant(value: number | string, digits = 3): string {
   return r.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
 }
 
-/** Shapes that must never appear in a summary: EVM, bech32, base58check, Solana base58, privacy addresses, hashes. */
-export const ADDRESS_LIKE = /0x[0-9a-fA-F]{40}|0x[0-9a-fA-F]{64}|\bbc1[0-9a-z]{20,}|\btb1[0-9a-z]{20,}|\bpp1[0-9a-z]{20,}|\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\b[1-9A-HJ-NP-Za-km-z]{43,44}\b/;
+/**
+ * Shapes that must never leave for the provider: EVM addresses and hashes with or without 0x, bech32 and privacy addresses in either
+ * case (the QR code's uppercase form is valid), base58check, Solana addresses and signatures, a secret as a long decimal. The eighth
+ * review round (2026-11-03, C-L4): uppercase bech32, an uppercase privacy address, a bare hex address or txid and a Solana signature
+ * had all gone through.
+ */
+const SHAPES = String.raw`(?:0x)?[0-9a-fA-F]{64}|(?:0x)?[0-9a-fA-F]{40}|\b(?:bc1|tb1|pp1)[0-9a-z]{20,}|\b(?:BC1|TB1|PP1)[0-9A-Z]{20,}|\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\b[1-9A-HJ-NP-Za-km-z]{43,44}\b|\b[1-9A-HJ-NP-Za-km-z]{86,88}\b|\b\d{60,}\b`;
+export const ADDRESS_LIKE = new RegExp(SHAPES);
+/** Every match, for masking (a non-global replace had masked the first address only). */
+const ADDRESS_LIKE_ALL = new RegExp(SHAPES, "g");
+export const maskAddresses = (s: string): string => s.replace(ADDRESS_LIKE_ALL, "[address]");
+
+/** Whether a text holds a run of 12 or more recovery-phrase words (BIP-39's English list): a phrase pasted "to check it". */
+export function looksLikePhrase(text: string, words: readonly string[]): boolean {
+  const known = new Set(words);
+  let run = 0;
+  for (const w of text.toLowerCase().split(/[^a-z]+/).filter(Boolean)) {
+    run = known.has(w) ? run + 1 : 0;
+    if (run >= 12) return true;
+  }
+  return false;
+}
 
 /** Throws when any string inside the summary looks like an address, a hash or an identity. */
 export function assertSanitized(x: unknown, path = "summary"): void {
@@ -51,19 +86,21 @@ export function tradeSummary(i: {
   chosen?: { provider: string; score?: RouteScore; quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string }; linkPublic?: boolean } | null;
   competition?: CompetitionEntry[] | null; lint?: LintItem[] | null; protection?: Protection | null;
 }): TradeSummary {
-  const units = (u: bigint | string, d: number) => roundSignificant(Number(BigInt(u)) / 10 ** d);
+  // one significant digit (the eighth review round, 2026-11-03, C-M3): the summary is read by the provider, from this IP, minutes before
+  // the escrow is funded — three digits, the route's plan, ETA and impact had matched the swap that landed
+  const units = (u: bigint | string, d: number) => roundSignificant(Number(BigInt(u)) / 10 ** d, 1);
   const s: TradeSummary = {
-    kind: "privacy-protocol/trade-check/v1",
+    kind: "privacy-protocol/trade-check/v2",
     from: { chain: i.from.chain, symbol: i.from.symbol },
     to: { chain: i.to.chain, symbol: i.to.symbol },
     amount: units(i.amountUnits, i.from.decimals),
-    ...(typeof i.usd === "number" ? { usd: roundSignificant(i.usd) } : {}),
+    ...(typeof i.usd === "number" ? { usd: roundSignificant(i.usd, 1) } : {}),
     tier: i.tier,
     ...(i.preference ? { preference: i.preference } : {}),
-    ...(i.chosen ? { chosen: { provider: i.chosen.provider, plan: i.chosen.quote.plan, etaSeconds: i.chosen.quote.etaSeconds, impactBps: i.chosen.quote.impactBps, nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { components: i.chosen.score.components, total: i.chosen.score.total } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
-    competition: (i.competition ?? []).map((c) => ({ provider: c.provider, outcome: c.outcome, ...(c.reason ? { reason: c.reason.replace(ADDRESS_LIKE, "[address]") } : {}), ms: c.ms })),
+    ...(i.chosen ? { chosen: { provider: i.chosen.provider, ...(i.chosen.quote.plan ? { plan: { mode: i.chosen.quote.plan.mode } } : {}), nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { components: i.chosen.score.components, total: Math.round(i.chosen.score.total) } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
+    competition: (i.competition ?? []).map((c) => ({ provider: c.provider, outcome: c.outcome, ...(c.reason ? { reason: reasonCode(c.reason) } : {}) })),
     lint: (i.lint ?? []).map((l) => ({ id: l.id, level: l.level, category: l.category })),
-    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: i.protection.estimatedTranches, gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
+    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: i.protection.estimatedTranches, gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd, 1) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
   };
   assertSanitized(s);
   return s;

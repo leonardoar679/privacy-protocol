@@ -9,7 +9,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { prefs, resetPrefsStore } from "../src/storage/prefs";
 import { ARTIFACT_CACHE } from "../src/platform/crypto/protocol";
-import { CLASSIC_CACHE, CLASSIC_DB, CLASSIC_LOCALE_KEY, classicOnThisOrigin, forgetEverything } from "../src/platform/forget";
+import { CLASSIC_CACHE, CLASSIC_DB, CLASSIC_LOCALE_KEY, ZKAPI_DB, ZKAPI_DEPLOYMENT_KEY, classicOnThisOrigin, forgetEverything } from "../src/platform/forget";
 
 const fakeCaches = () => {
   const deleted: string[] = [];
@@ -38,6 +38,7 @@ describe("Forget this wallet", () => {
     localStorage.setItem("@appkit/connection_status", "connected");
     localStorage.setItem(CLASSIC_LOCALE_KEY, "ko");
     localStorage.setItem("unrelated", "stays");
+    localStorage.setItem(ZKAPI_DEPLOYMENT_KEY, "{}"); // what the zkAPI SDK caches of its deployment
     await prefs().ready;
     prefs().update({ lastConnector: "io.metamask", backup: { exportedAt: 1_700_000_000_000 } });
     const { deleted, caches } = fakeCaches();
@@ -52,7 +53,9 @@ describe("Forget this wallet", () => {
     expect(prefs().get().lastConnector).toBeUndefined();
     expect(prefs().get().backup).toBeUndefined();
     expect(deleted.sort()).toEqual([ARTIFACT_CACHE, CLASSIC_CACHE].sort());
-    expect(dropped).toEqual([CLASSIC_DB]);
+    // Private AI's credit wallet too (the eighth review round, C-M2): its secret, its blinding and its funding address, per origin
+    expect(dropped.sort()).toEqual([CLASSIC_DB, ZKAPI_DB].sort());
+    expect(localStorage.getItem(ZKAPI_DEPLOYMENT_KEY)).toBeNull();
   });
 
   it("with Classic on its own origin, its stores are not this origin's: left alone", async () => {
@@ -66,7 +69,7 @@ describe("Forget this wallet", () => {
     await forgetEverything({ caches, indexedDB: idb, localStorage });
     expect(session.state().status).toBe("none");
     expect(deleted).toEqual([ARTIFACT_CACHE]);
-    expect(dropped).toEqual([]);
+    expect(dropped, "the credit wallet is this origin's whatever Classic's origin").toEqual([ZKAPI_DB]);
     expect(localStorage.getItem(CLASSIC_LOCALE_KEY)).toBe("ko");
     applyConfig(testConfig());
   });

@@ -8,9 +8,12 @@ import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
 import { creditWalletProvider, fundingChainOk } from "../zkapi/creditWallet";
-import { aiSession } from "../zkapi/aiSession";
-import { ADDRESS_LIKE } from "../zkapi/tradeCheck";
+import { aiSession, endAiSession } from "../zkapi/aiSession";
+import { ADDRESS_LIKE, looksLikePhrase } from "../zkapi/tradeCheck";
 import { session } from "@privacy-wallet/sdk/wallet/session";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
+import { wordlist } from "@scure/bip39/wordlists/english";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
 // Private AI (plan §4, §63): one private credit account (zkAPI, native ETH, expiring service credit)
@@ -22,6 +25,11 @@ const CREDIT_BUCKETS_ETH = ["0.005", "0.01", "0.02"]; // spec §4: small, expiri
 const FEE_RESERVE_ETH = "0.0005"; // gas for the deposit (and later the withdrawal) paid by the fresh address
 
 interface PasswordDialog extends TestnetPasswordRequest { resolve: () => void; reject: (e: Error) => void; error: string }
+
+/** The SDK's own word that its service answers (C-M1): nothing is funded for a credit the SDK could not deposit. */
+const serviceAvailable = (snapshot: any): boolean => snapshot?.config?.service?.available === true;
+/** A lock ends the SDK's hold on the fresh funding key (the eighth review round, C-M2): its timers kept a provider that could sign. */
+let lockHooked = false;
 
 /** The build without the zkAPI SDK clone (V6 Stage 2: CI, a fresh checkout) says so instead of failing on first use. */
 export function PrivateAI(props: { masterSeed: Uint8Array; deployment: Deployment | null }) {
@@ -97,6 +105,17 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
         creditWalletProvider(fundingMode, () => freshAccountProvider(fresh.privateKey, cfg!.trusted_deployment.rpc_url, Number(cfg!.trusted_deployment.chain_id))),
       );
       await zkapiClient.init();
+      if (!lockHooked) {
+        lockHooked = true;
+        session.onLock(() => {
+          endAiSession(); // the lease too: never one key across two sessions or wallets
+          try {
+            zkapiClient.setWalletProvider(null);
+          } catch {
+            // the SDK keeps no provider to drop
+          }
+        });
+      }
       zkapiClient.subscribe((s: any) => setSnapshot(s));
       setSnapshot(zkapiClient.snapshot());
       setEnabled(true);
@@ -111,11 +130,16 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     if (!fundingChainOk(deployment.chainId, cfg)) { setStatus(`Private AI's deployment is on chain ${cfg?.trusted_deployment.chain_id ?? "unknown"}, the pool on chain ${deployment.chainId}: nothing was sent.`); return; }
     const total = parseEther(bucket) + parseEther(FEE_RESERVE_ETH);
     if (!fundingReady) return;
+    // the SDK's service answers before any pool money moves (the eighth review round, C-M1): a credit it could not deposit had been funded
+    if (!serviceAvailable(snapshot)) { setStatus("The private credit service is not answering right now: nothing was funded."); return; }
+    // one funding per fresh address (C-L2): a second, after a failed deposit or a reload, had linked two pool withdrawals by their recipient
+    if (session.isUnlocked() && session.journal().aiFunding?.funded === fundingIndex) { setStatus(`Funding address #${fundingIndex} is already funded: deposit its credit, or withdraw it first.`); return; }
     const leaves = funding?.total ?? total;
     if (noteStore.balance(BigInt(deployment.ethVault)) < leaves) { setStatus(`Not enough shielded ETH: ${formatEther(leaves)} ETH leaves your balance (${bucket} + ${FEE_RESERVE_ETH} fee reserve${funding ? ` + ${formatEther(funding.fee)} relayer and privacy fees` : ""}).`); return; }
     await run("Private withdrawal from the pool to the fresh funding address…", async () => {
       // each merge it needs first at most the relayer's F read here (the seventh review round: the merges had paid the live fee, unbounded)
       const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus });
+      session.update((j) => { j.aiFunding = { index: fundingIndex, funded: fundingIndex }; }); // journaled: never funded twice (C-L2)
       setStatus(`Fresh address ${fresh.address.slice(0, 10)}… funded with ${formatEther(total)} ETH (tx ${r.txHash.slice(0, 10)}…). Now deposit the credit.`);
     });
   }
@@ -155,8 +179,9 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     if (!access || !input.trim()) return;
     // nothing that looks like an address, a hash or a note leaves for the provider (the fourth review round, 2026-11-03): the trade
     // check already refuses such values; a typed or pasted one in the free text had gone out as it was
-    if (ADDRESS_LIKE.test(input)) {
-      setStatus("Not sent: the message carries something that looks like an address, a transaction hash or a note. Remove it first — nothing of yours should reach the provider.");
+    if (ADDRESS_LIKE.test(input) || looksLikePhrase(input, wordlist)) {
+      // a recovery phrase too (the eighth review round, C-L4): pasted "to check it", 24 words had gone to the provider
+      setStatus("Not sent: the message carries something that looks like an address, a transaction hash, a note or a recovery phrase. Remove it first — nothing of yours should reach the provider.");
       return;
     }
     const next: ChatMessage[] = [...messages, { role: "user", content: input.trim() }];
@@ -180,8 +205,12 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
 
   async function withdrawCredit() {
     await run("Closing the credit note (mutual close)…", async () => {
-      await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), { destination: fresh.address });
-      setStatus(`Credit withdrawn to the fresh address ${fresh.address.slice(0, 10)}…; shield it back into the pool from there.`);
+      // back to where it came from (the eighth review round, C-L2): the connected account in connected mode — the close is sent from it
+      // anyway — never a fresh address that mode never showed and no screen spends from
+      const destination = fundingMode === "fresh" ? fresh.address : (snapshot?.walletAddress as string | undefined);
+      if (!destination) throw new Error("The connected account is not known: connect the wallet first.");
+      await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), { destination });
+      setStatus(fundingMode === "fresh" ? `Credit withdrawn to the fresh address ${fresh.address.slice(0, 10)}…; shield it back into the pool from there.` : "Credit withdrawn to the connected account.");
       setFundingIndex((i) => { session.update((j) => { j.aiFunding = { index: i + 1 }; }); return i + 1; }); // the next credit note gets a new fresh address, journaled
     });
   }
@@ -231,7 +260,7 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
             {CREDIT_BUCKETS_ETH.map((b) => <option key={b} value={b}>{b} ETH</option>)}
           </select>
           <div className="tabs" style={{ marginTop: 8 }}>
-            {fundingMode === "fresh" && <button className="tab" onClick={fundFromPool} disabled={busy || !fundingReady}>1 · Fund the fresh address from the pool ({funding ? `${formatEther(funding.total)} ETH with the relayer and privacy fees` : `${bucket} + ${FEE_RESERVE_ETH} ETH`})</button>}
+            {fundingMode === "fresh" && <button className="tab" onClick={fundFromPool} disabled={busy || !fundingReady || !serviceAvailable(snapshot)}>1 · Fund the fresh address from the pool ({funding ? `${formatEther(funding.total)} ETH with the relayer and privacy fees` : `${bucket} + ${FEE_RESERVE_ETH} ETH`})</button>}
             <button className="tab" onClick={depositCredit} disabled={busy}>{fundingMode === "fresh" ? "2 · " : ""}Deposit {bucket} ETH as credit</button>
             <button className="tab" onClick={withdrawCredit} disabled={busy || !note}>Withdraw unused credit</button>
           </div>
@@ -263,7 +292,9 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
         </>
       )}
 
-      <Scorecard action="credit" facts={{ delaySeconds: 0, amountIsBucket: true, privateSubmission: true, rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fundingMode === "fresh", credit: { runtimeKey: true, freshFunding: fundingMode === "fresh" } }} />
+      {/* the facts as they are (the eighth review round, C-L3): the pool withdrawal's amount (credit + reserve + fees) is no bucket, and a
+          wallet submission sends it from the connected account */}
+      <Scorecard action="credit" facts={{ delaySeconds: 0, amountIsBucket: isBucketOf(funding?.total ?? parseEther(bucket) + parseEther(FEE_RESERVE_ETH), 18), privateSubmission: settings.get().submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fundingMode === "fresh", credit: { runtimeKey: true, freshFunding: fundingMode === "fresh" } }} />
       {status && <p className="muted">{status}</p>}
       {snapshot && (
         <>

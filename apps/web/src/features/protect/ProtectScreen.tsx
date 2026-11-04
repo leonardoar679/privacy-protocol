@@ -224,8 +224,17 @@ export function ProtectScreen(p: ProtectScreenProps) {
             estimatedWei: estimate?.wei,
             onStatus: setStatus,
             onEvent,
+            ...(p.account ? { account: p.account } : {}), // every prompt from the account the Review showed (C-L6)
           })
-        : await shieldNative({ masterSeed: p.masterSeed, deployment, amount: units, estimatedWei: estimate?.wei, onStatus: setStatus, onEvent });
+        : await shieldNative({
+            masterSeed: p.masterSeed,
+            deployment,
+            amount: units,
+            estimatedWei: estimate?.wei,
+            onStatus: setStatus,
+            onEvent,
+            ...(p.account ? { account: p.account } : {}),
+          });
       setResult(r);
     } catch (e) {
       const c = classify(e);

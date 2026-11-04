@@ -1,11 +1,12 @@
 // "Check this trade" (whale spec §22, plan V2 §77–§79): the summary that leaves the wallet carries no
-// address, hash or identity (pinned against address shapes), amounts are rounded to three significant
-// digits, the answer parses into the six lines even with prose around the JSON, and the AI module imports
-// nothing that signs or submits (plan §78).
+// address, hash or identity (pinned against address shapes), amounts are rounded to one significant digit
+// and the route and the competition are closed fields (the eighth review round, C-M3), the answer parses into
+// the six lines even with prose around the JSON, and the AI module imports nothing that signs or submits (plan §78).
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ADDRESS_LIKE, assertSanitized, checkTrade, parseTradeCheck, roundSignificant, tradeCheckMessages, tradeSummary, type TradeSummary } from "../src/zkapi/tradeCheck";
+import { ADDRESS_LIKE, assertSanitized, checkTrade, looksLikePhrase, maskAddresses, parseTradeCheck, reasonCode, roundSignificant, tradeCheckMessages, tradeSummary, type TradeSummary } from "../src/zkapi/tradeCheck";
+import { wordlist } from "@scure/bip39/wordlists/english";
 import type { InferenceAccess } from "../src/zkapi/policy";
 import { onRequest, type RequestRecord } from "@privacy-wallet/privacy-engine/transport/http";
 
@@ -18,18 +19,42 @@ const summary = () => tradeSummary({
 });
 
 describe("the trade summary", () => {
-  it("rounds to three significant digits and carries assets, tier, plan, competition and lint ids — never an address", () => {
+  it("rounds to one significant digit and carries the assets, the tier, the route's kind, closed answer codes and lint ids — never an address (the eighth review round, C-M3)", () => {
     const s = summary();
-    expect(s.amount).toBe("1360");
-    expect(s.usd).toBe("3410000");
-    expect(s.chosen?.receiveMinRounded).toBe("40.1");
-    expect(s.chosen?.plan?.parts).toBe(300);
-    expect(s.competition[1]).toEqual({ provider: "chainflip", outcome: "refused", reason: "insufficient liquidity for [address]", ms: 1200 });
+    expect(s.kind).toBe("privacy-protocol/trade-check/v2");
+    expect(s.amount).toBe("1000");
+    expect(s.usd).toBe("3000000");
+    expect(s.chosen?.receiveMinRounded).toBe("40");
+    expect(s.chosen?.plan, "the mode only: never the parts, the interval, the ETA or the impact the memo carries").toEqual({ mode: "streaming" });
+    expect(s.chosen).not.toHaveProperty("etaSeconds");
+    expect(s.chosen).not.toHaveProperty("impactBps");
+    expect(s.competition[1], "the provider's words never leave: a code, no time").toEqual({ provider: "chainflip", outcome: "refused", reason: "liquidity" });
+    expect(JSON.stringify(s)).not.toMatch(/1364|3410|40\.1|3600|1200/);
     expect(s.lint).toEqual([{ id: "destination-fresh", level: "ok", category: "Destination linkage" }]);
     expect(JSON.stringify(s)).not.toMatch(ADDRESS_LIKE);
+    expect(reasonCode("LI.FI calldata: first swap amount 1364237891000000000000 != 1364237891000000000000")).toBe("other");
+    expect(reasonCode("THORChain refused: trading halted")).toBe("halted");
+    expect(reasonCode("quote timed out after 25000 ms")).toBe("timeout");
+    expect(reasonCode("toAmountMin below the floor")).toBe("minimum");
     expect(roundSignificant("0.030012")).toBe("0.03");
     expect(roundSignificant(1234567)).toBe("1230000");
     expect(roundSignificant(0)).toBe("0");
+  });
+
+  it("the shapes the wallet itself accepts are refused too, and every one is masked (the eighth review round, C-L4)", () => {
+    for (const bad of [
+      "BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ", // uppercase bech32, the QR code's form
+      "PP1QYGQXQ8ZZ5RF5J5S4LP9KQ3SVG4X3MWCV7J4DMNQH9X0ZR0", // an uppercase privacy address
+      "9858EfFD232B4033E47d90003D41EC34EcaEda94", // an EVM address without 0x
+      "a".repeat(64), // a txid without 0x
+      "4".repeat(77), // a note secret in decimal
+      "5" + "Kq".repeat(43), // a Solana signature's length
+    ])
+      expect(ADDRESS_LIKE.test(bad), bad).toBe(true);
+    expect(maskAddresses("from 0x9858EfFD232B4033E47d90003D41EC34EcaEda94 to bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu")).toBe("from [address] to [address]");
+    const phrase = wordlist.slice(0, 24).join(" ");
+    expect(looksLikePhrase(`check these: ${phrase}`, wordlist)).toBe(true);
+    expect(looksLikePhrase("is this swap a good idea at this size today or should I wait for the market", wordlist)).toBe(false);
   });
 
   it("assertSanitized refuses every address shape wherever it hides", () => {

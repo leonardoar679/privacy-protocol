@@ -46,7 +46,8 @@ export async function loadBrowserConfig(): Promise<BrowserConfig | null> {
     const r = await secureFetch(`${ZKAPI_PUBLIC_PATH}browser-config.json`, {}, "zkapi");
     if (!r.ok) return null;
     const cfg = (await r.json()) as BrowserConfig;
-    allowHosts(cfg?.trusted_deployment?.rpc_url, cfg?.trusted_deployment?.protocol_server_url, cfg?.trusted_deployment?.openrouter_inference_base); // the deployment's own endpoints (spec §7)
+    const T = cfg?.trusted_deployment as (BrowserConfig["trusted_deployment"] & { verifier_url?: string; indexer_url?: string }) | undefined;
+    allowHosts(T?.rpc_url, T?.protocol_server_url, T?.openrouter_inference_base, T?.verifier_url, T?.indexer_url); // the deployment's own endpoints (spec §7; C-L5)
     return cfg;
   } catch {
     return null;

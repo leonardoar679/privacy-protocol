@@ -1147,7 +1147,8 @@ export const ko: Record<MessageKey, string> = {
   "review.protection.elpf": "실패당 예상 손실",
   "review.protection.concentration": "집중도",
   "review.protection.alternative": "대안",
-  "review.tradeCheck.hint": "정제된 요약이 프라이빗 AI 세션으로 전달됩니다: 자산, 반올림한 금액, 경로, 경쟁 견적, 프라이버시 점검 — 주소는 포함되지 않습니다",
+  "review.tradeCheck.hint":
+    "대략적인 요약이 프라이빗 AI 세션으로 전달됩니다: 자산, 한 자리로 반올림한 금액, 경로의 종류, 각 제공자의 응답 — 주소는 포함되지 않습니다. 제공자는 IP를 보며, 이 스왑이 체인에 반영되면 둘을 맞춰 볼 수 있습니다",
   "review.tradeCheck.button": "이 거래 점검",
   "review.tradeCheck.disclaimer": "프라이빗 AI (추천하고 경고할 뿐, 서명하거나 변경하지 않습니다)",
   "review.tradeCheck.bestRoute": "최적 경로",
@@ -1582,7 +1583,7 @@ export const ko: Record<MessageKey, string> = {
   "security.tier.institutional": "기관 검토 기준 (USD)",
   "security.forget.title": "이 기기에서 이 지갑 지우기",
   "security.forget.body":
-    "이 기기에서 키 저장소와 암호화된 기록을 삭제하고, 공개 지갑의 연결과 WalletConnect 페어링, 환경 설정, 속도를 위해 보관한 증명 파일, 그리고 Tornado Classic이 여기서 제공되는 경우 그 기록도 지웁니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
+    "이 기기에서 키 저장소와 암호화된 기록을 삭제하고, 공개 지갑의 연결과 WalletConnect 페어링, 환경 설정, 속도를 위해 보관한 증명 파일, 프라이빗 AI의 크레딧 지갑(백업에 포함되지 않으므로 사용하지 않은 크레딧을 먼저 인출하세요), 그리고 Tornado Classic이 여기서 제공되는 경우 그 기록도 지웁니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
   "security.forget.open": "이 지갑 지우기…",
   "security.forget.typeWord": "FORGET 입력",
   "security.forget.confirm": "이 지갑 지우기",

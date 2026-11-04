@@ -3,7 +3,9 @@
 // worker same-origin, WalletConnect's relay only when a project id is set, the zkAPI profile's hosts when its assets
 // ship; the plugin prepends the meta tag; the headers a server must send; a built index.html (when present) carries it.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, DEFAULT_BEACON_APIS, DEFAULT_THORNODE_GATEWAYS, originOf, SECURITY_HEADERS, zkapiHosts } from "../scripts/csp.mjs";
 import { DEFAULTS } from "@privacy-wallet/sdk/config";
 import { MAINNET, SEPOLIA } from "@privacy-wallet/sdk/lightclient/spec";
@@ -73,6 +75,26 @@ describe("the content security policy (spec §20)", () => {
     expect(wc, "WalletConnect's telemetry host is never allowed").not.toContain("pulse.walletconnect");
     expect(buildCsp(ENV, ["https://zkapi-sepolia.openanonymity.ai/manifest.json", "https://openrouter.ai/api/v1"])).toContain("https://zkapi-sepolia.openanonymity.ai https://openrouter.ai");
     expect(zkapiHosts("/nowhere/browser-config.json")).toEqual([]);
+    // every host of the profile the code calls (the eighth review round, C-L5): its RPC, the OA verifier, the indexer
+    const dir = mkdtempSync(join(tmpdir(), "zkapi-profile-"));
+    try {
+      const file = join(dir, "browser-config.json");
+      writeFileSync(
+        file,
+        JSON.stringify({
+          trusted_deployment: {
+            protocol_server_url: "https://zkapi.example/",
+            openrouter_inference_base: "https://openrouter.ai/api/v1",
+            rpc_url: "https://rpc.example/",
+            verifier_url: "https://verifier.example/",
+            indexer_url: "https://indexer.example/",
+          },
+        }),
+      );
+      expect(zkapiHosts(file)).toEqual(expect.arrayContaining(["https://rpc.example/", "https://verifier.example/", "https://indexer.example/"]));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("the plugin prepends the meta tag at build time; the headers a server must send are the known set", () => {
     const meta = cspMeta(ENV);

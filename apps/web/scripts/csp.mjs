@@ -76,7 +76,9 @@ export function zkapiHosts(configPath) {
   try {
     const cfg = JSON.parse(readFileSync(configPath, "utf8"));
     const T = cfg.trusted_deployment ?? {};
-    return [cfg.deployment_manifest_url, ...(cfg.allowed_deployment_manifest_urls ?? []), T.protocol_server_url, T.openrouter_inference_base].filter(Boolean);
+    // the profile's RPC (the fresh funding account, the SDK's price and vault reads), the OA verifier (the lease key's check) and the
+    // indexer too (the eighth review round, 2026-11-03, C-L5): the policy had blocked hosts the code calls
+    return [cfg.deployment_manifest_url, ...(cfg.allowed_deployment_manifest_urls ?? []), T.protocol_server_url, T.openrouter_inference_base, T.rpc_url, T.verifier_url, T.indexer_url].filter(Boolean);
   } catch { return []; }
 }
 

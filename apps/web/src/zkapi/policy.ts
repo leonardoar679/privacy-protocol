@@ -23,11 +23,14 @@ export interface PinCheck {
 
 export interface BrowserConfig { trusted_deployment: { chain_id: number; contract_address: string; rpc_url: string; protocol_server_url: string; openrouter_inference_base: string; deployment_id: string; request_charge_cap: number | string } }
 
-/** Spec §5 transport policy: no proxy (plan §5), no credentials, no redirects. A native host plugs Tor / a mixnet in here. */
-export const privateTransport: ZkapiTransport = (url, init, hints = {}) => {
-  if (hints.preferProxy) return Promise.reject(new Error("proxy mode is disabled (plan §5): the billing server must not relay provider traffic"));
-  return secureFetch(url, init ?? {}, "zkapi");
-};
+/**
+ * Spec §5 transport policy: no credentials, no redirects, the policy's hosts only; a native host plugs Tor / a mixnet in here. The
+ * SDK's `preferProxy` is a routing hint — "the host may keep its own opt-in privacy proxy" (sdk/README.md) — on every RPC read and
+ * protocol call it routes through the host; this wallet has no such proxy, so the request goes direct like any other. The eighth
+ * review round (2026-11-03, C-M1): the hint had been read as zkAPI's billing-server proxy mode and refused, so no deposit, lease or
+ * price read could ever succeed. Runtime-key mode is the wallet's own: it never calls a proxy-mode API.
+ */
+export const privateTransport: ZkapiTransport = (url, init) => secureFetch(url, init ?? {}, "zkapi");
 
 /** zkAPI features are enabled only by a passing, recent pin check (spec §3: never a silent fallback). */
 export function zkapiEnabled(pin: PinCheck | null, maxAgeHours = 24 * 7, now = Date.now()): boolean {

@@ -1163,7 +1163,7 @@ export const en = {
   "review.protection.concentration": "Concentration",
   "review.protection.alternative": "Alternative",
   "review.tradeCheck.hint":
-    "A sanitized summary goes to your private AI session: assets, rounded amounts, the route, the competition, the privacy check — no address",
+    "A coarse summary goes to your private AI session: the assets, amounts to one digit, the route's kind, how each provider answered — no address. The provider sees your IP and may match it to this swap once it lands",
   "review.tradeCheck.button": "Check this trade",
   "review.tradeCheck.disclaimer": "Private AI (it recommends and warns; it signs nothing and changes nothing)",
   "review.tradeCheck.bestRoute": "Best route",
@@ -1606,7 +1606,7 @@ export const en = {
   "security.tier.institutional": "Institutional review from (USD)",
   "security.forget.title": "Forget this wallet on this device",
   "security.forget.body":
-    "Removes the keystore and the encrypted journal from this device, disconnects the public wallet and clears its WalletConnect pairing, the preferences, the proving files kept for speed and, when Tornado Classic is served here, its records. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
+    "Removes the keystore and the encrypted journal from this device, disconnects the public wallet and clears its WalletConnect pairing, the preferences, the proving files kept for speed, Private AI's credit wallet (withdraw unused credit first: it is not in your backup) and, when Tornado Classic is served here, its records. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
   "security.forget.open": "Forget this wallet…",
   "security.forget.typeWord": "Type FORGET",
   "security.forget.confirm": "Forget this wallet",

@@ -178,7 +178,8 @@ export interface JournalData {
   /** V2 (Stage 8): what private balance maintenance spent on relayer fees today (the daily cap of settings.housekeeping) */
   housekeeping?: { day: string; feeWei: string; steps: number };
   /** V2 (Stage 9): the next fresh funding address index of Private AI (a credit note withdrawn moves to the next) */
-  aiFunding?: { index: number };
+  /** the fresh funding address's index, and the index already funded from the pool (the eighth review round, C-L2: never twice) */
+  aiFunding?: { index: number; funded?: number };
   /** V3 (High-Value Protection spec §17): the campaigns (tranches under an in-flight cap) and the address book. Optional, never written by emptyJournal(): the pinned at-rest vectors and V2 journals stay valid. */
   campaigns?: Campaign[];
   addressBook?: AddressBookEntry[];

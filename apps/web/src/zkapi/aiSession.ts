@@ -15,4 +15,19 @@ class AiSessionStore {
 }
 
 export const aiSession = new AiSessionStore();
+
+/**
+ * The open session released and dropped — at a lock (PrivateAI.tsx registers it) and a Forget — so the provider key retires and nothing
+ * of it serves the next session or wallet (the eighth review round, 2026-11-03, C-M2: a lock or a REPLACE had kept it for the Review's
+ * "Check this trade", one Bearer key across two sessions, and the remounted screen could no longer end it).
+ */
+export function endAiSession(): void {
+  const a = aiSession.get().access;
+  try {
+    a?.release();
+  } catch {
+    // released already
+  }
+  if (a) aiSession.set(null);
+}
 export const useAiSession = (): AiSession => useSyncExternalStore((l) => aiSession.subscribe(l), () => aiSession.get());

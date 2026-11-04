@@ -44,6 +44,9 @@ const w = vi.hoisted(() => ({
   switchTo: null as null | { after: number; chain: string },
   /** V7 Stage 16: the session locks right after this many sends (a phone's handoff, or Lock) */
   lockAfter: null as null | number,
+  /** the eighth review round (C-L6): the account the wallet names, and the one it switches to after `after` sends */
+  account: "0x00000000000000000000000000000000000000b0",
+  accountAfter: null as null | { after: number; account: string },
   chainIds: [] as string[],
   provider: null as null | { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> },
 }));
@@ -94,7 +97,7 @@ vi.mock("../src/chain", async (importOriginal) => ({
 /** The connected wallet over a token that keeps USDT's rule: approve(non-zero) reverts while a non-zero allowance is open. */
 const usdtWallet = {
   request: async ({ method, params }: { method: string; params?: unknown[] }) => {
-    if (method === "eth_accounts" || method === "eth_requestAccounts") return [OWNER];
+    if (method === "eth_accounts" || method === "eth_requestAccounts") return [w.account];
     if (method === "eth_chainId") return w.chain;
     if (method === "eth_call") return encodeFunctionResult({ abi: erc20Abi, functionName: "allowance", result: w.allowance });
     if (method === "eth_sendTransaction") {
@@ -114,6 +117,7 @@ const usdtWallet = {
         w.receipts.set(hash, "success");
       }
       if (w.lockAfter !== null && w.sent.length === w.lockAfter) session.lock();
+      if (w.accountAfter && w.sent.length === w.accountAfter.after) w.account = w.accountAfter.account;
       return hash;
     }
     throw new Error(`unexpected ${method}`);
@@ -128,6 +132,8 @@ beforeAll(async () => {
   w.provider = usdtWallet;
 });
 beforeEach(() => {
+  w.account = OWNER;
+  w.accountAfter = null;
   w.sent.length = 0;
   w.receipts.clear();
   w.chain = "0x1";
@@ -157,11 +163,27 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
     const amounts = (open: bigint | null) =>
       approvalsFor(open, USDT, ROUTER, AMOUNT).map((tx) => (decodeFunctionData({ abi: erc20Abi, data: tx.data }).args as readonly [Address, bigint])[1]);
     expect(amounts(0n)).toEqual([AMOUNT]);
-    expect(amounts(null), "unreadable: as before").toEqual([AMOUNT]);
+    expect(amounts(null), "unreadable (a WalletConnect provider's reads): cleared first, as another open amount (the eighth review round, C-L7)").toEqual([
+      0n,
+      AMOUNT,
+    ]);
     expect(amounts(AMOUNT), "what a refused deposit left").toEqual([]);
     expect(amounts(1_000_000n)).toEqual([0n, AMOUNT]);
     expect(amounts(2n ** 256n - 1n), "even an unlimited one: narrowed to the amount").toEqual([0n, AMOUNT]);
     expect(approvalsFor(0n, USDT, ROUTER, AMOUNT)[0]).toMatchObject({ to: USDT });
+  });
+
+  it("every prompt from the account the Review showed (the eighth review round, C-L6): an account switched after the approval is refused at the deposit, nothing more sent", async () => {
+    w.allowance = 0n;
+    w.accountAfter = { after: 1, account: "0x00000000000000000000000000000000000000c7" };
+    const p = prepareShield({ masterSeed: session.state().seed!, deployment, amount: AMOUNT, token: USDT, vault: USDT_VAULT });
+    w.commitment = noteCommitment(noteBody(p.note), 7n);
+    const err = await submitShield(p, { account: OWNER }).catch((e) => e);
+    expect((err as Error).name).toBe("WalletOtherAccount");
+    expect(
+      w.sent.map((s) => s.fn),
+      "the approval only: no deposit from another account",
+    ).toEqual(["approve"]);
   });
 
   it("a first protect approves exactly its amount, then deposits", async () => {

@@ -11,6 +11,15 @@ import { clearWalletConnectStorage } from "@privacy-wallet/wallet-engine/walletC
 import { prefs } from "../storage/prefs";
 import { removeLocalStorageKey } from "../storage/sameOrigin";
 import { ARTIFACT_CACHE } from "./crypto/protocol";
+import { endAiSession } from "../zkapi/aiSession";
+
+/**
+ * The zkAPI SDK's own stores (its sdk/services/browserWalletStore.js and the deployment it cached), as the pinned SDK names them: the
+ * credit note's secret and blinding, the pending deposit, the funding address — unencrypted, per origin, outside the backup. The
+ * eighth review round (2026-11-03, C-M2): a Forget had left them, and the next wallet created here inherited the previous owner's credit.
+ */
+export const ZKAPI_DB = "zkapi-browser-wallet-v1";
+export const ZKAPI_DEPLOYMENT_KEY = "zkapi-browser-deployment";
 
 /** The Classic application's storage names, as its own code names them (classic/src/storage; no import across rule 9). */
 export const CLASSIC_DB = "tornado-classic";
@@ -40,6 +49,16 @@ export async function forgetEverything(d: ForgetDeps = {}): Promise<void> {
   clearWalletConnectStorage();
   // the preferences from the defaults: the last connector, the backup dates, the experience, the locale
   prefs().reset();
+  // the Private AI session's provider key released, and the credit wallet's stores gone (C-M2)
+  endAiSession();
+  try {
+    const req = idb?.deleteDatabase(ZKAPI_DB);
+    if (req) req.onerror = () => undefined;
+  } catch {
+    // no IndexedDB
+  }
+  if (d.localStorage === undefined) removeLocalStorageKey(ZKAPI_DEPLOYMENT_KEY);
+  else removeLocalStorageKey(ZKAPI_DEPLOYMENT_KEY, d.localStorage);
   // the keystore, the journal, a journal set aside, the settings
   session.forget();
   // the proving artifacts kept for speed

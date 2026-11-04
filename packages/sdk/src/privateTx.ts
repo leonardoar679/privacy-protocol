@@ -104,7 +104,7 @@ export type TreeArg = bigint[] | MerkleLayers;
 const treeSpec = (t: TreeArg): { leaves: bigint[]; tree?: MerkleLayers } => (t instanceof MerkleLayers ? { leaves: t.leaves, tree: t } : { leaves: t });
 
 /** `record`: the Activity line this flow writes (whale spec §25) — fields to override, or `false` when the caller keeps its own line (a swap's funding). */
-export interface Progress { onStatus?: ProveStatus; /** V5 (spec §12): the typed event beside every status string, for the operation record */ onEvent?: OnEvent; submission?: Submission; record?: false | Partial<ActivityRecord> }
+export interface Progress { onStatus?: ProveStatus; /** V5 (spec §12): the typed event beside every status string, for the operation record */ onEvent?: OnEvent; submission?: Submission; record?: false | Partial<ActivityRecord>; /** the connected account the Review showed (the eighth review round, C-L6): every prompt of the flow is sent from it, or refused */ account?: string }
 
 /**
  * V5 (spec §17, the SDK facade): a shield in three steps. `prepareShield` builds the note and the calldata (and spends
@@ -185,18 +185,30 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
  */
 export function approvalsFor(open: bigint | null, token: Address, spender: Address, amount: bigint): TxRequest[] {
   if (open === amount) return [];
-  return [...(open !== null && open > 0n ? [buildApprove(token, spender, 0n)] : []), buildApprove(token, spender, amount)];
+  // unread (the eighth review round, C-L7: a WalletConnect provider sends reads to a host the policy blocks): cleared first, as any other
+  return [...(open === null || open > 0n ? [buildApprove(token, spender, 0n)] : []), buildApprove(token, spender, amount)];
 }
 
-/** The connected account's allowance toward `spender`, read through its own provider; null when there is none to read. */
-async function openAllowance(token: Address, spender: Address): Promise<bigint | null> {
+/** The connected account's allowance toward `spender` (`owner`: the account the flow is bound to), read through its own provider; null when there is none to read. */
+async function openAllowance(token: Address, spender: Address, owner?: string): Promise<bigint | null> {
   const eth = activeProvider();
   if (!eth) return null;
   try {
-    const [owner] = (await eth.request({ method: "eth_accounts" })) as string[];
-    return owner ? await readAllowance(token, owner as Address, spender, eth) : null;
+    const [now] = owner ? [owner] : ((await eth.request({ method: "eth_accounts" })) as string[]);
+    return now ? await readAllowance(token, now as Address, spender, eth) : null;
   } catch {
     return null;
+  }
+}
+/** The account the connected wallet names now (eth_accounts), or undefined. */
+async function currentAccount(): Promise<string | undefined> {
+  const eth = activeProvider();
+  if (!eth) return undefined;
+  try {
+    const [a] = (await eth.request({ method: "eth_accounts" })) as string[];
+    return a || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -225,14 +237,17 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   // a deposit that failed or was refused leaves its approval, and USDT refuses to change one non-zero allowance to another
   const spender = p.deployment.protectRouter ?? p.vault;
   const whom = p.deployment.protectRouter ? "the protect router" : "the vault";
-  const approvals = p.approve && p.token ? approvalsFor(await openAllowance(p.token, spender), p.token, spender, p.amount) : [];
+  // one account for every prompt of the flow (the eighth review round, 2026-11-03, C-L6): the Review's, else the one named at the start;
+  // an account changed between the approval and the deposit had sent the deposit from another account than the one reviewed
+  const account = o.account ?? (await currentAccount());
+  const approvals = p.approve && p.token ? approvalsFor(await openAllowance(p.token, spender, account), p.token, spender, p.amount) : [];
   const n = approvals.length + 1;
   for (const [k, tx] of approvals.entries()) {
     const clearing = approvals.length === 2 && k === 0;
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
     assertStillUnlocked();
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
-    const hash = await sendViaInjectedWallet(tx, p.deployment.chainId);
+    const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account);
     // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public address
     const approval = (await receiptViaInjectedWallet(hash, { chainId: p.deployment.chainId })) ?? (await clientFor(p.deployment).waitForTransactionReceipt({ hash }));
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
@@ -247,7 +262,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
   assertStillUnlocked();
   o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
-  const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId);
+  const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId, account);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
   o.onEvent?.({ type: "waiting-receipt", txHash });
@@ -517,7 +532,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
     o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()], ...(o.change ? { noteCounter: o.change.counter } : {}), ...(inputsDigest ? { inputsDigest } : {}) });
     o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
-    txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData), o.deployment.chainId);
+    txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData), o.deployment.chainId, o.account); // the Review's account (C-L6)
     submittedBy = "wallet";
     o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   }
