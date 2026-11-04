@@ -2,6 +2,7 @@
 // settings, the address book, the encrypted journal's counts, the deployment's read endpoints, the pool's size, whether
 // this build carries Private AI — gathered into ./model.ts and drawn by ./View.tsx. Nothing is fetched.
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { rpcUrlsOf } from "@privacy-wallet/sdk/rpcUrls";
 import { specForChain } from "@privacy-wallet/sdk/lightclient/spec";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { privacyCenterModel, listedPurposes } from "./model";
@@ -36,7 +37,7 @@ export function PrivacyCenter({
   const operations = useAllOperations();
   const model = privacyCenterModel({
     posture,
-    rpcEndpoints: deployment ? deployment.rpcUrls?.length || 1 : 0,
+    rpcEndpoints: deployment ? rpcUrlsOf(deployment).length : 0,
     lightClient: !!deployment && s.verifyReads && !!specForChain(deployment.chainId),
     relayerSubmission: s.submission.kind === "relayer",
     freshDestinations: freshDestinations(book),

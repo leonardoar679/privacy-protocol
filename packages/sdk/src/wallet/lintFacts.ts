@@ -6,6 +6,7 @@ import { bucketsFor } from "@privacy-wallet/protocol/wallet/amounts";
 import { lint, type LintFacts, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "../chain";
+import { rpcUrlsOf } from "../rpcUrls";
 import { specForChain } from "../lightclient/spec";
 import type { QuoteSet } from "../swapService";
 import type { CheckedCall } from "../providerCall";
@@ -60,7 +61,7 @@ export function walletLintFacts(i: WalletLintInput): LintFacts {
     // an approved minimum this call must meet; without one on record nothing is verified (the third review round, 2026-11-03)
     minOutVerified: i.action === "swap" ? (i.checked ? i.checked.minOut !== null && i.approvedMin !== undefined && i.approvedMin !== null && i.checked.minOut >= i.approvedMin : null) : null,
     privateSubmission: i.settings.submission.kind === "relayer",
-    rpcEndpoints: i.deployment ? (i.deployment.rpcUrls?.length ? i.deployment.rpcUrls.length : 1) : 0,
+    rpcEndpoints: i.deployment ? rpcUrlsOf(i.deployment).length : 0,
     lightClient: !!i.deployment && i.settings.verifyReads && !!specForChain(i.deployment.chainId),
     largePiece: i.action === "transfer" ? null : { inAlphabet, holders: inAlphabet ? null : (i.holders ?? null) },
     acknowledged: i.acknowledged,

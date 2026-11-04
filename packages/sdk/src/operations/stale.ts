@@ -107,7 +107,12 @@ export function staleReads(d: Deployment, index: SpendIndex | null = spendIndexO
   return {
     receipt: outcome.receipt,
     txKnown: outcome.txKnown,
-    spent: index ? async (n) => index.spent(n) : outcome.spent,
+    // never a per-nullifier read naming the record's notes (the ninth review round, 2026-11-04, D-3): without an index (no scan yet) the
+    // reads throw, and the record is read again after the next scan
+    spent: async (n) => {
+      if (!index) throw new Error("the pool has not been scanned yet: a record's notes are never named to an endpoint");
+      return index.spent(n);
+    },
     spendOf: async (pair) => {
       const s = index?.spendOf(pair);
       return s ? { txHash: s.transactionHash } : null;

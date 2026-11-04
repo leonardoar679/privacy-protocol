@@ -152,10 +152,11 @@ describe("notes past the pool the light client proved (audit round 2, r24)", () 
     expect(noteStore.all().find((n) => n.leafIndex === 8)).toMatchObject({ counter: 1, spent: false });
   });
 
-  it("a stored note at a proven leaf that holds another commitment is dropped; one past the proven pool is left", async () => {
+  it("a stored note at a proven leaf that holds another commitment is dropped; one past the pool waits while it is new, and goes once the endpoints have had the time to catch up (the ninth review round, D-1)", async () => {
     const phantom: Note = { vaultId: BigInt(VAULT), amount: 7n * 10n ** 18n, ownerCommitment: main, noteSecret: 4242n };
     noteStore.add({ note: phantom, leafIndex: 1, noteData: "0x", spent: false, label: "change" }); // the leaf a receipt named: it holds no such note
-    noteStore.add({ note: phantom, leafIndex: 9, noteData: "0x", spent: false }); // past the proven pool
+    noteStore.add({ note: phantom, leafIndex: 9, noteData: "0x", spent: false, addedAt: Date.now() }); // past the pool, recorded just now: the endpoints may lag
+    noteStore.add({ note: phantom, leafIndex: 13, noteData: "0x", spent: false }); // past the pool since before: never in it
     proof.leaves = 8;
     await scanNotes({ masterSeed: seed, deployment: deployment() });
     expect(leaves()).toEqual([0, 4, 9]);

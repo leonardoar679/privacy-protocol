@@ -1751,7 +1751,7 @@ export const en = {
   "privacyCenter.why.rpc.lightClient": "An Ethereum light client proves the pool before every transaction.",
   "privacyCenter.why.rpc.noLightClient": "Reads rest on the endpoints' agreement alone (no light client for this chain).",
   "privacyCenter.why.rpc.reads":
-    "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
+    "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also the receipts of its own transactions, read by their hash, and its swaps' escrows; with a light client on, the proofs of its notes' spent state; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
   "privacyCenter.why.timing.immediate":
     "Swaps are funded as soon as you confirm, so funding and acting are linked by time; Delay for more privacy on a swap adds a random 1–24 h.",
   "privacyCenter.why.timing.window": "Swaps are funded at a random moment inside {from}–{to}; a patient observer still sees when money moves.",
@@ -1792,7 +1792,7 @@ export const en = {
   "privacyCenter.storedNote": "All of it is encrypted with your password on this device; nothing is kept in plain text.",
   "privacyCenter.sent.rpc": "Your RPC endpoints",
   "privacyCenter.sent.rpc.what":
-    "Public chain reads: every event of the pool, as every user reads them — the spends come with the deposits in the same read, so the endpoints are never asked about this wallet's own notes. Where a light client is on, the endpoint that answers its checks learns which notes it checks; each swap's one-time deposit address is read by its address.",
+    "Public chain reads: every event of the pool, as every user reads them — the spends come with the deposits in the same read, so the endpoints are never asked which notes are this wallet's. Each transaction this wallet sends is read back by its hash (its receipt), which ties it to your IP address at every endpoint. Where a light client is on, the endpoint that answers its checks learns which notes it checks; each swap's one-time deposit address is read by its address.",
   "privacyCenter.sent.relayer": "The relayer",
   "privacyCenter.sent.relayer.what":
     "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",

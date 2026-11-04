@@ -6,6 +6,7 @@
 // Env: VITE_RPC_URLS (comma-separated; or VITE_RPC_URL for one), VITE_CORE, VITE_ETH_VAULT,
 // VITE_CHAIN_ID (default 31337), VITE_FROM_BLOCK (0), VITE_ERC20_VAULTS (SYMBOL:0xtoken:0xvault:decimals, comma-separated; plan §36),
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
+import { rpcUrlsOf } from "./rpcUrls";
 import { publicClientFor } from "@privacy-wallet/privacy-engine/transport/chain";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
 import { formatTransactionReceipt, getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient, type RpcTransactionReceipt, type TransactionReceipt } from "viem";
@@ -34,9 +35,10 @@ export { deploymentFromEnv } from "./env";
 // V5 (spec §7): the one transport policy, announced to the leakage gate; V6 Stage 4 (doc §65): the clients come from the
 // privacy engine's transport, the wallet's only constructor of one
 export const clientFor = (d: Deployment): PublicClient => publicClientFor(d.rpcUrl);
-export const clientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls?.length ? d.rpcUrls : [d.rpcUrl]).map((u) => publicClientFor(u));
+export { rpcUrlsOf }; // ./rpcUrls.ts: the endpoints, each once (D-10)
+export const clientsFor = (d: Deployment): PublicClient[] => rpcUrlsOf(d).map((u) => publicClientFor(u));
 /** The configured endpoints besides `clientFor`'s: each must give the receipt it gave (`minedTx`). */
-export const otherClientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls ?? []).filter((u) => u !== d.rpcUrl).map((u) => publicClientFor(u));
+export const otherClientsFor = (d: Deployment): PublicClient[] => rpcUrlsOf(d).filter((u) => u !== d.rpcUrl).map((u) => publicClientFor(u));
 
 export const txDomainOf = (d: Deployment): bigint => txDomain(BigInt(d.chainId), BigInt(d.core));
 
@@ -76,6 +78,12 @@ export interface SpendLog { nullifier0: bigint; nullifier1: bigint; transactionH
 
 /** The block range a fetch-all read falls back to when an endpoint refuses one request for the whole history. */
 export const LOG_WINDOW_BLOCKS = 10_000n;
+/**
+ * A windowed read takes at most this many windows and this long (the ninth review round, 2026-11-04, D-6): an endpoint that refused the
+ * whole range for its size and then named a head of 1e15 had sent the read through 1e11 windows, the scheduler waiting behind it.
+ */
+export const MAX_LOG_WINDOWS = 50_000;
+export const MAX_WINDOWED_READ_MS = 10 * 60_000;
 /** An endpoint's refusal of a range too large (a result or response cap, a block-range limit), in the words providers use. */
 const RANGE_REFUSED = /more than \d+ results|response size|block range|range (is )?too (large|wide|big)|exceed(s|ed)? (the )?max(imum)?|too many (results|logs)|query timeout|limited to an? \d/i; // never a rate limit: that is a retry
 const refusedForSize = (e: unknown): boolean => {
@@ -109,7 +117,11 @@ export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumbe
   const out: T[] = [];
   let from = fromBlock;
   let size = window;
+  const deadline = Date.now() + MAX_WINDOWED_READ_MS;
+  let windows = 0;
   while (from <= last) {
+    if (++windows > MAX_LOG_WINDOWS || Date.now() > deadline)
+      throw new Error(`the endpoint's logs from block ${fromBlock} to ${last} take more than ${MAX_LOG_WINDOWS} windows or ${MAX_WINDOWED_READ_MS / 60_000} minutes: refused`);
     const to = from + size - 1n < last ? from + size - 1n : last;
     try {
       out.push(...(await read(from, to)));
@@ -175,8 +187,13 @@ export async function readView(client: PublicClient, d: Deployment): Promise<Raw
 export async function buildTree(view: RawView): Promise<TreeState> {
   const { logs, nextLeafIndex, onChainRoot } = view;
   const leaves: bigint[] = Array(nextLeafIndex).fill(ZERO_LEAF);
+  const seen = new Set<number>();
   for (const l of logs) {
     if (l.leafIndex >= nextLeafIndex) throw new Error(`NoteInserted at ${l.leafIndex} beyond nextLeafIndex ${nextLeafIndex}: stale view`);
+    // two notes at one leaf are refused (the ninth review round, 2026-11-04, D-9): the last had silently won, while the payload opener read
+    // the first — a phantom "received" transfer
+    if (seen.has(l.leafIndex)) throw new Error(`two NoteInserted events at leaf ${l.leafIndex}: refused`);
+    seen.add(l.leafIndex);
     leaves[l.leafIndex] = l.commitment;
   }
   const layers = await treeLayers(leaves, TX_LEVELS);
@@ -334,10 +351,6 @@ export async function receiptViaInjectedWallet(
   return null;
 }
 
-/** Wait for a transaction and return the leaves it inserted (leaf index + commitment). */
-export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{ leafIndex: number; commitment: bigint }[]> {
-  return (await minedTx(client, hash)).inserted;
-}
 
 /** How long another endpoint is waited on for a receipt the first one gave: a node a few blocks behind (audit round 2, r23). */
 export const RECEIPT_AGREE_MS = 90_000;
@@ -355,10 +368,16 @@ export class ReceiptDisputed extends Error {
   }
 }
 
-/** What endpoints must agree on in a receipt: its outcome, its block and the core's events in it. */
-const receiptKey = (r: { status: string; blockHash: Hex; logs: readonly { address: Address; topics: readonly Hex[]; data: Hex }[] }, core?: Address): string =>
-  `${r.status === "success" ? "mined" : "failed"}@${r.blockHash.slice(0, 10)}:` +
-  keccak256(toHex(r.logs.filter((l) => !core || l.address.toLowerCase() === core.toLowerCase()).map((l) => `${l.address.toLowerCase()}/${l.topics.join(",")}/${l.data}`).join("|"))).slice(0, 10);
+/**
+ * What endpoints must agree on in a receipt: its outcome, its block — number and hash —, its transaction and every event in it, in full (the
+ * ninth review round, 2026-11-04, D-4). Before, 32 bits of the block hash and of a digest of the core's events: the block number (a spent
+ * mark's) and the vaults' claim events (a held payout) were the first endpoint's alone, and a 2^32 grind could move a leaf.
+ */
+const receiptKey = (r: { status: string; blockHash: Hex; blockNumber: bigint; transactionHash: Hex; logs: readonly { address: Address; topics: readonly Hex[]; data: Hex }[] }): string =>
+  `${r.status === "success" ? "mined" : "failed"}@${r.blockNumber}/${r.blockHash}/${r.transactionHash}:` +
+  keccak256(toHex(r.logs.map((l) => `${l.address.toLowerCase()}/${l.topics.join(",")}/${l.data}`).join("|")));
+/** A receipt key cut for the dispute's words (the whole keys are compared). */
+const shortKey = (k: string): string => (k.length > 40 ? `${k.slice(0, 14)}…${k.slice(-10)}` : k);
 
 /** A mined transaction of ours: the notes it inserted and what it really cost (V6, spec v2.0 §3: gasUsed × effectiveGasPrice). */
 export async function minedTx(
@@ -382,9 +401,9 @@ export async function minedTx(
 }> {
   const receipt = o.receipt ?? (await client.waitForTransactionReceipt({ hash }));
   if (others.length && !o.receipt) {
-    const key = receiptKey(receipt, core);
-    const keys = await Promise.all(others.map((c) => c.waitForTransactionReceipt({ hash, timeout: RECEIPT_AGREE_MS }).then((r) => receiptKey(r, core), () => "none")));
-    if (keys.some((k) => k !== key)) throw new ReceiptDisputed(hash, [key, ...keys]);
+    const key = receiptKey(receipt);
+    const keys = await Promise.all(others.map((c) => c.waitForTransactionReceipt({ hash, timeout: RECEIPT_AGREE_MS }).then((r) => receiptKey(r), () => "none")));
+    if (keys.some((k) => k !== key)) throw new ReceiptDisputed(hash, [key, ...keys].map(shortKey));
   }
   if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted`);
   const logs = core ? receipt.logs.filter((l) => l.address.toLowerCase() === core.toLowerCase()) : receipt.logs;

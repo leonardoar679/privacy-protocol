@@ -10,7 +10,7 @@ import {
   SELECTOR, agreePrices, assess, availablePrice, decodeAddress, decodeLatestRoundData, decodeString, feedsFor, getFeedCalldata, FEED_REGISTRY, parsePrices, serializePrices, usdOf,
   type Assessment, type FeedSpec, type PriceRead, type Prices, type TierThresholds,
 } from "@privacy-wallet/protocol/wallet/valuation";
-import { clientsFor, type Deployment } from "./chain";
+import { clientsFor, rpcUrlsOf, type Deployment } from "./chain";
 import type { Asset } from "./assets";
 import { noteStore } from "./wallet/notes";
 import { session, type WalletSession } from "./wallet/session";
@@ -47,7 +47,7 @@ async function readFeed(client: PublicClient, spec: FeedSpec, source: string): P
 /** Every feed of the chain from every endpoint, agreed per feed (spec §13); pure of any store. */
 export async function readPrices(d: Deployment, feeds: FeedSpec[], now = Math.floor(Date.now() / 1000)): Promise<Prices> {
   const clients = clientsFor(d);
-  const urls = d.rpcUrls?.length ? d.rpcUrls : [d.rpcUrl];
+  const urls = rpcUrlsOf(d);
   const out: Prices = { chainId: d.chainId, at: now, feeds: {} };
   await Promise.all(feeds.map(async (spec) => {
     const reads = await Promise.all(clients.map((c, i) => readFeed(c, spec, urls[i]).then((r) => ({ ok: true as const, r }), (e) => ({ ok: false as const, e: String((e as Error)?.message ?? e) }))));

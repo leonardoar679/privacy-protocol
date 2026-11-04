@@ -124,13 +124,17 @@ export async function runDiscovery(
         s,
       );
     }
-    // a receive whose leaf is proven now and holds no note of this wallet: the chain does not hold that transfer
+    // a receive whose leaf is proven now and holds no note of this wallet: the chain does not hold that transfer — nor one still pending
+    // that the pool no longer shows past its proven part (the ninth review round, 2026-11-04, D-1: a lying quorum's far leaf had stayed
+    // "pending" for good once the endpoints were honest again)
     const proven = r.proven ?? null;
-    if (proven !== null)
-      for (const x of s.journal().activity ?? []) {
-        const leaf = x.kind === "receive" && x.status !== "failed" ? Number(x.id.slice("receive:".length)) : NaN;
-        if (leaf < proven && !noteStore.all().some((n) => n.leafIndex === leaf)) updateActivity(x.id, { status: "failed", note: NOT_IN_POOL }, s);
-      }
+    const stillPending = new Set((r.pending ?? []).map((n) => n.leafIndex));
+    for (const x of s.journal().activity ?? []) {
+      const leaf = x.kind === "receive" && x.status !== "failed" ? Number(x.id.slice("receive:".length)) : NaN;
+      if (!Number.isInteger(leaf) || noteStore.all().some((n) => n.leafIndex === leaf)) continue;
+      if ((proven !== null && leaf < proven) || (x.status === "pending" && !stillPending.has(leaf)))
+        updateActivity(x.id, { status: "failed", note: NOT_IN_POOL }, s);
+    }
   } finally {
     schedulerStatus.finish();
   }

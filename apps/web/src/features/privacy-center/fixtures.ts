@@ -142,7 +142,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         why: [
           "2 endpoints answer every read and must agree; none is trusted alone.",
           "An Ethereum light client proves the pool before every transaction.",
-          "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
+          "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also the receipts of its own transactions, read by their hash, and its swaps' escrows; with a light client on, the proofs of its notes' spent state; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
         whyCodes: [{ code: "rpc.quorum", vars: { n: 2 } }, { code: "rpc.lightClient" }, { code: "rpc.reads" }],
       },
@@ -310,7 +310,7 @@ export const PRIVACY_CENTER_FIXTURES: Record<"protected" | "entered", PrivacyCen
         why: [
           "One endpoint serves every read and could lie or watch; configure two or more.",
           "An Ethereum light client proves the pool before every transaction.",
-          "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
+          "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also the receipts of its own transactions, read by their hash, and its swaps' escrows; with a light client on, the proofs of its notes' spent state; each endpoint also simulates every swap you confirm: its escrow, amount and destination.",
         ],
         whyCodes: [{ code: "rpc.single" }, { code: "rpc.lightClient" }, { code: "rpc.reads" }],
       },

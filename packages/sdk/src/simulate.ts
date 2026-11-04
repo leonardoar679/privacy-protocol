@@ -10,7 +10,7 @@
 // signature never leaves the wallet until the simulation passes; the relayer's own estimateGas gate stays.
 import { decodeErrorResult, encodeFunctionData, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
 import { ABI } from "@privacy-wallet/contracts";
-import { clientsFor, type Deployment } from "./chain";
+import { clientsFor, rpcUrlsOf, type Deployment } from "./chain";
 import { predictEscrow } from "./swapGuard";
 import type { ServiceOrderParams } from "./swapService";
 
@@ -108,7 +108,7 @@ export async function simulateExecution(o: {
   const tx = { from: account, to: o.factory, data };
   const override: Override | undefined = o.preview ? { [escrow]: { balance: hex(o.preview.balance) } } : undefined;
   const clients = clientsFor(o.deployment);
-  const urls = o.deployment.rpcUrls?.length ? o.deployment.rpcUrls : [o.deployment.rpcUrl];
+  const urls = rpcUrlsOf(o.deployment);
   const reverted: string[] = [], noAnswer: string[] = [];
   let error: { name: string; detail: string } | undefined;
   let revertData: Hex | undefined;

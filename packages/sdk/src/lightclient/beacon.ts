@@ -26,6 +26,14 @@ export class LightClientError extends Error {}
 /** Slack for the local clock when refusing updates signed in the future (2 minutes). */
 export const CLOCK_SLACK_SLOTS = 10;
 const fail = (why: string): never => { throw new LightClientError(`light client: ${why}`); };
+/**
+ * The data's layout is the fork of its slot on this chain (the ninth review round, 2026-11-04, D-8): the API's `version` label alone had
+ * picked the generalized indices, and a chain whose schedule has no gloas accepted gloas-layout data labelled so.
+ */
+const requireLayout = (spec: BeaconChainSpec, slot: number, fork: LcFork): void => {
+  const scheduled = forkAtEpoch(spec, epochAtSlot(slot)).name;
+  if (scheduled !== fork) fail(`the data is labelled ${fork}, but slot ${slot} is in ${scheduled} on this chain`);
+};
 
 /** The execution block a light-client header commits to, if the header's execution proof holds. */
 export function executionBlockHash(h: LightClientHeader, fork: LcFork): Hex {
@@ -73,6 +81,7 @@ export class LightClient {
   /** initialize_light_client_store: the bootstrap must be the state of exactly `trustedBlockRoot`. */
   static fromBootstrap(spec: BeaconChainSpec, trustedBlockRoot: Hex, bootstrap: LightClientBootstrap, version: string, minShare = 2 / 3): LightClient {
     const fork = lcFork(version);
+    requireLayout(spec, Number(bootstrap.header.beacon.slot), fork);
     if (bytesToHex(beaconBlockHeaderRoot(bootstrap.header.beacon)) !== trustedBlockRoot.toLowerCase()) fail("the bootstrap is not for the trusted block root");
     executionBlockHash(bootstrap.header, fork);
     if (!isValidMerkleBranch(syncCommitteeRoot(bootstrap.current_sync_committee), bootstrap.current_sync_committee_branch, GINDEX[fork].currentSyncCommittee, bootstrap.header.beacon.state_root)) fail("the bootstrap's sync committee is not in its state");
@@ -96,6 +105,7 @@ export class LightClient {
     const signers = participants(u.sync_aggregate.sync_committee_bits);
     if (signers.length < this.minParticipants) fail(`only ${signers.length} of ${SYNC_COMMITTEE_SIZE} sync committee members signed (at least ${this.minParticipants} required)`);
     const sigSlot = Number(u.signature_slot), attSlot = Number(u.attested_header.beacon.slot), finSlot = Number(u.finalized_header.beacon.slot);
+    requireLayout(this.spec, attSlot, fork);
     // a slot from the future is refused; 10 slots (2 min) of slack absorb a skewed local clock (the signature still has to verify)
     if (!(currentSlot(this.spec, nowMs) + CLOCK_SLACK_SLOTS >= sigSlot && sigSlot > attSlot && attSlot >= finSlot)) fail("slots out of order (signature > attested >= finalized, not in the future)");
     executionBlockHash(u.attested_header, fork);

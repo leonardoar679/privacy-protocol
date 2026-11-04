@@ -105,7 +105,8 @@ export function privacyPosture(f: PostureFacts): Posture {
         : line("rpc.noLightClient", "Reads rest on the endpoints' agreement alone (no light client for this chain)."),
       // the swap side too (2026-10-17, the audit's unverified m69): the pre-trade simulation goes to every endpoint; and the
       // wallet's own reads (audit round 2, n26)
-      line("rpc.reads", "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also its own notes' spent state, its transactions' receipts and its swaps' escrows; each endpoint also simulates every swap you confirm: its escrow, amount and destination."),
+      // the receipts by their hash, the light client's proofs by their notes (the ninth review round, 2026-11-04, D-3): the spent bits come with the events
+      line("rpc.reads", "Every endpoint sees your IP address and what this wallet reads: the pool's events, as every user does, but also the receipts of its own transactions, read by their hash, and its swaps' escrows; with a light client on, the proofs of its notes' spent state; each endpoint also simulates every swap you confirm: its escrow, amount and destination."),
     ]),
   );
 

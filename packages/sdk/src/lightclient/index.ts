@@ -36,7 +36,8 @@ export interface SyncOptions {
 
 /** A beacon API's header answer (beacon-APIs `headers/{block_id}`): the top-level `finalized` says whether the block is final. */
 interface HeaderAnswer { finalized?: boolean; data: { root: Hex; header: { message: { slot: string } } } }
-const hostOf = (u: string): string => { try { return new URL(u).host.toLowerCase(); } catch { return u.toLowerCase(); } };
+// the host's name, without its port (the ninth review round, 2026-11-04, D-10): one host on two ports had passed as two
+const hostOf = (u: string): string => { try { return new URL(u).hostname.toLowerCase(); } catch { return u.toLowerCase(); } };
 
 /**
  * A finalized block root every configured beacon API reports identically (trust on first use, cross-checked). The fourth review
@@ -73,17 +74,19 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   // an answer that does not verify (audit round 2, n39): the first API's bad answer had stopped the light client, and every
   // spend with it, though the next API would have served a valid one. `use` verifies and applies; it changes nothing on a throw
   const apis = urls.map((u) => beaconApi(u, o.fetchFn));
-  const verified = async <T, R>(path: string, use: (answer: T) => R): Promise<R> => {
-    let last: unknown;
-    for (const a of apis) {
+  // from the API at `from` on; which one served is returned, so a caller can ask past it (the ninth review round, 2026-11-04, D-5)
+  const verifiedAt = async <T, R>(path: string, use: (answer: T) => R, from = 0): Promise<{ r: R; at: number }> => {
+    let last: unknown = new LightClientError("light client: no beacon API left to ask");
+    for (let i = from; i < apis.length; i++) {
       try {
-        return use(await a<T>(path));
+        return { r: use(await apis[i]<T>(path)), at: i };
       } catch (e) {
         last = e;
       }
     }
     throw last;
   };
+  const verified = async <T, R>(path: string, use: (answer: T) => R): Promise<R> => (await verifiedAt(path, use)).r;
   let lc: LightClient;
   const fromRoot = (root: Hex): Promise<LightClient> =>
     verified<Versioned<LightClientBootstrap>, LightClient>(`/eth/v1/beacon/light_client/bootstrap/${root}`, (b) => LightClient.fromBootstrap(o.spec, root, b.data, b.version));
@@ -99,16 +102,23 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   // walk the committees: while the next one is unknown, the store's own period's update teaches it;
   // then each following period's update (signed by that committee) moves the store into it
   const target = periodAtSlot(currentSlot(o.spec));
-  const update = async (period: number) => {
+  /** The period's update from the APIs at `from` on; the index of the one that served it. */
+  const update = async (period: number, from = 0): Promise<number> => {
     let none = false; // an API answered that it has none: the period's boundary is read from that, whatever the others did
     try {
-      await verified<Versioned<LightClientUpdate>[], void>(`/eth/v1/beacon/light_client/updates?start_period=${period}&count=1`, (us) => {
-        if (!us.length) {
-          none = true;
-          throw new LightClientError(`light client: no update for sync-committee period ${period}`);
-        }
-        lc.applyUpdate(us[0].data, us[0].version);
-      });
+      return (
+        await verifiedAt<Versioned<LightClientUpdate>[], void>(
+          `/eth/v1/beacon/light_client/updates?start_period=${period}&count=1`,
+          (us) => {
+            if (!us.length) {
+              none = true;
+              throw new LightClientError(`light client: no update for sync-committee period ${period}`);
+            }
+            lc.applyUpdate(us[0].data, us[0].version);
+          },
+          from,
+        )
+      ).at;
     } catch (e) {
       if (none) throw new LightClientError(`light client: no update for sync-committee period ${period}`);
       throw e;
@@ -122,13 +132,27 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
     // it verified without rotating): the walk ends there, and the finality update moves its header as always. Every
     // verified operation had failed for those minutes of every period
     const boundary = lc.period === target - 1 && lc.knowsNextCommittee;
-    try {
-      await update(lc.knowsNextCommittee ? lc.period + 1 : lc.period);
-    } catch (e) {
-      if (boundary && e instanceof LightClientError && /no update for sync-committee period/.test(e.message)) break;
-      throw e;
+    // an update that verifies without advancing the store is the API's dead end, not the walk's (the ninth review round, 2026-11-04, D-5): the
+    // next API is asked — a genuine update of the next period that finalizes a block of this one had stopped the walk, the API that would
+    // have served the rotation never asked
+    const period = lc.knowsNextCommittee ? lc.period + 1 : lc.period;
+    let from = 0;
+    let advanced = false;
+    let ended = false;
+    while (!advanced && from < apis.length) {
+      try {
+        from = (await update(period, from)) + 1;
+      } catch (e) {
+        if (boundary && e instanceof LightClientError && /no update for sync-committee period/.test(e.message)) {
+          ended = true;
+          break;
+        }
+        throw e;
+      }
+      advanced = `${lc.period}|${lc.knowsNextCommittee}` !== before;
     }
-    if (`${lc.period}|${lc.knowsNextCommittee}` === before) {
+    if (ended) break;
+    if (!advanced) {
       if (boundary) break;
       throw new LightClientError(`light client: the update after period ${lc.period} did not advance the store`);
     }
@@ -140,7 +164,10 @@ export async function syncLightClient(o: SyncOptions): Promise<LightClient> {
   // n40: the whole sync had thrown)
   try {
     await verified<Versioned<LightClientUpdate>, void>("/eth/v1/beacon/light_client/finality_update", (fu) => {
-      if (Number(fu.data.finalized_header.beacon.slot) > lc.finalizedSlot) lc.applyUpdate({ ...fu.data, next_sync_committee: undefined, next_sync_committee_branch: undefined }, fu.version);
+      // one not newer than the store is that API's lag: the next is asked (the ninth review round, D-5) — an older genuine update, served
+      // first, had left the store behind, and every verified read refused once the lag passed twelve epochs
+      if (Number(fu.data.finalized_header.beacon.slot) <= lc.finalizedSlot) throw new LightClientError("light client: a finality update not newer than the store");
+      lc.applyUpdate({ ...fu.data, next_sync_committee: undefined, next_sync_committee_branch: undefined }, fu.version);
     });
   } catch {
     /* the walked store stands */
@@ -164,8 +191,24 @@ async function rpc<T>(urls: string[], method: string, params: unknown[], fetchFn
 
 export interface ProvenStorage { header: VerifiedHeader; account: VerifiedAccount; values: bigint[] }
 
-/** Storage of `address` at the light client's finalized execution block, every word proven. */
+/**
+ * Storage of `address` at the light client's finalized execution block, every word proven — from the first endpoint whose answers verify
+ * (the ninth review round, 2026-11-04, D-5: one endpoint's proof that did not verify had ended the read, the next never asked).
+ */
 export async function provenStorage(lc: LightClient, rpcUrls: string[], address: Address, slots: Hex[], fetchFn: typeof fetch = fetchFor("rpc")): Promise<ProvenStorage> {
+  let last: unknown = new Error("no RPC endpoint is configured for the proofs");
+  for (const url of rpcUrls) {
+    try {
+      return await provenStorageAt(lc, url, address, slots, fetchFn);
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last;
+}
+
+async function provenStorageAt(lc: LightClient, url: string, address: Address, slots: Hex[], fetchFn: typeof fetch): Promise<ProvenStorage> {
+  const rpcUrls = [url];
   const blockHash = lc.finalizedExecutionBlockHash();
   const header = verifyHeader(blockHash, await rpc<Record<string, unknown>>(rpcUrls, "eth_getBlockByHash", [blockHash, false], fetchFn));
   const proof = await rpc<AccountProof>(rpcUrls, "eth_getProof", [getAddress(address), slots.map((s) => toHex(BigInt(s), { size: 32 })), toHex(header.number)], fetchFn);

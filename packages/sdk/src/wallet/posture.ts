@@ -2,12 +2,13 @@
 // computed from, read from the stores the wallet already keeps — nothing is fetched for it.
 import type { PostureFacts } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import type { Deployment } from "../chain";
+import { rpcUrlsOf } from "../rpcUrls";
 import { specForChain } from "../lightclient/spec";
 import { type PoolStats } from "./poolStats";
 import { type Settings } from "./settings";
 
 export function postureFacts(deployment: Deployment | null, s: Pick<Settings, "submission" | "preference" | "verifyReads">, pool: PoolStats | null): PostureFacts {
-  const rpcEndpoints = deployment ? (deployment.rpcUrls?.length ? deployment.rpcUrls.length : 1) : 0;
+  const rpcEndpoints = deployment ? rpcUrlsOf(deployment).length : 0;
   return {
     poolSize: pool?.notes ?? null,
     // the one-confirmation runner funds a swap as soon as it is confirmed (spec v2.0 §7.6); only "Delay for more privacy", chosen

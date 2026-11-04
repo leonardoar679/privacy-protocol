@@ -78,7 +78,9 @@ describe("a spent mark lifted only by a view at or past its block", () => {
     noteStore.clear();
     noteStore.add({ note: input, leafIndex: 0, noteData: data, counter: 0, spent: false });
     noteStore.markSpent([0], { atBlock: 100 });
-    noteStore.add({ note: own(1, 7n * ETH), leafIndex: 1, noteData: "0x", counter: 1, spent: false });
+    // the change note the receipt recorded, with its time as the spend's own flow keeps it (the ninth review round, D-1: a note past the pool
+    // the endpoints agree on waits while it is new)
+    noteStore.add({ note: own(1, 7n * ETH), leafIndex: 1, noteData: "0x", counter: 1, spent: false, addedAt: Date.now() });
     view.value = poolView([{ note: input, data }], 90n);
     await scanNotes({ masterSeed: seed, deployment });
     expect(noteStore.all().find((n) => n.leafIndex === 0)!.spent).toBe(true);
@@ -92,7 +94,7 @@ describe("a spent mark lifted only by a view at or past its block", () => {
     view.value = poolView([{ note: input, data }], 99n);
     view.during = () => {
       noteStore.markSpent([0], { atBlock: 100 });
-      noteStore.add({ note: own(1, 7n * ETH), leafIndex: 1, noteData: "0x", counter: 1, spent: false });
+      noteStore.add({ note: own(1, 7n * ETH), leafIndex: 1, noteData: "0x", counter: 1, spent: false, addedAt: Date.now() });
     };
     await scanNotes({ masterSeed: seed, deployment });
     expect(noteStore.all().find((n) => n.leafIndex === 0)!.spent).toBe(true);

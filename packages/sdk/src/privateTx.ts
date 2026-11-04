@@ -938,6 +938,13 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
   const provenAt = new Map<number, boolean>(proven ? toProve.map((i, j) => [i, proven.spent[j]] as [number, boolean]) : []);
   // the block each nullifier's own proof reached (the fourth review round): a lift compares against it, never the latest batch's
   const provenBlock = new Map<number, number>(proven ? toProve.map((i, j) => [i, Number(proven.blocks[j])] as [number, number]) : []);
+  // a mark's block is bounded by what the chain can be at (the ninth review round, 2026-11-04, D-2): the light client's finalized block
+  // plus a day of blocks, when one applies — every endpoint naming a head of 1e15 had hidden a note for good, as neither lift could reach
+  // that block. A mark past what the chain can be at now (this view's block, the finalized one's lead) is one a lying view made: lifted
+  // like any mark the chain does not confirm
+  const ceiling = proven ? Number(proven.blockNumber) + FINALIZED_LEAD_BLOCKS : Number.POSITIVE_INFINITY;
+  const markAt = Math.min(atBlock, ceiling);
+  const implausible = (b: number | undefined): boolean => b !== undefined && (b > atBlock + VIEW_SLACK_BLOCKS || b > ceiling);
   if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
@@ -949,25 +956,32 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
     const k = known(f);
     if (k) {
       if (spent) {
-        if (!k.spent) noteStore.markSpent([f.leafIndex], { atBlock, proven: p === true });
+        if (!k.spent) noteStore.markSpent([f.leafIndex], { atBlock: markAt, proven: p === true });
         else if (k.spentUnproven) {
           if (p === true) noteStore.confirmSpent([f.leafIndex]);
           // the finalized chain at or past the block the spend was seen at does not have it: a dropped block, or an endpoint set that lies
-          else if (p === false && k.spentAtBlock !== undefined && (provenBlock.get(i) ?? 0) >= k.spentAtBlock) noteStore.markUnspent([f.leafIndex]);
+          else if (p === false && k.spentAtBlock !== undefined && ((provenBlock.get(i) ?? 0) >= k.spentAtBlock || implausible(k.spentAtBlock))) noteStore.markUnspent([f.leafIndex]);
         }
-      } else if (k.spent && k.spentUnproven && (k.spentAtBlock === undefined || atBlock >= k.spentAtBlock)) {
+      } else if (k.spent && k.spentUnproven && (k.spentAtBlock === undefined || atBlock >= k.spentAtBlock || implausible(k.spentAtBlock))) {
         // the quorum, at or past the block the spend was seen at, no longer calls it spent: the block that spent it was dropped. A view
         // older than the mark had lifted it (the eighth review round, B-3): a scan read at N−1 while a spend's receipt marked it at N
         noteStore.markUnspent([f.leafIndex]);
       }
       continue;
     }
-    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}), ...(spent && p !== true ? { spentUnproven: true as const, spentAtBlock: atBlock } : {}) });
+    noteStore.add({ note: f.note, leafIndex: f.leafIndex, noteData: f.noteData, spent, txHash: f.txHash, label: f.label, ...(f.counter !== undefined ? { counter: f.counter } : {}), ...(spent && p !== true ? { spentUnproven: true as const, spentAtBlock: markAt } : {}) });
     added++;
     addedNotes.push(f);
   }
   return { found: found.length, added, spent: spentCount, addedNotes };
 }
+
+/** A spent mark's block is at most this far past the light client's finalized block (about a day of 12-second blocks; D-2). */
+export const FINALIZED_LEAD_BLOCKS = 7200;
+/** ...and at most this far past the block a later view was read at (an endpoint a few blocks behind another; D-2). */
+export const VIEW_SLACK_BLOCKS = 64;
+/** How long a note recorded past the pool the endpoints agree on is kept for them to catch up (the ninth review round, D-1). */
+export const PAST_POOL_GRACE_MS = 15 * 60_000;
 
 /** A private transfer received (V6 follow-up: note discovery): a note new to this wallet that its seed did not make. */
 export interface ReceivedNote { leafIndex: number; vaultId: bigint; amount: bigint; txHash: Hex }
@@ -1085,9 +1099,17 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // the notes the proven pool contradicts (audit round 2, r24): an unspent note at a proven leaf that holds another
   // commitment — found in an endpoint's tail before, or recorded at the leaf a receipt named — was never in the pool there,
   // and every spend that picked it failed until a restore
-  if (proven !== null && !locked()) {
-    const contradicted = noteStore.all().filter((n) => !n.spent && n.leafIndex < proven && tree.leaves[n.leafIndex] !== noteCommitment(noteBody(n.note), BigInt(n.leafIndex)));
-    if (contradicted.length) noteStore.drop(contradicted.map((n) => n.leafIndex));
+  if (!locked()) {
+    // without a light client the agreed tree is the authority for every leaf it holds (the ninth review round, 2026-11-04, D-1); with one,
+    // the proven prefix is — the tail is the endpoints' word, never enough to drop a note
+    const held = proven ?? tree.nextLeafIndex;
+    const contradicted = noteStore.all().filter((n) => !n.spent && n.leafIndex < held && tree.leaves[n.leafIndex] !== noteCommitment(noteBody(n.note), BigInt(n.leafIndex)));
+    // a note recorded past the pool the endpoints agree on — a receipt that named a far leaf (the connected wallet's provider), a replayed
+    // opening — once they have had the time to catch up with it (D-1): it had stayed in the balance for good, every spend that picked it
+    // failing, and a real deposit beside it counted twice
+    const now = Date.now();
+    const pastPool = noteStore.all().filter((n) => !n.spent && n.leafIndex >= tree.nextLeafIndex && (n.addedAt === undefined || now - n.addedAt > PAST_POOL_GRACE_MS));
+    if (contradicted.length || pastPool.length) noteStore.drop([...contradicted, ...pastPool].map((n) => n.leafIndex));
   }
   const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });
   const received = addedNotes.filter(isReceived).map(asReceived);
@@ -1107,8 +1129,13 @@ export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment
   const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
   const index = indexSpends(spends, block);
   rememberSpendIndex(o.deployment.core, index);
-  await verifyTree(o.deployment, tree, o.onStatus);
-  const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
+  const verified = await verifyTree(o.deployment, tree, o.onStatus);
+  const proven = verified.kind === "verified" ? verified.proof.nextLeafIndex : null;
+  const found = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
+  // past the proven pool a refund or a delivery waits for the scan whose proof covers it, as every note new to the store does (the ninth
+  // review round, 2026-11-04, D-1): its opening is public — the escrow's and the receiver's immutables —, and a lying quorum's replay at a
+  // tail leaf had stayed in the balance beside the real one
+  const refunds = proven === null ? found : found.filter((r) => r.leafIndex < proven || noteStore.all().some((n) => n.leafIndex === r.leafIndex));
   await recordFound(o.deployment, keys, refunds.map(refundFound), index);
   journalRefunds(refunds);
   return refunds;
