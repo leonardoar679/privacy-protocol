@@ -60,7 +60,10 @@ A discovered note is accepted only if the decrypted opening reproduces the leaf'
 wallet's own `ownerCommitment` (`noteFromPayload`): authenticity does not rest on the AEAD. That is the privacy
 address's, or a deposited note's own, derived on the main thread from the opened secret: the core's
 `open_note_payloads` returns every opening with whether the privacy address's reproduces it (`ownedOpening`). Dummy
-outputs are 169 bytes of the same shape (version byte, random key/nonce/ciphertext). Fresh ephemeral
+outputs are 169 bytes of the same shape: the version byte, the X25519 public key of a fresh random scalar — a canonical point
+of the curve, as a real envelope's ephemeral key is — and a random nonce and ciphertext (the seventh review round, 2026-11-03:
+random key bytes had their top bit set half the time). A view public key at or above 2^255 − 19 is not canonical: the
+privacy-address decoder and the encryption refuse it in both cores, since no payment to it could be opened. Fresh ephemeral
 key and nonce per payload; no sender identity is encoded (the recipient learns nothing about who paid).
 **Privacy address** (wallet convention, `packages/protocol/src/address.ts`): bech32m, hrp `pp`,
 data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)` → `pp1…` (113 characters, typo-detecting, case-insensitive).

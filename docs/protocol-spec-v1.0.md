@@ -395,7 +395,11 @@ offset  size  field
 ```
 Encryption to the recipient's `viewKey`-derived X25519 public key is a wallet concern; the core never
 parses it (the reference binding and the `pp1…` privacy address are in `crypto-spec.md`, "Output
-payload envelope"). Dummy outputs carry 169 uniformly random bytes. Binding (§5 of the plan, "OUTPUT_DOMAIN"):
+payload envelope"). A dummy output's payload has the envelope's shape: the version byte, the X25519 public key of a
+fresh random scalar (a canonical point of the curve, as a real envelope's ephemeral key is) and a random nonce and
+ciphertext — random key bytes had been told apart by their top bit and by curve membership (the seventh review round,
+2026-11-03). The refund and shield payloads a wallet derives from its seed keep a keyed stream there (audit gap 87). Binding
+(§5 of the plan, "OUTPUT_DOMAIN"):
 ```
 noteDataHash_k = uint256(keccak256("privacy-protocol/v1/domain/OUTPUT_BINDING" ‖ noteData_k)) mod p
 ```

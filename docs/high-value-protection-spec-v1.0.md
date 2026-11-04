@@ -216,7 +216,7 @@ USER CONFIRMED ─▶ PREPARING NOTES ─▶ RUNNING ─▶ … ─▶ COMPLETED
                                        │
                                        └──▶ WINDING DOWN ─▶ CANCELLED
 tranche:  planned ─▶ ready ─▶ committed ─▶ funded ─▶ signed ─▶ executing ─▶ source confirmed
-          ─▶ destination submitted ─▶ settled | partial | refunding ─▶ refunded | failed | skipped
+          ─▶ destination submitted ─▶ settled | partial | refunding ─▶ refunded | failed | skipped | undelivered
 ```
 
 - A tranche is **one V1.1/V2 order**: `committed` = `/order` journaled as a child `StoredSwap`

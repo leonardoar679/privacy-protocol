@@ -113,7 +113,9 @@ piece that cannot be remedied under the cap stays a thin-market finding on the R
 
 `settings.protection.velocity.maxUsdPer24h` is optional and off by default. The runner MUST NOT hand over a
 tranche when the hand-overs of the trailing 24 h plus it would exceed the limit; the campaign pauses with
-reason `velocity` and resumes under the ordinary resume rules. The limit lives in the wallet's journal only
+reason `velocity` and resumes under the ordinary resume rules. The hand-overs are the wallet's — every campaign's steps, at
+what was handed over, and every single order's — each valued at its campaign's agreed price, else today's; with a limit
+set and no price to count one at, nothing more is handed over (fail closed; the seventh review round, 2026-11-03). The limit lives in the wallet's journal only
 (self-custody, plan §63). `Code:` `campaign.ts` (`PauseReason`), `campaignRunner.ts`.
 
 ---
@@ -240,7 +242,10 @@ export interface ExposureLedger {
   completed: string;       // settled inputs plus the delivered share of partials — never counted as in flight (I-HV 10)
   inFlight: string;        // handed over and not yet past the gate (unsettled, plan §27); an unknown state stays here (I3)
   pending: string;         // funded or signed, not handed over: in our own escrow, not externally reachable (V3 "prepared")
-  remaining: string;       // total − completed − inFlight − pending; a refund returns here
+  remaining: string;       // total − completed − inFlight − pending − ended − kept; what a refund's note holds returns here
+  ended: string;           // the seventh review round: out of the balance, neither delivered as asked nor back (an undelivered
+                           // step, a refund's tip, a partial fill's rest that never returned) — never completed, never re-planned
+  kept: string;            // a last remainder too small to swap on its own, left in the private balance
   byProvider: Record<string, { inFlight: string; limit: string }>;   // plan §25, §67: limit = total × providerShareCapBps
 }
 ```
@@ -257,7 +262,8 @@ provider; bridge, solver and provider exposure of one route are one boundary (pl
 
 ```ts
 export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed"
-  | "destination-submitted" | "destination-confirmed" /* V4 */ | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped";
+  | "destination-submitted" | "destination-confirmed" /* V4 */ | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped"
+  | "undelivered" /* the seventh review round: refunded at the destination, another token, or failed with nothing back */;
 export interface Tranche {
   index: number; amount: string; state: TrancheState; attempt: number;
   orderId?: string; destination?: string; destinationIndex?: number; provider?: string; riskClass?: RiskClass; gate?: Gate;
@@ -423,7 +429,7 @@ every network call and re-reads the journal at the next tick.
 
 ```
 planned ─▶ ready ─▶ committed ─▶ funded ─▶ signed ─▶ executing ─▶ source-confirmed ─▶ destination-submitted
-        ─▶ destination-confirmed (V4) ─▶ settled | partial | refunding ─▶ refunded | failed | skipped
+        ─▶ destination-confirmed (V4) ─▶ settled | partial | refunding ─▶ refunded | failed | skipped | undelivered
 ```
 
 | Plan §70 | Tranche state | Fact |

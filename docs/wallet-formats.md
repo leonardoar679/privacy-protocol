@@ -34,7 +34,7 @@ A keystore that fails authentication is "wrong password": implementations MUST N
 wrong password from a tampered file. Unsafe parameters (N < 2^10, not a power of two, r or p < 1,
 dkLen ≠ 32) MUST be refused before any work is done. A keystore has exactly these five fields, a 16-byte salt, a
 24-byte nonce and a 48-byte ciphertext; anything else is not a keystore of this wallet's (the fifth review round,
-2026-11-03). The device's keystore is wrapped at the build's scrypt cost: a backup restored, or a stored keystore below
+2026-11-03; both cores refuse it since the seventh). The device's keystore is wrapped at the build's scrypt cost: a backup restored, or a stored keystore below
 the configured N at an unlock, is encrypted again under a fresh salt and nonce — the file's own parameters never become
 the device's.
 ```
@@ -95,7 +95,7 @@ Stage 12 (spec v2.0 §11.2): a same-chain swap into the protected balance carrie
 { receiptId, asset, minAmount, shieldTip, ownerCommitment, noteSecret, noteDataHash, fallbackRecipient }, counter,
 noteData, registeredAt?, job? { state, leafIndex?, txHash?, amount?, tip?, error?, at }, leaves? [{ leafIndex, vault,
 amount }] }` (integers as decimal strings; `request.destination` is the receiver and `request.destinationType` is
-`"protected"`); its note's payload is `0x01` then keccak256(seed ‖ "/shield-payload/" ‖ counter (4 bytes BE) ‖ i) for
+`"protected"`); its note's payload is `0x01` then keccak256(seed ‖ "/shield-payload/" ‖ counter (4 bytes BE) ‖ i (one byte)) for
 i = 0…5, truncated to 169 bytes — the refund payload's construction under its own domain, so a rescan without the
 journal finds the delivery and tells it from a refund — optional, never written by `emptyJournal()`. A V6 follow-up
 of 2026-10-16 (audit gap 47): a swap order carries `orderVouch` (65 bytes of hex), the swap service's vouch for the
@@ -107,9 +107,11 @@ settings are read), and `proofStats { keyMs, proveMs, keyCached, at }` keeps thi
 or cache read and the proving, in ms — so the next one's time can be estimated. Both are optional and never written by
 `emptyJournal()`.
 A swap record holds what the wallet needs to finish or refund an order without the swap service:
-`orderId`, `attemptId` (the one-time order key is re-derived from the seed and it, never stored),
+`orderId`, `attemptId` (the one-time order key — keccak256(seed ‖ "/order/" ‖ the attemptId as lowercase 0x-hex text),
+reduced into [1, n − 1] of secp256k1 — is re-derived from the seed and it, never stored),
 `refundCounter`, `refundNoteData` (the 169-byte refund payload the order commits to: `0x01` then
-keccak256(seed ‖ "/refund-payload/" ‖ counter (4 bytes BE) ‖ i) for i = 0…5, truncated; derived, so a
+keccak256(seed ‖ "/refund-payload/" ‖ counter (4 bytes BE) ‖ i (one byte)) for i = 0…5, truncated; the vectors of both
+payloads and of the order key are frozen in `packages/sdk/test/payload-vectors.test.ts`; derived, so a
 rescan without the journal regenerates it), `provider`,
 `policy`, `request` (`from`, `to`, `destination`: the reference every provider call is checked against
 before signing), `params` (the on-chain OrderParams, from which the escrow address is recomputed),
