@@ -59,6 +59,8 @@ export interface Tracked {
   deliveredAmount?: string;
   /** the delivered amount in the output's base units (the record's `delivered`; deliveredAmount is its words) */
   deliveredUnits?: string;
+  /** the seventh review round: the asset delivered when it is not the order's (LI.FI's PARTIAL: a bridge's alternative token) — no amount of the output exists */
+  deliveredAsset?: string;
   refundedAmount?: string;
   destinationTxHash?: string;
   progress?: { parts: number; done: number };
@@ -120,9 +122,15 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const to = r.to ?? { symbol: "", decimals: 0 }, from = r.from ?? { symbol: "", decimals: 18 };
   const out = (state: OrderState, label: SettlementLabel, steps: Tracked["steps"], detail: string, extra: Partial<Tracked> = {}): Tracked => ({ state, label, steps, detail, ...extra });
   const t = f.track;
-  const delivered = t?.deliveredAmount !== undefined ? `${fmtUnits(t.deliveredAmount, to.decimals ?? 0)} ${to.symbol ?? ""}`.trim() : undefined;
+  // the delivered units of this read, else of the last read that had them (the seventh review round, 2026-11-03): a read without them — the
+  // provider's answer failed, or said "refunded" alone — had turned a partial fill into a refund in full, and a campaign swapped the
+  // delivered part again
+  const units = t?.deliveredAmount !== undefined ? String(t.deliveredAmount) : s.track?.deliveredAmount;
+  const delivered = units !== undefined ? `${fmtUnits(units, to.decimals ?? 0)} ${to.symbol ?? ""}`.trim() : undefined;
   const refunded = t?.refundedAmount !== undefined ? `${fmtUnits(t.refundedAmount, from.decimals ?? 18)} ${from.symbol ?? ""}`.trim() : undefined;
-  const extras = { deliveredAmount: delivered, ...(t?.deliveredAmount !== undefined ? { deliveredUnits: String(t.deliveredAmount) } : {}), refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
+  // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of the output
+  const otherToken = t?.state === "partial" && t.deliveredAmount === undefined && !!t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase();
+  const extras = { deliveredAmount: delivered, ...(units !== undefined ? { deliveredUnits: units } : {}), ...(otherToken ? { deliveredAsset: t!.deliveredAsset } : {}), refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
 
   if (s.state === "abandoned") return out("CANCELLED", "Not started", [true, false, false, false], "Abandoned before funding: nothing left your private balance.");
   const refundedToo = f.refundFound || (s.refunds?.length ?? 0) > 0;
@@ -143,10 +151,9 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60) is read before
   // a refund (audit round 2, n06): with a leftover re-shielded too it had read Refunded in full, and a campaign planned the
   // delivered step's whole amount again
-  const otherToken = t?.state === "partial" && t.deliveredAmount === undefined && !!t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase();
   if ((refundedToo || f.job?.state === "refunded") && executed && otherToken)
     return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t!.deliveredAsset} at the destination instead of ${to.symbol}; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
-  if ((refundedToo || f.job?.state === "refunded") && executed && unitsOf(t?.deliveredAmount) > 0n)
+  if ((refundedToo || f.job?.state === "refunded") && executed && unitsOf(units) > 0n)
     return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
   if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of
@@ -286,7 +293,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
         if (job.executionTx) x.executionTx = job.executionTx;
         else delete x.executionTx;
       }
-      x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
+      x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : x.track?.deliveredAmount !== undefined ? { deliveredAmount: x.track.deliveredAmount } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : x.track?.refundedAmount !== undefined ? { refundedAmount: x.track.refundedAmount } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
       const last = x.history?.[x.history.length - 1];
       if (!last || last.state !== tracked.state) x.history = [...(x.history ?? []), { state: tracked.state, at: now, note: tracked.label }];
       if (own && x.state !== own) x.state = own;

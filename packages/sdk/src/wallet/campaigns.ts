@@ -5,9 +5,11 @@
 // requote → reroute Review), accept or decline a reroute, cancel (return the rest). Everything lives in the encrypted
 // journal (`campaigns?`, optional); nothing here is sent anywhere.
 import {
-  createCampaign, exposure, planTranches, rateE18, replan, withCampaignState, withTrancheState, RATE_SCALE,
-  type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type Tranche, type TranchePlan,
+  createCampaign, exposure, gateFor, planTranches, rateE18, replan, riskierClass, stricterGate, withCampaignState, withTrancheState, CONGESTION_FACTOR, RATE_SCALE,
+  type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type RiskClass, type Tranche, type TranchePlan,
 } from "@privacy-wallet/protocol/wallet/campaign";
+import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
+import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { PRIVACY_FEE_BPS, feeForWithdrawal, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
@@ -33,7 +35,9 @@ export const DEFAULT_MAX_FEE_BPS = 100;
  * before, it stated the one order's minimum and "Quote locked", which no step was held to): the per-unit floor the bounds carry — the
  * quote's minimum per unit of what the set was quoted for, less BOUNDS_SLIPPAGE_BPS — over the steps' amount (smaller than the funding:
  * each step pays its own fee note), net of each step's tip when the set names one, as the steps are committed (trancheMinimum); a unit
- * per step under the sum of the steps' own floors, so the figure is never above what the steps guarantee together.
+ * per step under the sum of the steps' own floors, so the figure is never above what the steps guarantee together. Each step's tip is
+ * counted at the most it may be, the set's tip × CONGESTION_FACTOR (ExecutionBounds.maxExecutorTip; the seventh review round,
+ * 2026-11-03): counted at today's tip, the figure was above what the steps guaranteed once the gas price rose under the pause.
  */
 export function campaignMinimumOutput(i: { toAmountMin: bigint; quoted: bigint; amount: bigint; executorTip?: bigint | null; steps: number }): bigint {
   const slip = (rate: bigint) => (rate * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
@@ -41,7 +45,8 @@ export function campaignMinimumOutput(i: { toAmountMin: bigint; quoted: bigint; 
   const n = BigInt(Math.max(1, i.steps));
   let total: bigint;
   if (tip !== null && tip > 0n && tip < i.quoted) {
-    const paid = i.amount > tip * n ? i.amount - tip * n : 0n;
+    const most = tip * BigInt(CONGESTION_FACTOR);
+    const paid = i.amount > most * n ? i.amount - most * n : 0n;
     total = (paid * slip(rateE18(i.toAmountMin, i.quoted - tip))) / RATE_SCALE;
   } else total = (i.amount * slip(rateE18(i.toAmountMin, i.quoted))) / RATE_SCALE;
   return total > n ? total - n : 0n;
@@ -155,11 +160,107 @@ export function stepReviewedFee(bounds: Pick<ExecutionBounds, "maxRelayerFee" | 
   return feeForWithdrawal(amount, { minimum: BigInt(bounds.maxRelayerFee), feePercentBps: bounds.relayerFeeBps ?? PRIVACY_FEE_BPS });
 }
 
+const CLASSES = new Set(["R1", "R2", "R3", "R4", "R5", "R6", "R7"]);
+const GATES = new Set(["source", "destination-submitted", "destination-final"]);
+const num = (x: unknown, lo: number, hi: number): boolean => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
+const pair = (x: unknown, lo: number, hi: number): boolean => Array.isArray(x) && x.length === 2 && num(x[0], lo, hi) && num(x[1], lo, hi) && (x[0] as number) <= (x[1] as number);
+
+/**
+ * The service's protection plan when its shape is sound, else null (the seventh review round, 2026-11-03): the answer is advice read
+ * without a runtime check (api/client.ts), and its gate, concurrency and cadence had been taken verbatim into the plan.
+ */
+export function protectionOf(x: unknown): Protection | null {
+  if (!x || typeof x !== "object") return null;
+  const p = x as Protection;
+  if (typeof p.provider !== "string" || !CLASSES.has(p.riskClass) || !GATES.has(p.gate)) return null;
+  if (!pair(p.bandBps, 0, 10_000) || !num(p.capBps, 1, 10_000) || !num(p.providerShareCapBps, 0, 10_000)) return null;
+  if ((p.concurrency !== "sequential" && p.concurrency !== "parallel") || !num(p.maxParallel, 1, 16) || !Number.isInteger(p.maxParallel)) return null;
+  if (!pair(p.cadenceSeconds, 0, 30 * 86_400) || !num(p.executeWindowSeconds, 60, 7 * 86_400) || !num(p.estimatedSeconds, 0, 365 * 86_400)) return null;
+  if (p.sizing !== undefined && p.sizing !== "bucket" && p.sizing !== "varied") return null;
+  if (p.maxPieceUnits !== null && p.maxPieceUnits !== undefined && !(typeof p.maxPieceUnits === "string" && /^[1-9]\d{0,77}$/.test(p.maxPieceUnits))) return null;
+  if (!p.concentration || typeof p.concentration.singleVenue !== "boolean") return null;
+  if (!p.elpf || (p.elpf.perCampaignUsd !== null && !num(p.elpf.perCampaignUsd, 0, Number.MAX_SAFE_INTEGER))) return null;
+  if (p.exposureTier !== undefined && !["R0", "R1", "R2", "R3", "R4"].includes(p.exposureTier)) return null;
+  return p;
+}
+
+/**
+ * A route's rules for the plan (the seventh review round, 2026-11-03): the class and the gate are the riskier and the stricter of the
+ * wallet's own model of the route (riskModelOf, the shared core) and the service's recommendation; R5 and R6 routes, Maximum safety,
+ * the $50K band and the institutional tiers run one step at a time, as the service's own rule says (two at most otherwise); the cadence
+ * is never below the mode's. The answer had set all of them verbatim: a gate of "source" with no cadence released a bridge's next step
+ * the moment the last one was mined, and the in-flight cap counted nothing that was still streaming.
+ */
+export function routeRules(i: { provider: string; quote?: ServiceQuote; from: { symbol: string }; to: { symbol: string }; mode: ProtectionMode; tier: Tier; protection: Protection | null }): Pick<TranchePlan, "riskClass" | "gate" | "concurrency" | "maxParallel" | "cadenceSeconds"> {
+  const own = riskModelOf(i.provider, { plan: i.quote?.plan ?? null, sourceSwap: (i.quote?.hops?.length ?? 0) > 1, nativeAssets: i.quote?.nativeAssets }, i.from, i.to, i.mode);
+  const p = i.protection;
+  const riskClass = p ? riskierClass(own.class, p.riskClass as RiskClass) : own.class;
+  const gate = stricterGate(gateFor(riskClass, i.mode), p ? p.gate : own.gate);
+  const sequential = !p || p.concurrency === "sequential" || i.mode === "max-safety" || i.tier === "large-protected" || atLeast(i.tier, "institutional") || riskClass === "R5" || riskClass === "R6";
+  const maxParallel = sequential ? 1 : Math.min(2, Math.max(1, Math.floor(p!.maxParallel)));
+  const floor = PROTECTION_DEFAULTS[i.mode].cadenceSeconds;
+  const asked = p ? p.cadenceSeconds : floor;
+  const lo = Math.max(asked[0], floor[0]);
+  return { riskClass, gate, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, cadenceSeconds: [lo, Math.max(asked[1], floor[1], lo)] };
+}
+
+/** The planned steps sized again under the campaign's own plan (a route change): only planned steps change; the first keeps its wait. */
+function resizePlanned(c: Campaign, now: number, rng: () => number): Campaign {
+  const planned = c.tranches.filter((t) => t.state === "planned");
+  const sum = planned.reduce((a, t) => a + BigInt(t.amount), 0n);
+  if (sum <= 0n) return c;
+  const split = planTranches(sum, { decimals: c.request.from.decimals, bandBps: c.plan.bandBps, capBps: c.plan.capBps, sizing: c.plan.sizing, maxParallel: c.plan.maxParallel, rng, reference: BigInt(c.request.amount), exact: c.plan.exact, ...(c.plan.maxPiece ? { maxPiece: BigInt(c.plan.maxPiece) } : {}) });
+  let out = replan(c, split.pieces, now);
+  const wait = planned[0].notBefore;
+  const first = out.tranches.find((t) => t.state === "planned");
+  if (wait !== undefined && first) out = withTrancheState(out, first.index, "planned", now, { notBefore: wait });
+  return out;
+}
+
+/**
+ * A campaign on a new route (the seventh review round, 2026-11-03): an accepted reroute, or a route adopted automatically at a requote
+ * or at a step's commit. The plan's class, gate, concurrency and cadence become the new route's (routeRules); the in-flight cap may only
+ * go down; the piece ceiling is the new route's; the planned steps are sized again when one no longer fits. Only `provider` had
+ * changed: after a change from an R2 route, R5 steps ran two at a time and settled at "destination submitted".
+ */
+export function withRoute(c: Campaign, provider: string, protection: unknown, quote: ServiceQuote | undefined, now: number, rng: () => number = cryptoUniform): Campaign {
+  const p = protectionOf(protection);
+  const rules = routeRules({ provider, quote, from: c.request.from, to: c.request.to, mode: c.mode, tier: c.tier, protection: p });
+  const total = BigInt(c.request.amount);
+  let capBps = c.plan.capBps;
+  if (p) {
+    const exposureTier = (p.exposureTier ?? "R3") as ExposureTier;
+    const core = capBpsFor({ tier: c.tier, mode: c.mode, exposureTier, userCapBps: c.plan.capBps });
+    capBps = Math.min(capBps, exposureTier === "R0" || exposureTier === "R1" ? core.capBps : Math.min(core.capBps, p.capBps));
+  }
+  const band = p ? p.bandBps : c.plan.bandBps;
+  const maxPiece = p ? (p.maxPieceUnits ?? undefined) : c.plan.maxPiece;
+  const rest: TranchePlan = { ...c.plan };
+  delete rest.maxPiece;
+  const plan: TranchePlan = { ...rest, ...rules, capBps, bandBps: [Math.min(band[0], capBps), Math.min(band[1], capBps)], ...(maxPiece !== undefined ? { maxPiece } : {}) };
+  const capNow = BigInt(c.bounds.maxExternalExposure);
+  const cap = (total * BigInt(capBps)) / 10000n;
+  return fitPlanned({ ...c, provider, plan, bounds: { ...c.bounds, maxExternalExposure: (cap < capNow ? cap : capNow).toString() } }, now, rng);
+}
+
+/** The largest piece the plan allows: the in-flight cap, or the route's piece ceiling when lower (the seventh review round). */
+export function pieceCeiling(c: Campaign): bigint {
+  const cap = BigInt(c.bounds.maxExternalExposure);
+  return c.plan.maxPiece !== undefined && BigInt(c.plan.maxPiece) < cap ? BigInt(c.plan.maxPiece) : cap;
+}
+
+/** The planned steps sized again when one no longer fits the in-flight cap or the route's piece ceiling (a route change; the seventh review round). */
+export function fitPlanned(c: Campaign, now: number, rng: () => number = cryptoUniform): Campaign {
+  const ceiling = pieceCeiling(c);
+  return c.tranches.some((t) => t.state === "planned" && BigInt(t.amount) > ceiling) ? resizePlanned(c, now, rng) : c;
+}
+
 /** The plan and the bounds from the recommendation and the confirmation (pure); the campaign is not journaled here. */
 export function buildCampaign(i: StartCampaignInput): Campaign {
   const now = i.now ?? Date.now();
-  const p: Protection | undefined = i.quotes.protection;
-  if (!p) throw new Error("the swap service gave no protection plan for this order; a protected execution needs one");
+  if (!i.quotes.protection) throw new Error("the swap service gave no protection plan for this order; a protected execution needs one");
+  const p = protectionOf(i.quotes.protection);
+  if (!p) throw new Error("the swap service's protection plan for this order is malformed; a protected execution needs a sound one");
   const quote: ServiceQuote | undefined = i.quotes.quotes.find((q) => q.provider === i.provider);
   if (!quote) throw new Error(`no quote from ${i.provider}`);
   const defaults = PROTECTION_DEFAULTS[i.mode];
@@ -169,7 +270,9 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
   const capBps = exposureTier === "R0" || exposureTier === "R1" ? core.capBps : Math.min(core.capBps, p.capBps);
   const band: [number, number] = [Math.min(p.bandBps[0], capBps), Math.min(p.bandBps[1], capBps)];
   const sizing = p.sizing ?? defaults.sizing;
-  const maxParallel = p.concurrency === "sequential" ? 1 : Math.max(1, p.maxParallel);
+  // the route's rules: the wallet's own model of the route and the service's advice, whichever is stricter (the seventh review round)
+  const rules = routeRules({ provider: i.provider, quote, from: i.from, to: i.to, mode: i.mode, tier: i.tier, protection: p });
+  const maxParallel = rules.maxParallel;
   const rng = i.rng ?? cryptoUniform;
   // V7 Stage 13 (spec v3.0 §4): the $50K band's steps are the planner's varied pieces too — the V5 exact quarters are withdrawn
   const split = planTranches(i.amount, { decimals: i.from.decimals, bandBps: band, capBps, sizing, maxParallel, maxPiece: p.maxPieceUnits ? BigInt(p.maxPieceUnits) : undefined, rng });
@@ -188,11 +291,13 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
     minimumOutput: minimumOutput.toString(), ...(minimumOutputNet !== null ? { minimumOutputNet: minimumOutputNet.toString() } : {}), expiry: Math.floor(now / 1000) + 2 * estimated + EXPIRY_MARGIN_SECONDS, maxFeeBps: DEFAULT_MAX_FEE_BPS, privacyMode: i.mode,
     maxExternalExposure: cap.toString(), executeWindowSeconds: p.executeWindowSeconds,
     ...(i.terms ? { maxRelayerFee: i.terms.minimum.toString(), relayerFeeBps: i.terms.feePercentBps } : {}),
+    // each step's tip at most the set's × CONGESTION_FACTOR: the stated Minimum counts every step at that (the seventh review round, B2)
+    ...(setTip !== null && setTip > 0n ? { maxExecutorTip: (setTip * BigInt(CONGESTION_FACTOR)).toString() } : {}),
   };
   const plan: TranchePlan = {
-    riskClass: p.riskClass as TranchePlan["riskClass"], bandBps: band, capBps, sizing, concurrency: maxParallel > 1 ? "parallel" : "sequential", maxParallel, gate: p.gate, cadenceSeconds: p.cadenceSeconds ?? defaults.cadenceSeconds,
+    riskClass: rules.riskClass, bandBps: band, capBps, sizing, concurrency: rules.concurrency, maxParallel, gate: rules.gate, cadenceSeconds: rules.cadenceSeconds,
     providerShareCapBps: p.concentration.singleVenue ? 10000 : Math.min(p.providerShareCapBps || 10000, i.providerShareCapBps ?? 10000), executeWindowSeconds: p.executeWindowSeconds, estimatedTranches: split.pieces.length, estimatedSeconds: p.estimatedSeconds,
-    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}),
+    shapeNotes: !notesShapedFor(i.fromAsset.vault, split.pieces.reduce((m, x) => (x > m ? x : m), 0n)), ...(p.maxPieceUnits ? { maxPiece: p.maxPieceUnits } : {}), ...(p.elpf.perCampaignUsd !== null ? { elpfUsd: p.elpf.perCampaignUsd } : {}),
   };
   // the reference rate (§3): the Chainlink cross-rate when both feeds exist, else the quote's expected rate (then the deviation check compares like with like only approximately)
   const referenceRateE18 = i.crossRateE18 && i.crossRateE18 > 0n ? i.crossRateE18 : rateE18(BigInt(quote.toAmount), quoted);
@@ -201,7 +306,8 @@ export function buildCampaign(i: StartCampaignInput): Campaign {
     riskSnapshot: { protection: p, risk: i.quotes.risk ?? null, competition: i.quotes.competition ?? null, quote, usd: i.usd, privacyScore: i.quotes.scores.find((x) => x.provider === i.provider)?.components.privacy ?? null }, confirmations: i.confirmations,
   });
   if (i.reviewHoldUntil !== undefined && c.tranches.length) c.tranches[0] = { ...c.tranches[0], notBefore: i.reviewHoldUntil };
-  return { ...c, provider: i.provider, policy: i.policy, ...(i.gasPriceWei ? { gasPriceAtConfirmationWei: i.gasPriceWei } : {}), ...(i.lint ? { lint: { items: i.lint, at: now } } : {}), ...(i.usd !== null ? { value: { usd: i.usd, at: now } } : {}) };
+  // the hold journaled on the campaign itself (the seventh review round, D1): no step is committed before it, whatever a requote draws
+  return { ...c, provider: i.provider, policy: i.policy, ...(i.reviewHoldUntil !== undefined ? { holdUntil: i.reviewHoldUntil } : {}), ...(i.gasPriceWei ? { gasPriceAtConfirmationWei: i.gasPriceWei } : {}), ...(i.lint ? { lint: { items: i.lint, at: now } } : {}), ...(i.usd !== null ? { value: { usd: i.usd, at: now } } : {}) };
 }
 
 /** The confirmation (§7): journal the campaign, its Activity line and the first tick (now). */
@@ -247,7 +353,7 @@ export function acceptReroute(id: string, accept: boolean, s: WalletSession = de
   const c = campaignById(id, s);
   if (!c || c.state !== "rerouting" || !c.pendingReroute) return c;
   const next = accept
-    ? withAlert(withCampaignState(c, "running", now, `route changed to ${c.pendingReroute.provider}, confirmed by you`, { provider: c.pendingReroute.provider, pendingReroute: undefined, pause: undefined, decidedAt: now }), "route-changed", `The route changed to ${c.pendingReroute.provider}; you confirmed it.`, now)
+    ? withAlert(withCampaignState(withRoute(c, c.pendingReroute.provider, c.pendingReroute.protection, undefined, now), "running", now, `route changed to ${c.pendingReroute.provider}, confirmed by you`, { pendingReroute: undefined, pause: undefined, decidedAt: now }), "route-changed", `The route changed to ${c.pendingReroute.provider}; you confirmed it.`, now)
     : withCampaignState(c, "winding-down", now, "the new route was declined: the rest returns", { pendingReroute: undefined, decidedAt: now });
   putCampaign(next, s);
   scheduleTick(id, now, s);
@@ -304,7 +410,8 @@ export function keepDecisions(base: Campaign, latest: Campaign, tick: Campaign):
 export function replanRemainder(c: Campaign, now: number, rng: () => number = cryptoUniform): Campaign {
   const e = exposure(c);
   if (e.remaining <= 0n) return c;
-  const split = planTranches(e.remaining, { decimals: c.request.from.decimals, bandBps: c.plan.bandBps, capBps: c.plan.capBps, sizing: c.plan.sizing, maxParallel: c.plan.maxParallel, rng, reference: e.total, exact: c.plan.exact });
+  // with the route's piece ceiling (the thin-market rule, an instant limit): a re-plan had gone back to the band's full size (the seventh review round)
+  const split = planTranches(e.remaining, { decimals: c.request.from.decimals, bandBps: c.plan.bandBps, capBps: c.plan.capBps, sizing: c.plan.sizing, maxParallel: c.plan.maxParallel, rng, reference: e.total, exact: c.plan.exact, ...(c.plan.maxPiece ? { maxPiece: BigInt(c.plan.maxPiece) } : {}) });
   return replan(c, split.pieces, now);
 }
 

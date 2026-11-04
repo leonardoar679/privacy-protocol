@@ -11,7 +11,7 @@ import { ALERT_TITLES } from "@privacy-wallet/sdk/wallet/alerts";
 import { TRANCHE_WORDS } from "./words";
 
 const IN_FLIGHT_STATES = new Set<Tranche["state"]>(["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"]);
-const LEAVES_FLIGHT = new Set<Tranche["state"]>(["settled", "refunded", "failed", "skipped", "refunding"]);
+const LEAVES_FLIGHT = new Set<Tranche["state"]>(["settled", "refunded", "failed", "skipped", "refunding", "undelivered"]);
 
 export interface ExposurePoint { at: number; inFlight: bigint; trancheIndex: number; note: string }
 

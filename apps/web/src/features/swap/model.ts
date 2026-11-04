@@ -11,6 +11,7 @@ import type { SwapPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessm
 import { assessRisk, BLOCKER_CODES, type BlockerCode } from "@privacy-wallet/risk-engine";
 import type { CheckState } from "@privacy-wallet/ui";
 import { feeSummary, type QuoteSet, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
+import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { amountOf, centsOf } from "../amounts";
 import { hours, type Target } from "./targets";
 import { whyLines } from "../privacy-center/model";
@@ -97,6 +98,16 @@ export function protectedStepsAmount(units: bigint, reviewed: FeeTerms | null, n
   return total > 0n ? total - (total % k) : 0n;
 }
 
+/**
+ * Whether an entered destination may carry a protected execution (the seventh review round, 2026-11-03): the address book's own verdict,
+ * as the one-order Review reads it — an unapproved, stale or retired entry is refused at the high-value tiers; a cooling-off waits (the
+ * steps hold until it ends, and the runner reads the book again at every commit).
+ */
+export const destinationUsable = (check: DestinationCheck | null): boolean => !check || check.ok || check.reason === "cooling-off";
+/** The wizard's destination step: an entered destination checked group by group, verified in the address book, and usable. */
+export const wizardDestinationOk = (edited: boolean, acknowledged: boolean, check: DestinationCheck | null): boolean =>
+  !edited || (acknowledged && (check?.verified ?? false) && destinationUsable(check));
+
 /** The room each protected step keeps for its fee note's F rising between the Review and its funding (basis points of F). */
 export const STEP_FEE_ROOM_BPS = 1_000n;
 
@@ -114,7 +125,10 @@ export function stepsAmountAtFixedPoint(units: bigint, terms: FeeTerms | null, c
     n = m;
     amount = protectedStepsAmount(units, terms, n);
   }
-  return { n, amount };
+  // the count the plan makes of this amount when it is fewer (the seventh review round): the Review had named one step more, and priced
+  // its fee and tip, than the plan executes
+  const final = amount > 0n ? countFor(amount) : n;
+  return { n: final < n ? Math.max(1, final) : n, amount };
 }
 
 /** The chosen route's quote, or null. */

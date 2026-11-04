@@ -48,6 +48,8 @@ export interface StoredSwap {
    *  `fundingFate`) no runner sends another: a reload or a Resume had funded an escrow twice when the notes differed. */
   fundingAttempt?: FundingAttempt;
   jobId?: string;
+  /** when the order was handed to its executor, unix ms (the seventh review round): the velocity limit counts every hand-over of the wallet */
+  handedOverAt?: number;
   /** tokens other than the order's asset the signed provider call may pay back to the escrow (handed to the executor) */
   refundTokens?: string[];
   /** with them, the least balance of each worth a re-shield after execution (PP-S12) */

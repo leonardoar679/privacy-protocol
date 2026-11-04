@@ -32,7 +32,9 @@ import {
   BOUNDS_SLIPPAGE_BPS,
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
-import { withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
+import { withCampaignState, REPLAN_PAUSE } from "@privacy-wallet/protocol/wallet/campaign";
+import { addAddress, approveAddress, retireAddress, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
+import { pieceCeiling, protectionOf, replanRemainder, withRoute } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory, SIGN_RETRIES_BEFORE_BACKOFF, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
@@ -132,7 +134,12 @@ class World implements CampaignIo {
   jobs = new Map<string, SwapJob>();
   tracked = new Map<string, Tracked["state"]>();
   delivered = new Map<string, string>();
-  refundsBack = new Set<string>();
+  /** orders whose refund note the scan has not found yet (the seventh review round) */
+  notesLate = new Set<string>();
+  /** what an order's refund note holds when the scan finds it (the whole step when absent) */
+  noteFor = new Map<string, bigint>();
+  /** the asset delivered instead of the order's (LI.FI's PARTIAL) */
+  deliveredAssets = new Map<string, string>();
   fundThrowsAfterSend = false;
   /** thrown once by the next funding before anything is sent */
   fundThrows: Error | null = null;
@@ -325,10 +332,13 @@ class World implements CampaignIo {
     if (this.trackThrows) throw new Error("ECONNRESET");
     const job = this.jobs.get(stored.orderId) ?? null;
     const state = this.tracked.get(stored.orderId) ?? (job?.state === "refund-only" ? "REFUND_PENDING" : job ? "PROVIDER_EXECUTING" : "SOURCE_FINAL");
-    if (this.refundsBack.has(stored.orderId))
+    // the scan finds a step's refund note once its escrow came back, as the wallet's discovery does (the seventh review round: the step is
+    // "refunded" only then, for what the note holds): `notesLate` holds it back, `noteFor` says what came back — the whole step by default
+    if (state === "REFUNDED" && !this.notesLate.has(stored.orderId))
       this.s.update((j) => {
         const x = j.swaps.find((y) => y.orderId === stored.orderId)!;
-        x.refunds = [{ leafIndex: 9, vault: ETH_VAULT, amount: "1" }];
+        const p = x.params as { amount: string; refundVault: string };
+        if (!x.refunds?.length) x.refunds = [{ leafIndex: 9, vault: p.refundVault, amount: (this.noteFor.get(stored.orderId) ?? BigInt(p.amount)).toString() }];
       });
     const tracked: Tracked = {
       state,
@@ -338,6 +348,7 @@ class World implements CampaignIo {
       ...(this.delivered.has(stored.orderId)
         ? { deliveredAmount: "the tracker's words, never units", deliveredUnits: this.delivered.get(stored.orderId) }
         : {}),
+      ...(this.deliveredAssets.has(stored.orderId) ? { deliveredAsset: this.deliveredAssets.get(stored.orderId) } : {}),
     }; // as orderTracker reports them (a V6 follow-up of 2026-10-16: the runner had parsed the words, which read 0)
     return { tracked, job };
   }
@@ -392,8 +403,9 @@ class World implements CampaignIo {
   notesShaped() {
     return this.shaped;
   }
-  freshDestination() {
-    return { address: `bc1qfresh${this.n}`, index: this.n };
+  freshDestination(c: Campaign) {
+    // an entered destination is the one approved, as the wallet's own I/O pays it
+    return c.bounds.destination.kind === "fresh-per-tranche" ? { address: `bc1qfresh${this.n}`, index: this.n } : { address: c.bounds.destination.address };
   }
 }
 
@@ -1767,8 +1779,13 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state).toBe("partial");
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "anomaly" } });
     expect(exposure(current(c))).toMatchObject({ completed: eth(30), inFlight: eth(20) });
-    // the rest came back (the executor's watch ended): the tranche settles for 30 ETH and 20 ETH return to the remainder
-    world.jobs.get(first)!.state = "completed";
+    // the rest came back: the scan found its 20 ETH refund note (the seventh review round: a watch that ended with no note brings nothing
+    // back — the round's own test); the tranche settles for 30 ETH and the 20 ETH return to the remainder
+    const restVault = String((session.journal().swaps.find((y) => y.orderId === first)!.params as { refundVault: string }).refundVault);
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === first)!.refunds = [{ leafIndex: 9, vault: restVault, amount: eth(20).toString() }];
+    });
+    world.jobs.get(first)!.state = "refunded";
     clock += 60_000;
     r = await tick(c);
     const cur = current(c);
@@ -1786,6 +1803,7 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     const partialRefunded = current(e).tranches[0].orderId!;
     world.tracked.set(partialRefunded, "REFUNDED");
     world.delivered.set(partialRefunded, ((OUT * eth(30)) / AMOUNT).toString());
+    world.noteFor.set(partialRefunded, eth(20)); // what the scan finds: the rest
     clock += 15_000;
     await tick(e);
     expect(current(e).tranches[0]).toMatchObject({ state: "settled", amount: eth(30).toString(), outcome: { refunded: eth(20).toString() } });
@@ -1803,6 +1821,412 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind, "planned tranches remain: the refunded piece is re-planned only once they are used up").not.toBe("replan");
   });
 });
+
+describe("the seventh review round (2026-11-03): the campaign engine", () => {
+  const DEST = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
+  const tickWith = (c: Campaign, rng: () => number) =>
+    runCampaignTick(action(c), { masterSeed: seed, deployment, session, io: world, now: () => clock, settings: () => settings.get(), notify: notify as never, rng });
+  const start = (over: Partial<Parameters<typeof startCampaign>[0]> = {}) =>
+    startCampaign({
+      quotes: quoteSet(),
+      provider: "thorchain",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: AMOUNT,
+      tier: "institutional",
+      mode: "balanced",
+      preference: "balanced",
+      policy: "privacy-execution",
+      destination: { kind: "fresh-per-tranche" },
+      usd: 10_000_000,
+      confirmations: { secondFactor: T0, secondDevice: T0 },
+      now: clock,
+      rng: () => 0.5,
+      session,
+      gasPriceWei: "20000000000",
+      ...over,
+    });
+  const commits = () => world.calls.filter((x) => x.startsWith("commit:")).length;
+  /** every step but the first settled: what is left is the first step's outcome */
+  const othersSettled = (c: Campaign) => {
+    const x = current(c);
+    putCampaign({ ...x, tranches: x.tranches.map((t) => (t.index === 0 ? t : { ...t, state: "settled" as const })) }, session);
+  };
+
+  it("D1: the review hold survives a Pause and a Resume — a requote's shorter draw never moves the first step earlier", async () => {
+    const hold = T0 + 30 * 60_000;
+    const c = start({ reviewHoldUntil: hold });
+    expect(current(c).holdUntil).toBe(hold);
+    let r = await tickWith(c, () => 0);
+    expect(r?.action).toMatchObject({ kind: "wait", until: hold });
+    clock += 60_000;
+    pauseCampaign(c.id, session, clock);
+    resumeCampaign(c.id, session, clock);
+    r = await tickWith(c, () => 0); // reassessing → requote, the cadence draw 10 min (rng 0)
+    expect(r?.action.kind).toBe("requote");
+    expect(current(c).tranches[0].notBefore! >= hold, "the draw never moves the first release earlier").toBe(true);
+    clock = T0 + 20 * 60_000;
+    r = await tickWith(c, () => 0);
+    expect(r?.action.kind, "inside the hold").toBe("wait");
+    expect(commits()).toBe(0);
+    clock = hold + 60_000;
+    r = await tickWith(c, () => 0);
+    expect(r?.action).toMatchObject({ kind: "commit", index: 0 });
+    expect(commits()).toBe(1);
+  });
+
+  it("D1/D12: an entered destination is read from the address book at every commit — its cooling-off holds the first step through a Pause and a Resume; a retired one pauses", async () => {
+    const added = addAddress({ chain: "bitcoin", address: DEST, now: clock }, session);
+    if (!added.ok) throw new Error("the test address is refused");
+    verifyAddress(added.entry.id, "groups-read", session, clock);
+    approveAddress(added.entry.id, session, clock);
+    const c = start({ destination: { kind: "entered", address: DEST } }); // no hold passed in: the book alone decides
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    expect(commits(), "the book says it cools: nothing committed").toBe(0);
+    expect(r?.nextAt).toBe(T0 + 24 * 3600_000);
+    clock += 5 * 60_000;
+    pauseCampaign(c.id, session, clock);
+    resumeCampaign(c.id, session, clock);
+    for (let i = 0; i < 4; i++) {
+      clock += 30 * 60_000;
+      await tick(c);
+    }
+    expect(commits(), "still cooling two hours later, after the Resume").toBe(0);
+    // the cooling-off over, the entry retired meanwhile: the campaign pauses before anything is committed
+    clock = T0 + 24 * 3600_000 + 1000;
+    retireAddress(added.entry.id, session);
+    await tick(c);
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "unexpected-destination" } });
+    expect(current(c).pause!.detail).toMatch(/retired/);
+    expect(commits()).toBe(0);
+  });
+
+  it("D1/D12: once the cooling-off has passed, the approved destination is paid", async () => {
+    const added = addAddress({ chain: "bitcoin", address: DEST, now: clock }, session);
+    if (!added.ok) throw new Error("the test address is refused");
+    verifyAddress(added.entry.id, "groups-read", session, clock);
+    approveAddress(added.entry.id, session, clock);
+    const c = start({ destination: { kind: "entered", address: DEST } });
+    clock = T0 + 24 * 3600_000 + 1000;
+    const r = await tick(c);
+    expect(r?.action).toMatchObject({ kind: "commit", index: 0 });
+    expect(commits()).toBe(1);
+    expect(current(c).tranches[0]).toMatchObject({ state: "committed", destination: DEST });
+  });
+
+  it("D2: a partial fill read later without its units stays a partial fill — never a refund in full — and settles for its delivery once the rest's note is found", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    world.delivered.set(first, ((OUT * eth(30)) / AMOUNT).toString());
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("partial");
+    // the relayer re-shielded the rest; this read had no units (the provider's answer failed) and the scan has not found the note yet
+    world.delivered.delete(first);
+    world.tracked.set(first, "REFUNDED");
+    world.notesLate.add(first);
+    clock += 60_000;
+    await tick(c);
+    expect(current(c).tranches[0].state, "the recorded delivery holds").toBe("partial");
+    expect(exposure(current(c)).completed).toBe(eth(30));
+    world.notesLate.delete(first);
+    world.noteFor.set(first, eth(20));
+    clock += 60_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "settled", amount: eth(30).toString(), outcome: { refunded: eth(20).toString() } });
+    expect(exposure(current(c))).toMatchObject({ completed: eth(30), ended: 0n, remaining: eth(2470) });
+  });
+
+  it("D9: a returned step is planned again for what its note holds — the tip it paid stays spent; before the note is found it is still returning", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    const tip = BigInt((session.journal().swaps.find((y) => y.orderId === first)!.params as { executorTip: string }).executorTip);
+    world.tracked.set(first, "REFUNDED");
+    world.notesLate.add(first);
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].state, "not refunded before its note is found").toBe("refunding");
+    expect(session.journal().schedule.some((a) => a.id === "discovery:pool" && !a.done), "the scan is asked for").toBe(true);
+    world.notesLate.delete(first);
+    world.noteFor.set(first, eth(50) - tip);
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "refunded", outcome: { refunded: (eth(50) - tip).toString() } });
+    expect(exposure(current(c))).toMatchObject({ ended: tip, remaining: AMOUNT - tip });
+  });
+
+  it("D9: a partial fill whose executor's watch ended with no note brought nothing more back: settled for the delivery, the rest ended, never planned again", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    world.delivered.set(first, ((OUT * eth(30)) / AMOUNT).toString());
+    clock += 15_000;
+    await tick(c);
+    world.jobs.get(first)!.state = "completed";
+    clock += 60_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "settled", amount: eth(30).toString(), funded: eth(50).toString(), outcome: { refunded: "0" } });
+    expect(exposure(current(c))).toMatchObject({ completed: eth(30), ended: eth(20), remaining: eth(2450) });
+  });
+
+  it("D3: the service's plan is held to the wallet's own model of the route — a 'source' gate, parallel steps and no cadence on THORChain become destination final, one at a time, the mode's cadence; a malformed plan is refused", async () => {
+    const weak = { ...quoteSet(), protection: { ...protection(), gate: "source" as const, concurrency: "parallel" as const, maxParallel: 4, cadenceSeconds: [0, 0] as [number, number] } };
+    const c = start({ quotes: weak });
+    expect(current(c).plan).toMatchObject({ riskClass: "R5", gate: "destination-final", concurrency: "sequential", maxParallel: 1 });
+    expect(current(c).plan.cadenceSeconds).toEqual(PROTECTION_DEFAULTS.balanced.cadenceSeconds);
+    expect(() => start({ quotes: { ...quoteSet(), protection: { ...protection(), gate: "anywhere" } as never } })).toThrow(/malformed/);
+    expect(() => start({ quotes: { ...quoteSet(), protection: { ...protection(), cadenceSeconds: [600] } as never } })).toThrow(/malformed/);
+    expect(protectionOf({ ...protection(), maxPieceUnits: "-1" })).toBeNull();
+    expect(protectionOf(protection())).not.toBeNull();
+  });
+
+  it("D4: a route change takes the new route's plan — an R2 route's two parallel steps at 'destination submitted' become THORChain's one at a time, destination final; the cap only goes down and the planned steps fit it", async () => {
+    const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 300 };
+    const c = start({ quotes: { ...quoteSet("near-intents"), protection: r2 }, provider: "near-intents", tier: "high-value", usd: 5_000_000, confirmations: {} });
+    expect(current(c).plan).toMatchObject({ riskClass: "R2", gate: "destination-submitted", concurrency: "parallel", maxParallel: 2 });
+    const before = current(c);
+    const planned = (x: Campaign) => x.tranches.filter((t) => t.state === "planned").reduce((s, t) => s + BigInt(t.amount), 0n);
+    const moved = withRoute(before, "thorchain", { ...protection("thorchain"), capBps: 100 }, quote("thorchain"), clock, () => 0.5);
+    expect(moved.provider).toBe("thorchain");
+    expect(moved.plan).toMatchObject({ riskClass: "R5", gate: "destination-final", concurrency: "sequential", maxParallel: 1 });
+    expect(BigInt(moved.bounds.maxExternalExposure) < BigInt(before.bounds.maxExternalExposure), "the cap went down").toBe(true);
+    expect(moved.tranches.filter((t) => t.state === "planned").every((t) => BigInt(t.amount) <= pieceCeiling(moved)), "every planned step fits the new cap").toBe(true);
+    expect(planned(moved), "the same amount still to swap").toBe(planned(before));
+    // a looser route never lifts the cap
+    const back = withRoute(moved, "near-intents", { ...r2, capBps: 1000 }, quote("near-intents"), clock, () => 0.5);
+    expect(back.bounds.maxExternalExposure).toBe(moved.bounds.maxExternalExposure);
+  });
+
+  it("D5: a step its provider refunded at the destination ends undelivered — never completed — and the campaign pauses before the next step", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "REFUNDED_AT_DESTINATION");
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "refunded-at-destination" } });
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    expect(current(c).pause!.detail).toMatch(/refunded at its fresh destination/);
+    expect(exposure(current(c))).toMatchObject({ completed: 0n, ended: eth(50), inFlight: 0n });
+    expect((current(c).alerts ?? []).some((a) => a.kind === "step-settled"), "no 'Step 1 settled.'").toBe(false);
+    const n = commits();
+    for (let i = 0; i < 3; i++) {
+      clock += 60_000;
+      await tick(c);
+    }
+    expect(commits(), "nothing more to the same route without the user").toBe(n);
+  });
+
+  it("D6: a provider failure with nothing back ends undelivered and the campaign can go on; a late refund pauses, and after a Resume returns through one refund-only job — the step's history stays still meanwhile", async () => {
+    const a = await fresh();
+    await toInFlight(a);
+    world.tracked.set(current(a).tranches[0].orderId!, "PROVIDER_FAILED");
+    clock += 15_000;
+    await tick(a);
+    expect(current(a).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "lost" } });
+    expect(current(a)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    expect(world.calls.filter((x) => x.startsWith("refund:")), "nothing to return: no refund asked").toEqual([]);
+    resumeCampaign(a.id, session, clock);
+    await tick(a); // requote
+    clock += 3_000_000 + 1000;
+    expect((await tick(a))?.action).toMatchObject({ kind: "commit", index: 1 });
+
+    const b = await fresh();
+    await toInFlight(b);
+    const first = current(b).tranches[0].orderId!;
+    world.tracked.set(first, "LATE_REFUND");
+    clock += 15_000;
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("failed");
+    expect(current(b)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    const length = current(b).tranches[0].history.length;
+    for (let i = 0; i < 4; i++) {
+      clock += 60_000;
+      await tick(b);
+    }
+    expect(current(b).tranches[0].history, "no flip to executing and back at every tick").toHaveLength(length);
+    resumeCampaign(b.id, session, clock);
+    await tick(b); // requote
+    const refundsBefore = world.calls.filter((x) => x.startsWith("refund:")).length;
+    const r = await tick(b);
+    expect(r?.action).toMatchObject({ kind: "refund", index: 0 });
+    expect(world.calls.filter((x) => x.startsWith("refund:")).length - refundsBefore, "one refund request").toBe(1);
+    expect(current(b).tranches[0].state).toBe("refunding");
+    world.tracked.delete(first); // the refund-only job reads REFUND_PENDING, then the escrow comes back
+    clock += 15_000;
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("refunding");
+    world.tracked.set(first, "REFUNDED");
+    clock += 15_000;
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("refunded");
+    expect(world.calls.filter((x) => x.startsWith("refund:")).length - refundsBefore, "still one").toBe(1);
+  });
+
+  it("D7: a delivery in another token ends undelivered — never in flight, the campaign paused for the user — and a returned campaign ends", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    world.deliveredAssets.set(first, "USDC");
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "other-token" } });
+    expect(exposure(current(c))).toMatchObject({ inFlight: 0n, ended: eth(50) });
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    cancelCampaign(c.id, session, clock);
+    clock += 15_000;
+    const r = await tick(c);
+    expect(r?.action.kind).toBe("complete");
+    expect(current(c).state).toBe("cancelled");
+  });
+
+  it("D8: the velocity limit is the wallet's — a campaign without a price pauses (fail closed), and two campaigns share one 24-hour window", async () => {
+    settings.set({ protection: { ...settings.get().protection, velocity: { maxUsdPer24h: 300_000 } } });
+    const unvalued = start({ usd: null });
+    const r0 = await tick(unvalued);
+    expect(r0?.action).toMatchObject({ kind: "pause", reason: "velocity" });
+    expect(current(unvalued).pause!.detail).toMatch(/no price/);
+    cancelCampaign(unvalued.id, session, clock);
+    await tick(unvalued);
+    const a = await fresh(); // $4,000 per ETH: the first step's 50 ETH is $200K
+    await toInFlight(a);
+    expect(current(a).tranches[0].handedOverAt).toBeDefined();
+    const b = await fresh();
+    const r = await tick(b);
+    expect(r?.action, "the other campaign's $200K and this step's $200K pass the $300K").toMatchObject({ kind: "pause", reason: "velocity" });
+    expect(commits(), "nothing of the second campaign committed").toBe(1);
+    // a single order counts too, the limit being the wallet's: handed over an hour ago and no price to count it at, nothing more is
+    // handed over; one from yesterday is outside the window
+    cancelCampaign(a.id, session, clock);
+    cancelCampaign(b.id, session, clock);
+    settings.set({ protection: { ...settings.get().protection, velocity: { maxUsdPer24h: 10_000_000 } } });
+    session.update((j) => {
+      j.swaps.push({ ...j.swaps[0], orderId: "0x" + "77".repeat(32), campaign: undefined, handedOverAt: clock - 25 * 3600_000 });
+    });
+    const c3 = await fresh();
+    expect((await tick(c3))?.action.kind, "yesterday's order is outside the window").toBe("commit");
+    session.update((j) => {
+      j.swaps.push({ ...j.swaps[0], orderId: "0x" + "78".repeat(32), campaign: undefined, handedOverAt: clock - 3600_000 });
+    });
+    clock += 2000;
+    expect((await tick(c3))?.action, "an order of an hour ago without a price: fail closed").toMatchObject({ kind: "pause", reason: "velocity" });
+  });
+
+  it("D10: the route's piece ceiling is journaled and every re-plan keeps it", async () => {
+    const ceiling = 20n * 10n ** 18n;
+    const c = start({ quotes: { ...quoteSet(), protection: { ...protection(), maxPieceUnits: ceiling.toString() } } });
+    expect(current(c).plan.maxPiece).toBe(ceiling.toString());
+    expect(current(c).tranches.every((t) => BigInt(t.amount) <= ceiling)).toBe(true);
+    const again = replanRemainder({ ...current(c), tranches: current(c).tranches.map((t) => ({ ...t, state: "skipped" as const })) }, clock, () => 0.5);
+    expect(again.tranches.filter((t) => t.state === "planned").every((t) => BigInt(t.amount) <= ceiling), "a re-plan never goes back to the band's size").toBe(true);
+  });
+
+  it("D11: with two steps in flight, the second one's provider failure pauses — the lowest step in flight alone had been read", async () => {
+    const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };
+    const c = start({ quotes: { ...quoteSet("near-intents"), protection: r2 }, provider: "near-intents", tier: "high-value", usd: 5_000_000, confirmations: {} });
+    expect(current(c).plan.maxParallel).toBe(2);
+    await toInFlight(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "DESTINATION_SUBMITTED"); // the first step settles at its gate
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("settled");
+    // the next two steps go out (the cadence draw for the first one passes)
+    const out = () => current(c).tranches.filter((t) => t.state === "executing" || t.state === "source-confirmed");
+    for (let i = 0; i < 40 && out().length < 2; i++) {
+      clock += 120_000;
+      await tick(c);
+    }
+    const flying = out();
+    expect(flying.length, "two steps in flight").toBe(2);
+    world.tracked.set(flying[1].orderId!, "DESTINATION_FAILED");
+    clock += 15_000;
+    await tick(c);
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+  });
+
+  it("D13: a step another copy of the wallet handed over is tracked — never given up when the route changed, never reported as returned", async () => {
+    const c = await fresh();
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    const stored = session.journal().swaps.find((y) => y.orderId === current(c).tranches[0].orderId)!;
+    // another copy funded it and handed it over: its escrow, executed, reads empty; the executor has its job
+    world.jobs.set(stored.orderId, { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "executing", updatedAt: clock });
+    putCampaign({ ...current(c), provider: "chainflip" }, session); // a route change accepted meanwhile
+    clock += 2000;
+    r = await tick(c);
+    expect(current(c).tranches[0].state, "tracked, not planned again").toBe("executing");
+    expect(session.journal().swaps.find((y) => y.orderId === stored.orderId)!.state).not.toBe("abandoned");
+
+    const d = await fresh();
+    await tick(d); // committed
+    const other = session.journal().swaps.find((y) => y.orderId === current(d).tranches[0].orderId)!;
+    world.jobs.set(other.orderId, { id: other.orderId, escrow: other.endpoint as `0x${string}`, state: "executing", updatedAt: clock });
+    cancelCampaign(d.id, session, clock);
+    clock += 2000;
+    await tick(d);
+    expect(current(d).tranches[0].state, "tracked until it finishes, never 'skipped … never funded'").toBe("executing");
+  });
+
+  it("D14: a last step too small to swap on its own stays in the private balance and the campaign completes, saying so", async () => {
+    const c = await fresh();
+    const x = current(c);
+    const tiny = 2n * 10n ** 15n; // 0.002 ETH
+    const tranches = x.tranches.slice(0, 2).map((t, i) => (i === 0 ? { ...t, state: "settled" as const } : { ...t, amount: tiny.toString() }));
+    const total = BigInt(tranches[0].amount) + tiny;
+    putCampaign({ ...x, state: "running", request: { ...x.request, amount: total.toString() }, bounds: { ...x.bounds, amountInLimit: total.toString() }, tranches }, session);
+    world.commitThrows = Object.assign(new Error("executing costs more than the escrow may pay (1 %)"), { code: "amount_too_small" });
+    let r = await tick(c);
+    expect(r?.action).toMatchObject({ kind: "commit", index: 1 });
+    expect(current(c).tranches[1]).toMatchObject({ state: "skipped", outcome: { kept: true } });
+    expect(exposure(current(c))).toMatchObject({ kept: tiny, remaining: 0n });
+    clock += 2000;
+    r = await tick(c);
+    expect(r?.action.kind).toBe("complete");
+    expect(current(c).state).toBe("completed");
+    expect(current(c).alerts?.at(-1)?.text).toMatch(/too small to swap on its own/);
+  });
+
+  it("B1: a step that came back is swapped again only after the user's word — the pause names its fees first", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    othersSettled(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "REFUNDED");
+    clock += 15_000;
+    const r = await tick(c); // the refund is read and, nothing else left, the campaign asks in the same tick
+    expect(current(c).tranches[0].state).toBe("refunded");
+    expect(r?.action).toMatchObject({ kind: "pause", reason: "bounds", replan: true });
+    expect(current(c).pause!.detail).toContain(REPLAN_PAUSE);
+    expect(current(c).replanAskedAt).toBe(clock);
+    const n = commits();
+    for (let i = 0; i < 3; i++) {
+      clock += 60_000;
+      await tick(c);
+    }
+    expect(commits(), "nothing funded without the answer").toBe(n);
+    resumeCampaign(c.id, session, clock);
+    await tick(c); // reassessing → requote
+    clock += 2000;
+    expect((await tick(c))?.action.kind).toBe("replan");
+    clock += 2000;
+    expect((await tick(c))?.action.kind).toBe("commit");
+  });
+
+  it("B2: a step's executor tip above the Review's × 3 pauses at its commit — the stated Minimum counts every step at that bound", async () => {
+    const c = start({ quotes: { ...quoteSet(), executorTip: (10n ** 16n).toString() } }); // 0.01 ETH at the Review; the world's tip is 0.125 ETH
+    expect(current(c).bounds.maxExecutorTip).toBe((3n * 10n ** 16n).toString());
+    await tick(c);
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "bounds" } });
+    expect(current(c).pause!.detail).toMatch(/executor tip/);
+    expect(current(c).tranches[0].state).toBe("planned");
+  });
+});
+
 
 describe("the scheduler and a re-scheduled action", () => {
   let root: Root | null = null;

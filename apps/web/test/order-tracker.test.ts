@@ -137,6 +137,20 @@ describe("another token at the destination (the audit's unverified m60)", () => 
   });
 });
 
+describe("a delivery once read is never forgotten (the seventh review round, 2026-11-03)", () => {
+  it("an executed order whose rest came back reads Partial on its journaled units when this read has none — never Refunded in full", () => {
+    const f = order({ fundedTx: "0x1", state: "executed", jobId: "j", executionTx: "0xee", track: { state: "PARTIAL", label: "Partial", at: NOW - 60_000, deliveredAmount: "120000000" } });
+    const t = deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }), track: null }));
+    expect(t).toMatchObject({ state: "PARTIAL", deliveredUnits: "120000000", deliveredAmount: "1.2 BTC" });
+  });
+  it("another token is named on the read, so a campaign ends the step without a delivery of the output", () => {
+    const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", provider: "lifi" });
+    const t = deriveState(f, facts({ job: job("executed", { executionTx: "0xee" }), track: { state: "partial", deliveredAsset: "USDC.e" } }));
+    expect(t).toMatchObject({ state: "PARTIAL", deliveredAsset: "USDC.e" });
+    expect(t.deliveredUnits).toBeUndefined();
+  });
+});
+
 describe("trackOrder", () => {
   const KDF = { N: 1 << 12, r: 8, p: 1 };
   let s: WalletSession;
@@ -177,6 +191,17 @@ describe("trackOrder", () => {
     expect(j.history?.map((h) => [h.state, h.at, h.note])).toEqual([["DESTINATION_SUBMITTED", NOW, "Waiting for destination"], ["COMPLETED", NOW + 60_000, "Completed"]]);
     expect(j.state).toBe("completed");
     expect(j.track?.deliveredAmount).toBe("3000000");
+  });
+
+  it("a read without units keeps the units the journal had (the seventh review round)", async () => {
+    const o = order({ fundedTx: "0x1", jobId: "j", state: "executing" });
+    s.update((j) => { j.swaps = [o]; });
+    const deps = (track: unknown) => ({ deployment: null, session: s, now: NOW, readers: { job: async () => job("executed", { executionTx: "0xee" }), balance: async () => 0n, track: async () => track as never } });
+    await trackOrder(o, deps({ state: "partial", deliveredAmount: "120000000" }));
+    expect(s.journal().swaps[0].track?.deliveredAmount).toBe("120000000");
+    const b = await trackOrder(s.journal().swaps[0], deps(null));
+    expect(s.journal().swaps[0].track?.deliveredAmount, "kept").toBe("120000000");
+    expect(b.tracked.deliveredUnits).toBe("120000000");
   });
 
   it("a suspected stall names the order's operation, never the wallet's own timing: the service decides from its records (2026-10-14)", async () => {

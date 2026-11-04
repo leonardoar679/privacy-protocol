@@ -69,8 +69,13 @@ function apply(c: Campaign, rng: () => number, now: number): Campaign {
       return c; // nothing new this time
     }
     case "pause":
-      // a failed step: its funds are in its escrow and come back (the runner hands it a refund-only job)
-      return a.index !== undefined ? withTrancheState(withCampaignState(c, "paused", now), a.index, "refunding", now) : withCampaignState(c, "paused", now);
+      // a failed step: its funds are in its escrow and come back (the runner hands it a refund-only job); a pause that asks before a
+      // step that came back is swapped again records the question (the seventh review round)
+      return a.index !== undefined
+        ? withTrancheState(withCampaignState(c, "paused", now), a.index, "refunding", now)
+        : withCampaignState(c, "paused", now, undefined, a.replan ? { replanAskedAt: now } : {});
+    case "refund": // a failed step's own refund-only job after a resume
+      return withTrancheState(c, a.index, "refunding", now);
     case "replan": {
       const e = exposure(c);
       const split = planTranches(e.remaining, {
@@ -128,7 +133,7 @@ describe("V7 Stage 13: the $50K band's protected steps (spec v3.0 §4)", () => {
           for (const t of c.tranches) if (t.state === "planned" || t.state === "ready") c = withTrancheState(c, t.index, "skipped" as TrancheState, now);
         } else if (r < 0.05 && c.state === "running") c = withCampaignState(c, "paused", now);
         else if (c.state === "paused" && r < 0.5)
-          c = withCampaignState(c, "running", now); // resumed (no route change in this world)
+          c = withCampaignState(withCampaignState(c, "reassessing", now), "running", now); // resumed: reassessed, then running (no route change in this world)
         else c = apply(c, rng, now);
         events++;
         check(c, cap, `case ${n} step ${step}`);

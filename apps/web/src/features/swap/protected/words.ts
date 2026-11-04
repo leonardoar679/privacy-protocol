@@ -36,5 +36,5 @@ export function campaignLineText(t: T, c: Campaign, advanced = false): string {
 }
 
 export const TRANCHE_WORDS: Record<Tranche["state"], string> = {
-  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for the destination", "destination-confirmed": "delivered, finality pending", settled: "settled", partial: "delivered in part", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped",
+  planned: "waiting", ready: "starting", committed: "committed", funded: "funded", signed: "signed", executing: "executing", "source-confirmed": "executing", "destination-submitted": "waiting for the destination", "destination-confirmed": "delivered, finality pending", settled: "settled", partial: "delivered in part", refunding: "returning", refunded: "returned", failed: "needs attention", skipped: "skipped", undelivered: "not delivered as asked",
 };

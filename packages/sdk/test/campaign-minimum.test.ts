@@ -2,7 +2,7 @@
 // over the steps' amount, net of the tips — never the one order's minimum, which no step was held to and which the campaign could
 // deliver ~0.5 % under without a pause.
 import { describe, expect, it } from "vitest";
-import { rateE18, trancheMinimum, type ExecutionBounds } from "@privacy-wallet/protocol/wallet/campaign";
+import { rateE18, trancheMinimum, CONGESTION_FACTOR, type ExecutionBounds } from "@privacy-wallet/protocol/wallet/campaign";
 import { BOUNDS_SLIPPAGE_BPS, campaignMinimumOutput } from "../src/wallet/campaigns";
 
 const slip = (rate: bigint) => (rate * BigInt(10000 - BOUNDS_SLIPPAGE_BPS)) / 10000n;
@@ -18,12 +18,22 @@ describe("campaignMinimumOutput (V3 §3, as the Review states it)", () => {
     minimumOutputNet: slip(rateE18(toAmountMin, quoted - tip)).toString(),
   } as unknown as ExecutionBounds;
   const pieces = [20_000_000_000n, 15_500_000_000n, 18_000_000_000n, 12_677_449_980n, 13_000_000_000n];
-  it("is at most what the steps guarantee together, and within a unit per step of it", () => {
+  it("is at most what the steps guarantee together at the most each step's tip may be, and within a unit per step of that", () => {
     expect(pieces.reduce((s, p) => s + p, 0n)).toBe(amount);
     const together = pieces.reduce((s, w) => s + trancheMinimum(bounds, w, tip), 0n);
+    // the seventh review round (B2): each step's tip is held to the set's × CONGESTION_FACTOR, and the figure counts every step at that
+    const most = tip * BigInt(CONGESTION_FACTOR);
+    const atMost = pieces.reduce((s, w) => s + trancheMinimum(bounds, w, most), 0n);
     const stated = campaignMinimumOutput({ toAmountMin, quoted, amount, executorTip: tip, steps: pieces.length });
-    expect(stated <= together, "never above the steps' own floors").toBe(true);
-    expect(together - stated <= BigInt(pieces.length) + 1n, "and close to them").toBe(true);
+    expect(stated <= atMost, "never above the steps' own floors, whatever tip each pays under the bound").toBe(true);
+    expect(atMost - stated <= BigInt(pieces.length) + 1n, "and close to them").toBe(true);
+    expect(stated <= together, "below the floors at today's tip").toBe(true);
+  });
+  it("the reviewer's gas rise under the pause: steps 2–5 pay 2.9× the tip, the steps together still guarantee the stated figure (B2)", () => {
+    const tips = [tip, (tip * 29n) / 10n, (tip * 29n) / 10n, (tip * 29n) / 10n, (tip * 29n) / 10n];
+    const together = pieces.reduce((s, w, i) => s + trancheMinimum(bounds, w, tips[i]), 0n);
+    const stated = campaignMinimumOutput({ toAmountMin, quoted, amount, executorTip: tip, steps: pieces.length });
+    expect(together >= stated).toBe(true);
   });
   it("is below the one order's minimum by the slippage and the steps' smaller amount — what the old Review hid", () => {
     const stated = campaignMinimumOutput({ toAmountMin, quoted, amount, executorTip: tip, steps: pieces.length });

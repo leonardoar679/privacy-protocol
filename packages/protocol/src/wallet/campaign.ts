@@ -5,6 +5,7 @@
 // per risk class (§6), the bounds check (§3), the pause detection (§8) and the reducer that tells the wallet's
 // runner the one next action (§7). The wallet, the service's recommendation and the labs run exactly this code.
 import { bucketsFor } from "./amounts";
+import { feeForWithdrawal, PRIVACY_FEE_BPS } from "./fees";
 import type { Tier } from "./valuation";
 
 export type RiskClass = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7";
@@ -14,8 +15,14 @@ export type ProtectionMode = "balanced" | "max-privacy" | "max-safety" | "best-e
 export type Sizing = "bucket" | "varied";
 export type Concurrency = "sequential" | "parallel";
 export type CampaignState = "user-confirmed" | "preparing-notes" | "running" | "paused" | "reassessing" | "requoting" | "rerouting" | "winding-down" | "completed" | "cancelled";
-/** `destination-confirmed` (V4, contract §4.2): the destination delivered, the finality margin running — the plan's DESTINATION_CONFIRMED before FINALIZED. */
-export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed" | "destination-submitted" | "destination-confirmed" | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped";
+/**
+ * `destination-confirmed` (V4, contract §4.2): the destination delivered, the finality margin running — the plan's DESTINATION_CONFIRMED
+ * before FINALIZED. `undelivered` (the seventh review round, 2026-11-03): the step ended at its provider without delivering the order's
+ * asset — refunded at the destination, delivered in another token, or failed with nothing back in its escrow — out of the protected
+ * balance, never counted as completed (I5), never planned again, and its route paused on (§9). Such steps had settled as completed,
+ * or stayed failed or partial for good.
+ */
+export type TrancheState = "planned" | "ready" | "committed" | "funded" | "signed" | "executing" | "source-confirmed" | "destination-submitted" | "destination-confirmed" | "settled" | "partial" | "refunding" | "refunded" | "failed" | "skipped" | "undelivered";
 export type PauseReason = "price-deviation" | "provider-error" | "chain-congestion" | "route-degraded" | "unexpected-destination" | "security-incident" | "anomaly" | "reconcile" | "bounds" | "user" | "wallet-pause" | "velocity";
 /** The alert kinds of §15 (plan V3 §76), plus the campaign's own milestones. */
 export type AlertKind = "provider-degraded" | "price-changed" | "liquidity-dropped" | "destination-changed" | "route-changed" | "execution-delayed" | "chain-congested" | "security-incident" | "paused" | "resumed" | "step-settled" | "completed" | "cancelled";
@@ -47,6 +54,13 @@ export interface ExecutionBounds {
   expiry: number;
   /** the tip plus the relayer fee ceiling per tranche, bps of the tranche */
   maxFeeBps: number;
+  /**
+   * The most one step's executor tip may be, source base units: the Review's tip × CONGESTION_FACTOR, the congestion pause's own
+   * threshold (the seventh review round, 2026-11-03). The stated Minimum is computed with it, so the steps together never deliver below
+   * it; each step had been held only per unit net of its own tip, and a gas rise under the pause took the campaign below the Minimum
+   * the user approved. Absent when the confirmation knew no tip, and on a campaign from before.
+   */
+  maxExecutorTip?: string;
   /**
    * V7 (spec v3.0 §3): the relayer's F the Review showed, source base units — each piece's funding never pays more than its
    * privacy share plus this (`StoredSwap.reviewedFee`, the Review's `F × n`); absent on a campaign from before
@@ -84,6 +98,8 @@ export interface TranchePlan {
   exact?: boolean;
   /** the campaign needs its notes reshaped before the first tranche (§4) */
   shapeNotes: boolean;
+  /** the thin-market or instant-limit ceiling on a piece in base units (the service's `maxPieceUnits`), kept for every re-plan (the seventh review round) */
+  maxPiece?: string;
   elpfUsd?: number;
 }
 
@@ -103,7 +119,12 @@ export interface Tranche {
   notBefore?: number;
   expected?: { minOut: string; rateE18: string; etaSeconds: number };
   /** `delivered` in SOURCE base units (the destination amount converted at the expected rate, so the accounting of §5 adds like with like); `deliveredOut` as the tracker reported it, destination base units */
-  outcome?: { delivered?: string; deliveredOut?: string; refunded?: string; deviationBps?: number };
+  outcome?: { delivered?: string; deliveredOut?: string; refunded?: string; deviationBps?: number; /** how an `undelivered` step ended */ undelivered?: "refunded-at-destination" | "other-token" | "lost"; /** a skipped last step too small to swap on its own, left in the private balance (the seventh review round) */ kept?: boolean };
+  /**
+   * The amount the step's escrow was funded with, kept when a partial fill settles `amount` to its delivered part (the seventh review
+   * round, 2026-11-03): what neither arrived nor came back counts as ended, never as remaining to swap again.
+   */
+  funded?: string;
   /** the hard quote's expiry (unix s) and the executor's job id, mirrored from the child order for the Review */
   quoteExpiresAt?: number;
   jobId?: string;
@@ -149,6 +170,14 @@ export interface Campaign {
   /** the user's last answer (pause, resume, a reroute's answer, return the rest), unix ms: a tick that ran while it was given
    *  keeps it (the audit round of 2026-10-16, c36); optional */
   decidedAt?: number;
+  /**
+   * No step is committed before this (unix ms): the institutional review hold and an entered destination's cooling-off at the
+   * confirmation (the seventh review round, 2026-11-03). They had lived only in the first step's `notBefore`, which the requote of
+   * every Resume overwrote with a cadence draw: a Pause and a Resume paid a cooling destination within the hour.
+   */
+  holdUntil?: number;
+  /** when the campaign paused to ask before a step that came back is swapped again (the seventh review round, B1): a Resume after it is the user's word */
+  replanAskedAt?: number;
   confirmations: { commit: number; secondFactor?: number; secondDevice?: number; destinationVerified?: number; emergencyOverride?: number };
   history: { state: CampaignState; at: number; note?: string }[];
 }
@@ -257,9 +286,9 @@ export function planTranches(total: bigint, o: SplitOptions): Split {
 export const IN_FLIGHT: readonly TrancheState[] = ["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"];
 export const PREPARED: readonly TrancheState[] = ["funded", "signed", "failed"];
 export const OPEN: readonly TrancheState[] = ["committed", ...PREPARED, ...IN_FLIGHT, "refunding"];
-export const TERMINAL: readonly TrancheState[] = ["settled", "refunded", "skipped"];
+export const TERMINAL: readonly TrancheState[] = ["settled", "refunded", "skipped", "undelivered"];
 
-export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number; /** V4 (plan §25, §67): the in-flight amount per provider */ byProvider: Record<string, bigint> }
+export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; /** the seventh review round: what left the protected balance and neither arrives as asked nor comes back — undelivered steps, and what a returned or partly filled step did not bring back (its tip, its provider's fees) — never completed, never planned again */ ended: bigint; /** a last step too small to swap on its own, left in the private balance: the campaign completes without it (the seventh review round) */ kept: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number; /** V4 (plan §25, §67): the in-flight amount per provider */ byProvider: Record<string, bigint> }
 
 const big = (s: string | undefined): bigint => BigInt(s ?? "0");
 
@@ -267,12 +296,21 @@ const big = (s: string | undefined): bigint => BigInt(s ?? "0");
 export function exposure(c: Campaign): Exposure {
   const total = big(c.request.amount);
   const cap = big(c.bounds.maxExternalExposure);
-  let inFlight = 0n, prepared = 0n, completed = 0n, preparedCount = 0, inFlightCount = 0;
+  let inFlight = 0n, prepared = 0n, completed = 0n, ended = 0n, kept = 0n, preparedCount = 0, inFlightCount = 0;
   const byProvider: Record<string, bigint> = {};
   const fly = (t: Tranche, amount: bigint) => { inFlight += amount; inFlightCount++; if (t.provider) byProvider[t.provider] = (byProvider[t.provider] ?? 0n) + amount; };
   for (const t of c.tranches) {
     const a = big(t.amount);
-    if (t.state === "settled") completed += a;
+    if (t.state === "settled") {
+      completed += a;
+      // a partial fill settled for its delivered part: what neither arrived nor came back is spent, never remaining (the seventh review round)
+      const short = t.funded !== undefined ? big(t.funded) - a - big(t.outcome?.refunded) : 0n;
+      if (short > 0n) ended += short;
+    }
+    // a returned step: what did not come back (its executor tip, its provider's fees) is spent; the refund note is what is planned again
+    else if (t.state === "refunded") { const back = t.outcome?.refunded !== undefined ? big(t.outcome.refunded) : a; if (a > back) ended += a - back; }
+    else if (t.state === "undelivered") ended += a;
+    else if (t.state === "skipped" && t.outcome?.kept) kept += a;
     else if (t.state === "partial") { const d = big(t.outcome?.delivered); completed += d > a ? a : d; fly(t, a - (d > a ? a : d)); }
     else if (IN_FLIGHT.includes(t.state)) fly(t, a);
     // a step coming back (a provider that failed it, a return) is out of the private balance until its refund lands (the
@@ -280,24 +318,24 @@ export function exposure(c: Campaign): Exposure {
     else if (t.state === "refunding") fly(t, a);
     else if (PREPARED.includes(t.state)) { prepared += a; preparedCount++; }
   }
-  const remaining = total - completed - inFlight - prepared;
+  const remaining = total - completed - inFlight - prepared - ended - kept;
   const next = c.tranches.find((t) => t.state === "planned" || t.state === "ready" || t.state === "committed");
   const nextAmount = next ? big(next.amount) : null;
-  const protectedAmount = total - completed - cap;
-  return { total, cap, inFlight, prepared, completed, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount, byProvider };
+  const protectedAmount = total - completed - ended - cap;
+  return { total, cap, inFlight, prepared, completed, ended, kept, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount, byProvider };
 }
 
 /** The per-provider limit (I6, plan §46, §67): the order × the plan's share cap (10000 when one venue quotes: a single venue is disclosed, never diversified for appearance). */
 export const providerLimit = (c: Campaign): bigint => bps(big(c.request.amount), Math.min(10000, Math.max(0, c.plan.providerShareCapBps || 10000)));
 
 /** The plan's §26 ledger (contract §3.5): derived from the tranche states alone, never stored. */
-export interface ExposureLedger { orderId: string; totalOrderValue: string; maxExternalExposure: string; completed: string; inFlight: string; pending: string; remaining: string; byProvider: Record<string, { inFlight: string; limit: string }> }
+export interface ExposureLedger { orderId: string; totalOrderValue: string; maxExternalExposure: string; completed: string; inFlight: string; pending: string; remaining: string; /** the seventh review round: out of the balance, neither delivered as asked nor back */ ended: string; /** a last step too small to swap, left in the balance */ kept: string; byProvider: Record<string, { inFlight: string; limit: string }> }
 export function ledger(c: Campaign): ExposureLedger {
   const e = exposure(c);
   const limit = providerLimit(c).toString();
   const byProvider: ExposureLedger["byProvider"] = {};
   for (const [p, v] of Object.entries(e.byProvider)) byProvider[p] = { inFlight: v.toString(), limit };
-  return { orderId: c.id, totalOrderValue: e.total.toString(), maxExternalExposure: e.cap.toString(), completed: e.completed.toString(), inFlight: e.inFlight.toString(), pending: e.prepared.toString(), remaining: e.remaining.toString(), byProvider };
+  return { orderId: c.id, totalOrderValue: e.total.toString(), maxExternalExposure: e.cap.toString(), completed: e.completed.toString(), inFlight: e.inFlight.toString(), pending: e.prepared.toString(), remaining: e.remaining.toString(), ended: e.ended.toString(), kept: e.kept.toString(), byProvider };
 }
 
 /** I1, I2, I4 and (V4) I6 for releasing (handing over) a tranche of `size` with `provider`; the first tranche is always alone (§6). */
@@ -330,6 +368,13 @@ export function gateFor(riskClass: RiskClass, mode: ProtectionMode): Gate {
   if (riskClass === "R2" || riskClass === "R4") return "destination-submitted";
   return "destination-final";
 }
+
+const GATE_RANK: Record<Gate, number> = { source: 0, "destination-submitted": 1, "destination-final": 2 };
+/** The stricter of two gates (the seventh review round, 2026-11-03): the wallet's own and the service's recommendation. */
+export const stricterGate = (a: Gate, b: Gate): Gate => (GATE_RANK[a] >= GATE_RANK[b] ? a : b);
+const CLASS_RANK: Record<RiskClass, number> = { R1: 1, R2: 2, R4: 3, R3: 4, R7: 4, R5: 5, R6: 6 };
+/** The riskier of two classes (the seventh review round): R1 < R2 < R4 < the R3 / R7 flags < R5 < R6 (spec §2). */
+export const riskierClass = (a: RiskClass, b: RiskClass): RiskClass => (CLASS_RANK[a] >= CLASS_RANK[b] ? a : b);
 
 export interface SettlementFacts {
   /** the tracker's order state (packages/sdk/src/orderTracker.ts deriveState) */
@@ -395,6 +440,7 @@ export function checkWithinBounds(b: ExecutionBounds, x: BoundsCheckInput): { ok
   const per = net ? rateE18(x.toAmountMin, x.amount > x.executorTip! ? x.amount - x.executorTip! : 0n) : rateE18(x.toAmountMin, x.amount);
   if (per < big(net ? b.minimumOutputNet! : b.minimumOutput)) return { ok: false, reason: "the hard quote guarantees less per unit than the minimum you approved" };
   if (x.feeBps > b.maxFeeBps) return { ok: false, reason: "the fee is above the maximum you approved" };
+  if (b.maxExecutorTip !== undefined && x.executorTip !== undefined && x.executorTip > big(b.maxExecutorTip)) return { ok: false, reason: "the step's executor tip is above what you approved" };
   if (b.destination.kind !== "fresh-per-tranche" && x.destination.toLowerCase() !== b.destination.address.toLowerCase()) return { ok: false, reason: "the destination differs from the one you approved" };
   return { ok: true };
 }
@@ -435,6 +481,10 @@ export interface PauseFacts {
   boundsViolation?: string;
   /** V4 (contract §2.4): the next hand-over would take the trailing 24 h above the velocity limit the user set */
   velocityExceeded?: boolean;
+  /** the seventh review round: a limit is set, and the next step or a hand-over in the trailing 24 h has no price to be counted at (fail closed) */
+  velocityUnknown?: boolean;
+  /** the seventh review round (§9): a step ended at its provider this tick without delivering the order's asset — the pause's words */
+  stepUndelivered?: string;
 }
 
 /** The first pause condition that holds, in the order of §8's severity; null when the campaign is healthy. */
@@ -445,6 +495,7 @@ export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; 
   const since = c.createdAt;
   if (f.incidentDates?.some((d) => d >= since)) return { reason: "security-incident", detail: "A security incident for the chosen provider was reported after this operation started." };
   // a provider that failed the step at its destination, or never answered it, is a provider error too (c53)
+  if (f.stepUndelivered) return { reason: "provider-error", detail: f.stepUndelivered };
   if (f.jobState === "execute-failed" || f.jobState === "refund-failed" || f.trackState === "FAILED" || f.trackState === "DESTINATION_FAILED" || f.trackState === "PROVIDER_TIMEOUT" || f.providerHealth?.breakerOpen) return { reason: "provider-error", detail: f.providerHealth?.breakerOpen ? "The provider is skipped after repeated failures." : "The executor or the provider reported a failure on the current step." };
   if (f.delivered !== undefined && f.guaranteedMin !== undefined && big(f.delivered) < big(f.guaranteedMin)) return { reason: "anomaly", detail: `The step delivered less than its guaranteed minimum (${f.delivered} of at least ${f.guaranteedMin}).` };
   if (f.trackState === "PARTIAL") return { reason: "anomaly", detail: "The step was filled only in part; the rest returns to your private balance before anything continues." };
@@ -457,6 +508,7 @@ export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; 
   if ((f.providerHealth?.reliability !== undefined && f.providerHealth.reliability < 60) || f.liveQuotes === 0) return { reason: "route-degraded", detail: f.liveQuotes === 0 ? "No provider quotes this step right now." : "The chosen provider's reliability dropped." };
   if (f.gasPriceWei !== undefined && f.gasPriceAtConfirmationWei !== undefined && big(f.gasPriceAtConfirmationWei) > 0n && big(f.gasPriceWei) > big(f.gasPriceAtConfirmationWei) * BigInt(CONGESTION_FACTOR)) return { reason: "chain-congestion", detail: "The network fee is several times what it was when you confirmed." };
   if (f.velocityExceeded) return { reason: "velocity", detail: "The 24-hour limit you set for hand-overs is reached; resume once the window has moved on, or raise the limit under Settings." };
+  if (f.velocityUnknown) return { reason: "velocity", detail: "The 24-hour limit you set for hand-overs is counted in US dollars, and no price is available for this operation right now: nothing more is handed over until there is. Resume once prices are back, or change the limit under Settings." };
   if (f.boundsViolation) return { reason: "bounds", detail: f.boundsViolation };
   return null;
 }
@@ -472,10 +524,13 @@ export type Action =
   | { kind: "sign"; index: number }
   | { kind: "hand-over"; index: number }
   | { kind: "track"; indexes: number[] }
-  | { kind: "pause"; reason: PauseReason; detail: string; index?: number }
+  /** `replan`: the pause asks before a step that came back is swapped again (the runner records Campaign.replanAskedAt) */
+  | { kind: "pause"; reason: PauseReason; detail: string; index?: number; replan?: boolean }
   | { kind: "replan" }
   | { kind: "requote" }
   | { kind: "wind-down" }
+  /** the seventh review round: a step that failed with its money in its escrow, after the user resumed — its own refund-only job, once */
+  | { kind: "refund"; index: number }
   /** V6 Stage 13: a committed step that was never funded, while the rest returns — its order is given up once the runner
    *  has read its escrow empty (nothing left the private balance) */
   | { kind: "abandon"; index: number }
@@ -494,11 +549,50 @@ export const PAUSED_TRACK_INTERVAL_MS = 60_000;
 
 const inFlightIndexes = (c: Campaign): number[] => c.tranches.filter((t) => IN_FLIGHT.includes(t.state) || t.state === "refunding").map((t) => t.index);
 
-/** The first commit waits for the first tranche's `notBefore` (an institutional review hold, §14) like any later release. */
+/** The campaign's hold while it lasts (the review hold, an entered destination's cooling-off; the seventh review round): no commit before it. */
+const holdLeft = (c: Campaign, now: number): number | null => (c.holdUntil !== undefined && c.holdUntil > now ? c.holdUntil : null);
+/** When a tranche last entered `state` (unix ms), from its history; -Infinity when never. */
+const enteredAt = (t: Tranche, state: TrancheState): number => t.history.reduce((m, h) => (h.state === state && h.at > m ? h.at : m), -Infinity);
+/** Whether the user resumed the campaign after `at` (only resumeCampaign enters `reassessing`). */
+const resumedSince = (c: Campaign, at: number): boolean => c.history.some((h) => h.state === "reassessing" && h.at > at);
+
+/**
+ * The pause before a step that came back is swapped again (the seventh review round, 2026-11-03): its detail opens with this sentence,
+ * and a Resume after that pause is the user's word. A refund, or the rest of a partial fill, had been planned and funded again on its
+ * own — a second fee note (the privacy fee and the relayer's F) and a second tip that no Review showed (fee policy: "the progress
+ * screen says so before it happens").
+ */
+export const REPLAN_PAUSE = "Part of this swap came back to your private balance.";
+/** The latest moment a step came back to the private balance: a refund, or the returned rest of a partial fill. */
+function lastReturnAt(c: Campaign): number | null {
+  let at = -Infinity;
+  for (const t of c.tranches) {
+    if (t.state === "refunded") at = Math.max(at, enteredAt(t, "refunded"));
+    else if (t.state === "settled" && big(t.outcome?.refunded) > 0n) at = Math.max(at, enteredAt(t, "settled"));
+  }
+  return at === -Infinity ? null : at;
+}
+/** The user resumed after the campaign asked about what came back at `back` (Campaign.replanAskedAt). */
+const replanApproved = (c: Campaign, back: number): boolean => c.replanAskedAt !== undefined && c.replanAskedAt >= back && resumedSince(c, c.replanAskedAt);
+const unitsText = (x: bigint, decimals: number, symbol: string): string => {
+  const base = 10n ** BigInt(decimals);
+  const frac = (x % base).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+  return `${x / base}${frac ? `.${frac}` : ""} ${symbol}`;
+};
+function replanDetail(c: Campaign, remaining: bigint): string {
+  const { decimals, symbol } = c.request.from;
+  const fee = c.bounds.maxRelayerFee !== undefined && /^\d+$/.test(c.bounds.maxRelayerFee)
+    ? feeForWithdrawal(remaining, { minimum: BigInt(c.bounds.maxRelayerFee), feePercentBps: c.bounds.relayerFeeBps ?? PRIVACY_FEE_BPS })
+    : null;
+  return `${REPLAN_PAUSE} Swapping ${unitsText(remaining, decimals, symbol)} of it again pays its privacy fee and the relayer's fee again${fee !== null ? ` (about ${unitsText(fee, decimals, symbol)})` : ""}, and an executor tip; nothing is sent until you resume. Resume to swap it again, or return the rest.`;
+}
+
+/** The first commit waits for the campaign's hold and the first tranche's `notBefore` (§14), like any later release. */
 const firstStep = (c: Campaign, f: ReducerFacts): Action => {
   const t = c.tranches.find((x) => x.state === "planned");
   if (!t) return { kind: "complete" };
-  if (t.notBefore !== undefined && t.notBefore > f.now) return { kind: "wait", until: t.notBefore, why: "the review hold before the first step" };
+  const hold = holdLeft(c, f.now) ?? (t.notBefore !== undefined && t.notBefore > f.now ? t.notBefore : null);
+  if (hold !== null) return { kind: "wait", until: hold, why: "the review hold before the first step" };
   return { kind: "commit", index: t.index };
 };
 
@@ -543,12 +637,18 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
       case "committed": return { kind: "fund", index: i };
       case "funded": return { kind: "sign", index: i };
       case "signed": { const r = canRelease(c, big(pending.amount), pending.provider ?? c.provider); return r.ok ? { kind: "hand-over", index: i } : flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: r.reason }; }
-      default: return { kind: "pause", reason: "provider-error", detail: "The step failed; its funds are in its escrow and return to your private balance.", index: i };
+      default:
+        // a step that failed with its money in its escrow (the seventh review round, 2026-11-03): the pause says so, and once the user
+        // resumed after it failed it returns through its own refund-only job — once — while the rest carries on; every Resume had paused again
+        if (resumedSince(c, enteredAt(pending, "failed"))) return { kind: "refund", index: i };
+        return { kind: "pause", reason: "provider-error", detail: "The step failed at its provider; its funds wait at the step's one-time address. Resume to return them to your private balance and carry on with the rest, or return the rest.", index: i };
     }
   }
   const e = exposure(c);
   const next = c.tranches.find((t) => t.state === "planned");
   if (next) {
+    const hold = holdLeft(c, f.now);
+    if (hold !== null) return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: hold, why: "the review hold" };
     if (next.notBefore !== undefined && next.notBefore > f.now) return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: next.notBefore, why: "the random delay before the next step" };
     const p = canPrepare(c);
     const r = canRelease(c, big(next.amount), c.provider);
@@ -557,7 +657,12 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
     return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why };
   }
   if (flying.length) return { kind: "track", indexes: flying };
-  if (e.remaining > 0n) return { kind: "replan" }; // a refund came back: the remainder is planned again
+  if (e.remaining > 0n) {
+    // a refund came back: the remainder is planned again — with the user's word when a step came back (its fees are paid again, B1)
+    const back = lastReturnAt(c);
+    if (back !== null && !replanApproved(c, back)) return { kind: "pause", reason: "bounds", detail: replanDetail(c, e.remaining), replan: true };
+    return { kind: "replan" };
+  }
   return { kind: "complete" };
 }
 

@@ -77,6 +77,9 @@ export function fromTranche(state: TrancheState, handedOver: boolean): Mapped {
         : { state: "RECOVERY_REQUIRED", phase: "funding", code: "send_failed" };
     case "skipped":
       return { state: "CANCELLED", phase: "funding" };
+    // the seventh review round: ended at its provider without delivering the order's asset — the order-level PROVIDER_FAILED's state
+    case "undelivered":
+      return { state: "RECOVERY_REQUIRED", phase: "settlement", code: "provider_failed" };
   }
 }
 
@@ -112,7 +115,7 @@ export function fromCampaign(c: Pick<Campaign, "state" | "tranches" | "pause">):
   if (c.state === "paused")
     return c.pause ? { ...PAUSE_MAP[c.pause.reason], phase: "execution" } : { state: "RECOVERY_REQUIRED", phase: "execution", code: "reconcile" };
   if (c.state !== "running") return CAMPAIGN_MAP[c.state];
-  const open = c.tranches.filter((t) => !["planned", "ready", "settled", "refunded", "skipped"].includes(t.state));
+  const open = c.tranches.filter((t) => !["planned", "ready", "settled", "refunded", "skipped", "undelivered"].includes(t.state));
   if (!open.length) return { state: "SOURCE_CONFIRMING", phase: "execution" };
   const rank: TrancheState[] = [
     "committed",

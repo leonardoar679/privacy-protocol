@@ -319,7 +319,7 @@ export function simulateCampaign(o: SimOptions): SimRow {
         break;
       }
       case "pause": {
-        c = withCampaignState(c, "paused", t * 1000, a.reason, { pause: { reason: a.reason, detail: a.detail, at: t * 1000, trancheIndex: a.index } });
+        c = withCampaignState(c, "paused", t * 1000, a.reason, { pause: { reason: a.reason, detail: a.detail, at: t * 1000, trancheIndex: a.index }, ...(a.replan ? { replanAskedAt: t * 1000 } : {}) });
         const wait = Math.max(SEC.resume, faultUntil - t);
         pauses.push({ reason: a.reason, atHours: t / 3600, minutes: wait / 60, tranche: a.index });
         resumeAt = t + wait;
@@ -332,6 +332,8 @@ export function simulateCampaign(o: SimOptions): SimRow {
         break;
       }
       case "requote": t += SEC.quote; c = withCampaignState(c, "running", t * 1000, "requoted: same route"); break;
+      // the seventh review round: a failed step's own refund-only job after a Resume (the lab's failed steps return at their pause)
+      case "refund": { c = withTrancheState(c, a.index, "refunding", t * 1000, {}, "refund-only job"); const fl = flights.get(a.index); flights.set(a.index, fl ? { ...fl, outboundAt: null, deliveredAt: null } : { handedOverAt: t, outboundAt: null, deliveredAt: null, refundAt: refundAfter(t), expectedSeconds: 0 }); break; }
       case "replan": {
         const rem = exposure(c).remaining;
         const more = planTranches(rem, { decimals, bandBps: plan.bandBps, capBps: plan.capBps, sizing: plan.sizing, maxParallel: plan.maxParallel, maxPiece, rng, reference: total });

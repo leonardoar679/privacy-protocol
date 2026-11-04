@@ -10,7 +10,7 @@
 import type { Hex } from "viem";
 import {
   canRelease, detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
-  FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, TRACK_INTERVAL_MS, RATE_SCALE,
+  FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { velocityExceeded } from "@privacy-wallet/protocol/wallet/exposurePolicy";
@@ -29,9 +29,9 @@ import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "..
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
 import { chainKindOf, consumeFreshAddress } from "../keys/chainKeys";
-import { markAddressSettled, markAddressUsed } from "./addressBook";
+import { destinationCheck, markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
-import { campaignById, childOrder, expectedOut, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, cryptoUniform, TERMINAL_STATES } from "./campaigns";
+import { campaignById, childOrder, expectedOut, fitPlanned, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, pieceCeiling, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, withRoute, cryptoUniform, TERMINAL_STATES } from "./campaigns";
 import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
@@ -205,31 +205,50 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   const rate = big(t.expected?.rateE18);
   // the delivered units (a V6 follow-up of 2026-10-16, audit c11): `deliveredAmount` is the tracker's words ("0.03 BTC"), which
   // read as 0 — every delivered step paused as an anomaly, and a partial fill re-planned what was already delivered
-  const deliveredOut = tracked.deliveredUnits !== undefined ? parseDelivered(tracked.deliveredUnits) : undefined;
+  // this read's units, else the ones the step recorded before (the seventh review round, 2026-11-03): a read without them — a failed
+  // provider read — had turned a partial fill into a refund in full, and the delivered part was planned and swapped again
+  const deliveredOut = tracked.deliveredUnits !== undefined ? parseDelivered(tracked.deliveredUnits) : t.outcome?.deliveredOut !== undefined ? parseDelivered(t.outcome.deliveredOut) : undefined;
   // a delivery with the rest refunded is a partial fill settled for what was delivered (audit c32): never a refund in full, which
   // re-planned the delivered part and swapped it again
   const partialBack = s === "REFUNDED" && deliveredOut !== undefined && deliveredOut > 0n;
-  if (s === "REFUNDED" && !partialBack) return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: t.amount } }, note: "the escrow returned to the private balance" };
-  // a refund that came back after the executor stopped watching (audit round 2, r36) waits, like a failed step, for the return
-  if (s === "FAILED" || s === "LATE_REFUND" || s === "PROVIDER_FAILED") return { state: "failed", patch, note: tracked.detail };
-  // a refund the provider paid at the step's fresh destination address (the sixth review round, 2026-11-03): the step is over —
-  // nothing comes back to the pool, nothing is in flight; its amount is at that address in the provider's refund asset
-  if (s === "REFUNDED_AT_DESTINATION") return t.state === "settled" ? null : { state: "settled", patch: { ...patch, settledAt: now }, note: tracked.detail };
+  // what came back: the refund notes the scan found, in the order's own asset (audit round 2, n19)
+  const vault = String((stored.params as { refundVault?: string }).refundVault ?? "").toLowerCase();
+  const back = (stored.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + big(x.amount), 0n);
+  const amount = big(t.amount);
+  if (s === "REFUNDED" && !partialBack) {
+    // the refund note is what came back — the step's amount less its tip, or the provider's refund less its fees — and what is planned
+    // again (the seventh review round, D9): the whole amount had been planned again, and the difference funded a second time. Until
+    // the scan finds the note, the step is still returning
+    if (back <= 0n) return t.state === "refunding" ? null : { state: "refunding", patch, note: "returned to the private balance; waiting for the scan to find its refund note" };
+    return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: (back > amount ? amount : back).toString() } }, note: "the escrow returned to the private balance" };
+  }
+  // an execution that failed with its money in the escrow, and a refund that came back after the executor stopped watching (audit
+  // round 2, r36): the step waits for its own refund — after the user's Resume (the seventh review round, D6)
+  if (s === "FAILED" || s === "LATE_REFUND") return { state: "failed", patch, note: tracked.detail };
+  // the step ended at its provider without delivering the order's asset (the seventh review round, D5–D7): failed with nothing back in
+  // its escrow, refunded at the destination (Mayan Fast-MCTP: USDC to the fresh address), or delivered in another token (LI.FI's
+  // PARTIAL) — out of the balance, never completed or planned again, and the campaign pauses on it. They had settled as completed, or
+  // stayed failed or partial for good
+  if (s === "PROVIDER_FAILED") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "lost" } }, note: tracked.detail };
+  if (s === "REFUNDED_AT_DESTINATION") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "refunded-at-destination" } }, note: tracked.detail };
+  if (s === "PARTIAL" && tracked.deliveredAsset !== undefined && deliveredOut === undefined) return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "other-token" } }, note: tracked.detail };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
   if (s === "PARTIAL" || partialBack) {
-    const refundBack = partialBack || job?.state === "completed" || (stored.refunds?.length ?? 0) > 0;
     const outcome = { ...t.outcome, ...(deliveredOut !== undefined ? { deliveredOut: deliveredOut.toString(), delivered: sourceEquivalent(deliveredOut, rate).toString() } : {}) };
-    if (refundBack && outcome.delivered !== undefined) {
-      // the rest came back: the tranche settles for what was delivered and the remainder returns to `remaining` (re-planned, §7).
-      // What came back is the refund the scan found, in the order's own asset, when it has (audit round 2, n19): the expected
-      // rate's equivalent of the delivery had re-planned more than returned when the fill came in below that rate
-      const vault = String((stored.params as { refundVault?: string }).refundVault ?? "").toLowerCase();
-      const back = (stored.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + big(x.amount), 0n);
-      const cap = (x: bigint) => (x > big(t.amount) ? big(t.amount) : x);
-      const refunded = back > 0n ? cap(back) : big(t.amount) - cap(big(outcome.delivered));
-      const delivered = (big(t.amount) - refunded).toString();
-      return { state: "settled", patch: { ...patch, amount: delivered, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: "partial fill: the rest returned to the private balance" };
+    // the rest is back once the scan found its refund note (n19); nothing more comes back once the executor's watch ended (its job
+    // `completed`) with no note — the seventh review round (D9): `completed` had read as "the rest came back", and the rest's
+    // expected-rate equivalent was planned again though nothing had returned
+    const watchEnded = job?.state === "completed" && back === 0n;
+    if (outcome.delivered !== undefined && (back > 0n || watchEnded)) {
+      const deliveredIn = big(outcome.delivered) > amount ? amount : big(outcome.delivered);
+      // at most what the delivery left (a refund note larger than the rest — a second funding of the same escrow — is never
+      // subtracted from the delivery)
+      const refunded = back > amount - deliveredIn ? amount - deliveredIn : back;
+      // the delivered part: what did not come back once the note is found (the fill's cost is part of it, n19); the delivery alone
+      // when nothing more comes back — the rest counts as ended, never as remaining
+      const settled = back > 0n ? amount - refunded : deliveredIn;
+      return { state: "settled", patch: { ...patch, amount: settled.toString(), funded: t.funded ?? t.amount, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: back > 0n ? "partial fill: the rest returned to the private balance" : "partial fill: the executor's watch ended with nothing more back; the rest is not swapped again" };
     }
     return { state: "partial", patch: { ...patch, outcome }, note: tracked.detail };
   }
@@ -245,7 +264,30 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
 }
 const parseDelivered = (x: string): bigint => { try { return BigInt(x); } catch { return 0n; } };
 
-interface TrackPass { campaign: Campaign; active?: { trackState: string; jobState?: string; ageSeconds?: number; expectedSeconds?: number }; justSettled: { index: number; deliveredOut?: string; minOut?: string }[]; reconcileNeeded: boolean; reconcileDetail?: string }
+/** A step in flight as this tick read it: the facts its pause checks use (§8). */
+interface ActiveRead { trackState: string; jobState?: string; ageSeconds?: number; expectedSeconds?: number }
+interface TrackPass { campaign: Campaign; active?: ActiveRead; justSettled: { index: number; deliveredOut?: string; minOut?: string }[]; reconcileNeeded: boolean; reconcileDetail?: string; /** the seventh review round: a step ended undelivered this tick — the pause's words */ undelivered?: string }
+
+/**
+ * The step in flight whose facts the pause checks read (the seventh review round, 2026-11-03): one its provider failed first, then a
+ * partial fill, then a stalled one. The lowest step in flight alone had been read, and a second step's failure went unseen (c53).
+ */
+function worstActive(xs: ActiveRead[]): ActiveRead | undefined {
+  const rank = (a: ActiveRead): number =>
+    a.jobState === "execute-failed" || a.jobState === "refund-failed" || ["FAILED", "DESTINATION_FAILED", "PROVIDER_TIMEOUT"].includes(a.trackState) ? 0
+      : a.trackState === "PARTIAL" ? 1
+        : a.ageSeconds !== undefined && a.expectedSeconds !== undefined && a.expectedSeconds > 0 && a.ageSeconds > STALL_FACTOR * a.expectedSeconds ? 2
+          : 3;
+  return xs.reduce<ActiveRead | undefined>((w, a) => (w === undefined || rank(a) < rank(w) ? a : w), undefined);
+}
+
+/** Why a step ended undelivered, for the pause it raises (§9). */
+function undeliveredWords(index: number, how: "refunded-at-destination" | "other-token" | "lost"): string {
+  const step = `Step ${index + 1}`;
+  if (how === "refunded-at-destination") return `${step}: the provider could not deliver and refunded at its fresh destination address, in its own refund asset; nothing came back to your private balance. The next step is not sent to the same route on its own: resume to carry on, or return the rest.`;
+  if (how === "other-token") return `${step}: the route delivered another token at the destination, not the one you asked for. The next step is not sent to the same route on its own: resume to carry on, or return the rest.`;
+  return `${step} failed at its provider, and nothing came back while it was watched (anything that arrives later is returned from the order's own page). Resume to carry on with the rest, or return the rest.`;
+}
 
 /**
  * What a step's journaled funding became, before its order is given up (the audit round of 2026-10-16, c35): "none" (nothing
@@ -261,11 +303,12 @@ async function givenUpOnlyIfDead(stored: StoredSwap, io: CampaignIo): Promise<"n
 async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession, now: number, margins: Record<string, number>, rng: () => number): Promise<TrackPass> {
   let c = c0;
   const justSettled: TrackPass["justSettled"] = [];
-  let active: TrackPass["active"];
+  const reads: ActiveRead[] = [];
+  let undelivered: string | undefined;
   let reconcileNeeded = false;
   let reconcileDetail: string | undefined;
   for (const t of c0.tranches) {
-    if (!t.orderId || ["planned", "ready", "settled", "refunded", "skipped"].includes(t.state)) continue;
+    if (!t.orderId || ["planned", "ready", "settled", "refunded", "skipped", "undelivered"].includes(t.state)) continue;
     const stored = childOrder(t, s);
     if (!stored) { c = withTrancheState(c, t.index, "failed", now, {}, "its order is missing from the journal"); reconcileNeeded = true; continue; }
     // a crash between a send and its journal entry: the facts decide (never a second funding or hand-over)
@@ -274,7 +317,10 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       else { const bal = await io.escrowBalance(stored); if (bal !== null && bal >= BigInt(t.amount)) c = withTrancheState(c, t.index, "funded", now, {}, "funded (reconciled from the escrow's balance)"); }
       continue;
     }
-    if (t.state === "funded" || t.state === "signed" || t.state === "failed") {
+    // a funded or signed step the executor already has (a crash between the hand-over and its journal entry). A failed step is not one
+    // (the seventh review round, D6): its state came from its own job's read, and the flip back to executing at every tick, then to
+    // failed again, had grown its history without end — it is tracked below like any step in flight
+    if (t.state === "funded" || t.state === "signed") {
       const job = stored.jobId ? null : await io.job(stored);
       if (stored.jobId || job) {
         const state = (job?.state ?? stored.state) === "refund-only" ? "refunding" : "executing";
@@ -283,7 +329,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       if (c.tranches[t.index].state !== "executing" && c.tranches[t.index].state !== "refunding") {
         // V4 (contract §8, plan §111): a funding seen in the escrow by the quorum and then gone is a possible reorganization — the local assumption is invalidated
         // and the campaign pauses `reconcile`; the tranche keeps its fundedTx, so it is never funded twice
-        if (stored.fundedTx && (t.state === "funded" || t.state === "signed")) {
+        if (stored.fundedTx) {
           const bal = await io.escrowBalance(stored);
           const amount = BigInt(t.amount);
           if (bal !== null && bal >= amount && t.fundedSeenAt === undefined) c = withTrancheState(c, t.index, t.state, now, { fundedSeenAt: now });
@@ -301,6 +347,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
     if (next) {
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
       if (next.state === "refunded") scheduleDiscovery(now, s); // the step's refund note is looked for now
+      if (next.state === "undelivered") undelivered ??= undeliveredWords(t.index, next.patch.outcome?.undelivered ?? "lost");
       if (next.state === "settled" && current.state !== "settled") {
         justSettled.push({ index: t.index, deliveredOut: next.patch.outcome?.deliveredOut, minOut: current.expected?.minOut });
         if (current.destination) markAddressSettled(chainKindOf(c.request.to.chain), current.destination, s, now); // §12: a fresh address retires, an entered one is paid
@@ -311,15 +358,79 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       }
     }
     const after = c.tranches[t.index];
+    // the executor re-shielded the escrow and the scan has not found the note yet (D9): looked for now, then at most once a minute
+    if (r.tracked.state === "REFUNDED" && after.state !== "refunded" && after.state !== "settled") scheduleDiscovery(stored.track?.state === "REFUNDED" ? now + 60_000 : now, s);
     // a step its provider failed (at the destination, or by never answering) comes back as `refunding`: its facts are the
     // pass's too, so the campaign pauses instead of sending the next step to the same provider (the audit round of 2026-10-16, c53)
     const failedAtProvider = after.state === "refunding" && ["DESTINATION_FAILED", "PROVIDER_TIMEOUT"].includes(r.tracked.state);
-    if (!active && (["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"].includes(after.state) || failedAtProvider)) {
-      active = { trackState: r.tracked.state, jobState: r.job?.state, ageSeconds: after.handedOverAt ? Math.floor((now - after.handedOverAt) / 1000) : undefined, expectedSeconds: after.expected?.etaSeconds };
+    if (["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"].includes(after.state) || failedAtProvider) {
+      reads.push({ trackState: r.tracked.state, jobState: r.job?.state, ageSeconds: after.handedOverAt ? Math.floor((now - after.handedOverAt) / 1000) : undefined, expectedSeconds: after.expected?.etaSeconds });
     }
   }
-  return { campaign: c, active, justSettled, reconcileNeeded, ...(reconcileDetail ? { reconcileDetail } : {}) };
+  return { campaign: c, active: worstActive(reads), justSettled, reconcileNeeded, ...(reconcileDetail ? { reconcileDetail } : {}), ...(undelivered ? { undelivered } : {}) };
 }
+
+/**
+ * The executor already has this step's order — another copy of this wallet funded and handed it over (audit round 2, r45) — or null.
+ * Asked before every abandon (the seventh review round, D13): a route change and "Return the rest" had given up such a step as
+ * never funded, its escrow, executed, reading empty — committed and swapped again, or reported as returned.
+ */
+async function handedOverElsewhere(c: Campaign, t: Tranche, stored: StoredSwap, io: CampaignIo, s: WalletSession, now: number): Promise<Campaign | null> {
+  const job = await io.job(stored).catch(() => null);
+  if (!job) return null;
+  patchSwap(stored.orderId, { jobId: job.id, state: job.state }, s);
+  const state: TrancheState = job.state === "refund-only" ? "refunding" : "executing";
+  return withTrancheState(c, t.index, state, now, { jobId: job.id, handedOverAt: t.handedOverAt ?? now }, `already ${state === "refunding" ? "returning" : "handed over"} by another copy of this wallet (reconciled from the executor)`);
+}
+
+/** USD per base unit of an asset at today's price, read at the time of use (availablePrice); null without a usable price. */
+function priceUsdPerUnit(symbol: string, decimals: number, now: number): number | null {
+  const p = availablePrice(priceStore.state().prices, symbol, Math.floor(now / 1000));
+  return p ? Number(p.usd1e8) / 1e8 / 10 ** decimals : null;
+}
+/** USD per base unit of a campaign's asset: its confirmation's valuation, else today's price; null without either. */
+function usdPerUnit(c: Pick<Campaign, "value" | "request">, now: number): number | null {
+  const v = c.value as { usd?: unknown } | undefined;
+  if (v && typeof v.usd === "number" && Number.isFinite(v.usd) && v.usd >= 0) return v.usd / Math.max(1, Number(BigInt(c.request.amount)));
+  return priceUsdPerUnit(c.request.from.symbol, c.request.from.decimals, now);
+}
+/**
+ * The wallet's hand-overs in the trailing 24 h, in USD, and the next step's (V4 contract §2.4; the seventh review round, D8): every
+ * campaign's steps at what was handed over and every single order, each valued at its campaign's agreed price, else today's. Null
+ * when one of them has no price: with a limit set, nothing more is handed over (fail closed). A campaign confirmed without a price
+ * had skipped the limit for good, two campaigns had each had a whole limit, and a partial fill had shrunk a past hand-over.
+ */
+function velocityWindow(c: Campaign, nextAmount: bigint, s: WalletSession, now: number): { handOvers: { at: number; usd: number }[]; nextUsd: number } | null {
+  const since = now - 86_400_000;
+  const per = usdPerUnit(c, now);
+  if (per === null) return null;
+  const handOvers: { at: number; usd: number }[] = [];
+  const j = s.journal();
+  // this campaign as this tick holds it (its reconcile may not be journaled yet), the others as journaled
+  for (const x of [c, ...(j.campaigns ?? []).filter((y) => y.id !== c.id)]) {
+    const steps = x.tranches.filter((t) => t.handedOverAt !== undefined && t.handedOverAt > since);
+    if (!steps.length) continue;
+    const xp = x.id === c.id ? per : usdPerUnit(x, now);
+    if (xp === null) return null;
+    for (const t of steps) handOvers.push({ at: t.handedOverAt!, usd: xp * Number(BigInt(t.funded ?? t.amount)) });
+  }
+  for (const o of j.swaps) {
+    if (o.campaign || o.handedOverAt === undefined || o.handedOverAt <= since) continue;
+    const from = (o.request as { from?: { symbol?: string; decimals?: number } }).from;
+    const op = from?.symbol ? priceUsdPerUnit(from.symbol, from.decimals ?? 18, now) : null;
+    if (op === null) return null;
+    handOvers.push({ at: o.handedOverAt, usd: op * Number(BigInt((o.params as { amount: string }).amount)) });
+  }
+  return { handOvers, nextUsd: per * Number(nextAmount) };
+}
+
+/** Why an approved destination can no longer take a large payment (the address book's refusal). */
+const refusalWords = (reason: string | undefined): string =>
+  reason === "retired" ? "it is retired" : reason === "unverified" ? "it is not verified" : reason === "unapproved" ? "it is not approved for large payments" : reason === "stale" ? "it has gone unused too long and must be approved again" : reason === "unknown" ? "it is no longer in your address book" : "it cannot be used now";
+
+/** The only step left to commit, below the band's lower edge (the seventh review round, D14): a remainder too small to swap on its own. */
+const lastSmallStep = (c: Campaign, t: Tranche): boolean =>
+  !c.tranches.some((x) => x.index !== t.index && ["planned", "ready", "committed", "funded", "signed", "failed"].includes(x.state)) && BigInt(t.amount) < (BigInt(c.request.amount) * BigInt(c.plan.bandBps[0])) / 10000n;
 
 const pauseWith = (c: Campaign, reason: PauseReason, detail: string, now: number, index?: number): Campaign =>
   withAlert(withCampaignState(c, "paused", now, detail, { pause: { reason, detail, at: now, ...(index !== undefined ? { trancheIndex: index } : {}) } }), alertKindFor(reason, detail), detail, now, index);
@@ -358,15 +469,17 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
     const fresh = c.state === "reassessing";
     const risk = await cached(`risk:${c.provider}`, now, () => io.risk(c.provider ?? ""), fresh).catch(() => null);
     const gas = await cached("gas", now, () => io.gasPriceWei(), fresh).catch(() => null);
-    const settledNow = pass.justSettled[0];
-    // V4 (contract §2.4): the trailing 24 h of hand-overs against the velocity limit the user set, in USD at the confirmation's valuation
+    // the step delivered below its minimum first, of every step this tick settled (D11)
+    const settledNow = pass.justSettled.find((x) => x.deliveredOut !== undefined && x.minOut !== undefined && big(x.deliveredOut) < big(x.minOut)) ?? pass.justSettled[0];
+    // V4 (contract §2.4): the trailing 24 h of hand-overs against the velocity limit the user set, in USD — the wallet's, every campaign
+    // and every order, and fail closed without a price (the seventh review round, D8)
     const limit = cfg.protection.velocity?.maxUsdPer24h;
-    let velocity = false;
-    if (limit !== undefined && c.value && typeof c.value === "object" && "usd" in (c.value as object)) {
-      const usdOf = (amount: string) => ((c.value as { usd: number }).usd * Number(BigInt(amount))) / Math.max(1, Number(BigInt(c.request.amount)));
-      const handOvers = c.tranches.filter((t) => t.handedOverAt !== undefined).map((t) => ({ at: t.handedOverAt!, usd: usdOf(t.amount) }));
+    let velocity = false, velocityUnknown = false;
+    if (limit !== undefined) {
       const nextUp = c.tranches.find((t) => ["signed", "funded", "committed", "ready", "planned"].includes(t.state));
-      velocity = !!nextUp && velocityExceeded(handOvers, usdOf(nextUp.amount), limit, now).exceeded;
+      const w = nextUp ? velocityWindow(c, BigInt(nextUp.amount), s, now) : undefined;
+      if (w === null) velocityUnknown = true;
+      else if (w) velocity = velocityExceeded(w.handOvers, w.nextUsd, limit, now).exceeded;
     }
     const facts: PauseFacts = {
       now, walletPaused: cfg.protection.pauseLargeOperations,
@@ -378,7 +491,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       settlementAgeSeconds: pass.active?.ageSeconds, expectedSeconds: pass.active?.expectedSeconds,
       delivered: settledNow?.deliveredOut, guaranteedMin: settledNow?.minOut,
       reconcileNeeded: pass.reconcileNeeded, reconcileDetail: pass.reconcileDetail,
-      velocityExceeded: velocity,
+      velocityExceeded: velocity, velocityUnknown, ...(pass.undelivered ? { stepUndelivered: pass.undelivered } : {}),
     };
     const pause = c.state === "running" || c.state === "reassessing" || c.state === "user-confirmed" || c.state === "preparing-notes" ? detectPause(c, facts) : null;
     const needed = largestPlanned(c);
@@ -403,6 +516,14 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       }
       case "commit": {
         const t = c.tranches[action.index];
+        // an entered destination is read from the address book at every commit (the seventh review round, 2026-11-03): its cooling-off, an
+        // override with the second factor, its approval, a retirement. A copy of the cooling-off's end in the first step's `notBefore` had
+        // been the only guard, and the requote of every Resume overwrote it
+        if (c.bounds.destination.kind !== "fresh-per-tranche") {
+          const check = destinationCheck(chainKindOf(c.request.to.chain), c.bounds.destination.address, { tier: c.tier, now }, s);
+          if (!check.ok && check.reason === "cooling-off" && check.until !== undefined) { nextAt = Math.max(now + 1000, check.until); break; }
+          if (!check.ok) { c = pauseWith(c, "unexpected-destination", `The destination you approved can no longer take a large payment: ${refusalWords(check.reason)}. Nothing more is committed; check it in your address book, then resume, or return the rest.`, now, t.index); break; }
+        }
         if (c.state !== "running") c = withCampaignState(c, "running", now, "the first step starts");
         const sinceS = Math.floor(now / 1000);
         if (sinceS >= c.bounds.expiry) { c = pauseWith(c, "bounds", "The operation's expiry passed before this step; nothing more is committed.", now, t.index); break; }
@@ -420,6 +541,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           // cannot check yet (audit round 2, critic gap 4: no fee read or price) — committed once it can estimate the gas
           const code = (e as { code?: unknown })?.code;
           if (code === "notes_loading" || code === "cost_unknown") { nextAt = now + HELD_SCAN_RETRY_MS; break; }
+          // the last step, a remainder too small to swap on its own (its executor tip would pass the escrow's 1 %), stays in the private
+          // balance and the campaign completes without it (the seventh review round, D14): it had paused at every Resume for good
+          if (code === "amount_too_small" && lastSmallStep(c, t)) { c = withTrancheState(c, t.index, "skipped", now, { outcome: { ...t.outcome, kept: true } }, `too small to swap on its own (${m}): it stays in your private balance`); nextAt = now + 1000; break; }
           c = withTrancheState(c, t.index, "planned", now, {}, `commit failed: ${m}`);
           c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index);
           break;
@@ -428,8 +552,16 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         // the competition at this size chose another provider (§8): a route change is reviewed, or adopted below the second-confirmation tier when allowed
         if (c.provider && q.provider !== c.provider) {
           if (adoptsRoutes(c, cfg)) {
-            c = withAlert(withCampaignState(c, "running", now, `the route for this step is ${q.provider} (adopted automatically below the second-confirmation size)`, { provider: q.provider }), "route-changed", `The route changed to ${q.provider} for the steps of this size (adopted automatically, as you allowed).`, now, t.index);
+            // the new route's plan with it (the seventh review round, D4): its class, gate, concurrency and cadence, a cap that only goes down
+            c = withAlert(withCampaignState(withRoute(c, q.provider, r.protection, q, now, rng), "running", now, `the route for this step is ${q.provider} (adopted automatically below the second-confirmation size)`), "route-changed", `The route changed to ${q.provider} for the steps of this size (adopted automatically, as you allowed).`, now, t.index);
             send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${q.provider}.`, campaignId: c.id, words: { key: "route-changed", vars: { provider: q.provider } } });
+            // a step above the new route's cap or piece ceiling is never funded: its order is given up (nothing was funded) and the steps sized again
+            if (BigInt(t.amount) > pieceCeiling(c)) {
+              abandonSwap(r.stored.orderId, s);
+              c = fitPlanned(withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the route changed to ${q.provider}, which takes smaller pieces: the step is planned again`), now, rng);
+              nextAt = now + 1000;
+              break;
+            }
           } else {
             abandonSwap(r.stored.orderId, s); // never funded: nothing left the private balance
             c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the competition at this size chose ${q.provider}: waiting for your review`);
@@ -461,6 +593,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const sentFate = await givenUpOnlyIfDead(stored, io);
           if (sentFate === "landed") { c = withTrancheState(c, t.index, "funded", now, {}, "funded (its funding landed before the route changed)"); nextAt = now + 1000; break; }
           if (sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; } // on its way: read again at the next tick
+          const elsewhere = await handedOverElsewhere(c, t, stored, io, s, now); // D13: never planned again while another copy's execution runs
+          if (elsewhere) { c = elsewhere; nextAt = now + TRACK_INTERVAL_MS; break; }
           abandonSwap(stored.orderId, s, { fundingDead: sentFate === "dead" }); // a dead attempt says so (the sixth review round, 2026-11-03): refused as "pending" before, the tick threw and the step never moved
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the route changed to ${c.provider} before this step was funded: its order is abandoned and the step planned again`);
           nextAt = now + 1000; break;
@@ -471,14 +605,11 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         // the executor already has this step's order (audit round 2, r45): another copy of this wallet — a backup restored
         // while the first device kept running — funded and handed it over. Tracked from now on: never funded again, nor
         // abandoned and planned again as a step whose escrow, executed, reads empty
-        if (!stored.fundingAttempt) {
-          const elsewhere = await io.job(stored).catch(() => null);
-          if (elsewhere) {
-            patchSwap(stored.orderId, { jobId: elsewhere.id, state: elsewhere.state }, s);
-            c = withTrancheState(c, t.index, "executing", now, { jobId: elsewhere.id, handedOverAt: now }, "already handed over by another copy of this wallet (reconciled from the executor)");
-            nextAt = now + TRACK_INTERVAL_MS;
-            break;
-          }
+        // (asked whatever this copy journaled, the seventh review round, D13: a funding of this copy's that never landed does not make
+        // another copy's hand-over less real — every abandon below comes after this)
+        {
+          const elsewhere = await handedOverElsewhere(c, t, stored, io, s, now);
+          if (elsewhere) { c = elsewhere; nextAt = now + TRACK_INTERVAL_MS; break; }
         }
         // A funding already sent is never sent again before its fate is known (journaled before it was sent): a Resume after
         // an unknown outcome, or a reload, waits for it. A dead one is replaced only after the user resumed since it was
@@ -671,6 +802,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       }
       case "pause": {
         c = pauseWith(c, action.reason, action.detail, now, action.index);
+        if (action.replan) c = { ...c, replanAskedAt: now }; // the question before a step that came back is swapped again (B1): a Resume answers it
         send({ kind: alertKindFor(action.reason, action.detail), title: "Protected swap paused", body: action.detail, campaignId: c.id, words: { key: "paused" } });
         nextAt = now + PAUSED_TRACK_INTERVAL_MS;
         break;
@@ -691,16 +823,34 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (chosen === c.provider) {
           c = withCampaignState(c, "running", now, `requoted: ${chosen} still carries the route`, { riskSnapshot: snapshot, pause: undefined });
         } else if (adoptsRoutes(c, cfg)) {
-          c = withAlert(withCampaignState(c, "running", now, `rerouted to ${chosen} (automatic below the second-confirmation tier)`, { provider: chosen, riskSnapshot: snapshot, pause: undefined }), "route-changed", `The route changed to ${chosen} (adopted automatically, as you allowed).`, now);
+          c = withAlert(withCampaignState(withRoute(c, chosen, set.protection, set.quotes.find((x) => x.provider === chosen), now, rng), "running", now, `rerouted to ${chosen} (automatic below the second-confirmation tier)`, { riskSnapshot: snapshot, pause: undefined }), "route-changed", `The route changed to ${chosen} (adopted automatically, as you allowed).`, now);
           send({ kind: "route-changed", title: "Route changed", body: `The route changed to ${chosen}.`, campaignId: c.id, words: { key: "route-changed", vars: { provider: chosen } } });
         } else {
           c = withAlert(withCampaignState(c, "rerouting", now, `the route changed to ${chosen}: waiting for your review`, { pendingReroute: { provider: chosen, protection: set.protection ?? null, at: now }, riskSnapshot: snapshot }), "route-changed", `The route changed to ${chosen}; review it before the operation continues.`, now);
           send({ kind: "route-changed", title: "Route changed — review", body: `The route changed to ${chosen}.`, campaignId: c.id, words: { key: "route-review", vars: { provider: chosen } } });
         }
-        // the next release waits for the cadence again
+        // the next release waits for the cadence again — never earlier than it already waited (the seventh review round, D1)
         const planned = c.tranches.find((x) => x.state === "planned");
-        if (planned) c = withTrancheState(c, planned.index, "planned", now, { notBefore: sampleDueAt(c.plan.cadenceSeconds, now, rng) });
+        if (planned) c = withTrancheState(c, planned.index, "planned", now, { notBefore: Math.max(planned.notBefore ?? 0, sampleDueAt(c.plan.cadenceSeconds, now, rng)) });
         nextAt = now + 1000;
+        break;
+      }
+      case "refund": {
+        // a step that failed with its money in its escrow, after the user resumed (the seventh review round, D6): its own refund-only job
+        // returns it — once — and the rest carries on
+        const t = c.tranches[action.index];
+        const stored = childOrder(t, s);
+        if (!stored) { c = pauseWith(c, "reconcile", `Step ${t.index + 1} has no order in the journal.`, now, t.index); break; }
+        schedulerStatus.progress(`Protected swap: returning step ${t.index + 1} to your private balance…`);
+        try {
+          const job = await io.refund(stored);
+          signedCache.delete(stored.orderId.toLowerCase());
+          c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, "after your resume: the failed step returns through a refund-only job; the rest carries on");
+          nextAt = now + 1000;
+        } catch (e) {
+          const m = (e as Error)?.message ?? String(e);
+          c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw new Error(`returning step ${t.index + 1} failed: ${m}`); // the executor was not reached: backoff
+        }
         break;
       }
       case "wind-down": {
@@ -732,6 +882,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const sentFate = bal === 0n ? await givenUpOnlyIfDead(stored, io) : "none";
         if (sentFate === "landed" || sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; }
         if (bal === 0n) {
+          const elsewhere = await handedOverElsewhere(c, t, stored, io, s, now); // D13: tracked until it finishes, never reported as returned
+          if (elsewhere) { c = elsewhere; nextAt = now + TRACK_INTERVAL_MS; break; }
           abandonSwap(stored.orderId, s, { fundingDead: sentFate === "dead" }); // never funded, or its attempt dead: nothing left the private balance (the sixth review round: the flag, or the tick threw for good)
           c = withTrancheState(c, t.index, "skipped", now, {}, "never funded: given up while the rest returned");
           nextAt = now + 1000;
@@ -740,8 +892,10 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       }
       case "complete": {
         const cancelled = c.state === "winding-down";
-        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? "The rest returned to your private balance." : "Every step settled.", now);
-        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : "Protected swap completed", body: cancelled ? "The rest returned to your private balance." : "Every step settled.", campaignId: c.id, words: { key: cancelled ? "cancelled" : "completed" } });
+        const fin = exposure(c);
+        const finished = fin.ended > 0n ? "Every step finished; part of the amount did not arrive as you asked (see the steps)." : fin.kept > 0n ? "Every step settled; a remainder too small to swap on its own stays in your private balance." : "Every step settled.";
+        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : fin.ended > 0n ? "every step finished" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? "The rest returned to your private balance." : finished, now);
+        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : "Protected swap completed", body: cancelled ? "The rest returned to your private balance." : finished, campaignId: c.id, words: { key: cancelled ? "cancelled" : "completed" } });
         stop();
         break;
       }

@@ -26,7 +26,14 @@ import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { SwapScreen } from "../src/features/swap/SwapScreen";
 import { campaignProgressModel } from "../src/features/progress/model";
-import { confirmBlockers, protectedCommitBlocker, protectedStepsAmount, stepsAmountAtFixedPoint, STRICT_QUOTE_TTL_SECONDS } from "../src/features/swap/model";
+import {
+  confirmBlockers,
+  protectedCommitBlocker,
+  protectedStepsAmount,
+  stepsAmountAtFixedPoint,
+  STRICT_QUOTE_TTL_SECONDS,
+  wizardDestinationOk,
+} from "../src/features/swap/model";
 import { prefs } from "../src/storage/prefs";
 import { deployment, ETH_VAULT, fetchMock, requests, resetWorld, world } from "./helpers/swapWorld";
 
@@ -500,6 +507,24 @@ describe("the pure pieces", () => {
     expect(n, "the count of the steps' own amount").toBe(countFor(amount));
     expect(amount + BigInt(n) * terms.minimum <= 400n * ETH, "the steps and a fee note each stay inside what was typed").toBe(true);
     expect(protectedStepsAmount(400n * ETH, terms, 100) + 200n * terms.minimum > 400n * ETH, "sized for the first count alone it would not").toBe(true);
+  });
+  it("the steps' count is the plan's own for the final amount: a smaller amount that makes fewer steps is named so (the seventh review round)", () => {
+    const terms = { minimum: 10n ** 15n, feePercentBps: 0 };
+    const countFor = (amount: bigint) => (amount >= 400n * ETH ? 4 : 3);
+    const { n, amount } = stepsAmountAtFixedPoint(400n * ETH, terms, countFor);
+    expect(amount < 400n * ETH).toBe(true);
+    expect(n, "the Review names the steps the plan makes").toBe(countFor(amount));
+    expect(n).toBe(3);
+  });
+  it("the wizard's destination step reads the address book's verdict: verified but unapproved, stale or retired is refused; a cooling-off waits (the seventh review round)", () => {
+    const base = { entry: null, verified: true, status: "" };
+    expect(wizardDestinationOk(false, false, null), "the wallet's own fresh address").toBe(true);
+    expect(wizardDestinationOk(true, true, { ...base, ok: true })).toBe(true);
+    expect(wizardDestinationOk(true, true, { ...base, ok: false, reason: "cooling-off", until: 1 }), "the steps wait for it").toBe(true);
+    for (const reason of ["unapproved", "stale", "retired"] as const)
+      expect(wizardDestinationOk(true, true, { ...base, ok: false, reason }), reason).toBe(false);
+    expect(wizardDestinationOk(true, false, { ...base, ok: true }), "the groups not checked").toBe(false);
+    expect(wizardDestinationOk(true, true, { ...base, ok: true, verified: false }), "not verified").toBe(false);
   });
   it("the progress of a protected execution: amounts that add up, the step in hand, never a count", () => {
     const pieces = [20n, 20n, 20n, 20n].map((x) => x * ETH);

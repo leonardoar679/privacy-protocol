@@ -50,7 +50,8 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
   const terminal = c.state === "completed" || c.state === "cancelled";
   const alerts = (c.alerts ?? []).slice(-3).reverse();
   const unknown = c.tranches.filter((x) => x.lastReadFailedAt !== undefined).length; // plan §110: never "failed"
-  const remaining = counted.length - settled - e.inFlightCount - e.preparedCount;
+  // a step that ended undelivered is neither settled nor still to go (the seventh review round)
+  const remaining = counted.length - settled - counted.filter((x) => x.state === "undelivered").length - e.inFlightCount - e.preparedCount;
   const routeHealthy = c.state === "running" || c.state === "user-confirmed" || c.state === "preparing-notes" || terminal;
   const destinationVerified = c.bounds.destination.kind === "fresh-per-tranche" || !!c.confirmations.destinationVerified;
   const statusClass = status.mark === "✓" ? "ds-level ds-level-Excellent" : status.mark === "⚠" ? "ds-level ds-level-Reduced" : "ds-level ds-level-Good";
@@ -70,7 +71,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
       </div>
       <div className="ds-review-amount-v5" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? t("campaign.stepOf", { step, total }) : t("campaign.executing")}</div>
       {valued !== null && !terminal ? <p className="ds-note" data-testid="campaign-headline">{t("campaign.headline", { usd: formatUsd(valued) })}</p> : null}
-      <p className="ds-note">{terminal ? (c.state === "completed" ? t("campaign.everySettled") : t("campaign.restReturned")) : `${t("campaign.counts", { settled, executing: e.inFlightCount, remaining })}${unknown ? ` · ${t("campaign.unknownCount", { n: unknown })}` : ""}${privacy ? ` · ${t("campaign.privacyLevel", { level: privacy })}` : ""}`}</p>
+      <p className="ds-note">{terminal ? (c.state === "completed" ? (e.ended > 0n ? t("campaign.finishedNotAll") : t("campaign.everySettled")) : t("campaign.restReturned")) : `${t("campaign.counts", { settled, executing: e.inFlightCount, remaining })}${unknown ? ` · ${t("campaign.unknownCount", { n: unknown })}` : ""}${privacy ? ` · ${t("campaign.privacyLevel", { level: privacy })}` : ""}`}</p>
       <svg className="ds-protection-bar" data-testid="protection-bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label={t("campaign.barLabel")}>
         {segments.map((s) => { const el = <rect key={s.key} className={s.cls} x={x} y={0} width={s.width} height={8} data-segment={s.key} data-width={`${s.width}%`} />; x += s.width; return el; })}
       </svg>
@@ -79,6 +80,8 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
         <span className="ds-kv-label">{t("campaign.inProgress")}</span><b data-amount="in-flight">{amt(e.inFlight + e.prepared)}</b>
         <span className="ds-kv-label">{t("campaign.protected")}</span><b data-amount="protected">{amt(e.protected)}</b>
         <span className="ds-kv-label">{t("campaign.remaining")}</span><b data-amount="remaining">{amt(e.remaining)}</b>
+        {e.ended > 0n ? <><span className="ds-kv-label">{t("campaign.notDelivered")}</span><b data-amount="ended">{amt(e.ended)}</b></> : null}
+        {e.kept > 0n ? <><span className="ds-kv-label">{t("campaign.keptInBalance")}</span><b data-amount="kept">{amt(e.kept)}</b></> : null}
       </div>
       <p className="ds-note">{t("campaign.capSentence", { cap: amt(e.cap), percent: c.plan.capBps / 100, concurrency: c.plan.concurrency === "sequential" ? t("campaign.oneAtATime") : t("campaign.upTo", { n: c.plan.maxParallel }) })}</p>
       {!terminal ? <div className="ds-checks-line" data-testid="campaign-checks"><span data-check="route" data-ok={routeHealthy ? "1" : "0"}>{routeHealthy ? "✓" : "⚠"} {t("campaign.routeHealthy")}</span><span data-check="destination" data-ok={destinationVerified ? "1" : "0"}>{destinationVerified ? "✓" : "⚠"} {t("campaign.destinationVerified")}</span></div> : null}

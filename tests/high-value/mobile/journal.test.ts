@@ -26,9 +26,12 @@ describe("the journal (plan §73)", () => {
     expect(nextAction(restored, { now: 10, pause: null, notesShaped: true })).toMatchObject({ kind: "track", indexes: [1] });
     const signed = JSON.parse(JSON.stringify(campaign([50n * ETH, 50n * ETH], ["settled", "signed"], { state: "running" }, { capBps: 5000 })));
     expect(nextAction(signed, { now: 10, pause: null, notesShaped: true })).toMatchObject({ kind: "hand-over", index: 1 });
-    // a refund that came back is re-planned from the remainder, never re-funded from the same order
+    // a refund that came back is re-planned from the remainder, never re-funded from the same order — once the user said yes to its
+    // fees being paid again (the seventh review round: the campaign asks first)
     const refunded = campaign([50n * ETH, 50n * ETH], ["settled", "refunded"], { state: "running" }, { capBps: 5000 });
-    expect(nextAction(refunded, { now: 10, pause: null, notesShaped: true })).toMatchObject({ kind: "replan" });
+    expect(nextAction(refunded, { now: 10, pause: null, notesShaped: true })).toMatchObject({ kind: "pause", replan: true });
+    const answered = withCampaignState(withCampaignState({ ...withCampaignState(refunded, "paused", 2_000_000), replanAskedAt: 2_000_000 }, "reassessing", 2_000_001), "running", 2_000_002);
+    expect(nextAction(answered, { now: 10, pause: null, notesShaped: true })).toMatchObject({ kind: "replan" });
     const again = replan(refunded, [50n * ETH], 11);
     expect(again.tranches).toHaveLength(3);
     expect(again.tranches[2]).toMatchObject({ index: 2, state: "planned", attempt: 0 });

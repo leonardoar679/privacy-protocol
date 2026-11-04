@@ -14,6 +14,7 @@ import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { amountWords, type CampaignFacts, type SwapContext } from "./facts";
+import { destinationUsable, wizardDestinationOk } from "./model";
 import { basisText, custodyWords, gateWords, protectionReasons, providerName } from "./targets";
 import { LEVEL_WORDS, SECURITY_WORDS } from "../review/words";
 import { durationText } from "../../app/i18n/duration";
@@ -41,7 +42,8 @@ export function Wizard(p: WizardProps) {
   const t = useT();
   const f = p.facts;
   const titles = [t("wizard.risk"), t("wizard.privacy"), t("wizard.destination")];
-  const destinationOk = !p.ctx.destinationEdited || (p.destAck && (p.destCheck?.verified ?? false));
+  const usable = destinationUsable(p.destCheck);
+  const destinationOk = wizardDestinationOk(p.ctx.destinationEdited, p.destAck, p.destCheck);
   return (
     <Card testId="campaign-wizard-card">
       <div className="ds-stack-sm" data-testid="campaign-wizard" data-step={p.step}>
@@ -78,7 +80,7 @@ export function Wizard(p: WizardProps) {
           </div>
         ) : null}
         <div className="ds-actions">
-          <Button onClick={p.onNext} disabled={p.step === 2 && !destinationOk} data-testid="wizard-next" title={p.step === 2 && p.ctx.destinationEdited && !(p.destCheck?.verified ?? false) ? t("wizard.verifyFirst") : undefined}>{p.step < 2 ? t("wizard.continue") : t("wizard.continueToReview")}</Button>
+          <Button onClick={p.onNext} disabled={p.step === 2 && !destinationOk} data-testid="wizard-next" title={p.step === 2 && p.ctx.destinationEdited && !(p.destCheck?.verified ?? false) ? t("wizard.verifyFirst") : p.step === 2 && p.ctx.destinationEdited && !usable ? t("wizard.notUsable") : undefined}>{p.step < 2 ? t("wizard.continue") : t("wizard.continueToReview")}</Button>
           <TextButton onClick={p.onBack}>{t("campaign.back")}</TextButton>
         </div>
       </div>

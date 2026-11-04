@@ -314,7 +314,8 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   }
   // the order's vouch from its commit, for the API's vouch for this call (audit gap 47); a resumed operation is the same order
   const fin = await onOperation(i.deployment, stored, s, (id) => swapService.finalize(id, signed.signature, stored.orderVouch));
-  if (i.submission.kind !== "relayer") return {};
+  // the hand-over's time, for the velocity limit over every hand-over of the wallet (the seventh review round)
+  if (i.submission.kind !== "relayer") { patchSwap(order.orderId, { handedOverAt: stored.handedOverAt ?? Date.now() }, s); return {}; }
   const factory = swapFactoryOf(i.deployment); // the swap service's own was read before the call was prepared (prepareAndSign)
   const { refundTokens, refundFloors } = signed.call;
   if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
@@ -326,7 +327,7 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
     ...(refundTokens?.length ? { refundTokens, refundFloors } : {}),
     ...(fin.vouch?.execution ? { vouch: { execution: fin.vouch.execution as Hex } } : {}), // the relayer executes only a vouched call
   });
-  patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider, relayerUrl: i.submission.url }, s); // the provider's reference for tracking (NEAR Intents: the deposit address); the relayer it went to (r38)
+  patchSwap(order.orderId, { jobId: job.id, state: job.state, executionRef: signed.prepared.provider, relayerUrl: i.submission.url, handedOverAt: stored.handedOverAt ?? Date.now() }, s); // the provider's reference for tracking (NEAR Intents: the deposit address); the relayer it went to (r38)
   const r = stored.request as { to?: { chain?: string }; destination?: string };
   if (r.to?.chain && r.destination && !stored.shield) markAddressUsed(chainKindOf(r.to.chain), r.destination, order.orderId, s); // High-Value Protection spec §12: the destination is in use
   return { job };

@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
-  rateE18, replan, settledBy, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, TRACK_INTERVAL_MS,
+  rateE18, replan, riskierClass, settledBy, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, REPLAN_PAUSE, TRACK_INTERVAL_MS,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
   trancheMinimum,
 } from "../src/wallet/campaign";
@@ -107,11 +107,16 @@ describe("exposure (§5)", () => {
     let e = exposure(c);
     expect(e.completed).toBe(T + 100_000n * USDC);
     expect(e.inFlight).toBe(150_000n * USDC);
-    c = withTrancheState(c, 1, "refunded", 4);
+    c = withTrancheState(c, 1, "refunded", 4, { outcome: { refunded: T.toString() } }); // what came back: the whole tranche
     e = exposure(c);
     expect(e.completed).toBe(T);
     expect(e.inFlight).toBe(0n);
     expect(e.remaining).toBe(2n * T);
+    // the seventh review round: a refund that came back short (its tip, the provider's fees) returns what came back; the rest is spent
+    c = withTrancheState(c, 1, "refunded", 5, { outcome: { refunded: (T - 10n * USDC).toString() } });
+    e = exposure(c);
+    expect(e.ended).toBe(10n * USDC);
+    expect(e.remaining).toBe(2n * T - 10n * USDC);
   });
   it("the first tranche settles alone, then parallel mode admits two pieces under the cap; sequential admits one", () => {
     const half = 100_000n * USDC;
@@ -292,7 +297,16 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     r = withTrancheState(r, 1, "planned", 2, { notBefore: facts.now - 1 });
     expect(nextAction(r, facts)).toEqual({ kind: "commit", index: 1 });
     r = withTrancheState(r, 1, "refunded", 3);
+    // the seventh review round (B1): swapping a returned step again pays its fees again — the user's word first, then the re-plan
+    const ask = nextAction(r, facts);
+    expect(ask).toMatchObject({ kind: "pause", reason: "bounds", detail: expect.stringContaining(REPLAN_PAUSE) });
+    expect(ask).toMatchObject({ replan: true });
+    r = withCampaignState(withCampaignState({ ...withCampaignState(r, "paused", 4, (ask as { detail: string }).detail), replanAskedAt: 4 }, "reassessing", 5), "running", 6);
     expect(nextAction(r, facts)).toEqual({ kind: "replan" });
+    // a step that comes back later is asked about again: a resume from another pause, before the question, is not the answer
+    let later = withTrancheState(replan(r, [p], 7), 2, "refunded", 8);
+    later = withCampaignState(withCampaignState(withCampaignState(later, "paused", 9), "reassessing", 10), "running", 11);
+    expect(nextAction(later, facts)).toMatchObject({ kind: "pause", replan: true });
     const again = replan(r, [p], 4);
     expect(again.tranches).toHaveLength(3);
     expect(again.tranches[2]).toMatchObject({ index: 2, state: "planned", amount: p.toString() });
@@ -367,5 +381,70 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     const seqWait = nextAction(withCampaignState(campaign([half, half], ["executing", "planned"], {}, { concurrency: "sequential", maxParallel: 1, capBps: 5000 }), "running", 1), facts);
     expect(seqWait).toEqual({ kind: "track", indexes: [0] });
     expect(TRACK_INTERVAL_MS).toBe(15_000);
+  });
+});
+
+describe("the seventh review round (2026-11-03): what ended undelivered, what is kept, the hold, a failed step's refund, the re-plan's consent", () => {
+  const p = 50n * ETH;
+  const facts = { now: 2_000_000, pause: null, notesShaped: true };
+  it("exposure: an undelivered step, a short refund and a partial fill whose rest never came back are ended — never completed, never remaining; a kept remainder is neither", () => {
+    let c = campaign([p, p, p, p, p], ["undelivered", "refunded", "settled", "skipped", "planned"]);
+    c = withTrancheState(c, 1, "refunded", 2, { outcome: { refunded: (p - ETH / 100n).toString() } }); // the tip stayed behind
+    c = withTrancheState(c, 2, "settled", 3, { amount: (30n * ETH).toString(), funded: p.toString(), outcome: { refunded: "0" } }); // 30 delivered, nothing back
+    c = withTrancheState(c, 3, "skipped", 4, { outcome: { kept: true } });
+    const e = exposure(c);
+    expect(e.completed).toBe(30n * ETH);
+    expect(e.ended).toBe(p + ETH / 100n + 20n * ETH);
+    expect(e.kept).toBe(p);
+    expect(e.remaining).toBe(p + p - ETH / 100n); // the planned step and what came back
+    const l = ledger(c);
+    expect(BigInt(l.completed) + BigInt(l.inFlight) + BigInt(l.pending) + BigInt(l.remaining) + BigInt(l.ended) + BigInt(l.kept)).toBe(BigInt(l.totalOrderValue));
+    // a partial fill settled for what was not returned (n19) ends nothing
+    const n19 = withTrancheState(campaign([p, p], ["executing", "planned"]), 0, "settled", 5, { amount: (35n * ETH).toString(), funded: p.toString(), outcome: { refunded: (15n * ETH).toString() } });
+    expect(exposure(n19)).toMatchObject({ completed: 35n * ETH, ended: 0n, remaining: p + 15n * ETH }); // the planned step and the 15 that came back
+  });
+  it("an undelivered first step never passes the first-step health test", () => {
+    const c = campaign([p, p, p], ["undelivered", "executing", "planned"], {}, { concurrency: "parallel", maxParallel: 2, capBps: 10000 });
+    expect(canRelease(c, p)).toMatchObject({ ok: false, reason: expect.stringContaining("first tranche") });
+  });
+  it("detectPause: a step ended undelivered pauses as a provider error with its words; a velocity limit without a price pauses", () => {
+    const c = withCampaignState(campaign([p, p]), "running", 1);
+    expect(detectPause(c, { now: 2, walletPaused: false, stepUndelivered: "Step 1: another token." })).toEqual({ reason: "provider-error", detail: "Step 1: another token." });
+    expect(detectPause(c, { now: 2, walletPaused: false, velocityUnknown: true })).toMatchObject({ reason: "velocity", detail: expect.stringContaining("no price") });
+  });
+  it("the campaign's hold: no commit before it, first step or later, whatever a step's own notBefore says", () => {
+    const held = { ...campaign([p, p, p], [], {}, { capBps: 10000 }), holdUntil: facts.now + 86_400_000 };
+    expect(nextAction(held, facts)).toEqual({ kind: "wait", until: facts.now + 86_400_000, why: expect.stringContaining("hold") });
+    let r = withCampaignState(held, "running", 1);
+    r = withTrancheState(r, 0, "planned", 2, { notBefore: facts.now - 1 }); // a requote's draw in the past
+    expect(nextAction(r, facts)).toMatchObject({ kind: "wait", until: facts.now + 86_400_000 });
+    expect(nextAction(r, { ...facts, now: facts.now + 86_400_001 })).toEqual({ kind: "commit", index: 0 });
+  });
+  it("a failed step pauses; once the user resumed after it failed, it returns through its own refund — never a pause at every Resume", () => {
+    let r = withCampaignState(campaign([p, p]), "running", 1);
+    r = withTrancheState(r, 0, "failed", 10);
+    expect(nextAction(r, facts)).toMatchObject({ kind: "pause", reason: "provider-error", index: 0 });
+    const before = withCampaignState(withCampaignState(withCampaignState(r, "paused", 5), "reassessing", 6), "running", 7); // a resume before it failed
+    expect(nextAction({ ...r, history: before.history }, facts)).toMatchObject({ kind: "pause" });
+    r = withCampaignState(withCampaignState(withCampaignState(r, "paused", 11), "reassessing", 12), "running", 13);
+    expect(nextAction(r, facts)).toEqual({ kind: "refund", index: 0 });
+  });
+  it("a remainder whose steps were never funded (expired) is planned again without asking: no fee was paid for it", () => {
+    let r = withCampaignState(campaign([p, p]), "running", 1);
+    r = withTrancheState(withTrancheState(r, 0, "settled", 2), 1, "skipped", 3);
+    expect(nextAction(r, facts)).toEqual({ kind: "replan" });
+  });
+  it("the bounds: a step's executor tip above the Review's × CONGESTION_FACTOR is refused", () => {
+    const b = bounds({ maxExecutorTip: "3000" });
+    const x = { amount: p, toAmountMin: rateE18(24_000_000n, 800n * ETH) * p / 10n ** 18n + 1n, quoteExpiresAt: 1_000, feeBps: 1, destination: "bc1q", fundedBefore: 0n, now: 1 };
+    expect(checkWithinBounds(b, { ...x, executorTip: 3000n })).toEqual({ ok: true });
+    expect(checkWithinBounds(b, { ...x, executorTip: 3001n })).toMatchObject({ ok: false, reason: expect.stringContaining("executor tip") });
+  });
+  it("the riskier class and the stricter gate", () => {
+    expect(riskierClass("R2", "R5")).toBe("R5");
+    expect(riskierClass("R6", "R5")).toBe("R6");
+    expect(riskierClass("R4", "R1")).toBe("R4");
+    expect(stricterGate("source", "destination-final")).toBe("destination-final");
+    expect(stricterGate("destination-submitted", "source")).toBe("destination-submitted");
   });
 });
