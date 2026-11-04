@@ -77,7 +77,7 @@ describe.skipIf(!have)("the percentage on the forge-verified withdrawal (spec §
     expect(r.feeWei).toBe(FEE);
     await expect(withBps(1000).submit(req)).rejects.toMatchObject({
       code: "fee_below_percent",
-      message: expect.stringMatching(/below 10\.00 % of the 650000000000000000 leaving the pool plus the minimum 2160000000000000 \(67160000000000000 in vault/),
+      message: expect.stringMatching(/below 10\.00 % of what leaves the pool plus the minimum 2160000000000000 \(67160000000000000 in vault/), // no amount in the words (the sixth review round)
     });
   });
   it("the percentage is of what leaves (W + f), rounded up: 7.36 % of 0.65 ETH plus the minimum is exactly the 0.05 ETH note, 7.37 % is not", async () => {

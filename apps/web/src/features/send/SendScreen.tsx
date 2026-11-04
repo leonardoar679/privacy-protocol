@@ -21,7 +21,7 @@ import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, type AssetO
 import { useT } from "../../app/i18n/useT";
 import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
-import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
+import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { HousekeepingNeeded, privateTransfer, privateWithdrawal, maxSpendable } from "@privacy-wallet/sdk/privateTx";
 import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
@@ -180,7 +180,9 @@ export function SendScreen(p: SendScreenProps) {
           delaySeconds: 0,
           amount: units,
           decimals: asset.decimals,
-          amountIsBucket: dest.kind === "private" ? true : isBucketFor(asset, units),
+          // the public amount is what arrives, the fee taken off (the sixth review round, 2026-11-03); a whole note's exit is named
+          amountIsBucket: dest.kind === "private" ? true : isBucketFor(asset, split?.delivered ?? units),
+          amountIsWholeNote: dest.kind !== "private" && units > 0n && isWholeNote(noteStore.unspent(BigInt(asset.vault)), units),
           holders: dest.kind === "public" ? holders : undefined,
           acknowledged,
         })

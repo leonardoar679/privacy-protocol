@@ -26,6 +26,20 @@ function timingOf(n: OwnedNote, leaves: number | null, now: number): FundingTimi
 
 const youngestOf = (notes: OwnedNote[]): OwnedNote => notes.reduce((a, b) => (b.leafIndex > a.leafIndex ? b : a));
 
+/**
+ * The wallet's own youngest public deposit in the vault (a Protect this wallet made: label "shield"), as a chain observer sees it
+ * (the sixth review round, 2026-11-03): an exit minutes after it is linked by time whichever notes it spends — the fact counted
+ * the notes' age alone, and "older notes first" read a funding three minutes after a Protect as well timed. Null without one.
+ */
+function youngestDeposit(vaultId: bigint, leaves: number | null, now: number): FundingTiming | null {
+  const deposits = noteStore.all().filter((n) => n.note.vaultId === vaultId && n.label === "shield");
+  return deposits.length ? timingOf(youngestOf(deposits), leaves, now) : null;
+}
+const lesser = (a: number | null, b: number | null): number | null => (a === null ? b : b === null ? a : Math.min(a, b));
+/** The younger of two timings: the smaller age, the fewer deposits since (an unknown side leaves the other). */
+export const youngerTiming = (a: FundingTiming, b: FundingTiming | null): FundingTiming =>
+  b ? { ageSeconds: lesser(a.ageSeconds, b.ageSeconds), depositsSince: lesser(a.depositsSince, b.depositsSince) } : a;
+
 /** The notes the withdrawal's own selection spends from `notes` for `needed`; "merge" when it needs a merge first, "short" when they do not cover it. */
 export function selectionOf(notes: OwnedNote[], needed: bigint): OwnedNote[] | "merge" | "short" {
   let sel: ReturnType<typeof selectInputs>;
@@ -47,8 +61,10 @@ export function fundingTiming(vaultId: bigint, amount: bigint, now = Date.now())
   if (!notes.length || amount <= 0n) return { ageSeconds: null, depositsSince: null };
   const sel = selectionOf(notes, amount);
   if (sel === "merge") return { ageSeconds: 0, depositsSince: 0 }; // a merge first: the funding spends a note made just now
-  // not enough for this amount: the screen says so; the timing reads the notes there are
-  return timingOf(youngestOf(sel === "short" ? notes : sel), poolStats.get()?.leaves ?? null, now);
+  const leaves = poolStats.get()?.leaves ?? null;
+  // not enough for this amount: the screen says so; the timing reads the notes there are — and never better than the wallet's
+  // own last deposit (the sixth review round)
+  return youngerTiming(timingOf(youngestOf(sel === "short" ? notes : sel), leaves, now), youngestDeposit(vaultId, leaves, now));
 }
 
 /** "Delay for more privacy": the bounds tried, best first — every note the funding spends has its own timing at most the bound. */
@@ -76,10 +92,16 @@ export function olderFunding(vaultId: bigint, amount: bigint, now = Date.now()):
   if (amount <= 0n) return null;
   const current = timingOfFunding(fundingTiming(vaultId, amount, now));
   const leaves = poolStats.get()?.leaves ?? null;
+  const floor = youngestDeposit(vaultId, leaves, now);
   for (const maxTiming of OLDER_NOTE_BOUNDS) {
     if (maxTiming >= current) return null;
     const sel = selectionOf(olderNotes(vaultId, maxTiming, now), amount);
-    if (Array.isArray(sel)) return { maxTiming, timing: timingOf(youngestOf(sel), leaves, now) };
+    if (!Array.isArray(sel)) continue;
+    // older notes cannot hide the wallet's own fresh deposit (the sixth review round, 2026-11-03): a Protect younger than the
+    // bound makes the funding wait for the random draw, whatever the notes it would spend
+    const timing = youngerTiming(timingOf(youngestOf(sel), leaves, now), floor);
+    if (timingOfFunding(timing) >= current) return null;
+    return { maxTiming, timing };
   }
   return null;
 }

@@ -13,6 +13,34 @@ import { record } from "../helpers/operations";
 const at = (rec: OperationRecord, state: OperationState, history: OperationState[] = [state]): OperationRecord => record({ ...rec, state, history: history.map((s) => ({ state: s, at: rec.updatedAt })) });
 const HASH = "0x" + "ab".repeat(32);
 
+describe("never 'not moved' after a send (the sixth review round, 2026-11-03)", () => {
+  it("a submission-failed with a not-moved code on a record whose send reached the chain becomes RECOVERY_REQUIRED, outcome unknown, the code kept in the detail", () => {
+    const sent = { ...at(record({ refs: { txHashes: [HASH] } }), "SOURCE_CONFIRMING", ["DRAFT", "SUBMITTING", "SOURCE_CONFIRMING"]) };
+    const r = transition(sent, { type: "submission-failed", code: "locked_mid_flow", detail: "the page locked" }, 2_000);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.record.state).toBe("RECOVERY_REQUIRED");
+    expect(r.record.reason).toMatchObject({ code: "outcome_unknown", fundsClass: "unknown" });
+    expect(r.record.reason?.detail).toMatch(/^locked_mid_flow: the page locked — after the send reached the chain/);
+    // a hash known while still SUBMITTING counts as sent too
+    const submitting = at(record({ refs: { txHashes: [HASH] } }), "SUBMITTING", ["DRAFT", "SUBMITTING"]);
+    const r2 = transition(submitting, { type: "submission-failed", code: "interrupted" }, 2_000);
+    expect(r2.ok && r2.record.state).toBe("RECOVERY_REQUIRED");
+    // not sent: a not-moved failure fails as before
+    const unsent = at(record(), "SUBMITTING", ["DRAFT", "SUBMITTING"]);
+    const r3 = transition(unsent, { type: "submission-failed", code: "locked_mid_flow" }, 2_000);
+    expect(r3.ok && r3.record.state).toBe("FAILED");
+    expect(r3.ok && r3.record.reason).toMatchObject({ code: "locked_mid_flow", fundsClass: "not-moved" });
+    // the chain's own verdicts after a send stay what they are: a reverted receipt or a dropped transaction is "not moved" by the chain's word
+    const dropped = transition(at(record({ refs: { txHashes: [HASH] } }), "SOURCE_CONFIRMING", ["DRAFT", "SUBMITTING", "SOURCE_CONFIRMING"]), { type: "submission-failed", code: "transaction_dropped" }, 2_000);
+    expect(dropped.ok && dropped.record.state).toBe("FAILED");
+    expect(dropped.ok && dropped.record.reason).toMatchObject({ code: "transaction_dropped", fundsClass: "not-moved" });
+    // the catalog: a lock after the send has its own code, funds unknown, monitoring on
+    expect(CATALOG.locked_after_send).toMatchObject({ fundsClass: "unknown", actions: ["continue-monitoring"] });
+    expect(failureTarget(CATALOG.locked_after_send ? { code: "locked_after_send", fundsClass: "unknown" } : { code: "unknown", fundsClass: "unknown" })).toBe("RECOVERY_REQUIRED");
+  });
+});
+
 describe("the table's happy paths", () => {
   it("a private send: review → the signature's progress → the relayer → the receipt → completed, with the refs and the phases", () => {
     const events: OperationEvent[] = [

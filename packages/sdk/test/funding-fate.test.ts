@@ -65,7 +65,7 @@ describe("a funding's fate", () => {
     const w = reads();
     expect(await fundingFate(attempt({ by: "wallet", relayerUrl: undefined }), w, NOW)).toBe("dead");
     expect(w.asked.some((a) => a.startsWith("job:"))).toBe(false);
-    expect(FUNDING_SETTLE_MS).toBe(600_000);
+    expect(FUNDING_SETTLE_MS, "an hour, as a wallet-sent spend waits (the sixth review round, 2026-11-03)").toBe(3_600_000);
   });
 
   it("dead at once when its transaction was mined and reverted — the journaled one, or the relayer's for its notes — however young", async () => {

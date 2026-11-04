@@ -631,6 +631,12 @@ export const en = {
   "op.error.locked_mid_flow.title": "Stopped: the wallet locked between two steps",
   "op.error.locked_mid_flow.reason":
     "The wallet locked before the next step, so nothing more was sent: at most an approval already confirmed, never the funds. Unlock and start again.",
+  "op.error.locked_after_send.title": "Sent — the wallet locked before it was recorded",
+  "op.error.locked_after_send.reason":
+    "The transaction went out and stands. The wallet locked before its result could be recorded; the next scan records it from the chain. Nothing more is sent.",
+  "op.error.spent_elsewhere.title": "Not sent: another operation spent these funds",
+  "op.error.spent_elsewhere.reason":
+    "This payment never reached the chain. Another operation of this wallet spent the same funds first, so nothing was sent by this one; that operation's own line in Activity shows where they went.",
   "op.error.outcome_unknown.title": "Sent — its transaction not found yet",
   "op.error.outcome_unknown.reason":
     "Your notes were spent, but the transaction is not known here yet. We keep checking; nothing more is sent until it is found.",
@@ -685,6 +691,9 @@ export const en = {
   "op.error.provider_timeout.title": "The execution window closed",
   "op.error.provider_timeout.reason":
     "The provider did not execute in time. Your funds return to your protected balance from the escrow after the refund time.",
+  "op.error.provider_failed.title": "The provider failed and nothing came back",
+  "op.error.provider_failed.reason":
+    "The provider reports the execution failed, and the executor's watch ended with nothing above dust in the escrow. Nothing more comes back on its own: check the provider's record of the execution transaction.",
   "op.error.destination_failed.title": "The provider could not deliver",
   "op.error.destination_failed.reason":
     "The destination transaction failed. Your funds return to your protected balance from the escrow after the refund time.",
@@ -895,6 +904,7 @@ export const en = {
   "lint.amount-private": "Private amounts show nothing.",
   "lint.amount-bucket": "The public amount is a common size.",
   "lint.amount-exact": "An exact public amount is a fingerprint; a bucket size hides in the crowd.",
+  "lint.amount-whole-note": "The amount is a whole note: what leaves equals one of your deposits less its fee, which an observer can match to that deposit. Spend another amount, or keep a remainder.",
   "lint.minimum-checked": "The minimum you approve is checked in the provider call before this wallet signs.",
   "lint.minimum-bound": "The provider call guarantees at least the minimum you approved.",
   "lint.minimum-unbound": "The provider call does not bind the minimum you approved.",
@@ -1750,7 +1760,7 @@ export const en = {
   "privacyCenter.storedNote": "All of it is encrypted with your password on this device; nothing is kept in plain text.",
   "privacyCenter.sent.rpc": "Your RPC endpoints",
   "privacyCenter.sent.rpc.what":
-    "Public chain reads: every event of the pool, as every user reads them — and which spent notes were this wallet's: at every scan and stale-record check it asks the endpoints whether its own notes were spent.",
+    "Public chain reads: every event of the pool, as every user reads them — the spends come with the deposits in the same read, so the endpoints are never asked about this wallet's own notes. Where a light client is on, the endpoint that answers its checks learns which notes it checks; each swap's one-time deposit address is read by its address.",
   "privacyCenter.sent.relayer": "The relayer",
   "privacyCenter.sent.relayer.what":
     "Your proven transaction and the opening of the fee note that pays it; for a swap, the order it executes. It keeps each job and its transaction to report their status. Never your keys.",

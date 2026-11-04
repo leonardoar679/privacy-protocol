@@ -18,6 +18,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { RpcDisagreement } from "@privacy-wallet/sdk/chain";
 import { startMockCore } from "./helpers/mockRpc";
+import { nullifier } from "@privacy-wallet/protocol/nullifier";
 
 /** The leaves the light client proves at the latest finalized block (null: no light client for this chain); the spent bits it proves (spentAll: null = no proof) and that block. */
 const proof = vi.hoisted(() => ({ leaves: null as number | null, asked: [] as number[], spentAll: null as boolean | null, spentBlock: 32n }));
@@ -53,6 +54,7 @@ const events: Record<number, { commitment: bigint; noteData: Hex }> = {
 };
 const tree = new MerkleTree(TX_LEVELS);
 for (const leaf of [0, 4]) tree.insertGroup([events[leaf].commitment, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]);
+const NULLIFIERS = [0, 4].map((leaf) => nullifier(events[leaf].commitment, keys.spendKey));
 
 let mock: Awaited<ReturnType<typeof startMockCore>>;
 /** a second endpoint serving the same pool (the third review round: the spent bits must agree across endpoints) */
@@ -87,6 +89,9 @@ beforeEach(() => {
   proof.spentBlock = 32n;
   mock.state.spent = false;
   other.state.spent = false;
+  // the wallet's nullifiers (both notes are the privacy address's: the spend key's): what `spent` marks through the pool's events
+  mock.state.allNullifiers = NULLIFIERS;
+  other.state.allNullifiers = NULLIFIERS;
 });
 
 describe("notes past the pool the light client proved (audit round 2, r24)", () => {

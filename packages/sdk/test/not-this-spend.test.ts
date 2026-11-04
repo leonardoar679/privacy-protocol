@@ -171,7 +171,7 @@ describe("a spend is the transaction that spends its notes", () => {
     expect(session.epoch()).not.toBe(before);
     release();
     const e = await merge;
-    expect(e).toMatchObject({ code: "locked_mid_flow" });
+    expect(e, "sent: its outcome is unknown here, never 'not moved' (the sixth review round)").toMatchObject({ code: "locked_after_send" });
     expect(noteStore.all(), "the other wallet's store holds nothing of the old wallet's spend").toEqual([]);
     w.gate = null;
     session.lock();

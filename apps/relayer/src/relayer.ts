@@ -197,7 +197,8 @@ export class Relayer {
     const bps = pi.mode === 1n ? (this.cfg.feePercentBps ?? 0) : 0;
     const verdict = feeMeetsTerms(pi.mode === 1n ? pi.withdrawalAmount : 0n, feeWei, bps, minFee);
     if (!verdict.ok && verdict.code === "fee_too_low") throw new RelayerError("fee_too_low", `fee ${feeWei} is below the current minimum ${minFee} in vault ${feeVault}`);
-    if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of the ${pi.withdrawalAmount + feeWei} leaving the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
+    // the refusal names the required fee, never the amount leaving (the sixth review round, 2026-11-03): W + f is the typed amount or a whole note
+    if (!verdict.ok) throw new RelayerError("fee_below_percent", `fee ${feeWei} is below ${bpsLabel(bps)} of what leaves the pool plus the minimum ${minFee} (${verdict.required} in vault ${feeVault})`);
     // again, with the reservation below and nothing awaited in between: two requests at once, one of them held
     if (nullifiers.some((n) => this.inflight.has(n))) throw new RelayerError("nullifier_in_flight", "a transaction spending one of these notes is already in flight here");
     if (this.revertedWithin(nullifiers, Date.now())) throw new RelayerError("reverted_before", `a transaction spending these notes reverted on chain at this relayer in the last ${REVERTED_HOLD_MS / 3_600_000} h: it is not sent again from here`);

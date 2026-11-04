@@ -129,6 +129,13 @@ export const CATALOG: Record<string, CatalogRow> = {
   // was sent — at most an approval already confirmed, never the funds (the review round of 2026-11-02; "interrupted" is the
   // page's closing, whose words say so)
   locked_mid_flow: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // the wallet locked after the send reached the chain, while its receipt was awaited (the sixth review round, 2026-11-03): the
+  // transaction stands; the record waits for the chain's word — the stale mover completes it from the receipt at the next scan.
+  // Before, it carried locked_mid_flow, "nothing moved", and the record failed as "start again": a second send paid twice
+  locked_after_send: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // a Send whose answer was lost and whose notes another operation of this wallet then spent (the sixth review round, 2026-11-03): the
+  // pool's spend event names a call with other public inputs — this one can never land, and nothing of it was sent
+  spent_elsewhere: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   journal_unreadable: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   journal_not_kept: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
@@ -162,6 +169,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   partial_delivery: { source: "tracker", fundsClass: "still-protected", actions: ["continue-monitoring"] },
   needs_attention: { source: "tracker", fundsClass: "unknown", actions: ["continue-monitoring", "start-refund"] },
   late_refund: { source: "tracker", fundsClass: "still-protected", actions: ["continue-monitoring", "start-refund"] },
+  // the provider's last word is a failure (or a refund to the escrow that never arrived) and the executor's watch ended with nothing
+  // above dust in the escrow (the sixth review round, 2026-11-03): nothing more comes back on its own
+  provider_failed: { source: "tracker", fundsClass: "unknown", actions: ["continue-monitoring"] },
   price_deviation: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring", "review"] },
   provider_error: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring"] },
   chain_congestion: { source: "campaign", fundsClass: "still-protected", actions: ["continue-monitoring"] },

@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mnemonicToAccount } from "viem/accounts";
 import { bip39Seed, bitcoinAccount, evmAccount, solanaAccount } from "@privacy-wallet/protocol/wallet/chainKeys";
-import { consumeFreshAddress, dappAccount, lastFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { consumeFreshAddress, dappAccount, lastFreshAddress, lastUnusedFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { markAddressUsed, retireAddress, entryIdFor } from "@privacy-wallet/sdk/wallet/addressBook";
 import { seedToPhrase } from "@privacy-wallet/sdk/wallet/keystore";
 import { WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
@@ -39,6 +40,21 @@ describe("fresh addresses", () => {
     expect(peekFreshAddress(seed2, "evm", s).index).toBe(0);
   });
 
+  it("the last reserved address is offered again only while nothing used it: consumed as a destination, or retired, Receive offers a new one (the sixth review round, 2026-11-03)", async () => {
+    const s = new WalletSession(memoryStorage(), KDF);
+    await s.create("pw", seedBytes);
+    const seed = s.state().seed!;
+    expect(lastUnusedFreshAddress(seed, "bitcoin", s)).toBeNull();
+    const a0 = consumeFreshAddress(seed, "bitcoin", s);
+    expect(lastUnusedFreshAddress(seed, "bitcoin", s)?.address, "reserved, unused: shown").toBe(a0.address);
+    markAddressUsed("bitcoin", a0.address, "0xorder", s);
+    expect(lastUnusedFreshAddress(seed, "bitcoin", s), "a swap's destination: never offered to a payer").toBeNull();
+    expect(lastFreshAddress(seed, "bitcoin", s)?.address, "still the last reserved").toBe(a0.address);
+    const a1 = consumeFreshAddress(seed, "bitcoin", s);
+    expect(lastUnusedFreshAddress(seed, "bitcoin", s)?.address).toBe(a1.address);
+    retireAddress(entryIdFor("bitcoin", a1.address), s);
+    expect(lastUnusedFreshAddress(seed, "bitcoin", s), "retired: not offered").toBeNull();
+  });
   it("equal the reference derivation from the recovery phrase, and viem's independent BIP-44 for EVM", async () => {
     const s = new WalletSession(memoryStorage(), KDF);
     await s.create("pw", seedBytes);

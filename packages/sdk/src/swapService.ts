@@ -90,7 +90,7 @@ export interface ResumeRequest {
   /** the order's one-time key over the request (swapGuard.ts `restoreDigest`; audit round 2, r05): the API rebuilds an order only for its key */
   restoreSignature?: string;
 }
-export interface TrackResult { track: { state: string; destinationTxHash?: string; deliveredAmount?: string; deliveredAsset?: string; refundedAmount?: string; progress?: { parts: number; done: number } }; status: string }
+export interface TrackResult { track: { state: string; destinationTxHash?: string; deliveredAmount?: string; deliveredAsset?: string; refundedAmount?: string; progress?: { parts: number; done: number }; /** where the provider paid its refund (the sixth review round, 2026-11-03) */ refundedTo?: "escrow" | "destination" }; status: string }
 
 /** The hard quote guarantees less than the user approved at commit (whale spec §3, §14): the user is asked again. */
 export const ServiceMinimumMoved = ApiMinimumMoved;

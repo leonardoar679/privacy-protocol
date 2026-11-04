@@ -36,7 +36,7 @@ import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import type { SettlementLabel } from "@privacy-wallet/sdk/orderTracker";
 import { formatDateTime } from "../../app/i18n/intl";
-import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
+import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
 import { feeTerms, maxSpendable } from "@privacy-wallet/sdk/privateTx";
@@ -313,11 +313,15 @@ export function SwapScreen(p: SwapScreenProps) {
   const delayOffered = recentFunds && !protectedSteps && !campaignMode && policy !== "fastest";
   const delayOn = delay && delayOffered;
   const older = delayOn && fromAsset ? olderFunding(BigInt(fromAsset.vault), units, now) : null;
+  // the amount an observer sees is what leaves the pool for the escrow — the typed amount less the fee note (the sixth review
+  // round, 2026-11-03): the fact was judged on the typed amount before, and a bucket typed never reached the chain as one
+  const leaving = terms ? swapFunding(units, terms).delivered : units;
+  const wholeNote = fromAsset && units > 0n ? isWholeNote(noteStore.unspent(BigInt(fromAsset.vault)), units) : false;
   const privacy =
     fromAsset && units > 0n
       ? assessSwapPrivacy({
           sourceIsPool: true,
-          amount: { kind: isBucketFor(fromAsset, units) ? "bucket" : "exact" },
+          amount: { kind: isBucketFor(fromAsset, leaving) && !wholeNote ? "bucket" : "exact" },
           timing: older ? older.timing : timing,
           ...(delayOn && !older ? { delaySeconds: DELAY_WINDOW.balanced[0] } : {}),
           destination: edited ? "entered" : "fresh",
@@ -367,7 +371,8 @@ export function SwapScreen(p: SwapScreenProps) {
           account: p.account ?? null,
           amount: units,
           decimals: fromAsset.decimals,
-          amountIsBucket: isBucketFor(fromAsset, units),
+          amountIsBucket: isBucketFor(fromAsset, leaving),
+          amountIsWholeNote: wholeNote,
           holders,
           acknowledged,
           destination,

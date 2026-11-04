@@ -9,6 +9,7 @@ import {
   FAILURE_STATES,
   PRE_SUBMISSION_STATES,
   TERMINAL_STATES,
+  wasSent,
   wasSubmitted,
   type OperationReason,
   type OperationRecord,
@@ -88,6 +89,13 @@ function mergeRefs(r: OperationRecord["refs"], e: EventRefs): OperationRecord["r
 }
 const hasRefs = (ev: OperationEvent): boolean => REFS.some((k) => k in ev);
 
+/**
+ * The "not moved" verdicts the chain itself gives after a send — a reverted receipt, a transaction every endpoint forgot while
+ * the notes stayed unspent, one that spends other notes (operations/stale.ts) — as opposed to a flow's own error after its
+ * submission, which says nothing about the chain (the sixth review round, 2026-11-03).
+ */
+const CHAIN_VERDICTS: ReadonlySet<string> = new Set(["receipt_reverted", "transaction_dropped", "not_this_spend", "spent_elsewhere"]);
+
 /** The catalog reason of a code (I-O3): an unknown code becomes `unknown` with the original kept in the detail. */
 export function reasonOf(code: string | undefined, fallback: string, detail?: string): OperationReason {
   const c = code || fallback;
@@ -135,6 +143,7 @@ function fieldEvent(rec: OperationRecord, ev: OperationEvent, at: number): Trans
         ...(ev.noteCounter !== undefined ? { noteCounter: ev.noteCounter } : {}),
         ...(ev.nullifiers ? { nullifiers: ev.nullifiers } : {}),
         ...(ev.relayerUrl ? { relayerUrl: ev.relayerUrl } : {}),
+        ...(ev.inputsDigest ? { inputsDigest: ev.inputsDigest } : {}),
       };
       const refs = Object.keys(kept).length ? { ...rec.refs, ...kept } : rec.refs;
       return {
@@ -225,12 +234,20 @@ export function transition(rec: OperationRecord, ev: OperationEvent, now = Date.
   // I-O3: a failure state's reason — the event's code, its default, or (a resume) the record's own
   const code = "code" in ev ? ev.code : undefined;
   const detail = "detail" in ev ? ev.detail : undefined;
-  const reason =
+  let reason =
     FAILURE_STATES.includes(target) || ev.type === "quote-expired"
       ? ev.type === "resume" && rec.reason
         ? rec.reason
         : reasonOf(code, ev.type === "quote-expired" && wasSubmitted(rec) ? "minimum_moved" : (DEFAULT_CODES[ev.type] ?? "unknown"), detail) // after the funding: the user's choice (spec v3.0 §6)
       : undefined;
+  // a send that reached the chain is never "not moved" (the sixth review round, 2026-11-03): a flow's own error after its
+  // submission — the wallet locked while the receipt was awaited, say — had failed the record as "nothing moved: start again",
+  // and a second send paid the recipient twice. Such a record waits for the chain's word instead (the stale mover completes it
+  // from the receipt at the next scan)
+  if (ev.type === "submission-failed" && reason?.fundsClass === "not-moved" && !CHAIN_VERDICTS.has(reason.code) && wasSent(rec) && (rec.state === "SUBMITTING" || rec.state === "SOURCE_CONFIRMING")) {
+    reason = reasonOf("outcome_unknown", "outcome_unknown", `${reason.code}${reason.detail ? `: ${reason.detail}` : ""} — after the send reached the chain; its receipt decides`);
+    target = "RECOVERY_REQUIRED";
+  }
   if (target === "FAILED" && reason) target = failureTarget(reason); // I-O6
 
   const self = target === rec.state;

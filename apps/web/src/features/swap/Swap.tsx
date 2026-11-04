@@ -39,7 +39,8 @@ import type { CheckedCall, MinimumMoved } from "@privacy-wallet/sdk/providerCall
 import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { recoverSwapRefunds } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
-import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset } from "@privacy-wallet/sdk/assets";
+import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "@privacy-wallet/sdk/relayer";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
@@ -221,7 +222,9 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       const split = terms ? swapFunding(units, terms) : null;
       if (split?.tooSmall) throw new Error(t("swap.tooSmallForFees"));
       setFunding(terms && split ? { amount: units, terms, split } : null);
-      return swapService.quote({ ...request(), amount: (split ? split.delivered : units).toString(), grossAmount: units.toString() }); // p(A) of what the user pays (spec v3.0 §3)
+      // destination "": the engine quotes a placeholder, the fresh address reaches the chosen provider at the confirmation (spec v2.0 §13.2;
+      // the sixth review round, 2026-11-03: the service had seen the real address at every indicative quote)
+      return swapService.quote({ ...request(), destination: "", amount: (split ? split.delivered : units).toString(), grossAmount: units.toString() }); // p(A) of what the user pays (spec v3.0 §3)
     });
     if (set) setQuotes(set);
   }
@@ -352,7 +355,8 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const executeControls = controlsFor(storedTier);
   const holdActive = !!stored?.reviewHoldUntil && stored.reviewHoldUntil > Date.now();
   const quotedOnly = quotes?.competition ? quotes.competition.filter((c) => c.outcome === "quoted").length : undefined;
-  const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, units), holders, acknowledged };
+  // the public amount is the escrow's funding, the fee note taken off (the sixth review round, 2026-11-03); a whole note's exit is named
+  const lintInput = { tier: assessment?.tier ?? ("standard" as const), deployment, settings: { submission, verifyReads }, account, amount: units, decimals: fromAsset.decimals, amountIsBucket: isBucketFor(fromAsset, escrowAmount), amountIsWholeNote: units > 0n && isWholeNote(noteStore.unspent(BigInt(fromAsset.vault)), units), holders, acknowledged };
   const lintItems: LintItem[] | null = quotes && chosen ? walletLint({ ...lintInput, action: "swap", destination, destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: chosen.provider, ...(campaignMode && protectionPlan ? { campaign: { sizing: protectionPlan.sizing, consecutiveSameSize: false, destinationPerTranche: !destinationEdited, cadenceFixed: false, destinationCooling: !!destCheck && !destCheck.ok } } : {}) }) : null;
   ctx.lintItems = lintItems;
   const signLint = checked && stored ? walletLint({ ...lintInput, action: "swap", destination: String((stored.request as { destination?: string })?.destination ?? destination), destinationKind: destinationEdited ? "entered" : "fresh", delaySeconds: window[0], quotes, chosenProvider: checked.provider, checked, approvedMin: stored.approvedMin ? BigInt(stored.approvedMin) : null }) : null;

@@ -633,6 +633,12 @@ export const ko: Record<MessageKey, string> = {
   "op.error.locked_mid_flow.title": "중단됨: 두 단계 사이에 지갑이 잠겼습니다",
   "op.error.locked_mid_flow.reason":
     "다음 단계 전에 지갑이 잠겨 더 이상 전송되지 않았습니다. 이미 확정된 승인이 있을 수는 있지만 자금은 이동하지 않았습니다. 잠금을 해제하고 다시 시작하세요.",
+  "op.error.locked_after_send.title": "전송됨 — 기록 전에 지갑이 잠겼습니다",
+  "op.error.locked_after_send.reason":
+    "트랜잭션은 전송되어 유효합니다. 결과를 기록하기 전에 지갑이 잠겼으며, 다음 스캔에서 체인으로부터 기록합니다. 더 이상 전송되지 않습니다.",
+  "op.error.spent_elsewhere.title": "전송되지 않음: 다른 작업이 이 자금을 먼저 사용했습니다",
+  "op.error.spent_elsewhere.reason":
+    "이 결제는 체인에 도달하지 않았습니다. 이 지갑의 다른 작업이 같은 자금을 먼저 사용했으므로 이 작업으로는 아무것도 전송되지 않았습니다. 자금의 행방은 활동 목록에서 그 작업의 항목에 있습니다.",
   "op.error.outcome_unknown.title": "전송됨 — 트랜잭션을 아직 찾지 못함",
   "op.error.outcome_unknown.reason": "노트는 사용되었지만 트랜잭션을 아직 여기서 확인하지 못했습니다. 계속 확인하며, 찾을 때까지 더 보내지 않습니다.",
   "op.error.transaction_dropped.title": "거래가 확인되지 않았습니다",
@@ -680,6 +686,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.tracker_unknown.reason": "마지막 정산 조회가 실패했습니다. 지갑이 다시 조회하며, 그동안 아무것도 전송하지 않습니다.",
   "op.error.provider_timeout.title": "실행 기간이 끝났습니다",
   "op.error.provider_timeout.reason": "제공자가 제시간에 실행하지 않았습니다. 환불 시점이 지나면 자금이 에스크로에서 보호 잔액으로 돌아옵니다.",
+  "op.error.provider_failed.title": "제공자가 실패했고 아무것도 돌아오지 않았습니다",
+  "op.error.provider_failed.reason":
+    "제공자는 실행이 실패했다고 보고했고, 실행자의 감시는 에스크로에 먼지 이상의 잔액 없이 끝났습니다. 더 이상 저절로 돌아오는 것은 없습니다. 제공자의 실행 트랜잭션 기록을 확인하세요.",
   "op.error.destination_failed.title": "제공자가 전달하지 못했습니다",
   "op.error.destination_failed.reason": "목적지 거래가 실패했습니다. 환불 시점이 지나면 자금이 에스크로에서 보호 잔액으로 돌아옵니다.",
   "op.error.execute_failed.title": "실행이 실패했습니다",
@@ -882,6 +891,8 @@ export const ko: Record<MessageKey, string> = {
   "lint.amount-private": "비공개 금액은 아무것도 드러내지 않습니다.",
   "lint.amount-bucket": "공개되는 금액은 자주 쓰는 금액입니다.",
   "lint.amount-exact": "정확한 공개 금액은 식별 단서가 됩니다. 자주 쓰는 금액은 군중 속에 숨습니다.",
+  "lint.amount-whole-note":
+    "이 금액은 노트 하나 전체입니다. 나가는 금액이 입금액에서 수수료를 뺀 값과 같아 관찰자가 그 입금과 맞춰 볼 수 있습니다. 다른 금액을 쓰거나 잔액을 남기세요.",
   "lint.minimum-checked": "승인한 최소 수령액은 이 지갑이 서명하기 전에 제공자 호출에서 확인됩니다.",
   "lint.minimum-bound": "제공자 호출은 승인한 최소 수령액 이상을 보장합니다.",
   "lint.minimum-unbound": "제공자 호출이 승인한 최소 수령액에 묶여 있지 않습니다.",
@@ -1721,7 +1732,7 @@ export const ko: Record<MessageKey, string> = {
   "privacyCenter.storedNote": "모두 이 기기에서 비밀번호로 암호화되며, 평문으로 보관되는 것은 없습니다.",
   "privacyCenter.sent.rpc": "내 RPC 엔드포인트",
   "privacyCenter.sent.rpc.what":
-    "공개 체인 조회: 풀의 모든 이벤트를 다른 사용자처럼 읽습니다. 다만 스캔마다, 오래된 기록을 점검할 때마다 지갑이 자기 노트의 사용 여부를 엔드포인트에 묻기 때문에, 어떤 사용된 노트가 이 지갑의 것이었는지는 엔드포인트가 알게 됩니다.",
+    "공개 체인 조회: 풀의 모든 이벤트를 다른 사용자처럼 읽습니다. 사용 기록도 입금과 같은 조회로 함께 오므로, 이 지갑의 노트에 대해 엔드포인트에 따로 묻지 않습니다. 라이트 클라이언트를 켠 경우 검증에 답하는 엔드포인트는 어떤 노트를 검증하는지 알게 되며, 각 스왑의 일회용 입금 주소는 주소로 조회됩니다.",
   "privacyCenter.sent.relayer": "릴레이어",
   "privacyCenter.sent.relayer.what":
     "증명된 거래와 그 비용을 내는 수수료 노트의 공개 정보, 스왑이라면 실행할 주문. 상태를 알려 주기 위해 각 작업과 그 거래를 보관합니다. 키는 절대 보내지 않습니다.",

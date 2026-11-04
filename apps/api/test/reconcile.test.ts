@@ -26,6 +26,43 @@ async function reconcile(): Promise<{ status: number; body: any }> {
   return h.post(`/v1/operations/${id}/reconcile`, {});
 }
 
+describe("reconcile — the sixth review round (2026-11-03): a refund at the destination, a provider failure with nothing back, an unread escrow after the watch", () => {
+  it("a refund the provider paid at the destination is COMPLETED while the executor still watches", async () => {
+    h.script.balance = amount;
+    await reconcile();
+    h.script.job = { state: "executed", executionTx: EXEC };
+    h.script.balance = 0n;
+    h.adapter.track_ = { state: "refunded", refundedTo: "destination" };
+    const r = await reconcile();
+    expect(r.body).toMatchObject({ state: "COMPLETED", settlement: "COMPLETED" });
+  });
+  it("a failure with nothing back after the watch needs recovery with its reason; an unread escrow after the watch settles nothing", async () => {
+    h.script.balance = amount;
+    await reconcile();
+    h.script.job = { state: "completed", executionTx: EXEC };
+    h.script.balance = null as unknown as bigint; // unread this time
+    h.adapter.track_ = { state: "failed" };
+    let r = await reconcile();
+    expect(r.body, "unread escrow: nothing settles").toMatchObject({ state: "DESTINATION_CONFIRMING" });
+    h.script.balance = 0n;
+    r = await reconcile();
+    expect(r.body).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "provider_failed" } });
+    expect(r.body.settlement, "no refund on its way").not.toBe("REFUNDING");
+    // the provider's refund to the escrow that the watch never saw arrive: the same end
+    const c = await h.post("/v1/operations", orderBody({ amount: "123450000000000000" } as never));
+    if (c.body.operationId && c.body.operationId !== id) {
+      id = c.body.operationId;
+      h.script.balance = BigInt(c.body.order.params.amount);
+      await reconcile();
+      h.script.job = { state: "completed", executionTx: EXEC };
+      h.script.balance = 0n;
+      h.adapter.track_ = { state: "refunded" };
+      r = await reconcile();
+      expect(r.body).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "provider_failed" } });
+    }
+  });
+});
+
 describe("reconcile — the legs of doc §82", () => {
   it("funded, then executing, then the destination pending, then completed: the state and the settlement follow; completed is final and stamped", async () => {
     h.script.balance = amount;

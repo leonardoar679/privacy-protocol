@@ -8,7 +8,7 @@
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
 import { publicClientFor } from "@privacy-wallet/privacy-engine/transport/chain";
 import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
-import { getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient } from "viem";
+import { formatTransactionReceipt, getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient, type RpcTransactionReceipt, type TransactionReceipt } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { txDomain } from "@privacy-wallet/protocol/payload";
@@ -40,6 +40,8 @@ export const otherClientsFor = (d: Deployment): PublicClient[] => (d.rpcUrls ?? 
 export const txDomainOf = (d: Deployment): bigint => txDomain(BigInt(d.chainId), BigInt(d.core));
 
 const noteInserted = parseAbiItem("event NoteInserted(uint32 indexed leafIndex, uint256 commitment, bytes noteData)");
+/** PrivacyCore's spend: the two nullifiers a transact consumed (the sixth review round, 2026-11-03: read fetch-all with the note events) */
+const shieldedTransaction = parseAbiItem("event ShieldedTransaction(uint256 nullifier0, uint256 nullifier1, uint256 commitment0, uint256 commitment1, uint256 commitment2)");
 /** IAssetVault: a payout its recipient refused, held by the vault as that address's claim (audit round 2, r42) */
 const claimCreated = parseAbiItem("event WithdrawalClaimCreated(address indexed recipient, uint256 amount)");
 
@@ -53,6 +55,8 @@ export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: numb
  * reorg-aware incremental version).
  */
 export interface NoteInsertedLog { leafIndex: number; commitment: bigint; noteData: Hex; transactionHash: Hex; blockNumber: bigint }
+/** One spend of the pool: the transact's two nullifiers, its transaction and block (the sixth review round, 2026-11-03). */
+export interface SpendLog { nullifier0: bigint; nullifier1: bigint; transactionHash: Hex; blockNumber: bigint }
 
 /** The block range a fetch-all read falls back to when an endpoint refuses one request for the whole history. */
 export const LOG_WINDOW_BLOCKS = 10_000n;
@@ -108,19 +112,44 @@ export async function noteInsertedLogs(client: PublicClient, d: Deployment, upTo
   return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment!, noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
 }
 
-/** One endpoint's view: the events, the core's leaf count and its current root — not yet hashed. */
-export interface RawView { logs: NoteInsertedLog[]; nextLeafIndex: number; onChainRoot: bigint }
+/**
+ * Every NoteInserted and every ShieldedTransaction event of the core, in one fetch-all read per window (the sixth review round,
+ * 2026-11-03): the spends come with the notes, so a note's spent bit is a lookup — never a per-nullifier read that names this
+ * wallet's notes to an endpoint. A fake client's log without a decoded event name is told apart by its fields.
+ */
+export async function coreLogs(client: PublicClient, d: Deployment, upTo?: bigint): Promise<{ logs: NoteInsertedLog[]; spends: SpendLog[] }> {
+  const raw = (await logsInWindows(
+    client,
+    d.fromBlock,
+    (fromBlock, toBlock) => client.getLogs({ address: d.core, events: [noteInserted, shieldedTransaction], fromBlock, toBlock, strict: true }),
+    LOG_WINDOW_BLOCKS,
+    upTo,
+  )) as unknown as { eventName?: string; args?: Record<string, unknown>; transactionHash: Hex; blockNumber: bigint }[];
+  const logs: NoteInsertedLog[] = [];
+  const spends: SpendLog[] = [];
+  for (const l of raw) {
+    const a = l.args ?? {};
+    if (l.eventName === "ShieldedTransaction" || (l.eventName === undefined && "nullifier0" in a))
+      spends.push({ nullifier0: BigInt(a.nullifier0 as bigint), nullifier1: BigInt(a.nullifier1 as bigint), transactionHash: l.transactionHash, blockNumber: l.blockNumber });
+    else if (l.eventName === "NoteInserted" || (l.eventName === undefined && "leafIndex" in a))
+      logs.push({ leafIndex: Number(a.leafIndex), commitment: a.commitment as bigint, noteData: a.noteData as Hex, transactionHash: l.transactionHash, blockNumber: l.blockNumber });
+  }
+  return { logs, spends };
+}
+
+/** One endpoint's view: the events, the spends, the core's leaf count and its current root at one block — not yet hashed. */
+export interface RawView { logs: NoteInsertedLog[]; spends: SpendLog[]; nextLeafIndex: number; onChainRoot: bigint; /** the block everything was read at */ block: bigint }
 
 export async function readView(client: PublicClient, d: Deployment): Promise<RawView> {
   // the events, the leaf count and the root at one block (audit round 2, n13): the windowed read had gone up to a block taken
   // after the root's read, and an insert in between failed the sync as a stale view
   const block = await client.getBlockNumber();
-  const [logs, next, onChainRoot] = await Promise.all([
-    noteInsertedLogs(client, d, block),
+  const [events, next, onChainRoot] = await Promise.all([
+    coreLogs(client, d, block),
     client.readContract({ address: d.core, abi: coreAbi, functionName: "nextLeafIndex", blockNumber: block }),
     client.readContract({ address: d.core, abi: coreAbi, functionName: "currentRoot", blockNumber: block }),
   ]);
-  return { logs, nextLeafIndex: Number(next), onChainRoot: BigInt(onChainRoot as Hex) };
+  return { logs: events.logs, spends: events.spends, nextLeafIndex: Number(next), onChainRoot: BigInt(onChainRoot as Hex), block };
 }
 
 /**
@@ -144,6 +173,9 @@ export const syncTree = async (client: PublicClient, d: Deployment): Promise<Tre
 /** A content digest of a log set: endpoints must agree on exactly these leaves and payloads. */
 export const logsDigest = (logs: NoteInsertedLog[]): Hex =>
   keccak256(toHex(logs.map((l) => `${l.leafIndex}:${l.commitment.toString(16)}:${l.noteData}`).join("|")));
+/** The same for the spends: every endpoint must list exactly these nullifier pairs and transactions (the sixth review round). */
+export const spendsDigest = (spends: SpendLog[]): Hex =>
+  keccak256(toHex(spends.map((s) => `${s.nullifier0.toString(16)}:${s.nullifier1.toString(16)}:${s.transactionHash}`).join("|")));
 
 export class RpcDisagreement extends Error {
   constructor(public readonly what: string, public readonly views: string[]) {
@@ -190,13 +222,17 @@ export async function syncTreeQuorum(d: Deployment): Promise<TreeState> {
 }
 
 /** The tree and the note events it was built from, both agreed by every configured endpoint (a rescan needs the payloads too). */
-export async function syncPoolQuorum(d: Deployment): Promise<{ tree: TreeState; logs: NoteInsertedLog[] }> {
+export async function syncPoolQuorum(d: Deployment): Promise<{ tree: TreeState; logs: NoteInsertedLog[]; /** every spend of the pool, agreed by every endpoint (the sixth review round) */ spends: SpendLog[]; /** the block the view was read at */ block: bigint }> {
   const views = await Promise.all(clientsFor(d).map((c) => readView(c, d)));
   const keys = views.map((v) => `${v.nextLeafIndex}/${v.onChainRoot.toString(16).slice(0, 10)}`);
   if (new Set(keys).size !== 1) throw new RpcDisagreement("the tree", keys);
   const digests = views.map((v) => logsDigest(v.logs));
   if (new Set(digests).size !== 1) throw new RpcDisagreement("the note events", digests.map((x) => x.slice(0, 10)));
-  return { tree: await buildTree(views[0]), logs: views[0].logs };
+  const spendDigests = views.map((v) => spendsDigest(v.spends));
+  if (new Set(spendDigests).size !== 1) throw new RpcDisagreement("the spend events", spendDigests.map((x) => x.slice(0, 10)));
+  // the earliest block any endpoint read at: a spend seen in every view is at or before it
+  const block = views.map((v) => v.block).reduce((m, b) => (b < m ? b : m));
+  return { tree: await buildTree(views[0]), logs: views[0].logs, spends: views[0].spends, block };
 }
 
 /** Submit through the injected wallet (public submission — a relayer / private channel is the L3 upgrade). */
@@ -245,6 +281,43 @@ export async function sendViaInjectedWallet(tx: TxRequest, chainId: number, expe
   })) as Hex;
 }
 
+/**
+ * The receipt of a transaction the connected wallet sent, read through its OWN provider (the sixth review round, 2026-11-03;
+ * threat-model A4): a Protect's receipt carries the user's public address as `from`, and read from this wallet's privacy
+ * endpoints it had handed one operator the link public address → IP → every later private spend. Null when no provider is
+ * connected, when it does not answer the method, or past `timeoutMs`: the caller then reads the endpoints, as before.
+ */
+export async function receiptViaInjectedWallet(
+  hash: Hex,
+  o: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    /** the flow is over (a lock, a replace): stop polling */ stop?: () => boolean;
+    /** the chain the transaction was sent on: a wallet switched to another network never finds it — the endpoints are read at once */ chainId?: number;
+  } = {},
+): Promise<TransactionReceipt | null> {
+  const eth = activeProvider();
+  if (!eth) return null;
+  const { timeoutMs = 10 * 60_000, intervalMs = 1500 } = o;
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until && !o.stop?.()) {
+    let raw: unknown;
+    try {
+      if (o.chainId !== undefined) {
+        const id = await eth.request({ method: "eth_chainId" });
+        const actual = typeof id === "string" && /^0x[0-9a-fA-F]+$/.test(id) ? parseInt(id, 16) : typeof id === "number" ? id : null;
+        if (actual !== o.chainId) return null;
+      }
+      raw = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] });
+    } catch {
+      return null;
+    }
+    if (raw && typeof raw === "object") return formatTransactionReceipt(raw as RpcTransactionReceipt);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
 /** Wait for a transaction and return the leaves it inserted (leaf index + commitment). */
 export async function noteInsertions(client: PublicClient, hash: Hex): Promise<{ leafIndex: number; commitment: bigint }[]> {
   return (await minedTx(client, hash)).inserted;
@@ -279,6 +352,8 @@ export async function minedTx(
   core?: Address,
   /** the deployment's other endpoints (`otherClientsFor`): each must give the same receipt, or ReceiptDisputed */
   others: readonly PublicClient[] = [],
+  /** a receipt already read (through the connected wallet's own provider): no endpoint is asked for it (the sixth review round) */
+  o: { receipt?: TransactionReceipt } = {},
 ): Promise<{
   inserted: { leafIndex: number; commitment: bigint }[];
   costWei: bigint;
@@ -289,8 +364,8 @@ export async function minedTx(
   /** the receipt's block (the third review round, 2026-11-03): where a spend was seen, for the mark the scan proves later */
   blockNumber: number;
 }> {
-  const receipt = await client.waitForTransactionReceipt({ hash });
-  if (others.length) {
+  const receipt = o.receipt ?? (await client.waitForTransactionReceipt({ hash }));
+  if (others.length && !o.receipt) {
     const key = receiptKey(receipt, core);
     const keys = await Promise.all(others.map((c) => c.waitForTransactionReceipt({ hash, timeout: RECEIPT_AGREE_MS }).then((r) => receiptKey(r, core), () => "none")));
     if (keys.some((k) => k !== key)) throw new ReceiptDisputed(hash, [key, ...keys]);

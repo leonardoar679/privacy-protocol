@@ -16,7 +16,7 @@ export type EngineEvent =
   | { type: "approved"; txHash: Hex }
   /** `nullifiers` (decimal) and, through a relayer, its `relayerUrl`: what an order journals before its funding is sent;
    *  `noteCounter`: the change note this spend makes for the wallet, which the note scan finds once it is mined */
-  | { type: "submitting"; by: "relayer" | "wallet"; nullifiers?: [string, string]; relayerUrl?: string; noteCounter?: number }
+  | { type: "submitting"; by: "relayer" | "wallet"; nullifiers?: [string, string]; relayerUrl?: string; noteCounter?: number; /** the call's public inputs digest (the sixth review round) */ inputsDigest?: string }
   | { type: "relayer-retry"; attempt: number }
   | { type: "submitted"; txHash: Hex; by: "relayer" | "wallet" }
   | { type: "waiting-receipt"; txHash: Hex }
@@ -76,6 +76,7 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
             ...(e.nullifiers ? { nullifiers: e.nullifiers } : {}),
             ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}),
             ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}),
+            ...(e.inputsDigest ? { inputsDigest: e.inputsDigest } : {}),
             ...(e.by ? { by: e.by } : {}),
           };
     case "relayer-retry":

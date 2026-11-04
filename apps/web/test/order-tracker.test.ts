@@ -73,10 +73,10 @@ describe("deriveState", () => {
 
   it("the end states: completed only after the watch, refunded with the note, needs attention says where the money is; never a bare failed", () => {
     const f = order({ fundedTx: "0x1", jobId: "j" });
-    const done = deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "completed", deliveredAmount: "3000000" } }));
+    const done = deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "completed", deliveredAmount: "3000000" }, escrowBalance: 0n }));
     expect(done).toMatchObject({ state: "COMPLETED", label: "Completed" });
     expect(steps(done)).toBe("1111");
-    expect(deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "1" } }))).toMatchObject({ state: "PARTIAL", label: "Partial" });
+    expect(deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "1" }, escrowBalance: 0n }))).toMatchObject({ state: "PARTIAL", label: "Partial" });
     expect(deriveState(f, facts({ job: job("refunding") }))).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
     expect(deriveState(f, facts({ job: job("refund-only") })).detail).toMatch(/re-shields after/);
     expect(deriveState(f, facts({ job: job("expired") })).detail).toMatch(/expired before execution/);
@@ -223,7 +223,7 @@ describe("an executed order the executor stopped watching (audit round 2, r36)",
     expect(ended({ state: "destination-submitted" })).toMatchObject({ state: "DESTINATION_SUBMITTED", label: "Waiting for destination", settlement: "DESTINATION_PENDING" });
     expect(ended({ state: "executing" })).toMatchObject({ state: "PROVIDER_EXECUTING", settlement: "PROVIDER_PENDING" });
     expect(ended(null).state, "an unread track is no delivery").toBe("PROVIDER_EXECUTING");
-    expect(ended({ state: "refunded" })).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
+    expect(ended({ state: "refunded" }), "the watch ended with nothing back: the provider failed, nothing more comes back on its own (the sixth review round)").toMatchObject({ state: "PROVIDER_FAILED", label: "Needs attention" });
     // the refund lands days later: 1 % of the order or more waits for the wallet's return
     const back = ended({ state: "destination-submitted" }, 4n * 10n ** 17n);
     expect(back).toMatchObject({ state: "LATE_REFUND", label: "Needs attention", settlement: "REFUND_AVAILABLE" });

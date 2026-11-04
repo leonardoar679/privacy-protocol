@@ -85,9 +85,15 @@ export class AcrossAdapter implements ProviderAdapter {
     if (q.isAmountTooLow) throw new Error("Across: amount below the minimum deposit");
     if (q.spokePoolAddress.toLowerCase() !== SPOKE_POOL[req.from.chain]) throw new Error(`Across: unexpected SpokePool ${q.spokePoolAddress}`);
     const out = BigInt(q.outputAmount);
+    // Across's totalRelayFee is lpFee + relayerCapitalFee + relayerGasFee (outputAmount = amount − totalRelayFee.total): the LP fee is
+    // listed once, as liquidity, and the relayer's two parts as network (the sixth review round, 2026-11-03: the LP fee had been
+    // counted twice in the quote's provider fee)
+    const lp = q.lpFee ? BigInt(q.lpFee.total) : 0n;
+    const total = BigInt(q.totalRelayFee.total);
+    const relay = q.relayerCapitalFee && q.relayerGasFee ? BigInt(q.relayerCapitalFee.total) + BigInt(q.relayerGasFee.total) : total > lp ? total - lp : total;
     const fees: Fee[] = [
-      { kind: "network", amount: BigInt(q.totalRelayFee.total), asset: req.from.symbol, decimals: req.from.decimals },
-      ...(q.lpFee ? [{ kind: "liquidity" as const, amount: BigInt(q.lpFee.total), asset: req.from.symbol, decimals: req.from.decimals }] : []),
+      { kind: "network", amount: relay, asset: req.from.symbol, decimals: req.from.decimals },
+      ...(q.lpFee ? [{ kind: "liquidity" as const, amount: lp, asset: req.from.symbol, decimals: req.from.decimals }] : []),
     ];
     const ts = Number(q.timestamp), fill = Number(q.fillDeadline);
     // the provider's stated size limits (whale spec §2): above maxDepositInstant a fill waits for the next bundle, above maxDeposit it refuses

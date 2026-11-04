@@ -23,7 +23,7 @@ export const LINT_CODES = [
   "dest-privacy-address", "dest-fresh", "dest-entered", "dest-public-wallet", "dest-not-public-wallet",
   "link-unknown", "link-public", "link-private", "identity-unknown", "identity-detached", "identity-shared",
   "timing-transfer", "timing-delayed", "timing-short", "timing-none",
-  "amount-private", "amount-bucket", "amount-exact", "minimum-checked", "minimum-bound", "minimum-unbound",
+  "amount-private", "amount-bucket", "amount-exact", "amount-whole-note", "minimum-checked", "minimum-bound", "minimum-unbound",
   "network-gaps", "network-private", "piece-common", "piece-unknown", "piece-covered", "piece-rare",
   "steps-bucket", "steps-same-size", "steps-varied", "steps-fresh", "steps-same-destination", "cadence-fixed", "cadence-random",
   "dest-cooling", "dest-ready",
@@ -49,7 +49,10 @@ export interface LintFacts {
   providerIdentityDetached: boolean | null;
   /** the scheduled delay (the window's lower bound), seconds */
   delaySeconds: number;
+  /** the PUBLIC amount — what leaves the pool, the fee taken off — is a common size (the sixth review round, 2026-11-03: judged on the typed amount before, which the chain never shows) */
   amountIsBucket: boolean;
+  /** the amount is one of this wallet's whole notes: what leaves equals that deposit less its fee, which an observer can match to the deposit (the sixth review round) */
+  amountIsWholeNote?: boolean;
   /** the hard quote's minimum is verified in the call and the approved minimum encoded; null before the hard quote */
   minOutVerified: boolean | null;
   privateSubmission: boolean;
@@ -110,6 +113,7 @@ export function lint(f: LintFacts): LintItem[] {
   else add("timing", "warn", "Timing risk", say("timing-none", "Acting without a delay links funding and action by time; a longer window widens the set."));
 
   if (f.action === "transfer") add("amount-fingerprint", "ok", "Amount fingerprint", say("amount-private", "Private amounts show nothing."));
+  else if (f.amountIsWholeNote) add("amount-fingerprint", "warn", "Amount fingerprint", say("amount-whole-note", "The amount is a whole note: what leaves equals one of your deposits less its fee, which an observer can match to that deposit. Spend another amount, or keep a remainder."));
   else if (f.amountIsBucket) add("amount-fingerprint", "ok", "Amount fingerprint", say("amount-bucket", "The public amount is a common size."));
   else add("amount-fingerprint", "warn", "Amount fingerprint", say("amount-exact", "An exact public amount is a fingerprint; a bucket size hides in the crowd."));
 

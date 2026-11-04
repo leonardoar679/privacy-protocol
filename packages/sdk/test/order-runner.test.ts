@@ -31,6 +31,8 @@ import {
   acceptNewMinimum,
   ACCEPTED_CALL_MARGIN_MS,
   DELAY_FOR_PRIVACY,
+  delayedExecuteWindowSeconds,
+  ONE_CONFIRM_EXECUTE_WINDOW_SECONDS,
   resetOrderRunnerMemory,
   returnFunds,
   retryOrder,
@@ -240,6 +242,39 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
       record()!.history.map((h) => h.state),
       "journaled without confirmOrder here: the record starts at the funding",
     ).toEqual(["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "COMPLETED"]);
+  });
+
+  it("a refund the provider paid at the destination settles the order and ends its ticks; the journal closes it (the sixth review round, 2026-11-03)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+      const x = j.swaps[0];
+      x.quote = { ...(x.quote as object), refundTarget: "destination" };
+    });
+    const { w, io } = world();
+    expect(await drive(io, 2)).toEqual(["funded", "handed-over"]);
+    w.track = "REFUNDED_AT_DESTINATION";
+    expect(await drive(io, 2, T0 + 60_000)).toEqual(["settled"]);
+    expect(pending(), "the order's ticks end with it").toBeUndefined();
+    expect(record()).toMatchObject({ state: "COMPLETED" });
+  });
+
+  it("the journal is read again before the hand-over: a refund or another tab's hand-over that landed while the executor was asked stops it (the sixth review round, 2026-11-03)", async () => {
+    order();
+    session.update((j) => {
+      j.schedule = [action()];
+    });
+    const { w, io } = world();
+    const asked = io.job;
+    io.job = async (st) => {
+      // at the read right before the hand-over (after the signing; the tick's first reconcile saw nothing): Return funds began in
+      // another tab meanwhile, and the journal names the refund job
+      if (w.signs >= 1) patchSwap(st.orderId, { jobId: "refund-elsewhere", state: "refunding" });
+      return asked(st);
+    };
+    expect(await drive(io, 2)).toEqual(["funded", "waiting"]);
+    expect(w.handOvers, "nothing handed over after the refund began").toBe(0);
+    expect(stored()).toMatchObject({ jobId: "refund-elsewhere", state: "refunding" });
   });
 
   it("a job the executor stopped watching settles the order only on a settled reading, read every 10 minutes till then (audit round 2, r36)", async () => {
@@ -912,7 +947,14 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect(r?.step).toBe("delayed");
     expect(pending()?.dueAt).toBe(delayUntil);
     expect(w.funds).toBe(0);
-    expect(DELAY_FOR_PRIVACY).toEqual([3600, 24 * 3600]);
+    expect(DELAY_FOR_PRIVACY, "1–24 h, the draw ending early enough for the funding's own window to fit the policy's budget (the sixth review round)").toEqual([
+      3600,
+      24 * 3600 - ONE_CONFIRM_EXECUTE_WINDOW_SECONDS - 600,
+    ]);
+    // a delayed order's window is the delay plus the one-confirm window: the escrow's public deadline encodes the planned funding, not the commit
+    expect(delayedExecuteWindowSeconds(T0 + 3 * 3600_000, T0)).toBe(3 * 3600 + ONE_CONFIRM_EXECUTE_WINDOW_SECONDS);
+    expect(delayedExecuteWindowSeconds(T0 + DELAY_FOR_PRIVACY[1] * 1000, T0), "the longest draw still fits a 24-hour budget").toBeLessThanOrEqual(24 * 3600);
+    expect(delayedExecuteWindowSeconds(T0 - 5, T0)).toBe(ONE_CONFIRM_EXECUTE_WINDOW_SECONDS);
     expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("funded");
     session.update((j) => {
       j.swaps = [];

@@ -53,6 +53,28 @@ const pi = {
 };
 const transact = encodeFunctionData({ abi: coreAbi, functionName: "transact", args: ["0x", pi, "0x", "0x", "0x"] });
 
+describe("a transaction's call inputs (the sixth review round, 2026-11-03)", () => {
+  it("the digest of a direct transact's public inputs; null for another target, another function or an unknown transaction; a re-randomized proof keeps it, other inputs change it", async () => {
+    const { transactInputsDigest } = await import("../src/privacyProtocol");
+    const reads = staleReads({ chainId: 1, core: CORE, rpcUrl: "http://127.0.0.1:1", fromBlock: 0n } as unknown as Deployment, null);
+    txs[h(90)] = { to: CORE, input: transact };
+    txs[h(91)] = { to: OTHER, input: transact };
+    txs[h(92)] = { to: CORE, input: encodeFunctionData({ abi: coreAbi, functionName: "transact", args: ["0x1234", pi, "0x", "0x", "0x"] }) };
+    txs[h(93)] = {
+      to: CORE,
+      input: encodeFunctionData({ abi: coreAbi, functionName: "transact", args: ["0x", { ...pi, outputBody0: 5n }, "0x", "0x", "0x"] }),
+    };
+    const d = await reads.txInputs!(h(90));
+    expect(d).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(d).toBe(transactInputsDigest(transact));
+    expect(await reads.txInputs!(h(91)), "another target: a smart account's call is not read here").toBeNull();
+    expect(await reads.txInputs!(h(92)), "another proof of the same inputs (a re-randomized proof)").toBe(d);
+    expect(await reads.txInputs!(h(93)), "other public inputs: another operation").not.toBe(d);
+    expect(await reads.txInputs!(h(94)), "unknown to the node").toBeNull();
+    expect(transactInputsDigest("0xdeadbeef")).toBeNull();
+  });
+});
+
 describe("what a transaction spends (audit round 2, n12)", () => {
   it("mined, from the core's own events, whoever called it; reverted or pending, from its own call to the core", async () => {
     const reads = staleReads({

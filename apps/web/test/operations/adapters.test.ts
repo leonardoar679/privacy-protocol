@@ -12,7 +12,7 @@ import type { OrderState } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJobState } from "@privacy-wallet/sdk/relayer";
 import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
-const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED", "LATE_REFUND"];
+const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED", "LATE_REFUND", "REFUNDED_AT_DESTINATION", "PROVIDER_FAILED"];
 const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed", "lapsed"];
 const TRANCHE_STATES: TrancheState[] = ["planned", "ready", "committed", "funded", "signed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "settled", "partial", "refunding", "refunded", "failed", "skipped"];
 const PAUSES: PauseReason[] = ["price-deviation", "provider-error", "chain-congestion", "route-degraded", "unexpected-destination", "security-incident", "anomaly", "reconcile", "bounds", "user", "wallet-pause", "velocity"];
@@ -44,6 +44,9 @@ describe("the mapping table", () => {
     expect(ORDER_STATE_MAP.CANCELLED.state).toBe("CANCELLED");
     // a refund back after the executor's watch (audit round 2, r36): the wallet's to return, its funds still protected
     expect(ORDER_STATE_MAP.LATE_REFUND).toMatchObject({ state: "RECOVERY_REQUIRED", phase: "settlement", code: "late_refund" });
+    // the sixth review round (2026-11-03): a refund paid at the destination is the order's end; a provider failure with nothing back needs attention with its reason
+    expect(ORDER_STATE_MAP.REFUNDED_AT_DESTINATION).toMatchObject({ state: "COMPLETED", phase: "settlement" });
+    expect(ORDER_STATE_MAP.PROVIDER_FAILED).toMatchObject({ state: "RECOVERY_REQUIRED", phase: "settlement", code: "provider_failed" });
   });
   it("every SwapJobState of the executor has a row; a journaled order's own state is read the same way", () => {
     expect(Object.keys(SWAP_JOB_MAP).sort()).toEqual([...JOB_STATES].sort());

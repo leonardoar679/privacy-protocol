@@ -26,6 +26,8 @@ export interface WalletLintInput {
   amount: bigint;
   decimals: number;
   amountIsBucket: boolean;
+  /** the amount is one of the wallet's whole notes (the sixth review round, 2026-11-03) */
+  amountIsWholeNote?: boolean;
   /** swaps: the quote set and the chosen route, when quoted */
   quotes?: QuoteSet | null;
   chosenProvider?: string;
@@ -54,6 +56,7 @@ export function walletLintFacts(i: WalletLintInput): LintFacts {
     providerIdentityDetached: i.action === "swap" ? (i.quotes ? !!i.quotes.competition : null) : null,
     delaySeconds: i.delaySeconds,
     amountIsBucket: i.amountIsBucket,
+    ...(i.amountIsWholeNote !== undefined ? { amountIsWholeNote: i.amountIsWholeNote } : {}),
     // an approved minimum this call must meet; without one on record nothing is verified (the third review round, 2026-11-03)
     minOutVerified: i.action === "swap" ? (i.checked ? i.checked.minOut !== null && i.approvedMin !== undefined && i.approvedMin !== null && i.checked.minOut >= i.approvedMin : null) : null,
     privateSubmission: i.settings.submission.kind === "relayer",

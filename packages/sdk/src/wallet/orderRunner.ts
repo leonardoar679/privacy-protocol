@@ -58,15 +58,27 @@ import { settings as defaultSettings, type Settings } from "./settings";
 
 /** The tracking cadence once an order is handed over. */
 export const ORDER_TRACK_MS = 15_000;
-/** "Delay for more privacy" (spec v2.0 §14.1): when no older notes cover the order, the funding at a random time in 1–24 h. */
-export const DELAY_FOR_PRIVACY: [number, number] = [3600, 24 * 3600];
 /** The execute window of an order funded at once (the plan's 1800 s): the escrow refunds after it, unexecuted. */
 export const ONE_CONFIRM_EXECUTE_WINDOW_SECONDS = 1800;
+/**
+ * "Delay for more privacy" (spec v2.0 §14.1): when no older notes cover the order, the funding at a random time in 1–24 h — the
+ * draw ends early enough that the funding's own window (`delayedExecuteWindowSeconds`) still fits the policy's 24-hour budget
+ * (the engine clamps the window to it; a window ending with the funding had been refused as too short).
+ */
+export const DELAY_FOR_PRIVACY: [number, number] = [3600, 24 * 3600 - ONE_CONFIRM_EXECUTE_WINDOW_SECONDS - 600];
+/**
+ * The execute window of a delayed order (the sixth review round, 2026-11-03): the delay itself plus the one-confirm window, so that
+ * the escrow's public `executeDeadline` (quote expiry + window) encodes the planned funding time — public once funded anyway —
+ * and not the commit. Before, a delayed order took the policy's whole budget as its window, which put the commit's time on
+ * chain as deadline − 24 h and re-linked the deposit to the exit the delay was meant to separate.
+ */
+export const delayedExecuteWindowSeconds = (delayUntil: number, now: number): number =>
+  Math.max(0, Math.ceil((delayUntil - now) / 1000)) + ONE_CONFIRM_EXECUTE_WINDOW_SECONDS;
 /** Audit gap 43: an accepted minimum's call is signed only with at least this long left before its deadline; else a fresh quote. */
 export const ACCEPTED_CALL_MARGIN_MS = 120_000;
 /** A withdrawal's status line once its submission started: after it, a failure's outcome is unknown (the reconcile boundary). */
 export const SENT_LINE = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
-const TERMINAL_TRACK = ["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED"];
+const TERMINAL_TRACK = ["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED", "REFUNDED_AT_DESTINATION"];
 // a `completed` job settles an order only with a settled reading (audit round 2, r36): the executor's watch ending with the
 // escrow empty is not the provider's word, and a refund it held past the watch lands later
 const TERMINAL_JOB = ["refunded"];
@@ -253,7 +265,8 @@ export async function confirmOrder(i: Omit<CommitInput, "schedule"> & { delay?: 
   const delayUntil = i.delay && maxTiming === undefined ? sampleDueAt(DELAY_FOR_PRIVACY, now, i.rng) : undefined;
   const request = {
     ...i.request,
-    executeWindowSeconds: i.request.executeWindowSeconds ?? (delayUntil !== undefined ? undefined : ONE_CONFIRM_EXECUTE_WINDOW_SECONDS),
+    executeWindowSeconds:
+      i.request.executeWindowSeconds ?? (delayUntil !== undefined ? delayedExecuteWindowSeconds(delayUntil, now) : ONE_CONFIRM_EXECUTE_WINDOW_SECONDS),
   };
   const committed = await commitOrder({ ...i, request, schedule: null });
   orders.set(committed.order.orderId.toLowerCase(), committed.order);
@@ -387,7 +400,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       if (
         TERMINAL_TRACK.includes(r.tracked.state) ||
         (r.job && TERMINAL_JOB.includes(r.job.state)) ||
-        (r.job?.state === "completed" && r.tracked.state === "PARTIAL")
+        (r.job?.state === "completed" && (r.tracked.state === "PARTIAL" || r.tracked.state === "PROVIDER_FAILED")) // the sixth review round: a provider failure with nothing back ends the reads too
       ) {
         // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
         if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
@@ -593,6 +606,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     if (existing) {
       patchSwap(a.orderId, { jobId: existing.id, state: existing.state }, s);
     } else {
+      // the journal read again before the hand-over (the sixth review round, 2026-11-03): the user's Return funds, a pause or another
+      // tab's hand-over may have landed while the executor was asked — a signed call handed over after a refund began raced it
+      const latest = journaled(a.orderId, s);
+      if (!latest || latest.jobId || latest.paused || !isOpenSwap(latest)) {
+        tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
+        return { step: "waiting", stored: latest ?? stored };
+      }
       schedulerStatus.progress("Swap: handing the signed execution to the executor…");
       try {
         await io.handOver(stored, r);

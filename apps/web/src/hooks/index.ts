@@ -63,11 +63,14 @@ export function useScheduler(run: (a: ScheduledAction) => Promise<void>, pollMs 
           // reconciles before it sends
           if (!isDue(a) || !s.isUnlocked() || !connectivity.get().online) continue;
           // done unless the run re-scheduled the same action for later (a campaign tick plans its own next tick under its id)
+          const epoch = s.epoch();
           try {
             await run(a);
+            if (s.epoch() !== epoch) break; // locked or replaced during the run (the sixth review round): the next wallet's schedule is not this run's to mark
             const again = pendingActions(s).find((x) => x.id === a.id);
             if (again && again.dueAt === a.dueAt) completeAction(a.id, undefined, s);
           } catch (e) {
+            if (s.epoch() !== epoch) break;
             const message = e instanceof Error ? e.message : String(e);
             completeAction(a.id, message, s, Date.now(), classify(e).code); // the code: the operation's detail names the failure (gap 59)
             schedulerStatus.failed(a.id, message);

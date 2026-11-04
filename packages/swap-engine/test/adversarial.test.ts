@@ -710,6 +710,26 @@ describe("§71 timeout / partial / refund / reorg / destination congestion — s
     );
     expect(chain("PROVIDER_EXECUTING", ["provider-timeout", "destination-submitted", "destination-final", "completed"])).toBe("COMPLETED"); // a late delivery still completes
   }, 60_000);
+  it("Across lists the LP fee once: the relayer's two parts as network, the LP fee as liquidity (the sixth review round, 2026-11-03)", async () => {
+    const a = new AcrossAdapter();
+    const body = {
+      outputAmount: "997000000000000000", totalRelayFee: { pct: "3000000000000000", total: "3000000000000000" }, lpFee: { pct: "1000000000000000", total: "1000000000000000" },
+      relayerCapitalFee: { total: "500000000000000" }, relayerGasFee: { total: "1500000000000000" }, exclusiveRelayer: "0x0000000000000000000000000000000000000000", exclusivityDeadline: 0,
+      timestamp: String(Math.floor(Date.now() / 1000)), spokePoolAddress: "0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5", fillDeadline: String(Math.floor(Date.now() / 1000) + 3600),
+      isAmountTooLow: false, estimatedFillTimeSec: 60,
+    };
+    const q = await withTamper([{ match: "suggested-fees", offline: true, status: 200, json: () => body }], () =>
+      a.quote({ from: ETH, to: ETH_BASE, amount: 10n ** 18n, destination: DEST_EVM, source: ESCROW, slippageBps: 50 }),
+    );
+    expect(q.fees.map((f) => [f.kind, f.amount])).toEqual([["network", 2_000_000_000_000_000n], ["liquidity", 1_000_000_000_000_000n]]);
+    expect(q.fees.reduce((s, f) => s + f.amount, 0n), "the fees sum to totalRelayFee: outputAmount = amount − totalRelayFee").toBe(3_000_000_000_000_000n);
+    // without the relayer's parts the network fee is the total less the LP fee
+    const { relayerCapitalFee: _c, relayerGasFee: _g, ...bare } = body;
+    const q2 = await withTamper([{ match: "suggested-fees", offline: true, status: 200, json: () => bare }], () =>
+      a.quote({ from: ETH, to: ETH_BASE, amount: 10n ** 18n, destination: DEST_EVM, source: ESCROW, slippageBps: 50 }),
+    );
+    expect(q2.fees.map((f) => [f.kind, f.amount])).toEqual([["network", 2_000_000_000_000_000n], ["liquidity", 1_000_000_000_000_000n]]);
+  });
   it("Across expired → refunded; filled → completed", async () => {
     const a = new AcrossAdapter();
     const r = await withTamper([{ match: "deposit/status", offline: true, status: 200, json: () => ({ status: "expired" }) }], () =>
@@ -727,6 +747,16 @@ describe("§71 timeout / partial / refund / reorg / destination congestion — s
       new MayanAdapter().track({ sourceTxHash: "0x" + "22".repeat(32) }),
     );
     expect(m.state).toBe("refunded");
+    expect(m.refundedTo, "the explorer did not name the service: the wallet's quote decides").toBeUndefined();
+    // the service named: a Fast-MCTP refund is paid at the destination, a Swift one to the escrow (the sixth review round, 2026-11-03)
+    const mctp = await withTamper([{ match: "/swap/trx/", offline: true, status: 200, json: () => ({ clientStatus: "REFUNDED", service: "FAST_MCTP" }) }], () =>
+      new MayanAdapter().track({ sourceTxHash: "0x" + "22".repeat(32) }),
+    );
+    expect(mctp).toMatchObject({ state: "refunded", refundedTo: "destination" });
+    const swift = await withTamper([{ match: "/swap/trx/", offline: true, status: 200, json: () => ({ clientStatus: "REFUNDED", service: "SWIFT" }) }], () =>
+      new MayanAdapter().track({ sourceTxHash: "0x" + "22".repeat(32) }),
+    );
+    expect(swift).toMatchObject({ state: "refunded", refundedTo: "escrow" });
     const n1 = await withTamper([{ match: "/v0/status", offline: true, status: 200, json: () => ({ status: "REFUNDED" }) }], () =>
       new NearIntentsAdapter().track({ providerRef: "0xdead" }),
     );

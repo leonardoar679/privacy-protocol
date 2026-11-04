@@ -428,6 +428,7 @@ describe("Korean (spec v2.0 §18, doc §78)", () => {
         campaign: { sizing: "varied", consecutiveSameSize: true, destinationPerTranche: false, cadenceFixed: true, destinationCooling: true },
       },
       { ...base, campaign: { ...clean, sizing: "varied" } },
+      { ...base, amountIsWholeNote: true }, // a whole note (the sixth review round)
     ];
     // on a screen: the header, the categories, a block to acknowledge and one acknowledged
     const view = render(<PrivacyLint items={lint({ ...base, acknowledged: ["minimum-protected"] })} onAcknowledge={() => undefined} />);

@@ -31,6 +31,10 @@ export const ORDER_STATE_MAP: Record<OrderState, Mapped> = {
   CANCELLED: { state: "CANCELLED", phase: "funding" },
   FAILED: { state: "RECOVERY_REQUIRED", phase: "execution", code: "needs_attention" },
   LATE_REFUND: { state: "RECOVERY_REQUIRED", phase: "settlement", code: "late_refund" },
+  // the sixth review round (2026-11-03): a refund paid at the destination is the order's end (the money is at the fresh address);
+  // a provider failure with nothing back by the end of the watch needs the user's attention, with its reason
+  REFUNDED_AT_DESTINATION: { state: "COMPLETED", phase: "settlement" },
+  PROVIDER_FAILED: { state: "RECOVERY_REQUIRED", phase: "settlement", code: "provider_failed" },
 };
 
 /** A journaled order's own `state` (sdk/swapExecute.ts, swapFunding.ts) when the tracker has not read yet. */

@@ -108,9 +108,10 @@ function mockRpc(deps: () => DepositedLog[], seen: { depositReads: number }) {
       case "eth_chainId": return res("0x7a69");
       case "eth_blockNumber": return res("0x10");
       case "eth_getLogs": {
-        const topic = req.params[0].topics?.[0];
-        if (topic === NOTE_TOPIC) return res(chain.inserts.map(noteLog));
-        if (topic === DEPOSIT_TOPIC) { seen.depositReads++; const vaults = [req.params[0].address].flat().map((a: string) => a.toLowerCase()); return res(deps().filter((d) => vaults.includes(d.vault.toLowerCase())).map(depositLog)); }
+        const t0 = req.params[0].topics?.[0];
+        const topics: unknown[] = Array.isArray(t0) ? t0 : [t0]; // the notes and the spends come in one read (the sixth review round)
+        if (topics.includes(NOTE_TOPIC)) return res(chain.inserts.map(noteLog));
+        if (topics.includes(DEPOSIT_TOPIC)) { seen.depositReads++; const vaults = [req.params[0].address].flat().map((a: string) => a.toLowerCase()); return res(deps().filter((d) => vaults.includes(d.vault.toLowerCase())).map(depositLog)); }
         return res([]);
       }
       case "eth_call": {

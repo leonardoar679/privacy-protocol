@@ -44,3 +44,8 @@ export function bucketBelowFor(a: Asset, units: bigint): bigint | null {
   return best;
 }
 export const isBucketFor = (a: Asset, units: bigint): boolean => isBucketOf(units, a.decimals);
+/**
+ * Whether `units` is the whole of one of the wallet's unspent notes in the vault (the sixth review round, 2026-11-03): a public exit
+ * of a whole note leaves that deposit less its fee, which an observer matches to the deposit — Max with one note does exactly this.
+ */
+export const isWholeNote = (notes: readonly { note: { amount: bigint } }[], units: bigint): boolean => units > 0n && notes.some((n) => n.note.amount === units);

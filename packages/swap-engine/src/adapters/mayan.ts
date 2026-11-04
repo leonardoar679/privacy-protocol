@@ -441,7 +441,13 @@ export class MayanAdapter implements ProviderAdapter {
     const { data, status } = await getJson<any>(`${MAYAN_EXPLORER_API}/swap/trx/${ref.sourceTxHash}`);
     if (status !== 200) return { state: "unknown", raw: data };
     const s = String(data.clientStatus ?? data.status ?? "").toUpperCase();
-    if (s.includes("REFUND")) return { state: "refunded", raw: data };
+    if (s.includes("REFUND")) {
+      // where the refund went (the sixth review round, 2026-11-03): a Fast-MCTP / MCTP order refunds USDC at the destination address,
+      // a Swift order to the escrow — when the explorer names the service; the wallet's own quote (refundTarget) decides otherwise
+      const service = String(data.service ?? data.orderType ?? data.type ?? "").toUpperCase();
+      const refundedTo = /MCTP/.test(service) ? "destination" : /SWIFT/.test(service) ? "escrow" : undefined;
+      return { state: "refunded", ...(refundedTo ? { refundedTo } : {}), raw: data };
+    }
     if (s === "COMPLETED" || s === "SETTLED" || s === "FULFILLED") return { state: "completed", destinationTxHash: data.fulfillTxHash ?? data.redeemTxHash, raw: data };
     if (s.includes("INPROGRESS") || s.includes("PENDING")) return { state: "executing", raw: data };
     return { state: "unknown", raw: data };

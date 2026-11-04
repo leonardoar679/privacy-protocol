@@ -279,6 +279,13 @@ export class ThorchainAdapter implements ProviderAdapter {
     // the deposit target must be confirmed by independent gateways, never taken from one quote response
     const inbound = await inboundQuorum(CHAIN[req.from.chain]);
     if (inbound.halted) throw new Error(`THORChain: ${CHAIN[req.from.chain]} inbound is halted`);
+    // the destination chain too (the sixth review round, 2026-11-03): with its outbounds halted or its trading paused THORChain
+    // accepts the inbound and queues the outbound for the halt's duration, the funds in its custody with no refund path
+    const outChain = CHAIN[req.to.chain];
+    if (outChain && outChain !== CHAIN[req.from.chain]) {
+      const outbound = await inboundQuorum(outChain);
+      if (outbound.halted) throw new Error(`THORChain: ${outChain} is halted or trading-paused: the outbound would queue inside THORChain`);
+    }
     // an ERC-20 escrow approves the router for its whole balance: even agreeing gateways cannot name another contract
     if (req.from.chain === "ethereum" && inbound.router !== THORCHAIN_ROUTER_ETHEREUM) throw new Error(`THORChain: the gateways report router ${inbound.router}, not the pinned Ethereum router ${THORCHAIN_ROUTER_ETHEREUM} (set THORCHAIN_ROUTER after a router upgrade)`);
     // the vault the quote names: the one the gateways suggest, or — THORChain moves that suggestion between its active vaults

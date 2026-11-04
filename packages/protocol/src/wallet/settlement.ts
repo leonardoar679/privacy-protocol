@@ -14,8 +14,11 @@ export interface SettlementLegs {
   funded: boolean;
   /** the executor's provider call is mined */
   executed: boolean;
-  /** what the provider's tracking says after the execution */
-  provider?: "pending" | "destination-submitted" | "delivered" | "partial" | "failed" | "refunded-to-escrow";
+  /** what the provider's tracking says after the execution. `refunded-at-destination` (the sixth review round, 2026-11-03): the
+   *  provider paid its refund at the destination address (Mayan Fast-MCTP: USDC to the fresh address), never to the escrow — final.
+   *  `failed`: the provider's last word is a failure (or a refund to the escrow that never arrived) and the executor's watch ended
+   *  with nothing above dust in the escrow — nothing more comes back on its own */
+  provider?: "pending" | "destination-submitted" | "delivered" | "partial" | "failed" | "refunded-to-escrow" | "refunded-at-destination";
   /** the refund of the escrow into the pool: none yet, under way, done (the refund note is in the pool), failed */
   refund?: "none" | "pending" | "done" | "failed";
   /** the escrow holds the funds and nothing will execute them (the execution failed, or its window closed without one): a
@@ -26,7 +29,7 @@ export interface SettlementLegs {
 /** The settlement of a swap's legs; null while nothing has left the protected balance (the order is not funded). */
 export function settlementOf(l: SettlementLegs): SettlementState | null {
   if (!l.funded) return null;
-  if (l.refund === "done" || l.provider === "delivered") return "COMPLETED";
+  if (l.refund === "done" || l.provider === "delivered" || l.provider === "refunded-at-destination") return "COMPLETED";
   if (l.refund === "pending") return "REFUNDING";
   if (l.refundable) return "REFUND_AVAILABLE";
   if (!l.executed) return "SOURCE_CONFIRMED";
@@ -110,6 +113,9 @@ export interface LegFacts {
   executeDeadline: number;
   /** unix seconds */
   now: number;
+  /** where the provider refunds an unfilled order (the quote's `refundTarget`, or the track's `refundedTo`; the sixth review round):
+   *  at the destination address, a refund is final and never reaches the escrow */
+  refundTarget?: "escrow" | "destination";
 }
 
 /**
@@ -130,12 +136,20 @@ export function legsFrom(f: LegFacts): SettlementLegs | null {
   if (job === "completed") {
     if (f.escrowBalance !== null && lateRefundHeld(f.escrowBalance, f.amount))
       return { funded: true, executed: true, provider: "refunded-to-escrow", refundable: true };
+    // the escrow's balance or the provider's side was not read: the last settlement stands, as the header promises (the sixth review
+    // round, 2026-11-03: the delivered rule had come first, and a failed balance read settled a partial fill as delivered)
+    if (f.escrowBalance === null || !f.track) return null;
+    if (t === "refunded" && f.refundTarget === "destination") return { funded: true, executed: true, provider: "refunded-at-destination", refundable: false };
     if (t === "completed" || t === "destination-final" || t === "partial") return { funded: true, executed: true, provider: "delivered", refundable: false };
-    if (f.escrowBalance === null || !f.track) return null; // the escrow's balance or the provider's side was not read
-    const provider = t === "destination-submitted" ? "destination-submitted" : t === "refunded" || t === "failed" ? "refunded-to-escrow" : "pending";
+    // the provider's last word is a failure, or a refund to the escrow that the watch never saw arrive: nothing more comes back on
+    // its own (the sixth review round: it had read "a refund on its way to the escrow" for good)
+    if (t === "refunded" || t === "failed") return { funded: true, executed: true, provider: "failed", refundable: false };
+    const provider = t === "destination-submitted" ? "destination-submitted" : "pending";
     return { funded: true, executed: true, provider, refundable: false };
   }
   const executed = job === "executed" || (job === "executing" && !!(f.job?.executionTx ?? f.executionTx));
+  if (executed && t === "refunded" && f.refundTarget === "destination")
+    return { funded: true, executed: true, provider: "refunded-at-destination", refundable: false };
   if (job === "refunding" || job === "refund-only" || job === "expired" || job === "lapsed" || (executed && (t === "refunded" || t === "failed")))
     return { funded: true, executed, refund: "pending", refundable: false };
   if (executed) {

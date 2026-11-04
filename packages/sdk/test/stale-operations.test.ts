@@ -36,7 +36,7 @@ function record(
   upTo: "proof" | "submitting" | "confirming",
   n: number,
   at = T0,
-  kept: { noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string } = {},
+  kept: { noteCounter?: number; nullifiers?: [string, string]; relayerUrl?: string; inputsDigest?: string } = {},
 ): string {
   const r = newOperation(
     {
@@ -68,6 +68,10 @@ function chain(
     jobs?: Record<string, number>;
     /** the nullifiers each transaction's core call spends */
     spends?: Record<number, [string, string]>;
+    /** the scan's spend index: "n0,n1" → the transaction that spent exactly that pair (the sixth review round) */
+    index?: Record<string, number>;
+    /** the digest of each transaction's call inputs (the sixth review round): absent, unreadable */
+    inputs?: Record<number, string>;
   } = {},
 ): StaleReads {
   const has = (list: number[] | undefined, h: Hex) => (list ?? []).some((n) => hash(n) === h);
@@ -96,6 +100,16 @@ function chain(
       const pair = o.spends?.[n];
       return pair ? [[BigInt(pair[0]), BigInt(pair[1])]] : [];
     },
+    spendOf: async ([a, b]) => {
+      if (o.down) throw new Error("fetch failed");
+      const n = o.index?.[`${a},${b}`];
+      return n === undefined ? null : { txHash: hash(n) };
+    },
+    txInputs: async (h) => {
+      if (o.down) throw new Error("fetch failed");
+      const d = o.inputs?.[Number(BigInt(h))];
+      return d === undefined ? null : (d as Hex);
+    },
   };
 }
 
@@ -115,7 +129,7 @@ describe("operations whose flow is gone", () => {
     expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
     expect(getOperation(forgotten)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped", fundsClass: "not-moved" } });
     expect(getOperation(pending)!.state).toBe("SOURCE_CONFIRMING");
-    expect(STALE_DROP_MS).toBe(600_000);
+    expect(STALE_DROP_MS, "an hour for a relayer-sent spend too (the sixth review round, 2026-11-03)").toBe(3_600_000);
   });
 
   it("'nothing moved' only while the notes are unspent: a reverted receipt or a forgotten transaction of a spend whose notes are spent is left as it is (audit round 2, r23)", async () => {
@@ -174,7 +188,7 @@ describe("operations whose flow is gone", () => {
     expect(await reconcileStaleOperations(chain(), T0 + 60_000)).toBe(1);
     expect(getOperation(landed)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 7, txHashes: [hash(42)] } });
     expect(getOperation(unanswered)!.state, "the wallet may still be asking: waited for").toBe("AWAITING_AUTHORIZATION");
-    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1), "its own wallet's: waited for an hour (audit round 2, n66)").toBe(0);
+    expect(await reconcileStaleOperations(chain(), T0 + 10 * 60_000 + 1), "its own wallet's: waited for an hour (audit round 2, n66)").toBe(0);
     expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
     expect(getOperation(unanswered)).toMatchObject({ state: "FAILED", reason: { code: "interrupted", fundsClass: "not-moved" } });
   });
@@ -212,6 +226,86 @@ describe("operations whose flow is gone", () => {
     });
     await reconcileStaleOperations(chain({ spent: ["231"] }), T0 + 60_000);
     expect(getOperation(own)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 9, txHashes: [hash(23)] } });
+  });
+
+  it("a Send waiting as RECOVERY_REQUIRED, its answer lost and its notes spent, completes once the pool's spend index names its transaction (the sixth review round, 2026-11-03)", async () => {
+    const relayer = "http://relayer.test";
+    const lost = record("send", "submitting", 33, T0, { nullifiers: ["331", "332"], relayerUrl: relayer, inputsDigest: "0xa1" });
+    applyEvent(lost, { type: "recovery-required", code: "relayer_unreachable" }, session, T0);
+    resetOperationsMemory();
+    // the relayer never names it; the index does not have the pair yet: left waiting
+    expect(await reconcileStaleOperations(chain({ spent: ["331", "332"] }), T0 + STALE_DROP_MS + 1)).toBe(0);
+    expect(getOperation(lost)!.state).toBe("RECOVERY_REQUIRED");
+    // another pair's spend, or the pair in the other order, is not this record's
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["331", "332"], index: { "332,331": 33, "331,999": 34 }, mined: [33, 34], spends: { 33: ["332", "331"], 34: ["331", "999"] } }),
+        T0 + STALE_DROP_MS + 1,
+      ),
+    ).toBe(0);
+    expect(getOperation(lost)!.state).toBe("RECOVERY_REQUIRED");
+    // the index names the transact that spent exactly this pair: submitted as the wallet's own, then completed from its receipt
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["331", "332"], index: { "331,332": 33 }, mined: [33], spends: { 33: ["331", "332"] }, inputs: { 33: "0xa1" } }),
+        T0 + STALE_DROP_MS + 1,
+      ),
+    ).toBe(1);
+    expect(getOperation(lost)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(33)] } });
+    // the same for one sent through the connected wallet (no relayer to ask) whose page lost the answer
+    const own = record("send", "submitting", 35, T0, { nullifiers: ["351", "352"], inputsDigest: "0xc1" });
+    resetOperationsMemory();
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["351"], index: { "351,352": 35 }, mined: [35], spends: { 35: ["351", "352"] }, inputs: { 35: "0xc1" } }),
+        T0 + 60_000,
+      ),
+    ).toBe(1);
+    expect(getOperation(own)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(35)] } });
+    expect(
+      getOperation(own)!.history.some((h) => h.state === "SOURCE_CONFIRMING"),
+      "submitted, then completed",
+    ).toBe(true);
+  });
+
+  it("the pair alone adopts nothing: another Send of the same note spends the same pair — its call's inputs decide; another operation's fails the record as spent elsewhere (the sixth review round, 2026-11-03)", async () => {
+    const relayer = "http://relayer.test";
+    // A's answer was lost; B, a later Send of the same single note, spent the same pair (the phantom pad derives from the first nullifier)
+    const a = record("send", "submitting", 70, T0, { nullifiers: ["701", "702"], relayerUrl: relayer, inputsDigest: "0xaaaa" });
+    applyEvent(a, { type: "recovery-required", code: "relayer_unreachable" }, session, T0);
+    resetOperationsMemory();
+    // the index names B's transaction for the pair, its inputs not readable here (a smart account's call): nothing adopted, nothing failed
+    expect(await reconcileStaleOperations(chain({ spent: ["701"], index: { "701,702": 71 }, mined: [71], spends: { 71: ["701", "702"] } }), T0 + 60_000)).toBe(
+      0,
+    );
+    expect(getOperation(a)!.state).toBe("RECOVERY_REQUIRED");
+    // the relayer files B under the same nullifiers: its job is not A's either
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["701"], jobs: { "701": 71 }, mined: [71], spends: { 71: ["701", "702"] }, inputs: { 71: "0xbbbb" } }),
+        T0 + 60_000,
+      ),
+    ).toBe(0);
+    expect(getOperation(a)!.state, "the relayer's job of another operation is not adopted").toBe("RECOVERY_REQUIRED");
+    // B's inputs read: another operation spent A's notes — A can never land; nothing of it was sent
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["701"], index: { "701,702": 71 }, mined: [71], spends: { 71: ["701", "702"] }, inputs: { 71: "0xbbbb" } }),
+        T0 + 60_000,
+      ),
+    ).toBe(1);
+    expect(getOperation(a)).toMatchObject({ state: "FAILED", reason: { code: "spent_elsewhere", fundsClass: "not-moved" }, refs: { txHashes: [] } });
+    // an older record (no inputs kept): the index alone adopts nothing, as before this round
+    const old = record("send", "submitting", 72, T0, { nullifiers: ["721", "722"], relayerUrl: relayer });
+    applyEvent(old, { type: "recovery-required", code: "relayer_unreachable" }, session, T0);
+    resetOperationsMemory();
+    expect(
+      await reconcileStaleOperations(
+        chain({ spent: ["721"], index: { "721,722": 73 }, mined: [73], spends: { 73: ["721", "722"] }, inputs: { 73: "0xdddd" } }),
+        T0 + 60_000,
+      ),
+    ).toBe(0);
+    expect(getOperation(old)!.state).toBe("RECOVERY_REQUIRED");
   });
 
   it("a record that reached the submission but kept nothing (from before the keeping of 2026-10-14): past the limit it waits as RECOVERY_REQUIRED rather than block the wallet for good (the review round of 2026-11-02)", async () => {
@@ -256,7 +350,9 @@ describe("operations whose flow is gone", () => {
     const protect = record("protect", "confirming", 51, T0, { noteCounter: 88 });
     resetOperationsMemory();
     // a private mempool: the RPC sees nothing of either until it is mined
-    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_MS + 1), "ten minutes: waited for").toBe(0);
+    expect(await reconcileStaleOperations(chain(), T0 + 10 * 60_000 + 1), "ten minutes: waited for (an hour for every send since the sixth review round)").toBe(
+      0,
+    );
     // an hour on, the Protect's note found by the scan (it landed, the RPC still blind): never "dropped, send it again"
     noteStore.add({
       note: { vaultId: 1n, amount: 990n, ownerCommitment: 2n, noteSecret: 3n },

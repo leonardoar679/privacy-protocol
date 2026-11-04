@@ -9,7 +9,7 @@
 // relayer's fee note to its privacy address, dummies are indistinguishable filler — so every note
 // can be recovered from chain by rescanning (scanNotes).
 import type { OnEvent } from "./operations/engineEvents";
-import type { Address, Hex, PublicClient } from "viem";
+import type { Address, Hex } from "viem";
 import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@privacy-wallet/protocol/keys";
 import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
@@ -26,9 +26,10 @@ import { assertOwnOwnerCommitment, depositOwnerCommitment, mainOwnerCommitment, 
 import { noteStore, type OwnedNote } from "./wallet/notes";
 import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
-import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, coreAbi, type TxRequest } from "./privacyProtocol";
+import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, transactInputsDigest, type TxRequest } from "./privacyProtocol";
 import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
-import { RpcDisagreement, clientFor, clientsFor, depositedLogsQuorum, minedTx, otherClientsFor, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, receiptViaInjectedWallet, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { indexSpends, rememberSpendIndex, type SpendIndex } from "./wallet/spends";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
@@ -157,12 +158,18 @@ export async function trackShield(p: PreparedShield, txHash: Hex): Promise<numbe
 /** trackShield, with what the deposit really cost (V6, spec v2.0 §3). */
 export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{ leafIndex: number; costWei: bigint }> {
   const epoch = session.epoch();
-  const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment)); // every endpoint's receipt (audit round 2, r23)
+  // the receipt through the connected wallet's own provider (the sixth review round, 2026-11-03): its `from` is the user's public
+  // address, which the privacy endpoints must never see beside this client. Without a provider's answer, every endpoint's receipt
+  // (audit round 2, r23) — the scan's proven pool contradicts a note a lying provider would have invented (audit round 2, r24)
+  const own = await receiptViaInjectedWallet(txHash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
+  const { inserted, costWei } = own
+    ? await minedTx(clientFor(p.deployment), txHash, undefined, [], { receipt: own })
+    : await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment));
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   // the wallet this flow belongs to (the third review round, 2026-11-03): after a lock — and a REPLACE with another phrase in the same tab —
   // the deposit's note had gone into whatever store was open; the right wallet's scan finds it from its self-envelope
-  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the deposit was recorded; it is mined, and the next scan records its note"), { code: "locked_mid_flow" });
+  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the deposit was recorded; it is mined, and the next scan records its note"), { code: "locked_after_send" }); // sent: never "not moved" (the sixth review round, 2026-11-03)
   noteStore.add({ note: p.note, leafIndex: mine.leafIndex, noteData: p.noteData, counter: p.counter, spent: false, txHash, label: "shield", addedAt: Date.now() });
   return { leafIndex: mine.leafIndex, costWei };
 }
@@ -223,7 +230,8 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     assertStillUnlocked();
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
     const hash = await sendViaInjectedWallet(tx, p.deployment.chainId);
-    const approval = await clientFor(p.deployment).waitForTransactionReceipt({ hash });
+    // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public address
+    const approval = (await receiptViaInjectedWallet(hash, { chainId: p.deployment.chainId })) ?? (await clientFor(p.deployment).waitForTransactionReceipt({ hash }));
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
     approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
     if (!clearing) {
@@ -486,6 +494,9 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   // proof step, and a reconcile would call a mined spend "nothing moved"
   if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });
   o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
+  // the call's identity, kept by the record at its submission (the sixth review round, 2026-11-03): a lost answer is settled only by a
+  // transaction with exactly these public inputs — two Sends of one note share the nullifier pair, never these
+  const inputsDigest = transactInputsDigest(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData).data) ?? undefined;
   let txHash: Hex;
   let submittedBy: Submitted["submittedBy"];
   if (o.submission.kind === "relayer") {
@@ -493,7 +504,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; handing it to the relayer (your address never touches the chain)…`);
     const url = o.relayerUrl ?? o.submission.url;
     const nullifiers: [bigint, bigint] = [proof.publicInputs.nullifier0, proof.publicInputs.nullifier1];
-    o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url, ...(o.change ? { noteCounter: o.change.counter } : {}) });
+    o.onEvent?.({ type: "submitting", by: "relayer", nullifiers: [nullifiers[0].toString(), nullifiers[1].toString()], relayerUrl: url, ...(o.change ? { noteCounter: o.change.counter } : {}), ...(inputsDigest ? { inputsDigest } : {}) });
     const body = { proof: proof.proof, publicInputs: proof.publicSignals.map(String), noteData: o.noteData, fee: { outputIndex: o.fee.outputIndex, amount: o.fee.note.amount.toString(), noteSecret: o.fee.note.noteSecret.toString(), vault: ("0x" + o.fee.note.vaultId.toString(16).padStart(40, "0")) as Address } };
     const r = await submitToRelayer(url, body, nullifiers, o);
     txHash = r.txHash;
@@ -501,7 +512,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     o.onEvent?.({ type: "submitted", txHash, by: "relayer" });
   } else {
     o.onStatus?.(`Proof ready in ${(proof.ms / 1000).toFixed(1)} s; submitting through the connected wallet (public: the transaction is sent from your address)…`);
-    o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()], ...(o.change ? { noteCounter: o.change.counter } : {}) });
+    o.onEvent?.({ type: "submitting", by: "wallet", nullifiers: [proof.publicInputs.nullifier0.toString(), proof.publicInputs.nullifier1.toString()], ...(o.change ? { noteCounter: o.change.counter } : {}), ...(inputsDigest ? { inputsDigest } : {}) });
     o.onEvent?.({ type: "wallet-prompt", step: "transact", i: 1, n: 1 });
     txHash = await sendViaInjectedWallet(buildTransact(o.deployment.core, { proof: proof.proof, publicInputs: proof.publicInputs }, o.noteData), o.deployment.chainId);
     submittedBy = "wallet";
@@ -516,7 +527,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   // the wallet this flow belongs to (the third review round, 2026-11-03): after a lock — and a REPLACE with another phrase in the same tab —
   // the spent marks, the change note and the Activity line had gone into whatever store and journal were open; the right wallet's
   // scan reads the spends and finds its change note from its self-envelope
-  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the result was recorded; the transaction stands, and the next scan records it"), { code: "locked_mid_flow" });
+  if (session.epoch() !== epoch) throw Object.assign(new Error("the wallet was locked before the result was recorded; the transaction stands, and the next scan records it"), { code: "locked_after_send" }); // sent: never "not moved" (the sixth review round, 2026-11-03)
   noteStore.markSpent(o.spent.map((n) => n.leafIndex), { atBlock: blockNumber }); // one confirmation: proven by the scan at a finalized block
   const find = (n: Note) => inserted.find((i) => i.commitment === noteCommitment(noteBody(n), BigInt(i.leafIndex)));
   let change: OwnedNote | undefined;
@@ -841,12 +852,6 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
 interface FoundNote { leafIndex: number; note: Note; commitment: bigint; noteData: Hex; txHash: Hex; label: string; counter?: number }
 
 /** One nullifier's spent bit from every configured endpoint; they must agree (RpcDisagreement otherwise). */
-async function agreedSpent(d: Deployment, clients: readonly PublicClient[], nf: bigint): Promise<boolean> {
-  const all = await Promise.all(clients.map(async (c) => (await c.readContract({ address: d.core, abi: coreAbi, functionName: "isNullifierSpent", args: [nf] })) as boolean));
-  if (new Set(all).size !== 1) throw new RpcDisagreement("a nullifier", all.map(String));
-  return all[0];
-}
-
 /**
  * Found notes into the store, each with its spent status: every endpoint's answer, agreed (the third review round, 2026-11-03;
  * threat-model A2 — the first endpoint alone had decided it, and its false "spent" hid a note for good, since no path lifted the
@@ -855,8 +860,7 @@ async function agreedSpent(d: Deployment, clients: readonly PublicClient[], nf: 
  * batch at a time, never the whole history of spent notes. A mark the finalized chain at or past its block does not confirm, or
  * the quorum no longer makes, is lifted: the chain does not have that spend.
  */
-async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], stop?: () => boolean): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
-  const clients = clientsFor(d);
+async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], index: SpendIndex, stop?: () => boolean): Promise<{ found: number; added: number; spent: number; addedNotes: FoundNote[] }> {
   // each note's nullifier is its own key's (the audit round of 2026-10-16, c18): with the spend key, a spent deposited note
   // would read unspent for good. A note neither key opens is left out, not the whole scan
   const main = mainOwnerCommitment(keys);
@@ -866,11 +870,13 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], st
   });
   const found = keyed.map((k) => k.f);
   const nullifiers = keyed.map(({ f, key }) => nullifier(f.commitment, key));
-  const rpcSpent = await Promise.all(nullifiers.map((nf) => agreedSpent(d, clients, nf)));
-  // where a spend read now was seen: the endpoints' latest block AFTER the reads (the fourth review round, 2026-11-03: read before
-  // them, a spend mined between the two reads sat past the block the mark named), the furthest ahead, so a finalized chain at or
-  // past it covers the read
-  const atBlock = Number((await Promise.all(clients.map((c) => c.getBlockNumber()))).reduce((m, b) => (b > m ? b : m), 0n));
+  // the spent bits from the pool's own spend events, read fetch-all with the note events and agreed by every endpoint (the sixth
+  // review round, 2026-11-03): a per-nullifier `isNullifierSpent` read had named every note of this wallet to the endpoints at
+  // every scan, which links each later withdrawal to this client (threat-model A4)
+  const rpcSpent = nullifiers.map((nf) => index.spent(nf));
+  // where a spend was seen: the block the events were read up to (every endpoint's view at or past it), so a finalized chain at or
+  // past it covers the read (the fourth review round: a block taken before the reads had sat below the spend)
+  const atBlock = Number(index.block);
   const known = (f: FoundNote) => noteStore.all().find((n) => n.leafIndex === f.leafIndex);
   const toProve = rpcSpent.flatMap((s, i) => {
     if (!s) return [i];
@@ -983,7 +989,9 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
 async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress, locked: () => boolean): Promise<ScanResult> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
-  const { tree, logs } = await syncPoolQuorum(o.deployment);
+  const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
+  const index = indexSpends(spends, block);
+  rememberSpendIndex(o.deployment.core, index); // the stale mover reads it after this scan
   const verified = await verifyTree(o.deployment, tree, o.onStatus);
   const proven = verified.kind === "verified" ? verified.proof.nextLeafIndex : null;
   poolStats.set({ notes: logs.length, leaves: tree.nextLeafIndex });
@@ -1016,7 +1024,7 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // could replay this wallet's own note at a leaf in the tail just as well). This wallet's own flows record their notes from a
   // quorum-agreed receipt, so nothing of theirs waits
   const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
-  const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, locked);
+  const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, index, locked);
   journalRefunds(refunds);
   for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
@@ -1043,10 +1051,12 @@ export async function recoverShieldDelivery(o: { masterSeed: Uint8Array; deploym
 export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<RecoveredRefund[]> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Looking for the refund in the pool…");
-  const { tree, logs } = await syncPoolQuorum(o.deployment);
+  const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
+  const index = indexSpends(spends, block);
+  rememberSpendIndex(o.deployment.core, index);
   await verifyTree(o.deployment, tree, o.onStatus);
   const refunds = await findRefunds(o.deployment, keys, logs, o.refunds ?? journaledRefundClaims());
-  await recordFound(o.deployment, keys, refunds.map(refundFound));
+  await recordFound(o.deployment, keys, refunds.map(refundFound), index);
   journalRefunds(refunds);
   return refunds;
 }

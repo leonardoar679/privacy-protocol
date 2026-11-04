@@ -127,6 +127,9 @@ export interface TrackStatus {
   refundedAmount?: bigint;
   /** whale spec §12: a stream's progress */
   progress?: { parts: number; done: number };
+  /** where the provider paid its refund (the sixth review round, 2026-11-03): at the destination address (Mayan Fast-MCTP's USDC to
+   *  the fresh address — final, never to the escrow) or to the escrow; unset when the adapter cannot tell */
+  refundedTo?: "escrow" | "destination";
   raw?: unknown;
 }
 

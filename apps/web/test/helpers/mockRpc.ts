@@ -33,7 +33,7 @@ export async function startMockCore(o: MockCoreOptions) {
   const pad32 = (v: bigint) => ("0x" + v.toString(16).padStart(64, "0")) as Hex;
   const events: Record<number, MockEvent> = { ...o.events };
   // `spent`: every nullifier reads spent; `spentNullifiers`: these do (the audit round of 2026-10-16, c18: a note's own key's nullifier)
-  const state = { root: o.root, spent: false, spentNullifiers: new Set<bigint>(), next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, spends: {} as Record<string, [bigint, bigint]>, methods: [] as string[] };
+  const state = { root: o.root, spent: false, spentNullifiers: new Set<bigint>(), /** every nullifier of the wallet under test: `spent` marks all of them (the sixth review round, 2026-11-03: the spends are events now) */ allNullifiers: [] as bigint[], next: o.nextLeafIndex, feeds: { ...(o.feeds ?? {}) } as Record<string, MockFeed>, calls: 0, receipts: {} as Record<string, number[]>, spends: {} as Record<string, [bigint, bigint]>, methods: [] as string[] };
   const feedAt = (to: string) => Object.entries(state.feeds).find(([a]) => a.toLowerCase() === to.toLowerCase())?.[1];
   const logFor = (leafIndex: number, l: MockEvent) => ({
     address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex } }),
@@ -46,7 +46,17 @@ export async function startMockCore(o: MockCoreOptions) {
     switch (req.method) {
       case "eth_chainId": return res("0x7a69");
       case "eth_blockNumber": return res("0x10");
-      case "eth_getLogs": return res(Object.entries(events).map(([i, l]) => logFor(Number(i), l)));
+      case "eth_getLogs": {
+        // the pool's spend events beside the notes (the sixth review round, 2026-11-03): one transact per spent nullifier, its second
+        // nullifier a dummy outside the field; a note's spent bit is a lookup in these, never an isNullifierSpent read
+        const spent = [...new Set([...(state.spent ? state.allNullifiers : []), ...state.spentNullifiers])];
+        const spendLogs = spent.map((n, i) => ({
+          address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "ShieldedTransaction" }),
+          data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [n, n ^ (1n << 255n), 0n, 0n, 0n]),
+          blockNumber: "0x10", blockHash: "0x" + "22".repeat(32), transactionHash: ("0x" + "55".repeat(31) + i.toString(16).padStart(2, "0")) as Hex, transactionIndex: "0x0", logIndex: toHex(100 + i), removed: false,
+        }));
+        return res([...Object.entries(events).map(([i, l]) => logFor(Number(i), l)), ...spendLogs]);
+      }
       case "eth_getTransactionReceipt": {
         const hash = String(req.params[0]).toLowerCase();
         const leaves = state.receipts[hash];

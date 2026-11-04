@@ -24,11 +24,14 @@ export function Background() {
   useScheduler(useCallback(async (a) => {
     const seed = session.state().seed;
     if (!seed) return;
+    // a tick writes only into the journal it began with (the sixth review round, 2026-11-03): locked or replaced meanwhile, its
+    // late writes are refused instead of landing in the next wallet's journal
+    const pinned = session.pinned();
     try {
-      if (a.kind === "campaign-tick" || a.kind === "campaign-shape") await runCampaignTick(a, { masterSeed: seed, deployment });
-      else if (a.kind === "order-tick") await runOrderTick(a, { masterSeed: seed, deployment });
-      else if (a.kind === "discovery") await runDiscovery(a, { masterSeed: seed, deployment });
-      else await runScheduledAction(a, { masterSeed: seed, deployment });
+      if (a.kind === "campaign-tick" || a.kind === "campaign-shape") await runCampaignTick(a, { masterSeed: seed, deployment, session: pinned });
+      else if (a.kind === "order-tick") await runOrderTick(a, { masterSeed: seed, deployment, session: pinned });
+      else if (a.kind === "discovery") await runDiscovery(a, { masterSeed: seed, deployment, session: pinned });
+      else await runScheduledAction(a, { masterSeed: seed, deployment, session: pinned });
     } finally {
       session.safePoint(); // between two runner ticks: a lock past the hold cap happens here (V6 Stage 15)
     }

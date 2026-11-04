@@ -8,7 +8,7 @@ import type { ChainAccount, ChainKind } from "@privacy-wallet/protocol/wallet/ch
 import { Button, Page, Segmented } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
-import { consumeFreshAddress, lastFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
+import { consumeFreshAddress, lastUnusedFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { findEntry } from "@privacy-wallet/sdk/wallet/addressBook";
 import { discoverSoon } from "@privacy-wallet/sdk/wallet/discovery";
 import { DestinationCard } from "../../components/DestinationCard";
@@ -36,7 +36,8 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
     discoverSoon();
   }, []);
   const chain = CHAIN[kind];
-  const current = chain ? shown[chain] ?? lastFreshAddress(masterSeed, chain) : null;
+  // the last reserved address only while nothing has used it (the sixth review round, 2026-11-03): a consumed one is not offered again
+  const current = chain ? shown[chain] ?? lastUnusedFreshAddress(masterSeed, chain) : null;
   const address = chain ? current?.address ?? "" : privacyAddress(masterSeed);
   const entry = chain && current ? findEntry(chain, current.address) : null;
   const spent = !!entry && (entry.lifecycle === "used" || entry.lifecycle === "settled" || entry.lifecycle === "retired");

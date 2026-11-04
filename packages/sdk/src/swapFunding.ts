@@ -202,10 +202,12 @@ export function abandonSwap(orderId: string, s: WalletSession = defaultSession, 
 
 /**
  * How long a sent funding is waited for before, its notes unspent and no relayer job for them, it counts as dead: a new
- * funding may then go. The relayer drops a transaction its node no longer knows after the same time (apps/relayer
- * `DROP_AFTER_MS`).
+ * funding may then go. The relayer drops a transaction its node no longer knows after ten minutes (apps/relayer
+ * `DROP_AFTER_MS`); the wallet waits an hour (the sixth review round, 2026-11-03), as it does for a spend its own connection
+ * sent (operations/stale.ts, n66): a relayer whose node restarted forgets a transaction other nodes still hold, and a funding
+ * read dead at ten minutes and mined later had left the escrow funded with no way back in the app.
  */
-export const FUNDING_SETTLE_MS = 10 * 60_000;
+export const FUNDING_SETTLE_MS = 60 * 60_000;
 
 /** The end of an order's execution window (ms): after it the escrow's execute reverts, and only its refund is left. */
 export const windowEndOf = (stored: Pick<StoredSwap, "params">): number => Number((stored.params as { executeDeadline?: number }).executeDeadline) * 1000;

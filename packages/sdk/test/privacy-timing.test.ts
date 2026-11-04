@@ -75,6 +75,35 @@ describe("olderFunding ('Delay for more privacy' spends older notes first)", () 
     poolStats.set({ notes: 100, leaves: 100 });
     expect(olderFunding(VAULT, HALF, T0)).toEqual({ maxTiming: 0, timing: { ageSeconds: null, depositsSince: 97 } });
   });
+  it("the wallet's own fresh deposit floors the timing: older notes cannot hide a Protect made minutes ago, the funding waits for the draw (the sixth review round, 2026-11-03)", () => {
+    poolStats.set({ notes: 100, leaves: 100 });
+    note(3, 5n * 10n ** 18n, T0 - 3 * 86400_000); // an old note that covers 1 ETH
+    // a Protect of this wallet a minute ago: what a chain observer times the exit against, whichever notes it spends
+    noteStore.add({
+      note: { vaultId: VAULT, amount: 10n ** 17n, ownerCommitment: 1n, noteSecret: 99n },
+      leafIndex: 98,
+      noteData: "0x",
+      spent: false,
+      addedAt: T0 - 60_000,
+      label: "shield",
+    }); // too small for the order: the old note is spent, the deposit still times it
+    expect(fundingTiming(VAULT, 10n ** 18n, T0), "the selection spends the old note; the fact reads the fresh deposit").toEqual({
+      ageSeconds: 60,
+      depositsSince: 1,
+    });
+    expect(olderFunding(VAULT, 10n ** 18n, T0), "older notes first cannot beat the deposit's own timing: the draw").toBeNull();
+    // a note the scan found is no Protect of this wallet's making (its age unknown): no floor
+    noteStore.clear();
+    note(3, 5n * 10n ** 18n, T0 - 3 * 86400_000);
+    noteStore.add({
+      note: { vaultId: VAULT, amount: 10n ** 17n, ownerCommitment: 1n, noteSecret: 98n },
+      leafIndex: 97,
+      noteData: "0x",
+      spent: false,
+      label: "discovered",
+    });
+    expect(fundingTiming(VAULT, 10n ** 18n, T0)).toEqual({ ageSeconds: 3 * 86400, depositsSince: 96 });
+  });
   it("null when no older notes cover it or nothing would be better: the funding waits a random 1–24 h instead", () => {
     note(1, 10n ** 17n, T0 - 3 * 86400_000);
     note(98, 10n ** 18n, T0 - 60_000);

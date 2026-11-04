@@ -19,7 +19,10 @@ export interface RelayerJobView {
 export interface ReconcileReads {
   job(orderId: string): Promise<RelayerJobView | "none" | null>;
   escrowBalance(escrow: string, asset: string): Promise<bigint | null>;
-  track(provider: string, ref: { tx?: string; ref?: string }): Promise<{ state: string; destinationTxHash?: string } | null>;
+  track(
+    provider: string,
+    ref: { tx?: string; ref?: string },
+  ): Promise<{ state: string; destinationTxHash?: string; refundedTo?: "escrow" | "destination" } | null>;
 }
 
 export type Source = "ok" | "none" | "unreachable";
@@ -44,19 +47,28 @@ const PRE_FUNDING: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_RE
 export function stateFrom(
   row: Pick<OperationRow, "state" | "executeDeadline" | "refundAfter" | "amount">,
   job: RelayerJobView | null,
-  track: { state: string } | null,
+  track: { state: string; refundedTo?: "escrow" | "destination" } | null,
   funded: boolean | null,
   nowS: number,
   /** the escrow holds a refund that came back after the executor's watch (lateRefundHeld) */
   lateRefund = false,
+  /** the escrow's balance was read this time (the sixth review round, 2026-11-03): nothing settles on an unread one */
+  escrowRead = true,
 ): { state: OperationState; code?: string; delayed?: true } {
   const j = job?.state;
   if (j === "refunded") return { state: "REFUNDED" };
+  // a refund the provider paid at the destination address (the sixth review round, 2026-11-03; Mayan Fast-MCTP): final, whatever
+  // the executor's watch says — nothing reaches the escrow
+  if (track?.state === "refunded" && track.refundedTo === "destination" && (j === "completed" || j === "executed" || j === "executing"))
+    return { state: "COMPLETED" };
   // completed only on the provider's word (audit round 2, r36): the executor's watch ending with the escrow empty is none, and
   // a refund held past it waits for the wallet's return
   if (j === "completed") {
     if (lateRefund) return { state: "RECOVERY_REQUIRED", code: "late_refund" };
+    if (!escrowRead) return { state: "DESTINATION_CONFIRMING" };
     if (track?.state === "partial") return { state: "RECOVERY_REQUIRED", code: "partial_delivery" };
+    // the provider's last word is a failure, or a refund to the escrow the watch never saw arrive: nothing more comes back on its own
+    if (track?.state === "failed" || track?.state === "refunded") return { state: "RECOVERY_REQUIRED", code: "provider_failed" };
     return track?.state === "completed" || track?.state === "destination-final" ? { state: "COMPLETED" } : { state: "DESTINATION_CONFIRMING" };
   }
   if (j === "refunding" || j === "refund-only" || j === "expired") return { state: "REFUNDING" };
@@ -135,13 +147,14 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
     amount: BigInt(row.amount),
     executeDeadline: row.executeDeadline,
     now: nowS,
+    ...(trackRead?.refundedTo ? { refundTarget: trackRead.refundedTo } : {}),
   });
   const settlement = nextSettlement(row.settlement, legs);
   const funded = balance === null ? null : balance >= BigInt(row.amount);
   const derived: { state: OperationState; code?: string; delayed?: true } =
     TERMINAL_STATES.includes(row.state) || jobRead === null
       ? { state: row.state }
-      : stateFrom(row, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)));
+      : stateFrom(row, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)), balance !== null);
   store.updateState(row.id, { state: derived.state, settlement });
   if (derived.state !== row.state)
     store.event({ event: "operation.reconciled", operationId: row.id, provider: row.provider, state: derived.state, network: row.network });

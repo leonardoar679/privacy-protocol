@@ -103,7 +103,11 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
       const adapter = c.engine.cfg.adapters.find((a) => a.id === (provider as ProviderId));
       if (!adapter) return null;
       const t = await adapter.track({ ...(ref.tx ? { sourceTxHash: ref.tx } : { providerRef: ref.ref }) });
-      return { state: t.state, ...(t.destinationTxHash ? { destinationTxHash: t.destinationTxHash } : {}) };
+      return {
+        state: t.state,
+        ...(t.destinationTxHash ? { destinationTxHash: t.destinationTxHash } : {}),
+        ...(t.refundedTo ? { refundedTo: t.refundedTo } : {}),
+      };
     },
     async relayerTerms(): Promise<RelayerTerms | null> {
       if (!c.relayerUrl) return null;

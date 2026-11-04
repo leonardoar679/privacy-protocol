@@ -33,7 +33,7 @@ import {
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
 import { withCampaignState } from "@privacy-wallet/protocol/wallet/campaign";
-import { runCampaignTick, resetRunnerMemory, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { runCampaignTick, resetRunnerMemory, SIGN_RETRIES_BEFORE_BACKOFF, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
 import type { Signed } from "@privacy-wallet/sdk/swapExecute";
@@ -809,13 +809,57 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("fund");
     clock += 2000;
     world.signThrows = new ProviderCallUnverified("thorchain", "only 1 of 3 THORNode gateways answered for ETH; 2 must agree");
-    await expect(tick(c)).rejects.toBeInstanceOf(ProviderCallUnverified);
+    // the sixth review round (2026-11-03): tried again at the next tick a minute later — not thrown to the scheduler's backoff, which
+    // had let a funded step's window close through one short outage
+    r = await tick(c);
+    expect(r?.action.kind).toBe("sign");
     expect(current(c).state, "no pause: an outage").toBe("running");
     expect(current(c).pause).toBeUndefined();
+    expect(current(c).tranches[0].state, "still funded, not signed").toBe("funded");
+    const dueNext = session.journal().schedule.find((x) => x.id === `campaign-tick:${c.id}`)?.dueAt;
+    expect(dueNext, "the next tick soon, not the backoff").toBeGreaterThan(clock);
+    expect(dueNext!).toBeLessThanOrEqual(clock + 60_000);
     clock += 60_000;
     r = await tick(c);
     expect(r?.action.kind).toBe("sign");
     expect(current(c).tranches[0].state).toBe("signed");
+  });
+
+  it("a signing that keeps failing for a passing reason goes to the scheduler's backoff after SIGN_RETRIES_BEFORE_BACKOFF ticks (the sixth review round, 2026-11-03)", async () => {
+    const c = await fresh();
+    await tick(c);
+    clock += 2000; // commit
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("fund");
+    for (let i = 1; i <= SIGN_RETRIES_BEFORE_BACKOFF; i++) {
+      clock += 60_000;
+      world.signThrows = new TypeError("fetch failed");
+      r = await tick(c);
+      expect(r?.action.kind, `try ${i}: tried again at the next tick`).toBe("sign");
+      expect(current(c).tranches[0].state).toBe("funded");
+    }
+    clock += 60_000;
+    world.signThrows = new TypeError("fetch failed");
+    await expect(tick(c), "past the retries: the backoff").rejects.toThrow(/fetch failed/);
+    expect(current(c).state, "still no pause: the outage is the network's").toBe("running");
+  });
+
+  it("a step whose funding attempt is dead when the rest returns is given up with the flag and skipped — never refused as 'pending' for good (the sixth review round, 2026-11-03)", async () => {
+    const c = await fresh();
+    await tick(c);
+    clock += 2000; // committed
+    world.fundPendingAfterSend = true; // the funding is sent, its answer lost
+    await tick(c).catch(() => null);
+    world.fundPendingAfterSend = false;
+    const orderId = current(c).tranches[0].orderId!;
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.fundingAttempt, "journaled before it was sent").toBeTruthy();
+    cancelCampaign(c.id, session, clock);
+    world.fate = "dead"; // old, unspent, no job, unknown to the node
+    clock += 2000;
+    await tick(c);
+    expect(session.journal().swaps.find((x) => x.orderId === orderId)?.state, "dead: the order is given up").toBe("abandoned");
+    expect(current(c).tranches[0].state).toBe("skipped");
+    world.fate = "unknown";
   });
 
   // 2026-10-14: a step whose window closed was funded anyway, or retried its signature on the scheduler's backoff for good

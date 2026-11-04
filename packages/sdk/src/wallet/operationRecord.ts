@@ -140,6 +140,8 @@ export interface OperationRecord {
     noteCounter?: number;
     nullifiers?: [string, string];
     relayerUrl?: string;
+    /** the digest of its call's public inputs (the sixth review round, 2026-11-03): a lost answer is settled only by that call */
+    inputsDigest?: string;
   };
   tier: Tier;
   /** spec §3.8 at the `large-protected` band and above */

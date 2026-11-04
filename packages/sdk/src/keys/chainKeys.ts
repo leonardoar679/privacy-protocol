@@ -5,7 +5,7 @@
 import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { seedToPhrase } from "../wallet/keystore";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "../wallet/session";
-import { recordFreshAddress } from "../wallet/addressBook";
+import { recordFreshAddress, findEntry } from "../wallet/addressBook";
 
 const seeds = new WeakMap<Uint8Array, { of: Uint8Array; seed64: Uint8Array }>();
 /** the seed objects the cache holds entries for: zeroed and dropped at the lock (the fifth review round, 2026-11-03) */
@@ -67,6 +67,18 @@ export function consumeFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s:
 export function lastFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: WalletSession = defaultSession): ChainAccount | null {
   const n = nextIndex(chain, s);
   return n > 0 ? accountFor(chain, chainSeed(masterSeed), n - 1) : null;
+}
+
+/**
+ * The most recently reserved address of a chain while nothing has used it (the sixth review round, 2026-11-03): one a swap or a
+ * send consumed as its destination is never shown to be paid at again — a payer's transfer and the provider's delivery would
+ * share one address. Null then, and when none was reserved: the screen offers a new one.
+ */
+export function lastUnusedFreshAddress(masterSeed: Uint8Array, chain: ChainKind, s: WalletSession = defaultSession): ChainAccount | null {
+  const last = lastFreshAddress(masterSeed, chain, s);
+  if (!last) return null;
+  const entry = findEntry(chain, last.address, s);
+  return entry && (entry.lifecycle === "used" || entry.lifecycle === "settled" || entry.lifecycle === "retired") ? null : last;
 }
 
 /** The fresh EVM account a dApp origin gets (plan §37): stable per origin, distinct between origins, never the first account. */

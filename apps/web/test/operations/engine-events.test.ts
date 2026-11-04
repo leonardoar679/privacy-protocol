@@ -37,6 +37,7 @@ describe("fromEngineEvent", () => {
     expect(fromEngineEvent({ type: "approved", txHash: H1 })).toEqual({ type: "note", note: `approval ${H1}` });
     expect(fromEngineEvent({ type: "submitting", by: "relayer" })).toEqual({ type: "progress", step: "submitting", by: "relayer" });
     expect(fromEngineEvent({ type: "submitting", by: "wallet", nullifiers: ["1", "2"] }), "the connected wallet's own send: its prompt (the review round of 2026-11-02)").toEqual({ type: "progress", step: "submitting", nullifiers: ["1", "2"], by: "wallet" });
+    expect(fromEngineEvent({ type: "submitting", by: "relayer", nullifiers: ["1", "2"], relayerUrl: "http://r", inputsDigest: "0xab" }), "the call's inputs digest is kept (the sixth review round)").toEqual({ type: "progress", step: "submitting", nullifiers: ["1", "2"], relayerUrl: "http://r", inputsDigest: "0xab", by: "relayer" });
     expect(fromEngineEvent({ type: "relayer-retry", attempt: 2 })).toEqual({ type: "note", note: "relayer unreachable, attempt 2" });
     expect(fromEngineEvent({ type: "submitted", txHash: H1, by: "relayer" })).toEqual({ type: "submitted", txHash: H1, by: "relayer" });
     expect(fromEngineEvent({ type: "waiting-receipt", txHash: H1 })).toEqual({ type: "confirming", txHash: H1 });

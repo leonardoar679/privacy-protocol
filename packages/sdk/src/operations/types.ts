@@ -61,6 +61,8 @@ export type OperationEvent =
       noteCounter?: number;
       nullifiers?: [string, string];
       relayerUrl?: string;
+      /** the digest of the call's public inputs (`transactInputsDigest`; the sixth review round, 2026-11-03): what a lost answer is settled by */
+      inputsDigest?: string;
       /** who a "submitting" step hands to: the relayer (irreversible: SUBMITTING), or the connected wallet, whose prompt it is (declinable: the record waits as AWAITING_AUTHORIZATION) */
       by?: "relayer" | "wallet";
     }

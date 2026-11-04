@@ -18,6 +18,7 @@ import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
 import { clientFor, deploymentFromEnv, noteInsertedLogsQuorum, syncTree, syncTreeQuorum, txDomainOf, type Deployment } from "@privacy-wallet/sdk/chain";
 import { scanNotes } from "@privacy-wallet/sdk/privateTx";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { nullifier } from "@privacy-wallet/protocol/nullifier";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9";
 const VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";
@@ -46,7 +47,6 @@ let spentFlag = false;
 
 const selNext = toFunctionSelector("nextLeafIndex()");
 const selRoot = toFunctionSelector("currentRoot()");
-const selSpent = toFunctionSelector("isNullifierSpent(uint256)");
 const pad32 = (v: bigint) => ("0x" + v.toString(16).padStart(64, "0")) as Hex;
 function logFor(leafIndex: number, l: { commitment: bigint; noteData: Hex }) {
   return {
@@ -55,17 +55,28 @@ function logFor(leafIndex: number, l: { commitment: bigint; noteData: Hex }) {
     blockNumber: "0x5", blockHash: "0x" + "22".repeat(32), transactionHash: ("0x" + "33".repeat(31) + leafIndex.toString(16).padStart(2, "0")) as Hex, transactionIndex: "0x0", logIndex: toHex(leafIndex), removed: false,
   };
 }
+function spendLogFor(n0: bigint, n1: bigint) {
+  return {
+    address: CORE.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "ShieldedTransaction" }),
+    data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [n0, n1, 0n, 0n, 0n]),
+    blockNumber: "0x7", blockHash: "0x" + "22".repeat(32), transactionHash: ("0x" + "55".repeat(32)) as Hex, transactionIndex: "0x0", logIndex: "0x9", removed: false,
+  };
+}
 function handle(req: { id: number; method: string; params: any[] }) {
   const res = (result: unknown) => ({ jsonrpc: "2.0", id: req.id, result });
   switch (req.method) {
     case "eth_chainId": return res("0x7a69");
     case "eth_blockNumber": return res("0x10");
-    case "eth_getLogs": return res(Object.entries(leaves).map(([i, l]) => logFor(Number(i), l)));
+    case "eth_getLogs": {
+      // the notes, and — when the pool spent ours — the spend event that consumed their nullifiers: the scan's spent bit comes from it,
+      // never from a per-nullifier isNullifierSpent read (the sixth review round, 2026-11-03)
+      const spends = spentFlag ? [spendLogFor(nullifier(leaves[0].commitment, keys.spendKey), nullifier(leaves[5].commitment, keys.spendKey))] : [];
+      return res([...Object.entries(leaves).map(([i, l]) => logFor(Number(i), l)), ...spends]);
+    }
     case "eth_call": {
       const data: string = req.params[0].data;
       if (data.startsWith(selNext)) return res(pad32(BigInt(NEXT)));
       if (data.startsWith(selRoot)) return res(pad32(rootToReport));
-      if (data.startsWith(selSpent)) return res(pad32(spentFlag ? 1n : 0n));
       return { jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "mock: unknown call" } };
     }
     default: return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `mock rpc: ${req.method} unsupported` } };
@@ -183,7 +194,7 @@ describe("note discovery from chain (spec §12 envelope)", () => {
     expect(again).toEqual({ scanned: 4, found: 2, added: 0, spent: 0, refunds: 0, received: [], pending: [], proven: null });
     expect(noteStore.all().length).toBe(before + 2);
   });
-  it("marks a discovered note spent when the core's nullifier set says so; another wallet finds nothing", async () => {
+  it("marks a discovered note spent when the pool's spend events say so — no per-nullifier read; another wallet finds nothing", async () => {
     spentFlag = true;
     try {
       const r = await scanNotes({ masterSeed: seed, deployment });

@@ -24,7 +24,18 @@ import type { SettlementState } from "@privacy-wallet/protocol-types";
  * The spec's states (packages/swap-engine/src/order.ts), as the wallet derives them. LATE_REFUND (audit round 2, r36): the
  * escrow of an executed order holds a refund that came back after the executor stopped watching it — the wallet's to return.
  */
-export type OrderState = "COMMITTED" | "SOURCE_SUBMITTED" | "SOURCE_FINAL" | "PROVIDER_EXECUTING" | "DESTINATION_SUBMITTED" | "DESTINATION_FINAL" | "COMPLETED" | "PARTIAL" | "REFUND_PENDING" | "PROVIDER_TIMEOUT" | "DESTINATION_FAILED" | "REFUNDED" | "EXPIRED" | "CANCELLED" | "FAILED" | "LATE_REFUND";
+export type OrderState = "COMMITTED" | "SOURCE_SUBMITTED" | "SOURCE_FINAL" | "PROVIDER_EXECUTING" | "DESTINATION_SUBMITTED" | "DESTINATION_FINAL" | "COMPLETED" | "PARTIAL" | "REFUND_PENDING" | "PROVIDER_TIMEOUT" | "DESTINATION_FAILED" | "REFUNDED" | "EXPIRED" | "CANCELLED" | "FAILED" | "LATE_REFUND" | "REFUNDED_AT_DESTINATION" | "PROVIDER_FAILED";
+/**
+ * The two states of the sixth review round (2026-11-03). REFUNDED_AT_DESTINATION: the provider paid its refund at the fresh destination
+ * address (Mayan Fast-MCTP refunds USDC there, never to the escrow) — final, the order closes, nothing is left to return.
+ * PROVIDER_FAILED: the provider's last word is a failure, or a refund to the escrow that never arrived, and the executor's watch
+ * ended with nothing above dust in the escrow — the order closes with its reason; before, both read "a refund on its way to the
+ * escrow; once it arrives, return it" for good, held the band's in-flight slot and kept a campaign step from settling.
+ */
+export const CLOSED_BY_TRACK: readonly OrderState[] = ["COMPLETED", "PARTIAL", "REFUNDED_AT_DESTINATION", "PROVIDER_FAILED"];
+/** Where the provider refunds an unfilled order: the quote's word at commit, or the track's. */
+export const refundTargetOf = (s: Pick<StoredSwap, "quote">, t: { refundedTo?: string } | null | undefined): "escrow" | "destination" =>
+  (s.quote as { refundTarget?: string } | undefined)?.refundTarget === "destination" || t?.refundedTo === "destination" ? "destination" : "escrow";
 /** Plan §61. */
 export type SettlementLabel = "Preparing" | "Waiting for source" | "Executing" | "Waiting for destination" | "Partial" | "Refunding" | "Refunded" | "Completed" | "Not started" | "Needs attention";
 export const STEPS = ["Quote locked", "Source confirmed", "Destination sent", "Destination finalized"] as const;
@@ -83,6 +94,7 @@ export function legsOf(s: StoredSwap, f: TrackFacts): SettlementLegs | null {
     fundingSent: fundedOf(s), abandoned: s.state === "abandoned", refundFound: f.refundFound || (s.refunds?.length ?? 0) > 0,
     job: f.job ? { state: f.job.state, ...(f.job.executionTx ? { executionTx: f.job.executionTx } : {}) } : null, jobUnread: !!s.jobId && !f.job,
     ...(s.executionTx ? { executionTx: s.executionTx } : {}), track: shielded ? { state: "destination-final" } : f.track, escrowBalance: f.escrowBalance, amount: BigInt(p.amount), executeDeadline: p.executeDeadline, now: Math.floor(f.now / 1000),
+    refundTarget: refundTargetOf(s, f.track),
   });
 }
 
@@ -141,6 +153,10 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   // the output, and nothing said to have come back
   if (otherToken)
     return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t.deliveredAsset} at the destination instead of ${to.symbol}: the route gave another token.`, extras);
+  // a refund the provider paid at the DESTINATION (the sixth review round, 2026-11-03; Mayan Fast-MCTP: USDC to the fresh address):
+  // final — nothing reaches the escrow, nothing is left to return; the order closes and the fresh address is retired
+  if (executed && t?.state === "refunded" && refundTargetOf(s, t) === "destination")
+    return out("REFUNDED_AT_DESTINATION", "Refunded", [true, true, true, true], `The provider could not deliver ${to.symbol || "the output"} and refunded at your fresh address on the destination chain${refunded ? ` (${refunded})` : " (in its refund asset — USDC for Mayan)"}, not to the pool. Nothing is left in the escrow.`, extras);
   const job = f.job?.state;
   // the executor stopped watching an executed order (`completed`: its late-refund watch ended with the escrow empty), and the
   // escrow holds a refund since (audit round 2, r36): the provider held it past the watch — a chain halt, an outbound queue —,
@@ -157,12 +173,18 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
     if (job === "completed") return out("DESTINATION_SUBMITTED", "Waiting for destination", [true, true, true, false], "The executor's watch ended with nothing back in the escrow; waiting for the delivery to the one-time receiver.", extras);
   }
   if (job === "completed") {
+    // the escrow's balance was not read this time (the sixth review round, 2026-11-03): nothing settles on it — a partial fill whose
+    // rest came back after the watch had settled as delivered on a failed balance read
+    if (f.escrowBalance === null)
+      return out("PROVIDER_EXECUTING", "Executing", [true, true, true, false], "The executor's watch ended; the escrow's balance could not be read this time, so the order is read again before it settles.", extras);
     if (t?.state === "partial") return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded.`, extras);
     // delivered on the provider's word only (r36): a provider still delivering, or refunding, keeps the order open
     if (t?.state === "completed" || t?.state === "destination-final")
       return out("COMPLETED", "Completed", [true, true, true, true], `${delivered ? `${delivered} delivered` : "Delivered"} at your fresh address; the executor's watch for a late refund ended with nothing left in the escrow.`, extras);
+    // the provider's last word is a failure, or a refund to the escrow the watch never saw arrive (the sixth review round, 2026-11-03):
+    // the order ends with its reason — it had read "once it arrives, return it" for good, with nothing ever arriving
     if (t?.state === "refunded" || t?.state === "failed")
-      return out("REFUND_PENDING", "Refunding", [true, true, false, false], "The provider is paying the escrow back after the executor stopped watching it; once it arrives, return it to your private balance.", extras);
+      return out("PROVIDER_FAILED", "Needs attention", [true, true, false, false], `The provider reports ${t.state === "failed" ? "the execution failed" : "a refund to the escrow"}, and the executor's watch ended with nothing above dust in the escrow${f.escrowBalance > 0n ? ` (${fmtUnits(f.escrowBalance, from.decimals ?? 18)} ${from.symbol ?? ""})` : ""}. Nothing more comes back on its own: check the provider's record of the execution transaction.`, extras);
     if (t?.state === "destination-submitted")
       return out("DESTINATION_SUBMITTED", "Waiting for destination", [true, true, true, false], `The provider sent the destination transaction${t.destinationTxHash ? ` ${t.destinationTxHash.slice(0, 10)}…` : ""}; waiting for finality.`, extras);
     return out("PROVIDER_EXECUTING", "Executing", [true, true, false, false], "The provider has not confirmed the delivery yet; the executor's watch for a late refund ended with nothing in the escrow, and the wallet keeps reading both.", extras);
@@ -253,7 +275,8 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
   // a `completed` job closes the order only once it reads settled (audit round 2, r36): until then it stays open, as executed —
   // its "Return funds" and the next reads still reach it
-  const own = job?.state === "completed" && tracked.state !== "COMPLETED" && tracked.state !== "PARTIAL" ? "executed" : job?.state;
+  // a refund paid at the destination closes the order whatever the executor's watch says (the sixth review round)
+  const own = tracked.state === "REFUNDED_AT_DESTINATION" ? "completed" : job?.state === "completed" && !CLOSED_BY_TRACK.includes(tracked.state) ? "executed" : job?.state;
   // journal: executionTx once, the read, a transition when the state changed
   if (s.isUnlocked()) {
     s.update((j) => {
@@ -270,7 +293,7 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
     });
     // High-Value Protection spec §12: a settled payment retires a fresh destination (one use) and marks an entered one paid
     const r = stored.request as { to?: { chain?: string }; destination?: string };
-    if ((tracked.state === "COMPLETED" || tracked.state === "DESTINATION_FINAL") && stored.track?.state !== tracked.state && r.to?.chain && r.destination) markAddressSettled(chainKindOf(r.to.chain), r.destination, s, now);
+    if ((tracked.state === "COMPLETED" || tracked.state === "DESTINATION_FINAL" || tracked.state === "REFUNDED_AT_DESTINATION") && stored.track?.state !== tracked.state && r.to?.chain && r.destination) markAddressSettled(chainKindOf(r.to.chain), r.destination, s, now);
     updateActivity(activityId("swap", stored.orderId), { status: own ?? stored.state, note: `${(stored.request as { to?: { symbol?: string } })?.to?.symbol ? `→ ${(stored.request as { to?: { symbol?: string } }).to!.symbol} · ` : ""}${tracked.label}` }, s);
   }
   return { tracked, job };

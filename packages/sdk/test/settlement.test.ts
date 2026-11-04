@@ -103,8 +103,70 @@ describe("§82 — the scenarios", () => {
       facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "destination-final", deliveredAmount: "2990000" } }),
     );
     expect([ORDER_STATE_MAP[t.state].state, t.settlement]).toEqual(["DESTINATION_CONFIRMING", "COMPLETED"]);
-    const done = deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "completed", deliveredAmount: "2990000" } }));
+    const done = deriveState(
+      s,
+      facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "completed", deliveredAmount: "2990000" }, escrowBalance: 0n }),
+    );
     expect([ORDER_STATE_MAP[done.state].state, done.settlement]).toEqual(["COMPLETED", "COMPLETED"]);
+  });
+  it("a refund the provider paid at the destination address (Mayan Fast-MCTP) is final: Refunded, the settlement complete, the record COMPLETED, the step settled (the sixth review round, 2026-11-03)", () => {
+    const s = stored({
+      ...FUNDED,
+      provider: "mayan",
+      quote: { provider: "mayan", refundTarget: "destination" },
+      jobId: "job-1",
+      executionTx: "0x" + "22".repeat(32),
+    });
+    // the executor still watches: the provider's word suffices — nothing reaches the escrow
+    const t = deriveState(s, facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "refunded" }, escrowBalance: 0n }));
+    expect(t.state).toBe("REFUNDED_AT_DESTINATION");
+    expect(t.label).toBe("Refunded");
+    expect(t.detail).toMatch(/refunded at your fresh address on the destination chain.*not to the pool/);
+    expect(t.settlement).toBe("COMPLETED");
+    expect(ORDER_STATE_MAP[t.state]).toMatchObject({ state: "COMPLETED" });
+    // after the watch ended the same; and the track's own word (refundedTo) decides for a quote without the flag
+    const done = deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "refunded" }, escrowBalance: 0n }));
+    expect([done.state, done.settlement]).toEqual(["REFUNDED_AT_DESTINATION", "COMPLETED"]);
+    const unflagged = stored({ ...FUNDED, provider: "mayan", jobId: "job-1", executionTx: "0x" + "22".repeat(32) });
+    expect(
+      deriveState(unflagged, facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "refunded", refundedTo: "destination" } as never }))
+        .state,
+    ).toBe("REFUNDED_AT_DESTINATION");
+    // an escrow refund stays what it was: a refund on its way to the escrow
+    expect(deriveState(unflagged, facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "refunded" } })).state).toBe("REFUND_PENDING");
+  });
+  it("a provider failure after which nothing came back by the end of the executor's watch ends the order with its reason, never 'once it arrives, return it' for good (the sixth review round, 2026-11-03)", () => {
+    const s = stored({ ...FUNDED, jobId: "job-1", executionTx: "0x" + "22".repeat(32) });
+    const failed = deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "failed" }, escrowBalance: 0n }));
+    expect(failed.state).toBe("PROVIDER_FAILED");
+    expect(failed.label).toBe("Needs attention");
+    expect(failed.detail).toMatch(/the execution failed, and the executor's watch ended with nothing above dust/);
+    expect(ORDER_STATE_MAP[failed.state]).toMatchObject({ state: "RECOVERY_REQUIRED", code: "provider_failed" });
+    expect(failed.settlement, "no refund is on its way: not REFUNDING").not.toBe("REFUNDING");
+    // the provider says it refunded the escrow, but only dust is there after the watch: the same end
+    const dust = deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "refunded" }, escrowBalance: AMOUNT / 1000n }));
+    expect(dust.state).toBe("PROVIDER_FAILED");
+    expect(dust.detail).toMatch(/a refund to the escrow.*0\.001 ETH/);
+    // a refund above the floor in the escrow is a late refund, the wallet's to return, as before
+    expect(
+      deriveState(s, facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "refunded" }, escrowBalance: AMOUNT / 2n })).state,
+    ).toBe("LATE_REFUND");
+    // before the watch ends a failure still reads as a refund under way
+    expect(deriveState(s, facts({ job: job("executed", { executionTx: s.executionTx }), track: { state: "failed" } })).state).toBe("DESTINATION_FAILED");
+  });
+  it("after the watch ended, an escrow balance that could not be read settles nothing: the order stays open and the last settlement stands (the sixth review round, 2026-11-03)", () => {
+    const s = withTrack(stored({ ...FUNDED, jobId: "job-1", executionTx: "0x" + "22".repeat(32) }), "DESTINATION_PENDING");
+    const unread = deriveState(
+      s,
+      facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "partial", deliveredAmount: "1000000" }, escrowBalance: null }),
+    );
+    expect(unread.state, "not PARTIAL on an unread balance").toBe("PROVIDER_EXECUTING");
+    expect(unread.settlement, "kept").toBe("DESTINATION_PENDING");
+    const read = deriveState(
+      s,
+      facts({ job: job("completed", { executionTx: s.executionTx }), track: { state: "partial", deliveredAmount: "1000000" }, escrowBalance: 0n }),
+    );
+    expect([read.state, read.settlement]).toEqual(["PARTIAL", "COMPLETED"]);
   });
   it("a destination failure: the provider pays the escrow back — the record needs attention, the settlement is a refund under way", () => {
     const s = stored({ ...FUNDED, jobId: "job-1", executionTx: "0x" + "22".repeat(32) });

@@ -41,6 +41,8 @@ interface Gateway {
   active?: string[];
   down?: boolean;
   halted?: boolean;
+  /** the destination chain's (BTC) halt flag (the sixth review round) */
+  haltedDest?: boolean;
 }
 let gateways: Gateway[] = [];
 const asked: string[] = [];
@@ -55,7 +57,7 @@ beforeEach(() => {
     if (!g || g.down) throw new TypeError("fetch failed");
     if (url.endsWith("/thorchain/inbound_addresses"))
       return Response.json([
-        { chain: "BTC", address: "bc1qvault", halted: false },
+        { chain: "BTC", address: "bc1qvault", halted: !!g.haltedDest },
         { chain: "ETH", address: g.inbound ?? V1, router: g.router ?? THORCHAIN_ROUTER_ETHEREUM, halted: !!g.halted },
       ]);
     if (url.endsWith("/thorchain/vaults/asgard"))
@@ -130,6 +132,12 @@ describe("THORChain's inbound vault on the move, at the API (2026-10-14)", () =>
     // the gateways differ on the suggestion (one a block behind): the quote's vault is looked up in their lists
     gateways = [{ inbound: V1 }, { inbound: V2 }, { inbound: V2 }];
     await expect(a.prepareIngress(req, quote(V1))).resolves.toMatchObject({ kind: "contract-call" });
+    // the destination chain halted or trading-paused on one gateway (the sixth review round, 2026-11-03): the outbound would queue
+    // inside THORChain with the funds in its custody — refused at prepare, as the source's halt is
+    gateways = [{}, {}, { haltedDest: true }];
+    await expect(a.prepareIngress(req, quote(V1))).rejects.toThrow(/BTC is halted or trading-paused/);
+    gateways = every({ halted: true });
+    await expect(a.prepareIngress(req, quote(V1))).rejects.toThrow(/ETH inbound is halted/);
   });
 });
 

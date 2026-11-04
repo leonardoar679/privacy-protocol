@@ -90,6 +90,15 @@ export interface Hold { reason: string; since: number }
 const sortedJson = (v: unknown): string =>
   JSON.stringify(v, (_k, x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 
+/** A pinned session's journal was asked after the wallet was locked or replaced (the sixth review round, 2026-11-03): refused. */
+export class SessionChanged extends Error {
+  readonly code = "locked_mid_flow";
+  constructor(what: string) {
+    super(`the wallet was locked or replaced since this run began: its journal ${what} is refused`);
+    this.name = "SessionChanged";
+  }
+}
+
 export class WalletSession {
   private seed: Uint8Array | null = null;
   private key: Uint8Array | null = null;
@@ -115,6 +124,22 @@ export class WalletSession {
    */
   private epochCount = 0;
   epoch(): number { return this.epochCount; }
+  /**
+   * This session as a run that began at the current opening sees it (the sixth review round, 2026-11-03): the journal reads and
+   * writes of a scheduled runner's tick go through here and are refused once the wallet was locked, or another phrase replaced it
+   * in this tab — a tick's late write had gone into whichever journal was open then. Everything else is the session itself.
+   */
+  pinned(): WalletSession {
+    const epoch = this.epochCount;
+    return new Proxy(this, {
+      get(t, key) {
+        if (key === "journal") return () => { if (t.epochCount !== epoch) throw new SessionChanged("read"); return t.journal(); };
+        if (key === "update") return (fn: (j: JournalData) => void) => { if (t.epochCount !== epoch) throw new SessionChanged("write"); t.update(fn); };
+        const v = Reflect.get(t, key);
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+  }
   private safeHooks = new Set<() => void>();
   /** resolves once the store has hydrated and the status reflects the device (V5); started by the first read (V6 Stage 4) */
   get ready(): Promise<void> {

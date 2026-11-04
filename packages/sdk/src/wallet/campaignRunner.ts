@@ -28,7 +28,7 @@ import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, 
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
-import { chainKindOf, consumeFreshAddress, peekFreshAddress } from "../keys/chainKeys";
+import { chainKindOf, consumeFreshAddress } from "../keys/chainKeys";
 import { markAddressSettled, markAddressUsed } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
 import { campaignById, childOrder, expectedOut, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, cryptoUniform, TERMINAL_STATES } from "./campaigns";
@@ -83,7 +83,15 @@ async function cached<T>(key: string, now: number, read: () => Promise<T>, fresh
   return value;
 }
 /** Tests: forget what the runner keeps in memory. */
-export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); }
+export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); signRetries.clear(); }
+/**
+ * How many ticks in a row a step's signing may fail for a passing reason — the gateways did not answer, the network failed before
+ * anything was signed — and be tried again at the next tick, before the scheduler's backoff applies (the sixth review round,
+ * 2026-11-03: the backoff — ten minutes, then twenty — had let a funded step's window close through one short outage).
+ */
+export const SIGN_RETRIES_BEFORE_BACKOFF = 5;
+/** the passing failures in a row of each campaign's current signing (not journaled: a reload starts the count again) */
+const signRetries = new Map<string, number>();
 
 /**
  * Audit gap 44: why a route the campaign has left behind may not carry a step it already funded (§8, §10) — its breaker
@@ -160,7 +168,9 @@ export function defaultIo(d: IoDeps): CampaignIo {
     job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
     track: (stored, stall) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session, stall }),
     refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission }),
-    quote: (c, amount) => swapService.quote({ from: c.request.from, to: c.request.to, amount: amount.toString(), destination: c.bounds.destination.kind === "fresh-per-tranche" ? peekFreshAddress(d.masterSeed, chainKindOf(c.request.to.chain), d.session).address : c.bounds.destination.address, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
+    // an indicative quote carries no destination (the sixth review round, 2026-11-03): the engine quotes a placeholder, and the
+    // step's fresh address reaches the chosen provider at its commit — the service had seen the next fresh address at every requote
+    quote: (c, amount) => swapService.quote({ from: c.request.from, to: c.request.to, amount: amount.toString(), destination: "", slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
     risk: (provider) => swapService.risk(provider).catch(() => null),
     gasPriceWei: () => (relayerUrl ? relayerInfo(relayerUrl).then((i) => i.gasPriceWei).catch(() => null) : Promise.resolve(null)),
     crossRateE18: crossRateFromPrices,
@@ -201,7 +211,10 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   const partialBack = s === "REFUNDED" && deliveredOut !== undefined && deliveredOut > 0n;
   if (s === "REFUNDED" && !partialBack) return { state: "refunded", patch: { ...patch, outcome: { ...t.outcome, refunded: t.amount } }, note: "the escrow returned to the private balance" };
   // a refund that came back after the executor stopped watching (audit round 2, r36) waits, like a failed step, for the return
-  if (s === "FAILED" || s === "LATE_REFUND") return { state: "failed", patch, note: tracked.detail };
+  if (s === "FAILED" || s === "LATE_REFUND" || s === "PROVIDER_FAILED") return { state: "failed", patch, note: tracked.detail };
+  // a refund the provider paid at the step's fresh destination address (the sixth review round, 2026-11-03): the step is over —
+  // nothing comes back to the pool, nothing is in flight; its amount is at that address in the provider's refund asset
+  if (s === "REFUNDED_AT_DESTINATION") return t.state === "settled" ? null : { state: "settled", patch: { ...patch, settledAt: now }, note: tracked.detail };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
   if (s === "PARTIAL" || partialBack) {
@@ -448,7 +461,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const sentFate = await givenUpOnlyIfDead(stored, io);
           if (sentFate === "landed") { c = withTrancheState(c, t.index, "funded", now, {}, "funded (its funding landed before the route changed)"); nextAt = now + 1000; break; }
           if (sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; } // on its way: read again at the next tick
-          abandonSwap(stored.orderId, s);
+          abandonSwap(stored.orderId, s, { fundingDead: sentFate === "dead" }); // a dead attempt says so (the sixth review round, 2026-11-03): refused as "pending" before, the tick threw and the step never moved
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, `the route changed to ${c.provider} before this step was funded: its order is abandoned and the step planned again`);
           nextAt = now + 1000; break;
         }
@@ -579,20 +592,33 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
               c = pauseWith(c, "provider-error", `Step ${t.index + 1} would not execute: ${r.sim.reason}. Nothing was handed over.`, now, t.index);
             } else {
               signedCache.set(stored.orderId.toLowerCase(), r);
+              signRetries.delete(c.id);
               c = withTrancheState(c, t.index, "signed", now, {}, `signed and simulated (${r.label})${leftBehind ? ` on the route it was funded on, ${t.provider}` : ""}`);
               nextAt = now + 1000;
             }
           } catch (e) {
             const m = (e as Error)?.message ?? String(e);
-            // the gateways did not answer: an outage, tried again at the next tick, never an unexpected destination
-            if (e instanceof ProviderCallUnverified) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; }
             const service = e instanceof ApiError; // an answer of the swap service is never the wallet's own check of the call (r35)
-            if (!service && /receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
-            else if (/below the best alternative|price_guard/i.test(m)) {
+            // the gateways did not answer, or the network failed before anything was signed: an outage, tried again at the next
+            // tick — never an unexpected destination. The sixth review round (2026-11-03): the first SIGN_RETRIES_BEFORE_BACKOFF such
+            // ticks come TRACK_INTERVAL_MS apart; the scheduler's backoff (ten minutes, then twenty) applies after them
+            let passing = e instanceof ProviderCallUnverified;
+            if (!passing && !service && /receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
+            else if (!passing && /below the best alternative|price_guard/i.test(m)) {
               if (leftBehind) leftRefund = "its own route is refused against the better one";
               else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
-            } else if (!service && /escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
-            else { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // a network failure before anything was signed: backoff
+            } else if (!passing && !service && /escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);
+            else passing = true;
+            if (passing) {
+              const tries = (signRetries.get(c.id) ?? 0) + 1;
+              signRetries.set(c.id, tries);
+              if (tries <= SIGN_RETRIES_BEFORE_BACKOFF) {
+                schedulerStatus.progress(`Protected swap: step ${t.index + 1} could not be signed for the moment (${m}); trying again shortly (${tries} of ${SIGN_RETRIES_BEFORE_BACKOFF})`);
+                nextAt = now + TRACK_INTERVAL_MS;
+                break;
+              }
+              c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; // the scheduler's backoff now
+            }
           }
         }
         if (leftRefund) {
@@ -706,7 +732,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         const sentFate = bal === 0n ? await givenUpOnlyIfDead(stored, io) : "none";
         if (sentFate === "landed" || sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; }
         if (bal === 0n) {
-          abandonSwap(stored.orderId, s); // never funded: nothing left the private balance
+          abandonSwap(stored.orderId, s, { fundingDead: sentFate === "dead" }); // never funded, or its attempt dead: nothing left the private balance (the sixth review round: the flag, or the tick threw for good)
           c = withTrancheState(c, t.index, "skipped", now, {}, "never funded: given up while the rest returned");
           nextAt = now + 1000;
         }
