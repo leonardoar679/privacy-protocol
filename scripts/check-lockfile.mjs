@@ -85,6 +85,14 @@ for (const [name, pkg] of manifests) {
   }
 }
 
+// an .npmrc that names another registry would have `npm audit` ask it, and a fresh install resolve there (the sixth review round, 2026-11-03)
+for (const rc of execFileSync("git", ["ls-files", ".npmrc", "*/.npmrc"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean)) {
+  for (const l of readFileSync(join(root, rc), "utf8").split("\n")) {
+    const m = l.match(/^\s*(?:@[^:=]+:)?registry\s*=\s*(\S+)/);
+    if (m && m[1].replace(/\/?$/, "/") !== REGISTRY) problems.push(`${rc}: registry ${m[1]} (only ${REGISTRY})`);
+    if (/^\s*_?auth(?:Token)?\s*=|^\s*\/\/.*:_authToken/.test(l)) problems.push(`${rc}: a credential line does not belong in the repository`);
+  }
+}
 const lockfiles = execFileSync("git", ["ls-files", "*package-lock.json", "package-lock.json"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean);
 for (const f of lockfiles)
   if (!TOOL_LOCKFILES.has(f)) problems.push(`${f}: a nested lockfile outside the tool directories and classic/ (one root lockfile for apps/* and packages/*)`);

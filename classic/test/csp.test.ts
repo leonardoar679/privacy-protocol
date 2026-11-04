@@ -2,6 +2,10 @@
 // never a scheme-wide allowance, never a host the build was not configured with —, no inline or remote script, no eval
 // (the circuit's templates are precompiled), WASM allowed, the workers same-origin or Blob; the plugin prepends the
 // meta tag; the headers a server must send.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildCsp, connectHosts, cspMeta, cspOfHtml, cspPlugin, curatedRelayerOrigins, originOf, SECURITY_HEADERS } from "../scripts/csp.mjs";
 
@@ -47,6 +51,30 @@ describe("the Classic content security policy", () => {
     expect(csp).not.toMatch(/'unsafe-inline'|'unsafe-eval'|\*/);
     expect(csp, "only the hosts named, never a scheme-wide allowance").not.toMatch(/ (https?|wss?):(?!\/\/)/);
     expect(buildCsp({})).toContain("connect-src 'self';");
+  });
+  it("a production build leaves the development relayer setting out of the policy; a curated host without a public suffix is dropped (the sixth review round)", () => {
+    const production = { production: true };
+    expect(connectHosts(ENV, [], production)).toEqual(["https://rpc-a.example", "https://rpc-b.example", "https://cdn.example"]);
+    expect(buildCsp(ENV, [], production)).not.toContain("relayer.example");
+    expect(buildCsp(ENV, ["https://eth.relayer-two.example"], production), "the curated relayers still come in").toContain("https://eth.relayer-two.example");
+    expect(cspMeta(ENV, [], production).attrs.content).toBe(buildCsp(ENV, [], production));
+    expect(
+      (cspPlugin(ENV, [], production) as unknown as { transformIndexHtml: () => { attrs: { content: string } }[] }).transformIndexHtml()[0].attrs.content,
+    ).toBe(buildCsp(ENV, [], production));
+    expect(connectHosts(ENV, [], {}), "a development build keeps it").toContain("https://relayer.example");
+    const dir = mkdtempSync(join(tmpdir(), "classic-csp-"));
+    try {
+      const file = join(dir, "relayers.json");
+      writeFileSync(
+        file,
+        JSON.stringify({
+          relayers: [{ url: "https://livetobecomeavillain" }, { url: "https://eth.relayer.example/" }, { url: "https://localhost" }, { url: "nonsense" }],
+        }),
+      );
+      expect(curatedRelayerOrigins(pathToFileURL(file))).toEqual(["https://eth.relayer.example"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("the plugin prepends the meta tag at build time; the headers a server must send are the known set", () => {
     const meta = cspMeta(ENV);

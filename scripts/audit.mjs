@@ -10,6 +10,7 @@
 // and the gate failed with "npm audit failed:" and nothing else). A self-test of how answers are read runs first.
 //   node scripts/audit.mjs          the root lockfile (every workspace) and the Classic app's (classic/, V7 Stage 2)
 //   node scripts/audit.mjs --json   the raw reports to stdout
+//   node scripts/audit.mjs --require-answer   an unreachable registry fails (CI; the sixth review round, 2026-11-03)
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -17,10 +18,12 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const PACKAGES = [".", "classic"];
+const PACKAGES = [".", "classic", "circuits", "scripts/local-stack", "tools/zkapi-lab"]; // the tool directories too (the sixth review round, 2026-11-03)
 const OFFLINE =
   /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ECONNRESET|socket hang up|audit endpoint returned an error|request to .+ failed|ERR_SOCKET|fetch failed|getaddrinfo/i;
 const wantJson = process.argv.includes("--json");
+/** --require-answer: an unreachable registry is a failure, not a skip (CI has the network; the sixth review round, 2026-11-03) */
+const requireAnswer = process.argv.includes("--require-answer");
 
 /** The accepted advisories: { name → { reason, until } }, expired ones excluded (they fail like any finding). */
 export function loadAllowlist(path = join(root, "scripts", "audit-allowlist.json"), now = new Date()) {
@@ -81,12 +84,28 @@ export function readAnswer(r, allow = loadAllowlist()) {
   }
   const v = report.metadata.vulnerabilities ?? {};
   const severe = Object.values(report.vulnerabilities ?? {}).filter((x) => x && (x.severity === "high" || x.severity === "critical"));
+  // an acceptance covers one finding only when every advisory behind it is the one named, every path is under the ones named, and
+  // every package it reaches it through is accepted itself (the sixth review round, 2026-11-03): by name alone, a new advisory of the
+  // same package, or the same package pulled in by a shipped dependency, had read as accepted
+  const covered = (x) => {
+    const e = allow.accepted[x.name];
+    if (!e) return false;
+    const vias = Array.isArray(x.via) ? x.via : [];
+    const advisoryOk = vias.every((v) =>
+      typeof v === "string" ? !!allow.accepted[v] : !e.advisories || e.advisories.some((id) => String(v.url ?? "").endsWith(id) || v.source === id),
+    );
+    const nodesOk = !e.nodes || (Array.isArray(x.nodes) && x.nodes.length > 0 && x.nodes.every((n) => e.nodes.some((p) => n === p || n.startsWith(p + "/"))));
+    return advisoryOk && nodesOk;
+  };
   const accepted = severe
-    .filter((x) => allow.accepted[x.name])
+    .filter(covered)
     .map((x) => `${x.name} (${x.severity}; accepted until ${allow.accepted[x.name].until}: ${allow.accepted[x.name].reason.split(";")[0].slice(0, 80)})`);
   const open = severe
-    .filter((x) => !allow.accepted[x.name])
-    .map((x) => `${x.name} (${x.severity}${x.range ? ` ${x.range}` : ""}${allow.expired.includes(x.name) ? "; the acceptance expired" : ""})`);
+    .filter((x) => !covered(x))
+    .map(
+      (x) =>
+        `${x.name} (${x.severity}${x.range ? ` ${x.range}` : ""}${allow.expired.includes(x.name) ? "; the acceptance expired" : allow.accepted[x.name] ? "; the acceptance names another advisory or path" : ""})`,
+    );
   return {
     status: open.length ? "findings" : "clean",
     high: Number(v.high ?? 0),
@@ -136,6 +155,44 @@ function selfTest() {
     () => undefined,
   );
   cases.push([asked === 2 && twice.status === "clean", "an unclear answer is asked again once"]);
+  // an acceptance by advisory and by path (the sixth review round, 2026-11-03)
+  const narrow = {
+    accepted: {
+      underscore: { reason: "test", until: "2999-01-01", advisories: ["GHSA-aaaa-bbbb-cccc"], nodes: ["node_modules/underscore"] },
+      jsonpath: { reason: "test", until: "2999-01-01" },
+    },
+    expired: [],
+  };
+  const finding = (x) => ({
+    stdout: JSON.stringify({
+      metadata: { vulnerabilities: { high: 1, total: 1 } },
+      vulnerabilities: { underscore: { name: "underscore", severity: "high", ...x } },
+    }),
+    stderr: "",
+  });
+  const named = { url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc" };
+  cases.push(
+    [readAnswer(finding({ via: [named], nodes: ["node_modules/underscore"] }), narrow).status === "clean", "the named advisory on the named path is accepted"],
+    [
+      readAnswer(finding({ via: [{ url: "https://github.com/advisories/GHSA-dddd-eeee-ffff" }], nodes: ["node_modules/underscore"] }), narrow).status ===
+        "findings",
+      "another advisory of the same package is open",
+    ],
+    [
+      readAnswer(finding({ via: [named], nodes: ["node_modules/viem/node_modules/underscore"] }), narrow).status === "findings",
+      "the same package on another path is open",
+    ],
+    [readAnswer(finding({ via: [named], nodes: [] }), narrow).status === "findings", "a finding without a path is open"],
+    [
+      readAnswer(finding({ via: ["jsonpath"], nodes: ["node_modules/underscore"] }), narrow).status === "clean",
+      "a finding reached through an accepted package is accepted",
+    ],
+    [
+      readAnswer(finding({ via: ["left-pad"], nodes: ["node_modules/underscore"] }), narrow).status === "findings",
+      "a finding reached through an unaccepted package is open",
+    ],
+    [/names another advisory or path/.test(readAnswer(finding({ via: [named], nodes: [] }), narrow).names[0]), "the open line says why"],
+  );
   const wrong = cases.filter(([ok]) => !ok).map(([, what]) => what);
   if (wrong.length) {
     console.log(`FAIL  the audit's self-test: ${wrong.join("; ")}`);
@@ -176,7 +233,11 @@ if (wantJson) {
 }
 const failed = results.filter((r) => r.status === "findings");
 const skipped = results.filter((r) => r.status === "skipped");
+// under --require-answer a skip for want of the registry is a failure: a CI run with the network must not pass on a silent
+// skip (the sixth review round, 2026-11-03). A missing lockfile or directory still skips: those are gated elsewhere.
+const unanswered = requireAnswer ? skipped.filter((r) => /^offline/.test(String(r.note))) : [];
+for (const r of unanswered) console.log(`FAIL  ${r.pkg}  — no answer from the registry (${r.note}); --require-answer`);
 console.log(
   `dependency audit: ${results.length - failed.length - skipped.length} clean, ${skipped.length} skipped, ${failed.length} with open findings${allow.expired.length ? `; expired acceptances: ${allow.expired.join(", ")}` : ""}`,
 );
-process.exitCode = failed.length ? 1 : 0;
+process.exitCode = failed.length || unanswered.length ? 1 : 0;

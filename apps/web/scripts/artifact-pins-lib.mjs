@@ -3,6 +3,7 @@
 // dev or from VITE_ARTIFACT_BASE), the Rust core's WASM package (public/core, served at /core/*). The pin file,
 // public/artifacts.json, ships with the build; the prover worker hashes the proving key it fetched and refuses a
 // mismatch in a production build (src/prover/pins.ts). Shared by pin-artifacts.mjs and check-artifact-pins.mjs.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -65,4 +66,17 @@ export function comparePins(pins, actual) {
 export function readPins() {
   if (!existsSync(PIN_FILE)) return null;
   try { return JSON.parse(readFileSync(PIN_FILE, "utf8")); } catch { return null; }
+}
+/**
+ * Whether `file` differs from `base` in git (the sixth review round, 2026-11-03): true when `git diff --quiet` exits 1. False when
+ * the file is the same — and false when the base is not on this machine (a shallow clone: nothing to compare), which the gate
+ * reports as such rather than failing.
+ */
+export function changedSinceBase(base, file, cwd = repo, exec = execFileSync) {
+  try {
+    exec("git", ["diff", "--quiet", base, "--", file], { cwd, stdio: "ignore" });
+    return false;
+  } catch (e) {
+    return !!(e && typeof e.status === "number" && e.status === 1);
+  }
 }

@@ -6,7 +6,7 @@
 //   node scripts/check-artifact-pins.mjs
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { comparePins, frontend, hashArtifacts, readPins } from "./artifact-pins-lib.mjs";
+import { changedSinceBase, comparePins, frontend, hashArtifacts, readPins } from "./artifact-pins-lib.mjs";
 import { cspOfHtml } from "./csp.mjs";
 
 const pins = readPins();
@@ -17,7 +17,7 @@ let buildOk = true;
 const dist = join(frontend, "dist");
 if (existsSync(join(dist, "index.html"))) {
   const csp = cspOfHtml(readFileSync(join(dist, "index.html"), "utf8"));
-  const hasCsp = !!csp && /default-src 'self'/.test(csp) && /object-src 'none'/.test(csp) && !/script-src[^;]*'unsafe-inline'/.test(csp);
+  const hasCsp = !!csp && /default-src 'self'/.test(csp) && /object-src 'none'/.test(csp) && !/script-src[^;]*'unsafe-inline'/.test(csp) && !/script-src[^;]*'unsafe-eval'/.test(csp);
   const hasPins = existsSync(join(dist, "artifacts.json"));
   console.log(`${hasCsp ? "PASS" : "FAIL"}  dist/index.html carries the content security policy${csp ? ` (${csp.length} chars)` : ""}`);
   console.log(`${hasPins ? "PASS" : "FAIL"}  dist/ ships artifacts.json`);
@@ -29,4 +29,8 @@ console.log(`artifact pins: ${pinned} verified, ${rows.filter((r) => r.status ==
 // "skipped" pin means a wrong path (V6 Stage 1 found one), never a clone without the artifacts
 const requireAll = process.env.REQUIRE_PINNED_ARTIFACTS === "1" && rows.some((r) => r.status === "skipped");
 if (requireAll) console.log("FAIL  REQUIRE_PINNED_ARTIFACTS=1 but a pinned artifact was not found (a wrong path?)");
-process.exitCode = ok && buildOk && !requireAll ? 0 : 1;
+// a pin file that changed since the base, on a machine without the artifacts to verify it (the sixth review round, 2026-11-03): every
+// row "skipped" had passed, so a pull request could rewrite the proving key's hash unseen — PINS_BASE names the commit to compare
+const changedUnseen = !!process.env.PINS_BASE && rows.some((r) => r.status === "skipped") && changedSinceBase(process.env.PINS_BASE, "apps/web/public/artifacts.json");
+if (changedUnseen) console.log(`FAIL  public/artifacts.json changed since ${process.env.PINS_BASE} and the artifacts are not on this machine to verify the new pins: run the check where the circuit build and the core WASM are`);
+process.exitCode = ok && buildOk && !requireAll && !changedUnseen ? 0 : 1;

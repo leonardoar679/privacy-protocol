@@ -4,7 +4,7 @@
 // served manifest, and — on this machine — the committed pins against the real artifacts.
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { ARTIFACTS, comparePins, hashArtifacts, readPins } from "../scripts/artifact-pins-lib.mjs";
+import { ARTIFACTS, changedSinceBase, comparePins, hashArtifacts, readPins } from "../scripts/artifact-pins-lib.mjs";
 import { enforce, pinsFromManifest, sha256Hex, verdictOf } from "../src/prover/pins";
 import { loadPins, resetPins } from "../src/prover/client";
 
@@ -21,6 +21,20 @@ describe("the artifact pins (spec §20)", () => {
     expect(clean.rows.find((x: { name: string }) => x.name === "transaction.wasm")!.status, "pinned but not on this machine").toBe("skipped");
     expect(clean.ok).toBe(true);
     expect(ARTIFACTS.map((a: { name: string }) => a.name)).toEqual(["transaction.wasm", "transaction_final.zkey", "verification_key.json", "privacy_core_wasm_bg.wasm", "privacy_core_wasm.js"]);
+  });
+  it("a pin file that changed since the base, on a machine without the artifacts, is a failure; an absent base is not (the sixth review round)", () => {
+    const calls: unknown[][] = [];
+    const exec = (status: number | null) => (...a: unknown[]) => {
+      calls.push(a);
+      if (status === null) return "";
+      const e = new Error("git") as Error & { status: number };
+      e.status = status;
+      throw e;
+    };
+    expect(changedSinceBase("origin/main", "apps/web/public/artifacts.json", "/repo", exec(1) as never), "exit 1: the file differs").toBe(true);
+    expect(changedSinceBase("origin/main", "apps/web/public/artifacts.json", "/repo", exec(null) as never), "exit 0: the same").toBe(false);
+    expect(changedSinceBase("origin/main", "apps/web/public/artifacts.json", "/repo", exec(128) as never), "no such base here: nothing to compare").toBe(false);
+    expect(calls[0]).toEqual(["git", ["diff", "--quiet", "origin/main", "--", "apps/web/public/artifacts.json"], { cwd: "/repo", stdio: "ignore" }]);
   });
   it("the worker's verdict: a match passes; a mismatch refuses in production and warns in dev; no pin refuses in production only", () => {
     expect(verdictOf(H, H.toUpperCase())).toBe("match");

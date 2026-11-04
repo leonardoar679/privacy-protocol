@@ -2,16 +2,34 @@
   {
     "name": "bfj",
     "reason": "snarkjs → bfj: imported by snarkjs/cli.js only (the command line), never by build/browser.esm.js, the prover the wallet bundles; the advisory (uncontrolled resource consumption on untrusted JSON streams) needs a JSON stream the CLI would parse. Re-check when snarkjs moves past bfj 7.",
-    "until": "2027-01-31"
+    "until": "2027-01-31",
+    "advisories": [
+      "GHSA-qpx9-hpmf-5gmw"
+    ],
+    "nodes": [
+      "node_modules/bfj"
+    ]
   },
   {
     "name": "jsonpath",
     "reason": "snarkjs → bfj → jsonpath: the same CLI-only chain; no fixed release exists (advisory range *). Not in the browser bundle (scripts/audit.mjs documents the check: grep bfj build/browser.esm.js → 0).",
-    "until": "2027-01-31"
+    "until": "2027-01-31",
+    "advisories": [
+      "GHSA-qpx9-hpmf-5gmw"
+    ],
+    "nodes": [
+      "node_modules/jsonpath"
+    ]
   },
   {
     "name": "underscore",
     "reason": "snarkjs → bfj → jsonpath → underscore: the same CLI-only chain; the vulnerable template function is never called by the wallet (nothing from jsonpath is bundled).",
-    "until": "2027-01-31"
+    "until": "2027-01-31",
+    "advisories": [
+      "GHSA-qpx9-hpmf-5gmw"
+    ],
+    "nodes": [
+      "node_modules/underscore"
+    ]
   }
 ]

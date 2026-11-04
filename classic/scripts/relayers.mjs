@@ -76,7 +76,8 @@ export async function discover({
       return { registration: r, record: null, problems: [`read failed: ${e instanceof Error ? e.message : String(e)}`] };
     }
   });
-  const qualified = records.filter((x) => x.record && x.problems.length === 0);
+  // a host without a public suffix names nothing (the sixth review round, 2026-11-03): the registry carries garbage like "livetobecomeavillain"
+  const qualified = records.filter((x) => x.record && x.problems.length === 0 && /\.[a-z0-9-]+$/i.test(String(x.record.host)));
   const byProblem = {};
   for (const x of records) for (const p of x.problems) byProblem[p] = (byProblem[p] ?? 0) + 1;
   log(`records: ${qualified.length} qualify by the registry rules; the rest: ${JSON.stringify(byProblem)}`);

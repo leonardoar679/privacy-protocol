@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareSdkPins, readSdkPins } from "./zkapi-sdk-pins-lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const network = process.env.ZKAPI_NETWORK ?? "sepolia";
@@ -27,6 +28,12 @@ const check = (name, ok, detail = "") => { items.push({ name, ok, detail }); con
 const sha256 = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
 if (!existsSync(join(pub, "browser-config.json"))) { console.error("no public/zkapi/browser-config.json — run scripts/build-zkapi-assets.mjs first"); process.exit(2); }
+// the clone the profile and the asset manifest below are read from is the pinned one (the sixth review round, 2026-11-03): before,
+// the same clone vouched for itself
+{
+  const problems = compareSdkPins(readSdkPins(), zkapi);
+  check("the SDK clone is the pinned one (apps/web/zkapi-sdk.pins.json)", problems.length === 0, problems.slice(0, 3).join("; "));
+}
 const cfg = JSON.parse(readFileSync(join(pub, "browser-config.json"), "utf8"));
 const T = cfg.trusted_deployment;
 const pinnedPath = join(zkapi, "sdk/assets/config", `${network}.json`);

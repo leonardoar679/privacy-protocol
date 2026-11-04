@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
   "description": "Tornado Classic: an original-style interface for the existing Tornado Cash Classic pools on Ethereum mainnet (V7; docs/privacy-wallet-web-spec-v3.0.md section 7). A separately built, separately locked and separately licensed app served under /classic/; it shares nothing at runtime with the Privacy Wallet.",
   "scripts": {
     "dev": "vite --port 5174",

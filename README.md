@@ -198,7 +198,8 @@ WalletConnect project id stay with the owner (spec v3.0 §12, §14).
 # contracts (local solc + offline — see contracts/README.md for why)
 cd contracts && FOUNDRY_OFFLINE=true forge test --use <solc-0.8.24> -vv
 
-# one install for every workspace (apps/*, packages/*: one root lockfile, checked by scripts/check-lockfile.mjs)
+# one install for every workspace (apps/*, packages/*: one root lockfile, checked by scripts/check-lockfile.mjs); .npmrc turns
+# install scripts off (ignore-scripts; the two packages with one, esbuild and @reown/appkit, need none) and .nvmrc / engines pin Node 24
 npm ci
 
 # references

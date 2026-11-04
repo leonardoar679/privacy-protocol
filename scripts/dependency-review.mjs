@@ -23,7 +23,26 @@ const base = argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : "HEAD"
 const all = argv.includes("--all");
 // `--path <repo-relative lockfile>`: which lockfile is reviewed, at the base and in the working tree (default: the root's)
 const lockRel = argv.includes("--path") ? argv[argv.indexOf("--path") + 1].replace(/\\/g, "/") : "package-lock.json";
-const SENSITIVE = [/^@noble\//, /^@scure\//, /^snarkjs$/, /^ffjavascript$/, /^circomlibjs$/, /^viem$/, /^ox$/, /^@walletconnect\//];
+// the proof's closure too (the sixth review round, 2026-11-03): the field arithmetic snarkjs proves with, the witness calculator, the
+// WASM builder and the worker spawner had changed versions with a "+" line and no review
+const SENSITIVE = [
+  /^@noble\//,
+  /^@scure\//,
+  /^snarkjs$/,
+  /^ffjavascript$/,
+  /^circomlibjs$/,
+  /^viem$/,
+  /^ox$/,
+  /^@walletconnect\//,
+  /^wasmcurves$/,
+  /^circom_runtime$/,
+  /^wasmbuilder$/,
+  /^web-worker$/,
+  /^fastfile$/,
+  /^r1csfile$/,
+  /^blake-hash$/,
+  /^keccak$/,
+];
 
 const nameOf = (key) => key.slice(key.lastIndexOf("node_modules/") + "node_modules/".length);
 function packagesAt(text) {
@@ -31,7 +50,7 @@ function packagesAt(text) {
   for (const [key, e] of Object.entries(JSON.parse(text).packages ?? {})) {
     if (!key.includes("node_modules/") || e.link) continue;
     out.set(key, {
-      name: nameOf(key),
+      name: e.name ?? nameOf(key), // an alias names its real package in `name` (the sixth review round, 2026-11-03): reviewed under that
       version: e.version,
       integrity: e.integrity ?? "",
       resolved: e.resolved ?? "",

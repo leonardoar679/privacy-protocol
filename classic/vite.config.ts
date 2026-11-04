@@ -7,6 +7,7 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { buildCsp, cspPlugin, curatedRelayerOrigins, SECURITY_HEADERS } from "./scripts/csp.mjs";
+import { boundaryPlugin } from "./scripts/boundary.mjs";
 
 function fixturesOnly(mode: string): Plugin {
   return {
@@ -48,11 +49,20 @@ export default defineConfig(({ mode }) => {
   const relayers = curatedRelayerOrigins();
   return {
     base: "/classic/",
-    plugins: [react(), fixturesOnly(mode), cspPlugin(env, relayers), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
+    plugins: [
+      react(),
+      boundaryPlugin({ root }),
+      fixturesOnly(mode),
+      cspPlugin(env, relayers, { production: mode === "production" }),
+      ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : []),
+    ],
     build: { manifest: true, sourcemap: false },
     server: { port: 5174, strictPort: true, fs: { allow: [root] }, ...(process.env.PW_NO_HMR === "1" ? { ws: false as const, hmr: false } : {}) },
     // `npm run preview` answers with the headers a host must send (the whole policy as a header too)
-    preview: { port: 5174, headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, relayers)}; frame-ancestors 'none'` } },
+    preview: {
+      port: 5174,
+      headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, relayers, { production: mode === "production" })}; frame-ancestors 'none'` },
+    },
     worker: { format: "es" },
   };
 });

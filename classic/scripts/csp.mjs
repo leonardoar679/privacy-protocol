@@ -36,17 +36,21 @@ export function originOf(value) {
 export function curatedRelayerOrigins(file = new URL("../relayers.json", import.meta.url)) {
   try {
     const list = JSON.parse(readFileSync(file, "utf8"));
-    return (list.relayers ?? []).map((r) => originOf(r.url)).filter(Boolean);
+    // a hostname without a public suffix (registry garbage: "https://livetobecomeavillain") names nothing a policy should allow (the sixth review round, 2026-11-03)
+    return (list.relayers ?? []).map((r) => originOf(r.url)).filter((o) => o && /\.[a-z0-9-]+$/i.test(new URL(o).hostname));
   } catch {
     return [];
   }
 }
 
 /** The connect-src entries of a build: the environment's hosts and the extra origins, deduplicated; a relative base adds nothing. */
-export function connectHosts(env = {}, extra = []) {
+export function connectHosts(env = {}, extra = [], o = {}) {
   const out = new Set();
-  for (const o of extra) if (originOf(o)) out.add(originOf(o));
+  for (const x of extra) if (originOf(x)) out.add(originOf(x));
   for (const name of LIST_VARS) {
+    // operator-named relayers are a development setting the app refuses in a production build (src/config.ts): a .env left from
+    // development must not widen the production policy (the sixth review round, 2026-11-03)
+    if (o.production && name === "VITE_CLASSIC_RELAYER_URLS") continue;
     for (const part of String(env[name] ?? "").split(",")) {
       const o = originOf(part);
       if (o) out.add(o);
@@ -56,8 +60,8 @@ export function connectHosts(env = {}, extra = []) {
 }
 
 /** The policy string. */
-export function buildCsp(env = {}, extra = []) {
-  const connect = ["'self'", ...connectHosts(env, extra)];
+export function buildCsp(env = {}, extra = [], o = {}) {
+  const connect = ["'self'", ...connectHosts(env, extra, o)];
   return [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",
@@ -75,17 +79,17 @@ export function buildCsp(env = {}, extra = []) {
 }
 
 /** The meta tag the built index.html carries, first in <head>. */
-export function cspMeta(env = {}, extra = []) {
-  return { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: buildCsp(env, extra) }, injectTo: "head-prepend" };
+export function cspMeta(env = {}, extra = [], o = {}) {
+  return { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: buildCsp(env, extra, o) }, injectTo: "head-prepend" };
 }
 
 /** The Vite plugin: build only (the dev server needs its own inline scripts and websocket). */
-export function cspPlugin(env = {}, extra = []) {
+export function cspPlugin(env = {}, extra = [], o = {}) {
   return {
     name: "classic-csp-meta",
     apply: "build",
     transformIndexHtml() {
-      return [cspMeta(env, extra)];
+      return [cspMeta(env, extra, o)];
     },
   };
 }

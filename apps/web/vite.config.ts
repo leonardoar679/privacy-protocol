@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync } from "node:fs";
 import { extname, join } from "node:path";
 import { buildCsp, cspPlugin, SECURITY_HEADERS, zkapiHosts } from "./scripts/csp.mjs";
+import { assertSdkPinned } from "./scripts/zkapi-sdk-pins-lib.mjs";
+import { boundaryPlugin } from "./scripts/boundary.mjs";
 
 /**
  * Serves the circuit artifacts the in-browser prover fetches (`/artifacts/*`) straight from
@@ -63,12 +65,16 @@ function coreWasm(): Plugin {
  * root); without one the build takes src/zkapi/unavailable.ts — the same exports — and `__ZKAPI__` is false, so the
  * Private AI screen says it is not in this build.
  */
-export function zkapiSdk(): { bundled: boolean; alias: { find: RegExp; replacement: string }[] } {
+export function zkapiSdk(): { bundled: boolean; dir: string; alias: { find: RegExp; replacement: string }[] } {
   const dir = process.env.ZKAPI_SDK_DIR ?? fileURLToPath(new URL("../../../zkapi", import.meta.url));
   const bundled = existsSync(join(dir, "package.json")) && existsSync(join(dir, "sdk", "index.js"));
+  // the clone's files against apps/web/zkapi-sdk.pins.json before anything of it is bundled (the sixth review round, 2026-11-03):
+  // a sibling clone no lockfile gate ever saw was aliased in as 'self' code, and its profile named the policy's hosts
+  if (bundled) assertSdkPinned(dir);
   const stub = fileURLToPath(new URL("./src/zkapi/unavailable.ts", import.meta.url));
   return {
     bundled,
+    dir,
     alias: [
       { find: /^@openanonymity\/zkapi-browser-sdk\/client$/, replacement: bundled ? join(dir, "sdk", "services", "zkapiClient.js") : stub },
       { find: /^@openanonymity\/zkapi-browser-sdk$/, replacement: bundled ? join(dir, "sdk", "index.js") : stub },
@@ -128,7 +134,7 @@ export default defineConfig(({ mode, command }) => {
   const zkapi = zkapiSdk();
   const zkHosts = zkapiHosts(join(root, "public", "zkapi", "browser-config.json"));
   return {
-    plugins: [react(), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkHosts), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
+    plugins: [react(), boundaryPlugin({ root, allowed: [join(root, "..", "..", "packages"), join(root, "..", "..", "contracts", "abi"), ...(zkapi.bundled ? [zkapi.dir] : [])], forbidden: [join(root, "..", "..", "classic")] }), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkHosts), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },

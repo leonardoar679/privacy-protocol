@@ -120,7 +120,7 @@ test/              523 vitest tests (node; the screens under happy-dom or jsdom)
   `VITE_REVIEW_HOLD_MINUTES` and `VITE_KDF_LOG2N` (the keystore's scrypt cost).
 
 ```
-npm ci                       # at the repository root (one lockfile for every workspace)
+npm ci                       # at the repository root (one lockfile for every workspace; .npmrc: no install scripts, Node 24 by .nvmrc / engines)
 cd apps/web
 npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
 npm run build                # dist/ with the policy in index.html; npm run preview sends the headers

@@ -22,7 +22,7 @@
 // report land in tests/visual/run/ (git-ignored). The suite is local: baselines are bound to a platform's rendering.
 //   node tests/visual/run.mjs [--only <fixture-id>] [--a11y-only]
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -289,7 +289,10 @@ async function keyboard(page) {
   });
 }
 
+/** every baseline this run produced or compared: the files in the baselines directory must be exactly these (the sixth review round, 2026-11-03) */
+const produced = new Set();
 function compare(name, png) {
+  produced.add(`${name}.png`);
   const file = join(BASELINES, `${name}.png`);
   mkdirSync(RUN, { recursive: true });
   writeFileSync(join(RUN, `${name}.png`), png);
@@ -438,6 +441,15 @@ try {
 }
 
 mkdirSync(join(HERE, "run"), { recursive: true });
+// a baseline without a fixture is a fixture that was deleted, a renamed id or a stale image: coverage had shrunk silently and a
+// stale baseline was never flagged (the sixth review round, 2026-11-03). A partial run (--only) and a baseline update are exempt
+if (!ONLY && !UPDATE && !A11Y_ONLY && existsSync(BASELINES)) {
+  const stale = readdirSync(BASELINES).filter((f) => f.endsWith(".png") && !produced.has(f));
+  if (stale.length)
+    fail("baselines", [
+      `${stale.length} baseline(s) without a fixture: ${stale.slice(0, 6).join(", ")}${stale.length > 6 ? ", …" : ""} (delete them, or restore the fixture)`,
+    ]);
+}
 writeFileSync(join(HERE, "run", "report.json"), JSON.stringify(report, null, 2) + "\n");
 const written = report.shots.filter((s) => s.status === "written").length;
 const matched = report.shots.filter((s) => s.status === "match").length;

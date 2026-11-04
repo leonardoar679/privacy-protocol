@@ -71,7 +71,7 @@ screen.
 ## Commands
 
 ```
-npm ci                 # its own lockfile (never the root's)
+npm ci                 # its own lockfile (never the root's); its own .npmrc: no install scripts, Node 24 by engines
 npm run dev            # http://127.0.0.1:5174/classic/
 npm run build          # tsc --noEmit, then vite build (dist/, with the policy meta and the manifest)
 npm test               # vitest
