@@ -39,6 +39,20 @@ export function viewKeyPair(viewKey: bigint): ViewKeyPair {
   return { secret, publicKey: x25519.getPublicKey(secret) };
 }
 
+/** The X25519 field prime 2^255 − 19. */
+const P25519 = (1n << 255n) - 19n;
+/**
+ * A view public key in canonical form (the seventh review round, 2026-11-03): its little-endian u-coordinate below 2^255 − 19 (so bit 255
+ * is clear). X25519 ignores bit 255, but the envelope's key derivation hashes the key's bytes as given: a payment to the same key with
+ * that bit set derived another key than its recipient's, and opened for nobody.
+ */
+export function isCanonicalViewKey(viewPub: Uint8Array): boolean {
+  if (viewPub.length !== 32) return false;
+  let u = 0n;
+  for (let i = 31; i >= 0; i--) u = (u << 8n) | BigInt(viewPub[i]);
+  return u < P25519;
+}
+
 function envelopeKey(ephSecret: Uint8Array, ephPub: Uint8Array, viewPub: Uint8Array): Uint8Array {
   return sha256(concatBytes(ENVELOPE_KEY_TAG, x25519.getSharedSecret(ephSecret, viewPub), ephPub, viewPub));
 }
@@ -46,6 +60,7 @@ function envelopeKey(ephSecret: Uint8Array, ephPub: Uint8Array, viewPub: Uint8Ar
 /** Encrypt a note's opening to the recipient's view public key. `opts` pin the ephemeral secret and nonce for test vectors only. */
 export function encryptNoteData(recipientViewPub: Uint8Array, plain: NotePlaintext, opts: { ephemeralSecret?: Uint8Array; nonce?: Uint8Array } = {}): Uint8Array {
   if (recipientViewPub.length !== 32) throw new Error("view public key must be 32 bytes");
+  if (!isCanonicalViewKey(recipientViewPub)) throw new Error("the view public key is not in canonical form: a payment to it could never be opened");
   const ephSecret = clamp(opts.ephemeralSecret ?? randomBytes(32));
   const ephPub = x25519.getPublicKey(ephSecret);
   const nonce = opts.nonce ?? randomBytes(24);
@@ -79,10 +94,16 @@ export function decryptNoteData(view: ViewKeyPair, noteData: Uint8Array): NotePl
   }
 }
 
-/** A dummy output's payload (spec §5.5, §12): same shape as a real envelope, nothing inside it. */
+/**
+ * A dummy output's payload (spec §5.5, §12): an envelope's shape — the version, an ephemeral X25519 public key, a nonce and a ciphertext —
+ * with nothing inside it. The key is a real one, of a fresh random scalar (the seventh review round, 2026-11-03): random bytes in its place
+ * had told a dummy apart from an envelope — by its top bit alone one in two, with the curve and subgroup checks 31 in 32 — and with it
+ * every transaction's output structure. A real envelope's key is a canonical point of the prime-order subgroup, and so is this one.
+ */
 export function dummyNoteData(): Uint8Array {
   const out = randomBytes(NOTE_DATA_BYTES);
   out[0] = ENVELOPE_VERSION;
+  out.set(x25519.getPublicKey(randomBytes(32)), EPH_OFF);
   return out;
 }
 

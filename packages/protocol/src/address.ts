@@ -5,6 +5,7 @@
 // (32 bytes). Typo-resistant (the checksum detects any 4 errors), case-insensitive, 113 characters.
 import { x25519 } from "@noble/curves/ed25519";
 import { FIELD } from "./field";
+import { isCanonicalViewKey } from "./envelope";
 
 const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
@@ -96,5 +97,7 @@ export function decodePrivacyAddress(s: string): { version: number; ownerCommitm
   if (ownerCommitment >= FIELD) throw new Error("its owner commitment is not a field element");
   const viewPub = bytes.slice(33, 65);
   if (!contributory(viewPub)) throw new Error("its view key is a low-order point: no payment to it could be private");
+  // canonical (the seventh review round, 2026-11-03): with bit 255 set the same key read as another string, and a payment to it opened for nobody
+  if (!isCanonicalViewKey(viewPub)) throw new Error("its view key is not in canonical form: a payment to it could never be opened");
   return { version: bytes[0], ownerCommitment, viewPub };
 }

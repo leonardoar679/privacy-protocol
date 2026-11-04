@@ -76,6 +76,16 @@ fn a_malformed_field_is_a_format_error_never_a_panic() {
     let mut odd = pinned.clone();
     odd.salt = "a\u{e9}b".to_string();
     assert_eq!(unlock_keystore(&odd, &password), Err(KeystoreError::BadFormat));
+    // the web wallet's shape (the seventh review round, 2026-11-03): a salt other than 16 bytes — an empty one too — or a ciphertext other
+    // than the seed's 48 bytes is no keystore of this wallet's
+    for salt in [String::new(), "00".repeat(15), "00".repeat(64)] {
+        let mut s = pinned.clone();
+        s.salt = salt.clone();
+        assert_eq!(unlock_keystore(&s, &password), Err(KeystoreError::BadFormat), "salt of {} bytes", salt.len() / 2);
+    }
+    let mut short_ct = pinned.clone();
+    short_ct.ct.truncate(short_ct.ct.len() - 2);
+    assert_eq!(unlock_keystore(&short_ct, &password), Err(KeystoreError::BadFormat));
     let short = EncryptedJournal { v: 1, nonce: "00".to_string(), ct: "00".repeat(40) };
     assert_eq!(decrypt_journal(&[7u8; 32], &short), None, "a short nonce: unopenable, not a panic");
 }

@@ -104,7 +104,9 @@ pub fn unlock_keystore(ks: &Keystore, password: &str) -> Result<[u8; SEED_BYTES]
     let salt = unhex(&ks.salt)?;
     let nonce = unhex(&ks.nonce)?;
     let ct = unhex(&ks.ct)?;
-    if nonce.len() != 24 {
+    // the shape the web wallet holds (wallet-formats §2; the seventh review round, 2026-11-03): a 16-byte salt, a 24-byte nonce and the
+    // seed's ciphertext with its tag — any other salt, an empty one included, had opened here and been refused by the web wallet
+    if salt.len() != 16 || nonce.len() != 24 || ct.len() != SEED_BYTES + 16 {
         return Err(KeystoreError::BadFormat);
     }
     let key = derive_key(password, &salt, &ks.kdf)?;

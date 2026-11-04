@@ -58,7 +58,8 @@ contract Poseidon2HasherTest is Test {
         assertEq(h.poseidon2(_arr(4, 1)), H_1234, "H(1,2,3,4) (two permutations)");
     }
 
-    /// The two vendored implementations agree on every arity the protocol uses (1..6), on random inputs.
+    /// The two vendored implementations agree on random inputs of arity 1..3 (the Yul path); arities 4..6 have one implementation, pinned
+    /// by the known answers above and by test/libraries/ProtocolVectors.t.sol (the seventh review round, 2026-11-03).
     function test_YulAndSolidityAgree(uint256 a, uint256 b, uint256 c) public pure {
         a %= FieldLib.FIELD_SIZE;
         b %= FieldLib.FIELD_SIZE;

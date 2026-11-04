@@ -68,6 +68,21 @@ fn envelope_key(shared: &[u8; 32], eph_pub: &[u8; 32], view_pub: &[u8; 32]) -> [
 pub enum EnvelopeError {
     /// The recipient's view key is a low-order point: the shared secret is the same for every sender.
     LowOrderViewKey,
+    /// The recipient's view key is not in canonical form (bit 255 set, or u of 2^255 − 19 or more): the key derivation hashes the bytes as
+    /// given, so the recipient, hashing the canonical key, could never open the payment (the seventh review round, 2026-11-03).
+    NonCanonicalViewKey,
+}
+
+/// A view public key in canonical form: its little-endian u-coordinate below 2^255 − 19 (the seventh review round, 2026-11-03).
+pub fn is_canonical_view_key(view_pub: &[u8; 32]) -> bool {
+    // p = 2^255 − 19, little-endian: ed ff … ff 7f
+    if view_pub[31] & 0x80 != 0 {
+        return false;
+    }
+    if view_pub[31] != 0x7f || view_pub[1..31].iter().any(|&b| b != 0xff) {
+        return true;
+    }
+    view_pub[0] < 0xed
 }
 
 /// Whether a view public key can be paid privately: never a low-order point (a low-order point times any clamped scalar, a
@@ -81,6 +96,9 @@ pub fn is_contributory_view_key(view_pub: &[u8; 32]) -> bool {
 /// key, sha256(tag ‖ 0³² ‖ ephPub ‖ viewPub), is public data, and anyone reads the payment's amount, note secret and vault.
 /// The TypeScript refuses it too (noble's zero-result check).
 pub fn encrypt_note_data(recipient_view_pub: &[u8; 32], plain: &NotePlaintext, ephemeral_secret: [u8; 32], nonce: [u8; 24]) -> Result<[u8; NOTE_DATA_BYTES], EnvelopeError> {
+    if !is_canonical_view_key(recipient_view_pub) {
+        return Err(EnvelopeError::NonCanonicalViewKey);
+    }
     let eph = StaticSecret::from(clamp(ephemeral_secret));
     let eph_pub = PublicKey::from(&eph).to_bytes();
     let shared = eph.diffie_hellman(&PublicKey::from(*recipient_view_pub));
@@ -129,5 +147,11 @@ pub fn decrypt_note_data(view: &ViewKeyPair, note_data: &[u8]) -> Option<NotePla
 pub fn dummy_note_data(random: [u8; NOTE_DATA_BYTES]) -> [u8; NOTE_DATA_BYTES] {
     let mut out = random;
     out[0] = ENVELOPE_VERSION;
+    // a real ephemeral key, of the random scalar in those bytes (the seventh review round, 2026-11-03): random bytes there had told a dummy
+    // apart from an envelope (bit 255, the twist, the small subgroup) and with it every transaction's output structure
+    let mut scalar = [0u8; 32];
+    scalar.copy_from_slice(&random[EPH_OFF..NONCE_OFF]);
+    let key = PublicKey::from(&StaticSecret::from(clamp(scalar))).to_bytes();
+    out[EPH_OFF..NONCE_OFF].copy_from_slice(&key);
     out
 }

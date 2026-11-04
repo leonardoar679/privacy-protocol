@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
-import { decryptNoteData, dummyNoteData, encryptNoteData, ENVELOPE_VERSION, noteFromPayload, openPayload, viewKeyPair } from "../src/envelope";
+import { decryptNoteData, dummyNoteData, encryptNoteData, ENVELOPE_VERSION, isCanonicalViewKey, noteFromPayload, openPayload, viewKeyPair } from "../src/envelope";
 import { bech32mDecode, bech32mEncode, decodePrivacyAddress, encodePrivacyAddress } from "../src/address";
 import { FIELD } from "../src/field";
 import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "../src/keys";
@@ -56,6 +56,42 @@ describe("envelope", () => {
       expect(decryptNoteData(aliceView, encryptNoteData(aliceView.publicKey, { ...plain, ...over })), JSON.stringify(over, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).toBeNull();
     }
     expect(decryptNoteData(aliceView, encryptNoteData(aliceView.publicKey, { ...plain, amount: P - 1n }))).toEqual({ ...plain, amount: P - 1n });
+  });
+  it("a dummy's key field is a real X25519 public key — canonical, on the curve —, never random bytes an observer tells apart (the seventh review round, 2026-11-03)", () => {
+    const P = (1n << 255n) - 19n, A = 486662n;
+    const pow = (b: bigint, e: bigint): bigint => {
+      let r = 1n;
+      b %= P;
+      for (; e > 0n; e >>= 1n, b = (b * b) % P) if (e & 1n) r = (r * b) % P;
+      return r;
+    };
+    // on Curve25519 (not its twist): u³ + A·u² + u is a square
+    const onCurve = (u: bigint) => {
+      const rhs = (((((u * u) % P) * u) % P) + ((A * ((u * u) % P)) % P) + u) % P;
+      return rhs === 0n || pow(rhs, (P - 1n) / 2n) === 1n;
+    };
+    const uOf = (k: Uint8Array) => k.reduceRight((acc, b) => (acc << 8n) | BigInt(b), 0n);
+    for (let i = 0; i < 64; i++) {
+      const key = dummyNoteData().subarray(1, 33);
+      expect(isCanonicalViewKey(key)).toBe(true);
+      expect(onCurve(uOf(key))).toBe(true);
+    }
+    // a real envelope's key passes the same checks; a random 32 bytes fails them about three times in four
+    expect(onCurve(uOf(encryptNoteData(aliceView.publicKey, plain).subarray(1, 33)))).toBe(true);
+    // the canonical form: bit 255 set, or u of 2^255 − 19 or more, is refused by the encryption and the decoder
+    const high = aliceView.publicKey.slice();
+    high[31] |= 0x80;
+    expect(isCanonicalViewKey(high)).toBe(false);
+    expect(() => encryptNoteData(high, plain)).toThrow(/canonical/);
+    const atP = new Uint8Array(32).fill(0xff);
+    atP[0] = 0xed;
+    atP[31] = 0x7f;
+    expect(isCanonicalViewKey(atP)).toBe(false);
+    atP[0] = 0xec;
+    expect(isCanonicalViewKey(atP)).toBe(true);
+    const oc = ownerCommitmentOf(alice.spendKey);
+    expect(() => decodePrivacyAddress(encodePrivacyAddress(oc, high))).toThrow(/canonical/);
+    expect(decodePrivacyAddress(encodePrivacyAddress(oc, aliceView.publicKey)).viewPub).toEqual(aliceView.publicKey);
   });
   it("dummies have the real envelope's shape and open for nobody", () => {
     const d = dummyNoteData();

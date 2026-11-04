@@ -154,6 +154,9 @@ export function permute(state: readonly bigint[]): bigint[] {
  * one for 3 and 6 — a bug that hides behind any test suite that happens to use pairs.
  */
 export function hash(input: readonly bigint[]): bigint {
+  // field elements only, as the contract's hasher and the core's WASM require (the seventh review round, 2026-11-03): reduced here, a value
+  // of p or more hashed like its residue, and an endpoint's out-of-range amount or commitment passed a check the other engines fail
+  for (const x of input) if (x < 0n || x >= P) throw new RangeError("poseidon2: an input is not a field element");
   const n = BigInt(input.length);
   const s: bigint[] = [0n, 0n, 0n, mod(n * 18446744073709551616n)]; // iv = len * 2^64
 

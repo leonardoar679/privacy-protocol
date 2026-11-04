@@ -12,6 +12,7 @@ import { formatTransactionReceipt, getAddress, keccak256, parseAbiItem, parseEve
 import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
 import { txDomain } from "@privacy-wallet/protocol/payload";
+import { FIELD } from "@privacy-wallet/protocol/field";
 import { coreAbi, type TxRequest } from "./privacyProtocol";
 import { treeLayers } from "./core";
 
@@ -55,6 +56,21 @@ export interface TreeState { leaves: bigint[]; root: bigint; nextLeafIndex: numb
  * reorg-aware incremental version).
  */
 export interface NoteInsertedLog { leafIndex: number; commitment: bigint; noteData: Hex; transactionHash: Hex; blockNumber: bigint }
+/**
+ * An endpoint answered a value no honest chain holds (the seventh review round, 2026-11-03): a commitment, a nullifier or an owner commitment
+ * at or past the field, or a deposit's amount past the circuit's 248 bits. The TypeScript hash had reduced such a value and the WASM refused
+ * it — one answer, two outcomes —; refused here, at the read, for every engine.
+ */
+export class OutOfField extends Error {
+  constructor(what: string) {
+    super(`an endpoint answered ${what} that is not a field element (or past 248 bits): refused`);
+    this.name = "OutOfField";
+  }
+}
+const field = (x: bigint, what: string): bigint => {
+  if (x < 0n || x >= FIELD) throw new OutOfField(what);
+  return x;
+};
 /** One spend of the pool: the transact's two nullifiers, its transaction and block (the sixth review round, 2026-11-03). */
 export interface SpendLog { nullifier0: bigint; nullifier1: bigint; transactionHash: Hex; blockNumber: bigint }
 
@@ -109,7 +125,7 @@ export async function logsInWindows<T>(client: Pick<PublicClient, "getBlockNumbe
 /** Every NoteInserted event the core emitted (leaf index, commitment, the 169-byte payload), to `upTo` (the latest block when omitted). */
 export async function noteInsertedLogs(client: PublicClient, d: Deployment, upTo?: bigint): Promise<NoteInsertedLog[]> {
   const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: d.core, event: noteInserted, fromBlock, toBlock }), LOG_WINDOW_BLOCKS, upTo);
-  return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: l.args.commitment!, noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
+  return logs.map((l) => ({ leafIndex: Number(l.args.leafIndex), commitment: field(l.args.commitment!, "a NoteInserted commitment"), noteData: l.args.noteData!, transactionHash: l.transactionHash, blockNumber: l.blockNumber }));
 }
 
 /**
@@ -130,9 +146,9 @@ export async function coreLogs(client: PublicClient, d: Deployment, upTo?: bigin
   for (const l of raw) {
     const a = l.args ?? {};
     if (l.eventName === "ShieldedTransaction" || (l.eventName === undefined && "nullifier0" in a))
-      spends.push({ nullifier0: BigInt(a.nullifier0 as bigint), nullifier1: BigInt(a.nullifier1 as bigint), transactionHash: l.transactionHash, blockNumber: l.blockNumber });
+      spends.push({ nullifier0: field(BigInt(a.nullifier0 as bigint), "a spend's nullifier"), nullifier1: field(BigInt(a.nullifier1 as bigint), "a spend's nullifier"), transactionHash: l.transactionHash, blockNumber: l.blockNumber });
     else if (l.eventName === "NoteInserted" || (l.eventName === undefined && "leafIndex" in a))
-      logs.push({ leafIndex: Number(a.leafIndex), commitment: a.commitment as bigint, noteData: a.noteData as Hex, transactionHash: l.transactionHash, blockNumber: l.blockNumber });
+      logs.push({ leafIndex: Number(a.leafIndex), commitment: field(a.commitment as bigint, "a NoteInserted commitment"), noteData: a.noteData as Hex, transactionHash: l.transactionHash, blockNumber: l.blockNumber });
   }
   return { logs, spends };
 }
@@ -202,7 +218,7 @@ export const poolVaults = (d: Deployment): Address[] => [d.ethVault, ...(d.erc20
 /** Every Deposited event of the pool's vaults: fetch-all like the note events, never filtered by owner. */
 export async function depositedLogs(client: PublicClient, d: Deployment): Promise<DepositedLog[]> {
   const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: poolVaults(d), event: deposited, fromBlock, toBlock }));
-  return logs.map((l) => ({ vault: getAddress(l.address), ownerCommitment: BigInt(l.args.ownerCommitment!), amount: l.args.amount!, leafIndex: Number(l.args.leafIndex), transactionHash: l.transactionHash }));
+  return logs.map((l) => ({ vault: getAddress(l.address), ownerCommitment: field(BigInt(l.args.ownerCommitment!), "a Deposited owner commitment"), amount: l.args.amount! < 1n << 248n ? l.args.amount! : (() => { throw new OutOfField("a Deposited amount"); })(), leafIndex: Number(l.args.leafIndex), transactionHash: l.transactionHash }));
 }
 
 /** The vaults' Deposited events from every configured endpoint; they must agree. */

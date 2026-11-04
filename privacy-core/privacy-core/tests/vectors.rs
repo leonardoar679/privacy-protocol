@@ -4,7 +4,7 @@
 use ark_ff::Zero;
 use privacy_core::address::{bech32m_decode, bech32m_encode, decode_privacy_address, encode_privacy_address, AddressError};
 use privacy_core::domains;
-use privacy_core::envelope::{decrypt_note_data, dummy_note_data, encrypt_note_data, view_key_pair, EnvelopeError, NotePlaintext};
+use privacy_core::envelope::{decrypt_note_data, dummy_note_data, encrypt_note_data, is_canonical_view_key, view_key_pair, EnvelopeError, NotePlaintext};
 use privacy_core::field::{fr_from_dec, fr_to_be32, fr_to_dec, Fr};
 use privacy_core::keys::{derive_keys, derive_note_secret, derive_owner_key};
 use privacy_core::merkle::{fold_path, layers, layers_root, merkle_proof, proof_from_layers, zero_hashes, zero_leaf, MerkleTree};
@@ -199,6 +199,32 @@ fn envelope_and_address_vectors() {
     let dummy = dummy_note_data(rnd);
     assert_eq!(dummy[0], 0x01);
     assert_eq!(decrypt_note_data(&view, &dummy), None);
+    // its key field is a real public key, of the scalar in those bytes (the seventh review round, 2026-11-03), as the TS dummy's is
+    let mut scalar = [0u8; 32];
+    scalar.copy_from_slice(&rnd[1..33]);
+    scalar[0] &= 248;
+    scalar[31] &= 127;
+    scalar[31] |= 64;
+    let expected = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(scalar)).to_bytes();
+    assert_eq!(&dummy[1..33], &expected[..]);
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&dummy[1..33]);
+    assert!(is_canonical_view_key(&key));
+    assert_eq!(&dummy[33..], &rnd[33..], "the rest stays random");
+    // a view key that is not canonical: refused by the decoder and by the encryption (bit 255 set; u of p and above)
+    let canonical = view.public;
+    let mut high = canonical;
+    high[31] |= 0x80;
+    assert!(!is_canonical_view_key(&high));
+    let oc = owner_commitment_of(&keys.spend_key);
+    assert_eq!(decode_privacy_address(&encode_privacy_address(&oc, &high)), Err(AddressError::NonCanonicalViewKey));
+    assert_eq!(encrypt_note_data(&high, &NotePlaintext { amount: Fr::from(1u64), note_secret: Fr::from(2u64), vault_id: Fr::from(3u64) }, [0x42u8; 32], [0x24u8; 24]), Err(EnvelopeError::NonCanonicalViewKey));
+    let mut at_p = [0xffu8; 32];
+    at_p[0] = 0xed;
+    at_p[31] = 0x7f;
+    assert!(!is_canonical_view_key(&at_p));
+    at_p[0] = 0xec;
+    assert!(is_canonical_view_key(&at_p));
     assert_eq!(pack_plaintext(&Fr::from(1u64), &Fr::from(2u64), &Fr::from(3u64))[31], 1);
 }
 

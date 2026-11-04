@@ -2,7 +2,7 @@
 // note events; a note's spent bit is a lookup, the spend of exactly a record's pair is named, and the last agreed index of a pool
 // is kept for the stale mover.
 import { afterEach, describe, expect, it } from "vitest";
-import { coreLogs, spendsDigest, type SpendLog } from "../src/chain";
+import { coreLogs, depositedLogs, OutOfField, spendsDigest, type SpendLog } from "../src/chain";
 import { forgetSpendIndexes, indexSpends, rememberSpendIndex, spendIndexOf } from "../src/wallet/spends";
 
 afterEach(() => forgetSpendIndexes());
@@ -12,6 +12,45 @@ const spend = (n0: bigint, n1: bigint, tx: number): SpendLog => ({
   nullifier1: n1,
   transactionHash: `0x${tx.toString(16).padStart(64, "0")}`,
   blockNumber: 10n,
+});
+
+describe("the read boundary refuses values no honest chain holds (the seventh review round, 2026-11-03)", () => {
+  const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+  const d = { core: "0x00000000000000000000000000000000000000c0", fromBlock: 0n, ethVault: "0x00000000000000000000000000000000000000e1" };
+  const clientOf = (logs: unknown[]) => ({ getBlockNumber: async () => 20n, getLogs: async () => logs });
+  it("a NoteInserted commitment or a spend's nullifier at or past the field", async () => {
+    await expect(
+      coreLogs(
+        clientOf([{ eventName: "NoteInserted", args: { leafIndex: 0, commitment: P, noteData: "0x" }, transactionHash: "0xaa", blockNumber: 3n }]) as never,
+        d as never,
+        20n,
+      ),
+    ).rejects.toBeInstanceOf(OutOfField);
+    await expect(
+      coreLogs(
+        clientOf([{ eventName: "ShieldedTransaction", args: { nullifier0: 1n, nullifier1: P + 1n }, transactionHash: "0xbb", blockNumber: 4n }]) as never,
+        d as never,
+        20n,
+      ),
+    ).rejects.toThrow(/not a field element/);
+    await expect(
+      coreLogs(
+        clientOf([
+          { eventName: "NoteInserted", args: { leafIndex: 0, commitment: P - 1n, noteData: "0x" }, transactionHash: "0xaa", blockNumber: 3n },
+        ]) as never,
+        d as never,
+        20n,
+      ),
+    ).resolves.toMatchObject({ logs: [{ commitment: P - 1n }] });
+  });
+  it("a Deposited owner commitment at or past the field, or an amount past 248 bits", async () => {
+    const dep = (ownerCommitment: bigint, amount: bigint) => [
+      { address: d.ethVault, args: { ownerCommitment, amount, leafIndex: 1 }, transactionHash: "0xcc", blockNumber: 5n },
+    ];
+    await expect(depositedLogs(clientOf(dep(P, 5n)) as never, d as never)).rejects.toBeInstanceOf(OutOfField);
+    await expect(depositedLogs(clientOf(dep(7n, 1n << 248n)) as never, d as never)).rejects.toThrow(/Deposited amount/);
+    await expect(depositedLogs(clientOf(dep(7n, (1n << 248n) - 1n)) as never, d as never)).resolves.toHaveLength(1);
+  });
 });
 
 describe("the spend index", () => {

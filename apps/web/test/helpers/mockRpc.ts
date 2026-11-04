@@ -7,6 +7,7 @@
 import { createServer, type Server } from "node:http";
 import { encodeAbiParameters, encodeEventTopics, toFunctionSelector, toHex, type Hex } from "viem";
 import { coreAbi } from "@privacy-wallet/sdk/privacyProtocol";
+import { FIELD } from "@privacy-wallet/protocol/field";
 
 /** A Chainlink-shaped feed the mock serves at an address (whale spec §13 tests): description(), latestRoundData(). */
 export interface MockFeed { description: string; answer: bigint; updatedAt: number; roundId?: bigint }
@@ -48,11 +49,12 @@ export async function startMockCore(o: MockCoreOptions) {
       case "eth_blockNumber": return res("0x10");
       case "eth_getLogs": {
         // the pool's spend events beside the notes (the sixth review round, 2026-11-03): one transact per spent nullifier, its second
-        // nullifier a dummy outside the field; a note's spent bit is a lookup in these, never an isNullifierSpent read
+        // nullifier a dummy field element (the core refuses any other: PrivacyCore.sol checks both; the seventh review round); a note's
+        // spent bit is a lookup in these, never an isNullifierSpent read
         const spent = [...new Set([...(state.spent ? state.allNullifiers : []), ...state.spentNullifiers])];
         const spendLogs = spent.map((n, i) => ({
           address: o.core.toLowerCase(), topics: encodeEventTopics({ abi: coreAbi, eventName: "ShieldedTransaction" }),
-          data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [n, n ^ (1n << 255n), 0n, 0n, 0n]),
+          data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [n, FIELD - 1n - n, 0n, 0n, 0n]),
           blockNumber: "0x10", blockHash: "0x" + "22".repeat(32), transactionHash: ("0x" + "55".repeat(31) + i.toString(16).padStart(2, "0")) as Hex, transactionIndex: "0x0", logIndex: toHex(100 + i), removed: false,
         }));
         return res([...Object.entries(events).map(([i, l]) => logFor(Number(i), l)), ...spendLogs]);

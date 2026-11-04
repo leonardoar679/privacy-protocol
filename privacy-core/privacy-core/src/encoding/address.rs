@@ -22,6 +22,8 @@ pub enum AddressError {
     NotInField,
     /// the view key is a low-order point: nothing paid to it could be private (audit round 2, n28)
     LowOrderViewKey,
+    /// the view key is not in canonical form: nothing paid to it could be opened (the seventh review round, 2026-11-03)
+    NonCanonicalViewKey,
 }
 
 fn polymod(values: impl IntoIterator<Item = u8>) -> u32 {
@@ -183,6 +185,10 @@ pub fn decode_privacy_address(s: &str) -> Result<PrivacyAddress, AddressError> {
     // as the web wallet's decoder refuses it (audit round 2, n29/n28): a native payer had encrypted to it in the clear
     if !super::envelope::is_contributory_view_key(&vp) {
         return Err(AddressError::LowOrderViewKey);
+    }
+    // as the web wallet's decoder refuses it (the seventh review round, 2026-11-03): one recipient, one string, every payment openable
+    if !super::envelope::is_canonical_view_key(&vp) {
+        return Err(AddressError::NonCanonicalViewKey);
     }
     Ok(PrivacyAddress { version: bytes[0], owner_commitment, view_pub: vp })
 }

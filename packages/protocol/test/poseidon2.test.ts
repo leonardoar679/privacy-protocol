@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hash, permute } from "../src/poseidon2";
+import { hash, P, permute } from "../src/poseidon2";
 
 // nargo-generated vectors (barretenberg v5.2.0), spec §2 — identical in circom / Solidity / Python.
 const V = {
@@ -14,6 +14,15 @@ const V = {
   h123: 0x23864adb160dddf590f1d3303683ebcb914f828e2635f6e85a32f0a1aecd3dd8n,
   h1234: 0x130bf204a32cac1f0ace56c78b731aa3809f06df2731ebcf6b3464a15788b1b9n,
 };
+
+describe("Poseidon2's inputs are field elements (the seventh review round, 2026-11-03)", () => {
+  it("an input of p or more, or below zero, is refused as the contract's hasher and the core's WASM refuse it — never reduced", () => {
+    expect(() => hash([P])).toThrow(RangeError);
+    expect(() => hash([0n, P + 5n])).toThrow(/not a field element/);
+    expect(() => hash([-1n])).toThrow(RangeError);
+    expect(typeof hash([P - 1n])).toBe("bigint");
+  });
+});
 
 describe("Poseidon2 (BN254, t=4, Noir sponge) — nargo known answers", () => {
   it("permutation", () => {
