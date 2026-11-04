@@ -288,7 +288,8 @@ class World implements CampaignIo {
       const floor = acceptMin ?? BigInt(stored.approvedMin ?? "0");
       if (this.minOutAtSign < floor) return { moved: { minOut: this.minOutAtSign, approved: floor } };
     }
-    if (this.guardRefuses) throw new Error("price_guard: this route is 80 bps below the best alternative");
+    // the service's 409, told by its code (the ninth review round, A9-5: its words alone no longer pause a step)
+    if (this.guardRefuses) throw Object.assign(new Error("re-quote from thorchain is 80 bps below the best alternative (x); refusing to sign"), { code: "price_guard" });
     const q = stored.quote as ServiceQuote;
     return {
       prepared: {

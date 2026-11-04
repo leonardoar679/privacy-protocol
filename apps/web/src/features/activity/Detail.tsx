@@ -8,7 +8,8 @@ import { Card, StateScreen, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
-import { returnOrderToBalance } from "@privacy-wallet/sdk/swapExecute";
+import { returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
+import { fundedOf } from "@privacy-wallet/sdk/wallet/journal";
 import { deleteActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { isTerminal } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { removeOperation } from "@privacy-wallet/sdk/operations/store";
@@ -69,11 +70,15 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
     }
   }
   async function refund() {
-    if (!swap) return;
+    const seed = session.isUnlocked() ? session.state().seed : null;
+    if (!swap || !seed) return;
     setBusy(t("swap.handingRefund"));
     setError("");
     try {
-      await returnOrderToBalance({ deployment, stored: swap, submission });
+      // the runner's own return, the Swap screen's (the ninth review round, 2026-11-04, C-05): it reads the escrow and the funding's fate,
+      // asks the order's own relayer, clears the pause and plans the next tick — Activity's own call had done none of it, and the record
+      // stayed "Refunding" with "Accept new minimum" still offered after the refund had landed
+      await returnFunds(swap.orderId, { masterSeed: seed, deployment });
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -134,7 +139,7 @@ export function Detail({ id, deployment = null, onBack, onNewQuote }: DetailProp
               <Recovery
                 record={rec}
                 onMonitor={swap ? () => void refresh() : undefined}
-                onRefund={swap && swap.fundedTx ? () => void refund() : undefined}
+                onRefund={swap && fundedOf(swap) ? () => void refund() : undefined}
                 onNewQuote={onNewQuote}
               />
             ) : null}

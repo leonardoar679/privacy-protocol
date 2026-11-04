@@ -52,6 +52,8 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
 import { acceptNewMinimum, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
+import { fundedOf } from "@privacy-wallet/sdk/wallet/journal";
+import { actionsFor } from "../operations/recovery";
 import {
   buildCampaign,
   cancelCampaign,
@@ -1255,6 +1257,9 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     );
   }
   if (record.state === "RECOVERY_REQUIRED" || record.reason) {
+    // Return funds wherever the escrow may hold them (the ninth review round, 2026-11-04, C-05): a handed-over order has no pause, and a
+    // late refund ("they wait in your one-time escrow"), a failed refund or an order needing attention had offered nothing here
+    const handedOverReturn = !paused && !!stored && fundedOf(stored) && actionsFor(record).includes("start-refund");
     return (
       <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
         <OperationProgress
@@ -1271,6 +1276,10 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
                   {t("screen.swap.returnFunds")}
                 </Button>
               </>
+            ) : handedOverReturn ? (
+              <Button variant="secondary" onClick={() => void giveBack()} disabled={busy} data-testid="swap-return-funds">
+                {t("screen.swap.returnFunds")}
+              </Button>
             ) : undefined
           }
         />
@@ -1278,7 +1287,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       </Page>
     );
   }
-  const waiting = stored?.runner?.delayUntil && !stored.fundedTx && stored.runner.delayUntil > Date.now();
+  const waiting = stored?.runner?.delayUntil && !fundedOf(stored) && stored.runner.delayUntil > Date.now();
   const shielding =
     intoProtected && !stored?.shield?.leaves?.length && (stored?.shield?.job?.state === "shielding" || stored?.shield?.job?.state === "shielded");
   return (

@@ -5,7 +5,7 @@
 import type { Tracked } from "../orderTracker";
 import type { SwapJob } from "../relayer";
 import type { StoredSwap } from "../wallet/journal";
-import { isTerminal, SETTLEMENT_STATES, type OperationRecord, type OperationState } from "../wallet/operationRecord";
+import { isTerminal, PRE_SUBMISSION_STATES, SETTLEMENT_STATES, wasSubmitted, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { fromStoredSwap } from "./adapters";
 import { reasonOf, recoveryFor } from "./reducer";
 import { getOperation, putOperation } from "./store";
@@ -29,7 +29,9 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
     {
       state: job?.state ?? stored.state,
       fundedTx: stored.fundedTx,
+      fundedAt: stored.fundedAt,
       jobId: stored.jobId,
+      handedOverAt: stored.handedOverAt,
       executionTx: stored.executionTx,
       campaign: stored.campaign,
       paused: stored.paused,
@@ -48,8 +50,11 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
     ]),
   ];
   const terminal = !!prev && isTerminal(prev.state);
-  const state: OperationState = terminal ? prev!.state : m.state; // I-O1: a terminal record stays
-  const reason = terminal ? prev!.reason : m.code && !m.delayed ? reasonOf(m.code, "unknown", tracked?.detail ?? stored.paused?.detail) : undefined;
+  // I-O7 (the ninth review round, 2026-11-04, C-01): a record whose order was submitted never goes back before its submission — this
+  // write bypasses the reducer, and a handed-over order read once as never funded had moved PROVIDER_EXECUTING → AWAITING_AUTHORIZATION
+  const back = !!prev && !terminal && PRE_SUBMISSION_STATES.includes(m.state) && wasSubmitted(prev);
+  const state: OperationState = terminal || back ? prev!.state : m.state; // I-O1: a terminal record stays
+  const reason = terminal || back ? prev!.reason : m.code && !m.delayed ? reasonOf(m.code, "unknown", tracked?.detail ?? stored.paused?.detail) : undefined;
   const delayed = !terminal && m.delayed && m.code ? { since: prev?.delayed?.code === m.code ? prev.delayed.since : now, code: m.code } : undefined;
   const settlement = tracked?.settlement ?? prev?.settlement;
   let rec: OperationRecord = {

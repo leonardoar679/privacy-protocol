@@ -27,9 +27,12 @@ const client = {
     return txs[hash];
   },
 };
+// the configured endpoints: the call's inputs are read on every one (the ninth review round, B-F1); one endpoint unless a case adds a second
+const endpoints = vi.hoisted(() => ({ extra: [] as unknown[] }));
 vi.mock("../src/chain", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/chain")>()),
   clientFor: () => client,
+  clientsFor: () => [client, ...endpoints.extra],
   outcomeReads: () => ({ receipt: async () => null, txKnown: async () => false, spent: async () => false }),
 }));
 
@@ -72,6 +75,41 @@ describe("a transaction's call inputs (the sixth review round, 2026-11-03)", () 
     expect(await reads.txInputs!(h(93)), "other public inputs: another operation").not.toBe(d);
     expect(await reads.txInputs!(h(94)), "unknown to the node").toBeNull();
     expect(transactInputsDigest("0xdeadbeef")).toBeNull();
+  });
+
+  it("read on every endpoint and kept only when they agree (the ninth review round, 2026-11-04, B-F1): one endpoint's other calldata is no verdict", async () => {
+    // the endpoints are the deployment's, taken when the reads are made
+    const reads = () => staleReads({ chainId: 1, core: CORE, rpcUrl: "http://127.0.0.1:1", fromBlock: 0n } as unknown as Deployment, null);
+    txs[h(95)] = { to: CORE, input: transact };
+    const other = encodeFunctionData({ abi: coreAbi, functionName: "transact", args: ["0x", { ...pi, outputBody0: 9n }, "0x", "0x", "0x"] });
+    const second = (input: Hex | null) => ({
+      getTransaction: async ({ hash }: { hash: Hex }) => {
+        if (input === null) throw new TransactionNotFoundError({ hash });
+        return { to: CORE, input };
+      },
+    });
+    try {
+      endpoints.extra = [second(transact)];
+      expect(await reads().txInputs!(h(95)), "both endpoints give the same call").toMatch(/^0x[0-9a-f]{64}$/);
+      endpoints.extra = [second(other)];
+      expect(await reads().txInputs!(h(95)), "a second endpoint answers other calldata: not agreed").toBeNull();
+      endpoints.extra = [second(null)];
+      expect(await reads().txInputs!(h(95)), "a second endpoint does not know it: not agreed").toBeNull();
+    } finally {
+      endpoints.extra = [];
+    }
+  });
+
+  it("the address a transact pays, on the same terms (C-10: a funding attempt kept without its call's digest is told by it)", async () => {
+    const reads = staleReads({ chainId: 1, core: CORE, rpcUrl: "http://127.0.0.1:1", fromBlock: 0n } as unknown as Deployment, null);
+    const ESCROW = "0x00000000000000000000000000000000000000e5";
+    txs[h(96)] = {
+      to: CORE,
+      input: encodeFunctionData({ abi: coreAbi, functionName: "transact", args: ["0x", { ...pi, withdrawalRecipient: BigInt(ESCROW) }, "0x", "0x", "0x"] }),
+    };
+    expect(await reads.txRecipient!(h(96))).toBe(ESCROW);
+    expect(await reads.txRecipient!(h(90)), "a transfer pays no address").toBeNull();
+    expect(await reads.txRecipient!(h(91)), "not a direct transact of the core").toBeNull();
   });
 });
 

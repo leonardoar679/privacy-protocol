@@ -25,7 +25,7 @@ import { CLOSED_STATES, swapFactoryOf } from "./swapFunding";
 import { agreedUsd } from "./prices";
 import { swapService, type Policy, type Preference, type Prepared, type QuoteSet, type ServiceOrder, type ServiceQuote, type SwapRequest } from "./swapService";
 import { checkBeforeSigning, type JournaledOrder } from "./swapSign";
-import type { StoredSwap } from "./wallet/journal";
+import { fundedOf, type StoredSwap } from "./wallet/journal";
 import type { OperationRecord } from "./wallet/operationRecord";
 import { confirmOrder } from "./wallet/orderRunner";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
@@ -115,11 +115,11 @@ function journaled(s: WalletSession, executionId: string): StoredSwap | null {
  * the provider; none once delivered.
  */
 export function recoveryOptionsOf(
-  stored: Pick<StoredSwap, "state" | "paused" | "fundedTx">,
+  stored: Pick<StoredSwap, "state" | "paused" | "fundedTx" | "fundedAt" | "jobId" | "handedOverAt" | "executionTx">,
   record: Pick<OperationRecord, "state" | "settlement"> | null,
 ): RecoveryOption[] {
   const settlement = record?.settlement ?? null;
-  const funded = !!stored.fundedTx || stored.state === "funded" || settlement !== null;
+  const funded = fundedOf(stored) || settlement !== null; // the journal's durable rule (the ninth review round, C-01)
   const held: FundsClass = !funded ? "not-moved" : settlement === "PROVIDER_PENDING" || settlement === "DESTINATION_PENDING" ? "unknown" : "still-protected";
   const terminal = record ? TERMINAL_STATES.includes(record.state) : CLOSED_STATES.includes(stored.state);
   if (terminal)
@@ -136,6 +136,12 @@ export function recoveryOptionsOf(
       { action: "return-funds", fundsClass: held },
     ];
   if (code === "execution_window_closed") return [{ action: "return-funds", fundsClass: held }];
+  // a hand-over whose outcome is not known yet (the ninth review round, C-09): the executor is asked again; the return re-shields what the escrow holds
+  if (code === "handover_unknown")
+    return [
+      { action: "continue-monitoring", fundsClass: "unknown" },
+      { action: "return-funds", fundsClass: "unknown" },
+    ];
   if (code === "reconcile") return [{ action: "continue-monitoring", fundsClass: "unknown" }];
   if (settlement === "REFUND_AVAILABLE")
     return [

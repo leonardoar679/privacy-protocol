@@ -12,7 +12,7 @@ import { clientsFor, type Deployment } from "./chain";
 import { erc20Abi } from "./privacyProtocol";
 import { relayerSwapStatus, type SwapJob } from "./relayer";
 import { swapService, type TrackResult } from "./swapService";
-import type { StoredSwap } from "./wallet/journal";
+import { fundedOf, fundingSeenOf, type StoredSwap } from "./wallet/journal";
 import { session as defaultSession, type WalletSession } from "./wallet/session";
 import { activityId, updateActivity } from "./wallet/activity";
 import { markAddressSettled } from "./wallet/addressBook";
@@ -100,12 +100,11 @@ export function legsOf(s: StoredSwap, f: TrackFacts): SettlementLegs | null {
   });
 }
 
-/**
- * Whether the order's funding was sent: its transaction journaled, or the order journaled funded without one — reconciled
- * from the escrow's balance, or a funding that landed while its page was gone (audit round 2, r10): such an order read
- * "Funding is scheduled", then "nothing left your private balance", while its amount sat in the escrow.
- */
-const fundedOf = (s: StoredSwap): boolean => !!s.fundedTx || s.state === "funded";
+// Whether the order's funding was sent (wallet/journal.ts `fundedOf`): its transaction journaled, its landing journaled without one,
+// the order journaled funded — or handed over or executed (the ninth review round, 2026-11-04, C-01: the hand-over writes the job's
+// state over `state`, and an order reconciled from the escrow's balance, then handed over, read "expired before it was funded:
+// nothing left your private balance" at the first job read that failed, its ticks stopped for good). Audit round 2, r10: an order
+// funded while its page was gone had read "Funding is scheduled", then "nothing left", while its amount sat in the escrow.
 
 /** Pure: the state a wallet should show for a journaled order given what it observed (spec §19 "recoverState"), with the V6 settlement. */
 export function deriveState(s: StoredSwap, f: TrackFacts): Tracked {
@@ -199,9 +198,15 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   // the executor's job ended with nothing in the escrow a day past its window (a V6 follow-up of 2026-10-16): never funded,
   // or funded and back already — the refund note, once the scan finds it, makes it Refunded above
   if (job === "lapsed")
-    return funded
+    return fundingSeenOf(s) // the executor never saw funds: its job alone is no funding (the ninth review round)
       ? out("REFUND_PENDING", "Refunding", [true, true, false, false], "The escrow holds nothing now and the executor's job has ended; the wallet looks for the refund in the pool.", extras)
       : out("EXPIRED", "Not started", [true, false, false, false], "The order was never funded and its window has closed: nothing left your private balance.");
+  // handed over, its executor waiting to see the funding (its node behind the chain): never back to the funding phase, nor "expired
+  // before it was funded" past the window — the job's own next state follows (the ninth review round, 2026-11-04, C-01)
+  if (job === "waiting-funding")
+    return f.escrowBalance !== null && f.escrowBalance >= amount
+      ? out("SOURCE_FINAL", "Executing", [true, true, false, false], "The escrow is funded and handed over; the executor sends the provider call once its node sees the funding.", extras)
+      : out("SOURCE_SUBMITTED", "Waiting for source", [true, false, false, false], "Handed over; the executor waits to see the escrow's funding before it sends the provider call.", extras);
   if (job === "refunding" || job === "refund-only" || job === "expired") return out("REFUND_PENDING", "Refunding", [true, true, false, false], job === "refund-only" ? `Returning to your private balance: the escrow re-shields after ${new Date(p.refundAfter * 1000).toLocaleString()}.` : job === "expired" ? "The signed quote expired before execution; the escrow returns to your private balance after the window, or confirm again with a fresh quote." : "The executor is re-shielding the escrow into your private balance.", extras);
   if (job === "refund-failed" || job === "execute-failed") {
     const where = f.escrowBalance !== null ? `${fmtUnits(f.escrowBalance, from.decimals ?? 18)} ${from.symbol ?? ""} sits in the one-time escrow` : "the funds sit in the one-time escrow";
@@ -272,7 +277,10 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   const s = deps.session ?? defaultSession;
   const now = deps.now ?? Date.now();
   const r = deps.readers ?? {};
-  const job = await (r.job ? r.job(stored) : stored.jobId && deps.relayerUrl ? relayerSwapStatus(deps.relayerUrl, stored.jobId).catch(() => null) : Promise.resolve(null));
+  // the relayer the order was handed to, whatever Settings name since (audit round 2, r38 — the runner's rule, now every screen's: the
+  // ninth review round, C-01): read from today's relayer, a handed-over order was unknown there and read as never funded
+  const relayer = stored.relayerUrl ?? deps.relayerUrl;
+  const job = await (r.job ? r.job(stored) : stored.jobId && relayer ? relayerSwapStatus(relayer, stored.jobId).catch(() => null) : Promise.resolve(null));
   // the job's, once it is read (audit round 2, r01): the relayer names the transaction that executed the escrow — a copy of
   // its own call that landed first replaces the one it had sent, which reverted and which no provider saw
   const executionTx = job ? job.executionTx : stored.executionTx;

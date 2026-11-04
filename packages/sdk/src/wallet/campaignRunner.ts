@@ -157,7 +157,7 @@ export function defaultIo(d: IoDeps): CampaignIo {
       return { stored: r.stored, order: r.order, protection: r.response.protection ?? null };
     },
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus, relayerUrl }),
-    fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment)) : "unknown"),
+    fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment), undefined, stored.endpoint) : "unknown"),
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
@@ -593,6 +593,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const sentFate = await givenUpOnlyIfDead(stored, io);
           if (sentFate === "landed") { c = withTrancheState(c, t.index, "funded", now, {}, "funded (its funding landed before the route changed)"); nextAt = now + 1000; break; }
           if (sentFate === "pending") { nextAt = now + TRACK_INTERVAL_MS; break; } // on its way: read again at the next tick
+          // never given up on "dead" while the escrow cannot be read (the ninth review round, 2026-11-04, B-F1): read again at the next tick
+          if (sentFate === "dead" && (await io.escrowBalance(stored)) === null) { nextAt = now + TRACK_INTERVAL_MS; break; }
           const elsewhere = await handedOverElsewhere(c, t, stored, io, s, now); // D13: never planned again while another copy's execution runs
           if (elsewhere) { c = elsewhere; nextAt = now + TRACK_INTERVAL_MS; break; }
           abandonSwap(stored.orderId, s, { fundingDead: sentFate === "dead" }); // a dead attempt says so (the sixth review round, 2026-11-03): refused as "pending" before, the tick threw and the step never moved
@@ -618,6 +620,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           const sentAt = stored.fundingAttempt.at;
           const fate = await (io.fundingFate?.(stored) ?? Promise.resolve<FundingFate>("unknown"));
           const resumedSince = c.history.some((h) => h.state === "reassessing" && h.at > sentAt); // only resumeCampaign enters it
+          // a dead funding is replaced only with the escrow read (the ninth review round, B-F1): unread, a second funding could have gone to an
+          // escrow the first had funded — read again at the next tick
+          if (fate === "dead" && resumedSince && bal === null) { nextAt = now + TRACK_INTERVAL_MS; break; }
           if (fate !== "dead" || !resumedSince) {
             const detail = fate === "dead"
               ? `The funding of step ${t.index + 1} never landed; nothing moved. Resume to fund it again.`
@@ -735,7 +740,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             // ticks come TRACK_INTERVAL_MS apart; the scheduler's backoff (ten minutes, then twenty) applies after them
             let passing = e instanceof ProviderCallUnverified;
             if (!passing && !service && /receiver|does not do what this wallet asked for/i.test(m)) c = pauseWith(c, "unexpected-destination", `Step ${t.index + 1}: ${m}`, now, t.index);
-            else if (!passing && /below the best alternative|price_guard/i.test(m)) {
+            else if (!passing && (e as { code?: unknown })?.code === "price_guard") { // by its code (the ninth review round, A9-5)
               if (leftBehind) leftRefund = "its own route is refused against the better one";
               else c = pauseWith(c, "route-degraded", `Step ${t.index + 1}: ${m}. The route is quoted again when you resume.`, now, t.index);
             } else if (!passing && !service && /escrow|digest|not the one this wallet committed|minimum|builds for/i.test(m)) c = pauseWith(c, "provider-error", `Step ${t.index + 1}: ${m}`, now, t.index);

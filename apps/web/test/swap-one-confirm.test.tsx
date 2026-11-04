@@ -294,6 +294,41 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(done.textContent).toMatch(/privacy fee was earned at funding and does not come back/);
   }, 60_000);
 
+  it("a refund that came back to a handed-over order's escrow offers Return funds on the Swap screen; the runner sends it (the ninth review round, 2026-11-04, C-05)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    expect(await tick(orderId)).toBe("funded");
+    expect(await tick(orderId)).toBe("handed-over");
+    // the executor's watch ended and the provider paid the escrow back afterwards: no pause — the order is handed over
+    const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    expect(st.paused).toBeUndefined();
+    syncSwapRecord(
+      st,
+      {
+        state: "LATE_REFUND",
+        label: "Needs attention",
+        steps: [true, true, false, false],
+        detail: "The provider paid 0.49 ETH back to the one-time escrow.",
+        settlement: "REFUND_AVAILABLE",
+      } as never,
+      { id: orderId, escrow: st.endpoint, state: "completed", updatedAt: Date.now() } as never,
+    );
+    cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    expect(screen.getByTestId("operation-progress").getAttribute("data-code")).toBe("late_refund");
+    const before = relayerBodies.length;
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("swap-return-funds"));
+    });
+    await waitFor(() => expect(relayerBodies).toHaveLength(before + 1));
+    expect(relayerBodies.at(-1).execution, "a refund-only request: nothing signed").toBeUndefined();
+    expect(stored(orderId)).toMatchObject({ state: "refund-only" });
+    expect(
+      session.journal().schedule.some((a) => a.id === `order-tick:${orderId}`),
+      "the runner tracks the refund",
+    ).toBe(true);
+  }, 60_000);
+
   it("the order is built on the tip the Review showed; one the service prices higher at the commit is refused, nothing journaled (the seventh review round)", async () => {
     await wallet();
     world.quoteTip = 10n ** 15n;
@@ -547,6 +582,8 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await wallet();
     const { orderId } = await confirmed();
     await tick(orderId);
+    // "nothing was swapped" is read from the escrow, which still holds the order (the ninth review round, C-09)
+    world.escrowBalance = BigInt((stored(orderId).params as { amount: string }).amount);
     expect(await tickAt(orderId, windowEnd(orderId) + 60_000)).toBe("paused");
     expect(
       calls.some((c) => c.endsWith("/prepare")),

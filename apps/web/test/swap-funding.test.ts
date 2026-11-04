@@ -10,7 +10,8 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity";
-import { abandonSwap, fundEscrow, FundingAlreadySent, fundingClock, fundingFate, isOpenSwap, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { abandonSwap, fundEscrow, FundingAlreadySent, fundingClock, fundingFate, fundingUnderWay, FundingUnderWay, isOpenSwap, OrderClosed, OrderOutdated, OrderWindowClosed, patchSwap, RelayerNotReady, runScheduledAction, TipStale, type FundingReads } from "@privacy-wallet/sdk/swapFunding";
+import { returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
@@ -407,5 +408,42 @@ describe("swap funding", () => {
     expect(s.journal().swaps[0]).toMatchObject({ state: "funded" });
     withdrawals.events = [];
     withdrawals.afterEach = undefined;
+  });
+
+  it("an order is neither abandoned nor returned while this tab funds it, and one closed meanwhile all the same is not sent (the ninth review round, 2026-11-04, C-04)", async () => {
+    const FACTORY = ("0x" + "fa".repeat(20)) as `0x${string}`;
+    const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
+    const params = {
+      orderId: ("0x" + "c4".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
+      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+    };
+    const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
+    noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    s.update((j) => { j.swaps = [{ ...stored }]; });
+    withdrawals.calls.length = 0;
+    // the funding proves (its withdrawal held here): no attempt is journaled yet, and the order reads unfunded
+    let release!: () => void;
+    withdrawals.gate = new Promise<void>((r) => { release = r; });
+    const funding = fundEscrow({ masterSeed: seed, deployment, stored: s.journal().swaps[0], session: s, relayerUrl: "http://relayer.test" });
+    expect(fundingUnderWay(stored.orderId)).toBe(true);
+    expect(() => abandonSwap(stored.orderId, s), "the Advanced page's Abandon").toThrow(FundingUnderWay);
+    await expect(returnFunds(stored.orderId, { masterSeed: seed, deployment, session: s }), "the Swap screen's Return funds").rejects.toBeInstanceOf(FundingUnderWay);
+    expect(s.journal().swaps[0].state, "nothing was changed").toBe("committed");
+    release();
+    withdrawals.gate = null;
+    await funding;
+    expect(fundingUnderWay(stored.orderId)).toBe(false);
+    expect(s.journal().swaps[0]).toMatchObject({ state: "funded" });
+    // closed while its funding was proved, by a write other than an abandon: read again at the send, nothing goes
+    s.update((j) => { j.swaps = [{ ...stored }]; });
+    withdrawals.calls.length = 0;
+    withdrawals.events = [{ type: "proving" }, { type: "submitting", by: "relayer", nullifiers: ["7", "8"], relayerUrl: "http://relayer.test" }, { type: "submitted", txHash: "0x" + "bb".repeat(32), by: "relayer" }];
+    withdrawals.before = () => s.update((j) => { j.swaps[0].state = "abandoned"; });
+    await expect(fundEscrow({ masterSeed: seed, deployment, stored: s.journal().swaps[0], session: s, relayerUrl: "http://relayer.test" })).rejects.toBeInstanceOf(OrderClosed);
+    expect(s.journal().swaps[0].fundingAttempt, "no attempt journaled: nothing was sent").toBeUndefined();
+    expect(s.journal().swaps[0]).toMatchObject({ state: "abandoned" });
+    withdrawals.events = [];
+    withdrawals.before = undefined;
   });
 });

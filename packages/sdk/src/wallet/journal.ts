@@ -45,6 +45,9 @@ export interface StoredSwap {
   createdAt: number;
   dueAt?: number; // scheduled funding time (plan §30), unix ms
   fundedTx?: string;
+  /** when the escrow was read holding the order, its funding's transaction not known (unix ms; the ninth review round, 2026-11-04, C-01):
+   *  a funding that landed while its answer was lost or its page was gone. Optional */
+  fundedAt?: number;
   /** the funding's own submission, journaled before it is sent (a V6 follow-up of 2026-10-14): its two nullifiers
    *  (decimal), who sent it, the relayer, the transaction once known. Until its fate is known (swapFunding.ts
    *  `fundingFate`) no runner sends another: a reload or a Resume had funded an escrow twice when the notes differed. */
@@ -52,6 +55,9 @@ export interface StoredSwap {
   jobId?: string;
   /** when the order was handed to its executor, unix ms (the seventh review round): the velocity limit counts every hand-over of the wallet */
   handedOverAt?: number;
+  /** when this wallet last handed the signed execution to its executor, before the answer (unix ms; the ninth review round, C-09): a
+   *  hand-over whose answer was lost is never read "nothing was swapped" at the window's end. Optional */
+  handOverAttempt?: number;
   /** tokens other than the order's asset the signed provider call may pay back to the escrow (handed to the executor) */
   refundTokens?: string[];
   /** with them, the least balance of each worth a re-shield after execution (PP-S12) */
@@ -99,6 +105,22 @@ export interface StoredSwap {
    *  has its shield job, what the executor last reported, and the note once it is found in the pool */
   shield?: StoredShield;
 }
+
+/**
+ * Whether an order was funded, whatever its `state` says now (the ninth review round, 2026-11-04, C-01): its funding's transaction
+ * journaled, its landing journaled without one (`fundedAt`), the order journaled funded, or handed over or executed (this wallet hands
+ * an order over only once it is funded). The hand-over writes the executor's job state over `state`, and an order reconciled from the
+ * escrow's balance kept no transaction: such an order had read "never funded" at its first failed job read — "nothing left your
+ * protected balance" past its window, its ticks stopped for good, "Get a new quote" its only action.
+ */
+export const fundedOf = (s: Pick<StoredSwap, "fundedTx" | "fundedAt" | "state" | "jobId" | "handedOverAt" | "executionTx">): boolean => fundingSeenOf(s) || !!s.jobId;
+/**
+ * The funding as this wallet saw it land — its transaction, its landing in the escrow, the funded state, its own hand-over (made only once
+ * funded) or an execution —, without the executor's job: an executor that let a job lapse with its escrow empty never saw the funds, and a
+ * job alone is no funding there (orderTracker.ts, the `lapsed` job).
+ */
+export const fundingSeenOf = (s: Pick<StoredSwap, "fundedTx" | "fundedAt" | "state" | "handedOverAt" | "executionTx">): boolean =>
+  !!s.fundedTx || s.fundedAt !== undefined || s.state === "funded" || s.handedOverAt !== undefined || !!s.executionTx;
 
 /** A funding sent for an order (StoredSwap.fundingAttempt). */
 export interface FundingAttempt {

@@ -69,6 +69,8 @@ export const world: {
   /** the seventh review round: the quote set's executor tip (the Review shows it), and a tip the service prices again at the commit */
   quoteTip?: bigint;
   orderTip?: bigint;
+  /** the ninth review round: the escrow's balance the RPC answers (eth_getBalance), when set; unset, the read fails as before */
+  escrowBalance?: bigint;
 } = {
   bend: {},
   rpcBend: {},
@@ -171,6 +173,7 @@ function rpc(req: any) {
     return { jsonrpc: "2.0", id, result: "0x" };
   }
   if (method === "eth_estimateGas") return { jsonrpc: "2.0", id, result: "0x33450" };
+  if (method === "eth_getBalance" && world.escrowBalance !== undefined) return { jsonrpc: "2.0", id, result: "0x" + world.escrowBalance.toString(16) };
   // the fee history the wallet's tip ceiling reads (audit round 2, critic gap 4): 20 gwei base, 2 gwei priority — three
   // times the execution's gas at these fees is far above the service's 0.25 % tip of what these tests swap
   if (method === "eth_feeHistory") {
@@ -306,6 +309,7 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
 /** Forget what a test changed in the world. */
 export function resetWorld(): void {
   world.bend = {};
+  world.escrowBalance = undefined;
   world.gateways = { inbound: VAULT, active: [VAULT, VAULT_2], down: 0 };
   world.callVault = VAULT;
   world.protection = undefined;

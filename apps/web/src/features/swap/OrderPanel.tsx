@@ -16,7 +16,7 @@ import { swapJobStatus, type SwapJob } from "@privacy-wallet/sdk/relayer";
 import type { AssetRef, ServiceOrder } from "@privacy-wallet/sdk/swapService";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { Submission } from "@privacy-wallet/sdk/wallet/settings";
-import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { fundedOf, type StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
@@ -56,7 +56,7 @@ export interface OrderPanelProps {
 
 export function OrderPanel(p: OrderPanelProps) {
   const t = useT();
-  const funded = !!p.stored?.fundedTx;
+  const funded = !!p.stored && fundedOf(p.stored); // the journal's durable rule (the ninth review round, C-01)
   const dueAt = p.stored?.dueAt;
   const to = ((p.stored?.request as { to?: AssetRef } | undefined)?.to ?? p.target.ref);
   const refundAfter = formatDateTime(p.order.params.refundAfter * 1000);

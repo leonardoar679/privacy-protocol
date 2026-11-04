@@ -9,6 +9,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { shortRef } from "@privacy-wallet/sdk/format";
 import { trackOrder } from "@privacy-wallet/sdk/orderTracker";
 import { isOpenSwap } from "@privacy-wallet/sdk/swapFunding";
+import { fundedOf } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { buildRows, groupByDay } from "./rows";
 import { activityModel } from "./model";
@@ -41,7 +42,7 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
 
   async function refresh() {
     if (!j) return;
-    const open = j.swaps.filter((s) => isOpenSwap(s) && (!["committed"].includes(s.state) || !!s.fundedTx));
+    const open = j.swaps.filter((s) => isOpenSwap(s) && (!["committed"].includes(s.state) || fundedOf(s)));
     setRefreshing(t("activity.tracking", { n: open.length, plural: open.length === 1 ? "" : "s" }));
     for (const s of open) {
       try {

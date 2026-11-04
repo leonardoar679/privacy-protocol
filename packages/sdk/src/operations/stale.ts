@@ -21,7 +21,7 @@
 // a lost answer, a retry refused — was failed as "nothing moved: start it again" at the next reload while the relayer had
 // sent it.
 import { decodeFunctionData, parseEventLogs, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
-import { clientFor, outcomeReads, type Deployment } from "../chain";
+import { clientFor, clientsFor, outcomeReads, type Deployment } from "../chain";
 import { coreAbi, transactInputsDigest } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
 import { noteStore } from "../wallet/notes";
@@ -63,6 +63,8 @@ export interface StaleReads {
   /** the digest of the public inputs of the transaction's transact call (`transactInputsDigest`): null when the node does not know it
    *  or it is no direct transact of the core; throws when it cannot be read (the sixth review round, 2026-11-03) */
   txInputs?(hash: Hex): Promise<Hex | null>;
+  /** the address the transaction's transact call pays (its withdrawal recipient), on the same terms (the ninth review round, C-10) */
+  txRecipient?(hash: Hex): Promise<Hex | null>;
 }
 
 /**
@@ -73,6 +75,29 @@ export interface StaleReads {
 export function staleReads(d: Deployment, index: SpendIndex | null = spendIndexOf(d.core)): StaleReads {
   const client = clientFor(d);
   const outcome = outcomeReads(d); // every configured endpoint (audit round 2, r23)
+  const clients = clientsFor(d);
+  /**
+   * What the transaction's direct transact call of the core says, from every configured endpoint, and only when they all say the same (the
+   * ninth review round, 2026-11-04, B-F1; the r23 rule): the first endpoint alone had decided whose call spent a pair — a funding that
+   * landed read "dead" and its order was abandoned, a delivered Send read "spent elsewhere". Null when any endpoint does not know it, it
+   * is no direct transact, or they differ; throws when one cannot be read.
+   */
+  const agreedCall = async (hash: Hex, read: (input: Hex) => string | null): Promise<Hex | null> => {
+    const all = await Promise.all(
+      clients.map(async (c) => {
+        let tx;
+        try {
+          tx = await c.getTransaction({ hash });
+        } catch (e) {
+          if (e instanceof TransactionNotFoundError) return null;
+          throw e;
+        }
+        return tx.to && tx.to.toLowerCase() === d.core.toLowerCase() ? read(tx.input) : null;
+      }),
+    );
+    const first = all[0];
+    return first && all.every((x) => x !== null && x.toLowerCase() === first.toLowerCase()) ? (first as Hex) : null;
+  };
   return {
     receipt: outcome.receipt,
     txKnown: outcome.txKnown,
@@ -82,16 +107,18 @@ export function staleReads(d: Deployment, index: SpendIndex | null = spendIndexO
       return s ? { txHash: s.transactionHash } : null;
     },
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
-    txInputs: async (hash) => {
-      let tx;
-      try {
-        tx = await client.getTransaction({ hash });
-      } catch (e) {
-        if (e instanceof TransactionNotFoundError) return null;
-        throw e;
-      }
-      return tx.to && tx.to.toLowerCase() === d.core.toLowerCase() ? transactInputsDigest(tx.input) : null;
-    },
+    txInputs: (hash) => agreedCall(hash, (input) => transactInputsDigest(input)),
+    txRecipient: (hash) =>
+      agreedCall(hash, (input) => {
+        try {
+          const call = decodeFunctionData({ abi: coreAbi, data: input });
+          if (call.functionName !== "transact") return null;
+          const to = (call.args[1] as { withdrawalRecipient: bigint }).withdrawalRecipient;
+          return to > 0n && to < 1n << 160n ? "0x" + to.toString(16).padStart(40, "0") : null;
+        } catch {
+          return null;
+        }
+      }),
     txSpends: async (hash) => {
       // mined: the core's own ShieldedTransaction events (audit round 2, n12) — a spend sent through a smart-contract account (a
       // 4337 bundle, a Safe) calls the core from another contract, its transaction's `to` not the core, and it had been read

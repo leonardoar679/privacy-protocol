@@ -679,6 +679,9 @@ export const en = {
   "op.error.unsafe_contract_call.title": "We stopped this transaction",
   "op.error.unsafe_contract_call.reason":
     "The contract call did not pass our checks, so nothing was signed. Your funds wait in your one-time escrow; return them to your protected balance.",
+  "op.error.handover_unknown.title": "Checking whether the swap ran",
+  "op.error.handover_unknown.reason":
+    "Its hand-over to the executor got no answer and its window to execute has closed, so it is not known yet whether it was swapped. The wallet keeps asking the executor. Your funds are in your one-time escrow or with the provider; Return funds brings back what the escrow holds.",
   "op.error.execution_window_closed.title": "The swap ran out of time",
   "op.error.execution_window_closed.reason":
     "Its window to execute closed before it was signed and handed over, so nothing was swapped. Your funds wait in your one-time escrow; return them to your protected balance.",

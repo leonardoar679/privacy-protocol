@@ -157,6 +157,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   unsafe_contract_call: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
   // the order runner: a funded order whose execution window closed before its hand-over — the escrow only refunds now
   execution_window_closed: { source: "wallet", fundsClass: "still-protected", actions: ["start-refund"] },
+  // the ninth review round (2026-11-04, C-09): a hand-over whose answer was lost, past its window, the escrow not holding the order
+  handover_unknown: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring", "start-refund"] },
   deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   wallet_insufficient_funds: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },

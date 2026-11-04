@@ -676,6 +676,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.unsafe_contract_call.title": "이 거래를 중단했습니다",
   "op.error.unsafe_contract_call.reason":
     "컨트랙트 호출이 점검을 통과하지 못해 아무것도 서명하지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",
+  "op.error.handover_unknown.title": "스왑 실행 여부를 확인하고 있습니다",
+  "op.error.handover_unknown.reason":
+    "실행기에 인계한 결과를 받지 못했고 실행 기간이 끝나, 교환되었는지 아직 알 수 없습니다. 지갑이 실행기에 계속 확인합니다. 자금은 일회용 에스크로나 제공자에게 있습니다. 자금 반환을 누르면 에스크로에 있는 자금을 되돌립니다.",
   "op.error.execution_window_closed.title": "스왑 실행 시간이 지났습니다",
   "op.error.execution_window_closed.reason":
     "서명하고 인계하기 전에 실행 기간이 끝나 아무것도 교환되지 않았습니다. 자금은 일회용 에스크로에서 기다리고 있습니다. 보호 잔액으로 반환하세요.",

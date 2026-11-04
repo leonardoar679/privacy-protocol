@@ -8,7 +8,7 @@
 import type { Campaign, CampaignState, PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 import { SWAP_JOB_MAP, type Mapped } from "@privacy-wallet/protocol/wallet/settlement";
 import type { OrderState, Tracked } from "../orderTracker";
-import type { StoredSwap } from "../wallet/journal";
+import { fundedOf, type StoredSwap } from "../wallet/journal";
 
 /** The executor's job state → the operation state: the table shared with the API (packages/protocol/src/wallet/settlement.ts). */
 export { SWAP_JOB_MAP, type Mapped };
@@ -162,16 +162,19 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   // the escrow only refunds — the user returns the funds
   order_expired: { state: "CANCELLED", phase: "funding", code: "order_expired" },
   execution_window_closed: { state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_window_closed" },
+  // a hand-over whose answer was lost, its window closed with the escrow not holding the order (the ninth review round, C-09): the
+  // outcome is unknown — the executor is asked again, and the user may return what the escrow holds
+  handover_unknown: { state: "RECOVERY_REQUIRED", phase: "execution", code: "handover_unknown" },
 };
 
 /** A journaled order with (or without) the tracker's last derivation. */
 export function fromStoredSwap(
-  s: Pick<StoredSwap, "state" | "fundedTx" | "jobId" | "executionTx" | "campaign" | "paused">,
+  s: Pick<StoredSwap, "state" | "fundedTx" | "fundedAt" | "jobId" | "handedOverAt" | "executionTx" | "campaign" | "paused">,
   tracked: Pick<Tracked, "state"> | null,
 ): Mapped {
   if (s.paused && !s.jobId && PAUSED_ORDER_MAP[s.paused.code]) return PAUSED_ORDER_MAP[s.paused.code];
   if (tracked) return ORDER_STATE_MAP[tracked.state];
   const own = STORED_SWAP_MAP[s.state];
   if (own) return own;
-  return s.fundedTx ? { state: "SOURCE_CONFIRMING", phase: "execution" } : { state: "AWAITING_AUTHORIZATION", phase: "funding" };
+  return fundedOf(s) ? { state: "SOURCE_CONFIRMING", phase: "execution" } : { state: "AWAITING_AUTHORIZATION", phase: "funding" };
 }

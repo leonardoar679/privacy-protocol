@@ -19,7 +19,7 @@ import { noteStore } from "./wallet/notes";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { mainOwnerCommitment } from "./keys/ownerKeys";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
-import type { FundingAttempt, ScheduledAction, StoredSwap } from "./wallet/journal";
+import { fundedOf, type FundingAttempt, type ScheduledAction, type StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
@@ -53,6 +53,27 @@ export class FundingAlreadySent extends Error {
   constructor(readonly fate: FundingFate) {
     super(`Not funded again: this order's funding was already sent (${fate === "landed" ? "it landed" : fate === "dead" ? "it never landed; fund it again from the order" : "its outcome is not known yet"}). Nothing more was sent.`);
     this.name = "FundingAlreadySent";
+  }
+}
+
+/**
+ * The order's funding is being proved or sent in this tab (the ninth review round, 2026-11-04, C-04): it is not abandoned, nor its funds
+ * returned, meanwhile. An Abandon or a Return funds tapped during the proof had abandoned the order; the funding went out anyway, the order
+ * re-opened as funded and was handed over, and its record stayed "Cancelled. Nothing left your protected balance".
+ */
+export class FundingUnderWay extends Error {
+  constructor() {
+    super("This order's funding is being prepared or sent right now; nothing was changed. Try again once it has finished.");
+    this.name = "FundingUnderWay";
+  }
+}
+
+/** The order was closed while its funding was proved (the ninth review round, C-04): read again at the send, nothing was sent. */
+export class OrderClosed extends Error {
+  readonly code = "order_closed";
+  constructor(readonly state: string) {
+    super(`Not funded: this order was ${state} while its funding was prepared. Nothing was sent.`);
+    this.name = "OrderClosed";
   }
 }
 
@@ -195,8 +216,9 @@ export function patchSwap(orderId: string, patch: Partial<StoredSwap>, s: Wallet
  * attempt dead says so (`fundingDead`); every other one is refused with the attempt's fate.
  */
 export function abandonSwap(orderId: string, s: WalletSession = defaultSession, o: { fundingDead?: boolean } = {}): void {
+  if (fundingUnderWay(orderId)) throw new FundingUnderWay(); // proved or sent in this tab right now (C-04): its attempt is not journaled yet
   const stored = s.journal().swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase());
-  if (stored?.fundingAttempt && !stored.fundedTx && stored.state !== "funded" && !o.fundingDead) throw new FundingAlreadySent("pending");
+  if (stored?.fundingAttempt && !fundedOf(stored) && !o.fundingDead) throw new FundingAlreadySent("pending");
   cancelAction(`fund-escrow:${orderId}`, s);
   patchSwap(orderId, { state: "abandoned" }, s);
 }
@@ -264,8 +286,10 @@ export interface FundingReads {
    * spent exactly this pair, "other" when the index has one of its notes spent with another note, null when it does not know.
    */
   spendOf?(pair: [bigint, bigint]): Promise<{ txHash: Hex } | "other" | null>;
-  /** the digest of a transaction's transact inputs (operations/stale.ts txInputs); null when it cannot tell */
+  /** the digest of a transaction's transact inputs (operations/stale.ts txInputs, agreed by every endpoint); null when it cannot tell */
   txInputs?(hash: Hex): Promise<Hex | null>;
+  /** the address a transaction's transact pays (its withdrawal recipient; operations/stale.ts txRecipient, agreed); null when it cannot tell */
+  txRecipient?(hash: Hex): Promise<Hex | null>;
 }
 
 /**
@@ -275,10 +299,16 @@ export interface FundingReads {
  */
 export function fundingReads(d: Deployment): FundingReads {
   const outcome = outcomeReads(d);
-  const stale = staleReads(d);
   const index = spendIndexOf(d.core);
+  const stale = staleReads(d, index);
   return {
-    spent: outcome.spent,
+    // the spent bits from the scan's agreed spend index (the ninth review round, 2026-11-04, D-3): a funding's two nullifiers had been
+    // asked of every endpoint by name at every tick, linking this client to its notes. Without an index (no scan yet) the fate is unknown;
+    // a funding that landed since the last scan is read from its receipt, and the runners read the escrow's balance before any fate
+    spent: async (n) => {
+      if (!index) throw new Error("the pool has not been scanned yet: a funding's notes are never named to an endpoint");
+      return index.spent(n);
+    },
     relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
     receipt: outcome.receipt,
     txKnown: outcome.txKnown,
@@ -290,10 +320,12 @@ export function fundingReads(d: Deployment): FundingReads {
       return index.spent(pair[0]) || index.spent(pair[1]) ? "other" : null;
     },
     ...(stale.txInputs ? { txInputs: stale.txInputs } : {}),
+    ...(stale.txRecipient ? { txRecipient: stale.txRecipient } : {}),
   };
 }
 
-export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now()): Promise<FundingFate> {
+/** `escrow`: the order's escrow, which its funding's call pays (an attempt journaled before its call's digest was kept is told by it). */
+export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now(), escrow?: string): Promise<FundingFate> {
   try {
     const spent = await Promise.all(a.nullifiers.map((n) => reads.spent(BigInt(n))));
     if (spent.some(Boolean)) {
@@ -306,6 +338,11 @@ export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = 
       if (seen && a.inputsDigest && reads.txInputs) {
         const digest = await reads.txInputs(seen.txHash);
         if (digest !== null && digest.toLowerCase() !== a.inputsDigest.toLowerCase()) return "dead";
+      } else if (seen && !a.inputsDigest && escrow && reads.txRecipient) {
+        // an attempt journaled before its call's digest was kept (the ninth review round, 2026-11-04, C-10): the call that spent its pair
+        // pays this order's escrow, or it was another's — it had read "landed" for good, the order reconciling every 15 s, Return funds refused
+        const to = await reads.txRecipient(seen.txHash);
+        if (to !== null && to.toLowerCase() !== escrow.toLowerCase()) return "dead";
       }
       return "landed";
     }
@@ -363,6 +400,10 @@ async function checkTipCovers(d: Deployment, stored: StoredSwap, readFees: (d: D
 
 /** The orders whose funding is under way in this tab (the review round of 2026-11-03, E1). */
 const fundingInFlight = new Set<string>();
+/** Whether this tab is proving or sending the order's funding right now (the ninth review round, C-04): nothing abandons it meanwhile. */
+export function fundingUnderWay(orderId: string): boolean {
+  return fundingInFlight.has(orderId.toLowerCase());
+}
 
 /**
  * Fund an order's escrow from the private balance — one funding of an order at a time in this tab (the review round of
@@ -408,7 +449,7 @@ async function fundEscrowUnguarded(o: {
   assertJournalSaved(s); // its funding attempt would be lost at the next lock, and sent again (audit round 2, r47)
   if (!o.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
   if (!isOpenSwap(stored)) throw new Error(`order ${stored.orderId.slice(0, 10)}… is ${stored.state}; it is not funded`);
-  if (stored.fundedTx) throw new Error(`order ${stored.orderId.slice(0, 10)}… is already funded`);
+  if (fundedOf(stored)) throw new Error(`order ${stored.orderId.slice(0, 10)}… is already funded`); // the durable rule (C-01): never a second funding
   const a = assetOfStored(o.deployment, stored);
   const params = stored.params as { amount: string };
   const gross = BigInt(params.amount); // the withdrawal funds the whole order; the escrow pays the executor tip
@@ -422,7 +463,7 @@ async function fundEscrowUnguarded(o: {
   const fundedAsset = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const inEscrow = await (o.escrowBalance ? o.escrowBalance(stored) : escrowBalance(o.deployment, stored.endpoint as Address, fundedAsset && fundedAsset !== "native" ? (fundedAsset as Address) : null)).catch(() => null);
   if (inEscrow !== null && inEscrow >= gross) {
-    patchSwap(stored.orderId, { state: "funded" }, s);
+    patchSwap(stored.orderId, { state: "funded", fundedAt: Date.now() }, s);
     throw new FundingAlreadySent("landed");
   }
   // never an order an older build committed under the privacy address's owner commitment (c18): stopped before anything is sent
@@ -435,11 +476,11 @@ async function fundEscrowUnguarded(o: {
   // its own rules, whatever the caller checked (c38): a funding already sent is never sent again before it is known dead —
   // and a dead one only on the user's word (`replaceDead`) —, and none goes out past the order's window
   if (stored.fundingAttempt) {
-    const fate = await fundingFate(stored.fundingAttempt, o.reads ?? fundingReads(o.deployment), o.now);
+    const fate = await fundingFate(stored.fundingAttempt, o.reads ?? fundingReads(o.deployment), o.now, stored.endpoint);
     // landed while its page was gone — a tab closed or reloaded while it was mined (audit round 2, r10): the order is funded,
     // and journaled so. Refused for good, its scheduled funding retried on the backoff forever, the order read "Funding is
     // scheduled", then "nothing left your private balance", and offered only Abandon — while its amount sat in the escrow
-    if (fate === "landed") patchSwap(stored.orderId, { state: "funded", ...(stored.fundingAttempt.txHash ? { fundedTx: stored.fundingAttempt.txHash } : {}) }, s);
+    if (fate === "landed") patchSwap(stored.orderId, { state: "funded", ...(stored.fundingAttempt.txHash ? { fundedTx: stored.fundingAttempt.txHash } : { fundedAt: Date.now() }) }, s);
     if (fate !== "dead" || !o.replaceDead) throw new FundingAlreadySent(fate);
     // a dead funding sent again is a new funding (audit round 2, n10): never one of an order an older build committed under the
     // privacy address's owner commitment (c18), which the check above lets through once a funding has been tried
@@ -459,12 +500,17 @@ async function fundEscrowUnguarded(o: {
   const onEvent: OnEvent = (e) => {
     if (e.type === "merging") nested = true;
     else if (e.type === "syncing") nested = false;
-    else if (!nested && e.type === "submitting" && e.nullifiers)
+    else if (!nested && e.type === "submitting" && e.nullifiers) {
+      // the order read again at the last moment before anything is sent (the ninth review round, 2026-11-04, C-04): an order closed while
+      // its funding was proved is not funded — the send had gone out over an abandon, and the order re-opened as funded and was handed over
+      const latest = s.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
+      if (latest && !isOpenSwap(latest)) throw new OrderClosed(latest.state);
       patchSwap(
         stored.orderId,
         { fundingAttempt: { nullifiers: e.nullifiers, by: e.by, ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), ...(e.inputsDigest ? { inputsDigest: e.inputsDigest } : {}), at: Date.now() } },
         s,
       ); // its call's inputs (B-4): whose call spent its notes decides its fate
+    }
     else if (!nested && e.type === "submitted") {
       const attempt = s.journal().swaps.find((x) => x.orderId === stored.orderId)?.fundingAttempt;
       if (attempt) patchSwap(stored.orderId, { fundingAttempt: { ...attempt, txHash: e.txHash } }, s);
@@ -491,7 +537,7 @@ async function fundEscrowUnguarded(o: {
     beforeSpend: () => {
       const latest = s.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
       if (!latest) return; // not journaled (a test's order): nothing to read again
-      if (latest.fundedTx || latest.state === "funded") throw new FundingAlreadySent("landed");
+      if (fundedOf(latest)) throw new FundingAlreadySent("landed");
       if (latest.fundingAttempt) throw new FundingAlreadySent("pending");
     },
   }); // V6 (spec v2.0 §3): the fee note pays the percentage like any withdrawal
@@ -522,14 +568,14 @@ export async function runScheduledAction(
   if (a.kind !== "fund-escrow") return; // a campaign tick is dispatched by the App to wallet/campaignRunner.ts
   const stored = s.journal().swaps.find((x) => x.orderId === a.orderId);
   // funded already — by hand, or a funding that landed while its page was gone (r10) —, closed, or a tranche (its campaign funds it)
-  if (!stored || stored.fundedTx || stored.state === "funded" || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; }
+  if (!stored || fundedOf(stored) || !isOpenSwap(stored) || stored.campaign) { cancelAction(a.id, s); return; }
   // an escrow that already holds the order is funded (audit round 2, n36): a funding that landed with nothing journaled — a
   // write another tab's lock discarded, a backup's copy — was sent a second time here, where the runners read the escrow first
   const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const read = o.escrowBalance ?? ((st: StoredSwap) => (o.deployment ? escrowBalance(o.deployment, st.endpoint as Address, token && token !== "native" ? (token as Address) : null) : Promise.resolve(null)));
   const held = await read(stored).catch(() => null);
   if (held !== null && held >= BigInt((stored.params as { amount: string }).amount)) {
-    patchSwap(stored.orderId, { state: "funded" }, s);
+    patchSwap(stored.orderId, { state: "funded", fundedAt: Date.now() }, s);
     cancelAction(a.id, s);
     return;
   }
@@ -548,6 +594,9 @@ export async function runScheduledAction(
     const code = (e as { code?: unknown })?.code;
     const dead = e instanceof FundingAlreadySent && e.fate === "dead";
     if (!dead && !PERMANENT_FUNDING_REFUSALS.includes(String(code))) throw e;
+    // never given up on "dead" while the escrow cannot be read (the ninth review round, 2026-11-04, B-F1): an endpoint that misreads it
+    // and the funding's call had abandoned a funded order; the backoff reads both again
+    if (dead && held === null) throw e;
     patchSwap(stored.orderId, { paused: { code: dead ? "funding_unconfirmed" : String(code), detail: (e as Error).message, at: Date.now() } }, s);
     abandonSwap(stored.orderId, s, { fundingDead: dead });
     cancelAction(a.id, s);
