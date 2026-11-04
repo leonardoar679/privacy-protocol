@@ -45,6 +45,12 @@ export const STALE_DROP_MS = 60 * 60_000;
  * mempool shows the RPC nothing until it is mined, and "dropped, send it again" after ten minutes had a Send paid twice.
  */
 export const STALE_DROP_WALLET_MS = 60 * 60_000;
+/**
+ * ...and a relayer that cannot be reached at all (the ninth review round, 2026-11-04, C-06): a day after the record last moved, the chain alone
+ * decides. The relayer drops a spend its node does not know after ten minutes and never sends it again; before, the lookup threw ahead of the
+ * hour's rule, and the record blocked every later Send and withdrawal as "one at a time" for good.
+ */
+export const RELAYER_GONE_MS = 24 * 3600_000;
 
 export interface StaleReads {
   /** the receipt's status, or null while the transaction is not mined; throws when it cannot be read */
@@ -190,8 +196,24 @@ const SPENT_ELSEWHERE: OperationEvent = {
 /** Sent as far as the chain can tell (its notes spent), the transaction not known here: read again at every scan (the review round of 2026-11-02). */
 const OUTCOME_UNKNOWN: OperationEvent = { type: "recovery-required", code: "outcome_unknown", detail: "sent; its transaction is not known here yet" };
 
+/**
+ * The call a transaction the wallet replaced landed as (the ninth review round, 2026-11-04, C-02: a speed-up — the same call under a new hash):
+ * a Protect's note found by the scan, or a Send's pair spent in the pool's index by a call with this record's own inputs — another
+ * operation's call there is "spent elsewhere". Null while nothing says.
+ */
+async function replacedBy(r: OperationRecord, hash: Hex, reads: StaleReads): Promise<OperationEvent[] | Hex | null> {
+  if (r.refs.nullifiers) {
+    const seen = (await reads.spendOf?.([BigInt(r.refs.nullifiers[0]), BigInt(r.refs.nullifiers[1])])) ?? null;
+    if (!seen || seen.txHash.toLowerCase() === hash.toLowerCase()) return null;
+    const own = await ownCall(r, seen.txHash, reads);
+    return own === true ? seen.txHash : own === false ? [SPENT_ELSEWHERE] : null;
+  }
+  const note = r.refs.noteCounter !== undefined ? noteStore.all().find((n) => n.counter === r.refs.noteCounter) : undefined;
+  return note ? [{ type: "completed", ref: { leafIndex: note.leafIndex, ...(note.txHash ? { txHash: note.txHash } : {}) } }] : null;
+}
+
 /** What a record that was submitting when its page went away became: its settling events, the transaction it was sent as, or nothing yet. */
-async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolean): Promise<OperationEvent[] | Hex | null> {
+async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolean, gone = false): Promise<OperationEvent[] | Hex | null> {
   // the note this submission makes for the wallet (a Protect's deposit, a Send's change): found by the scan, it landed
   if (r.refs.noteCounter !== undefined) {
     const note = noteStore.all().find((n) => n.counter === r.refs.noteCounter);
@@ -216,10 +238,24 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
       // another operation's call spent the pair: this record's own can never land — nothing of it was sent
       if (own === false) return [SPENT_ELSEWHERE];
     }
-    const job = r.refs.relayerUrl ? await reads.relayerJob(r.refs.relayerUrl, nullifiers) : null;
-    // the relayer names it; the transaction itself says whether it spends these notes (c42) — and, its inputs kept, whether it is this
-    // record's own call (the relayer files a later Send of the same note under the same nullifiers)
-    if (job && (await spendsRecord(r, job.txHash, reads)) !== false && (await ownCall(r, job.txHash, reads)) !== false) return job.txHash;
+    let job: { txHash: Hex } | null = null;
+    if (r.refs.relayerUrl) {
+      try {
+        job = await reads.relayerJob(r.refs.relayerUrl, nullifiers);
+      } catch (e) {
+        if (!gone) throw e; // a day without the relayer (C-06): the chain alone decides below
+      }
+    }
+    // the relayer names it; the transaction itself says whether it spends these notes (c42) — and whether it is this record's own call (the
+    // relayer files a later Send of the same note under the same nullifiers): only a call read with the record's own inputs is adopted (the
+    // ninth review round, C-10 — gap 86's rule: a record kept without its call's digest had taken another Send's transaction for its own).
+    // One whose inputs cannot be told — no digest kept, endpoints that do not agree yet — is sent as far as the relayer says: its outcome is
+    // unknown, never "nothing moved"
+    if (job && (await spendsRecord(r, job.txHash, reads)) !== false) {
+      const own = await ownCall(r, job.txHash, reads);
+      if (own === true) return job.txHash;
+      if (own === null) return r.state === "RECOVERY_REQUIRED" ? null : [OUTCOME_UNKNOWN];
+    }
     // sent, its transaction not known here: never "nothing moved" (r23) — and never left where it blocks the next Send for good
     // (one at a time, V7 Stage 16): the record waits as RECOVERY_REQUIRED, its outcome unknown, and is read again at every scan
     if ((await Promise.all(nullifiers.map((n) => reads.spent(n)))).some(Boolean)) return r.state === "RECOVERY_REQUIRED" ? null : [OUTCOME_UNKNOWN];
@@ -236,6 +272,7 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
   for (const r of allOperations(s)) {
     if (!SINGLE_TRANSACTION.has(r.kind) || !isOpen(r.state) || isDraft(r.state) || (isLiveOperation(r.id) && r.state !== "RECOVERY_REQUIRED")) continue;
     const old = now - r.updatedAt > (r.refs.relayerUrl ? STALE_DROP_MS : STALE_DROP_WALLET_MS);
+    const gone = now - r.updatedAt > RELAYER_GONE_MS;
     let hash = r.refs.txHashes[r.refs.txHashes.length - 1] as Hex | undefined;
     let changed = false;
     const apply = (ev: OperationEvent) => {
@@ -245,7 +282,7 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
     try {
       if (!hash) {
         const reached = r.progress?.step === "submitting" || r.refs.nullifiers !== undefined || r.refs.noteCounter !== undefined;
-        const found = reached ? await fromSubmission(r, reads, old) : [INTERRUPTED];
+        const found = reached ? await fromSubmission(r, reads, old, gone) : [INTERRUPTED];
         if (Array.isArray(found)) found.forEach(apply);
         else if (found !== null) {
           apply({ type: "submitted", txHash: found, by: r.refs.relayerUrl ? "relayer" : "wallet" }); // the relayer's answer the page never got, or the pool's own record of the spend
@@ -253,9 +290,17 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
         }
       }
       if (hash) {
-        const status = await reads.receipt(hash);
+        let status = await reads.receipt(hash);
+        // a transaction the wallet replaced (C-02): its hash unknown everywhere while its call landed under another — it had stayed
+        // "Confirming", or "We are checking where your funds are", for good
+        const moved = status === null && !(await reads.txKnown(hash)) ? await replacedBy(r, hash, reads) : null;
+        if (typeof moved === "string") {
+          hash = moved;
+          status = await reads.receipt(moved);
+        }
         const ours = status === null ? null : await spendsRecord(r, hash, reads);
-        if (ours === false) apply({ type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` });
+        if (Array.isArray(moved)) moved.forEach(apply);
+        else if (ours === false) apply({ type: "submission-failed", code: "not_this_spend", detail: `transaction ${hash} does not spend this record's notes` });
         else if (status === "success") apply({ type: "completed", ref: { txHash: hash } });
         // "nothing moved" only while its notes are unspent, as the relayer judges its own jobs (audit round 2, r23): a node
         // that never saw the relayer's pending transaction, or an endpoint's "reverted", had failed a Send on its way

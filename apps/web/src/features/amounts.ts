@@ -36,7 +36,7 @@ export const centsOf = (units: bigint, decimals: number, usd1e8: bigint): bigint
 export function statusOf(r: OperationRecord): Status {
   switch (r.state) {
     case "COMPLETED":
-      return "completed";
+      return r.outcome === "refunded-at-destination" ? "refunded" : "completed"; // nothing of the output arrived (C-07)
     case "REFUNDED":
       return "refunded";
     case "CANCELLED":

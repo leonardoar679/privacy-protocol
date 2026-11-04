@@ -103,8 +103,10 @@ export function Home() {
   // Activity's own rows (Simple): Home's cards and recent lines say exactly what Activity says
   const rows = buildRows(s.status === "unlocked" ? session.journal() : null, operations, false, t);
   const advancedLines = useAdvancedLines(deployment, advanced, hasNotes, housekeeping.enabled, t);
+  // "still executing" only for a swap that is (the ninth review round, 2026-11-04, C-03): one that needs attention had said so for good
   const returningSwap = operations.find(
-    (r) => isOpen(r.state) && !isDraft(r.state) && (r.kind === "swap" || r.kind === "cross-chain") && r.createdAt < OPENED_AT,
+    (r) =>
+      isOpen(r.state) && !isDraft(r.state) && r.state !== "RECOVERY_REQUIRED" && (r.kind === "swap" || r.kind === "cross-chain") && r.createdAt < OPENED_AT,
   );
   const model = homeModel(
     {

@@ -157,13 +157,19 @@ describe("operations whose flow is gone", () => {
 
   it("a Send its page moved to RECOVERY_REQUIRED after a lost answer is settled from what it kept, never called 'nothing moved' while it may have been sent (audit round 2, r41)", async () => {
     const relayer = "http://relayer.test";
-    const sent = record("send", "submitting", 30, T0, { nullifiers: ["301", "302"], relayerUrl: relayer });
+    // its call's inputs kept at the submission (the relayer's job is adopted only with them: the ninth review round, C-10)
+    const sent = record("send", "submitting", 30, T0, { nullifiers: ["301", "302"], relayerUrl: relayer, inputsDigest: "0x" + "30".repeat(32) });
     // the retry was refused nullifier_in_flight and the relayer had not stored its job yet: an unknown outcome, the step dropped
     applyEvent(sent, { type: "recovery-required", code: "nullifier_in_flight" }, session, T0);
     expect(getOperation(sent)!.state).toBe("RECOVERY_REQUIRED");
     expect(getOperation(sent)!.progress).toBeUndefined();
     // still its page's: settled all the same — that flow is over
-    expect(await reconcileStaleOperations(chain({ jobs: { "301": 30 }, mined: [30], spends: { 30: ["301", "302"] } }), T0 + STALE_DROP_MS + 1)).toBe(1);
+    expect(
+      await reconcileStaleOperations(
+        chain({ jobs: { "301": 30 }, mined: [30], spends: { 30: ["301", "302"] }, inputs: { 30: "0x" + "30".repeat(32) } }),
+        T0 + STALE_DROP_MS + 1,
+      ),
+    ).toBe(1);
     expect(getOperation(sent)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(30)] } });
     // after a reload: the relayer does not know it, its notes are spent — sent, its transaction unknown here: left as it is
     const spent = record("send", "submitting", 31, T0, { nullifiers: ["311", "312"], relayerUrl: relayer });
@@ -195,11 +201,12 @@ describe("operations whose flow is gone", () => {
 
   it("a Send whose answer its page never got: the relayer, asked by its nullifiers, names the transaction; unspent and unknown past the limit, nothing moved; spent, left", async () => {
     const relayer = "http://relayer.test";
-    const answered = record("send", "submitting", 20, T0, { nullifiers: ["201", "202"], relayerUrl: relayer });
+    // its call's inputs kept at the submission: the relayer's job is its own only with them (the ninth review round, C-10 — gap 86)
+    const answered = record("send", "submitting", 20, T0, { nullifiers: ["201", "202"], relayerUrl: relayer, inputsDigest: "0x" + "20".repeat(32) });
     const lost = record("send", "submitting", 21, T0, { nullifiers: ["211", "212"], relayerUrl: relayer });
     const spentElsewhere = record("withdraw", "submitting", 22, T0, { nullifiers: ["221", "222"], relayerUrl: relayer });
     resetOperationsMemory();
-    const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"], spends: { 20: ["201", "202"] } });
+    const reads = chain({ jobs: { "201": 20 }, mined: [20], spent: ["221"], spends: { 20: ["201", "202"] }, inputs: { 20: "0x" + "20".repeat(32) } });
     expect(await reconcileStaleOperations(reads, T0 + 60_000), "the answered one completed; the spent one waits (the review round of 2026-11-02)").toBe(2);
     expect(getOperation(answered)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(20)] } });
     expect(getOperation(lost)!.state).toBe("SUBMITTING");
@@ -336,12 +343,13 @@ describe("operations whose flow is gone", () => {
 
   it("a record it moved is still its own to move: a Send it moved to SUBMITTED completes in the same page (the audit round of 2026-10-16, c43)", async () => {
     const relayer = "http://relayer.test";
-    const id = record("send", "submitting", 40, T0, { nullifiers: ["401", "402"], relayerUrl: relayer });
+    const id = record("send", "submitting", 40, T0, { nullifiers: ["401", "402"], relayerUrl: relayer, inputsDigest: "0x" + "40".repeat(32) });
     resetOperationsMemory();
-    await reconcileStaleOperations(chain({ jobs: { "401": 40 }, known: [40], spends: { 40: ["401", "402"] } }), T0 + 60_000);
+    const inputs = { 40: "0x" + "40".repeat(32) };
+    await reconcileStaleOperations(chain({ jobs: { "401": 40 }, known: [40], spends: { 40: ["401", "402"] }, inputs }), T0 + 60_000);
     expect(getOperation(id)).toMatchObject({ state: "SOURCE_CONFIRMING", refs: { txHashes: [hash(40)] } });
     // no reload: the transaction is mined at the next scan
-    expect(await reconcileStaleOperations(chain({ jobs: { "401": 40 }, mined: [40], spends: { 40: ["401", "402"] } }), T0 + 120_000)).toBe(1);
+    expect(await reconcileStaleOperations(chain({ jobs: { "401": 40 }, mined: [40], spends: { 40: ["401", "402"] }, inputs }), T0 + 120_000)).toBe(1);
     expect(getOperation(id)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(40)] } });
   });
 
@@ -362,8 +370,9 @@ describe("operations whose flow is gone", () => {
       spent: false,
       txHash: hash(51),
     });
-    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(1);
-    expect(getOperation(protect)!.state).toBe("SOURCE_CONFIRMING");
+    // the Protect completes from its note — the pool holds it, whatever the blind RPC says of its hash (the ninth review round, C-02)
+    expect(await reconcileStaleOperations(chain(), T0 + STALE_DROP_WALLET_MS + 1)).toBe(2);
+    expect(getOperation(protect)).toMatchObject({ state: "COMPLETED", refs: { leafIndex: 8 } });
     expect(getOperation(send)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped" } });
     expect(STALE_DROP_WALLET_MS).toBe(3_600_000);
   });

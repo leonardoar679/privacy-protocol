@@ -21,10 +21,15 @@ const TONE: Record<OperationNotification["kind"], "info" | "success" | "warn"> =
 
 const amountText = (a: NotifiedAmount): string => `${displayAmount(amountFrom(a.value, a.asset, a.decimals))} ${a.asset}`;
 
+/** A finished swap that is not the whole delivery has its own words (the ninth review round, C-03/C-07), never "Your transaction is complete". */
+const wordsOf = (n: OperationNotification): string => (n.kind === "completed" && n.outcome ? (n.outcome === "partial" ? "partial" : "notDelivered") : n.kind);
+const toneOf = (n: OperationNotification): "info" | "success" | "warn" =>
+  n.kind === "completed" && n.outcome === "refunded-at-destination" ? "warn" : TONE[n.kind];
+
 /** The words of a notification: its kind's title and body, the amounts in front only when the user allowed them. */
 export function notificationWords(n: OperationNotification): { title: string; body: string } {
-  const title = t(`notification.${n.kind}.title` as MessageKey);
-  const body = t(`notification.${n.kind}.body` as MessageKey);
+  const title = t(`notification.${wordsOf(n)}.title` as MessageKey);
+  const body = t(`notification.${wordsOf(n)}.body` as MessageKey);
   if (!n.amounts) return { title, body };
   const amounts = n.amounts.output ? `${amountText(n.amounts.input)} → ${amountText(n.amounts.output)}` : amountText(n.amounts.input);
   return { title, body: t("notification.withAmounts", { amounts, body }) };
@@ -48,7 +53,7 @@ export function startOperationNotifications(): () => void {
   return watchOperationNotifications(
     (n) => {
       const w = notificationWords(n);
-      notify({ kind: "info", title: w.title, body: w.body, operationId: n.operationId, tone: TONE[n.kind] });
+      notify({ kind: "info", title: w.title, body: w.body, operationId: n.operationId, tone: toneOf(n) });
     },
     { prefs: () => ({ amounts: !settings.get().protection.notifications.generic }) },
   );

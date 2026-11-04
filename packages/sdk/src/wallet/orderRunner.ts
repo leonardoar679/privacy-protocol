@@ -281,7 +281,7 @@ export async function confirmOrder(i: Omit<CommitInput, "schedule"> & { delay?: 
     s,
   );
   const stored = journaled(committed.stored.orderId, s) ?? committed.stored;
-  syncSwapRecord(stored, null, null, now);
+  syncSwapRecord(stored, null, null, now, s);
   if (delayUntil === undefined) holdUntilHandedOver(stored.orderId, s, now); // a privacy delay holds nothing
   tickAt(stored.orderId, delayUntil ?? now, s, now);
   return { ...committed, stored };
@@ -292,7 +292,7 @@ export function acceptNewMinimum(orderId: string, s: WalletSession = defaultSess
   const stored = journaled(orderId, s);
   if (!stored?.paused || stored.paused.code !== "minimum_moved" || !stored.paused.minOut) return false;
   patchSwap(orderId, { approvedMin: stored.paused.minOut, paused: undefined }, s);
-  syncSwapRecord(journaled(orderId, s)!, null, null, now);
+  syncSwapRecord(journaled(orderId, s)!, null, null, now, s);
   tickAt(orderId, now, s, now);
   return true;
 }
@@ -336,12 +336,12 @@ export async function returnFunds(orderId: string, deps: OrderDeps): Promise<"re
     }
     abandonSwap(orderId, s, { fundingDead: true });
     cancelAction(actionId(orderId), s);
-    syncSwapRecord(journaled(orderId, s)!, null, null, now);
+    syncSwapRecord(journaled(orderId, s)!, null, null, now, s);
     return "abandoned";
   }
   const job = await io.refund(stored);
   patchSwap(orderId, { paused: undefined, jobId: job.id, state: job.state }, s);
-  syncSwapRecord(journaled(orderId, s)!, null, job, now);
+  syncSwapRecord(journaled(orderId, s)!, null, job, now, s);
   tickAt(orderId, now + ORDER_TRACK_MS, s, now);
   return "refunding";
 }
@@ -380,7 +380,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
   const pause = (code: string, detail: string): OrderTickResult => {
     patchSwap(a.orderId, { paused: { code, detail, at: now } }, s);
     const st = journaled(a.orderId, s)!;
-    syncSwapRecord(st, null, null, now);
+    syncSwapRecord(st, null, null, now, s);
     return { step: "paused", stored: st };
   };
   schedulerStatus.start(a.id, "Swap: checking the order…");
@@ -404,7 +404,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       if (stored.shield) stored = await refreshShield(a.orderId, stored, io, s, now);
       const r = await io.track(stored);
       const st = journaled(a.orderId, s) ?? stored;
-      syncSwapRecord(st, r.tracked, r.job, now);
+      syncSwapRecord(st, r.tracked, r.job, now, s);
       if (
         TERMINAL_TRACK.includes(r.tracked.state) ||
         (r.job && TERMINAL_JOB.includes(r.job.state)) ||
@@ -420,7 +420,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     }
     // 2. a pause that waits for the user: nothing moves until they choose (the choice plans the next tick)
     if (stored.paused?.code === "minimum_moved" || stored.paused?.code === "execution_unavailable" || stored.paused?.code === "execution_window_closed") {
-      syncSwapRecord(stored, null, null, now);
+      syncSwapRecord(stored, null, null, now, s);
       cancelAction(a.id, s);
       return { step: "waiting", stored };
     }
@@ -454,7 +454,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           const elsewhere = await io.job(stored).catch(() => null);
           if (elsewhere) {
             patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
-            syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now);
+            syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now, s);
             tickAt(a.orderId, now + 1000, s, now);
             return { step: "track", stored: journaled(a.orderId, s)! };
           }
@@ -467,13 +467,13 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           abandonSwap(a.orderId, s, { fundingDead: fate === "dead" });
           cancelAction(a.id, s);
           const st = journaled(a.orderId, s)!;
-          syncSwapRecord(st, null, null, now);
+          syncSwapRecord(st, null, null, now, s);
           return { step: "stopped", stored: st };
         }
         if (stored.paused?.code !== "reconcile") {
           const detail = "A funding was sent and is not confirmed yet; the escrow is read before anything is sent again.";
           patchSwap(a.orderId, { paused: { code: "reconcile", detail, at: now } }, s);
-          syncSwapRecord(journaled(a.orderId, s)!, null, null, now);
+          syncSwapRecord(journaled(a.orderId, s)!, null, null, now, s);
         }
         tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
         return { step: "paused", stored: journaled(a.orderId, s)! };
@@ -484,7 +484,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         const elsewhere = await io.job(stored).catch(() => null);
         if (elsewhere) {
           patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
-          syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now);
+          syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now, s);
           tickAt(a.orderId, now + 1000, s, now);
           return { step: "track", stored: journaled(a.orderId, s)! };
         }
@@ -497,7 +497,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           abandonSwap(a.orderId, s);
           cancelAction(a.id, s);
           const st = journaled(a.orderId, s)!;
-          syncSwapRecord(st, null, null, now);
+          syncSwapRecord(st, null, null, now, s);
           return { step: "stopped", stored: st };
         }
         // a funding delayed for privacy asks a fresh minimum first (audit round 2, n58): 1–24 h after its Review the market can
@@ -510,7 +510,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           if (moved) {
             patchSwap(a.orderId, { paused: { code: "minimum_moved", at: now, minOut: moved.minOut.toString(), approved: moved.approved.toString() } }, s);
             const st = journaled(a.orderId, s)!;
-            syncSwapRecord(st, null, null, now);
+            syncSwapRecord(st, null, null, now, s);
             cancelAction(a.id, s);
             return { step: "paused", stored: st };
           }
@@ -528,7 +528,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           if (code === "order_closed") {
             cancelAction(a.id, s);
             const st = journaled(a.orderId, s)!;
-            syncSwapRecord(st, null, null, now);
+            syncSwapRecord(st, null, null, now, s);
             return { step: "stopped", stored: st };
           }
           if (
@@ -552,7 +552,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
             abandonSwap(a.orderId, s);
             cancelAction(a.id, s);
             const st = journaled(a.orderId, s)!;
-            syncSwapRecord(st, null, null, now);
+            syncSwapRecord(st, null, null, now, s);
             return { step: "stopped", stored: st };
           }
           if (!sent) throw e; // nothing was sent: the scheduler's backoff retries the tick
@@ -565,7 +565,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         }
       }
       const st = journaled(a.orderId, s)!;
-      syncSwapRecord(st, null, null, now);
+      syncSwapRecord(st, null, null, now, s);
       tickAt(a.orderId, now + 1000, s, now); // the next tick signs
       return { step: "funded", stored: st };
     }
@@ -635,7 +635,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       if (r.prepared) movedCalls.set(key, { prepared: r.prepared, minOut: r.moved.minOut });
       patchSwap(a.orderId, { paused: { code: "minimum_moved", at: now, minOut: r.moved.minOut.toString(), approved: r.moved.approved.toString() } }, s);
       const st = journaled(a.orderId, s)!;
-      syncSwapRecord(st, null, null, now);
+      syncSwapRecord(st, null, null, now, s);
       cancelAction(a.id, s);
       return { step: "paused", stored: st };
     }
@@ -678,7 +678,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       }
     }
     const st = journaled(a.orderId, s)!;
-    syncSwapRecord(st, null, null, now);
+    syncSwapRecord(st, null, null, now, s);
     tickAt(a.orderId, now + ORDER_TRACK_MS, s, now);
     return { step: "handed-over", stored: st };
   } catch (e) {

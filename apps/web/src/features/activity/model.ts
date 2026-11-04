@@ -10,7 +10,7 @@ import type { Vars } from "../../app/i18n/messages";
 import { formatTime } from "../../app/i18n/intl";
 import { activityStatus, amountFrom, statusOf, targetOf, titleOf } from "../amounts";
 import type { Amount, Status } from "../viewKit";
-import { stateWords } from "../operations/recovery";
+import { finishedWords } from "../operations/recovery";
 import type { ActivityRow, DayGroup } from "./rows";
 import { costDifference } from "@privacy-wallet/sdk/operations/costs";
 import type { OperationCosts } from "@privacy-wallet/sdk/wallet/operationRecord";
@@ -229,7 +229,7 @@ export function detailModel(r: ActivityRow, t: T): DetailModel {
     { label: t("activity.relayerTransaction"), value: rec?.refs.executionTx ?? r.swap?.executionTx ?? "—" },
     { label: t("activity.transaction"), value: tx ?? "—" },
     { label: t("activity.nullifierStatus"), value: rec?.refs.leafIndex !== undefined ? t("activity.leafAt", { leaf: rec.refs.leafIndex }) : "—" },
-    { label: t("activity.confirmationState"), value: rec ? stateWords(rec.state, t) : (r.swap?.track?.label ?? r.status) },
+    { label: t("activity.confirmationState"), value: rec ? finishedWords(rec, t) : (r.swap?.track?.label ?? r.status) },
     { label: t("activity.recoveryState"), value: rec?.recovery?.state ?? "—" },
     // V6 (spec v2.0 §3; doc §43): what the network part cost against its estimate, and what the relayer charged for it
     ...(rec?.costs ? costRows(rec.costs, t) : []),

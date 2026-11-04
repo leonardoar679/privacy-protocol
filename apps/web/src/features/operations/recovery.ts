@@ -16,8 +16,11 @@ export type T = (key: MessageKey, vars?: Vars) => string;
 
 export const stateKey = (state: OperationState): MessageKey => `op.state.${state}` as MessageKey;
 export const stateWords = (state: OperationState, t: T): string => t(stateKey(state));
-/** V6: a record's own words — its state's, or the delay's while the phase takes longer (I-O5: never "failed"). */
-export const recordWords = (rec: Pick<OperationRecord, "state" | "delayed">, t: T): string => (rec.delayed && !isTerminal(rec.state) ? t("op.delayed") : stateWords(rec.state, t));
+/** A finished record's words: its outcome's when it is not the whole delivery (the ninth review round, C-03/C-07), else its state's. */
+export const finishedWords = (rec: Pick<OperationRecord, "state" | "outcome">, t: T): string =>
+  rec.state === "COMPLETED" && rec.outcome ? t(`op.outcome.${rec.outcome}` as MessageKey) : stateWords(rec.state, t);
+/** V6: a record's own words — its state's (its outcome's), or the delay's while the phase takes longer (I-O5: never "failed"). */
+export const recordWords = (rec: Pick<OperationRecord, "state" | "delayed" | "outcome">, t: T): string => (rec.delayed && !isTerminal(rec.state) ? t("op.delayed") : finishedWords(rec, t));
 export const progressWords = (p: { step: ProgressStep; i?: number; n?: number }, t: T): string => t(`op.progress.${p.step}` as MessageKey, { i: p.i ?? 1, n: p.n ?? 1 });
 export const actionWords = (a: RecoveryAction, t: T): string => t(`op.action.${a}` as MessageKey);
 export const fundsHeadline = (c: FundsClass, t: T): string => t(FUNDS_HEADLINE_KEY[c]);

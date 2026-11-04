@@ -5,7 +5,16 @@
 import type { Tracked } from "../orderTracker";
 import type { SwapJob } from "../relayer";
 import type { StoredSwap } from "../wallet/journal";
-import { isTerminal, PRE_SUBMISSION_STATES, SETTLEMENT_STATES, wasSubmitted, type OperationRecord, type OperationState } from "../wallet/operationRecord";
+import {
+  isTerminal,
+  PRE_SUBMISSION_STATES,
+  SETTLEMENT_STATES,
+  wasSubmitted,
+  type OperationOutcome,
+  type OperationRecord,
+  type OperationState,
+} from "../wallet/operationRecord";
+import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { fromStoredSwap } from "./adapters";
 import { reasonOf, recoveryFor } from "./reducer";
 import { getOperation, putOperation } from "./store";
@@ -17,15 +26,24 @@ export const swapRecordId = (orderId: string): string => `swap:${orderId.toLower
 const asTier = (x: unknown): Tier =>
   ["standard", "large", "large-protected", "enhanced", "high-value", "high-value-secondary", "institutional"].includes(String(x)) ? (x as Tier) : "standard";
 
-/** Bring the order's record in line with what the journal and the tracker say; returns the record. */
-export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job: SwapJob | null, now = Date.now()): OperationRecord {
+/**
+ * Bring the order's record in line with what the journal and the tracker say; returns the record. `s`: the session of the caller — the
+ * runners' pinned one (the ninth review round, 2026-11-04, C-08: the default session had been written to after a lock or a REPLACE).
+ */
+export function syncSwapRecord(
+  stored: StoredSwap,
+  tracked: Tracked | null,
+  job: SwapJob | null,
+  now = Date.now(),
+  s: WalletSession = defaultSession,
+): OperationRecord {
   const req = stored.request as {
     from?: { symbol?: string; decimals?: number; chain?: string };
     to?: { symbol?: string; decimals?: number; chain?: string };
     destination?: string;
   };
   const params = stored.params as { amount?: string };
-  const m = fromStoredSwap(
+  const mapped = fromStoredSwap(
     {
       state: job?.state ?? stored.state,
       fundedTx: stored.fundedTx,
@@ -38,8 +56,18 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
     },
     tracked,
   );
+  // a partial fill whose rest is accounted for — the executor's watch ended, or its refund came back — is finished (the ninth review round,
+  // 2026-11-04, C-03): it had stayed "needs attention" for good, its only action changing nothing; while the rest may still come back it waits
+  const settledPartial = tracked?.state === "PARTIAL" && (job?.state === "completed" || job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0);
+  const m = settledPartial ? { state: "COMPLETED" as const, phase: "settlement" as const } : mapped;
+  // what such an order came to, beside its state (C-03, C-07: a refund the provider paid at the destination had read "Swap complete")
+  const outcome: OperationOutcome | undefined = settledPartial
+    ? "partial"
+    : tracked?.state === "REFUNDED_AT_DESTINATION"
+      ? "refunded-at-destination"
+      : undefined;
   const id = swapRecordId(stored.orderId);
-  const prev = getOperation(id);
+  const prev = getOperation(id, s);
   const crossChain = (req.to?.chain ?? "ethereum") !== (req.from?.chain ?? "ethereum");
   const txHashes = [
     ...new Set([
@@ -72,7 +100,7 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
       ...(stored.approvedMin ? { minimumOutput: stored.approvedMin } : {}),
       outputAsset: req.to?.symbol,
       outputDecimals: req.to?.decimals,
-      ...(tracked?.deliveredUnits ? { delivered: tracked.deliveredUnits } : {}),
+      ...(tracked?.deliveredUnits ? { delivered: tracked.deliveredUnits } : prev?.amounts.delivered ? { delivered: prev.amounts.delivered } : {}),
     },
     fees: prev?.fees ?? [],
     destination: {
@@ -100,13 +128,14 @@ export function syncSwapRecord(stored: StoredSwap, tracked: Tracked | null, job:
     ...(reason ? { reason } : {}),
     ...(delayed ? { delayed } : {}),
     ...(prev?.recovery ? { recovery: prev.recovery } : {}),
+    ...(terminal ? (prev!.outcome ? { outcome: prev!.outcome } : {}) : outcome && state === "COMPLETED" ? { outcome } : {}),
     history: prev && prev.state === state ? prev.history : [...(prev?.history ?? []), { state, at: now, ...(tracked ? { note: tracked.label } : {}) }],
   };
   // the recovery follows where the money is (spec v2.0 §12.4); a delay is watched
   if (!terminal && state === "RECOVERY_REQUIRED" && reason) rec = { ...rec, recovery: recoveryFor(rec, reason.code, now) };
   else if (!terminal && delayed)
     rec = { ...rec, recovery: { ...(rec.recovery ?? {}), state: rec.recovery?.state ?? "monitoring", since: rec.recovery?.since ?? now, lastCheckedAt: now } };
-  putOperation(rec);
+  putOperation(rec, s);
   return rec;
 }
 

@@ -31,7 +31,7 @@ import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wall
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
-import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
+import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, WarningCard, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import type { SettlementLabel } from "@privacy-wallet/sdk/orderTracker";
@@ -1197,17 +1197,37 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
         ? t("screen.swap.returnedAmount", { amount: displayAmount(amountFrom(back.toString(), from.symbol, from.decimals ?? 18), "down"), symbol: from.symbol })
         : t("screen.swap.returned");
     };
+    const amountOf = (units: string) => displayAmount(amountFrom(units, sym, outDecimals), "down");
+    // a finished swap that is not the order's whole delivery says so (the ninth review round, 2026-11-04, C-03/C-07): a refund the provider
+    // paid at the destination had read "Swap complete.", and a partial fill "needs attention" for good
     const title =
       record.state === "COMPLETED"
-        ? delivered
-          ? t(intoProtected ? "screen.swap.doneProtected" : "screen.swap.done", {
-              amount: displayAmount(amountFrom(delivered, sym, outDecimals), "down"),
-              symbol: sym,
-            })
-          : t("screen.swap.doneNoAmount")
+        ? record.outcome === "partial"
+          ? delivered
+            ? t("screen.swap.donePartial", { amount: amountOf(delivered), symbol: sym })
+            : t("screen.swap.donePartialNoAmount")
+          : delivered
+            ? t(intoProtected ? "screen.swap.doneProtected" : "screen.swap.done", { amount: amountOf(delivered), symbol: sym })
+            : t("screen.swap.doneNoAmount")
         : record.state === "REFUNDED"
           ? returnedTitle()
           : t("screen.swap.cancelled");
+    const finish = (
+      <>
+        <Button onClick={p.onDone} data-testid="swap-finish">
+          {t("send.doneButton")}
+        </Button>
+        <Button variant="secondary" onClick={p.onNew} data-testid="swap-again">
+          {t("screen.swap.again")}
+        </Button>
+      </>
+    );
+    if (record.state === "COMPLETED" && record.outcome === "refunded-at-destination")
+      return (
+        <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
+          <WarningCard testId="swap-not-delivered" title={t("screen.swap.notDelivered", { symbol: sym })} action={finish} />
+        </Page>
+      );
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
         <SuccessCard

@@ -6,6 +6,7 @@
 import type { JournalData } from "../wallet/journal";
 import { isDraft, isOpen, isTerminal, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
+import { spentInAnyIndex } from "../wallet/spends";
 import { replay, transition } from "./reducer";
 import type { OperationEvent, TransitionResult } from "./types";
 import { upgradeOperations, upgradeRecord } from "./upgrade";
@@ -73,10 +74,10 @@ export function newOperation(i: NewOperation, now = Date.now()): OperationRecord
 }
 
 export function getOperation(id: string, s: WalletSession = defaultSession): OperationRecord | null {
-  const d = drafts.get(id);
-  if (d) return d;
-  if (!s.isUnlocked()) return null;
-  return operationsOf(s.journal()).find((r) => r.id === id) ?? null;
+  // the journal's record wins over a draft of the same id (the ninth review round, 2026-11-04, C-08): a draft left beside it had replaced
+  // the journaled record — its history and its recovery — after an unlock
+  const journaled = s.isUnlocked() ? (operationsOf(s.journal()).find((r) => r.id === id) ?? null) : null;
+  return journaled ?? drafts.get(id) ?? null;
 }
 
 /**
@@ -102,8 +103,11 @@ export function putOperation(record: OperationRecord, s: WalletSession = default
       j.operations = i >= 0 ? list.map((r, k) => (k === i ? rec : r)) : [...list, rec];
     });
     drafts.delete(rec.id);
-  } else drafts.set(rec.id, rec); // a locked wallet keeps it in memory until the next write (the Gate locks the screens anyway)
-  bump();
+    bump();
+  }
+  // locked: a record past its drafts is not kept (the ninth review round, 2026-11-04, C-08) — a tick's read that ended after a lock had left
+  // its rebuilt record in memory, which after the unlock replaced the journaled one, and after a REPLACE in the same tab showed in the other
+  // wallet's lists. The journal keeps the last record written while unlocked; the chain and the runners move it on after the unlock
 }
 
 /**
@@ -143,9 +147,20 @@ export function allOperations(s: WalletSession = defaultSession): OperationRecor
 export const openOperations = (s: WalletSession = defaultSession): OperationRecord[] => allOperations(s).filter((r) => isOpen(r.state));
 /** Before the chain: waiting for the wallet's answer, proving, submitting (V7 Stage 16). */
 const UNRESOLVED_STATES: readonly OperationState[] = ["AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING"];
-/** The record of `kind` still before the chain among `records`, or null. */
+/**
+ * A Send or a withdrawal whose outcome is unknown — sent as far as anyone can tell, its notes not seen spent in the pool — may still land
+ * (the ninth review round, 2026-11-04, C-11): a second one from the form could pick other notes, and both land. It holds the next back
+ * until the chain settles it (an hour, a day when its relayer cannot be reached: operations/stale.ts); its notes spent, it never lands twice.
+ */
+const mayStillLand = (r: OperationRecord): boolean =>
+  r.state === "RECOVERY_REQUIRED" &&
+  r.reason?.fundsClass === "unknown" &&
+  (r.kind === "send" || r.kind === "withdraw") &&
+  !!r.refs.nullifiers &&
+  !r.refs.nullifiers.some((n) => spentInAnyIndex(BigInt(n)));
+/** The record of `kind` still before the chain among `records` (or one that may still land), or null. */
 export const unresolvedOf = (records: readonly OperationRecord[], kind: OperationKind): OperationRecord | null =>
-  records.find((r) => r.kind === kind && UNRESOLVED_STATES.includes(r.state)) ?? null;
+  records.find((r) => r.kind === kind && (UNRESOLVED_STATES.includes(r.state) || mayStillLand(r))) ?? null;
 /**
  * V7 Stage 16 (spec v3.0 §9): the open record of a kind still before the chain, or null. A second Protect or Send never
  * starts beside one: a phone's handoff can leave the first waiting for the wallet's answer, and a duplicate prompt would

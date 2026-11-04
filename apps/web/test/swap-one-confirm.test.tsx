@@ -274,6 +274,38 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(done.textContent, "the minimum is not what arrived").not.toMatch(/delivered/);
   }, 60_000);
 
+  it("a finished swap that is not the order's whole delivery says so: delivered in part, or not delivered (the ninth review round, 2026-11-04, C-03/C-07)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    // the executor's watch ended on a partial fill: finished, delivered in part
+    syncSwapRecord(
+      st,
+      { state: "PARTIAL", label: "Partial", steps: [true, true, true, true], detail: "Part delivered.", deliveredUnits: "1500000" } as never,
+      { id: orderId, escrow: st.endpoint, state: "completed", updatedAt: Date.now() } as never,
+    );
+    expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "COMPLETED", outcome: "partial" });
+    cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    expect((await screen.findByTestId("swap-done")).textContent).toContain(
+      "Delivered in part: 0.015 BTC arrived; the rest came back to your protected balance.",
+    );
+    cleanup();
+    // another order, refunded by its provider at the destination: not delivered, never "Swap complete"
+    session.update((j) => {
+      j.operations = (j.operations ?? []).filter((r) => r.id !== swapRecordId(orderId));
+    });
+    syncSwapRecord(
+      st,
+      { state: "REFUNDED_AT_DESTINATION", label: "Refunded", steps: [true, true, true, true], detail: "Refunded at the destination." } as never,
+      { id: orderId, escrow: st.endpoint, state: "completed", updatedAt: Date.now() } as never,
+    );
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    const card = await screen.findByTestId("swap-not-delivered");
+    expect(card.textContent).toMatch(/Not delivered: the provider could not deliver/);
+    expect(screen.queryByTestId("swap-done")).toBeNull();
+  }, 60_000);
+
   it("a refunded swap names what came back and that the privacy fee did not (the seventh review round)", async () => {
     await wallet();
     const { orderId } = await confirmed();

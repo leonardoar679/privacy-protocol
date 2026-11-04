@@ -159,5 +159,14 @@ export interface OperationRecord {
   progress?: { step: ProgressStep; i?: number; n?: number };
   /** V6: the estimated, charged and actual network cost (spec v2.0 §3) */
   costs?: OperationCosts;
+  /**
+   * What a finished swap came to when it is not the order's whole delivery (the ninth review round, 2026-11-04, C-03/C-07): `partial`, a
+   * part delivered and the rest back in the protected balance; `refunded-at-destination`, the provider refunded at the destination address
+   * in its own refund asset. A COMPLETED record only; optional
+   */
+  outcome?: OperationOutcome;
   history: { state: OperationState; at: number; note?: string }[];
 }
+
+/** C-03/C-07: a finished swap's outcome beside its state. */
+export type OperationOutcome = "partial" | "refunded-at-destination";

@@ -28,6 +28,8 @@ export interface OperationNotification {
   operation: OperationKind;
   /** only when the user allowed amounts: what went in and, for a swap, what came (or is expected to come) out */
   amounts?: { input: NotifiedAmount; output?: NotifiedAmount };
+  /** a finished swap's outcome when it is not the whole delivery (the ninth review round, C-03/C-07): its own words, never "complete" */
+  outcome?: OperationRecord["outcome"];
 }
 
 /** The kind a transition earns, or null: a quote in for review, a swap's funding confirmed (a cross-chain swap's is
@@ -47,10 +49,16 @@ export function notificationFor(prev: OperationRecord | null, next: OperationRec
   if (!prev) return null;
   const kind = kindFor(prev, next);
   if (!kind) return null;
-  const n: OperationNotification = { kind, operationId: next.id, operation: next.kind };
+  const n: OperationNotification = {
+    kind,
+    operationId: next.id,
+    operation: next.kind,
+    ...(kind === "completed" && next.outcome ? { outcome: next.outcome } : {}),
+  };
   if (!prefs.amounts) return n;
   const a = next.amounts;
-  const out = a.delivered ?? a.expectedOutput;
+  // nothing of the output arrived when the provider refunded at the destination: no expected amount stands in for it
+  const out = next.outcome === "refunded-at-destination" ? undefined : (a.delivered ?? a.expectedOutput);
   return {
     ...n,
     amounts: {

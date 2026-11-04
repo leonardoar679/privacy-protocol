@@ -39,6 +39,11 @@ export function rememberSpendIndex(core: string, index: SpendIndex): void {
 export function spendIndexOf(core: string): SpendIndex | null {
   return latest.get(core.toLowerCase()) ?? null;
 }
+/** Whether any pool's last agreed index has this nullifier spent (the wallet's one deployment, in practice): public chain data. */
+export function spentInAnyIndex(nullifier: bigint): boolean {
+  for (const index of latest.values()) if (index.spent(nullifier)) return true;
+  return false;
+}
 export function forgetSpendIndexes(): void {
   latest.clear();
 }
