@@ -33,7 +33,7 @@ export function incidentPenalty(inc: Incident, now: number): number {
   const ageDays = (now - Date.parse(inc.date)) / DAY;
   if (!(ageDays >= 0)) return 0;
   // an unknown class costs the most, never NaN (the ninth review round, A9-2: the loaders keep such a record, and it is charged this)
-  return (INCIDENT_PENALTY[inc.class] ?? INCIDENT_PENALTY["key-compromise"]) * Math.max(0, 1 - ageDays / inc.halfLifeDays);
+  return (Object.hasOwn(INCIDENT_PENALTY, inc.class) ? INCIDENT_PENALTY[inc.class] : INCIDENT_PENALTY["key-compromise"]) * Math.max(0, 1 - ageDays / inc.halfLifeDays);
 }
 
 export function securityBreakdown(provider: ProviderId | string, now = Date.now(), db: RiskDb = riskDb(), extraIncidents: Incident[] = []): SecurityBreakdown {

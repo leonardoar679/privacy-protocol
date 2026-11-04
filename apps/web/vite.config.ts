@@ -127,7 +127,18 @@ function fixturesOnly(mode: string): Plugin {
  */
 export const previewIncluded = (command: string, mode: string): boolean => command === "serve" || mode === "fixtures";
 
+/**
+ * A production build is built with NODE_ENV=production (the tenth review round, D-8): every production floor of the wallet — the scrypt cost,
+ * the holds, the strict transport, the artifact pins, the refusal of the development verifier, the Forget's restart — keys on
+ * import.meta.env.PROD, which Vite takes from NODE_ENV, and a release built in a shell with NODE_ENV=development dropped them all unnoticed.
+ */
+export function assertProductionNodeEnv(command: string, mode: string, nodeEnv: string | undefined = process.env.NODE_ENV): void {
+  if (command === "build" && mode !== "fixtures" && nodeEnv !== "production")
+    throw new Error(`a build of the wallet needs NODE_ENV=production (it is ${nodeEnv ?? "unset"}): every production floor keys on it`);
+}
+
 export default defineConfig(({ mode, command }) => {
+  assertProductionNodeEnv(command, mode);
   const root = fileURLToPath(new URL(".", import.meta.url));
   // the build's hosts (VITE_*) name the content security policy's connect-src (spec §20; scripts/csp.mjs)
   const env = loadEnv(mode, root, "VITE_");

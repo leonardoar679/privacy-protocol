@@ -37,6 +37,17 @@ describe("A9-3: a restore at the cap and against the commit budget", () => {
     expect((await h.post("/v1/operations", orderBody())).status, "a new commit still meets the budget").toBe(429);
   });
 
+  it("a body naming a known order with other params is no restore of it: charged to the budget like any commit (the tenth review round, B10-12)", async () => {
+    h = await harness({ commitsPerMinute: 1, commitBurst: 1 });
+    const c = await h.post("/v1/operations", orderBody());
+    expect(c.status, JSON.stringify(c.body)).toBe(200);
+    const params = { ...c.body.order.params, executeDeadline: String(Number(c.body.order.params.executeDeadline) + 60) };
+    const r = await h.post("/v1/operations", signedRestore({ ...swapRequest(), provider: "thorchain", params }));
+    expect(r.status, "the order id is public; its escrow is the known row's only with its own params").toBe(429);
+    const same = await h.post("/v1/operations", signedRestore({ ...swapRequest(), provider: "thorchain", params: c.body.order.params }));
+    expect(same.status, "its own params: the known restore").toBe(200);
+  });
+
   it("of an order the API no longer holds: refused at the cap unless its escrow holds the funding", async () => {
     h = await harness({ maxOpenOperations: 1 });
     const c1 = await h.post("/v1/operations", orderBody());
@@ -119,6 +130,23 @@ describe("A9-7: a reconcile writes over the row it read only, never backwards", 
     expect(h.store.updateState(id, { state: "PROVIDER_EXECUTING", settlement: null }), "nor over a terminal row").toBe(false);
     expect(h.store.getOperation(id)!.state).toBe("COMPLETED");
   });
+  it("two reconciles that overlapped: the later-started one's answer stands whichever writes first (the tenth review round, B10-12)", async () => {
+    h = await harness();
+    const id = (await h.post("/v1/operations", orderBody())).body.operationId as string;
+    const older = h.clock.now;
+    const newer = older + 500;
+    h.clock.now = newer + 2000;
+    // the older-started writes first: the newer one's terminal answer is written over it — refused by the row it read before
+    expect(h.store.updateState(id, { state: "PROVIDER_EXECUTING", settlement: null }, { startedAt: older })).toBe(true);
+    expect(h.store.updateState(id, { state: "COMPLETED", settlement: "COMPLETED" }, { startedAt: newer })).toBe(true);
+    expect(h.store.getOperation(id)!.state).toBe("COMPLETED");
+    // the newer-started writes first: an older snapshot after it is refused
+    const other = (await h.post("/v1/operations", orderBody({ refundOwnerCommitment: "1234567891" }))).body.operationId as string;
+    expect(h.store.updateState(other, { state: "DESTINATION_CONFIRMING", settlement: "DESTINATION_PENDING" }, { startedAt: newer })).toBe(true);
+    expect(h.store.updateState(other, { state: "PROVIDER_EXECUTING", settlement: null }, { startedAt: older }), "an older snapshot").toBe(false);
+    expect(h.store.getOperation(other)!.state).toBe("DESTINATION_CONFIRMING");
+  });
+
   it("a job read 'none' leaves a finalized row past the provider's step where it was", async () => {
     h = await harness();
     const c = await h.post("/v1/operations", orderBody());

@@ -200,6 +200,16 @@ describe("V7 Stage 13: the Protected Large Swap — one order by default (spec v
     expect(screen.getByTestId("swap-review")).toBeDisabled();
   });
 
+  it("a route qualified on a step only: the swap that goes as one order is judged on the whole — the words, Review Swap closed (the tenth review round, B10-6)", async () => {
+    world.quoteRisk = { score: 0, level: "low", blockers: [], warnings: [], wholeOrderQualified: false };
+    await wallet();
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "32" } });
+    await screen.findByTestId("swap-route-limit", {}, { timeout: 15_000 });
+    await waitFor(() => expect(screen.getByTestId("swap-quote")).toBeInTheDocument(), { timeout: 15_000 });
+    expect(screen.getByTestId("swap-review")).toBeDisabled();
+  });
+
   it("over $100,000 in the Simple experience: the card with the switch; the switch turns Advanced on and Review Swap opens; the band below never meets it", async () => {
     await wallet(80n); // 50 ETH at $2,500 = $125,000: the enhanced band
     mount();
@@ -246,6 +256,9 @@ describe("V7 Stage 13: the Protected Large Swap — one order by default (spec v
     expect(protectedCommitBlocker({ tier: "large-protected", limitReached: true, serviceBlockers: [] })).toBe("in_flight_limit");
     expect(protectedCommitBlocker({ tier: "enhanced", limitReached: true, serviceBlockers: [] }), "the limit is the band's").toBeNull();
     expect(protectedCommitBlocker({ tier: "enhanced", limitReached: false, serviceBlockers: ["route_not_qualified"] })).toBe("route_not_qualified");
+    // one order on a route measured below the whole of it (the tenth review round, B10-6): its steps' qualification does not cover it
+    expect(protectedCommitBlocker({ tier: "high-value", limitReached: false, serviceBlockers: [], wholeOrderUnqualified: true })).toBe("route_not_qualified");
+    expect(protectedCommitBlocker({ tier: "high-value", limitReached: false, serviceBlockers: [], wholeOrderUnqualified: false })).toBeNull();
     expect(protectedCommitBlocker({ tier: "large-protected", limitReached: true, serviceBlockers: ["route_not_qualified"] })).toBe("in_flight_limit");
     expect(protectedCommitBlocker({ tier: "large-protected", limitReached: false, serviceBlockers: ["quote_expired", "provider_unhealthy"] })).toBeNull();
   });

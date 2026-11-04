@@ -26,4 +26,10 @@ export interface RiskAssessment {
   level: RiskLevel;
   blockers: BlockerCode[];
   warnings: string[];
+  /**
+   * The route's measured limit against the whole order (the tenth review round, 2026-11-04, B10-6), beside the blockers' — which judge a
+   * stepped order on its largest step: false when the whole order is above it. A wallet that sends the order as one checks this; absent where
+   * no limit or no value is known.
+   */
+  wholeOrderQualified?: boolean;
 }

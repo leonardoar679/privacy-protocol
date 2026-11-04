@@ -125,7 +125,12 @@ class SettingsStore {
     this.state = healSettings({ ...this.get(), ...patch });
     for (const l of this.listeners) l();
   }
-  reset(): void { this.set(defaultSettings()); }
+  /** The defaults alone (the tenth review round, 2026-11-04): merged into the current state, an optional setting — the auto-lock minutes — had
+   *  stayed for the next wallet after a Forget or a REPLACE. */
+  reset(): void {
+    this.state = healSettings(defaultSettings());
+    for (const l of this.listeners) l();
+  }
   subscribe(l: () => void): () => void {
     this.listeners.add(l);
     return () => this.listeners.delete(l);

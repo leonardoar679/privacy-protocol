@@ -9,6 +9,7 @@ import { formatEther, parseEther } from "viem";
 import { Button, Card, Field, Page, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { rpcUrlsOf } from "@privacy-wallet/sdk/rpcUrls";
 import { defaultRelayerUrl } from "@privacy-wallet/sdk/relayer";
 import { config } from "@privacy-wallet/sdk/config";
 import { registerSecondDevice, webauthnAvailable } from "@privacy-wallet/sdk/secondFactor";
@@ -76,7 +77,7 @@ export function Advanced({ deployment, onBack }: { deployment: Deployment | null
       <div className="ds-stack">
         <Card testId="technical">
           <div className="ds-stack-sm">
-            <p className="ds-note" data-testid="deployment-line">{deployment ? t("advanced.deployment", { core: deployment.core.slice(0, 8), chain: deployment.chainId, endpoints: deployment.rpcUrls.length, line: coreLine }) : t("advanced.noDeployment")}</p>
+            <p className="ds-note" data-testid="deployment-line">{deployment ? t("advanced.deployment", { core: deployment.core.slice(0, 8), chain: deployment.chainId, endpoints: rpcUrlsOf(deployment).length, line: coreLine }) : t("advanced.noDeployment")}</p>
             {deployment ? (
               <div className="ds-stack-sm" data-testid="deployment-fingerprint">
                 <p className="ds-note">{fingerprint ? t("advanced.fingerprint", { hash: `${fingerprint.slice(0, 10)}…${fingerprint.slice(-6)}` }) : forgotten ? t("advanced.fingerprintForgotten") : t("advanced.fingerprintNone")}</p>

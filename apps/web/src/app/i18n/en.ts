@@ -1024,6 +1024,7 @@ export const en = {
   "protection.reason.high-risk-route": "an unknown or high-risk route ({risks}): the exposure is capped at 1 %",
   "protection.reason.sequential": "a bridge / MPC / counterparty route runs one piece at a time (sequential safety mode)",
   "protection.reason.instant-limit": "pieces stay under the provider's instant limit",
+  "protection.reason.limit-too-fine": "the provider's instant limit or the market's depth is too fine for this amount: pieces go at the exposure cap and may wait at the provider",
   "protection.reason.thin-market": "thin market: the piece is halved until its impact fits under the cap",
   "protection.reason.single-venue": "single venue: only one provider quotes this size, so nothing is diversified for appearance",
   "protection.reason.staged": "staged below $1M: the only venue quotes with high impact or low reliability",

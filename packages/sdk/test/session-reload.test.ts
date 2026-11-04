@@ -5,7 +5,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { configure, defaultConfig } from "../src/config";
 import { WalletSession } from "../src/wallet/session";
-import { decryptJournal, journalKey } from "../src/wallet/journal";
+import { ADDRESS_INDEX_RESERVE, decryptJournal, journalKey } from "../src/wallet/journal";
 import { noteStore } from "../src/wallet/notes";
 import { settings } from "../src/wallet/settings";
 import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "../src/wallet/storage";
@@ -138,11 +138,13 @@ describe("a journal set aside as unreadable, at a create or a restore (audit rou
     store.set(UNREADABLE_JOURNAL_KEY, own);
     const back = new WalletSession(store, KDF);
     await back.restoreFromPhrase(phrase, "new password", { replace: true });
-    expect(back.journal().chainIndexes.evm, "its journal again").toBe(7);
+    // its journal again — older than what the seed did since it was set aside, so its fresh addresses resume past the reserve (the tenth
+    // review round, D-2)
+    expect(back.journal().chainIndexes.evm, "its journal again").toBe(7 + ADDRESS_INDEX_RESERVE);
     expect(store.get(UNREADABLE_JOURNAL_KEY), "no longer set aside").toBeNull();
     back.lock();
     expect(await back.unlock("new password")).toBe(true);
-    expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(7);
+    expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(7 + ADDRESS_INDEX_RESERVE);
   });
 });
 

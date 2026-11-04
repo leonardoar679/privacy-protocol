@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatEther, parseEther } from "viem";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { rpcUrlsOf } from "@privacy-wallet/sdk/rpcUrls";
 import { privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
@@ -14,6 +15,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
 import { wordlist } from "@scure/bip39/wordlists/english";
+import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { CHAT_SPENDING_TIER_USD, chatStream, configureZkapi, zkapiBundled, listModels, loadBrowserConfig, loadPinCheck, newSessionId, zkapiClient, zkapiEnabled, type BrowserConfig, type ChatMessage, type InferenceAccess, type PinCheck, type TestnetPasswordRequest } from "../zkapi/sdk";
 
 // Private AI (plan §4, §63): one private credit account (zkAPI, native ETH, expiring service credit)
@@ -137,7 +139,16 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
       // journaled as soon as it is sent (the ninth review round, B-F7): a withdrawal that failed after its submission had left no mark, and a
       // second funding of the same address was allowed — the link C-L2 closes
       const markFunded = () => session.update((j) => { j.aiFunding = { index: fundingIndex, funded: fundingIndex }; });
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus, onEvent: (e) => { if (e.type === "submitting") markFunded(); } });
+      let r: Awaited<ReturnType<typeof privateWithdrawal>>;
+      try {
+        r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus, onEvent: (e) => { if (e.type === "submitting") markFunded(); } });
+      } catch (e) {
+        // a submission that sent nothing — a relayer that refused it — takes the mark off (the tenth review round, B10-11): the address had
+        // stayed "funded" with nothing on it, and no path cleared it
+        if (classify(e).fundsClass === "not-moved" && session.isUnlocked() && session.journal().aiFunding?.funded === fundingIndex)
+          session.update((j) => { j.aiFunding = { index: fundingIndex }; });
+        throw e;
+      }
       markFunded(); // journaled: never funded twice (C-L2)
       setStatus(`Fresh address ${fresh.address.slice(0, 10)}… funded with ${formatEther(total)} ETH (tx ${r.txHash.slice(0, 10)}…). Now deposit the credit.`);
     });
@@ -293,7 +304,7 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
 
       {/* the facts as they are (the eighth review round, C-L3): the pool withdrawal's amount (credit + reserve + fees) is no bucket, and a
           wallet submission sends it from the connected account */}
-      <Scorecard action="credit" facts={{ delaySeconds: 0, amountIsBucket: isBucketOf(funding?.total ?? parseEther(bucket) + parseEther(FEE_RESERVE_ETH), 18), privateSubmission: settings.get().submission.kind === "relayer", rpcEndpoints: deployment?.rpcUrls?.length ?? 1, recipientFresh: fundingMode === "fresh", credit: { runtimeKey: true, freshFunding: fundingMode === "fresh" } }} />
+      <Scorecard action="credit" facts={{ delaySeconds: 0, amountIsBucket: isBucketOf(funding?.total ?? parseEther(bucket) + parseEther(FEE_RESERVE_ETH), 18), privateSubmission: settings.get().submission.kind === "relayer", rpcEndpoints: deployment ? rpcUrlsOf(deployment).length : 1, recipientFresh: fundingMode === "fresh", credit: { runtimeKey: true, freshFunding: fundingMode === "fresh" } }} />
       {status && <p className="muted">{status}</p>}
       {snapshot && (
         <>

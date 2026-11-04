@@ -86,7 +86,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   // journal the order, with a refund note anyone can spend, into the wallet opened again (or another one after a REPLACE)
   const epoch = s.epoch();
   const sameOpening = () => {
-    if (!s.isUnlocked() || s.epoch() !== epoch) throw Object.assign(new Error("the wallet locked during the commit: nothing was committed or sent"), { code: "locked_mid_flow" });
+    if (!s.isUnlocked() || s.epoch() !== epoch) throw Object.assign(new Error("the wallet locked during the commit: nothing was journaled, funded or sent (an order the service answered meanwhile is never funded and expires)"), { code: "locked_mid_flow" });
   };
   const now = i.now ?? Date.now();
   const factory = swapFactoryOf(i.deployment);

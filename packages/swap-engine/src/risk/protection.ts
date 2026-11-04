@@ -103,6 +103,14 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
     reasonCodes.push(risks ? { code, risks } : { code });
     reasons.push(text);
   };
+  /** A reason taken back, its words with it (the tenth review round, B10-7): the fallback's own replaces the ceiling's. */
+  const dropReasons = (...codes: ProtectionReasonCode[]) => {
+    for (let i = reasonCodes.length - 1; i >= 0; i--)
+      if (codes.includes(reasonCodes[i].code)) {
+        reasonCodes.splice(i, 1);
+        reasons.splice(i, 1);
+      }
+  };
   // the operator's incidents too (audit round 2, r04): since c22 they reached the breaker (a day) and the risk view only, so a
   // fresh one never made the chosen route R4 — its 1 % cap, its narrowed band — once the breaker had closed again
   const incidentDays = daysSinceIncident(chosen.provider, now, db, fileIncidents(now));
@@ -158,7 +166,10 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
     // 2026-11-04, A9-1): the pieces go at the exposure cap, each still held to its price bound, never the order as one unprotected; the
     // eighth round's fallback had answered "no protection" and the service had vouched for the whole amount at once
     if (!(e instanceof TooManyTranches) || maxPiece === null) throw e;
-    because("instant-limit", "the provider's instant limit is too fine to stage this amount: the pieces go at the exposure cap");
+    // its own reason, in place of the ceiling's (the tenth review round, B10-7): "pieces stay under the provider's instant limit" had stayed,
+    // twice, beside pieces far above it
+    dropReasons("instant-limit", "thin-market");
+    because("limit-too-fine", "the provider's instant limit or the market's depth is too fine to stage this amount: the pieces go at the exposure cap and may wait at the provider");
     maxPiece = null;
     split = plan(null);
   }

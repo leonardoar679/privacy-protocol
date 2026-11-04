@@ -209,9 +209,12 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
   // handed over still goes back when its escrow empties without a job (a reorg: the funding pending again)
   const back = !!exec && FORWARD.indexOf(read.state) >= 0 && FORWARD.indexOf(read.state) < FORWARD.indexOf(row.state);
   const derived = back ? { state: row.state } : read;
-  // over the row it read only (A9-7): a slower reconcile's snapshot had overwritten a newer terminal answer
-  store.updateState(row.id, { state: derived.state, settlement }, { unchangedSince: row.updatedAt });
-  if (derived.state !== row.state)
+  // never over a row a later-started reconcile wrote (A9-7; the tenth review round, B10-12: by the row it read, two overlapping reconciles had
+  // kept the older snapshot when it wrote first, and the newer terminal answer, refused, was answered all the same): a refused write answers
+  // what the row holds now
+  const wrote = store.updateState(row.id, { state: derived.state, settlement }, { startedAt: now });
+  const answered = wrote ? derived : { state: store.getOperation(row.id)?.state ?? row.state };
+  if (wrote && derived.state !== row.state)
     store.event({ event: "operation.reconciled", operationId: row.id, provider: row.provider, state: derived.state, network: row.network });
 
   // doc §43: the executor's real cost against the tip it was committed (comparable for an ETH order only)
@@ -227,10 +230,10 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
     });
 
   return {
-    state: derived.state,
+    state: answered.state,
     settlement,
-    ...(derived.delayed && derived.code ? { delayed: { code: derived.code } } : {}),
-    ...(derived.code && !derived.delayed ? { reason: { code: derived.code } } : {}),
+    ...(wrote && derived.delayed && derived.code ? { delayed: { code: derived.code } } : {}),
+    ...(wrote && derived.code && !derived.delayed ? { reason: { code: derived.code } } : {}),
     refs: { ...(executionTx ? { executionTx } : {}), ...(trackRead?.destinationTxHash ? { destinationTx: trackRead.destinationTxHash } : {}) },
     checkedAt: now,
     sources,

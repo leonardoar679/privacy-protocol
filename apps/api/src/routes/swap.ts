@@ -372,8 +372,17 @@ export class SwapApi {
   /** POST /v1/operations: commit (the V5 /order: the wallet chose a route and supplies the one-time signer and the refund note), or rebuild an order the wallet journaled (`params` present). */
   /** Whether a body restores an order this API already holds (by its order id; the restore itself then checks its escrow): A9-3. */
   knownRestore(body: unknown): boolean {
-    const p = (body as { params?: { orderId?: unknown } } | null)?.params;
-    return typeof p?.orderId === "string" && !!this.d.store.operationByOrder(p.orderId);
+    const raw = (body as { params?: unknown } | null)?.params;
+    const id = (raw as { orderId?: unknown } | undefined)?.orderId;
+    const known = typeof id === "string" ? this.d.store.operationByOrder(id) : null;
+    if (!known) return false;
+    // the known row's own escrow only (the tenth review round, B10-12): an order id is public once a relayer or the chain names it, and a body
+    // naming one with other params had run a whole competition outside the caller's commit budget
+    try {
+      return sameEscrow(known.escrow, predictEscrow(this.engine.cfg.factory, this.engine.cfg.escrowCreationCode, paramsOf(raw)));
+    } catch {
+      return false;
+    }
   }
   private atCap(): boolean {
     return this.d.store.openOperations() >= (this.d.maxOpenOperations ?? MAX_OPEN_OPERATIONS);

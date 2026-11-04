@@ -1011,6 +1011,8 @@ export const ko: Record<MessageKey, string> = {
   "protection.reason.high-risk-route": "알 수 없거나 위험이 큰 경로({risks}): 노출이 1%로 제한됩니다",
   "protection.reason.sequential": "브리지 / MPC / 상대방 경로는 한 번에 한 조각씩 실행됩니다(순차 안전 모드)",
   "protection.reason.instant-limit": "조각은 제공자의 즉시 처리 한도 아래로 유지됩니다",
+  "protection.reason.limit-too-fine":
+    "제공자의 즉시 처리 한도나 시장 깊이가 이 금액에 비해 너무 작아, 조각을 노출 한도 크기로 보내며 제공자에서 기다릴 수 있습니다",
   "protection.reason.thin-market": "얕은 시장: 영향이 한도 안에 들 때까지 조각을 반으로 나눕니다",
   "protection.reason.single-venue": "단일 거래처: 이 규모를 견적하는 제공자가 하나뿐이라, 겉보기를 위한 분산은 하지 않습니다",
   "protection.reason.staged": "100만 달러 미만 단계 실행: 유일한 거래처의 견적이 영향이 크거나 신뢰도가 낮습니다",

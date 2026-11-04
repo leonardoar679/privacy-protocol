@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { assertJournalSaved, JournalNotKept, WalletSession } from "@privacy-wallet/sdk/wallet/session";
 import { JOURNAL_KEY, KEYSTORE_KEY, memoryStorage, UNREADABLE_JOURNAL_KEY } from "@privacy-wallet/sdk/wallet/storage";
-import { decryptJournal, journalKey } from "@privacy-wallet/sdk/wallet/journal";
+import { ADDRESS_INDEX_RESERVE, decryptJournal, journalKey, reservedIndexes } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
@@ -73,11 +73,13 @@ describe("unreadable journal", () => {
     s.lock();
     storage.set(JOURNAL_KEY, JSON.stringify({ v: 1, nonce: "00".repeat(24), ct: "22".repeat(64) }));
     expect(await s.unlock("pw")).toBe(true);
-    expect(peekFreshAddress(seed, "evm", s).address, "the empty journal in memory would hand out the first one again").toBe(first.address);
+    // the journal in memory resumes past the reserve (the tenth review round, D-2): never the first address again — and while unreadable
+    // still nothing is reserved
+    expect(peekFreshAddress(seed, "evm", s).address, "never the first one again").not.toBe(first.address);
     expect(() => consumeFreshAddress(seed, "evm", s)).toThrow(/journal could not be read/);
-    expect(s.journal().chainIndexes, "nothing reserved").toEqual({});
+    expect(s.journal().chainIndexes, "nothing reserved past the reserve").toEqual(reservedIndexes());
     s.discardUnreadableJournal();
-    expect(consumeFreshAddress(seed, "bitcoin", s).index, "saved again: reserved").toBe(0);
+    expect(consumeFreshAddress(seed, "bitcoin", s).index, "saved again: reserved").toBe(ADDRESS_INDEX_RESERVE);
   });
 
   it("while the browser keeps nothing past this tab, no swap is committed, started or funded: its record would die with the tab (audit round 2, n46)", async () => {

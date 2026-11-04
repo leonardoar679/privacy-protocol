@@ -249,14 +249,31 @@ export class Store {
    * A9-7: a reconcile slower than the throttle had written its snapshot over a newer terminal answer); never over a terminal row (I-O1).
    * Whether it was written.
    */
-  updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }, o: { unchangedSince?: number } = {}): boolean {
+  /**
+   * `startedAt`: a reconcile's own start (the tenth review round, B10-12) — written as the row's checked_at, and refused over a row a later-started
+   * reconcile wrote: two that overlapped had kept the older snapshot when it wrote first, the newer terminal answer refused. `unchangedSince`:
+   * only over the row as it was read.
+   */
+  updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }, o: { unchangedSince?: number; startedAt?: number } = {}): boolean {
     const t = this.now();
+    const checked = o.startedAt ?? t;
     const terminal = TERMINAL_STATES.includes(s.state);
     const r = this.db
       .prepare(
-        `UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END, order_blob = CASE WHEN ? THEN NULL ELSE order_blob END WHERE id = ? AND terminal_at IS NULL${o.unchangedSince !== undefined ? " AND updated_at = ?" : ""}`,
+        `UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END, order_blob = CASE WHEN ? THEN NULL ELSE order_blob END WHERE id = ? AND terminal_at IS NULL${o.unchangedSince !== undefined ? " AND updated_at = ?" : ""}${o.startedAt !== undefined ? " AND (checked_at IS NULL OR checked_at <= ?)" : ""}`,
       )
-      .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, terminal ? 1 : 0, id, ...(o.unchangedSince !== undefined ? [o.unchangedSince] : []));
+      .run(
+        s.state,
+        s.settlement,
+        checked,
+        t,
+        terminal ? 1 : 0,
+        t,
+        terminal ? 1 : 0,
+        id,
+        ...(o.unchangedSince !== undefined ? [o.unchangedSince] : []),
+        ...(o.startedAt !== undefined ? [o.startedAt] : []),
+      );
     const written = Number(r.changes) > 0;
     if (written && terminal) checkpoint(this.db); // the blob it dropped leaves the WAL too (A9-11)
     return written;

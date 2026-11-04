@@ -247,9 +247,11 @@ export function protectedCommitBlocker(f: {
   tier: Tier;
   limitReached: boolean;
   serviceBlockers: readonly BlockerCode[];
+  /** the order goes as one and the service measured the route below the whole of it (the tenth review round, B10-6) */
+  wholeOrderUnqualified?: boolean;
 }): "in_flight_limit" | "route_not_qualified" | null {
   if (f.tier === "large-protected" && f.limitReached) return "in_flight_limit";
-  if (f.serviceBlockers.includes("route_not_qualified")) return "route_not_qualified";
+  if (f.serviceBlockers.includes("route_not_qualified") || f.wholeOrderUnqualified === true) return "route_not_qualified";
   return null;
 }
 

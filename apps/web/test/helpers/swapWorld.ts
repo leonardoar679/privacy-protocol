@@ -65,7 +65,7 @@ export const world: {
   /** audit round 2, critic gap 4: the fee history does not answer — the wallet cannot check the executor's tip */
   feesDown?: boolean;
   /** V7 Stage 13: the §46 quote's risk assessment the service answers with (its blockers: the route's qualification) */
-  quoteRisk?: { score: number; level: "low" | "medium" | "high"; blockers: string[]; warnings: string[] };
+  quoteRisk?: { score: number; level: "low" | "medium" | "high"; blockers: string[]; warnings: string[]; wholeOrderQualified?: boolean };
   /** the seventh review round: the quote set's executor tip (the Review shows it), and a tip the service prices again at the commit */
   quoteTip?: bigint;
   orderTip?: bigint;

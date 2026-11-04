@@ -92,6 +92,10 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     // runs as steps where its tier runs a campaign or its plan is staged — a $5M order in $125K steps had been refused a route measured to $2M
     route: { limitUsd: f.routeLimitUsd ?? null, ...(stepped ? { pieceUsd: set.protection!.trancheUsd![1] } : {}) },
   });
+  // the whole order against the route's limit too (the tenth review round, B10-6): the wallet may send a stepped plan as one order — the
+  // protection layer off, its own lower tier, a swap into the protected balance — and a $5M order on a route measured to $2M had passed Review
+  const wholeUsd = set.value && "usd" in set.value ? valuedAt(set.value.usd, req.amount, gross) : undefined;
+  const wholeOrderQualified = f.routeLimitUsd === undefined || f.routeLimitUsd === null || wholeUsd === undefined ? undefined : wholeUsd <= f.routeLimitUsd;
   return {
     id: f.id,
     sourceAsset: src,
@@ -116,6 +120,6 @@ export function quoteOf(f: QuoteFacts): Quote | null {
       level: privacyLevelOf(score?.components.privacy ?? 0),
       reasons: ["Protected source", link?.public ? "The route's destination is public on chain" : "No public link from the escrow to the destination"],
     },
-    risk,
+    risk: { ...risk, ...(wholeOrderQualified !== undefined ? { wholeOrderQualified } : {}) },
   };
 }

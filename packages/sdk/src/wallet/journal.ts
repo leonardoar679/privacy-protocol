@@ -232,6 +232,63 @@ const AAD = utf8ToBytes("privacy-protocol/v1/journal");
 
 export const emptyJournal = (): JournalData => ({ v: 1, notes: [], noteCounter: 0, chainIndexes: {}, swaps: [], schedule: [] });
 
+/**
+ * After a start without the whole journal — a restore from the phrase, or from a backup that may be older —, the fresh-address indexes
+ * resume this far past what is known, and Private AI's funding index past AI_FUNDING_RESERVE (the tenth review round, 2026-11-04, D-2): they
+ * live in the journal only, and a restore had handed out again the addresses the earlier installation gave to payers or used as
+ * destinations, linking the new activity to the old. The note counters have their own hold (countersHeld).
+ */
+export const ADDRESS_INDEX_RESERVE = 1000;
+export const AI_FUNDING_RESERVE = 100;
+export function reservedIndexes(from: Record<string, number> = {}): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const chain of ["evm", "bitcoin", "solana", ...Object.keys(from)]) out[chain] = (from[chain] ?? 0) + ADDRESS_INDEX_RESERVE;
+  return out;
+}
+/** A restore's first journal: the counters held, the fresh addresses and Private AI's funding index past their reserves (D-2, D-6). */
+export const restoredJournal = (from: JournalData = emptyJournal()): JournalData => ({
+  ...from,
+  countersHeld: true,
+  chainIndexes: reservedIndexes(from.chainIndexes),
+  aiFunding: { index: (from.aiFunding?.index ?? 0) + AI_FUNDING_RESERVE },
+});
+
+/**
+ * A backup's journal merged into this device's own journal of the same wallet (the tenth review round, D-4): the device's is the base — what
+ * this device did last, kept as the phrase restore keeps it (n45) —, and the backup's notes, orders, campaigns, schedule, operation records
+ * and address book entries the device does not hold are added (an order funded on another device and not handed over is only there: its
+ * escrow had been stranded), every counter the higher of the two.
+ */
+export function mergeJournals(device: JournalData, backup: JournalData): JournalData {
+  const union = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined, key: (x: T) => string): T[] => {
+    const have = new Set((a ?? []).map(key));
+    return [...(a ?? []), ...(b ?? []).filter((x) => !have.has(key(x)))];
+  };
+  const chainIndexes: Record<string, number> = { ...backup.chainIndexes };
+  for (const [k, v] of Object.entries(device.chainIndexes)) chainIndexes[k] = Math.max(v, chainIndexes[k] ?? 0);
+  const ai = (device.aiFunding?.index ?? -1) >= (backup.aiFunding?.index ?? -1) ? device.aiFunding : backup.aiFunding;
+  return {
+    ...device,
+    notes: union(device.notes, backup.notes, (n) => String(n.leafIndex)),
+    noteCounter: Math.max(device.noteCounter, backup.noteCounter),
+    chainIndexes,
+    swaps: union(device.swaps, backup.swaps, (s) => s.orderId.toLowerCase()),
+    schedule: union(device.schedule, backup.schedule, (a) => a.id),
+    ...(device.campaigns || backup.campaigns ? { campaigns: union(device.campaigns, backup.campaigns, (c) => c.id) } : {}),
+    ...(device.operations || backup.operations ? { operations: union(device.operations, backup.operations, (o) => o.id) } : {}),
+    ...(device.activity || backup.activity ? { activity: union(device.activity, backup.activity, (x) => x.id) } : {}),
+    ...(device.addressBook || backup.addressBook ? { addressBook: union(device.addressBook, backup.addressBook, (e) => e.id) } : {}),
+    ...(ai ? { aiFunding: ai } : {}),
+  };
+}
+
+/** Whether a stored journal blob has the exact shape the device's store accepts: {v: 1, nonce, ct}, hex (the tenth review round, D-7). */
+export const isEncryptedJournal = (x: unknown): x is EncryptedJournal => {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  const j = x as Record<string, unknown>;
+  return Object.keys(j).sort().join(",") === "ct,nonce,v" && j.v === 1 && typeof j.nonce === "string" && /^[0-9a-f]{48}$/i.test(j.nonce) && typeof j.ct === "string" && /^([0-9a-f]{2})+$/i.test(j.ct);
+};
+
 /** sha256("privacy-protocol/v1/journal-key" ‖ seed): a key the seed holder can always recompute. */
 export const journalKey = (seed: Uint8Array): Uint8Array => sha256(concatBytes(utf8ToBytes("privacy-protocol/v1/journal-key"), seed));
 

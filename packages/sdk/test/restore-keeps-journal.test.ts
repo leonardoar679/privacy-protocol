@@ -6,6 +6,7 @@ import { WalletSession } from "../src/wallet/session";
 import { memoryStorage } from "../src/wallet/storage";
 import { seedToPhrase } from "../src/wallet/keystore";
 import { noteStore } from "../src/wallet/notes";
+import { ADDRESS_INDEX_RESERVE } from "../src/wallet/journal";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 
@@ -30,9 +31,10 @@ describe("a restore over this device's wallet (audit round 2, n45/n69)", () => {
     expect(await s.unlock("second password")).toBe(true);
     expect(s.journal().chainIndexes.evm).toBe(5);
     s.lock();
-    // another wallet's phrase: nothing of this one, and its counters held until a scan
+    // another wallet's phrase: nothing of this one, and its counters held until a scan; its fresh addresses resume past the reserve, never
+    // at the first ones its earlier installation gave out (the tenth review round, D-2)
     await s.restoreFromPhrase(seedToPhrase(new Uint8Array(32).fill(9)), "third password", { replace: true });
-    expect(s.journal().chainIndexes.evm ?? 0).toBe(0);
+    expect(s.journal().chainIndexes.evm).toBe(ADDRESS_INDEX_RESERVE);
     expect(noteStore.countersHeld()).toBe(true);
     s.lock();
   });

@@ -12,7 +12,7 @@ import { onRequest, type RequestRecord } from "@privacy-wallet/privacy-engine/tr
 
 const score = { provider: "thorchain", total: 80, components: { price: 80, security: 90, privacy: 70, latency: 60, liquidity: 80, reliability: 90 } };
 const summary = () => tradeSummary({
-  from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: 1364_2n * 10n ** 17n, usd: 3_410_500, tier: "high-value", preference: "balanced",
+  from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: 1364_2n * 10n ** 17n, usd: 3_000_000, tier: "high-value", preference: "balanced",
   chosen: { provider: "thorchain", score, quote: { plan: { mode: "streaming", parts: 300, intervalBlocks: 1, expectedSeconds: 1800 }, etaSeconds: 3600, impactBps: 12, nativeAssets: true, toAmountMin: "4012345678" }, linkPublic: true },
   competition: [{ provider: "thorchain", outcome: "quoted", ms: 900 }, { provider: "chainflip", outcome: "refused", reason: "insufficient liquidity for 0x9858EfFD232B4033E47d90003D41EC34EcaEda94", ms: 1200 }],
   lint: [{ id: "destination-fresh", level: "ok", category: "Destination linkage", text: "Pays bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu" } as any],
@@ -23,13 +23,15 @@ describe("the trade summary", () => {
     const s = summary();
     expect(s.kind).toBe("privacy-protocol/trade-check/v2");
     expect(s.amount).toBe("1000");
-    expect(s.usd).toBe("3000000");
-    expect(s.chosen?.receiveMinRounded).toBe("40");
+    // the value of the rounded amount (1,000 ETH at ≈ $2,199), never the exact one's ($3M), and no minimum nor expected loss beside it: four
+    // one-digit figures of one amount had pinned it to a few percent (the tenth review round, B10-12)
+    expect(s.usd).toBe("2000000");
+    expect(s.chosen).not.toHaveProperty("receiveMinRounded");
     expect(s.chosen?.plan, "the mode only: never the parts, the interval, the ETA or the impact the memo carries").toEqual({ mode: "streaming" });
     expect(s.chosen).not.toHaveProperty("etaSeconds");
     expect(s.chosen).not.toHaveProperty("impactBps");
     expect(s.competition[1], "the provider's words never leave: a code, no time").toEqual({ provider: "chainflip", outcome: "refused", reason: "liquidity" });
-    expect(JSON.stringify(s)).not.toMatch(/1364|3410|40\.1|3600|1200/);
+    expect(JSON.stringify(s)).not.toMatch(/1364|3410|40\.1|3600|1200|"3000000"/);
     expect(s.lint).toEqual([{ id: "destination-fresh", level: "ok", category: "Destination linkage" }]);
     expect(JSON.stringify(s)).not.toMatch(ADDRESS_LIKE);
     expect(reasonCode("LI.FI calldata: first swap amount 1364237891000000000000 != 1364237891000000000000")).toBe("other");

@@ -419,7 +419,8 @@ describe("Home, Activity and Settings (spec §14, §15)", () => {
   });
   it("the trade check carries the protection plan, sanitized; no new protection module says anonymous or atomic", () => {
     const s = tradeSummary({ from: { chain: "ethereum", symbol: "ETH", decimals: 18 }, to: { chain: "bitcoin", symbol: "BTC", decimals: 8 }, amountUnits: eth(400), usd: 1_000_000, tier: "high-value", protection: protection() });
-    expect(s.protection).toEqual({ riskClass: "R5", custody: "tss-vaults", bandBps: [200, 200], capBps: 200, steps: "21-100", gate: "destination-final", concurrency: "sequential", elpfUsd: "4000", concentration: "single venue", staged: false });
+    expect(s.protection).toEqual({ riskClass: "R5", custody: "tss-vaults", bandBps: [200, 200], capBps: 200, steps: "21-100", gate: "destination-final", concurrency: "sequential", concentration: "single venue", staged: false });
+    expect(s.protection, "no expected loss: one more rounded figure of the amount (the tenth review round, B10-12)").not.toHaveProperty("elpfUsd");
     expect(JSON.stringify(s)).not.toMatch(ADDRESS_LIKE);
     for (const f of ["../src/features/swap/protected/CampaignProgress.tsx", "../src/features/swap/Swap.tsx", "../src/features/swap/facts.ts", "../src/features/more/Advanced.tsx", "../../../packages/sdk/src/wallet/campaigns.ts", "../../../packages/sdk/src/wallet/campaignRunner.ts", "../../../packages/sdk/src/wallet/alerts.ts", "../../../packages/sdk/src/wallet/notifications.ts", "../../../packages/sdk/src/swapExecute.ts"]) {
       const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), f), "utf8");

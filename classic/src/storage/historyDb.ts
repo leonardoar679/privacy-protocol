@@ -85,8 +85,17 @@ const databases = new Map<IDBFactory, Promise<IDBDatabase>>();
 const databaseOf = (factory: IDBFactory): Promise<IDBDatabase> => {
   let db = databases.get(factory);
   if (!db) {
-    db = openDatabase(factory);
-    databases.set(factory, db);
+    // closed when another tab deletes or upgrades the database (the tenth review round, D-9): the Privacy Wallet's Forget deletes this one,
+    // and an open Classic tab had blocked it; the next use opens it again
+    const opening = openDatabase(factory).then((open) => {
+      open.onversionchange = () => {
+        open.close();
+        if (databases.get(factory) === opening) databases.delete(factory);
+      };
+      return open;
+    });
+    db = opening;
+    databases.set(factory, opening);
   }
   return db;
 };

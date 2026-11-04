@@ -23,13 +23,13 @@ export interface TradeSummary {
   preference?: string;
   /** the route's mode only, never its parts, interval, ETA or impact (the memo that lands carries those) — nor the score's components, which
    *  re-encode the ETA and the impact (the ninth review round, B-F9): its total alone */
-  chosen?: { provider: string; plan?: { mode: ExecutionPlan["mode"] }; nativeAssets: boolean; linkPublic?: boolean; total?: number; receiveMinRounded: string };
+  chosen?: { provider: string; plan?: { mode: ExecutionPlan["mode"] }; nativeAssets: boolean; linkPublic?: boolean; total?: number };
   /** each provider's answer as a closed code, never its words (they carried exact amounts and addresses) */
   competition: { provider: string; outcome: string; reason?: ReasonCode }[];
   lint: { id: string; level: string; category: string }[];
   /** V3 (High-Value Protection spec §16): the protection plan — class, band, cap, steps, gate, ELPF, concentration; never an amount in base units, never an address */
   /** `steps` as a band (B-F9): capped pieces had made the count the amount divided by the cap */
-  protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: string; gate: string; concurrency: string; elpfUsd?: string; concentration: string; staged: boolean };
+  protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: string; gate: string; concurrency: string; concentration: string; staged: boolean };
 }
 
 /** A provider's answer as one of a few codes (C-M3): its own words carried exact base-unit amounts and addresses. */
@@ -94,18 +94,22 @@ export function tradeSummary(i: {
   // one significant digit (the eighth review round, 2026-11-03, C-M3): the summary is read by the provider, from this IP, minutes before
   // the escrow is funded — three digits, the route's plan, ETA and impact had matched the swap that landed
   const units = (u: bigint | string, d: number) => roundSignificant(Number(BigInt(u)) / 10 ** d, 1);
+  const amount = units(i.amountUnits, i.from.decimals);
+  const exact = Number(i.amountUnits) / 10 ** i.from.decimals;
   const s: TradeSummary = {
     kind: "privacy-protocol/trade-check/v2",
     from: { chain: i.from.chain, symbol: i.from.symbol },
     to: { chain: i.to.chain, symbol: i.to.symbol },
-    amount: units(i.amountUnits, i.from.decimals),
-    ...(typeof i.usd === "number" ? { usd: roundSignificant(i.usd, 1) } : {}),
+    amount,
+    // the value of the rounded amount, never of the exact one, and no minimum received nor expected loss beside it (the tenth review round,
+    // B10-12): four one-digit figures of one amount had pinned it to ±2.5–7 % together
+    ...(typeof i.usd === "number" && exact > 0 ? { usd: roundSignificant((i.usd * Number(amount)) / exact, 1) } : {}),
     tier: i.tier,
     ...(i.preference ? { preference: i.preference } : {}),
-    ...(i.chosen ? { chosen: { provider: i.chosen.provider, ...(i.chosen.quote.plan ? { plan: { mode: i.chosen.quote.plan.mode } } : {}), nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { total: Math.round(i.chosen.score.total) } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
+    ...(i.chosen ? { chosen: { provider: i.chosen.provider, ...(i.chosen.quote.plan ? { plan: { mode: i.chosen.quote.plan.mode } } : {}), nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { total: Math.round(i.chosen.score.total) } : {}) } } : {}),
     competition: (i.competition ?? []).map((c) => ({ provider: c.provider, outcome: c.outcome, ...(c.reason ? { reason: reasonCode(c.reason) } : {}) })),
     lint: (i.lint ?? []).map((l) => ({ id: l.id, level: l.level, category: l.category })),
-    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: stepsBand(i.protection.estimatedTranches), gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd, 1) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
+    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: stepsBand(i.protection.estimatedTranches), gate: i.protection.gate, concurrency: i.protection.concurrency, concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
   };
   assertSanitized(s);
   return s;

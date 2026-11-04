@@ -11,7 +11,7 @@ import { PrivateSwapEngine, boundedQuote, isOutage, MAX_QUOTE_TTL_SECONDS } from
 import { chooseRoute, scoreRoutes, type RouteScore } from "../src/scoring";
 import { DEFAULT_HALF_LIFE_DAYS, incidentOf, isIncident, riskDb, routePairOf } from "../src/risk/riskDb";
 import { fileIncidents } from "../src/health";
-import { securityBreakdown } from "../src/risk/security";
+import { incidentPenalty, securityBreakdown } from "../src/risk/security";
 import { protectionFor, recommendProtection } from "../src/risk/protection";
 import { MAX_TRANCHES } from "@privacy-wallet/protocol/wallet/campaign";
 import { NO_VALUER } from "../src/valuation";
@@ -126,6 +126,16 @@ describe("every incident naming a provider and a date is weighed; a NaN total is
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("a class named like a member of every object costs the most, never NaN (the tenth review round, B10-8)", () => {
+    const at = Date.parse("2026-10-03");
+    const known = incidentPenalty({ ...base, class: "key-compromise" } as never, at);
+    for (const cls of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      const p = incidentPenalty({ ...base, class: cls } as never, at);
+      expect(Number.isFinite(p), cls).toBe(true);
+      expect(p, cls).toBe(known);
+    }
+  });
+
   it("the score stays a number even so, and a NaN total is not chosen", () => {
     const s = securityBreakdown("chainflip", Date.parse("2026-10-03"), riskDb(), [{ ...base, class: "exploit" as never }]);
     expect(Number.isFinite(s.total)).toBe(true);
@@ -146,7 +156,10 @@ describe("no plan of more steps than any campaign runs (A-M3 / D-M3)", () => {
     expect(out.protection, "a plan, at the cap").toBeDefined();
     expect(out.protection!.maxPieceUnits).toBeNull();
     expect(out.protection!.estimatedTranches).toBeLessThanOrEqual(MAX_TRANCHES);
-    expect(out.protection!.reasonCodes.map((r) => r.code)).toContain("instant-limit");
+    // the fallback's own reason, never the ceiling's beside pieces far above it (the tenth review round, B10-7)
+    expect(out.protection!.reasonCodes.map((r) => r.code)).toContain("limit-too-fine");
+    expect(out.protection!.reasonCodes.map((r) => r.code)).not.toContain("instant-limit");
+    expect(out.protection!.reasons.length, "a reason's words with it").toBe(out.protection!.reasonCodes.length);
     expect(Date.now() - t0, "bounded, never seconds").toBeLessThan(2_000);
   });
   it("an absurd impact halves the piece only down to the step bound", () => {

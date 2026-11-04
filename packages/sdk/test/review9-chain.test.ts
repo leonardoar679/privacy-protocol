@@ -285,6 +285,13 @@ describe("D-10: one host is one host", () => {
       "https://a.example",
       "https://b.example",
     ]);
+    // however it is spelled (the tenth review round, B10-12): a trailing slash or the host's case is no second endpoint; the path's case is the path's
+    expect(
+      rpcUrlsOf({
+        rpcUrl: "x",
+        rpcUrls: ["https://A.example/", "https://a.example", " https://a.example// ", "https://a.example/Key/", "https://a.example/key"],
+      }),
+    ).toEqual(["https://A.example/", "https://a.example/Key/", "https://a.example/key"]);
     const fetchFn = (async () => new Response("{}")) as unknown as typeof fetch;
     await expect(agreedFinalizedRoot(["https://beacon.example", "https://beacon.example:8443"], fetchFn)).rejects.toThrow(/two beacon APIs on different hosts/);
   });

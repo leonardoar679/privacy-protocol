@@ -68,4 +68,15 @@ describe("the route's liquidity qualification in the §46 quote (spec v3.0 §4)"
     expect(quoteOf({ ...f, request: { ...request, grossAmount: gross } })!.risk.blockers).toEqual(["route_not_qualified"]);
     expect(quoteOf({ ...f, request: { ...request, grossAmount: amount } })!.risk.blockers, "gross = funding: as valued").toEqual([]);
   });
+  it("a stepped plan is judged on its largest step, and the quote says whether the whole order qualifies too (the tenth review round, B10-6)", () => {
+    const stepped = (usd: number, limit: number | null) => {
+      const f = facts(usd, limit);
+      return { ...f, set: { ...f.set, tier: "high-value", protection: { trancheUsd: [100_000, 125_000], staged: false } } as unknown as QuoteSet };
+    };
+    const q = quoteOf(stepped(5_000_000, 2_000_000))!;
+    expect(q.risk.blockers, "its steps qualify: $125K against $2M").toEqual([]);
+    expect(q.risk.wholeOrderQualified, "sent as one order it does not: $5M against $2M").toBe(false);
+    expect(quoteOf(stepped(1_500_000, 2_000_000))!.risk.wholeOrderQualified).toBe(true);
+    expect(quoteOf(stepped(5_000_000, null))!.risk.wholeOrderQualified, "unmeasured: nothing said").toBeUndefined();
+  });
 });

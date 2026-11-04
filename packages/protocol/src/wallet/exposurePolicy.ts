@@ -83,7 +83,16 @@ export interface ExposureFacts {
 /** Why a route is R4, by codes (the app's catalog words each one, audit round 2, r55). */
 export type ExposureReason = "thin-market" | "unknown-provider" | "chain-halted" | "recent-incident" | "breaker-open" | "low-security" | "counterparty";
 /** Why a protected execution's plan is as it is, by codes: the high-risk route names its exposure reasons. */
-export type ProtectionReasonCode = "band-narrowed" | "high-risk-route" | "sequential" | "instant-limit" | "thin-market" | "single-venue" | "staged";
+export type ProtectionReasonCode =
+  | "band-narrowed"
+  | "high-risk-route"
+  | "sequential"
+  | "instant-limit"
+  // the instant limit or the market's depth is too fine to stage the amount: the pieces go at the exposure cap (the tenth review round, B10-7)
+  | "limit-too-fine"
+  | "thin-market"
+  | "single-venue"
+  | "staged";
 export interface ProtectionReason { code: ProtectionReasonCode; risks?: ExposureReason[] }
 
 /** The exposure tier of a route (contract §2.2): derived from the V3 risk class and the live facts, never stored as policy. */

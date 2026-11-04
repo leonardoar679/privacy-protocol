@@ -277,7 +277,13 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   /** The review round of 2026-11-02 (spec v3.0 §4): this screen is reachable by URL, so the band's exposure limit and the
    *  service's route qualification — the two words Review Swap closes on — stop a commit here as well. */
   function commitBlocked(): boolean {
-    const code = protectedCommitBlocker({ tier, limitReached: inFlightLimitReached(), serviceBlockers: quotes?.quote?.risk.blockers ?? [] });
+    const code = protectedCommitBlocker({
+      tier,
+      limitReached: inFlightLimitReached(),
+      serviceBlockers: quotes?.quote?.risk.blockers ?? [],
+      // one order: the route against the whole of it (the tenth review round, B10-6)
+      wholeOrderUnqualified: !campaignMode && quotes?.quote?.risk.wholeOrderQualified === false,
+    });
     if (code) setError(t(code === "in_flight_limit" ? "swap.inFlight" : "swap.routeLimit"));
     return code !== null;
   }

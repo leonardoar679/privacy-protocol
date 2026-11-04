@@ -5,6 +5,7 @@ import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { IDBFactory as FakeIdbFactory } from "fake-indexeddb";
 import type { DepositEvent, WithdrawalEvent } from "../src/history/events";
 import type { SnapshotManifest, TreeFile } from "../src/history/snapshot";
 import { HISTORY_DB, historyStore, indexedDbHistoryStore, memoryHistoryStore, type StoredHistory } from "../src/storage/historyDb";
@@ -27,6 +28,23 @@ const history: StoredHistory = {
   withdrawals: JSON.parse(read("withdrawals.json")) as WithdrawalEvent[],
   layers: (JSON.parse(read("tree.json")) as TreeFile).layers,
 };
+
+describe("another tab's deletion (the tenth review round, D-9)", () => {
+  it("an open store closes for it — the Privacy Wallet's Forget deletes this database — and opens the database again at its next use", async () => {
+    const factory = new FakeIdbFactory();
+    const store = indexedDbHistoryStore(factory);
+    await store.write("eth-100", history);
+    const outcome = await new Promise<string>((resolve) => {
+      const req = factory.deleteDatabase(HISTORY_DB);
+      req.onsuccess = () => resolve("deleted");
+      req.onblocked = () => resolve("blocked");
+    });
+    expect(outcome, "never blocked by this tab").toBe("deleted");
+    expect(await store.read("eth-100"), "gone with the database; read from the one opened again").toBeNull();
+    await store.write("eth-100", history);
+    expect((await store.read("eth-100"))?.state).toEqual(history.state);
+  });
+});
 
 describe("the history store", () => {
   it("IndexedDB: a pool's history round-trips, another pool is apart, a second opener reads it, clear forgets it", async () => {

@@ -311,7 +311,7 @@ export function SwapScreen(p: SwapScreenProps) {
     !intoProtected && !!protectionPlan && protection.enabled && tier === "large-protected" && (protectionPlan.staged || protection.stepsAtBand === true);
   // the service's liquidity qualification rides on its §46 quote (spec v3.0 §4): a route whose measured limit is below the order
   const serviceBlockers = quotes?.quote?.risk.blockers ?? [];
-  const routeUnqualified = serviceBlockers.includes("route_not_qualified");
+  const stepUnqualified = serviceBlockers.includes("route_not_qualified");
   // at a tier that runs a campaign, a quote without the service's plan closes Review Swap (the ninth review round, 2026-11-04, A9-1): the
   // order had gone as one, the exposure cap never applied and nothing said so
   const unplanned = !!quotes && !intoProtected && controls.campaign && protection.enabled && !quotes.protection;
@@ -321,6 +321,14 @@ export function SwapScreen(p: SwapScreenProps) {
     !!protectionPlan &&
     protection.enabled &&
     (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)));
+  // the route qualified for the path this swap takes (the tenth review round, B10-6): its steps against their largest, one order against the
+  // whole — the service's blocker judges a stepped plan on its step, and an order sent as one had passed a route measured below it
+  const routeUnqualified = stepUnqualified || (!campaignMode && !protectedSteps && quotes?.quote?.risk.wholeOrderQualified === false);
+  // the one-order confirmation judges it again (B10-6): the service's blockers, and the whole order's qualification
+  const oneOrderBlockers =
+    quotes?.quote?.risk.wholeOrderQualified === false && !serviceBlockers.includes("route_not_qualified")
+      ? [...serviceBlockers, "route_not_qualified" as const]
+      : serviceBlockers;
   // "Delay for more privacy" (spec v2.0 §14.1): offered while the funds the swap would spend were protected recently, on
   // a one-order swap (the steps of a protected execution have their own timing); it spends older notes first — funded at
   // once from them — else the funding waits a random 1–24 h. The card stays while the choice is on.
@@ -548,7 +556,7 @@ export function SwapScreen(p: SwapScreenProps) {
       largeTrade: atLeast(tier, "large-protected"),
       strictQuote: controls.strictQuote,
       ...(tier === "large-protected" ? { inFlight: { count: protectedInFlight(), limit: PROTECTED_EXECUTION.MAX_IN_FLIGHT } } : {}),
-      serviceBlockers,
+      serviceBlockers: oneOrderBlockers,
     });
     if (blockers.length) {
       setBlocked(blockers[0]);

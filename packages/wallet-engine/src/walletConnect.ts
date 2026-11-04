@@ -76,7 +76,18 @@ export async function endWalletConnect(): Promise<void> {
  * record — gone with the session (the fourth review round, 2026-11-03): they stayed after a Disconnect, a link between the public
  * account and this origin's storage that the "localStorage holds nothing" rule did not count. Called by Disconnect and Forget.
  */
+/** WalletConnect 2's own IndexedDB store (@walletconnect/keyvaluestorage): the pairing, the session with the account, the keychain. */
+export const WALLET_CONNECT_DB = "WALLET_CONNECT_V2_INDEXED_DB";
+
 export function clearWalletConnectStorage(): void {
+  // its IndexedDB store too (the tenth review round, D-3): WalletConnect 2.26 moves every wc@ key there, and a Disconnect or a Forget that
+  // cleared localStorage alone had left the session, its account and its keychain on the device
+  try {
+    const req = globalThis.indexedDB?.deleteDatabase(WALLET_CONNECT_DB);
+    if (req) req.onerror = () => undefined;
+  } catch {
+    // no IndexedDB
+  }
   try {
     const store = globalThis.localStorage;
     if (!store) return;
