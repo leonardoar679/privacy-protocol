@@ -12,8 +12,10 @@ call before signing, and its own chain reads win on any disagreement.
 It holds **no** note, key, recovery phrase, witness, balance, user address, IP address, user agent or funding
 transaction (`test/schema.test.ts` pins the tables; `test/flow.test.ts` reads the database after a full flow). A quote
 row has no amount. An operation's destination and refund material live only until finalize, or its execution deadline when that
-comes first; what is deleted is overwritten in the file (`PRAGMA secure_delete`) and the WAL is emptied after a finalize and
-every purge (the eighth review round, 2026-11-03). Every record leaves on
+comes first; what is deleted is overwritten in the file (`PRAGMA secure_delete`) and the WAL is emptied after a finalize, a
+terminal reconcile and every purge (the eighth review round, 2026-11-03) by a checkpoint that never waits for a reader: one holding the
+file (a backup, Litestream, a shell) keeps the WAL until the next checkpoint finds none, and a file from a build without
+`secure_delete` is vacuumed once, after a purge, then marked (`PRAGMA application_id`; the ninth review round, 2026-11-04). Every record leaves on
 schedule (`src/db.ts` `RETENTION`):
 
 - quotes, 1 h after they expire;

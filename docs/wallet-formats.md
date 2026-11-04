@@ -59,7 +59,8 @@ signature on, spec §12) and `classic` (V5: the Classic Privacy module's deposit
 carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
 `delayed {since, code}`, `declined {at, code}`, `settlement`, and (a V6 follow-up of 2026-10-14) optional `refs`
 `noteCounter` (the note a Protect deposits or a Send makes as change), `nullifiers` (a Send's two, decimal) and
-`relayerUrl`, kept at "submitting"; a V5 record is upgraded when the journal is decrypted
+`relayerUrl`, kept at "submitting" (and, since the ninth review round, a COMPLETED swap's optional `outcome`: `partial` or
+`refunded-at-destination`); a V5 record is upgraded when the journal is decrypted
 (`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
 may carry `settlement` (where the money is, spec v2.0 §12.4), and the record itself `operationId` (V6 Stage 9: the API's
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional
@@ -77,6 +78,8 @@ its hand-over, `execution_window_closed`); a V6 follow-up of 2026-10-14: a swap 
 funding, journaled before it is sent, is `fundingAttempt { nullifiers: [decimal, decimal], by: "relayer" | "wallet",
 relayerUrl?, txHash?, inputsDigest?, at }` (the transaction once known; since the eighth review round the call's public-inputs
 digest, which tells its own spend from another call's) — the order's `reviewedMerges?` is the count of merges its Review named,
+since the ninth review round (2026-11-04) `fundedAt?` (unix ms: the escrow read holding the order, its funding's transaction not
+known) and `handOverAttempt?` (unix ms: the last hand-over sent, before its answer),
 and `aiFunding.funded?` the fresh funding index already funded from the pool; its ticks are scheduled actions of the kind
 `order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. The
 audit round of 2026-10-16: `countersHeld: true` while a journal that began without the whole of an earlier one (a restore
