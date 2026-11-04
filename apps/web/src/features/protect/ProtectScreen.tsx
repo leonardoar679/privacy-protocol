@@ -118,8 +118,10 @@ export function ProtectScreen(p: ProtectScreenProps) {
     };
   }, [p.deployment, p.account, asset, units]);
 
-  const eth = availablePrice(prices.prices, "ETH");
-  const price = asset ? availablePrice(prices.prices, asset.symbol) : null;
+  // read at the time of use (n18; the seventh review round)
+  const nowS = Math.floor(Date.now() / 1000);
+  const eth = availablePrice(prices.prices, "ETH", nowS);
+  const price = asset ? availablePrice(prices.prices, asset.symbol, nowS) : null;
   const split = p.deployment && units > 0n ? protectNet(p.deployment, units) : null; // V6: ProtectRouter's 1 %, rounded up
   const assessment = asset && units > 0n && priced ? priceStore.assess(units, asset) : null;
   const tier: Tier = assessment?.tier ?? "standard";
@@ -401,7 +403,7 @@ function ProtectProgress(p: ProgressProps) {
   const asset = p.asset;
   const net = record.amounts.expectedOutput ?? record.amounts.input;
   if (record.state === "COMPLETED") {
-    const added = displayAmount(amountFrom(net, record.amounts.asset, record.amounts.decimals)); // the record's own asset: a reload may start on another one
+    const added = displayAmount(amountFrom(net, record.amounts.asset, record.amounts.decimals), "down"); // the record's own asset: a reload may start on another one
     const symbol = record.amounts.asset;
     return (
       <Page title={t("protect.title")} back={p.onDone} testId="protect-view">

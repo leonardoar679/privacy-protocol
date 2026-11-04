@@ -12,7 +12,7 @@
 // and the runner. The user never selects a provider, a relayer, a route, an RPC or a gas strategy; Compare routes is
 // under Advanced only, and the provider's name appears only there — the default word is "Best route".
 import { useEffect, useMemo, useState } from "react";
-import { protectedCommitBlocker, stepsAmountAtFixedPoint } from "./model";
+import { protectedCommitBlocker } from "./model";
 import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
 import type { Address, Hex } from "viem";
@@ -20,7 +20,7 @@ import { availablePrice, formatUsd, higherTier, TIERS, type Tier } from "@privac
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId, type LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
-import { maximumLossModel } from "@privacy-wallet/protocol/wallet/campaign";
+import { maximumLossModel, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { AddressInput, AmountInput, AssetSelector, Button, Card, FeeSummary, ListRow, Page, QuoteCard, TextButton, type AddressCheck, type AssetOption, type QuoteView } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { formatDateTime } from "../../app/i18n/intl";
@@ -53,13 +53,15 @@ import { activityId, recordActivity } from "@privacy-wallet/sdk/wallet/activity"
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { completeAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { destinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
-import { acceptReroute, activeCampaigns, buildCampaign, campaignById, cancelCampaign, pauseCampaign, resumeCampaign, startCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { acceptReroute, activeCampaigns, buildCampaign, campaignById, campaignMinimumOutput, cancelCampaign, cryptoSeed, pauseCampaign, resumeCampaign, seededUniform, startCampaign, stepReviewedFee } from "@privacy-wallet/sdk/wallet/campaigns";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { inFlightLimitReached } from "@privacy-wallet/sdk/wallet/inFlight";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review, type ReviewProps } from "../review/ReviewScreen";
+import { feeRowsText, type FeeRowsText } from "../review/View";
+import { amountOf as amountOfUnits, centsOf } from "../amounts";
 import { swapFees } from "../fees/feeEngine";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { CampaignProgress } from "./protected/CampaignProgress";
@@ -91,6 +93,8 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const assets = useMemo(() => assetsOf(deployment), [deployment]);
   const [fromAsset, setFromAsset] = useState<Asset>(() => assets.find((a) => a.vault === prefill?.fromVault) ?? assets[0]);
   const [target, setTarget] = useState(() => (prefill?.target && TARGETS[prefill.target] ? prefill.target : "BTC"));
+  // one seed for the Review's draft and the confirmed plan of a protected execution (the seventh review round, B7)
+  const [stepsSeed] = useState(cryptoSeed);
   const [amount, setAmount] = useState(prefill?.amount ?? "");
   const [destination, setDestination] = useState(() => prefill?.destination || peekFreshAddress(masterSeed, chainKindOf(TARGETS[prefill?.target && TARGETS[prefill.target] ? prefill.target : "BTC"].ref.chain)).address);
   const [destinationEdited, setDestinationEdited] = useState(!!prefill?.destination);
@@ -246,7 +250,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     const reviewHoldUntil = controls.reviewHold ? Date.now() + reviewHoldMinutes() * 60_000 : undefined; // institutional (spec §24)
     // the relayer's fee the Review showed bounds the funding, scheduled or "Fund now" (c46; audit round 2, r12: this page journaled none)
     const reviewedFee = funding && funding.amount === units ? funding.amount - funding.split.delivered : undefined;
-    const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil }, ...(reviewedFee !== undefined ? { reviewedFee } : {}) }));
+    const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil }, ...(reviewedFee !== undefined ? { reviewedFee } : {}), ...(funding && funding.amount === units ? { reviewedMergeFee: funding.terms.minimum } : {}), ...(quotes?.executorTip !== undefined ? { shownTip: BigInt(quotes.executorTip) } : {}) }));
     if (!res) return;
     reset();
     setOrder(res.order); setStored(res.stored); setOrderKey(res.key); setRefundNoteData(res.refund.noteData);
@@ -337,7 +341,30 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const chosenQuote = chosen ? quotes!.quotes.find((q) => q.provider === chosen.provider) : undefined;
   const protectionPlan: Protection | null = quotes?.protection ?? null;
   const campaignMode = !!protectionPlan && protection.enabled && (controls.campaign || (tier === "enhanced" && (protectionPlan.staged || protection.protectFromEnhanced)) || (tier === "large-protected" && (protectionPlan.staged || protection.stepsAtBand === true))); // V7 Stage 13 (spec v3.0 §4): the band's steps only when staged or asked
-  const ctx: SwapContext = { t, quotes: quotes!, fromAsset, to, units, usd, tier, controls, policy, preference, destination, destinationEdited, parsedOk: parsedDestination?.ok === true, destAck, routeAck, destCheck, destinationLocked, lintItems: null, protection: { mode: protection.mode, capBps: protection.capBps }, relayerFee };
+  // the protected execution's own inputs: the Review's draft is the plan the confirmation starts (the seventh review round, B7)
+  const ctx: SwapContext = { t, quotes: quotes!, fromAsset, to, units, usd, tier, controls, policy, preference, destination, destinationEdited, parsedOk: parsedDestination?.ok === true, destAck, routeAck, destCheck, destinationLocked, lintItems: null, protection: { mode: protection.mode, capBps: protection.capBps }, relayerFee, steps: { seed: stepsSeed, quoted: escrowAmount, terms: funding && funding.amount === units ? funding.terms : null, providerShareCapBps: protection.providerShareCapBps } };
+  // the fee section of these Reviews (the seventh review round, 2026-11-03: they had stated no fee): the one order's fee note and tip, or
+  // every step's fee note (its bound under the Review's terms) and tip, in the order's asset with their value in dollars
+  const feeRowsFor = (steps: Campaign | null): FeeRowsText | null => {
+    if (!funding || funding.amount !== units || !quotes) return null;
+    const price = availablePrice(priceStore.state().prices, fromAsset.symbol, Math.floor(Date.now() / 1000));
+    const cents = (u: bigint) => (price ? centsOf(u, fromAsset.decimals, price.usd1e8) : null);
+    const tip = quotes.executorTip !== undefined ? BigInt(quotes.executorTip) : 0n;
+    const n = steps ? steps.tranches.length : 1;
+    const notes = steps ? steps.tranches.reduce((a, x) => a + (stepReviewedFee(steps.bounds, BigInt(x.amount)) ?? 0n), 0n) : funding.split.privacy + funding.split.network;
+    const network = funding.terms.minimum * BigInt(n);
+    const privacy = steps ? (notes > network ? notes - network : 0n) : funding.split.privacy;
+    const relayer = (steps ? network : funding.split.network) + tip * BigInt(n);
+    const pc = cents(privacy), rc = cents(relayer);
+    return feeRowsText(t, {
+      kind: to.ref.chain !== refOf(fromAsset).chain ? "cross-chain" : "swap",
+      fees: [
+        { kind: "privacy", usdCents: pc, amount: amountOfUnits(privacy, fromAsset.symbol, fromAsset.decimals) },
+        { kind: "relayer", ...(n > 1 ? { count: n, approx: true } : {}), usdCents: rc, amount: amountOfUnits(relayer, fromAsset.symbol, fromAsset.decimals) },
+      ],
+      totalFeesUsdCents: pc !== null && rc !== null ? pc + rc : null,
+    });
+  };
   const lineDraft = (() => {
     if (!campaignMode || !protectionPlan || !quotes?.chosen) return null;
     try { return buildCampaign({ quotes, provider: protectionPlan.provider, from: refOf(fromAsset), fromAsset, to: to.ref, amount: units, tier, mode: protection.mode, preference, policy, destination: destinationEdited ? { kind: "entered", address: destination } : { kind: "fresh-per-tranche" }, usd, capBps: protection.capBps, terms: funding?.terms ?? null, now: Date.now(), rng: () => 0.5 }); } catch { return null; }
@@ -380,15 +407,15 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     // pays its own p + F, so the steps run what as many fundings as the plan can have deliver — as on the band's Swap screen —
     // and the price bound is per unit of the funding the set was quoted for
     const base = { quotes: quotes!, provider, from: refOf(fromAsset), fromAsset, to: to.ref, tier, mode: protection.mode, preference, policy, destination: f.destinationPolicy, usd, lint: lintItems, capBps: protection.capBps, providerShareCapBps: protection.providerShareCapBps, terms: funding?.terms ?? null };
-    // the smallest pieces: the most steps an amount can make, read again for the steps' own amount (a lower one can make more)
-    const countFor = (amount: bigint) => { try { return buildCampaign({ ...base, amount, now, rng: () => 0 }).tranches.length; } catch { return 1; } };
-    const amount = funding ? stepsAmountAtFixedPoint(units, funding.terms, countFor).amount : units;
+    // the plan the Review showed (the seventh review round, B7): its amount — the steps' own at the count it makes — and its seed
+    const amount = f.amount;
     if (amount <= 0n) { setError(t("swap.tooSmallForFees")); return; }
     const c = await run(t("swap.startingProtected"), async () => startCampaign({
       ...base, amount, quotedAmount: escrowAmount, leaves: units, // what may leave, the steps' fee notes included (audit round 2, r18)
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,
       confirmations: { ...(controls.secondFactor ? { secondFactor: now } : {}), ...(controls.secondDevice ? { secondDevice: now } : {}) },
       reviewHoldUntil: [controls.reviewHold ? now + reviewHoldMinutes() * 60_000 : 0, destCheck?.reason === "cooling-off" && destCheck.until ? destCheck.until : 0].reduce((m, x) => Math.max(m, x), 0) || undefined, now,
+      rng: seededUniform(stepsSeed),
     }));
     if (!c) return;
     reset(); setQuotes(null); setCampaignView(c.id);
@@ -409,7 +436,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       const exportNow = () => downloadText(`privacy-wallet-order-review-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, JSON.stringify({ format: "privacy-protocol/order-review/v1", exportedAt: new Date().toISOString(), request: request(), tier, value: assessment?.value ?? null, provider: prov, quote, score, competition: q.competition ?? null, lint: lintItems ?? [] }, null, 2));
       props = {
         moment: "commit", tier, controls, usd: usd !== null ? formatUsd(usd) : null, amount: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}`, from: t("swap.fromProtected", { symbol: fromAsset.symbol }),
-        to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: `${fmtUnits(quote.toAmountMin, dec)} ${sym}`, execution: commitExecution(ctx, quote),
+        to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: `${fmtUnits(quote.toAmountMin, dec)} ${sym}`, fees: feeRowsFor(null), execution: commitExecution(ctx, quote),
         privacy: { level: levelOf(score.components.privacy), score: score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: commitLines(ctx, prov, quote, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerControlled(fromAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(fromAsset), to.ref, quote.nativeAssets), crossChain: to.ref.chain !== refOf(fromAsset).chain, details: commitDetails(ctx, prov, quote, score),
         advanced, reviewHold: controls.reviewHold ? { minutes: reviewHoldMinutes() } : null, onExport: controls.export ? exportNow : undefined, secondFactor: controls.secondFactor ? { credentialId: secondFactor.credentialId } : null,
@@ -443,7 +470,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
       const exportNow = () => downloadText(`privacy-wallet-protected-swap-review-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, JSON.stringify({ format: "privacy-protocol/protected-swap-review/v1", exportedAt: new Date().toISOString(), request: request(), tier, value: assessment?.value ?? null, provider: review.provider, protection: f.p, plan: f.draft.plan, bounds: f.draft.bounds, verdict: f.verdict, lint: lintItems ?? [] }, null, 2));
       props = {
         moment: "campaign", tier, controls, usd: usd !== null ? formatUsd(usd) : null, amount: `${formatAmount(fromAsset, units)} ${fromAsset.symbol}`, from: t("swap.fromProtectedSteps", { symbol: fromAsset.symbol, n: f.steps }),
-        to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: t("swap.receiveMinProRata", { amount: `${fmtUnits(f.quote.toAmountMin, dec)} ${sym}` }),
+        to: { network: to.network, asset: sym, address: destination, kind: destinationEdited ? "entered" : "fresh" }, receiveMin: t("swap.receiveMinCampaign", { amount: `${fmtUnits(campaignMinimumOutput({ toAmountMin: BigInt(f.quote.toAmountMin), quoted: escrowAmount, amount: BigInt(f.draft.request.amount), executorTip: q.executorTip !== undefined ? BigInt(q.executorTip) : null, steps: f.steps }), dec)} ${sym}` }), fees: feeRowsFor(f.draft),
         execution: { words: t("swap.protectedExecution"), detail: t("swap.stepsEach", { n: f.steps, words: planText(t, f.quote.plan).toLowerCase() }), eta: f.details.duration },
         privacy: { level: f.verdict.privacy, score: f.score.components.privacy }, lint: lintItems ?? [], onAcknowledgeLint: ack, lines: campaignLines(ctx, f, () => setRouteAck(true), () => setDestAck(true)),
         issuer: issuerControlled(fromAsset.symbol) || issuerControlled(sym), routeKind: routeKind(refOf(fromAsset), to.ref, f.quote.nativeAssets), maximumLoss: f.maximumLoss, verdict: f.verdict, protectionDetails: f.details, crossChain: to.ref.chain !== refOf(fromAsset).chain,

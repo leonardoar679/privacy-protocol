@@ -66,6 +66,9 @@ export const world: {
   feesDown?: boolean;
   /** V7 Stage 13: the §46 quote's risk assessment the service answers with (its blockers: the route's qualification) */
   quoteRisk?: { score: number; level: "low" | "medium" | "high"; blockers: string[]; warnings: string[] };
+  /** the seventh review round: the quote set's executor tip (the Review shows it), and a tip the service prices again at the commit */
+  quoteTip?: bigint;
+  orderTip?: bigint;
 } = {
   bend: {},
   rpcBend: {},
@@ -192,12 +195,14 @@ async function service(path: string, body: any): Promise<Response> {
         links: { thorchain: { public: true, evidence: "memo" } },
         ...(world.protection ? { protection: world.protection, tier: "large-protected" } : {}),
         ...(world.quoteRisk ? { quote: { risk: world.quoteRisk } } : {}),
+        ...(world.quoteTip !== undefined ? { executorTip: world.quoteTip.toString() } : {}),
       });
     case "/order": {
       const order = engine.buildOrder(
         request(body),
         body.policy,
-        { ...thorQuote(), executorTip: BigInt(request(body).amount) / 400n },
+        // the tip the wallet's Review showed when it names one, as the API builds on it (the seventh review round), unless the test prices it again
+        { ...thorQuote(), executorTip: world.orderTip ?? (body.executorTip !== undefined ? BigInt(body.executorTip) : BigInt(request(body).amount) / 400n) },
         {
           orderSigner: body.orderSigner,
           refundOwnerCommitment: BigInt(body.refundOwnerCommitment),
@@ -309,6 +314,8 @@ export function resetWorld(): void {
   world.feedDown = undefined;
   world.feesDown = undefined;
   world.quoteRisk = undefined;
+  world.quoteTip = undefined;
+  world.orderTip = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

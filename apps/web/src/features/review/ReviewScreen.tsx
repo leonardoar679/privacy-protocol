@@ -21,6 +21,7 @@ import type { TradeCheck } from "../../zkapi/tradeCheck";
 import { DestinationCard } from "../../components/DestinationCard";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { EXECUTION_WORDS, LEVEL_WORDS, ROUTE_KIND_WORDS, SECURITY_WORDS, TIER_WORDS } from "./words";
+import type { FeeRowsText } from "./View";
 
 export interface ReviewLine { id: "price" | "route" | "destination" | "slippage" | "privacy" | "exposure" | "security"; label: string; ok: boolean; meaning: string; /** the line is ok only once the user acknowledges this */ ack?: { text: string; done: boolean; onAck: () => void } }
 export interface RouteDetails { provider: string; mode: string; parts?: number; fees: string; expectedOutput: string; settlement: string; alternatives: { provider: string; outcome: string; reason?: string }[]; score?: string; linkEvidence?: string }
@@ -40,6 +41,8 @@ export interface ReviewProps {
   from: string;
   to: { network: string; asset: string; address: string; kind: "fresh" | "entered" | "privacy-address"; label?: string };
   receiveMin?: string | null;
+  /** every fee, the total and the fee statement, in words (the seventh review round: this Review had stated none) */
+  fees?: FeeRowsText | null;
   execution?: { words: string; detail?: string; eta: string } | null;
   privacy: { level: Level; score?: number };
   lint: LintItem[];
@@ -145,6 +148,14 @@ export function Review(p: ReviewProps) {
       <Row label={t("review.from")}>{p.from}</Row>
       <DestinationCard title={t("review.to")} network={p.to.network} asset={p.to.asset} address={p.to.address} kind={p.to.kind} label={p.to.label} />
       {p.receiveMin ? <Row label={t("review.receiveAtLeast")}>{p.receiveMin}</Row> : null}
+      {p.fees ? (
+        <div className="ds-review-block" data-testid="review-fees">
+          <div className="ds-note">{t("screen.review.fees")}</div>
+          {p.fees.rows.map((r) => <Row key={r.id} label={r.label} testId={`review-fee-${r.id}`}>{r.value}</Row>)}
+          <Row label={t("screen.review.totalFees")} testId="review-total-fees">{p.fees.total}</Row>
+          <p className="ds-note" data-testid="review-fee-statement">{p.fees.statement}</p>
+        </div>
+      ) : null}
       {p.execution ? (
         <>
           <Row label={t("review.execution")}>{p.execution.words}{p.execution.detail ? <span className="ds-note"> · {p.execution.detail}</span> : null}</Row>

@@ -129,7 +129,7 @@ export const swapService = {
   /** `signal`: the Swap screen cancels a quote the user has typed past (V6 Stage 16) */
   quote: (req: SwapRequest, signal?: AbortSignal) => api.quotes<QuoteSet>(req, signal),
   /** commit: POST /v1/operations — the answer names the operation (`op_` id) the wallet journals with the order */
-  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string; shield?: unknown }) =>
+  order: (req: SwapRequest & { provider?: string; orderSigner: string; refundOwnerCommitment: string; refundNoteSecret: string; refundNoteDataHash: string; shield?: unknown; /** the executor tip the Review showed: the order is built on it (the seventh review round) */ executorTip?: string }) =>
     api.createOperation<Committed>(req),
   /** rebuild an order from the journaled params: into its known operation, else (unknown, or none yet) found by its order or created */
   async resume(req: ResumeRequest, operationId?: string): Promise<Resumed> {

@@ -284,6 +284,20 @@ export function WithdrawTab(p: WithdrawProps) {
         <p className="tc-text" data-testid="classic-confirm-text">
           {t("withdraw.proofReady")}
         </p>
+        {/* what the proof pays and what arrives, restated where it is confirmed (the seventh review round, 2026-11-03) */}
+        {pool && (p.mode === "wallet" || p.fees) ? (
+          <div data-testid="classic-confirm-figures">
+            {p.mode === "relayer" && p.fees ? (
+              <Row label={t("withdraw.totalFee")} value={`${fromWei(p.fees.totalFeeWei)} ETH`} testId="classic-confirm-fee" />
+            ) : null}
+            <Row
+              label={t("withdraw.receive")}
+              value={`${fromWei(p.mode === "relayer" && p.fees ? p.fees.receiveWei : pool.denominationWei)} ETH`}
+              testId="classic-confirm-receive"
+              strong
+            />
+          </div>
+        ) : null}
         <Button variant="primary" full large testId="classic-confirm" onClick={p.onConfirm}>
           {t("withdraw.confirm")}
         </Button>

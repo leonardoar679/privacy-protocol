@@ -31,7 +31,7 @@ import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wall
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
-import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
+import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import type { SettlementLabel } from "@privacy-wallet/sdk/orderTracker";
@@ -73,7 +73,7 @@ import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review } from "../review/ReviewScreen";
-import { BLOCKER_WORDS, ReviewView, type ReviewModel } from "../review/View";
+import { BLOCKER_WORDS, ReviewView, feeRowsText, type ReviewModel } from "../review/View";
 import { OperationProgress } from "../operations/OperationProgress";
 import { AttemptLine, attemptIdOf } from "../operations/AttemptLine";
 import { ProgressView } from "../progress/View";
@@ -179,14 +179,25 @@ export function SwapScreen(p: SwapScreenProps) {
   // the merges the funding needs first, each paying the relayer's minimum (the review round of 2026-11-03, E3; the Send Review has
   // had them since r43): named on the Review, bounded at the funding — they had been paid at the live fee, unshown and unbounded
   const mergeEach = terms?.minimum ?? 0n;
-  const mergeCount =
+  const mergePlan =
     fromAsset && units > 0n && mergeEach > 0n
       ? mergeSchedule(
           noteStore.unspent(BigInt(fromAsset.vault)).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })),
           units,
           mergeEach,
-        ).pairs.length
-      : 0;
+        )
+      : null;
+  const mergeCount = mergePlan?.pairs.length ?? 0;
+  // what leaves with the merges the funding needs first, and whether the notes can pay it at all (the seventh review round, 2026-11-03): a
+  // swap the balance could not cover with its merges had been quoted and confirmed on its amount alone, as Send never was
+  const mergesShort: "balance" | "too-many-merges" | null =
+    mergePlan && !mergePlan.ok
+      ? mergePlan.reason === "too-many-merges"
+        ? "too-many-merges"
+        : "balance"
+      : units + mergeEach * BigInt(mergeCount) > balance
+        ? "balance"
+        : null;
   const policy = quotes?.policy ?? policyFromPreference(preference);
   useEffect(() => {
     if (priced) void priceStore.refresh(p.deployment);
@@ -212,7 +223,7 @@ export function SwapScreen(p: SwapScreenProps) {
   // the quote, fetched as the user types (debounced); a newer request makes an older answer stale and cancels its request
   // (V6 Stage 16: nothing waits on an answer nobody reads; an aborted request never counts toward offline)
   const seq = useRef(0);
-  const quotable = !!p.deployment && !!fromAsset && units > 0n && units <= balance && destinationOk;
+  const quotable = !!p.deployment && !!fromAsset && units > 0n && units <= balance && mergesShort === null && destinationOk;
   useEffect(() => {
     setQuotes(null);
     setQuoteError(null);
@@ -423,7 +434,15 @@ export function SwapScreen(p: SwapScreenProps) {
         expiresIn,
         expired,
         quoting,
-        noRoute: !quoting ? (units > balance && units > 0n ? t("send.notEnough", { symbol: fromAsset.symbol }) : quoteError) : null,
+        noRoute: !quoting
+          ? units > balance && units > 0n
+            ? t("send.notEnough", { symbol: fromAsset.symbol })
+            : units > 0n && mergesShort === "too-many-merges"
+              ? t("op.error.housekeeping_needed.reason")
+              : units > 0n && mergesShort === "balance"
+                ? t("op.error.insufficient_balance.reason")
+                : quoteError
+          : null,
         privacy: recentFunds ? { recent: true, delay: delayOn, older: !!older } : null,
         notice: assessment && tier !== "standard" ? (assessment.failSafe ? t("swap.largeFailSafe") + t("swap.largeNotice") : t("swap.largeNotice")) : null,
         details: advanced && routeQuotes ? routeDetails(routeQuotes, to, privacy, chosen ? riskWord(chosen.components.security) : "—") : null,
@@ -571,6 +590,7 @@ export function SwapScreen(p: SwapScreenProps) {
           // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
           ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
           ...(terms && mergeCount ? { reviewedMergeFee: terms.minimum } : {}), // each merge at most the Review's F (E3)
+          ...(quotes.executorTip !== undefined ? { shownTip: BigInt(quotes.executorTip) } : {}), // the order built on the tip the Review showed (B5)
           delay: delayOn,
           ...(older ? { maxTiming: older.maxTiming } : {}),
           withCall: false,
@@ -740,8 +760,44 @@ export function SwapScreen(p: SwapScreenProps) {
   const reviewPage = (() => {
     if (!fromAsset || !quote || !quotes || !chosen || expired) return <Navigate to="/swap" replace />;
     const crossChain = to.ref.chain !== "ethereum";
+    const price = priceFrom;
+    const cents = (u: bigint) => (price ? centsOf(u, fromAsset.decimals, price.usd1e8) : null);
+    const split = terms ? swapFunding(units, terms) : { privacy: 0n, network: 0n, delivered: units };
+    const tip = BigInt(quotes.executorTip ?? "0");
+    const stepsN = BigInt(stepsPlan?.n ?? 1); // a protected execution's steps each pay the relayer's F and their tip
+    const providerCents = providerFeeCents(quote.fees, fromAsset.symbol, fromAsset.decimals, price?.usd1e8 ?? null); // integer cents (the policy's rule 1)
+    const privacyCents = cents(split.privacy);
+    // into the protected balance the relayer also gets the shield tip, in the output asset: what arrives is the delivery less it
+    const shieldTip = intoProtected ? shieldTipOf(quotes) : 0n;
+    const shieldCents = shieldTip > 0n ? (priceTo ? centsOf(shieldTip, to.ref.decimals, priceTo.usd1e8) : null) : 0n;
+    const sourceRelayerCents = cents((split.network + tip) * stepsN);
+    const relayerCents = sourceRelayerCents !== null && shieldCents !== null ? sourceRelayerCents + shieldCents : null;
+    const mergeTotal = mergeEach * BigInt(mergeCount);
+    const mergeCents = mergeCount ? cents(mergeTotal) : 0n;
+    const fees: ReviewModel["fees"] = [
+      ...(split.privacy > 0n
+        ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, fromAsset.symbol, fromAsset.decimals) }]
+        : []),
+      {
+        kind: "relayer" as const,
+        ...(stepsN > 1n ? { count: Number(stepsN) } : {}), // F × n: the Review names the steps (spec v3.0 §3)
+        ...(stepsN > 1n && tip > 0n ? { approx: true } : {}), // the tips are today's estimate: each step pays its own at its time, within the bounds (the third review round)
+        usdCents: relayerCents,
+        amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
+        ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),
+      },
+      ...(mergeCount
+        ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeTotal, fromAsset.symbol, fromAsset.decimals) }]
+        : []),
+      { kind: "provider" as const, usdCents: providerCents },
+    ];
+    const totalFeesUsdCents =
+      privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents + providerCents : null;
+    // what leaves: the amount and the merges the funding needs first (the seventh review round)
+    const leaves = units + mergeTotal;
     if (atLeast(tier, "enhanced")) {
-      // from $100K the V2–V4 Review stays as it was (spec v2.0 §2), with one confirmation after it
+      // from $100K the V2–V4 Review stays as it was (spec v2.0 §2), with one confirmation after it — and states every fee (the seventh
+      // review round: it had stated none)
       const ctx: SwapContext = {
         t,
         quotes,
@@ -771,8 +827,9 @@ export function SwapScreen(p: SwapScreenProps) {
             moment="commit"
             tier={tier}
             controls={controls}
-            usd={usd !== null ? formatUsd(usd) : null}
-            amount={`${formatAmount(fromAsset, units)} ${fromAsset.symbol}`}
+            usd={cents(leaves) !== null ? formatUsdCents(cents(leaves)!) : usd !== null ? formatUsd(usd) : null}
+            amount={`${formatAmount(fromAsset, leaves)} ${fromAsset.symbol}`}
+            fees={feeRowsText(t, { kind: crossChain ? "cross-chain" : "swap", fees, totalFeesUsdCents })}
             from={t("swap.fromProtected", { symbol: fromAsset.symbol })}
             to={{
               network: to.network,
@@ -781,7 +838,7 @@ export function SwapScreen(p: SwapScreenProps) {
               kind: intoProtected ? "privacy-address" : edited ? "entered" : "fresh",
               ...(intoProtected ? { label: t("screen.swap.protectedBalance") } : {}),
             }}
-            receiveMin={`${displayAmount(amountOf(BigInt(quote.toAmountMin) - (intoProtected ? shieldTipOf(quotes) : 0n), to.ref.symbol, to.ref.decimals, to.ref.chain))} ${to.ref.symbol}`}
+            receiveMin={`${displayAmount(amountOf(BigInt(quote.toAmountMin) - (intoProtected ? shieldTipOf(quotes) : 0n), to.ref.symbol, to.ref.decimals, to.ref.chain), "down")} ${to.ref.symbol}`}
             execution={commitExecution(ctx, quote)}
             privacy={{ level: levelOf(privacy?.score ?? score.components.privacy), score: privacy?.score ?? score.components.privacy }}
             lint={lintItems ?? []}
@@ -813,20 +870,6 @@ export function SwapScreen(p: SwapScreenProps) {
         </Page>
       );
     }
-    const price = priceFrom;
-    const cents = (u: bigint) => (price ? centsOf(u, fromAsset.decimals, price.usd1e8) : null);
-    const split = terms ? swapFunding(units, terms) : { privacy: 0n, network: 0n, delivered: units };
-    const tip = BigInt(quotes.executorTip ?? "0");
-    const stepsN = BigInt(stepsPlan?.n ?? 1); // a protected execution's steps each pay the relayer's F and their tip
-    const providerCents = providerFeeCents(quote.fees, fromAsset.symbol, fromAsset.decimals, price?.usd1e8 ?? null); // integer cents (the policy's rule 1)
-    const privacyCents = cents(split.privacy);
-    // into the protected balance the relayer also gets the shield tip, in the output asset: what arrives is the delivery less it
-    const shieldTip = intoProtected ? shieldTipOf(quotes) : 0n;
-    const shieldCents = shieldTip > 0n ? (priceTo ? centsOf(shieldTip, to.ref.decimals, priceTo.usd1e8) : null) : 0n;
-    const sourceRelayerCents = cents((split.network + tip) * stepsN);
-    const relayerCents = sourceRelayerCents !== null && shieldCents !== null ? sourceRelayerCents + shieldCents : null;
-    const mergeTotal = mergeEach * BigInt(mergeCount);
-    const mergeCents = mergeCount ? cents(mergeTotal) : 0n;
     const large = atLeast(tier, "large-protected");
     // the steps' price bound (V3 §3; the third review round, 2026-11-03): the band's Review had stated the one order's minimum and "Quote
     // locked" while the steps were held to the quote's minimum per unit less 0.5 % over their smaller amount — it states that bound now
@@ -842,28 +885,11 @@ export function SwapScreen(p: SwapScreenProps) {
         : null;
     const review: ReviewModel = {
       kind: crossChain ? "cross-chain" : "swap",
-      pay: { usdCents: cents(units), amount: amountOf(units, fromAsset.symbol, fromAsset.decimals) },
+      pay: { usdCents: cents(leaves), amount: amountOf(leaves, fromAsset.symbol, fromAsset.decimals) }, // the merges included, as Send (B4)
       receive: { amount: amountOf(BigInt(quote.toAmount) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain), approx: true },
       minimum: amountOf((stepsMinimum ?? BigInt(quote.toAmountMin)) - shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain),
-      fees: [
-        ...(split.privacy > 0n
-          ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, fromAsset.symbol, fromAsset.decimals) }]
-          : []),
-        {
-          kind: "relayer" as const,
-          ...(stepsN > 1n ? { count: Number(stepsN) } : {}), // F × n: the Review names the steps (spec v3.0 §3)
-          ...(stepsN > 1n && tip > 0n ? { approx: true } : {}), // the tips are today's estimate: each step pays its own at its time, within the bounds (the third review round)
-          usdCents: relayerCents,
-          amount: amountOf((split.network + tip) * stepsN, fromAsset.symbol, fromAsset.decimals),
-          ...(shieldTip > 0n ? { also: amountOf(shieldTip, to.ref.symbol, to.ref.decimals, to.ref.chain) } : {}),
-        },
-        ...(mergeCount
-          ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeTotal, fromAsset.symbol, fromAsset.decimals) }]
-          : []),
-        { kind: "provider" as const, usdCents: providerCents },
-      ],
-      totalFeesUsdCents:
-        privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents + providerCents : null,
+      fees,
+      totalFeesUsdCents,
       destination: {
         label: crossChain ? (edited ? `${destination.slice(0, 6)}…${destination.slice(-4)}` : t("send.freshEntry")) : t("screen.swap.protectedBalance"),
         verified: !edited || destAck,
@@ -1155,13 +1181,26 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     // what arrived, or no amount: never the minimum in its place (audit round 2, r54) — a provider that reports no amount
     // (Across, Mayan) had its worst case named as delivered, and a Mayan refund paid to the destination as the swap
     const delivered = record.amounts.delivered;
+    // what came back, from the refund notes the scan found in the order's own asset, and that the privacy fee did not (the seventh review
+    // round, 2026-11-03; docs/fee-policy.md §4: the refund screen names the amount that comes back)
+    const returnedTitle = () => {
+      const vault = String((stored?.params as { refundVault?: string } | undefined)?.refundVault ?? "").toLowerCase();
+      const back = (stored?.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + BigInt(x.amount), 0n);
+      const from = (stored?.request as { from?: { symbol?: string; decimals?: number } } | undefined)?.from;
+      return back > 0n && from?.symbol
+        ? t("screen.swap.returnedAmount", { amount: displayAmount(amountFrom(back.toString(), from.symbol, from.decimals ?? 18), "down"), symbol: from.symbol })
+        : t("screen.swap.returned");
+    };
     const title =
       record.state === "COMPLETED"
         ? delivered
-          ? t(intoProtected ? "screen.swap.doneProtected" : "screen.swap.done", { amount: displayAmount(amountFrom(delivered, sym, outDecimals)), symbol: sym })
+          ? t(intoProtected ? "screen.swap.doneProtected" : "screen.swap.done", {
+              amount: displayAmount(amountFrom(delivered, sym, outDecimals), "down"),
+              symbol: sym,
+            })
           : t("screen.swap.doneNoAmount")
         : record.state === "REFUNDED"
-          ? t("screen.swap.returned")
+          ? returnedTitle()
           : t("screen.swap.cancelled");
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
@@ -1192,8 +1231,8 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
           <h2 className="ds-card-title">{t("op.error.minimum_moved.title")}</h2>
           <p className="ds-note">
             {t("screen.swap.minimumMoved", {
-              now: displayAmount(amountFrom(netOfShield(paused.minOut, tip).toString(), sym, outDecimals)),
-              approved: displayAmount(amountFrom(netOfShield(paused.approved, tip).toString(), sym, outDecimals)),
+              now: displayAmount(amountFrom(netOfShield(paused.minOut, tip).toString(), sym, outDecimals), "down"),
+              approved: displayAmount(amountFrom(netOfShield(paused.approved, tip).toString(), sym, outDecimals), "down"),
               symbol: sym,
             })}
           </p>

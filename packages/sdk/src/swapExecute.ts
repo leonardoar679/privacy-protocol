@@ -66,6 +66,11 @@ export interface CommitInput {
   reviewedFee?: bigint;
   /** each merge the funding needs first pays at most this: the Review's F (the review round of 2026-11-03, E3) */
   reviewedMergeFee?: bigint;
+  /**
+   * The executor tip the Review showed (the seventh review round, 2026-11-03): the service builds the order on it, and an order whose tip is
+   * above it is refused. The commit's fresh competition had priced it again, up to three times what the Review said.
+   */
+  shownTip?: bigint;
   now?: number;
 }
 export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { privateKey: Hex; address: Hex }; refund: RefundNote; response: Awaited<ReturnType<typeof swapService.order>> }
@@ -98,10 +103,11 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     req = { ...req, destination: shield.receiver, destinationType: "protected" };
   }
   // a receipt goes with its commit: the service vouches for it once it is this order's (audit gap 47)
-  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}) });
+  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}), ...(i.shownTip !== undefined ? { executorTip: i.shownTip.toString() } : {}) });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3), read before the service was asked
   checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
+  if (i.shownTip !== undefined && BigInt(response.order.params.executorTip) > i.shownTip) throw new OrderMismatch("executorTip", `${response.order.params.executorTip} is more than the ${i.shownTip} the Review showed`);
   const order = response.order;
   // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
   const serviceTier = asTier(order.tier ?? response.tier);

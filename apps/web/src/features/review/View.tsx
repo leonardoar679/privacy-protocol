@@ -7,10 +7,11 @@
 // held without a swap's protected-execution checks — and an `extra` slot the flow fills with what its band adds: the
 // privacy lint, the typed-in destination re-confirmed; `confirmDisabled` until those are done).
 import type { ReactNode } from "react";
-import { Button, HoldButton, Page, ReviewLayout, StateScreen, TextButton, Card, type ReviewSection } from "@privacy-wallet/ui";
+import { Button, HoldButton, Page, ReviewLayout, StateScreen, TextButton, Card, formatAmount, formatUsdCents, type ReviewSection } from "@privacy-wallet/ui";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
+import type { Vars } from "../../app/i18n/messages";
 import { Amt, Usd, type Amount } from "../viewKit";
 
 export type Level = "high" | "medium" | "low";
@@ -61,6 +62,35 @@ const FEE: Record<ReviewFee["kind"], MessageKey> = {
   provider: "screen.review.providerFee",
   merges: "screen.review.mergeFees",
 };
+/**
+ * The fee section in words (the seventh review round, 2026-11-03): the V2–V4 Review from $100,000 renders text, and it had stated no fee,
+ * no merge and no fee statement — though every Review states them before you confirm (docs/fee-policy.md).
+ */
+export interface FeeRowsText {
+  rows: { id: ReviewFee["kind"]; label: string; value: string }[];
+  total: string;
+  statement: string;
+}
+export function feeRowsText(
+  t: (key: MessageKey, vars?: Vars) => string,
+  m: Pick<ReviewModel, "kind" | "fees" | "totalFeesUsdCents" | "feeStatement">,
+): FeeRowsText {
+  const amountText = (a: Amount, approx?: boolean) =>
+    `${approx ? "≈ " : ""}${formatAmount(a.units, { decimals: a.decimals, displayDecimals: a.displayDecimals, rounding: approx ? undefined : "up", pad: a.displayDecimals <= 2 })} ${a.symbol}`;
+  const value = (f: ReviewFee) =>
+    f.note ??
+    (f.usdCents !== null ? formatUsdCents(f.usdCents) : f.amount ? `${amountText(f.amount, f.approx)}${f.also ? ` + ${amountText(f.also)}` : ""}` : "—");
+  return {
+    rows: m.fees.map((f) => ({
+      id: f.kind,
+      label: f.kind === "relayer" && (f.count ?? 1) > 1 ? t("screen.review.relayerFeeSteps", { n: f.count ?? 1 }) : t(FEE[f.kind], { n: f.count ?? 1 }),
+      value: value(f),
+    })),
+    total: m.totalFeesUsdCents !== null ? formatUsdCents(m.totalFeesUsdCents) : "—",
+    statement: `${m.feeStatement ?? t("screen.review.feeStatement")}${!m.feeStatement && (m.kind === "swap" || m.kind === "cross-chain") ? ` ${t("screen.review.feeAgain")}` : ""}`,
+  };
+}
+
 const LEVEL: Record<Level, MessageKey> = { high: "screen.swap.protectionHigh", medium: "screen.swap.protectionMedium", low: "screen.swap.protectionLow" };
 /** The second line of "We stopped this transaction": the blocker in words (spec v2.0 §7.9). */
 export const BLOCKER_WORDS: Record<BlockerCode, MessageKey> = {

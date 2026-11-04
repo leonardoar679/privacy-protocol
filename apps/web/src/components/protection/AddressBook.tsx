@@ -106,7 +106,8 @@ function TestTransaction({ entry, masterSeed, deployment, onVerified }: { entry:
     // the catalog's words, not the engine's English progress lines (audit round 2, r55)
     setStatus(t("dest.test.sending"));
     try {
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: piece, recipient: entry.normalized as Address, vault: asset.vault, ...(split ? { maxFee: split.fee } : {}) });
+      // each merge it needs first at most the relayer's F read here (the seventh review round)
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: piece, recipient: entry.normalized as Address, vault: asset.vault, ...(split ? { maxFee: split.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}) });
       setStatus(t("dest.test.sent", { amount: formatAmount(asset, piece), symbol: asset.symbol, hash: r.txHash.slice(0, 10) }));
       onVerified();
     } catch (e) { setStatus(t(`op.error.${classify(e).code}.reason` as MessageKey)); } finally { setBusy(false); }

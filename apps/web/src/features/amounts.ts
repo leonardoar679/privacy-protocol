@@ -26,8 +26,8 @@ export function amountFrom(units: string | undefined, symbol: string, decimals: 
 }
 
 /** An amount's number as a sentence carries it — "4,950", "2,470.90", "0.989": the Amt component's rules (display decimals, grouping, a stablecoin's cents kept). */
-export const displayAmount = (a: Amount): string =>
-  formatAmount(a.units, { decimals: a.decimals, displayDecimals: a.displayDecimals, pad: a.displayDecimals <= 2 });
+export const displayAmount = (a: Amount, rounding?: "down" | "up"): string =>
+  formatAmount(a.units, { decimals: a.decimals, displayDecimals: a.displayDecimals, pad: a.displayDecimals <= 2, ...(rounding ? { rounding } : {}) });
 
 /** USD cents of `units` at an 8-decimal price (round down: a value is never overstated). */
 export const centsOf = (units: bigint, decimals: number, usd1e8: bigint): bigint => (units * usd1e8) / 10n ** BigInt(decimals) / 10n ** 6n;

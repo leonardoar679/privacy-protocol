@@ -274,6 +274,46 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(done.textContent, "the minimum is not what arrived").not.toMatch(/delivered/);
   }, 60_000);
 
+  it("a refunded swap names what came back and that the privacy fee did not (the seventh review round)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    const stored = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    const vault = String((stored.params as { refundVault: string }).refundVault);
+    session.update((j) => {
+      j.swaps.find((x) => x.orderId === orderId)!.refunds = [{ leafIndex: 7, vault, amount: (49n * 10n ** 16n).toString() }];
+    });
+    syncSwapRecord(
+      session.journal().swaps.find((x) => x.orderId === orderId)!,
+      { state: "REFUNDED", label: "Refunded", steps: [true, true, false, false], detail: "The escrow was re-shielded into your private balance." } as never,
+      { id: orderId, escrow: stored.endpoint, state: "refunded", updatedAt: Date.now() } as never,
+    );
+    cleanup();
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    const done = await screen.findByTestId("swap-done");
+    expect(done.textContent).toContain("0.49 ETH returned to your protected balance");
+    expect(done.textContent).toMatch(/privacy fee was earned at funding and does not come back/);
+  }, 60_000);
+
+  it("the order is built on the tip the Review showed; one the service prices higher at the commit is refused, nothing journaled (the seventh review round)", async () => {
+    await wallet();
+    world.quoteTip = 10n ** 15n;
+    await confirmed();
+    const body = JSON.parse(requests.filter((r) => r.url.endsWith("/v1/operations")).at(-1)!.body!);
+    expect(body.executorTip, "the commit names the tip the Review showed").toBe((10n ** 15n).toString());
+    expect((session.journal().swaps[0].params as { executorTip: string }).executorTip, "and the order carries it").toBe((10n ** 15n).toString());
+    world.orderTip = 11n * 10n ** 14n; // a service that prices it again, higher (still under three times the wallet's own estimate)
+    cleanup();
+    mount();
+    fireEvent.input(screen.getByTestId("amount-input"), { target: { value: "0.5" } });
+    await waitFor(() => expect(screen.getByTestId("swap-review")).toBeEnabled(), QUOTED);
+    fireEvent.click(screen.getByTestId("swap-review"));
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("review-confirm"));
+    });
+    await waitFor(() => expect(document.body.textContent).toMatch(/1100000000000000 is more than the 1000000000000000 the Review showed/));
+    expect(session.journal().swaps, "the refused order is never journaled").toHaveLength(1);
+  }, 60_000);
+
   it("the tracker's settlement label reads in the reader's language (audit round 2, n86)", async () => {
     await wallet();
     const { orderId } = await confirmed();

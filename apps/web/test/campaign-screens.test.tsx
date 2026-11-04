@@ -31,7 +31,8 @@ import { putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
 import { ADDRESS_LIKE, tradeSummary } from "../src/zkapi/tradeCheck";
 import { loadCatalog } from "../src/app/i18n/catalogs";
-import { setLocale } from "../src/app/i18n/messages";
+import { setLocale, t } from "../src/app/i18n/messages";
+import { feeRowsText } from "../src/features/review/View";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { Protection } from "@privacy-wallet/sdk/swapService";
 
@@ -119,6 +120,34 @@ describe("the Review's campaign moment (spec §15)", () => {
     expect(src.match(/Safe to execute/g)!.length, "the words appear only in the verdict type and its class choice").toBeLessThanOrEqual(3);
   });
 
+  it("the Review from $100,000 states every fee, the total and the fee statement (the seventh review round: it had stated none)", async () => {
+    const fees = feeRowsText(t, {
+      kind: "swap",
+      fees: [
+        { kind: "privacy", usdCents: 1_000_000n, amount: { units: 4n * 10n ** 18n, decimals: 18, displayDecimals: 4, symbol: "ETH" } },
+        { kind: "relayer", count: 40, approx: true, usdCents: 50_000n, amount: { units: 2n * 10n ** 17n, decimals: 18, displayDecimals: 4, symbol: "ETH" } },
+        { kind: "merges", count: 2, usdCents: null, amount: { units: 10n ** 15n, decimals: 18, displayDecimals: 4, symbol: "ETH" } },
+      ],
+      totalFeesUsdCents: 1_050_000n,
+    });
+    const c = await mount(<Review {...reviewProps({ fees })} />);
+    const block = c.querySelector('[data-testid="review-fees"]')!;
+    expect(block.querySelector('[data-testid="review-fee-privacy"]')!.textContent).toContain("$10,000.00");
+    expect(block.querySelector('[data-testid="review-fee-relayer"]')!.textContent).toMatch(/40/);
+    expect(block.querySelector('[data-testid="review-fee-merges"]')!.textContent).toContain("0.001 ETH");
+    expect(block.querySelector('[data-testid="review-total-fees"]')!.textContent).toContain("$10,500.00");
+    expect(block.querySelector('[data-testid="review-fee-statement"]')!.textContent).toMatch(/1 %/);
+  });
+  it("the progress names what did not arrive as asked and what stays in the balance (the seventh review round)", async () => {
+    let c0 = campaign();
+    c0 = withTrancheState(c0, 2, "undelivered", T0 + 9000, { orderId: "0x2", provider: "thorchain", outcome: { undelivered: "refunded-at-destination" } });
+    c0 = withTrancheState(c0, 3, "skipped", T0 + 9500, { outcome: { kept: true } });
+    const c = await mount(<CampaignProgress campaign={c0} onPause={() => {}} onResume={() => {}} onCancel={() => {}} now={T0 + 10_000} />);
+    expect(c.querySelector('[data-amount="ended"]')!.textContent).toContain("50 ETH");
+    expect(c.querySelector('[data-amount="kept"]')!.textContent).toContain("50 ETH");
+    expect(c.textContent).toContain("Not delivered as asked");
+    expect(c.textContent).toContain("Kept in your private balance");
+  });
   it("V4 (plan §55, §69): the verdict's EXECUTION line, and 'Cross-chain settlement is not atomic' stated on a cross-chain route", async () => {
     const c = await mount(<Review {...reviewProps({ verdict: { security: "Safe to execute", privacy: "Good", why: "security 69/100", execution: "Best available", executionWhy: "2 providers quoted this size; thorchain won on the policy's weights" }, crossChain: true })} />);
     expect(c.querySelector('[data-testid="verdict-execution"]')!.textContent).toBe("Best available ✓");

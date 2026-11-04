@@ -17,7 +17,7 @@ import type { Address } from "viem";
 import { groupAddress } from "@privacy-wallet/protocol/wallet/destinations";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { atLeast, availablePrice, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
-import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, type AssetOption } from "@privacy-wallet/ui";
+import { AssetSelector, Button, Card, Page, SuccessCard, TextButton, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { destinationStatusWords, destinationWords, unsavedAddressWords } from "../destinationWords";
 import { knownRecipients } from "../recipients";
@@ -40,7 +40,7 @@ import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { PrivacyLint } from "../../components/PrivacyLint";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review, type ReviewLine } from "../review/ReviewScreen";
-import { ReviewView, type ReviewModel } from "../review/View";
+import { ReviewView, feeRowsText, type ReviewModel } from "../review/View";
 import { OperationProgress } from "../operations/OperationProgress";
 import { ProgressView } from "../progress/View";
 import { furthestLine, progressModelOf } from "../progress/model";
@@ -122,7 +122,8 @@ export function SendScreen(p: SendScreenProps) {
   const leaving = asset && split && split.total > units && priced ? priceStore.assess(split.total, asset) : assessment;
   const tier: Tier = leaving?.tier ?? "standard";
   const controls = controlsFor(tier);
-  const price = asset ? availablePrice(prices.prices, asset.symbol) : null;
+  // read at the time of use (n18; the seventh review round): a price kept after failed refreshes is stale by now though its read was fresh
+  const price = asset ? availablePrice(prices.prices, asset.symbol, Math.floor(Date.now() / 1000)) : null;
   const usd = assessment && "usd" in assessment.value ? formatUsd(assessment.value.usd) : null;
   useEffect(() => {
     if (priced) void priceStore.refresh(p.deployment);
@@ -432,6 +433,25 @@ export function SendScreen(p: SendScreenProps) {
   const reviewPage = (() => {
     if (!asset || !split || (dest.kind !== "private" && dest.kind !== "public")) return <Navigate to="/send" replace />;
     const format = (u: bigint) => `${formatAmount(asset, u)} ${asset.symbol}`;
+    const cents = (u: bigint) => (price ? centsOf(u, asset.decimals, price.usd1e8) : null);
+    const privacyCents = cents(split.privacy),
+      relayerCents = cents(split.network),
+      mergeCents = mergeCount ? cents(mergeFees) : 0n;
+    const fees: ReviewModel["fees"] = [
+      ...(split.privacy > 0n ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, asset.symbol, asset.decimals) }] : []),
+      ...(split.network > 0n
+        ? [{ kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network, asset.symbol, asset.decimals) }]
+        : selfSubmitted
+          ? [{ kind: "relayer" as const, usdCents: null, note: t("screen.send.paidByWallet") }] // the wallet pays the network (W5)
+          : []),
+      ...(mergeCount ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeFees, asset.symbol, asset.decimals) }] : []),
+    ];
+    const totalFeesUsdCents = privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents : null;
+    // no privacy fee on a send the connected wallet submits (gap 31): the statement says so instead of "charged on each" (W5)
+    const feeStatement = selfSubmitted ? t("screen.review.feeStatementWallet") : undefined;
+    // what leaves: the amount, its fee note and the merges it needs first (the seventh review round: the Review from $100K had stated the
+    // spend's total alone, at the typed amount's value, and no fee)
+    const leaves = split.total + mergeFees;
     if (atLeast(tier, "enhanced")) {
       const lines: ReviewLine[] =
         dest.kind === "private"
@@ -507,8 +527,9 @@ export function SendScreen(p: SendScreenProps) {
             moment={dest.kind === "private" ? "send" : "withdraw"}
             tier={tier}
             controls={controls}
-            usd={usd}
-            amount={format(split.total)}
+            usd={cents(leaves) !== null ? formatUsdCents(cents(leaves)!) : usd}
+            amount={format(leaves)}
+            fees={feeRowsText(t, { kind: "send", fees, totalFeesUsdCents, ...(feeStatement ? { feeStatement } : {}) })}
             from={t("review.fromProtected", { symbol: asset.symbol })}
             to={
               dest.kind === "private"
@@ -534,28 +555,13 @@ export function SendScreen(p: SendScreenProps) {
         </Page>
       );
     }
-    const cents = (u: bigint) => (price ? centsOf(u, asset.decimals, price.usd1e8) : null);
-    const privacyCents = cents(split.privacy),
-      relayerCents = cents(split.network),
-      mergeCents = mergeCount ? cents(mergeFees) : 0n;
     const review: ReviewModel = {
       kind: "send",
-      pay: { usdCents: cents(split.total + mergeFees), amount: amountOf(split.total + mergeFees, asset.symbol, asset.decimals) },
+      pay: { usdCents: cents(leaves), amount: amountOf(leaves, asset.symbol, asset.decimals) },
       receive: { amount: amountOf(split.delivered, asset.symbol, asset.decimals), approx: false },
-      fees: [
-        ...(split.privacy > 0n ? [{ kind: "privacy" as const, usdCents: privacyCents, amount: amountOf(split.privacy, asset.symbol, asset.decimals) }] : []),
-        ...(split.network > 0n
-          ? [{ kind: "relayer" as const, usdCents: relayerCents, amount: amountOf(split.network, asset.symbol, asset.decimals) }]
-          : selfSubmitted
-            ? [{ kind: "relayer" as const, usdCents: null, note: t("screen.send.paidByWallet") }] // the wallet pays the network (W5)
-            : []),
-        ...(mergeCount
-          ? [{ kind: "merges" as const, count: mergeCount, usdCents: mergeCents, amount: amountOf(mergeFees, asset.symbol, asset.decimals) }]
-          : []),
-      ],
-      totalFeesUsdCents: privacyCents !== null && relayerCents !== null && mergeCents !== null ? privacyCents + relayerCents + mergeCents : null,
-      // no privacy fee on a send the connected wallet submits (gap 31): the statement says so instead of "charged on each" (W5)
-      ...(selfSubmitted ? { feeStatement: t("screen.review.feeStatementWallet") } : {}),
+      fees,
+      totalFeesUsdCents,
+      ...(feeStatement ? { feeStatement } : {}),
       destination: {
         label: dest.kind === "private" ? short(dest.address) : destinationKind === "fresh" ? t("send.freshEntry") : short(dest.address),
         verified: dest.kind === "private" || destinationKind === "fresh" || destAck,
@@ -660,7 +666,7 @@ function SendProgress(p: ProgressProps) {
   }, [record]);
   if (!record) return <Navigate to="/send" replace />;
   const delivered = record.amounts.expectedOutput ?? record.amounts.input;
-  const amountText = displayAmount(amountFrom(delivered, record.amounts.asset, record.amounts.decimals)); // the record's own asset: a reload may start on another one
+  const amountText = displayAmount(amountFrom(delivered, record.amounts.asset, record.amounts.decimals), "down"); // the record's own asset: a reload may start on another one
   const symbol = record.amounts.asset;
   if (record.state === "COMPLETED") {
     return (

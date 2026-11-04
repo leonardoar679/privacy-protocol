@@ -16,12 +16,13 @@ import type { Policy, Preference, Protection, ProviderRiskView, QuoteSet, RouteS
 import type { Signed } from "@privacy-wallet/sdk/swapExecute";
 import { IMPACT_CAP_BPS } from "@privacy-wallet/sdk/tiers";
 import { feeSummary } from "@privacy-wallet/sdk/swapService";
-import { buildCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
+import { buildCampaign, seededUniform, withRoute } from "@privacy-wallet/sdk/wallet/campaigns";
+import type { FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
 import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import type { MaximumLoss, ProtectionDetails, ReviewLine, Verdict, RouteDetails } from "../review/ReviewScreen";
 import { custodyWords, gateWords, protectionReasons, providerKind, providerName, refOf, settlementWords, type Target } from "./targets";
-import { netOfShield } from "./model";
+import { netOfShield, stepsAmountAtFixedPoint } from "./model";
 import { destinationStatusWords } from "../destinationWords";
 import { planDetail, planText } from "../review/words";
 import { durationText, hoursText } from "../../app/i18n/duration";
@@ -51,6 +52,11 @@ export interface SwapContext {
   destinationEdited: boolean;
   parsedOk: boolean;
   destAck: boolean;
+  /**
+   * The protected execution's own inputs (the seventh review round, 2026-11-03): the seed its pieces are drawn from, the funding the set was
+   * quoted for, the relayer's terms and the concentration setting — the Review's draft is then the plan the confirmation starts
+   */
+  steps?: { seed: number; quoted: bigint; terms: FeeTerms | null; providerShareCapBps?: number } | null;
   routeAck: boolean;
   destCheck: DestinationCheck | null;
   destinationLocked: boolean;
@@ -118,6 +124,8 @@ export function executeLines(t: T, s: Signed, stored: StoredSwap | null, to: Ass
 }
 
 export interface CampaignFacts {
+  /** the steps' amount at the count it makes (≤ 0: too small for the fees); the draft's when positive */
+  amount: bigint;
   quote: ServiceQuote; score: RouteScore; risk: ProviderRiskView | undefined; p: Protection; draft: Campaign; steps: number; verdict: Verdict; details: ProtectionDetails; maximumLoss: MaximumLoss; destinationPolicy: DestinationPolicy; privacyView: ReturnType<typeof assessPrivacy>; cadence: string;
 }
 
@@ -128,7 +136,14 @@ export function campaignFacts(c: SwapContext, provider: string, now = Date.now()
   const score = q.scores.find((x) => x.provider === provider) ?? q.chosen!;
   const risk: ProviderRiskView | undefined = q.risk?.[provider];
   const destinationPolicy: DestinationPolicy = c.destinationEdited ? { kind: "entered", address: c.destination } : { kind: "fresh-per-tranche" };
-  const draft = buildCampaign({ quotes: q, provider, from: refOf(c.fromAsset), fromAsset: c.fromAsset, to: c.to.ref, amount: c.units, tier: c.tier, mode: c.protection.mode, preference: c.preference, policy: c.policy, destination: destinationPolicy, usd: c.usd, capBps: c.protection.capBps, now, rng: () => 0.5 });
+  // the draft is the plan the confirmation starts (the seventh review round, B7): the steps' own amount at the count it makes, drawn from
+  // the confirmation's seed, with its funding, terms and concentration — it had been drafted from the typed amount and another draw
+  const st = c.steps ?? null;
+  const draftInput = { quotes: q, provider, from: refOf(c.fromAsset), fromAsset: c.fromAsset, to: c.to.ref, tier: c.tier, mode: c.protection.mode, preference: c.preference, policy: c.policy, destination: destinationPolicy, usd: c.usd, capBps: c.protection.capBps, ...(st?.providerShareCapBps !== undefined ? { providerShareCapBps: st.providerShareCapBps } : {}), ...(st ? { quotedAmount: st.quoted, terms: st.terms } : {}), now };
+  const rngOf = () => (st ? seededUniform(st.seed) : () => 0.5);
+  const countFor = (amount: bigint) => { try { return buildCampaign({ ...draftInput, amount, rng: rngOf() }).tranches.length; } catch { return 1; } };
+  const amount = st?.terms ? stepsAmountAtFixedPoint(c.units, st.terms, countFor).amount : c.units;
+  const draft = buildCampaign({ ...draftInput, amount: amount > 0n ? amount : c.units, rng: rngOf() });
   const loss = maximumLossModel(draft);
   const steps = draft.tranches.length;
   const incidentDays = risk?.security.incidentList.map((i) => (now - Date.parse(i.date)) / 86_400_000).filter((d) => d >= 0) ?? [];
@@ -148,17 +163,19 @@ export function campaignFacts(c: SwapContext, provider: string, now = Date.now()
   const execution: NonNullable<Verdict["execution"]> = liveQuotes >= 2 ? (q.chosen?.provider === provider ? "Best available" : "Review") : "Only route";
   const executionWhy = liveQuotes >= 2 ? (execution === "Best available" ? c.t("swap.facts.wonOnWeights", { n: liveQuotes, provider: providerName(provider) }) : c.t("swap.facts.chosenOverWinner", { n: liveQuotes, provider: providerName(provider), winner: providerName(q.chosen?.provider ?? "") })) : c.t("swap.facts.onlyRoute");
   const verdict: Verdict = { security: verdictSecurity, privacy: privacyView.level, why, execution, executionWhy };
-  const cadence = c.t("swap.facts.cadence", { lo: durationText(c.t, p.cadenceSeconds[0]), hi: durationText(c.t, p.cadenceSeconds[1]) });
+  // the plan's own cadence, class, gate and concurrency: the wallet's, never looser than the service's advice (the seventh review round)
+  const cadence = c.t("swap.facts.cadence", { lo: durationText(c.t, draft.plan.cadenceSeconds[0]), hi: durationText(c.t, draft.plan.cadenceSeconds[1]) });
   const details: ProtectionDetails = {
-    riskClass: p.riskClass + (p.flags.length ? ` + ${p.flags.join(", ")}` : ""), custody: custodyWords(c.t, p.custody), band: `${p.bandBps[0] / 100}–${p.bandBps[1] / 100} %`, cap: `${draft.plan.capBps / 100} %`,
-    gate: gateWords(c.t, p.gate), steps: `${steps} (${p.concurrency === "sequential" ? c.t("swap.oneAtATime") : c.t("swap.upToAtATime", { n: p.maxParallel })})`, duration: c.t("swap.facts.about", { duration: durationText(c.t, p.estimatedSeconds) }), cadence,
+    riskClass: draft.plan.riskClass + (p.flags.length ? ` + ${p.flags.join(", ")}` : ""), custody: custodyWords(c.t, p.custody), band: `${p.bandBps[0] / 100}–${p.bandBps[1] / 100} %`, cap: `${draft.plan.capBps / 100} %`,
+    gate: gateWords(c.t, draft.plan.gate), steps: `${steps} (${draft.plan.concurrency === "sequential" ? c.t("swap.oneAtATime") : c.t("swap.upToAtATime", { n: draft.plan.maxParallel })})`, duration: c.t("swap.facts.about", { duration: durationText(c.t, p.estimatedSeconds) }), cadence,
     elpf: p.elpf.perCampaignUsd !== null ? c.t("swap.facts.elpf", { step: formatUsd(p.elpf.perTrancheUsd ?? 0), operation: formatUsd(p.elpf.perCampaignUsd), prior: (p.elpf.prior * 100).toFixed(1) }) : c.t("swap.facts.elpfPrior", { prior: (p.elpf.prior * 100).toFixed(1) }),
     concentration: p.concentration.singleVenue ? c.t("swap.facts.singleVenue") : c.t("swap.facts.venues", { n: p.concentration.providers.length, cap: p.concentration.capBps / 100 }),
     ...((q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")?.provider ? { alternative: providerName((q.competition ?? []).find((x) => x.provider !== provider && x.outcome === "quoted")!.provider) } : {}),
   };
-  const prep = c.relayerFee !== null ? c.t("swap.facts.prepValued", { n: steps, eth: fmt((c.relayerFee * BigInt(steps)).toString(), 18) }) : c.t("swap.facts.prepLive", { n: steps });
+  // each step's fee note pays the relayer's F, in the order's own asset, with the room the steps keep for it rising (STEP_FEE_ROOM_BPS)
+  const prep = st?.terms ? c.t("swap.facts.prepValued", { n: steps, amount: amountWords(c, (st.terms.minimum * BigInt(steps) * 11n) / 10n) }) : c.t("swap.facts.prepLive", { n: steps });
   const maximumLoss: MaximumLoss = { order: amountWords(c, loss.order), cap: amountWords(c, loss.cap), maxExposure: amountWords(c, loss.maxExposure), protected: amountWords(c, loss.protected), preparation: prep };
-  return { quote, score, risk, p, draft, steps, verdict, details, maximumLoss, destinationPolicy, privacyView, cadence };
+  return { amount, quote, score, risk, p, draft, steps, verdict, details, maximumLoss, destinationPolicy, privacyView, cadence };
 }
 
 /** The Review before a protected execution (spec §15): the five lines plus Exposure and Security. */
@@ -170,7 +187,7 @@ export function campaignLines(c: SwapContext, f: CampaignFacts, onRouteAck: () =
     routeLine(c, live, onRouteAck),
     destinationLine(c, onDestAck, true),
     { id: "slippage", label: c.t("swap.lines.slippage"), ok: f.quote.impactBps === undefined || (f.p.trancheImpactBps ?? 0) <= IMPACT_CAP_BPS, meaning: f.p.trancheImpactBps !== null && f.p.trancheImpactBps !== undefined ? c.t("swap.lines.slippagePerStep", { bps: f.p.trancheImpactBps, cap: IMPACT_CAP_BPS }) : c.t("swap.lines.slippageNoFigure") },
-    { id: "exposure", label: c.t("swap.lines.exposure"), ok: f.draft.plan.capBps <= 5000, meaning: c.t("swap.lines.exposureMeaning", { cap: amountWords(c, maximumLossModel(f.draft).cap), percent: f.draft.plan.capBps / 100, concurrency: f.p.concurrency === "sequential" ? c.t("swap.oneStepAtATime") : c.t("swap.upToAtATime", { n: f.p.maxParallel }) }) },
+    { id: "exposure", label: c.t("swap.lines.exposure"), ok: f.draft.plan.capBps <= 5000, meaning: c.t("swap.lines.exposureMeaning", { cap: amountWords(c, maximumLossModel(f.draft).cap), percent: f.draft.plan.capBps / 100, concurrency: f.draft.plan.concurrency === "sequential" ? c.t("swap.oneStepAtATime") : c.t("swap.upToAtATime", { n: f.draft.plan.maxParallel }) }) },
     { id: "security", label: c.t("swap.lines.security"), ok: f.verdict.security !== "Do not execute", meaning: f.verdict.why },
     privacyLine(c.t, c.lintItems),
   ];
@@ -179,10 +196,12 @@ export function campaignLines(c: SwapContext, f: CampaignFacts, onRouteAck: () =
 
 /** The reroute Review (spec §8): a route change on a large operation is confirmed, never adopted quietly. */
 export function rerouteLines(t: T, c: Campaign, np: Protection | null, provider: string, fmtFrom: (u: string) => string): ReviewLine[] {
+  // what accepting applies (the seventh review round): the new route's class and gate under the wallet's own rules, the cap never higher
+  const after = withRoute(c, provider, np, undefined, Date.now(), () => 0.5);
   return [
     { id: "route", label: t("swap.lines.route"), ok: true, meaning: t("swap.lines.rerouteRoute", { provider: providerName(provider), before: c.provider ? providerName(c.provider) : "—" }) },
-    { id: "exposure", label: t("swap.lines.exposure"), ok: true, meaning: t("swap.lines.rerouteExposure", { cap: fmtFrom(c.bounds.maxExternalExposure) }) },
-    { id: "security", label: t("swap.lines.security"), ok: !np || np.riskClass !== "R6", meaning: np ? `${providerName(provider)}: ${t("swap.lines.rerouteSecurity", { cls: np.riskClass, custody: custodyWords(t, np.custody), gate: gateWords(t, np.gate) })}${np.reasons.length ? `; ${protectionReasons(t, np).join("; ")}` : ""}` : t("swap.lines.rerouteNoView") },
+    { id: "exposure", label: t("swap.lines.exposure"), ok: true, meaning: t("swap.lines.rerouteExposure", { cap: fmtFrom(after.bounds.maxExternalExposure) }) },
+    { id: "security", label: t("swap.lines.security"), ok: !np || np.riskClass !== "R6", meaning: np ? `${providerName(provider)}: ${t("swap.lines.rerouteSecurity", { cls: after.plan.riskClass, custody: custodyWords(t, np.custody), gate: gateWords(t, after.plan.gate) })}${np.reasons.length ? `; ${protectionReasons(t, np).join("; ")}` : ""}` : t("swap.lines.rerouteNoView") },
     { id: "privacy", label: t("swap.lines.privacy"), ok: true, meaning: t("swap.lines.reroutePrivacy") },
   ];
 }

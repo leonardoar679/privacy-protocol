@@ -114,7 +114,8 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     const leaves = funding?.total ?? total;
     if (noteStore.balance(BigInt(deployment.ethVault)) < leaves) { setStatus(`Not enough shielded ETH: ${formatEther(leaves)} ETH leaves your balance (${bucket} + ${FEE_RESERVE_ETH} fee reserve${funding ? ` + ${formatEther(funding.fee)} relayer and privacy fees` : ""}).`); return; }
     await run("Private withdrawal from the pool to the fresh funding address…", async () => {
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), onStatus: setStatus });
+      // each merge it needs first at most the relayer's F read here (the seventh review round: the merges had paid the live fee, unbounded)
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus });
       setStatus(`Fresh address ${fresh.address.slice(0, 10)}… funded with ${formatEther(total)} ETH (tx ${r.txHash.slice(0, 10)}…). Now deposit the credit.`);
     });
   }

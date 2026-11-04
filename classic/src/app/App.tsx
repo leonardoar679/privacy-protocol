@@ -229,7 +229,11 @@ export function App(props: AppProps = {}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const found = lookup?.kind === "found" && !lookup.facts.spent ? lookup : null;
   const relayer = relayers.find((r) => r.id === relayerId) ?? null;
-  const fees: FeeLines | null = found && relayer && gasPriceWei !== null ? feeLines(poolOf(found.pool), relayer, gasPriceWei) : null;
+  const liveFees: FeeLines | null = found && relayer && gasPriceWei !== null ? feeLines(poolOf(found.pool), relayer, gasPriceWei) : null;
+  // the fee the withdrawal's proof was made with, while its flow runs (the seventh review round, 2026-11-03): the rows had kept re-pricing
+  // at the minute's gas price behind the confirmation, and the page said less than the proof pays
+  const [flowFees, setFlowFees] = useState<FeeLines | null>(null);
+  const fees: FeeLines | null = flowFees ?? liveFees;
   const recipientInvalid = recipient.trim() !== "" && !isAddress(recipient);
   // a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03): the zero and burn addresses lose it, the pools' own contracts keep it
   const recipientRefused = recipient.trim() !== "" && isAddress(recipient) ? refusedRecipient(recipient) : null;
@@ -276,6 +280,7 @@ export function App(props: AppProps = {}) {
   const startWithdrawal = async () => {
     if (flowRunning || !services || !found || !parsed?.ok || !withdrawLive || !isAddress(recipient) || recipientRefused !== null) return;
     setFlowRunning(true);
+    setFlowFees(fees);
     setProving(true);
     setFlowMessage(null);
     setSubmitted(false);
@@ -310,6 +315,7 @@ export function App(props: AppProps = {}) {
     } finally {
       setProving(false);
       setFlowRunning(false);
+      setFlowFees(null);
       setConfirmOpen(false);
       confirmRef.current = null;
     }

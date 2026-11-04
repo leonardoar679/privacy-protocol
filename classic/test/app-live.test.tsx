@@ -16,6 +16,7 @@ import { WalletSession } from "../src/app/services/wallet";
 import { applyConfig, configFromEnv } from "../src/config";
 import type { DepositEvent } from "../src/history/events";
 import { formatNote, generateNote } from "../src/model/notes";
+import { fromWei } from "../src/model/format";
 import { DEPLOYMENT } from "../src/model/pools";
 import { memoryHistoryStore, memoryJobsStore } from "../src/storage/historyDb";
 import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, scriptedChain, word } from "./helpers/fakes";
@@ -195,6 +196,10 @@ describe("the wired app", () => {
     });
     expect(prover.proofs.length).toBe(1);
     expect(prover.proofs[0].recipient).toBe(BigInt(RECIPIENT).toString());
+    // what the proof pays and what arrives, restated where it is confirmed; the rows behind it held at the proof's fee (the seventh review round)
+    expect(screen.getByTestId("classic-confirm-fee")).toHaveTextContent(`${fromWei(BigInt(prover.proofs[0].fee))} ETH`);
+    expect(screen.getByTestId("classic-total-fee")).toHaveTextContent(`${fromWei(BigInt(prover.proofs[0].fee))} ETH`);
+    expect(screen.getByTestId("classic-confirm-receive")).toHaveTextContent("ETH");
     await act(async () => {
       fireEvent.click(screen.getByTestId("classic-confirm"));
     });

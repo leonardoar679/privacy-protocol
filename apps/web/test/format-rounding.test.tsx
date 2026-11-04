@@ -19,6 +19,12 @@ describe("amounts that must not read more than there is (audit round 2, the crit
     expect(render(<Amt a={a} />).container.textContent, "the default, as before").toContain("1.2346");
   });
 
+  it("a minimum or an arrived amount in a sentence rounds down too (the seventh review round)", async () => {
+    const { displayAmount } = await import("../src/features/amounts");
+    const a = { units: 123_456_789n, decimals: 8, displayDecimals: 4, symbol: "BTC" };
+    expect(displayAmount(a, "down")).toBe("1.2345");
+    expect(displayAmount(a)).toBe("1.2346");
+  });
   it("the money screens pass it: Home, Protect, Send, Swap and the Review's exact amount", async () => {
     const { readFileSync } = await import("node:fs");
     const { dirname, join } = await import("node:path");

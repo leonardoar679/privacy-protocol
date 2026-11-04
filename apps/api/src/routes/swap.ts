@@ -117,6 +117,16 @@ const windowOf = (b: any): number | undefined =>
     ? Number(b.executeWindowSeconds)
     : undefined;
 const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: preferenceOf(b), mode: modeOf(b), executeWindowSeconds: windowOf(b) });
+/**
+ * The executor tip the wallet's Review showed (the seventh review round, 2026-11-03): a commit is built on it, never priced again —
+ * the fresh competition had paid the escrow up to three times the tip the Review said. At most the escrow's 1 % of the amount; any
+ * other value is no hint (the wallet refuses an order whose tip is above the one it showed).
+ */
+const tipHintOf = (b: any, amount: bigint): { executorTip?: bigint } => {
+  if (!isUint256(b?.executorTip)) return {};
+  const tip = BigInt(b.executorTip);
+  return tip > 0n && tip * 100n <= amount ? { executorTip: tip } : {};
+};
 // A V6 follow-up of 2026-10-14: every number and string a request carries is checked here, at the edge. A malformed one
 // had reached the engine and the providers as NaN or a crash (a 500 logged as the API's own error), and a provider's
 // error over it could have counted against the provider's health for every user.
@@ -289,7 +299,7 @@ export class SwapApi {
     const b = body as Record<string, unknown>;
     if (b?.params !== undefined) return this.restore(b);
     const req = request(b);
-    const set = await this.engine.quoteAll(req, policyOf(b), hintsOf(b));
+    const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), ...tipHintOf(b, req.amount) });
     const provider = (b.provider ?? set.chosen?.provider) as ProviderId | undefined;
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote)
