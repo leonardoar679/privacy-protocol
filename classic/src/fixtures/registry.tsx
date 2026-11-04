@@ -273,7 +273,8 @@ export const FIXTURES: readonly Fixture[] = [
     ),
   ),
   en("classic-withdraw-spent", "Withdraw — the note has been spent", () =>
-    page("withdraw", <WithdrawTab {...withdraw({ text: formatNote(SPENT_NOTE), lookup: spent })} />),
+    // the check on chain offered beside the history's word (the tenth review round, C10-7)
+    page("withdraw", <WithdrawTab {...withdraw({ text: formatNote(SPENT_NOTE), lookup: spent, onCheckSpent: noop })} />),
   ),
   en("classic-withdraw-invalid", "Withdraw — the note is invalid", () =>
     page("withdraw", <WithdrawTab {...withdraw({ text: "tornado-eth-1-1-0xnot-a-note", malformed: true })} />),
@@ -285,12 +286,33 @@ export const FIXTURES: readonly Fixture[] = [
     page("withdraw", <WithdrawTab {...foundProps({ recipient: "0x1234", recipientInvalid: true, canWithdraw: false })} />, "eth-1"),
   ),
   en("classic-withdraw-proving", "Withdraw — generating the proof (a live pool)", () =>
-    page("withdraw", <WithdrawTab {...foundProps({ live: true, proving: true })} />, "eth-1"),
+    page("withdraw", <WithdrawTab {...foundProps({ live: true, proving: true, locked: true })} />, "eth-1"),
   ),
   en(
     "classic-withdraw-confirm",
     "Withdraw — the withdrawal confirmation",
-    () => page("withdraw", <WithdrawTab {...foundProps({ live: true, confirmOpen: true })} />, "eth-1"),
+    () =>
+      page(
+        "withdraw",
+        <WithdrawTab
+          {...foundProps({
+            live: true,
+            confirmOpen: true,
+            locked: true,
+            // the proof's own terms (the tenth review round, C10-1)
+            confirmTerms: {
+              pool: "eth-1",
+              recipient: FIXTURE_ADDRESS,
+              via: "relayer",
+              relayerName: MOCK_RELAYERS[0].name,
+              relayerAccount: "0x2222222222222222222222222222222222222222",
+              feeWei: FEES.totalFeeWei,
+              receiveWei: FEES.receiveWei,
+            },
+          })}
+        />,
+        "eth-1",
+      ),
     true,
   ),
   en("classic-withdraw-submitted", "Withdraw — handed to the relayer", () =>

@@ -39,6 +39,13 @@ export const formatCount = (n: number, locale = "en-US"): string => new Intl.Num
  * 2026-11-03, C2-1: the original's web3-utils check; a mistyped character in a checksummed address had been accepted as the
  * proof's recipient, which nothing can undo). All-lower or all-upper hex carries no checksum and passes as before.
  */
+/** An address in its EIP-55 spelling: the confirmation restates the proof's recipient so (the tenth review round, C10-1). */
+export const toChecksumAddress = (address: string): string => {
+  const hex = address.trim().slice(2).toLowerCase();
+  const hash = keccak256(hex);
+  return "0x" + Array.from(hex, (c, i) => (parseInt(hash[i], 16) >= 8 ? c.toUpperCase() : c)).join("");
+};
+
 export const isAddress = (s: string): boolean => {
   const a = s.trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return false;

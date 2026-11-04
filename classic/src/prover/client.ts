@@ -36,6 +36,10 @@ export interface ProverClientOptions {
 export const createProverWorker = (): WorkerLike =>
   new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "tornado-classic-prover" }) as unknown as WorkerLike;
 
+/** How long a close waits for the requests still pending, and then for the worker's own close (the tenth review round, C10-11). */
+export const CLOSE_DEFER_MS = 120_000;
+export const CLOSE_WAIT_MS = 5_000;
+
 interface Pending {
   resolve: (r: unknown) => void;
   reject: (e: Error) => void;
@@ -46,6 +50,7 @@ export class ProverClient {
   private worker: WorkerLike | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly opts: ProverClientOptions) {}
 
@@ -66,6 +71,7 @@ export class ProverClient {
       this.pending.delete(ev.id);
       if (ev.kind === "done") p.resolve(ev.result);
       else p.reject(new Error(ev.message));
+      if (this.closeTimer && this.pending.size === 0) this.closeNow();
     }
   }
 
@@ -135,14 +141,42 @@ export class ProverClient {
     return this.request<LayersResult>((id) => ({ id, kind: "tree:layers", pool })).then((r) => r.layers);
   }
 
-  /** Stops the worker and its sub-workers; pending requests are rejected. */
+  /**
+   * Stops the worker and its sub-workers once the requests still pending are answered (the tenth review round, C10-11): a close after a
+   * withdrawal had rejected another pool's tree build — its history then failed, and its notes read "invalid" — and terminated the worker
+   * in the same call that posted close, so the worker's own close never ran. Pending requests get CLOSE_DEFER_MS, then are rejected; the
+   * worker's answer to close (or CLOSE_WAIT_MS) ends it. A request made meanwhile goes to this worker and is waited for too.
+   */
   close(): void {
-    if (!this.worker) return;
+    if (!this.worker || this.closeTimer) return;
+    if (this.pending.size === 0) return this.closeNow();
+    this.closeTimer = setTimeout(() => this.closeNow(), CLOSE_DEFER_MS);
+  }
+
+  private closeNow(): void {
+    if (this.closeTimer) clearTimeout(this.closeTimer);
+    this.closeTimer = null;
+    const w = this.worker;
+    if (!w) return;
+    this.worker = null;
+    for (const p of this.pending.values()) p.reject(new Error("the prover was closed"));
+    this.pending.clear();
+    const id = this.nextId++;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const end = () => {
+      if (timer) clearTimeout(timer);
+      w.terminate();
+    };
+    // the old worker answers only its close now; a later request starts a new worker
+    w.onmessage = (e) => {
+      if (e.data.id === id && e.data.kind !== "progress") end();
+    };
+    w.onerror = end;
     try {
-      this.worker.postMessage({ id: this.nextId++, kind: "close" });
+      w.postMessage({ id, kind: "close" });
+      timer = setTimeout(end, CLOSE_WAIT_MS);
     } catch {
-      // already gone
+      end();
     }
-    this.fail(new Error("the prover was closed"));
   }
 }

@@ -14,12 +14,13 @@ import { resetRoute } from "../src/app/router";
 import { createServices, type ClassicServices } from "../src/app/services/source";
 import { WalletSession } from "../src/app/services/wallet";
 import { applyConfig, configFromEnv } from "../src/config";
-import type { DepositEvent } from "../src/history/events";
-import { formatNote, generateNote } from "../src/model/notes";
+import type { DepositEvent, RawLog } from "../src/history/events";
+import { formatNote, generateNote, parseNote, type ClassicNote } from "../src/model/notes";
 import { fromWei } from "../src/model/format";
 import { DEPLOYMENT } from "../src/model/pools";
 import { memoryHistoryStore, memoryJobsStore } from "../src/storage/historyDb";
-import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, scriptedChain, word } from "./helpers/fakes";
+import { fakeProver, fakeRelayerTransport, fakeWalletProvider, fixtureSnapshot, hex32, scriptedChain, withdrawalLog, word } from "./helpers/fakes";
+import { nullifierHashOf, toHex32 } from "../src/crypto/hashes";
 import status from "./fixtures/relayers/status.json";
 
 const ROUTER = "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b" as const;
@@ -51,12 +52,15 @@ const PIN_CALLS: Record<string, string> = {
   [selOf("instances(address)")]: `0x${word(0)}${word(0)}${word(1)}${word(0)}${word(30)}`,
 };
 
-function build(live: Record<string, string[]>) {
+function build(live: Record<string, string[]>, o: { logs?: RawLog[][] } = {}) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   applyConfig(config);
+  const transport = fakeRelayerTransport(status.v4.body);
   const chain = scriptedChain({
     head: snap.manifest.toBlock + 200,
-    logs: [[]],
+    logs: o.logs ?? [[]],
+    // the pool shows the note spent once the relayer has the job (the tenth review round, C10-3)
+    spent: () => transport.posted.length > 0,
     nextIndex: 1024,
     knownRoot: true,
     code: POOL_CODE, // the review round of 2026-11-03 (C2-6): the buttons follow the contract's verification
@@ -87,7 +91,7 @@ function build(live: Record<string, string[]>) {
     jobs: memoryJobsStore(),
     // the host serves the 100 ETH pool's snapshot; the other pools would be synced from their deployed blocks
     fetchSnapshot: async (pool) => (pool === "eth-100" ? snap : null),
-    relayerTransport: fakeRelayerTransport(status.v4.body),
+    relayerTransport: transport,
     curated,
     wallet,
     now: () => NOW * 1000,
@@ -197,6 +201,12 @@ describe("the wired app", () => {
     expect(prover.proofs.length).toBe(1);
     expect(prover.proofs[0].recipient).toBe(BigInt(RECIPIENT).toString());
     // what the proof pays and what arrives, restated where it is confirmed; the rows behind it held at the proof's fee (the seventh review round)
+    // — from the proof's own terms, and the inputs fixed while the flow runs (the tenth review round, C10-1)
+    expect(screen.getByTestId("classic-confirm-recipient")).toHaveTextContent(RECIPIENT);
+    expect(screen.getByTestId("classic-confirm-via")).toHaveTextContent("to-relayer.eth");
+    expect(screen.getByTestId("classic-confirm-relayer-account").textContent?.toLowerCase()).toContain(status.v4.body.rewardAccount.toLowerCase().slice(0, 8));
+    expect(screen.getByTestId("classic-recipient")).toBeDisabled();
+    expect(screen.getByTestId("classic-note-input")).toBeDisabled();
     expect(screen.getByTestId("classic-confirm-fee")).toHaveTextContent(`${fromWei(BigInt(prover.proofs[0].fee))} ETH`);
     expect(screen.getByTestId("classic-total-fee")).toHaveTextContent(`${fromWei(BigInt(prover.proofs[0].fee))} ETH`);
     expect(screen.getByTestId("classic-confirm-receive")).toHaveTextContent("ETH");
@@ -210,5 +220,24 @@ describe("the wired app", () => {
     await waitFor(() => expect(within(screen.getByTestId("classic-history")).getByText("Confirmed")).toBeInTheDocument());
     expect(document.body.textContent).not.toContain(NOTE.slice(-40));
     expect(document.body.textContent).not.toContain(RECIPIENT);
+  });
+
+  it("a note the history's Withdrawal events call spent still offers the on-chain check, and the pool's answer wins (the tenth review round, C10-7)", async () => {
+    const parsed = parseNote(NOTE) as { ok: true; note: ClassicNote };
+    const nullifierHash = toHex32(nullifierHashOf(parsed.note));
+    build(
+      { "eth-100": ["withdraw"] },
+      { logs: [[withdrawalLog(DEPLOYMENT.pools["eth-100"].address as `0x${string}`, nullifierHash, snap.manifest.toBlock + 100)]] },
+    );
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Note has been spent"));
+    expect(screen.getByTestId("classic-note-spent-source")).toHaveTextContent("nullifier hash");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-check-spent-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("unspent"));
+    expect(screen.queryByTestId("classic-note-error")).toBeNull();
+    expect(screen.getByTestId("classic-note-facts")).toBeInTheDocument();
   });
 });

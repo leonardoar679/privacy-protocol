@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { commitmentOf, nullifierHashOf, toHex32 } from "../../src/crypto/hashes";
 import { MerkleTree, rootOfPath } from "../../src/crypto/tree";
-import type { Hex, RawLog } from "../../src/history/events";
+import { TOPICS, type Hex, type RawLog } from "../../src/history/events";
 import type { SnapshotManifest, SnapshotTexts } from "../../src/history/snapshot";
 import type { Rpc } from "../../src/history/sync";
 import { SELECTORS } from "../../src/history/verify";
@@ -138,12 +138,14 @@ export interface ScriptedChainOptions {
   knownRoot?: boolean;
   /** isKnownRoot answered per root (the aging scenario); `knownRoot` otherwise */
   knownRoots?: (root: Hex) => boolean;
+  /** getLastRoot's answer; absent, an honest chain's: the root asked about with isKnownRoot in the same read, when that root is known
+   *  (the history's own check takes the last root exactly — the tenth review round, C10-5) */
   lastRoot?: Hex;
   receipts?: Record<string, { status: "0x1" | "0x0"; blockNumber: string } | null>;
   gasPrice?: string;
   code?: string;
-  /** isSpent's answer for every nullifier (the review round of 2026-11-03, C2-10) */
-  spent?: boolean;
+  /** isSpent's answer for every nullifier (the review round of 2026-11-03, C2-10); a function answers per read (spent once a relayer sent it) */
+  spent?: boolean | (() => boolean);
   calls?: Record<string, string>;
   /** block hashes the chain answers (the fixture's own for its block), others derived from the number */
   blockHashes?: Record<number, Hex>;
@@ -153,6 +155,9 @@ export interface ScriptedChainOptions {
 export function scriptedChain(o: ScriptedChainOptions) {
   const seen: { method: string; params: unknown[] }[] = [];
   let logCalls = 0;
+  // the root the last isKnownRoot read asked about: an honest chain's last root is it when it is known (getLastRoot is read first, in the
+  // same batch, so its answer waits a turn)
+  let asked: { root: Hex; known: boolean } | null = null;
   const rpc: Rpc = async (method, params) => {
     seen.push({ method, params });
     switch (method) {
@@ -178,11 +183,18 @@ export function scriptedChain(o: ScriptedChainOptions) {
         if (o.calls?.[sel]) return o.calls[sel];
         if (sel === SELECTORS.nextIndex) return `0x${word(o.nextIndex ?? 0)}`;
         if (sel === SELECTORS.isKnownRoot) {
-          const known = o.knownRoots ? o.knownRoots(`0x${data.slice(10)}` as Hex) : o.knownRoot !== false;
-          return `0x${word(known ? 1 : 0)}`;
+          const root = `0x${data.slice(10)}` as Hex;
+          asked = { root, known: o.knownRoots ? o.knownRoots(root) : o.knownRoot !== false };
+          return `0x${word(asked.known ? 1 : 0)}`;
         }
-        if (sel === SELECTORS.getLastRoot) return o.lastRoot ?? hex32(1n);
-        if (sel === SELECTORS.isSpent) return `0x${word(o.spent ? 1 : 0)}`;
+        if (sel === SELECTORS.getLastRoot) {
+          if (o.lastRoot) return o.lastRoot;
+          asked = null;
+          await new Promise((r) => setTimeout(r, 0));
+          const a = asked as { root: Hex; known: boolean } | null;
+          return a?.known ? a.root : hex32(1n);
+        }
+        if (sel === SELECTORS.isSpent) return `0x${word((typeof o.spent === "function" ? o.spent() : o.spent) ? 1 : 0)}`;
         throw new Error(`no answer for selector ${sel}`);
       }
       default:
@@ -190,6 +202,20 @@ export function scriptedChain(o: ScriptedChainOptions) {
     }
   };
   return { rpc, seen, options: o };
+}
+
+/** A Withdrawal log as a pool emits it: Withdrawal(address to, bytes32 nullifierHash, address indexed relayer, uint256 fee). */
+export function withdrawalLog(pool: Hex, nullifierHash: Hex, block: number, o: { to?: Hex; relayer?: Hex; fee?: bigint; txHash?: Hex } = {}): RawLog {
+  const addressWord = (a: string) => a.slice(2).toLowerCase().padStart(64, "0");
+  return {
+    address: pool,
+    topics: [TOPICS.Withdrawal, `0x${addressWord(o.relayer ?? `0x${"00".repeat(20)}`)}`],
+    data: `0x${addressWord(o.to ?? `0x${"11".repeat(20)}`)}${nullifierHash.slice(2)}${word(o.fee ?? 0n)}`,
+    blockNumber: `0x${block.toString(16)}`,
+    blockHash: hex32(BigInt(block) * 7_919n),
+    transactionHash: o.txHash ?? hex32(BigInt(block) + 555n),
+    logIndex: "0x1",
+  };
 }
 
 /** A Deposit log as a pool emits it. */
@@ -205,20 +231,46 @@ export function depositLog(pool: Hex, leaf: number, commitment: bigint, block: n
   };
 }
 
-/** A wallet: one account on a chain, the transactions it was asked to send, a hash per send. */
-export function fakeWalletProvider(account: Hex, chainId = 1) {
+/**
+ * A wallet: one account on a chain, the transactions it was asked to send, a hash per send — and, as a wallet's node does, the receipts of
+ * what it sent (the tenth review round, C10-12): `receipts` scripts them by hash (null: not mined yet); a sent hash is mined otherwise,
+ * unless `receipts` is "none" (a wallet that does not answer receipts).
+ */
+export function fakeWalletProvider(
+  account: Hex,
+  chainId = 1,
+  o: { receipts?: Record<string, { status: "0x1" | "0x0"; blockNumber: string } | null> | "none" } = {},
+) {
   const sent: unknown[] = [];
+  const hashes: string[] = [];
   const listeners: Record<string, ((...a: unknown[]) => void)[]> = {};
   let n = 0;
-  const provider: Eip1193Provider & { sent: unknown[]; listeners: typeof listeners } = {
+  const provider: Eip1193Provider & {
+    sent: unknown[];
+    listeners: typeof listeners;
+    chainId: number;
+    /** scripted receipts by hash (null: not mined yet); a sent hash missing here is mined */
+    receipts: Record<string, { status: "0x1" | "0x0"; blockNumber: string } | null>;
+    answersReceipts: boolean;
+  } = {
     sent,
     listeners,
+    chainId,
+    receipts: o.receipts && o.receipts !== "none" ? o.receipts : {},
+    answersReceipts: o.receipts !== "none",
     async request({ method, params }) {
       if (method === "eth_requestAccounts" || method === "eth_accounts") return [account];
-      if (method === "eth_chainId") return `0x${chainId.toString(16)}`;
+      if (method === "eth_chainId") return `0x${provider.chainId.toString(16)}`;
       if (method === "eth_sendTransaction") {
         sent.push((params as unknown[])[0]);
-        return hex32(BigInt(1000 + n++));
+        const hash = hex32(BigInt(1000 + n++));
+        hashes.push(hash);
+        return hash;
+      }
+      if (method === "eth_getTransactionReceipt" && provider.answersReceipts) {
+        const hash = String((params as unknown[])[0]).toLowerCase();
+        if (hash in provider.receipts) return provider.receipts[hash];
+        return hashes.includes(hash) ? { status: "0x1", blockNumber: "0x1", transactionHash: hash } : null;
       }
       throw new Error(`no answer for ${method}`);
     },

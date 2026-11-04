@@ -54,5 +54,8 @@ describe("configFromEnv", () => {
     // operator-named relayers skip the registry and the reward-account rule (the fourth review round, 2026-11-03): a dev build only
     expect(configFromEnv({ VITE_CLASSIC_RELAYER_URLS: "https://relayer.example" }).relayerUrls).toEqual(["https://relayer.example"]);
     expect(() => configFromEnv({ VITE_CLASSIC_RELAYER_URLS: "https://relayer.example", PROD: true })).toThrow(/development chains only/);
+    // mainnet only in production (the tenth review round, C10-15): the pins, the notes and the oracle are chain 1's
+    expect(configFromEnv({ VITE_CLASSIC_CHAIN_ID: "31337" }).chainId).toBe(31337);
+    expect(() => configFromEnv({ VITE_CLASSIC_CHAIN_ID: "31337", PROD: true })).toThrow(/development chains only/);
   });
 });

@@ -59,10 +59,11 @@ export const en = {
   "withdraw.recipientRefused.zero": "The zero address: a withdrawal sent there is lost.",
   "withdraw.recipientRefused.burn": "A burn address: a withdrawal sent there is lost.",
   "withdraw.recipientRefused.protocol": "A contract of the pools, the router or the verifier: a withdrawal sent there cannot come back.",
+  "withdraw.recipientRefused.token": "The {token} token's own contract: a withdrawal sent there cannot come back.",
   "withdraw.donate": "Donate",
   "withdraw.relayer": "Relayer",
   "withdraw.relayerTooltip":
-    "Use the relayer service to send your transaction. This option ensures better privacy since the gas fee is subtracted from the deposited funds.",
+    "Use the relayer service to send your transaction: the gas fee is subtracted from the deposited funds, so the withdrawal needs no ETH from any of your accounts.",
   "withdraw.wallet": "Wallet",
   "withdraw.walletTooltip": "Use your own account to initiate a withdrawal.",
   "withdraw.walletWarning":
@@ -87,13 +88,24 @@ export const en = {
   "withdraw.confirmTitle": "Withdrawal Confirmation",
   "withdraw.proofReady": "Your zk-Snark proof has been successfully generated! Please click Confirm to initiate the withdrawal",
   "withdraw.confirm": "Confirm",
+  "withdraw.confirmSentBy": "Sent by",
+  "withdraw.confirmWallet": "Your connected wallet (it pays the gas)",
+  "withdraw.confirmRelayerAccount": "Relayer account",
   "withdraw.notEnough":
     "The total fee is higher than the amount of tokens to be received. This could be due to high relayer's fee or temporary network congestion.",
   "withdraw.relayerOffline": "The chosen relayer is offline. Choose another one.",
   "withdraw.submitted": "The withdrawal was handed to the relayer. Follow it in History.",
   "error.noteInvalid": "Note is invalid",
   "error.noteSpent": "Note has been spent",
-  "error.noDeposit": "There is no related deposit. The note is invalid.",
+  "error.noDeposit":
+    "No deposit with this note was found in the pool's history. A deposit made in the last few minutes appears after 12 confirmations: check again shortly.",
+  "error.noDepositAt":
+    "No deposit with this note was found in the pool's history up to block {block}. A deposit made in the last few minutes appears after 12 confirmations: check again shortly.",
+  "error.historyUnavailable":
+    "The pool's history could not be loaded, so this note could not be checked. This does not mean the note is invalid: keep it and try again.",
+  "error.historyUnverified":
+    "The pool's history is not verified, so this note could not be checked. This does not mean the note is invalid: keep it and try again.",
+  "withdraw.spentFromHistory": "The pool's history names this note's nullifier hash in a withdrawal. Check on chain to ask the pool itself.",
   "error.otherNetwork": "Your note is from another network, please change network in the app.",
   "error.unknownPool": "This note names a pool this app does not serve.",
   "stats.title": "Statistics",
@@ -128,6 +140,7 @@ export const en = {
   "status.MINED": "Mined",
   "status.RESUBMITTED": "Resubmitted",
   "status.CONFIRMED": "Confirmed",
+  "status.reported": "Reported by the relayer",
   "status.FAILED": "Failed",
   "settings.title": "Settings",
   "settings.rpc": "RPC endpoint",
@@ -192,8 +205,14 @@ export const en = {
   "wallet.connecting": "Connecting…",
   "wallet.rejected": "The wallet refused the request.",
   "wallet.sanctioned": "This address cannot use the interface.",
+  "wallet.complianceUnavailable": "The compliance check could not be completed, so the wallet was disconnected. Try again later.",
   "withdraw.checkOnChain": "Check on chain",
   "withdraw.checkOnChainNotice": "This read tells the RPC endpoint the note's nullifier hash.",
+  "withdraw.spentReadNotice":
+    "Right before anything is sent, Withdraw asks the RPC endpoint whether this note is spent: the endpoint learns the note's nullifier hash then.",
+  "withdraw.reported": "The relayer reports the withdrawal confirmed, but the pool does not show this note spent yet. Check on chain before relying on it.",
+  "withdraw.receiptLost":
+    "The transaction's receipt did not arrive in time. Check History later, or check on chain whether the note is spent, before trying again.",
   "withdraw.spentOnChain": "The pool reports this note as spent.",
   "withdraw.unspentOnChain": "The pool reports this note as unspent.",
   "withdraw.historyNotVerified": "The history is not verified yet; a withdrawal waits for it.",
@@ -203,8 +222,11 @@ export const en = {
   "withdraw.failed": "The withdrawal did not go through: {reason}",
   "withdraw.cancelled": "The withdrawal was cancelled before anything was sent.",
   "withdraw.following": "Relayer: {state}",
-  "deposit.routerDisabledWarning": "The router has disabled this pool. A direct deposit to the pool is a visible pattern.",
+  "deposit.routerDisabledWarning":
+    "The router has disabled this pool. A direct deposit to the pool is a visible pattern, and relayers withdraw through the router: while it disables the pool, such a deposit can only be withdrawn in wallet mode.",
   "deposit.sent": "The deposit was handed to your wallet. Follow it in History.",
   "deposit.failed": "The deposit did not go through: {reason}",
+  "deposit.pending": "Your deposit was sent but is not confirmed yet. Keep your note: the deposit may still be mined. History shows it once it is.",
+  "deposit.reverted": "The deposit transaction reverted, so nothing was deposited with this note.",
   "notice.geofenced": "This interface is not available in your region.",
 } as const;

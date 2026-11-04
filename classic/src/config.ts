@@ -98,8 +98,12 @@ export function configFromEnv(env: Record<string, unknown>): ClassicConfig {
   // operator-named relayers skip the registry and the reward-account rule (the fourth review round, 2026-11-03): development only, as the two above
   if (list(e.VITE_CLASSIC_RELAYER_URLS).length && e.PROD === true)
     throw new Error("VITE_CLASSIC_RELAYER_URLS is for development chains only: a production build lists the curated relayers (classic/relayers.json)");
+  const chainId = Number(e.VITE_CLASSIC_CHAIN_ID ?? "1");
+  // the pins, the notes and the oracle are mainnet's (the tenth review round, C10-15): another chain id is for development chains only
+  if (chainId !== 1 && e.PROD === true)
+    throw new Error("VITE_CLASSIC_CHAIN_ID is for development chains only: a production build serves Ethereum mainnet (chain 1)");
   return {
-    chainId: Number(e.VITE_CLASSIC_CHAIN_ID ?? "1"),
+    chainId,
     rpcUrls: list(e.VITE_CLASSIC_RPC_URLS),
     relayerUrls: list(e.VITE_CLASSIC_RELAYER_URLS),
     dataBase: e.VITE_CLASSIC_DATA_BASE ?? `${base}data`,

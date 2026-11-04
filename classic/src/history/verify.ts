@@ -40,18 +40,29 @@ export interface ChainVerification {
   lastRoot: Hex;
   /** the root is inside the pool's window of the last 100 */
   known: boolean;
-  reason?: "leaf count" | "root unknown";
+  reason?: "leaf count" | "root unknown" | "root not last";
 }
 
-/** The synced tree against the pool at `block` (latest by default): leaves == nextIndex and the root known. */
-export async function verifyAgainstChain(rpc: Rpc, address: Hex, tree: { root: bigint; size: number }, block: string = "latest"): Promise<ChainVerification> {
+/**
+ * The synced tree against the pool at `block` (latest by default): leaves == nextIndex and the root known. `exact` takes the pool's
+ * last root itself (the tenth review round, C10-5): at a history's own block the last root IS the root of its nextIndex leaves, and
+ * any root of the window had passed — a tail of ZERO_VALUE leaves hashes to the root of fewer leaves, a known one. The flow's check at
+ * `latest`, twelve blocks past the history, keeps the window.
+ */
+export async function verifyAgainstChain(
+  rpc: Rpc,
+  address: Hex,
+  tree: { root: bigint; size: number },
+  block: string = "latest",
+  opts: { exact?: boolean } = {},
+): Promise<ChainVerification> {
   const root = toHex32(tree.root);
   const [nextIndex, lastRoot, known] = await Promise.all([
     call(rpc, address, SELECTORS.nextIndex, block).then((o) => Number(wordOf(o))),
     call(rpc, address, SELECTORS.getLastRoot, block).then((o) => toHex32(wordOf(o))),
     call(rpc, address, SELECTORS.isKnownRoot + word(tree.root), block).then((o) => wordOf(o) === 1n),
   ]);
-  const rootOk = known || lastRoot === root;
+  const rootOk = opts.exact ? lastRoot === root : known || lastRoot === root;
   const countOk = nextIndex === tree.size;
   return {
     ok: rootOk && countOk,
@@ -60,7 +71,7 @@ export async function verifyAgainstChain(rpc: Rpc, address: Hex, tree: { root: b
     nextIndex,
     lastRoot,
     known,
-    ...(countOk ? (rootOk ? {} : { reason: "root unknown" as const }) : { reason: "leaf count" as const }),
+    ...(countOk ? (rootOk ? {} : { reason: opts.exact && known ? ("root not last" as const) : ("root unknown" as const) }) : { reason: "leaf count" as const }),
   };
 }
 

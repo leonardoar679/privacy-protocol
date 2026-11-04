@@ -2,6 +2,7 @@
 // mainnet (or "wrong network"), its changes followed, and a transaction handed to it — a deposit through the router (or
 // straight to the pool when the router has disabled it, the user's explicit choice) or a wallet-mode withdrawal straight
 // to the pool. The receipt is read from the app's endpoints by the flow. Pure over the injected pieces.
+import type { Rpc } from "../../history/sync";
 import type { ConnectionState } from "../../model/types";
 import type { Pool } from "../../model/pools";
 import { encodePoolDeposit, encodePoolWithdraw, encodeRouterDeposit, type WithdrawArgs } from "../../wallet/calldata";
@@ -80,6 +81,16 @@ export class WalletSession {
     this.set({ status: "disconnected" });
   }
 
+  /**
+   * The connected wallet's provider as a JSON-RPC function, for the receipts of the user's own transactions (the tenth review round,
+   * C10-12): its node sent them and knows them; the app's endpoint asked for them had learned which IP made a deposit. Null with no wallet.
+   */
+  receiptRpc(): Rpc | null {
+    const provider = this.provider;
+    if (!provider) return null;
+    return (method, params) => provider.request({ method, params });
+  }
+
   get account(): `0x${string}` | null {
     return this.state.status === "connected" ? (this.state.account as `0x${string}`) : null;
   }
@@ -94,12 +105,12 @@ export class WalletSession {
     const { provider, from } = this.connected();
     const to = direct ? pool.address : this.d.router;
     const data = direct ? encodePoolDeposit(commitment) : encodeRouterDeposit(pool.address, commitment);
-    return sendTransaction(provider, { from, to, data, valueWei: pool.denominationWei });
+    return sendTransaction(provider, { from, to, data, valueWei: pool.denominationWei }, this.d.expectedChainId ?? MAINNET_CHAIN_ID);
   }
 
   /** The wallet-mode withdrawal, straight to the pool: no relayer, no fee, no refund. */
   async sendWithdrawal(pool: Pool, args: WithdrawArgs): Promise<`0x${string}`> {
     const { provider, from } = this.connected();
-    return sendTransaction(provider, { from, to: pool.address, data: encodePoolWithdraw(args), valueWei: 0n });
+    return sendTransaction(provider, { from, to: pool.address, data: encodePoolWithdraw(args), valueWei: 0n }, this.d.expectedChainId ?? MAINNET_CHAIN_ID);
   }
 }

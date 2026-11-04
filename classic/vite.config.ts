@@ -8,6 +8,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { buildCsp, cspPlugin, curatedRelayerOrigins, SECURITY_HEADERS } from "./scripts/csp.mjs";
 import { boundaryPlugin } from "./scripts/boundary.mjs";
+import { assertLiveCleared } from "./scripts/live-gate.mjs";
 
 function fixturesOnly(mode: string): Plugin {
   return {
@@ -42,9 +43,11 @@ function refuseUpgrades(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const root = fileURLToPath(new URL(".", import.meta.url));
   const env = loadEnv(mode, root, "VITE_");
+  // a production build switches a pool function on only when the legal review's record clears it (the tenth review round, C10-15)
+  if (command === "build" && mode === "production") assertLiveCleared(env.VITE_CLASSIC_LIVE ?? process.env.VITE_CLASSIC_LIVE, root);
   // the curated relayers (relayers.json) are allowed by the policy beside the environment's hosts
   const relayers = curatedRelayerOrigins();
   return {

@@ -176,6 +176,10 @@ async function handle(req: ProverRequest): Promise<ProverResult | null> {
       const r = ready;
       ready = null;
       if (r) await (await r.catch(() => null))?.prover.close();
+      trees.clear();
+      // answered before the scope ends (the tenth review round, C10-11): the client terminated the worker in the same call that posted close,
+      // and this handler — websnark's sub-workers stopped — never ran
+      post({ id: req.id, kind: "done", result: { closed: true } });
       scope.close();
       return null;
     }

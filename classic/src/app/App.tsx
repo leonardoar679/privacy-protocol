@@ -6,15 +6,15 @@
 // sends a transaction while a pool function is not live (spec v3.0 §7.7): the sending buttons read "Not connected", the
 // banner says so on every screen, and the flows refuse as well.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { config, isLive } from "../config";
+import { config, isLive, POOL_IDS } from "../config";
 import { feeLines } from "../model/fees";
-import { isAddress } from "../model/format";
-import { refusedRecipient } from "../model/recipient";
+import { isAddress, toChecksumAddress } from "../model/format";
+import { refusedRecipient, tokenOfRecipient } from "../model/recipient";
 import { mockSource } from "../model/mock";
 import { formatNote, generateNote, noteFileName, parseNote, type ClassicNote } from "../model/notes";
 import { NET_ID, poolOf, type PoolId } from "../model/pools";
 import type { ClassicSource } from "../model/source";
-import type { Availability, FeeLines, HistoryRow, NoteLookup, PoolFunctionLive, PoolStats, RelayerInfo, WithdrawMode } from "../model/types";
+import type { Availability, ConfirmTerms, FeeLines, HistoryRow, NoteLookup, PoolFunctionLive, PoolStats, RelayerInfo, WithdrawMode } from "../model/types";
 import { readLocaleChoice, writeLocaleChoice } from "../storage/prefs";
 import type { DiscoveredWallet } from "../wallet/injected";
 import { ConnectModal, walletLabel } from "../views/Connect";
@@ -29,7 +29,8 @@ import { en } from "./i18n/en";
 import { detectLocale, locale, onLocale, setLocale, t, type LocaleChoice } from "./i18n/messages";
 import { navigate, useRoute } from "./router";
 import { geofenceAnswer, isSanctioned } from "./services/compliance";
-import { depositFlow, withdrawalFlow } from "./services/flows";
+import { depositFlow, REVERTED, withdrawalFlow, type ProofTerms } from "./services/flows";
+import type { JobRecord } from "./services/operations";
 import { isSpentOnChain } from "../history/spent";
 import { createServices, factsOf, sourceOf, type ClassicServices, anyLive } from "./services/source";
 import { canDeposit, canWithdraw as canWithdrawNow } from "../model/availability";
@@ -88,9 +89,13 @@ export function App(props: AppProps = {}) {
   const [relayerId, setRelayerId] = useState<string | null>(null);
   const [gasPriceWei, setGasPriceWei] = useState<bigint | null>(null);
   // the relayers are asked when the Withdraw tab or the relayer settings open — never at page load (the review round of
-  // 2026-11-03, C2-7): every listed host had received the IP of every visitor, depositors included, before any notice was shown
+  // 2026-11-03, C2-7): every listed host had received the IP of every visitor, depositors included, before any notice was shown.
+  // On the Withdraw tab only when a withdrawal is switched on (the tenth review round, C10-15): with nothing live every listed host
+  // still received the IP of every visitor who opened it
+  const anyWithdrawLive = POOL_IDS.some((p) => isLive(c, p, "withdraw"));
   useEffect(() => {
     if (route !== "withdraw" && route !== "settings") return;
+    if (route === "withdraw" && services && !anyWithdrawLive) return;
     let on = true;
     void source
       .refreshRelayers()
@@ -103,7 +108,7 @@ export function App(props: AppProps = {}) {
     return () => {
       on = false;
     };
-  }, [source, route]);
+  }, [source, route, services, anyWithdrawLive]);
   // the relayers: the directory's list as the statuses come in (every redraw), the mock's otherwise
   const relayers: RelayerInfo[] = services ? services.relayers.list() : mockRelayers;
   useEffect(() => {
@@ -123,16 +128,31 @@ export function App(props: AppProps = {}) {
     setWalletOpen(true);
     setWallets(await services.wallet.discover());
   };
+  // the sanctions oracle, when its switch is on: a read that fails refuses, as the original did (the tenth review round, C10-9 — it had
+  // left the wallet connected under "The wallet refused the request.")
+  const screen = async (account: string): Promise<"clear" | "listed" | "unavailable"> => {
+    if (!services?.rpc) return "unavailable";
+    try {
+      return (await isSanctioned(services.rpc, account as `0x${string}`)) ? "listed" : "clear";
+    } catch {
+      return "unavailable";
+    }
+  };
+  const screenedAccount = useRef<string | null>(null);
   const chooseWallet = async (id: string) => {
     if (!services) return;
     setConnecting(true);
     setWalletError(null);
     try {
       const state = await services.wallet.connect(id);
-      if (c.complianceOracle && services.rpc && state.status === "connected" && (await isSanctioned(services.rpc, state.account as `0x${string}`))) {
-        services.wallet.disconnect();
-        setWalletError(t("wallet.sanctioned"));
-        return;
+      if (c.complianceOracle && state.status === "connected") {
+        const verdict = await screen(state.account);
+        if (verdict !== "clear") {
+          services.wallet.disconnect();
+          setWalletError(t(verdict === "listed" ? "wallet.sanctioned" : "wallet.complianceUnavailable"));
+          return;
+        }
+        screenedAccount.current = state.account;
       }
       setWalletOpen(false);
     } catch {
@@ -141,6 +161,26 @@ export function App(props: AppProps = {}) {
       setConnecting(false);
     }
   };
+  // every account the wallet switches to is screened too (C10-9): the oracle had been asked at Connect only; the flows ask again at every send
+  const connectedAccount = walletState.status === "connected" ? walletState.account : null;
+  useEffect(() => {
+    if (!services || !c.complianceOracle || !connectedAccount || screenedAccount.current === connectedAccount) return;
+    let on = true;
+    void screen(connectedAccount).then((verdict) => {
+      if (!on) return;
+      if (verdict === "clear") {
+        screenedAccount.current = connectedAccount;
+        return;
+      }
+      services.wallet.disconnect();
+      setWalletError(t(verdict === "listed" ? "wallet.sanctioned" : "wallet.complianceUnavailable"));
+      setWalletOpen(true);
+    });
+    return () => {
+      on = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- screen reads the services alone
+  }, [services, c.complianceOracle, connectedAccount]);
 
   // the deposit: a note generated on the device, shown once, dropped when the modal closes (spec §7.11)
   const [note, setNote] = useState<ClassicNote | null>(null);
@@ -153,7 +193,11 @@ export function App(props: AppProps = {}) {
   // the deposit of this note left (a transaction hash exists): Send Deposit gives way to Close (the fourth review round, 2026-11-03 — a
   // second click had asked the wallet to sign the same commitment again, which the pool reverts at the gas of a mainnet transaction)
   const [depositDone, setDepositDone] = useState(false);
+  // which note the modal shows (the tenth review round, C10-15): a deposit's answer that arrives after another note was opened had been
+  // shown in that note's modal
+  const noteSeq = useRef(0);
   const openNote = () => {
+    noteSeq.current++;
     setNotePool(pool);
     setNote(generateNote("eth", poolOf(pool).amount, NET_ID, (n) => crypto.getRandomValues(new Uint8Array(n))));
     setBackedUp(false);
@@ -176,17 +220,29 @@ export function App(props: AppProps = {}) {
   // the modal's facts are the note's pool's (the fourth review round, 2026-11-03): two of its props had read the selector's pool
   const noteRouterDisabled = services?.facts.get(notePool)?.router === "disabled";
   const noteLive = isLive(c, notePool, "deposit");
+  // a deposit's words (the tenth review round, C10-4): a receipt not yet arrived is "sent, not confirmed — keep your note", never "did not
+  // go through"; a revert says nothing was deposited; only a refusal before the wallet sent anything is "did not go through"
+  const depositWords = (job: JobRecord): string =>
+    job.state === "COMPLETED"
+      ? t("deposit.sent")
+      : job.state === "FAILED"
+        ? job.failedReason === REVERTED
+          ? t("deposit.reverted")
+          : t("deposit.failed", { reason: job.failedReason ?? "" })
+        : t("deposit.pending");
   const sendDeposit = async () => {
     if (!services || !note || !isLive(c, notePool, "deposit")) return;
+    const seq = noteSeq.current;
     setDepositBusy(true);
     setDepositMessage(null);
     try {
       const direct = services.facts.get(notePool)?.router === "disabled";
       const job = await depositFlow(services, { pool: notePool, note, direct, onJob: () => setHistoryVersion((v) => v + 1) });
+      if (seq !== noteSeq.current) return; // another note is on screen now: History holds this one's record
       if (job.txHash) setDepositDone(true);
-      setDepositMessage(job.state === "FAILED" ? t("deposit.failed", { reason: job.failedReason ?? "" }) : t("deposit.sent"));
+      setDepositMessage(depositWords(job));
     } catch (e) {
-      setDepositMessage(t("deposit.failed", { reason: e instanceof Error ? e.message : "" }));
+      if (seq === noteSeq.current) setDepositMessage(t("deposit.failed", { reason: e instanceof Error ? e.message : "" }));
     } finally {
       setDepositBusy(false);
     }
@@ -227,7 +283,9 @@ export function App(props: AppProps = {}) {
   const [recipient, setRecipient] = useState("");
   const [mode, setMode] = useState<WithdrawMode>("relayer");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const found = lookup?.kind === "found" && !lookup.facts.spent ? lookup : null;
+  // the chain's answer wins over the history's Withdrawal events (the tenth review round, C10-7): "spent" from events nothing verifies had
+  // also hidden the one check that asks the pool
+  const found = lookup?.kind === "found" && (!lookup.facts.spent || spentOnChain === "unspent") ? lookup : null;
   const relayer = relayers.find((r) => r.id === relayerId) ?? null;
   const liveFees: FeeLines | null = found && relayer && gasPriceWei !== null ? feeLines(poolOf(found.pool), relayer, gasPriceWei) : null;
   // the fee the withdrawal's proof was made with, while its flow runs (the seventh review round, 2026-11-03): the rows had kept re-pricing
@@ -237,11 +295,23 @@ export function App(props: AppProps = {}) {
   const recipientInvalid = recipient.trim() !== "" && !isAddress(recipient);
   // a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03): the zero and burn addresses lose it, the pools' own contracts keep it
   const recipientRefused = recipient.trim() !== "" && isAddress(recipient) ? refusedRecipient(recipient) : null;
+  const recipientToken = recipientRefused === "token" ? tokenOfRecipient(recipient) : null;
   const withdrawLive = found ? isLive(c, found.pool, "withdraw") : false;
   const historyVerified = found ? (services ? services.histories.get(found.pool)?.verified === true : true) : false;
   // one withdrawal flow at a time (C2-4): the button had come back the moment the confirmation opened, and a second click meant a
   // second proof and a second submission of the same note
   const [flowRunning, setFlowRunning] = useState(false);
+  // a reload is asked first while a deposit's transaction is awaited or a withdrawal's flow runs (the tenth review round, C10-4)
+  const inFlight = depositBusy || flowRunning;
+  useEffect(() => {
+    if (!inFlight) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [inFlight]);
   const canWithdraw =
     !!found &&
     !flowRunning &&
@@ -262,6 +332,7 @@ export function App(props: AppProps = {}) {
   // the flow: the proof in the worker, the confirmation, the relayer's job or the wallet's transaction
   const [proving, setProving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTerms, setConfirmTerms] = useState<ConfirmTerms | null>(null);
   const confirmRef = useRef<((ok: boolean) => void) | null>(null);
   const [flowMessage, setFlowMessage] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -284,18 +355,30 @@ export function App(props: AppProps = {}) {
     setProving(true);
     setFlowMessage(null);
     setSubmitted(false);
+    const via = mode;
+    const chosen = via === "relayer" ? relayer : null;
+    const notePool = found.pool;
     try {
       const job = await withdrawalFlow(services, {
-        pool: found.pool,
+        pool: notePool,
         note: parsed.note,
         facts: found.facts,
         recipient: recipient.trim() as `0x${string}`,
-        via: mode,
+        via,
         relayerId: relayerId ?? undefined,
         feeWei: fees?.totalFeeWei,
-        confirm: () =>
+        // the confirmation restates what the proof pays, from its own public signals (the tenth review round, C10-1)
+        confirm: (terms: ProofTerms) =>
           new Promise<boolean>((resolve) => {
             confirmRef.current = resolve;
+            setConfirmTerms({
+              pool: notePool,
+              recipient: toChecksumAddress(terms.recipient),
+              via,
+              ...(via === "relayer" && chosen ? { relayerName: chosen.name, relayerAccount: toChecksumAddress(terms.relayer) } : {}),
+              feeWei: terms.feeWei,
+              receiveWei: poolOf(notePool).denominationWei - terms.feeWei - terms.refundWei,
+            });
             setProving(false);
             setConfirmOpen(true);
           }),
@@ -307,8 +390,10 @@ export function App(props: AppProps = {}) {
       });
       if (job.state === "FAILED") setFlowMessage(t("withdraw.failed", { reason: job.failedReason ?? "" }));
       else if (job.state === "RECOVERY_REQUIRED")
-        setFlowMessage(t("withdraw.answerLost")); // the relayer's answer did not arrive (C2-3)
+        setFlowMessage(t(job.via === "wallet" ? "withdraw.receiptLost" : "withdraw.answerLost")); // the relayer's answer (C2-3), or the receipt, did not arrive
       else if (job.state === "CANCELLED") setFlowMessage(t("withdraw.cancelled"));
+      else if (job.relayerState === "CONFIRMED" && job.state !== "COMPLETED")
+        setFlowMessage(t("withdraw.reported")); // C10-3
       else if (job.via === "wallet" && job.txHash) setFlowMessage(t("withdraw.sentToWallet"));
     } catch (e) {
       setFlowMessage(t("withdraw.failed", { reason: e instanceof Error ? e.message : "" }));
@@ -317,6 +402,7 @@ export function App(props: AppProps = {}) {
       setFlowRunning(false);
       setFlowFees(null);
       setConfirmOpen(false);
+      setConfirmTerms(null);
       confirmRef.current = null;
     }
   };
@@ -326,12 +412,14 @@ export function App(props: AppProps = {}) {
     setConfirmOpen(false);
   };
   const checkSpent = async () => {
-    if (!services?.rpc || !found || !parsed?.ok) return;
+    // any deposit found, spent by the history's events or not (C10-7)
+    const looked = lookup?.kind === "found" ? lookup : null;
+    if (!services?.rpc || !looked || !parsed?.ok) return;
     setSpentOnChain("checking");
     try {
       const derived = await (await services.prover()).note(formatNote(parsed.note));
       if (!derived.ok) throw new Error("the note is not readable");
-      setSpentOnChain((await isSpentOnChain(services.rpc, poolOf(found.pool).address, derived.nullifierHash)) ? "spent" : "unspent");
+      setSpentOnChain((await isSpentOnChain(services.rpc, poolOf(looked.pool).address, derived.nullifierHash)) ? "spent" : "unspent");
     } catch {
       setSpentOnChain(null);
     }
@@ -436,6 +524,9 @@ export function App(props: AppProps = {}) {
           onRecipient={setRecipient}
           recipientInvalid={recipientInvalid}
           recipientRefused={recipientRefused}
+          recipientToken={recipientToken}
+          locked={flowRunning}
+          confirmTerms={confirmTerms}
           donate={c.donationAddress !== null}
           onDonate={() => c.donationAddress && setRecipient(c.donationAddress)}
           mode={mode}

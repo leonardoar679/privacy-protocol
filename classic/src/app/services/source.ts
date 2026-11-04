@@ -241,10 +241,12 @@ export function factsOf(s: ClassicServices, pool: PoolId): AvailabilityFacts {
 
 /**
  * A deposit whose receipt did not arrive in time, or is still awaited, is read again when the history is read (the fourth review
- * round, 2026-11-03): an underpriced deposit mined later had left a "Failed" row for a deposit that exists.
+ * round, 2026-11-03): an underpriced deposit mined later had left a "Failed" row for a deposit that exists. Through the connected
+ * wallet (the tenth review round, C10-12): the app's endpoint asked for the deposit's own hash had learned this IP made it.
  */
 async function refreshDepositJobs(s: ClassicServices): Promise<void> {
-  if (!s.rpc) return;
+  const rpc = receiptRpcOf(s);
+  if (!rpc) return;
   for (const job of await s.depositJobs.list()) {
     if (
       job.kind !== "deposit" ||
@@ -253,8 +255,8 @@ async function refreshDepositJobs(s: ClassicServices): Promise<void> {
     )
       continue;
     try {
-      const receipt = (await s.rpc("eth_getTransactionReceipt", [job.txHash])) as { status?: string } | null;
-      if (!receipt) continue;
+      const receipt = (await rpc("eth_getTransactionReceipt", [job.txHash])) as { status?: string; blockNumber?: string } | null;
+      if (!receipt?.blockNumber) continue;
       const ok = receipt.status === "0x1";
       const { failedReason: _dropped, ...rest } = job;
       void _dropped;
@@ -265,24 +267,85 @@ async function refreshDepositJobs(s: ClassicServices): Promise<void> {
   }
 }
 
-/** A relayed withdrawal whose page is gone is asked about again when the history is read (the review round of 2026-11-03, C2-8). */
+/**
+ * A relayed withdrawal whose page is gone is asked about again when the history is read (the review round of 2026-11-03, C2-8). The
+ * relayer's CONFIRMED completes the record only once the pool's synced Withdrawal events hold its transaction (the tenth review round,
+ * C10-3): a relayer that answered CONFIRMED and sent nothing had the record read "Confirmed" — and a user discards a note withdrawn.
+ * Until then the row reads "reported by the relayer". The relayer's free text is kept short and plain (C10-15).
+ */
 const OPEN_RELAYED = new Set(["SUBMITTING", "SOURCE_CONFIRMING", "RECOVERY_REQUIRED"]);
 async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
   for (const job of await s.jobs.list()) {
     if (job.kind !== "withdrawal" || !job.relayerUrl || !job.relayerJobId || !OPEN_RELAYED.has(job.state)) continue;
     try {
       const j = await jobOf(s.relayerTransport, job.relayerUrl, job.relayerJobId); // never a submission: the job is read, nothing sent
-      const next = fromRelayerState(j.status);
+      const txHash = (j.txHash as Hex | null) ?? job.txHash;
+      let next = fromRelayerState(j.status);
+      if (next === "COMPLETED") {
+        const h = s.histories.get(job.pool);
+        if (h && txHash) await h.ensure().catch(() => undefined);
+        if (!(h && txHash && h.hasWithdrawalTx(txHash))) next = job.state === "SUBMITTING" ? "SOURCE_CONFIRMING" : job.state;
+      }
       await s.jobs.put({
         ...job,
         relayerState: j.status,
-        txHash: (j.txHash as Hex | null) ?? job.txHash,
+        txHash,
         state: next,
         updatedAt: s.now(),
-        ...(j.failedReason ? { failedReason: j.failedReason } : {}),
+        ...(j.failedReason ? { failedReason: plainText(j.failedReason) } : {}),
       });
     } catch {
       // the relayer did not answer: the record stays as it is
+    }
+  }
+}
+
+/**
+ * Receipts of the user's own transactions through the connected wallet's provider (the tenth review round, C10-12): the app's endpoint
+ * asked for a deposit's own hash had learned that this IP made that deposit; the wallet's node sent it and knows it already. The app's
+ * endpoint answers only a call the wallet does not.
+ */
+export function receiptRpcOf(s: ClassicServices): Rpc | null {
+  const own = s.wallet.receiptRpc();
+  const app = s.rpc;
+  if (!own) return app;
+  if (!app) return own;
+  return async (method, params) => {
+    try {
+      return await own(method, params);
+    } catch {
+      return app(method, params);
+    }
+  };
+}
+
+/** A relayer's or a wallet's free text as the records keep it: one line, printable, at most 160 characters (the tenth review round, C10-15). */
+export const plainText = (s: string): string => {
+  const line = s
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+};
+
+/**
+ * A wallet-mode withdrawal whose receipt did not come in time is read again when the history is read, through the connected wallet (the
+ * tenth review round, C10-15): nothing had read it again, and the row had stayed "the relayer's answer did not arrive" for good.
+ */
+async function refreshWalletWithdrawals(s: ClassicServices): Promise<void> {
+  const rpc = receiptRpcOf(s);
+  if (!rpc) return;
+  for (const job of await s.jobs.list()) {
+    if (job.kind !== "withdrawal" || job.via !== "wallet" || !job.txHash || !(job.state === "SOURCE_CONFIRMING" || job.state === "RECOVERY_REQUIRED")) continue;
+    try {
+      const receipt = (await rpc("eth_getTransactionReceipt", [job.txHash])) as { status?: string; blockNumber?: string } | null;
+      if (!receipt?.blockNumber) continue;
+      const ok = receipt.status === "0x1";
+      const { failedReason: _dropped, ...rest } = job;
+      void _dropped;
+      await s.jobs.put({ ...rest, state: ok ? "COMPLETED" : "FAILED", updatedAt: s.now(), ...(ok ? {} : { failedReason: "the transaction reverted" }) });
+    } catch {
+      // the wallet did not answer: the record stays as it is
     }
   }
 }
@@ -291,6 +354,7 @@ async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
 export function sourceOf(s: ClassicServices): ClassicSource {
   const rows = async (): Promise<HistoryRow[]> => {
     await refreshRelayedJobs(s);
+    await refreshWalletWithdrawals(s);
     await refreshDepositJobs(s);
     const jobs = [...(await s.jobs.list()), ...(await s.depositJobs.list())].sort((a, b) => a.createdAt - b.createdAt);
     return jobs.map((job: JobRecord) => toHistoryRow(job)).reverse();
@@ -309,8 +373,17 @@ export function sourceOf(s: ClassicServices): ClassicSource {
       await h.ensure();
       const derived = await (await s.prover()).note(formatNote(note));
       if (!derived.ok) return { kind: "invalid" };
-      const facts = h.lookup(derived.commitment, derived.nullifierHash);
-      return facts ? { kind: "found", pool: pool.id, facts } : { kind: "no-deposit" };
+      let facts = h.lookup(derived.commitment, derived.nullifierHash);
+      // a miss is a statement about the history (the tenth review round, C10-2): a verified one is synced again once and read again; a
+      // failed or unverified one says the note could not be checked — "The note is invalid" had been said of valid notes in both
+      if (!facts && h.verified) {
+        await h.refresh();
+        facts = h.lookup(derived.commitment, derived.nullifierHash);
+      }
+      if (facts) return { kind: "found", pool: pool.id, facts };
+      const st = h.status;
+      if (st.kind === "ready" && st.verified) return { kind: "no-deposit", toBlock: st.toBlock };
+      return st.kind === "ready" ? { kind: "history-unverified" } : { kind: "history-unavailable" };
     },
     async relayers(): Promise<RelayerInfo[]> {
       return s.relayers.onlineCount() === null ? s.relayers.refresh() : s.relayers.list();

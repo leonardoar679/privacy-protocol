@@ -8,7 +8,7 @@ import { formatCount, fromWei, isAddress, shortHash, toDecimals, toGwei, weiOfEt
 import { FIXTURE_NOTE, mockLookup, mockStats, SPENT_NOTE } from "../src/model/mock";
 import { formatNote, generateNote, leBigInt, noteFileName, parseNote } from "../src/model/notes";
 import { DEPLOYMENT, NET_ID, poolFor, poolOf, POOLS } from "../src/model/pools";
-import { protocolAddresses, refusedRecipient } from "../src/model/recipient";
+import { protocolAddresses, refusedRecipient, tokenOfRecipient } from "../src/model/recipient";
 import { MIN_HOURS, MIN_SUBSEQUENT_DEPOSITS, notEnoughDeposits, notEnoughTime, timePassed } from "../src/model/time";
 import { percentOf } from "../src/views/Withdraw";
 
@@ -24,6 +24,12 @@ describe("a recipient a withdrawal must not go to (the fourth review round, 2026
     for (const a of protocolAddresses()) expect(refusedRecipient(a)).toBe("protocol");
     expect(refusedRecipient(DEPLOYMENT.router.address.toUpperCase().replace(/^0X/, "0x"))).toBe("protocol");
     expect(refusedRecipient("0x1111111111111111111111111111111111111111")).toBeNull();
+    // a token's own contract that takes ETH (the tenth review round, C10-8): what it receives is credited to the pool, or kept, for good
+    expect(refusedRecipient("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")).toBe("token");
+    expect(tokenOfRecipient("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")).toBe("WETH");
+    expect(refusedRecipient("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84")).toBe("token");
+    expect(tokenOfRecipient("0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0")).toBe("wstETH");
+    expect(tokenOfRecipient("0x1111111111111111111111111111111111111111")).toBeNull();
     expect(refusedRecipient("0x1234")).toBeNull(); // not an address: another check's word
     expect(refusedRecipient("")).toBeNull();
   });

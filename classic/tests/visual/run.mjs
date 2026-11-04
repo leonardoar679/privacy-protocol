@@ -142,8 +142,15 @@ async function layout(page) {
 /** The Classic word policy and the two display rules, on the visible text. */
 async function vocabulary(page) {
   const text = await page.evaluate(() => document.body.innerText);
+  // the one full address a screen shows: the withdrawal confirmation's recipient (the tenth review round, C10-1 — a shortened address is
+  // what address poisoning matches), marked data-full-address; every other address and hash stays shortened
+  const shown = await page.evaluate(() => {
+    let t = document.body.innerText;
+    for (const e of document.querySelectorAll("[data-full-address]")) t = t.split(e.innerText).join("");
+    return t;
+  });
   const problems = PROMISES.filter(([, rx]) => rx.test(text)).map(([word]) => `the screen says "${word}" (spec v3.0 §7.9)`);
-  if (ADDRESS.test(text)) problems.push("the screen shows a full address (hashes and addresses are shortened)");
+  if (ADDRESS.test(shown)) problems.push("the screen shows a full address (hashes and addresses are shortened)");
   if (LONG_DECIMALS.test(text)) problems.push("an amount past six decimals");
   return problems;
 }

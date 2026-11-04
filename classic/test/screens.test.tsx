@@ -163,7 +163,9 @@ describe("the withdraw tab", () => {
     type(input, "tornado-eth-1-1-0xnot-a-note");
     expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Note is invalid");
     type(input, formatNote({ ...FIXTURE_NOTE, amount: "100" }));
-    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("There is no related deposit. The note is invalid."));
+    // a miss says what the history holds, never "the note is invalid" (the tenth review round, C10-2)
+    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("No deposit with this note was found in the pool's history."));
+    expect(screen.getByTestId("classic-note-error")).not.toHaveTextContent(/invalid/);
     type(input, formatNote({ ...FIXTURE_NOTE, netId: 5 }));
     await waitFor(() =>
       expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Your note is from another network, please change network in the app."),

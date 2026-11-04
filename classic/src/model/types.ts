@@ -30,7 +30,12 @@ export type NoteLookup =
   | { kind: "invalid" }
   | { kind: "other-network"; netId: number }
   | { kind: "unknown-pool" }
-  | { kind: "no-deposit" }
+  /** the history verified, synced again and read: no Deposit with the note's commitment up to its block (the tenth review round,
+   *  C10-2: "The note is invalid" had been said of valid notes — the history failed or behind, a deposit of the last minutes) */
+  | { kind: "no-deposit"; toBlock?: number }
+  /** the pool's history could not be loaded, or the chain did not agree with it: the note could not be checked, it is not invalid */
+  | { kind: "history-unavailable" }
+  | { kind: "history-unverified" }
   | { kind: "found"; pool: PoolId; facts: DepositFacts };
 
 /** The withdrawal's fee lines in wei (spec §7.5; the original's WithdrawTotal). */
@@ -50,6 +55,18 @@ export interface PoolStats {
   latest: readonly { leafIndex: number; timestamp: number }[];
 }
 
+/** What the proof pays, restated at the confirmation from its own public signals (the tenth review round, C10-1). */
+export interface ConfirmTerms {
+  pool: PoolId;
+  /** EIP-55 */
+  recipient: string;
+  via: WithdrawMode;
+  relayerName?: string;
+  relayerAccount?: string;
+  feeWei: bigint;
+  receiveWei: bigint;
+}
+
 export type JobStatus = "QUEUED" | "ACCEPTED" | "SENT" | "MINED" | "RESUBMITTED" | "CONFIRMED" | "FAILED";
 
 /** A row of the history: a deposit this device made or a withdrawal job it submitted — never a note. */
@@ -59,7 +76,8 @@ export interface HistoryRow {
   pool: PoolId;
   timestamp: number;
   txHash?: string;
-  status: "waiting" | "deposited" | "withdrawn" | "failed" | JobStatus;
+  /** "reported": the relayer answered CONFIRMED and the pool does not show the withdrawal yet (the tenth review round, C10-3) */
+  status: "waiting" | "deposited" | "withdrawn" | "failed" | "reported" | JobStatus;
   depositsSince?: number;
   spent?: boolean;
 }

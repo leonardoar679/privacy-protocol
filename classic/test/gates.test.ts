@@ -22,6 +22,26 @@ describe("the word policy (spec v3.0 §7.9)", () => {
     ]);
     expect(scan("Anonymity set · Subsequent deposits · Time passed · 100 ETH · 0.1 ETH")).toEqual([]);
   });
+  it("a production build switches a pool function on only when the legal review's record clears it (the tenth review round, C10-15)", async () => {
+    const { liveGateProblems } = await import("../scripts/live-gate.mjs");
+    const empty = "| Outcome | — |\n| Pool functions cleared | — |";
+    expect(liveGateProblems(undefined, empty)).toEqual([]);
+    expect(liveGateProblems("{}", empty)).toEqual([]);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', empty)).toEqual([
+      "classic/docs/legal-review.md records no outcome: no pool function may be switched on",
+      "VITE_CLASSIC_LIVE switches eth-1:withdraw on, which classic/docs/legal-review.md does not list as cleared",
+    ]);
+    const filled = "| Outcome | cleared with conditions |\n| Pool functions cleared | eth-1:withdraw, eth-10:withdraw |";
+    expect(liveGateProblems('{"eth-1":["withdraw"],"eth-10":["withdraw"]}', filled)).toEqual([]);
+    expect(liveGateProblems('{"eth-1":["deposit","withdraw"]}', filled)).toEqual([
+      "VITE_CLASSIC_LIVE switches eth-1:deposit on, which classic/docs/legal-review.md does not list as cleared",
+    ]);
+    // the committed record clears nothing today
+    const { readFileSync } = await import("node:fs");
+    const record = readFileSync(new URL("../docs/legal-review.md", import.meta.url), "utf8");
+    expect(liveGateProblems('{"eth-100":["withdraw"]}', record).length).toBeGreaterThan(0);
+  });
+
   it("the app's sources say no promise word", () => {
     const r = checkWords();
     expect(r.problems).toEqual([]);

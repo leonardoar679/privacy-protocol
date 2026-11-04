@@ -1,8 +1,8 @@
 // The prover client over a fake worker (spec v3.0 §7.3; V7 Stage 6): requests numbered and matched to their answers,
 // progress delivered to the request that asked, an error answer rejecting that request alone, a worker failure
 // rejecting everything pending and the next request starting a new worker, close posting close.
-import { describe, expect, it } from "vitest";
-import { ProverClient, type WorkerLike } from "../src/prover/client";
+import { describe, expect, it, vi } from "vitest";
+import { CLOSE_DEFER_MS, CLOSE_WAIT_MS, ProverClient, type WorkerLike } from "../src/prover/client";
 import type { ProverEvent, ProverRequest } from "../src/prover/protocol";
 import vector from "../vectors/proof.json";
 
@@ -82,15 +82,46 @@ describe("the prover client", () => {
     expect(await c).toEqual({ ok: false });
   });
 
-  it("close posts close, terminates and rejects what was pending; closing twice is harmless", async () => {
+  it("close with nothing pending posts close and ends the worker on its answer; closing twice is harmless; the next request starts a new worker (the tenth review round, C10-11)", async () => {
     const { client, workers } = setup();
     const a = client.warm();
+    workers[0].emit({ id: 1, kind: "done", result: { workers: 1, wasmPages: 1, fromCache: true, artifactsMs: 0, buildMs: 0 } });
+    await a;
     client.close();
-    expect(workers[0].sent.at(-1)?.kind).toBe("close");
+    const close = workers[0].sent.at(-1)!;
+    expect(close.kind).toBe("close");
+    expect(workers[0].terminated, "not before the worker's own close ran").toBe(false);
+    workers[0].emit({ id: close.id, kind: "done", result: { closed: true } });
     expect(workers[0].terminated).toBe(true);
-    await expect(a).rejects.toThrow(/closed/);
     client.close();
-    expect(workers.length).toBe(1);
+    expect(workers[0].sent.filter((m) => m.kind === "close")).toHaveLength(1);
+    const b = client.note("tornado-eth-1-1-0x" + "00".repeat(62));
+    expect(workers.length).toBe(2);
+    workers[1].emit({ id: workers[1].sent[0].id, kind: "done", result: { ok: false } });
+    expect(await b).toEqual({ ok: false });
+  });
+
+  it("close waits for the requests still pending — another pool's tree build finishes first (C10-11); past CLOSE_DEFER_MS they are rejected; a worker that never answers its close is ended after CLOSE_WAIT_MS", async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, workers } = setup();
+      const build = client.buildTree("eth-1", []);
+      client.close();
+      expect(workers[0].sent.map((m) => m.kind)).toEqual(["tree:build"]);
+      workers[0].emit({ id: 1, kind: "done", result: { pool: "eth-1", leaves: 0, root: `0x${"00".repeat(32)}` } });
+      expect(await build).toMatchObject({ pool: "eth-1" });
+      expect(workers[0].sent.at(-1)!.kind).toBe("close");
+      expect(workers[0].terminated).toBe(false);
+      vi.advanceTimersByTime(CLOSE_WAIT_MS);
+      expect(workers[0].terminated, "no answer: ended all the same").toBe(true);
+      const hung = client.warm();
+      client.close();
+      vi.advanceTimersByTime(CLOSE_DEFER_MS);
+      await expect(hung).rejects.toThrow(/closed/);
+      expect(workers[1].sent.at(-1)!.kind).toBe("close");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a worker that cannot be created rejects the request", async () => {

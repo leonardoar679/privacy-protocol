@@ -111,6 +111,8 @@ export function toHistoryRow(job: JobRecord, facts?: { depositsSince?: number; s
     const status = job.state === "COMPLETED" ? "deposited" : job.state === "FAILED" || job.state === "CANCELLED" ? "failed" : "waiting";
     return { ...base, status };
   }
+  // a relayer's CONFIRMED the pool does not show yet is the relayer's report, never "Confirmed" (the tenth review round, C10-3)
+  if (job.relayerState === "CONFIRMED" && job.state !== "COMPLETED") return { ...base, status: "reported" };
   if (job.relayerState) return { ...base, status: job.relayerState };
   const status = job.state === "COMPLETED" ? "withdrawn" : job.state === "FAILED" || job.state === "CANCELLED" ? "failed" : "waiting";
   return { ...base, status };

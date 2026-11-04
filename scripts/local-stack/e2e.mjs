@@ -1334,7 +1334,8 @@ try {
     await clickId(page, "classic-tab-withdraw");
     await fillId(page, "classic-note-input", `tornado-eth-1-1-0x${randomHex(62)}`);
     await byId(page, "classic-note-error").waitFor({ timeout: 60_000 });
-    check("a well-formed note nobody deposited: the pool's history (synced from this chain) finds no related deposit", /no related deposit/.test(await text(byId(page, "classic-note-error"))), await text(byId(page, "classic-note-error")));
+    // the words say what the history holds, never "the note is invalid" (the tenth review round, C10-2)
+    check("a well-formed note nobody deposited: the pool's history (synced from this chain) holds no deposit with it, and the note is not called invalid", /No deposit with this note was found in the pool's history/.test(await text(byId(page, "classic-note-error"))) && !/invalid/.test(await text(byId(page, "classic-note-error"))), await text(byId(page, "classic-note-error")));
     await fillId(page, "classic-note-input", `tornado-eth-1-5-0x${randomHex(62)}`);
     await until(page, async () => /another network/.test(await text(byId(page, "classic-note-error")).catch(() => "")), 30_000, 500);
     check("a note of another network is refused by name", /another network/.test(await text(byId(page, "classic-note-error"))), await text(byId(page, "classic-note-error")));

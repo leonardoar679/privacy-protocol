@@ -19,9 +19,10 @@ import type { ProofResult, ProverProgress } from "../../prover/protocol";
 import { followJob, submitWithdrawal, RelayerRefusal } from "../../relayer/client";
 import { relayerArgs } from "../../wallet/calldata";
 import { waitForReceipt } from "../../wallet/connection";
+import { isSanctioned } from "./compliance";
 import { gasPriceWei } from "./gas";
 import { fromRelayerState, move, newJob, type JobRecord } from "./operations";
-import { factsOf, type ClassicServices } from "./source";
+import { factsOf, plainText, receiptRpcOf, type ClassicServices } from "./source";
 
 export type FlowStep =
   | { step: "proof"; progress?: ProverProgress }
@@ -42,6 +43,35 @@ export class FlowRefused extends Error {}
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const id = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+/** What a proof pays, from its own public signals: the confirmation restates it (the tenth review round, C10-1). */
+export interface ProofTerms {
+  recipient: Hex;
+  relayer: Hex;
+  feeWei: bigint;
+  refundWei: bigint;
+}
+
+/** The record's reason when a receipt says the transaction reverted: the screens tell it from a refusal. */
+export const REVERTED = "the transaction reverted";
+
+/**
+ * The sanctions oracle, when its switch is on, asked of the account a transaction is sent from, right before it is (the tenth review
+ * round, C10-9): it had been asked at Connect only — an account the wallet switched to afterwards sent unscreened — and a read that
+ * failed had left the wallet connected. A read that fails refuses, as the original did.
+ */
+async function assertScreened(s: ClassicServices): Promise<void> {
+  if (!s.config.complianceOracle) return;
+  const account = s.wallet.account;
+  if (!s.rpc || !account) throw new FlowRefused("the compliance check could not be made: nothing is sent");
+  let listed: boolean;
+  try {
+    listed = await isSanctioned(s.rpc, account);
+  } catch {
+    throw new FlowRefused("the compliance check could not be completed: nothing is sent");
+  }
+  if (listed) throw new FlowRefused("this address cannot use the interface: nothing is sent");
+}
 
 /** The deposit: commitment → wallet → receipt; the record moved and kept at every step. */
 export async function depositFlow(s: ClassicServices, input: DepositInput): Promise<JobRecord> {
@@ -74,22 +104,29 @@ export async function depositFlow(s: ClassicServices, input: DepositInput): Prom
   if (!derived.ok) throw new FlowRefused("the note is not readable");
   await keep(move(job, "READY_TO_REVIEW", now()));
   await keep(move(job, "AWAITING_AUTHORIZATION", now()));
+  try {
+    await assertScreened(s);
+  } catch (e) {
+    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the compliance check failed" }));
+  }
   let txHash: Hex;
   try {
     txHash = await s.wallet.sendDeposit(poolOf(pool), derived.commitment, { direct: input.direct ?? false });
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the wallet refused" }));
+    return keep(move(job, "FAILED", now(), { failedReason: plainText(e instanceof Error ? e.message : "the wallet refused") }));
   }
   await keep(move(job, "SUBMITTING", now(), { txHash }));
   await keep(move(job, "SOURCE_CONFIRMING", now()));
-  if (!s.rpc) return job; // no endpoint to read the receipt from: the record stays confirming until the history catches it
+  const rpc = receiptRpcOf(s);
+  if (!rpc) return job; // nothing to read the receipt from: the record stays confirming until the history catches it
   try {
-    const receipt = await waitForReceipt(s.rpc, txHash, s.receiptOptions);
-    return keep(
-      move(job, receipt.status === "success" ? "COMPLETED" : "FAILED", now(), receipt.status === "success" ? {} : { failedReason: "the transaction reverted" }),
-    );
-  } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the receipt never came" }));
+    const receipt = await waitForReceipt(rpc, txHash, s.receiptOptions);
+    return keep(move(job, receipt.status === "success" ? "COMPLETED" : "FAILED", now(), receipt.status === "success" ? {} : { failedReason: REVERTED }));
+  } catch {
+    // a receipt that did not come in time is no failure (the tenth review round, C10-4): the transaction left the wallet and may still be
+    // mined — "did not go through" had been said of deposits mined later, and a user told so throws the note away. The record waits;
+    // History asks again
+    return job;
   }
 }
 
@@ -103,8 +140,8 @@ export interface WithdrawalInput {
   relayerId?: string;
   /** the fee offered to the relayer, wei (relayer mode) */
   feeWei?: bigint;
-  /** the user's confirmation once the proof is ready; false cancels */
-  confirm: () => Promise<boolean>;
+  /** the user's confirmation once the proof is ready, of the terms the proof pays (its own public signals); false cancels */
+  confirm: (terms: ProofTerms) => Promise<boolean>;
   onStep?: (step: FlowStep) => void;
   onJob?: (job: JobRecord) => void;
 }
@@ -131,10 +168,11 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   if (!isLive(s.config, pool, "withdraw")) throw new FlowRefused("withdrawals are not switched on for this pool");
   if (!s.rpc) throw new FlowRefused("no RPC endpoint is configured");
   // a recipient a withdrawal must not go to (the fourth review round, 2026-11-03): the zero and burn addresses lose it — the pool pays
-  // with a plain call that succeeds at an address without code — and the pools' own contracts keep it; the screen refuses first
+  // with a plain call that succeeds at an address without code — and the pools' own contracts keep it, as do the contracts of the tokens
+  // that take ETH (the tenth review round, C10-8); the screen refuses first
   if (refusedRecipient(recipient))
     throw new FlowRefused(
-      "the recipient is the zero address, a burn address or a contract of the pools: a withdrawal sent there is lost, so nothing is proved or sent",
+      "the recipient is the zero address, a burn address, a contract of the pools or a token's own contract: a withdrawal sent there is lost, so nothing is proved or sent",
     );
   const now = s.now;
   const history = s.histories.get(pool);
@@ -180,15 +218,16 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   const derived = await prover.note(formatNote(note));
   if (!derived.ok) throw new FlowRefused("the note is not readable");
   // spent on chain, as the pool says now (C2-10; spec §7.1, §7.4 "right before a withdrawal"): the history's events end twelve
-  // blocks back, and a note spent since — another device, a relayer whose answer was lost — had cost a proof and, in wallet
-  // mode, the gas of a reverting transaction. Disclosed as such on the screen (withdraw.checkOnChainNotice)
+  // blocks back, and a note spent since — another device, a relayer whose answer was lost — had cost, in wallet mode, the gas of a
+  // reverting transaction. Read once the user confirmed, right before anything is sent (the tenth review round, C10-13): read before the
+  // proof too, it had told the endpoint the nullifier hash of a withdrawal cancelled at its confirmation. Said under the Withdraw button
+  // (withdraw.spentReadNotice); the history's Withdrawal events still refuse a note they show spent before any proof
   const assertUnspent = async (): Promise<void> => {
     if (await isSpentOnChain(rpc, p.address, derived.nullifierHash)) throw new FlowRefused("this note was already spent on chain: nothing is proved or sent");
   };
   const prove = async (): Promise<{ proof: ProofResult; root: Hex }> => {
     await history.settled(); // never read in the middle of a sync
     if (!history.verified) throw new FlowRefused("the history is not verified");
-    await assertUnspent();
     const path = await history.pathFor(facts.leafIndex);
     const feeWei = via === "relayer" ? (input.feeWei ?? 0n) : 0n;
     const relayerAddress = via === "relayer" ? relayer!.facts!.rewardAccount : ZERO_ADDRESS;
@@ -236,9 +275,20 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
     return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
   }
 
+  // the terms the confirmation restates are the proof's own (the tenth review round, C10-1): the page had shown the mode selected since,
+  // and neither the recipient nor the relayer, while the fields stayed editable during the proof
+  const termsOf = (p: { proof: ProofResult }): ProofTerms => {
+    const [, , recipientArg, relayerArg, feeArg, refundArg] = p.proof.publicSignals.map((x) => BigInt(x));
+    return {
+      recipient: `0x${recipientArg.toString(16).padStart(40, "0")}`,
+      relayer: `0x${relayerArg.toString(16).padStart(40, "0")}`,
+      feeWei: feeArg,
+      refundWei: refundArg,
+    };
+  };
   await keep(move(job, "AWAITING_AUTHORIZATION", now()));
   input.onStep?.({ step: "confirm" });
-  if (!(await input.confirm())) return keep(move(job, "CANCELLED", now()));
+  if (!(await input.confirm(termsOf(proved)))) return keep(move(job, "CANCELLED", now()));
 
   try {
     proved = await provedAndKnown(proved);
@@ -251,6 +301,17 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
     await assertUnspent();
   } catch (e) {
     return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the note was spent" }));
+  }
+  // a second endpoint's word on the proof's root before anything is sent, relayed or not (the tenth review round, C10-14): tornado-relayer
+  // 4.x checks no root and no proof of its own and sends with a fixed gas limit, so a relayed proof on a root one lying endpoint invented
+  // could be mined as a revert that publishes the nullifier hash beside the recipient — what the fifth round guarded in wallet mode only.
+  // The root is the pool's, shared by everyone proving against it: asking a second endpoint about it tells that endpoint nothing of the note
+  if (s.secondOpinion) {
+    const other = await verifyAgainstChain(s.secondOpinion, p.address, { root: BigInt(proved.root), size: history.state!.leaves }).catch(() => null);
+    if (!other || !(other.known || other.lastRoot === proved.root))
+      return keep(
+        move(job, "FAILED", now(), { failedReason: "the second RPC endpoint does not know the proof's root: the endpoints disagree, so nothing is sent" }),
+      );
   }
   await keep(move(job, "SUBMITTING", now()));
   input.onStep?.({ step: "submitting" });
@@ -269,7 +330,7 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
     try {
       relayerJobId = (await submitWithdrawal(s.relayerTransport, relayer!.url, { proof: proved.proof.proof, contract: p.address, args })).id;
     } catch (e) {
-      if (e instanceof RelayerRefusal) return keep(move(job, "FAILED", now(), { failedReason: `the relayer refused: ${e.message}` }));
+      if (e instanceof RelayerRefusal) return keep(move(job, "FAILED", now(), { failedReason: plainText(`the relayer refused: ${e.message}`) }));
       // the answer did not arrive (the review round of 2026-11-03, C2-3): the relayer may have taken the job — FAILED had sent the
       // user to a second relayer or the wallet, where the second transaction reverted on the spent nullifier
       const lost = {
@@ -297,14 +358,18 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
           });
         },
       });
-      const next = fromRelayerState(final.status);
+      let next = fromRelayerState(final.status);
+      // the relayer's CONFIRMED is believed once the pool says the note is spent (the tenth review round, C10-3): a relayer that answered
+      // CONFIRMED and sent nothing had the record read "Confirmed", and a user discards a note withdrawn. The read names the nullifier hash
+      // this flow asked the same endpoint about right before the submission; History asks the history's Withdrawal events later
+      if (next === "COMPLETED" && !(await isSpentOnChain(rpc, p.address, derived.nullifierHash).catch(() => false))) next = "SOURCE_CONFIRMING";
       const done = {
         ...job,
         relayerState: final.status,
         txHash: (final.txHash as Hex | null) ?? job.txHash,
         state: next,
         updatedAt: now(),
-        ...(final.failedReason ? { failedReason: final.failedReason } : {}),
+        ...(final.failedReason ? { failedReason: plainText(final.failedReason) } : {}),
       };
       await keep(done);
       input.onStep?.({ step: "done", job: done });
@@ -323,20 +388,21 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
 
   // a second endpoint's word before the user's own transaction (the fifth review round, 2026-11-03): one lying endpoint — fake deposits
   // in its logs, a root it calls known, a note it calls unspent — had the wallet send a withdraw that reverts (some 300,000 gas) and
-  // publishes the nullifier hash beside the recipient; a relayer's node refuses such a job for free. With two or more endpoints
-  // configured the second must agree on the root and on the spent bit; with one, the endpoint is the user's trust, as the screen says
+  // publishes the nullifier hash beside the recipient. With two or more endpoints configured the second agreed on the root above and
+  // must agree on the spent bit here; with one, the endpoint is the user's trust, as the screen says
   if (s.secondOpinion) {
-    const other = await verifyAgainstChain(s.secondOpinion, p.address, { root: BigInt(proved.root), size: history.state!.leaves }).catch(() => null);
-    if (!other || !(other.known || other.lastRoot === proved.root))
-      return keep(
-        move(job, "FAILED", now(), { failedReason: "the second RPC endpoint does not know the proof's root: the endpoints disagree, so nothing is sent" }),
-      );
     if (await isSpentOnChain(s.secondOpinion, p.address, derived.nullifierHash).catch(() => true))
       return keep(
         move(job, "FAILED", now(), {
           failedReason: "the second RPC endpoint reports this note as spent, or did not answer: the endpoints disagree, so nothing is sent",
         }),
       );
+  }
+  // the account the transaction leaves from, screened when the switch is on (C10-9)
+  try {
+    await assertScreened(s);
+  } catch (e) {
+    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the compliance check failed" }));
   }
   // wallet mode: the pool's own withdraw from the connected account
   let txHash: Hex;
@@ -351,17 +417,12 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
       refundWei: refundArg,
     });
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the wallet refused" }));
+    return keep(move(job, "FAILED", now(), { failedReason: plainText(e instanceof Error ? e.message : "the wallet refused") }));
   }
   await keep(move(job, "SOURCE_CONFIRMING", now(), { txHash }));
   try {
-    const receipt = await waitForReceipt(s.rpc, txHash, s.receiptOptions);
-    const done = move(
-      job,
-      receipt.status === "success" ? "COMPLETED" : "FAILED",
-      now(),
-      receipt.status === "success" ? {} : { failedReason: "the transaction reverted" },
-    );
+    const receipt = await waitForReceipt(receiptRpcOf(s) ?? rpc, txHash, s.receiptOptions);
+    const done = move(job, receipt.status === "success" ? "COMPLETED" : "FAILED", now(), receipt.status === "success" ? {} : { failedReason: REVERTED });
     await keep(done);
     input.onStep?.({ step: "done", job: done });
     return done;

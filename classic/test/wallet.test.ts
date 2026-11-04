@@ -154,11 +154,24 @@ describe("the connection", () => {
   it("hands the transaction to the wallet with the value in hex and reads the receipt from the app's endpoints", async () => {
     const seen: { method: string; params?: unknown }[] = [];
     const hash = `0x${word(77)}` as Hex;
-    const p = fakeProvider({ eth_sendTransaction: hash }, seen);
+    const p = fakeProvider({ eth_sendTransaction: hash, eth_chainId: "0x1" }, seen);
     const tx = { from: ACCOUNT.toLowerCase() as Hex, to: ROUTER, data: encodeRouterDeposit(POOL, `0x${word(5)}`), valueWei: 100n * 10n ** 18n };
     expect(await sendTransaction(p, tx)).toBe(hash);
-    expect(seen[0]).toEqual({ method: "eth_sendTransaction", params: [{ from: tx.from, to: ROUTER, data: tx.data, value: "0x56bc75e2d63100000" }] });
-    await expect(sendTransaction(fakeProvider({ eth_sendTransaction: "0x12" }), tx)).rejects.toThrow(/no transaction hash/);
+    // the wallet's chain read right before, and named in the transaction (the tenth review round, C10-10)
+    expect(seen.map((s) => s.method)).toEqual(["eth_chainId", "eth_sendTransaction"]);
+    expect(seen[1]).toEqual({
+      method: "eth_sendTransaction",
+      params: [{ from: tx.from, to: ROUTER, data: tx.data, value: "0x56bc75e2d63100000", chainId: "0x1" }],
+    });
+    const moved: { method: string; params?: unknown }[] = [];
+    await expect(sendTransaction(fakeProvider({ eth_sendTransaction: hash, eth_chainId: "0xa" }, moved), tx)).rejects.toThrow(
+      /on chain 10, not 1: nothing was sent/,
+    );
+    expect(
+      moved.map((s) => s.method),
+      "never asked to sign on the wrong chain",
+    ).toEqual(["eth_chainId"]);
+    await expect(sendTransaction(fakeProvider({ eth_sendTransaction: "0x12", eth_chainId: "0x1" }), tx)).rejects.toThrow(/no transaction hash/);
     const receipts: unknown[] = [null, null, { status: "0x1", blockNumber: "0x190f0b4", transactionHash: hash }];
     const rpc: Rpc = async (method) => {
       expect(method).toBe("eth_getTransactionReceipt");

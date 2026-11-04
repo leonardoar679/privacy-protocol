@@ -271,7 +271,7 @@ export class PoolHistory {
     const state = this.state!;
     // at the history's own block (the review round of 2026-11-02): read at `latest`, a deposit of the last twelve blocks had
     // made the count disagree with a history that was right up to its block
-    const chain = await verifyAgainstChain(rpc, address, { root: BigInt(this.root!), size: state.leaves }, hexBlock(state.toBlock));
+    const chain = await verifyAgainstChain(rpc, address, { root: BigInt(this.root!), size: state.leaves }, hexBlock(state.toBlock), { exact: true });
     const now = (this.d.now ?? Date.now)();
     this.syncedAt = now;
     this.state = { ...state, verifiedAt: now, verified: chain.ok };
@@ -289,7 +289,9 @@ export class PoolHistory {
             reason:
               chain.reason === "leaf count"
                 ? `the chain counts ${chain.nextIndex} deposits, this history ${state.leaves}`
-                : "the pool does not know this history's root",
+                : chain.reason === "root not last"
+                  ? "the pool's root at this history's block is another one"
+                  : "the pool does not know this history's root",
           }),
     });
   }
@@ -305,6 +307,12 @@ export class PoolHistory {
   lookup(commitment: Hex, nullifierHash: Hex): DepositFacts | null {
     this.index ??= indexHistory(this.deposits, this.withdrawals);
     return depositFacts(this.index, commitment, nullifierHash);
+  }
+
+  /** Whether the synced Withdrawal events hold this transaction (a relayer's CONFIRMED is believed once they do; the tenth review round, C10-3). */
+  hasWithdrawalTx(txHash: string): boolean {
+    const h = txHash.toLowerCase();
+    return this.withdrawals.some((w) => w.transactionHash.toLowerCase() === h);
   }
 
   /** The original's statistics: the count and the newest ten. */

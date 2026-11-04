@@ -57,11 +57,17 @@ export interface TransactionRequest {
   valueWei: bigint;
 }
 
-/** Hands the transaction to the wallet; the hash back once the user signed and the wallet sent it. */
-export async function sendTransaction(provider: Eip1193Provider, tx: TransactionRequest): Promise<`0x${string}`> {
+/**
+ * Hands the transaction to the wallet; the hash back once the user signed and the wallet sent it. The wallet's chain is read again right
+ * before, and named in the transaction (the tenth review round, C10-10): the page's chain was the last chainChanged event, and a wallet
+ * that moved without one had been asked to sign a deposit of up to 100 ETH on whatever chain it was on.
+ */
+export async function sendTransaction(provider: Eip1193Provider, tx: TransactionRequest, expectedChainId = MAINNET_CHAIN_ID): Promise<`0x${string}`> {
+  const chainId = parseChainId(await provider.request({ method: "eth_chainId" }));
+  if (chainId !== expectedChainId) throw new Error(`the wallet is on chain ${chainId}, not ${expectedChainId}: nothing was sent`);
   const hash = await provider.request({
     method: "eth_sendTransaction",
-    params: [{ from: tx.from, to: tx.to, data: tx.data, value: `0x${tx.valueWei.toString(16)}` }],
+    params: [{ from: tx.from, to: tx.to, data: tx.data, value: `0x${tx.valueWei.toString(16)}`, chainId: `0x${expectedChainId.toString(16)}` }],
   });
   if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("the wallet answered no transaction hash");
   return hash.toLowerCase() as `0x${string}`;

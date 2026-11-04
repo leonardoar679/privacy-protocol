@@ -265,6 +265,14 @@ p {
 .tc-input::placeholder {
   color: var(--fg-muted);
 }
+/* the withdrawal's inputs are fixed while its flow runs (the tenth review round, C10-1): seen as fixed, not only refused */
+.tc-input:disabled,
+.tc-segment:disabled,
+.tc-text-btn:disabled {
+  cursor: not-allowed;
+  background: var(--surface-2);
+  color: var(--fg-muted);
+}
 select.tc-input {
   appearance: auto;
 }

@@ -3,18 +3,19 @@
 // the recipient with Donate, the withdrawal settings (Relayer | Wallet, the relayer list, the wallet warning), the
 // current relayer, the totals at the live gas price, the Withdraw button, "Generating proof", the confirmation.
 import { depositsCount, passedWords, t } from "../app/i18n/messages";
-import { fromWei, toGwei } from "../model/format";
+import { fromWei, shortHash, toGwei } from "../model/format";
 import { poolOf, type Pool } from "../model/pools";
 import { notEnoughDeposits, notEnoughTime, timePassed } from "../model/time";
-import type { FeeLines, NoteLookup, RelayerInfo, WithdrawMode } from "../model/types";
+import type { ConfirmTerms, FeeLines, NoteLookup, RelayerInfo, WithdrawMode } from "../model/types";
 import { Button, Card, Field, Input, Modal, Notice, Row } from "./ui";
 
-export type NoteError = "invalid" | "spent" | "no-deposit" | "other-network" | "unknown-pool";
+export type NoteError = "invalid" | "spent" | "no-deposit" | "history-unavailable" | "history-unverified" | "other-network" | "unknown-pool";
 
-export function noteError(lookup: NoteLookup | null, malformed: boolean): NoteError | null {
+/** The note field's error, or null. A note the history's events call spent and the pool, asked, does not is no error (the tenth review round, C10-7). */
+export function noteError(lookup: NoteLookup | null, malformed: boolean, spentOnChain?: "spent" | "unspent" | "checking" | null): NoteError | null {
   if (malformed) return "invalid";
   if (!lookup) return null;
-  if (lookup.kind === "found") return lookup.facts.spent ? "spent" : null;
+  if (lookup.kind === "found") return lookup.facts.spent && spentOnChain !== "unspent" ? "spent" : null;
   return lookup.kind;
 }
 
@@ -22,9 +23,17 @@ const ERROR_KEY = {
   invalid: "error.noteInvalid",
   spent: "error.noteSpent",
   "no-deposit": "error.noDeposit",
+  "history-unavailable": "error.historyUnavailable",
+  "history-unverified": "error.historyUnverified",
   "other-network": "error.otherNetwork",
   "unknown-pool": "error.unknownPool",
 } as const;
+
+/** The error's words: a miss names the block the history reached (the tenth review round, C10-2). */
+const errorWords = (error: NoteError, lookup: NoteLookup | null): string =>
+  error === "no-deposit" && lookup?.kind === "no-deposit" && lookup.toBlock !== undefined
+    ? t("error.noDepositAt", { block: lookup.toBlock })
+    : t(ERROR_KEY[error]);
 
 export interface WithdrawProps {
   text: string;
@@ -36,8 +45,14 @@ export interface WithdrawProps {
   recipient: string;
   onRecipient: (v: string) => void;
   recipientInvalid: boolean;
-  /** a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03) */
-  recipientRefused?: "zero" | "burn" | "protocol" | null;
+  /** a well-formed address a withdrawal must not go to (the fourth review round, 2026-11-03; a token's own contract, the tenth, C10-8) */
+  recipientRefused?: "zero" | "burn" | "protocol" | "token" | null;
+  /** the token a refused "token" recipient is */
+  recipientToken?: string | null;
+  /** the note, the recipient, the mode and the relayer are fixed while a withdrawal's flow runs (the tenth review round, C10-1) */
+  locked?: boolean;
+  /** what the proof pays, restated at the confirmation (C10-1) */
+  confirmTerms?: ConfirmTerms | null;
   /** whether the build names a donation address (the original's "Donate" fills the recipient with it) */
   donate: boolean;
   onDonate: () => void;
@@ -67,7 +82,7 @@ export interface WithdrawProps {
 }
 
 export function WithdrawTab(p: WithdrawProps) {
-  const error = noteError(p.lookup, p.malformed);
+  const error = noteError(p.lookup, p.malformed, p.spentOnChain);
   const found = p.lookup?.kind === "found" ? p.lookup : null;
   const pool: Pool | null = found ? poolOf(found.pool) : null;
   const relayer = p.relayers.find((r) => r.id === p.relayerId) ?? null;
@@ -106,6 +121,7 @@ export function WithdrawTab(p: WithdrawProps) {
           testId="classic-note-input"
           describedBy={error ? "classic-note-error" : undefined}
           mono
+          disabled={p.locked}
         />
         {p.checking ? (
           <p className="tc-help tc-muted" role="status" data-testid="classic-note-checking">
@@ -114,7 +130,12 @@ export function WithdrawTab(p: WithdrawProps) {
         ) : null}
         {error ? (
           <p className="tc-help tc-error" id="classic-note-error" role="alert" data-testid="classic-note-error">
-            {t(ERROR_KEY[error])}
+            {errorWords(error, p.lookup)}
+          </p>
+        ) : null}
+        {error === "spent" && p.onCheckSpent ? (
+          <p className="tc-help tc-muted" data-testid="classic-note-spent-source">
+            {t("withdraw.spentFromHistory")}
           </p>
         ) : null}
       </Field>
@@ -140,7 +161,7 @@ export function WithdrawTab(p: WithdrawProps) {
         htmlFor="classic-recipient"
         trailing={
           p.donate ? (
-            <button type="button" className="tc-text-btn" data-testid="classic-donate" onClick={p.onDonate}>
+            <button type="button" className="tc-text-btn" data-testid="classic-donate" disabled={p.locked} onClick={p.onDonate}>
               {t("withdraw.donate")}
             </button>
           ) : null
@@ -155,10 +176,16 @@ export function WithdrawTab(p: WithdrawProps) {
           testId="classic-recipient"
           describedBy={p.recipientInvalid || p.recipientRefused ? "classic-recipient-error" : undefined}
           mono
+          disabled={p.locked}
         />
         {p.recipientInvalid || p.recipientRefused ? (
           <p className="tc-help tc-error" id="classic-recipient-error" role="alert" data-testid="classic-recipient-error">
-            {p.recipientRefused ? t(`withdraw.recipientRefused.${p.recipientRefused}` as "withdraw.recipientRefused.zero") : t("withdraw.recipientInvalid")}
+            {p.recipientRefused
+              ? t(
+                  `withdraw.recipientRefused.${p.recipientRefused}` as "withdraw.recipientRefused.zero",
+                  p.recipientRefused === "token" ? { token: p.recipientToken ?? "" } : undefined,
+                )
+              : t("withdraw.recipientInvalid")}
           </p>
         ) : null}
       </Field>
@@ -173,6 +200,7 @@ export function WithdrawTab(p: WithdrawProps) {
                 aria-checked={p.mode === m}
                 className={`tc-segment${p.mode === m ? " tc-segment-active" : ""}`}
                 data-testid={`classic-mode-${m}`}
+                disabled={p.locked}
                 onClick={() => p.onMode(m)}
               >
                 {t(m === "relayer" ? "withdraw.relayer" : "withdraw.wallet")}
@@ -190,7 +218,7 @@ export function WithdrawTab(p: WithdrawProps) {
                   aria-checked={p.relayerId === r.id}
                   className={`tc-relayer${p.relayerId === r.id ? " tc-relayer-active" : ""}`}
                   data-testid={`classic-relayer-${r.id}`}
-                  disabled={r.status !== "online"}
+                  disabled={r.status !== "online" || p.locked}
                   onClick={() => p.onRelayer(r.id)}
                 >
                   <span className="tc-relayer-name">{r.name}</span>
@@ -243,7 +271,7 @@ export function WithdrawTab(p: WithdrawProps) {
           ) : null}
         </div>
       ) : null}
-      {found && !error && p.onCheckSpent ? (
+      {found && (!error || error === "spent") && p.onCheckSpent ? (
         <div className="tc-lines" data-testid="classic-check-spent">
           <Button testId="classic-check-spent-button" disabled={p.spentOnChain === "checking"} onClick={p.onCheckSpent}>
             {t("withdraw.checkOnChain")}
@@ -272,9 +300,14 @@ export function WithdrawTab(p: WithdrawProps) {
         </Notice>
       ) : null}
       {p.live ? (
-        <Button variant="primary" full large testId="classic-withdraw-button" disabled={!p.canWithdraw} busy={p.proving} onClick={p.onWithdraw}>
-          {p.proving ? t("withdraw.generating") : t("withdraw.button")}
-        </Button>
+        <>
+          <Button variant="primary" full large testId="classic-withdraw-button" disabled={!p.canWithdraw} busy={p.proving} onClick={p.onWithdraw}>
+            {p.proving ? t("withdraw.generating") : t("withdraw.button")}
+          </Button>
+          <p className="tc-help tc-muted" data-testid="classic-spent-read-notice">
+            {t("withdraw.spentReadNotice")}
+          </p>
+        </>
       ) : (
         <Button variant="primary" full large testId="classic-withdraw-button" disabled>
           {t("wallet.notConnected")}
@@ -284,18 +317,36 @@ export function WithdrawTab(p: WithdrawProps) {
         <p className="tc-text" data-testid="classic-confirm-text">
           {t("withdraw.proofReady")}
         </p>
-        {/* what the proof pays and what arrives, restated where it is confirmed (the seventh review round, 2026-11-03) */}
-        {pool && (p.mode === "wallet" || p.fees) ? (
+        {/* what the proof pays and what arrives, restated where it is confirmed (the seventh review round, 2026-11-03) — from the proof's own
+            terms (the tenth review round, C10-1): the rows had followed the mode selected since, and named neither the recipient nor the relayer */}
+        {p.confirmTerms ? (
           <div data-testid="classic-confirm-figures">
-            {p.mode === "relayer" && p.fees ? (
-              <Row label={t("withdraw.totalFee")} value={`${fromWei(p.fees.totalFeeWei)} ETH`} testId="classic-confirm-fee" />
-            ) : null}
+            {/* the recipient in full: a shortened address is what address poisoning matches (the screens' one exemption from shortening) */}
             <Row
-              label={t("withdraw.receive")}
-              value={`${fromWei(p.mode === "relayer" && p.fees ? p.fees.receiveWei : pool.denominationWei)} ETH`}
-              testId="classic-confirm-receive"
-              strong
+              label={t("withdraw.recipient")}
+              value={
+                <span className="tc-mono" data-full-address="">
+                  {p.confirmTerms.recipient}
+                </span>
+              }
+              testId="classic-confirm-recipient"
             />
+            <Row
+              label={t("withdraw.confirmSentBy")}
+              value={p.confirmTerms.via === "relayer" ? (p.confirmTerms.relayerName ?? "") : t("withdraw.confirmWallet")}
+              testId="classic-confirm-via"
+            />
+            {p.confirmTerms.via === "relayer" && p.confirmTerms.relayerAccount ? (
+              <Row
+                label={t("withdraw.confirmRelayerAccount")}
+                value={<span className="tc-mono">{shortHash(p.confirmTerms.relayerAccount, 8, 6)}</span>}
+                testId="classic-confirm-relayer-account"
+              />
+            ) : null}
+            {p.confirmTerms.feeWei > 0n ? (
+              <Row label={t("withdraw.totalFee")} value={`${fromWei(p.confirmTerms.feeWei)} ETH`} testId="classic-confirm-fee" />
+            ) : null}
+            <Row label={t("withdraw.receive")} value={`${fromWei(p.confirmTerms.receiveWei)} ETH`} testId="classic-confirm-receive" strong />
           </div>
         ) : null}
         <Button variant="primary" full large testId="classic-confirm" onClick={p.onConfirm}>

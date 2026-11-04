@@ -34,3 +34,7 @@ has to answer and where its answers take effect.
 | Owner's sign-off | — |
 
 A filled-in record is committed with the build hash it applies to; `release-gate.md` and `docs/roadmap.md` cite it.
+
+The build reads this record (the tenth review round, 2026-11-04: `classic/scripts/live-gate.mjs`, called by `vite.config.ts`): a
+production build whose `VITE_CLASSIC_LIVE` switches any pool function on is refused unless the **Outcome** row holds an entry and the
+**Pool functions cleared** row lists every switched-on function as `pool:function` (for example `eth-1:withdraw eth-10:withdraw`).

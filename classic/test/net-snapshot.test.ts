@@ -38,6 +38,35 @@ describe("fetchSnapshot", () => {
     expect(await fetchSnapshot("/classic/data", "eth-1", page.fetchImpl)).toBeNull();
     expect(page.asked.length).toBe(1);
   });
+  it("refuses a file larger than a snapshot file may be, by its length header or while it streams (the tenth review round, C10-15)", async () => {
+    const caps = { file: 32, manifest: 1024 };
+    const files = (deposits: () => Response) => ({
+      "manifest.json": answer(200, '{"version":1}'),
+      "deposits.json": deposits,
+      "withdrawals.json": answer(200, "[]"),
+      "tree.json": answer(200, "{}"),
+    });
+    const declared = host(files(() => new Response("x".repeat(64), { status: 200, headers: { "content-type": "application/json", "content-length": "64" } })));
+    await expect(fetchSnapshot("/d", "eth-1", declared.fetchImpl, 60_000, caps)).rejects.toThrow(/more than a snapshot file may be/);
+    const streamed = host(
+      files(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(new TextEncoder().encode("y".repeat(40)));
+                c.close();
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    await expect(fetchSnapshot("/d", "eth-1", streamed.fetchImpl, 60_000, caps)).rejects.toThrow(/more than a snapshot file may be/);
+    const small = await fetchSnapshot("/d", "eth-1", host(files(() => answer(200, "[1]"))).fetchImpl, 60_000, caps);
+    expect(small?.texts["deposits.json"]).toBe("[1]");
+  });
+
   it("names any other answer: a 500, a manifest that is not JSON, a missing file beside a manifest", async () => {
     await expect(fetchSnapshot("/d", "eth-1", host({ "manifest.json": () => answer(500, "no") }).fetchImpl)).rejects.toBeInstanceOf(SnapshotFetchError);
     await expect(fetchSnapshot("/d", "eth-1", host({ "manifest.json": () => answer(200, "{not json") }).fetchImpl)).rejects.toThrow(/not JSON/);

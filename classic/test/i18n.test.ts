@@ -42,7 +42,8 @@ describe("the Classic catalogs (spec v3.0 §7.9)", () => {
       "Latest deposits",
       "Note is invalid",
       "Note has been spent",
-      "There is no related deposit. The note is invalid.",
+      // "There is no related deposit. The note is invalid." is not kept (the tenth review round, C10-2): it called valid notes invalid —
+      // the history failed or behind, a deposit of the last minutes — and a bearer note told "invalid" is a note thrown away
     ])
       expect(values, label).toContain(label);
   });

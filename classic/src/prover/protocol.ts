@@ -79,7 +79,12 @@ export interface VerifyResult {
 
 export type NoteResult = { ok: true; currency: string; amount: string; netId: number; commitment: `0x${string}`; nullifierHash: `0x${string}` } | { ok: false };
 
-export type ProverResult = WarmResult | ProofResult | VerifyResult | NoteResult | TreeResult | PathResult | LayersResult;
+/** The worker's answer to close, sent before its scope ends (the client terminates it then). */
+export interface ClosedResult {
+  closed: true;
+}
+
+export type ProverResult = WarmResult | ProofResult | VerifyResult | NoteResult | TreeResult | PathResult | LayersResult | ClosedResult;
 
 export type ProverEvent =
   | { id: number; kind: "progress"; progress: ProverProgress }

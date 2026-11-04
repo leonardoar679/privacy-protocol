@@ -234,6 +234,15 @@ describe("a pool's history", () => {
     expect(disagree.h.verified).toBe(false);
   });
 
+  it("the history's own check takes the pool's last root at its block (the tenth review round, C10-5): a root of the window at the same count — a tail of ZERO_VALUE leaves hashes to the root of fewer leaves — is not this history's", async () => {
+    const stale = history({
+      rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 1024, knownRoot: true, lastRoot: hex32(5n), blockHashes: realHash }).rpc,
+    });
+    expect(await stale.h.ensure()).toMatchObject({ kind: "ready", verified: false, reason: "the pool's root at this history's block is another one" });
+    const honest = history({ rpc: scriptedChain({ head: TO_BLOCK + 100, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash }).rpc });
+    expect(await honest.h.ensure()).toMatchObject({ kind: "ready", verified: true });
+  });
+
   it("a path asked of a worker that lost its trees loads the tree again from the device's copy and answers (the review round of 2026-11-03, C2-9)", async () => {
     const head = TO_BLOCK + 12 + 100;
     const chain = scriptedChain({ head, logs: [[]], nextIndex: 1024, knownRoot: true, blockHashes: realHash });
