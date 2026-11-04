@@ -315,6 +315,8 @@ export const ko: Record<MessageKey, string> = {
   "screen.review.blocker.networkMismatch": "네트워크가 일치하지 않습니다.",
   "screen.review.blocker.unsafeContractCall": "컨트랙트 호출이 점검을 통과하지 못했습니다.",
   "screen.review.blocker.inFlightLimit": "이 규모의 보호 작업은 한 번에 하나만 실행됩니다. 진행 중인 작업이 끝날 때까지 기다려 주세요.",
+  "swap.unplanned":
+    "이 금액에서는 스왑이 보호된 단계로 실행되는데, 지금은 서비스가 이 경로에서 단계를 계획하지 못했습니다. 잠시 후 다시 시도하거나 더 작은 금액으로 시도하세요.",
   "screen.review.blocker.routeNotQualified": "이 경로의 측정된 유동성이 금액보다 적습니다. 더 작은 금액을 시도해 주세요.",
   "screen.review.blocker.oneAtATime":
     "같은 종류의 다른 작업이 아직 지갑의 응답을 기다리거나, 전송 중이거나, 체인에 도달했는지 아직 알 수 없습니다. 열려 있는 곳에서 응답하세요. 그 페이지가 사라졌다면 지갑이 체인에서 결과를 확인해 정리합니다(최대 한 시간, 릴레이어에 연결할 수 없으면 하루). 활동에서 볼 수 있으며, 그 뒤에 이 작업을 진행할 수 있습니다.",

@@ -159,8 +159,10 @@ export function SendScreen(p: SendScreenProps) {
   // the merges a spend of three notes or more needs first, each paying the relayer's minimum (audit round 2, r43): named on
   // the Review, counted in what leaves and in the balance check, and bounded at the confirmation — they had been none of these
   const mergeEach = terms.status === "ready" && terms.terms ? terms.terms.minimum : 0n;
+  // counted whenever the terms are read — a relayer minimum of 0 is a fee too (the ninth review round, B-F5: every multi-note Send had stopped
+  // as merges_moved, and "Review again" counted none again)
   const mergeCount =
-    asset && split && mergeEach > 0n
+    asset && split && terms.status === "ready" && terms.terms
       ? mergeSchedule(
           noteStore.unspent(BigInt(asset.vault)).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })),
           split.total,

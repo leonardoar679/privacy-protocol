@@ -314,6 +314,7 @@ export const en = {
   "screen.review.blocker.unsafeContractCall": "The contract call did not pass our checks.",
   "screen.review.blocker.inFlightLimit": "One protected operation of this size runs at a time. Wait until the open one completes.",
   "screen.review.blocker.routeNotQualified": "This route's measured liquidity is below your amount. Try a smaller amount.",
+  "swap.unplanned": "At this amount the swap runs as protected steps, and the service could not plan them on this route right now. Try again shortly, or a smaller amount.",
   "screen.review.blocker.oneAtATime":
     "Another operation of this kind is still waiting for your wallet's answer, being sent, or not yet known to have reached the chain. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within an hour, or a day when its relayer cannot be reached — and Activity lists it. Then this one can go.",
   "screen.progress.title": "In progress",

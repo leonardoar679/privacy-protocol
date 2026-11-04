@@ -5,7 +5,7 @@
 // requote → reroute Review), accept or decline a reroute, cancel (return the rest). Everything lives in the encrypted
 // journal (`campaigns?`, optional); nothing here is sent anywhere.
 import {
-  createCampaign, exposure, gateFor, planTranches, rateE18, replan, riskierClass, stricterGate, withCampaignState, withTrancheState, CONGESTION_FACTOR, RATE_SCALE, TooManyTranches,
+  createCampaign, exposure, gateFor, planTranches, rateE18, replan, riskierClass, stricterGate, withCampaignState, withTrancheState, CONGESTION_FACTOR, MAX_TRANCHES, RATE_SCALE, TooManyTranches,
   type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type RiskClass, type Tranche, type TranchePlan,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
@@ -244,8 +244,18 @@ export function withRoute(c: Campaign, provider: string, protection: unknown, qu
   try {
     return fitPlanned(next, now, rng);
   } catch (e) {
-    // a ceiling that would cut the rest into more steps than any campaign runs is no ceiling (the eighth review round, A-M3 / D-M3)
+    // a ceiling that would cut the rest into more steps than any campaign runs (the eighth review round, A-M3 / D-M3) gives way to the finest
+    // one a campaign can still run — the total in MAX_TRANCHES steps, with room for the planner rounding a piece down to a 1-2-5 size (the
+    // ninth review round, 2026-11-04, A9-13) —, never to the in-flight cap alone: the steps had gone at the cap on a route that reported a
+    // far smaller instant limit or a thin market
     if (!(e instanceof TooManyTranches) || plan.maxPiece === undefined) throw e;
+    const finest = (3n * total) / BigInt(MAX_TRANCHES) + 1n;
+    const coarse: TranchePlan = { ...plan, maxPiece: (BigInt(plan.maxPiece) > finest ? BigInt(plan.maxPiece) : finest).toString() };
+    try {
+      return fitPlanned({ ...next, plan: coarse }, now, rng);
+    } catch (e2) {
+      if (!(e2 instanceof TooManyTranches)) throw e2;
+    }
     const loose: TranchePlan = { ...plan };
     delete loose.maxPiece;
     return fitPlanned({ ...next, plan: loose }, now, rng);

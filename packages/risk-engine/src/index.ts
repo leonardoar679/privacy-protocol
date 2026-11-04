@@ -60,7 +60,10 @@ export interface RiskFacts {
   /** V7 Stage 13 (spec v3.0 §4): the protected operations of the $50K–$100K band this wallet has in flight, and the band's limit (one) */
   inFlight?: { count: number; limit: number };
   /** V7 Stage 13: the route's measured liquidity (the risk database's `servedUpToUsd`), null when the route is unmeasured */
-  route?: { limitUsd: number | null };
+  route?: {
+    limitUsd: number | null;
+    /** the largest step a protected execution sends (the ninth review round, A9-8): qualified on it, not the order */ pieceUsd?: number;
+  };
   /** V7 Stage 16 (spec v3.0 §9): a record of the kind still before the chain — the wallet's own count, like `inFlight`; a second Protect or Send never starts beside one */
   unresolved?: boolean;
 }
@@ -80,7 +83,11 @@ export function blockersOf(f: RiskFacts): BlockerCode[] {
     network_mismatch: f.network.chainId !== null && f.network.chainId !== f.network.expectedChainId,
     unsafe_contract_call: f.call !== undefined && !f.call.verified,
     in_flight_limit: f.inFlight !== undefined && f.inFlight.count >= f.inFlight.limit,
-    route_not_qualified: f.route?.limitUsd !== undefined && f.route.limitUsd !== null && f.usd !== undefined && f.usd > f.route.limitUsd,
+    route_not_qualified:
+      f.route?.limitUsd !== undefined &&
+      f.route.limitUsd !== null &&
+      (f.route.pieceUsd ?? f.usd) !== undefined &&
+      (f.route.pieceUsd ?? f.usd)! > f.route.limitUsd,
     one_at_a_time: f.unresolved === true,
   };
   return BLOCKER_CODES.filter((c) => hit[c]);

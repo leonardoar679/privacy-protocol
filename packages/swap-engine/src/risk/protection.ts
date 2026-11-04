@@ -148,7 +148,20 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   // the remedy applied (plan §81, contract §2.3): reduce the tranche, an RFQ venue (none today), a stream, another venue
   const othersUnderLimit = o.set.quotes.some((x) => x.provider !== chosen.provider && !o.set.scores.find((s) => s.provider === x.provider)?.filtered && (x.impactBps ?? 0) * capFraction <= IMPACT_CAP_BPS);
   const impactRemedy = remedyOf({ trancheImpactBps: rawImpact === null ? null : Math.round(rawImpact * 100) / 100, halvingFits, rfqQuotes: false, streamedPlan: !!chosen.plan && chosen.plan.mode !== "single", otherVenues: othersUnderLimit });
-  const split = planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: maxPiece ?? undefined, rng: o.rng ?? Math.random });
+  const plan = (ceiling: bigint | null) =>
+    planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: ceiling ?? undefined, rng: o.rng ?? Math.random });
+  let split: ReturnType<typeof planTranches>;
+  try {
+    split = plan(maxPiece);
+  } catch (e) {
+    // a ceiling too fine for a plan in MAX_TRANCHES steps — the provider's own instant limit, a thin market (the ninth review round,
+    // 2026-11-04, A9-1): the pieces go at the exposure cap, each still held to its price bound, never the order as one unprotected; the
+    // eighth round's fallback had answered "no protection" and the service had vouched for the whole amount at once
+    if (!(e instanceof TooManyTranches) || maxPiece === null) throw e;
+    because("instant-limit", "the provider's instant limit is too fine to stage this amount: the pieces go at the exposure cap");
+    maxPiece = null;
+    split = plan(null);
+  }
   const pieces = split.pieces;
   const steps = pieces.length;
   const largest = pieces.length ? pieces.reduce((m, p) => (p > m ? p : m), 0n) : 0n;

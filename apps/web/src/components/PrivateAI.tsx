@@ -7,7 +7,7 @@ import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
 import { deriveFundingKey, freshAccountProvider } from "../zkapi/freshAccountProvider";
-import { creditWalletProvider, fundingChainOk } from "../zkapi/creditWallet";
+import { creditWalletProvider, fundingChainOk, refusingProvider, revocableProvider } from "../zkapi/creditWallet";
 import { aiSession, endAiSession } from "../zkapi/aiSession";
 import { ADDRESS_LIKE, looksLikePhrase } from "../zkapi/tradeCheck";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -100,22 +100,18 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     await run("Initializing the private credit wallet…", async () => {
       configureZkapi({ requestTestnetPassword });
       if (fundingMode === "fresh" && !cfg) throw new Error("browser-config.json not loaded");
-      // the connected wallet is the one the connection chose; its address funds the credit (not private)
-      zkapiClient.setWalletProvider(
-        creditWalletProvider(fundingMode, () => freshAccountProvider(fresh.privateKey, cfg!.trusted_deployment.rpc_url, Number(cfg!.trusted_deployment.chain_id))),
-      );
-      await zkapiClient.init();
+      // the lease ends with a lock (never one key across two sessions or wallets) — registered before anything else (the ninth review round,
+      // B-I4: after a failed init the provider had been set with no hook)
       if (!lockHooked) {
         lockHooked = true;
-        session.onLock(() => {
-          endAiSession(); // the lease too: never one key across two sessions or wallets
-          try {
-            zkapiClient.setWalletProvider(null);
-          } catch {
-            // the SDK keeps no provider to drop
-          }
-        });
+        session.onLock(() => endAiSession());
       }
+      // the connected wallet is the one the connection chose; its address funds the credit (not private). The provider answers only while
+      // this session stays open (B-F2/F3): a lock revokes it, whatever the SDK is doing — never swapped for the user's public wallet
+      const epoch = session.epoch();
+      const provider = creditWalletProvider(fundingMode, () => freshAccountProvider(fresh.privateKey, cfg!.trusted_deployment.rpc_url, Number(cfg!.trusted_deployment.chain_id)));
+      zkapiClient.setWalletProvider(revocableProvider(provider ?? refusingProvider, () => session.isUnlocked() && session.epoch() === epoch));
+      await zkapiClient.init();
       zkapiClient.subscribe((s: any) => setSnapshot(s));
       setSnapshot(zkapiClient.snapshot());
       setEnabled(true);
@@ -138,8 +134,11 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     if (noteStore.balance(BigInt(deployment.ethVault)) < leaves) { setStatus(`Not enough shielded ETH: ${formatEther(leaves)} ETH leaves your balance (${bucket} + ${FEE_RESERVE_ETH} fee reserve${funding ? ` + ${formatEther(funding.fee)} relayer and privacy fees` : ""}).`); return; }
     await run("Private withdrawal from the pool to the fresh funding address…", async () => {
       // each merge it needs first at most the relayer's F read here (the seventh review round: the merges had paid the live fee, unbounded)
-      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus });
-      session.update((j) => { j.aiFunding = { index: fundingIndex, funded: fundingIndex }; }); // journaled: never funded twice (C-L2)
+      // journaled as soon as it is sent (the ninth review round, B-F7): a withdrawal that failed after its submission had left no mark, and a
+      // second funding of the same address was allowed — the link C-L2 closes
+      const markFunded = () => session.update((j) => { j.aiFunding = { index: fundingIndex, funded: fundingIndex }; });
+      const r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus, onEvent: (e) => { if (e.type === "submitting") markFunded(); } });
+      markFunded(); // journaled: never funded twice (C-L2)
       setStatus(`Fresh address ${fresh.address.slice(0, 10)}… funded with ${formatEther(total)} ETH (tx ${r.txHash.slice(0, 10)}…). Now deposit the credit.`);
     });
   }
@@ -207,9 +206,9 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
     await run("Closing the credit note (mutual close)…", async () => {
       // back to where it came from (the eighth review round, C-L2): the connected account in connected mode — the close is sent from it
       // anyway — never a fresh address that mode never showed and no screen spends from
-      const destination = fundingMode === "fresh" ? fresh.address : (snapshot?.walletAddress as string | undefined);
-      if (!destination) throw new Error("The connected account is not known: connect the wallet first.");
-      await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), { destination });
+      // in connected mode the SDK pays the account it connects itself (the ninth review round, B-F8): the address it knew was reset by every
+      // Enable, and the withdrawal had been refused after any reload
+      await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), fundingMode === "fresh" ? { destination: fresh.address } : {});
       setStatus(fundingMode === "fresh" ? `Credit withdrawn to the fresh address ${fresh.address.slice(0, 10)}…; shield it back into the pool from there.` : "Credit withdrawn to the connected account.");
       setFundingIndex((i) => { session.update((j) => { j.aiFunding = { index: i + 1 }; }); return i + 1; }); // the next credit note gets a new fresh address, journaled
     });

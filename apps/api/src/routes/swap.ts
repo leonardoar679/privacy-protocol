@@ -370,11 +370,22 @@ export class SwapApi {
   }
 
   /** POST /v1/operations: commit (the V5 /order: the wallet chose a route and supplies the one-time signer and the refund note), or rebuild an order the wallet journaled (`params` present). */
+  /** Whether a body restores an order this API already holds (by its order id; the restore itself then checks its escrow): A9-3. */
+  knownRestore(body: unknown): boolean {
+    const p = (body as { params?: { orderId?: unknown } } | null)?.params;
+    return typeof p?.orderId === "string" && !!this.d.store.operationByOrder(p.orderId);
+  }
+  private atCap(): boolean {
+    return this.d.store.openOperations() >= (this.d.maxOpenOperations ?? MAX_OPEN_OPERATIONS);
+  }
+
   async createOperation(body: unknown): Promise<Answer> {
     const b = body as Record<string, unknown>;
-    // the operations not yet ended are bounded (the eighth review round, A-M2): free commits had grown the database without limit
-    if (this.d.store.openOperations() >= (this.d.maxOpenOperations ?? MAX_OPEN_OPERATIONS)) return atCapacity;
+    // a restore is bounded by the cap only when it would add an operation the API does not hold, for an escrow not funded (the ninth review
+    // round, A9-3): at the cap a restore — of a known order even — had answered 503, and a funded order whose row was gone could only refund
     if (b?.params !== undefined) return this.restore(b);
+    // the operations not yet ended are bounded (the eighth review round, A-M2): free commits had grown the database without limit
+    if (this.atCap()) return atCapacity;
     const req = this.request(b);
     const named = providerOf(b.provider, (id) => !!this.adapterOf(id));
     const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), ...tipHintOf(b) });
@@ -526,6 +537,10 @@ export class SwapApi {
     // chain names it, and other params under it replaced that order's stored order and were answered with its operation id
     if (known && !sameEscrow(known.escrow, order.endpoint)) return otherOrder;
     if (known) this.d.store.setBlobUnlessFinalized(known.id, blobOf({ order, ...this.chosenOf(known.id) })); // finalized: never again (one statement — the fifth review round, 2026-11-03)
+    if (!known && this.atCap()) {
+      const held = await this.d.reads.escrowBalance(order.endpoint, order.request.from.asset).catch(() => null);
+      if (held === null || held < BigInt(order.params.amount)) return atCapacity;
+    }
     const operationId = known?.id ?? this.record(order, null);
     return {
       status: 200,

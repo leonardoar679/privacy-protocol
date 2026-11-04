@@ -108,8 +108,9 @@ describe("the API's state agrees with the wallet and the chain (A-L1)", () => {
   const row = { state: "SOURCE_CONFIRMING" as const, executeDeadline: 1_000, refundAfter: 2_000, amount: "100" };
   it("an executed job whose rest came back is a partial delivery, never refunded in full", () => {
     const job = { state: "refunded" as const, executed: true };
-    expect(stateFrom(row, job, { state: "partial" }, false, 500)).toEqual({ state: "RECOVERY_REQUIRED", code: "partial_delivery" });
-    expect(stateFrom(row, job, { state: "completed" }, false, 500)).toEqual({ state: "RECOVERY_REQUIRED", code: "partial_delivery" });
+    // delivered units make it partial, the wallet's rule (the ninth review round, A9-6): a track's word alone had contradicted the wallet
+    expect(stateFrom(row, job, { state: "partial", deliveredAmount: "5" }, false, 500)).toEqual({ state: "RECOVERY_REQUIRED", code: "partial_delivery" });
+    expect(stateFrom(row, job, { state: "completed" }, false, 500), "no delivered units: refunded, as the wallet reads it").toEqual({ state: "REFUNDED" });
     expect(stateFrom(row, job, { state: "refunded" }, false, 500), "nothing delivered").toEqual({ state: "REFUNDED" });
     expect(stateFrom(row, job, null, false, 500), "the provider unread: nothing final").toEqual({ state: "REFUNDING" });
     expect(stateFrom(row, { state: "refunded" }, null, false, 500), "never executed").toEqual({ state: "REFUNDED" });

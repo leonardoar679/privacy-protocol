@@ -9,7 +9,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { clearWalletConnectStorage } from "@privacy-wallet/wallet-engine/walletConnect";
 import { prefs } from "../storage/prefs";
-import { removeLocalStorageKey } from "../storage/sameOrigin";
+import { removeLocalStorageKey, removeLocalStorageKeysWithPrefix } from "../storage/sameOrigin";
 import { ARTIFACT_CACHE } from "./crypto/protocol";
 import { endAiSession } from "../zkapi/aiSession";
 
@@ -20,6 +20,17 @@ import { endAiSession } from "../zkapi/aiSession";
  */
 export const ZKAPI_DB = "zkapi-browser-wallet-v1";
 export const ZKAPI_DEPLOYMENT_KEY = "zkapi-browser-deployment";
+/** Every localStorage key of the zkAPI SDK starts with this (zkapi-withdrawal-v2, zkapi-exit-rpc-url, zkapi-bundler-url, the deployment). */
+export const ZKAPI_KEY_PREFIX = "zkapi-";
+
+/**
+ * The page starts again after a Forget, in a production build (the ninth review round, 2026-11-04, B-F6): the zkAPI SDK's client is a singleton
+ * with its own timers, worker and cached state — kept running, it re-created the deleted database and served the forgotten wallet's credit
+ * note to the next wallet opened in the same tab.
+ */
+export function restartAfterForget(production: boolean = config().production): void {
+  if (production) window.location.replace("/");
+}
 
 /** The Classic application's storage names, as its own code names them (classic/src/storage; no import across rule 9). */
 export const CLASSIC_DB = "tornado-classic";
@@ -57,8 +68,10 @@ export async function forgetEverything(d: ForgetDeps = {}): Promise<void> {
   } catch {
     // no IndexedDB
   }
-  if (d.localStorage === undefined) removeLocalStorageKey(ZKAPI_DEPLOYMENT_KEY);
-  else removeLocalStorageKey(ZKAPI_DEPLOYMENT_KEY, d.localStorage);
+  // every key the zkAPI SDK keeps (the ninth review round, B-F6): a withdrawal in flight with its destination and transaction, the exit RPC,
+  // the bundler — not only its deployment
+  if (d.localStorage === undefined) removeLocalStorageKeysWithPrefix(ZKAPI_KEY_PREFIX);
+  else removeLocalStorageKeysWithPrefix(ZKAPI_KEY_PREFIX, d.localStorage);
   // the keystore, the journal, a journal set aside, the settings
   session.forget();
   // the proving artifacts kept for speed

@@ -21,13 +21,15 @@ export interface TradeSummary {
   usd?: string;
   tier: Tier;
   preference?: string;
-  /** the route's mode only, never its parts, interval, ETA or impact (the memo that lands carries those) */
-  chosen?: { provider: string; plan?: { mode: ExecutionPlan["mode"] }; nativeAssets: boolean; linkPublic?: boolean; components?: RouteScore["components"]; total?: number; receiveMinRounded: string };
+  /** the route's mode only, never its parts, interval, ETA or impact (the memo that lands carries those) — nor the score's components, which
+   *  re-encode the ETA and the impact (the ninth review round, B-F9): its total alone */
+  chosen?: { provider: string; plan?: { mode: ExecutionPlan["mode"] }; nativeAssets: boolean; linkPublic?: boolean; total?: number; receiveMinRounded: string };
   /** each provider's answer as a closed code, never its words (they carried exact amounts and addresses) */
   competition: { provider: string; outcome: string; reason?: ReasonCode }[];
   lint: { id: string; level: string; category: string }[];
   /** V3 (High-Value Protection spec §16): the protection plan — class, band, cap, steps, gate, ELPF, concentration; never an amount in base units, never an address */
-  protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: number; gate: string; concurrency: string; elpfUsd?: string; concentration: string; staged: boolean };
+  /** `steps` as a band (B-F9): capped pieces had made the count the amount divided by the cap */
+  protection?: { riskClass: string; custody: string; bandBps: [number, number]; capBps: number; steps: string; gate: string; concurrency: string; elpfUsd?: string; concentration: string; staged: boolean };
 }
 
 /** A provider's answer as one of a few codes (C-M3): its own words carried exact base-unit amounts and addresses. */
@@ -81,6 +83,9 @@ export function assertSanitized(x: unknown, path = "summary"): void {
   if (x && typeof x === "object") for (const [k, v] of Object.entries(x)) assertSanitized(v, `${path}.${k}`);
 }
 
+/** A step count as a band (B-F9). */
+export const stepsBand = (n: number): string => (n <= 1 ? "1" : n <= 5 ? "2-5" : n <= 20 ? "6-20" : n <= 100 ? "21-100" : "over 100");
+
 export function tradeSummary(i: {
   from: { chain: string; symbol: string; decimals: number }; to: { chain: string; symbol: string; decimals: number }; amountUnits: bigint; usd?: number | null; tier: Tier; preference?: string;
   chosen?: { provider: string; score?: RouteScore; quote: { plan?: ExecutionPlan; etaSeconds: number; impactBps?: number; nativeAssets: boolean; toAmountMin: string }; linkPublic?: boolean } | null;
@@ -97,10 +102,10 @@ export function tradeSummary(i: {
     ...(typeof i.usd === "number" ? { usd: roundSignificant(i.usd, 1) } : {}),
     tier: i.tier,
     ...(i.preference ? { preference: i.preference } : {}),
-    ...(i.chosen ? { chosen: { provider: i.chosen.provider, ...(i.chosen.quote.plan ? { plan: { mode: i.chosen.quote.plan.mode } } : {}), nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { components: i.chosen.score.components, total: Math.round(i.chosen.score.total) } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
+    ...(i.chosen ? { chosen: { provider: i.chosen.provider, ...(i.chosen.quote.plan ? { plan: { mode: i.chosen.quote.plan.mode } } : {}), nativeAssets: i.chosen.quote.nativeAssets, linkPublic: i.chosen.linkPublic, ...(i.chosen.score ? { total: Math.round(i.chosen.score.total) } : {}), receiveMinRounded: units(i.chosen.quote.toAmountMin, i.to.decimals) } } : {}),
     competition: (i.competition ?? []).map((c) => ({ provider: c.provider, outcome: c.outcome, ...(c.reason ? { reason: reasonCode(c.reason) } : {}) })),
     lint: (i.lint ?? []).map((l) => ({ id: l.id, level: l.level, category: l.category })),
-    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: i.protection.estimatedTranches, gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd, 1) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
+    ...(i.protection ? { protection: { riskClass: i.protection.riskClass, custody: i.protection.custody, bandBps: i.protection.bandBps, capBps: i.protection.capBps, steps: stepsBand(i.protection.estimatedTranches), gate: i.protection.gate, concurrency: i.protection.concurrency, ...(i.protection.elpf.perCampaignUsd !== null ? { elpfUsd: roundSignificant(i.protection.elpf.perCampaignUsd, 1) } : {}), concentration: i.protection.concentration.singleVenue ? "single venue" : `${i.protection.concentration.providers.length} venues, share cap ${i.protection.concentration.capBps / 100} %`, staged: i.protection.staged } } : {}),
   };
   assertSanitized(s);
   return s;
@@ -109,7 +114,7 @@ export function tradeSummary(i: {
 export interface TradeCheck { bestRoute: string; alternative: string; estimatedSavings: string; privacy: string; execution: string; risk: string }
 
 export const TRADE_CHECK_SYSTEM = [
-  "You are the trade checker of a privacy wallet. You receive a sanitized summary of a planned cross-chain swap: assets, rounded amounts, the value tier, the chosen route with its execution plan and score components, what every provider answered (the competition record), the wallet's privacy check items and, for a large order, the protection plan (risk class, tranche band, exposure cap, steps, settlement gate, expected loss per failure, concentration).",
+  "You are the trade checker of a privacy wallet. You receive a sanitized summary of a planned cross-chain swap: assets, rounded amounts, the value tier, the chosen route with its execution mode and total score, what every provider answered (the competition record), the wallet's privacy check items and, for a large order, the protection plan (risk class, tranche band, exposure cap, a band of steps, settlement gate, expected loss per failure, concentration).",
   "You recommend, compare, explain and warn. You cannot sign, withdraw, change a destination or override a check, and you never ask for addresses, keys, phrases or balances.",
   "Answer with one JSON object and nothing else, with exactly these keys, each a short plain sentence: bestRoute, alternative, estimatedSavings, privacy, execution, risk. Never use the words atomic or anonymous.",
 ].join(" ");

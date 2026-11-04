@@ -3,10 +3,14 @@
 // (D-M2); a quote's expiry and impact are held to their ranges (D-L4, M3); an incident the score has no penalty for is refused and
 // a NaN total is never chosen (D-L5); the plan of a route no plan can stage is no recommendation (M3); a route record's key names
 // the chain off an asset's home (D-L1).
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PrivateSwapEngine, boundedQuote, isOutage, MAX_QUOTE_TTL_SECONDS } from "../src/engine";
 import { chooseRoute, scoreRoutes, type RouteScore } from "../src/scoring";
-import { isIncident, riskDb, routePairOf } from "../src/risk/riskDb";
+import { DEFAULT_HALF_LIFE_DAYS, incidentOf, isIncident, riskDb, routePairOf } from "../src/risk/riskDb";
+import { fileIncidents } from "../src/health";
 import { securityBreakdown } from "../src/risk/security";
 import { protectionFor, recommendProtection } from "../src/risk/protection";
 import { MAX_TRANCHES } from "@privacy-wallet/protocol/wallet/campaign";
@@ -98,14 +102,29 @@ describe("a quote's figures are held to their ranges (D-L4, A-M3 / D-M3)", () =>
   });
 });
 
-describe("an incident the score cannot weigh is refused; a NaN total is never chosen (D-L5)", () => {
+describe("every incident naming a provider and a date is weighed; a NaN total is never chosen (D-L5; the ninth review round, A9-2)", () => {
   const base = { provider: "chainflip", date: "2026-10-01", title: "operator: exploit", lossUsd: 50_000_000, class: "key-compromise", halfLifeDays: 30, source: "ops" };
-  it("a class without a penalty, a half-life not above zero or a loss not a number is no incident", () => {
+  it("a class without a penalty, a half-life not above zero, a loss that is no number: kept, normalized — they had been dropped silently", () => {
     expect(isIncident(base)).toBe(true);
-    expect(isIncident({ ...base, class: "exploit" })).toBe(false);
-    expect(isIncident({ ...base, halfLifeDays: 0 })).toBe(false);
-    expect(isIncident({ ...base, halfLifeDays: -3 })).toBe(false);
-    expect(isIncident({ ...base, lossUsd: Number.NaN })).toBe(false);
+    for (const x of [{ ...base, class: "exploit" }, { ...base, class: "other" }, { ...base, halfLifeDays: 0 }, { ...base, halfLifeDays: -3 }, { ...base, lossUsd: Number.NaN }, { ...base, lossUsd: null }])
+      expect(isIncident(x), JSON.stringify(x)).toBe(true);
+    expect(incidentOf({ ...base, halfLifeDays: 0 })!.halfLifeDays).toBe(DEFAULT_HALF_LIFE_DAYS);
+    expect(incidentOf({ ...base, lossUsd: null })!.lossUsd).toBeUndefined();
+    expect(incidentOf({ ...base, date: "never" }), "no date: nothing to weigh").toBeNull();
+    expect(incidentOf({ ...base, provider: "" })).toBeNull();
+  });
+  it("an unknown class costs the most, and the operator's file keeps such records: the breaker's lever never fails open", () => {
+    const at = Date.parse("2026-10-03");
+    const known = securityBreakdown("chainflip", at, riskDb(), [incidentOf(base)!]).total;
+    expect(securityBreakdown("chainflip", at, riskDb(), [incidentOf({ ...base, class: "exploit" })!]).total).toBe(known);
+    const dir = mkdtempSync(join(tmpdir(), "incidents-"));
+    try {
+      const file = join(dir, "incidents.json");
+      writeFileSync(file, JSON.stringify([{ ...base, class: "other", halfLifeDays: 0, lossUsd: null }, { provider: "thorchain", title: "no date" }]));
+      expect(fileIncidents(Date.now(), file)).toMatchObject([{ provider: "chainflip", class: "other", halfLifeDays: DEFAULT_HALF_LIFE_DAYS }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("the score stays a number even so, and a NaN total is not chosen", () => {
     const s = securityBreakdown("chainflip", Date.parse("2026-10-03"), riskDb(), [{ ...base, class: "exploit" as never }]);
@@ -121,10 +140,13 @@ describe("no plan of more steps than any campaign runs (A-M3 / D-M3)", () => {
   const amount = 1250n * 10n ** 18n;
   const set = (quote: Quote) => ({ quotes: [quote], errors: {}, health: healthOf([quote]), scores: [{ provider: quote.provider, components: { price: 1, security: 1, privacy: 1, latency: 1, liquidity: 1, reliability: 1 }, total: 1 }], chosen: { provider: quote.provider, components: { price: 1, security: 1, privacy: 1, latency: 1, liquidity: 1, reliability: 1 }, total: 1 }, links: {}, policy: "balanced", competition: [], executorTip: 0n }) as never;
   const reqBase: QuoteRequest = { from: ETH, to: { ...ETH, chain: "base" }, amount, destination: "0x" + "ab".repeat(20), slippageBps: 50 };
-  it("a dust instant limit is no recommendation — the order stays one order — and the planner never loops past its bound", () => {
+  it("a dust instant limit is planned at the exposure cap — never one unprotected order (the ninth review round, A9-1) — and the planner never loops past its bound", () => {
     const t0 = Date.now();
     const out = protectionFor(set(q("uniswap-across", 1n, { plan: undefined, limits: { maxInstant: 1n } })), reqBase, amount, "high-value-secondary", "balanced", 4000);
-    expect(out.protection, "no plan can stage it").toBeUndefined();
+    expect(out.protection, "a plan, at the cap").toBeDefined();
+    expect(out.protection!.maxPieceUnits).toBeNull();
+    expect(out.protection!.estimatedTranches).toBeLessThanOrEqual(MAX_TRANCHES);
+    expect(out.protection!.reasonCodes.map((r) => r.code)).toContain("instant-limit");
     expect(Date.now() - t0, "bounded, never seconds").toBeLessThan(2_000);
   });
   it("an absurd impact halves the piece only down to the step bound", () => {

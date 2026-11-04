@@ -110,7 +110,8 @@ export function createApp(deps: SwapApiDeps, o: AppOptions): express.Express {
   app.post("/v1/quotes", async (req, res) => send(res, await api.quotes(req.body)));
   app.post("/v1/operations", async (req, res) => {
     const caller = callerOf(req);
-    if (!commits.allow(caller))
+    // a restore of an order the API already knows creates nothing (the ninth review round, 2026-11-04, A9-3): never the caller's commit budget
+    if (!api.knownRestore(req.body) && !commits.allow(caller))
       return void res
         .status(429)
         .set("retry-after", String(commits.retryAfterSeconds(caller)))

@@ -2010,7 +2010,9 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
     const t0 = Date.now();
     const moved = withRoute(before, "thorchain", { ...protection("thorchain"), maxPieceUnits: "1" }, quote("thorchain"), clock, () => 0.5);
     expect(Date.now() - t0, "bounded").toBeLessThan(2_000);
-    expect(moved.plan.maxPiece, "no ceiling of one wei").toBeUndefined();
+    // the finest ceiling a campaign can run, never the in-flight cap alone (the ninth review round, A9-13)
+    expect(moved.plan.maxPiece, "no ceiling of one wei").not.toBe("1");
+    expect(moved.plan.maxPiece, "nor none").toBeDefined();
     expect(moved.tranches.filter((t) => t.state === "planned").length).toBeLessThan(1000);
   });
 

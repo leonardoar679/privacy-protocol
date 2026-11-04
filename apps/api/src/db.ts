@@ -151,21 +151,29 @@ export function openDb(path: string): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   migrate(db);
-  if (Number((db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count) > 0) {
-    db.exec("VACUUM");
-    checkpoint(db);
-  }
   return db;
 }
+/** The busy handler's wait for a write lock held by another connection. */
+export const BUSY_TIMEOUT_MS = 5000;
+/** The file's application id once its one-time vacuum ran ("PWA9"). */
+export const VACUUMED_ONCE = 0x50574139;
 
-/** The WAL written back and emptied (the eighth review round, A-M1): its frames had kept what a finalize or a purge removed. */
+/**
+ * The WAL written back and emptied (the eighth review round, A-M1): its frames had kept what a finalize or a purge removed. Never waiting
+ * for a reader (the ninth review round, A9-4): a TRUNCATE checkpoint calls the busy handler until readers leave, and with a backup, Litestream
+ * or an operator's shell on the file every finalize had stalled the whole API (node:sqlite is synchronous) for the 5 s timeout. A reader
+ * on the file keeps the WAL until the next checkpoint finds none (docs/deployment.md).
+ */
 export function checkpoint(db: DatabaseSync): void {
   try {
+    db.exec("PRAGMA busy_timeout = 0");
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch {
     /* a reader holds the WAL: the next checkpoint empties it */
+  } finally {
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   }
 }
 
@@ -243,5 +251,13 @@ export function purge(db: DatabaseSync, now: number): Record<"quotes" | "operati
     health: run("DELETE FROM provider_health WHERE at < ?", now - RETENTION.providerHealth),
   };
   checkpoint(db);
+  // the free pages a build without secure_delete left, vacuumed once — at the first purge, so after it (the ninth review round, 2026-11-04,
+  // A9-9): every start had vacuumed (any purge leaves free pages), rewriting the whole file before the API could listen, and the first start
+  // after the upgrade copied the bloat no purge had removed yet. The file's application id marks it done
+  if (Number((db.prepare("PRAGMA application_id").get() as { application_id: number }).application_id) !== VACUUMED_ONCE) {
+    if (Number((db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count) > 0) db.exec("VACUUM");
+    db.exec(`PRAGMA application_id = ${VACUUMED_ONCE}`);
+    checkpoint(db);
+  }
   return out;
 }

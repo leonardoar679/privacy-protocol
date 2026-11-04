@@ -247,9 +247,15 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
     assertStillUnlocked();
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
+    const epoch = session.epoch();
     const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account);
-    // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public address
-    const approval = (await receiptViaInjectedWallet(hash, { chainId: p.deployment.chainId })) ?? (await clientFor(p.deployment).waitForTransactionReceipt({ hash }));
+    // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public
+    // address — and never the endpoints after a lock (the ninth review round, B-I3), as the deposit's receipt: the approval stays open for
+    // exactly this amount, nothing is deposited
+    const own = await receiptViaInjectedWallet(hash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
+    if (!own && session.epoch() !== epoch)
+      throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent (the approval sent stays open for exactly this amount)"), { code: "locked_mid_flow" });
+    const approval = own ?? (await clientFor(p.deployment).waitForTransactionReceipt({ hash }));
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
     approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
     if (!clearing) {
@@ -363,6 +369,25 @@ export async function feeTerms(deployment: Deployment, submission: Submission, v
     return { url: picked.url, info: picked.info, fee: { ownerCommitment: addr.ownerCommitment, viewPub: addr.viewPub, amount, vault: BigInt(vault) } };
   }
   throw new NoRelayer(errors);
+}
+
+/**
+ * The relayer's terms read again after a spend's merges (the eighth review round, B-8), from the first read's relayer alone (the ninth review
+ * round, 2026-11-04, B-F4): a read that fails, or a fee above the first read's — which the merges were planned for and the Review's bound
+ * held —, keeps the first terms; the relayer checks its fee again at the submission. The fallbacks' walk and a failed read had failed the
+ * spend after its merges were paid (`no_relayer`, `fee_moved`).
+ */
+async function feeAfterMerges<T extends { url: string; info: RelayerInfo; fee: FeeTerms }>(
+  deployment: Deployment,
+  submission: Submission,
+  vault: Address,
+  terms: T | null,
+  merges: number,
+  delivered: bigint,
+): Promise<T | null> {
+  if (merges <= 0 || !terms || submission.kind !== "relayer") return terms;
+  const fresh = await feeTerms(deployment, { ...submission, url: terms.url }, vault, [], { delivered }).catch(() => null);
+  return fresh && fresh.url === terms.url && fresh.fee.amount <= terms.fee.amount ? ({ ...terms, info: fresh.info, fee: fresh.fee } as T) : terms;
 }
 
 /**
@@ -649,14 +674,7 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   const merges = await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
   // the fee and the relayer read again after merges (the eighth review round, B-8): minutes of proving and mining later, the first
   // read's relayer could refuse the fee it named, and the spend failed after its merges were paid
-  // read after them; the fee bounded by the first read's, which the merges were planned for and the Review's bound already held
-  if (merges > 0 && terms) {
-    const fresh = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
-    if (fresh) {
-      boundFee(fresh, terms.fee.amount, vault, o.amount);
-      terms = fresh;
-    }
-  }
+  terms = await feeAfterMerges(o.deployment, submission, vault, terms, merges, o.amount);
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
@@ -859,13 +877,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
   const merges = await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
-  if (merges > 0 && terms) {
-    const fresh = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // after the merges (B-8)
-    if (fresh) {
-      boundFee(fresh, terms.fee.amount, vault, o.amount);
-      terms = fresh;
-    }
-  }
+  terms = await feeAfterMerges(o.deployment, submission, vault, terms, merges, o.amount); // after the merges (B-8)
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);

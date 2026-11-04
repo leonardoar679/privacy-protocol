@@ -173,9 +173,9 @@ export class Store {
     // nor into an operation that ended (the eighth review round, A-L2): its blob went with its terminal state
     const r = this.db
       .prepare(
-        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND terminal_at IS NULL AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)",
+        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND terminal_at IS NULL AND execute_deadline * 1000 >= ? AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)",
       )
-      .run(blob, this.now(), id);
+      .run(blob, this.now(), id, this.now()); // nor past its execution deadline (the ninth review round, A9-11): the purge had removed it there
     return Number(r.changes) > 0;
   }
   /**
@@ -186,9 +186,9 @@ export class Store {
   setRestoredBlob(id: string, blob: string, finalizedAt: number | null): boolean {
     const r = this.db
       .prepare(
-        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND order_blob IS NULL AND terminal_at IS NULL AND (SELECT finalized_at FROM executions WHERE executions.operation_id = operations.id) IS ?",
+        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND order_blob IS NULL AND terminal_at IS NULL AND execute_deadline * 1000 >= ? AND (SELECT finalized_at FROM executions WHERE executions.operation_id = operations.id) IS ?",
       )
-      .run(blob, this.now(), id, finalizedAt);
+      .run(blob, this.now(), id, this.now(), finalizedAt);
     return Number(r.changes) > 0;
   }
   /** The operations not yet ended (the eighth review round, A-M2: the commit's capacity). */
@@ -244,14 +244,22 @@ export class Store {
    * The state and settlement after a reconcile; a terminal state is final (I-O1), stamps `terminal_at` and drops the blob (the eighth
    * review round, A-L2: an order a reconcile ended kept its destination and refund material for the terminal row's seven days).
    */
-  updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }): void {
+  /**
+   * `unchangedSince`: the row's updated_at the caller read it at — the write is made only over that row (the ninth review round, 2026-11-04,
+   * A9-7: a reconcile slower than the throttle had written its snapshot over a newer terminal answer); never over a terminal row (I-O1).
+   * Whether it was written.
+   */
+  updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }, o: { unchangedSince?: number } = {}): boolean {
     const t = this.now();
     const terminal = TERMINAL_STATES.includes(s.state);
-    this.db
+    const r = this.db
       .prepare(
-        "UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END, order_blob = CASE WHEN ? THEN NULL ELSE order_blob END WHERE id = ?",
+        `UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END, order_blob = CASE WHEN ? THEN NULL ELSE order_blob END WHERE id = ? AND terminal_at IS NULL${o.unchangedSince !== undefined ? " AND updated_at = ?" : ""}`,
       )
-      .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, terminal ? 1 : 0, id);
+      .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, terminal ? 1 : 0, id, ...(o.unchangedSince !== undefined ? [o.unchangedSince] : []));
+    const written = Number(r.changes) > 0;
+    if (written && terminal) checkpoint(this.db); // the blob it dropped leaves the WAL too (A9-11)
+    return written;
   }
   putJob(id: string, j: { state: string; executionTx?: string; actualWei?: string }): void {
     this.transaction(() => {

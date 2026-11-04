@@ -182,7 +182,7 @@ export function SwapScreen(p: SwapScreenProps) {
   // had them since r43): named on the Review, bounded at the funding — they had been paid at the live fee, unshown and unbounded
   const mergeEach = terms?.minimum ?? 0n;
   const mergePlan =
-    fromAsset && units > 0n && mergeEach > 0n
+    fromAsset && units > 0n && !!terms // a minimum of 0 counts its merges too (B-F5)
       ? mergeSchedule(
           noteStore.unspent(BigInt(fromAsset.vault)).map((n) => ({ id: String(n.leafIndex), amount: n.note.amount })),
           units,
@@ -312,6 +312,9 @@ export function SwapScreen(p: SwapScreenProps) {
   // the service's liquidity qualification rides on its §46 quote (spec v3.0 §4): a route whose measured limit is below the order
   const serviceBlockers = quotes?.quote?.risk.blockers ?? [];
   const routeUnqualified = serviceBlockers.includes("route_not_qualified");
+  // at a tier that runs a campaign, a quote without the service's plan closes Review Swap (the ninth review round, 2026-11-04, A9-1): the
+  // order had gone as one, the exposure cap never applied and nothing said so
+  const unplanned = !!quotes && !intoProtected && controls.campaign && protection.enabled && !quotes.protection;
   const campaignMode =
     !intoProtected &&
     !protectedSteps &&
@@ -451,8 +454,8 @@ export function SwapScreen(p: SwapScreenProps) {
         // V7 Stage 13: the Advanced gate over $100K, the band's exposure limit and the route's qualification close Review Swap
         gate: advancedGate ? { title: t("swap.advancedGate.title"), body: t("swap.advancedGate.body"), switchLabel: t("swap.advancedGate.switch") } : null,
         limit: limitReached ? t("swap.inFlight") : null,
-        routeLimit: routeUnqualified ? t("swap.routeLimit") : null,
-        canReview: !!quote && !expired && destinationOk && !destinationLocked && !busy && !advancedGate && !limitReached && !routeUnqualified,
+        routeLimit: routeUnqualified ? t("swap.routeLimit") : unplanned ? t("swap.unplanned") : null,
+        canReview: !!quote && !expired && destinationOk && !destinationLocked && !busy && !advancedGate && !limitReached && !routeUnqualified && !unplanned,
       }
     : null;
 

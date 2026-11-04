@@ -43,6 +43,8 @@ async function rpc<T>(url: string, method: string, params: unknown[], f: Fetch, 
 
 /** balanceOf(address) */
 const balanceOfCall = (owner: string) => `0x70a08231${owner.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+/** SwapOrderEscrow.executed() */
+const EXECUTED_CALL = "0x31a38c89";
 
 export interface ReadsConfig {
   relayerUrl: string | null;
@@ -104,6 +106,11 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
       const code = await firstAnswer<string>("eth_getCode", [escrow, "latest"]);
       return code === null ? null : code !== "0x" && code !== "0x0";
     },
+    // the escrow's own `executed` flag (the ninth review round, A9-12): an escrow anyone deployed bare has code and never executed
+    async executed(escrow: string): Promise<boolean | null> {
+      const word = await firstAnswer<string>("eth_call", [{ to: escrow, data: EXECUTED_CALL }, "latest"]);
+      return word === null ? null : word !== "0x" && BigInt(word) !== 0n;
+    },
     async track(provider: string, ref: { tx?: string; ref?: string }) {
       const adapter = c.engine.cfg.adapters.find((a) => a.id === (provider as ProviderId));
       if (!adapter) return null;
@@ -112,6 +119,7 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
         state: t.state,
         ...(t.destinationTxHash ? { destinationTxHash: t.destinationTxHash } : {}),
         ...(t.refundedTo ? { refundedTo: t.refundedTo } : {}),
+        ...(t.deliveredAmount !== undefined && /^[0-9]{1,78}$/.test(String(t.deliveredAmount)) ? { deliveredAmount: String(t.deliveredAmount) } : {}), // A9-6
       };
     },
     async relayerTerms(): Promise<RelayerTerms | null> {

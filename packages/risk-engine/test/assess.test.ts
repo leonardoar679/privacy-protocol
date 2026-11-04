@@ -104,6 +104,15 @@ describe("assessRisk (doc §47–§48)", () => {
     expect(blockersOf(f), "unpriced: the route cannot be judged, the limit still holds").toEqual(["in_flight_limit"]);
   });
 
+  it("a protected execution's route is qualified on its largest step, never the whole order (the ninth review round, A9-8)", () => {
+    const f = clean();
+    delete f.inFlight;
+    f.route = { limitUsd: f.usd! / 2, pieceUsd: f.usd! / 40 };
+    expect(blockersOf(f), "steps far inside the measured size").toEqual([]);
+    f.route = { limitUsd: f.usd! / 2, pieceUsd: f.usd! };
+    expect(blockersOf(f)).toEqual(["route_not_qualified"]);
+  });
+
   it("several blockers come back in the order of BLOCKER_CODES", () => {
     const f = clean();
     ONE_BLOCKER.unsafe_contract_call(f);

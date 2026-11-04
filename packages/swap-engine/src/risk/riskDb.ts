@@ -13,8 +13,10 @@ export interface Incident {
   provider: string;
   date: string; // ISO
   title: string;
-  lossUsd: number;
-  class: "key-compromise" | "bridge" | "solver" | "api" | "liquidity";
+  /** unknown when the record names none (the ninth review round, A9-2) */
+  lossUsd?: number;
+  /** a class the score has a penalty for; another costs the most (risk/security.ts) */
+  class: "key-compromise" | "bridge" | "solver" | "api" | "liquidity" | "other" | (string & {});
   /** how long the incident keeps depressing the security score, in days (decays linearly) */
   halfLifeDays: number;
   source: string;
@@ -50,17 +52,26 @@ const CLASSES: RiskClass[] = ["R1", "R2", "R3", "R4", "R5", "R6", "R7"];
 const CUSTODY: Custody[] = ["tss-vaults", "mpc-vault", "relayer-bridge", "cctp", "solver", "aggregator", "intent", "contract", "counterparty"];
 const UPGRADE: Upgradeability[] = ["immutable", "governance", "timelock", "multisig", "admin"];
 const GATES: Gate[] = ["source", "destination-submitted", "destination-final"];
-/** The incident classes the security score has a penalty for (risk/security.ts INCIDENT_PENALTY). */
-export const INCIDENT_CLASSES: readonly Incident["class"][] = ["key-compromise", "bridge", "solver", "api", "liquidity"];
+/** The incident classes the security score has a penalty for (risk/security.ts INCIDENT_PENALTY); "other" is the V2 spec's own word. */
+export const INCIDENT_CLASSES: readonly Incident["class"][] = ["key-compromise", "bridge", "solver", "api", "liquidity", "other"];
+/** The half-life an incident record without a usable one is given: the risk database's own records use a year. */
+export const DEFAULT_HALF_LIFE_DAYS = 365;
 /**
- * An incident record the score can use (the eighth review round, 2026-11-03, D-L5): a class it has a penalty for, a half-life above
- * zero, a loss that is a number — the risk database's and the operator's file alike. A class typed "exploit" had made the provider's
- * security NaN: chosen or not by the order of the quotes, out of R4 and the band's narrowing.
+ * An incident record as the score reads it (the ninth review round, 2026-11-04, A9-2): every record that names a provider and a date is
+ * kept — a class without a penalty of its own costs the most (risk/security.ts), a half-life not above zero is the default one, a loss that
+ * is no number is unknown. The eighth round's filter (D-L5, against a NaN score) had dropped the spec's own class "other", an "exploit", a
+ * half-life of 0 and a null loss silently — no breaker, no R4, no narrowed band: the operator's emergency lever failing open.
  */
-export const isIncident = (i: any): i is Incident =>
-  !!i && typeof i.provider === "string" && typeof i.date === "string" && !Number.isNaN(Date.parse(i.date)) && typeof i.title === "string" &&
-  typeof i.halfLifeDays === "number" && Number.isFinite(i.halfLifeDays) && i.halfLifeDays > 0 && INCIDENT_CLASSES.includes(i.class) &&
-  (i.lossUsd === undefined || (typeof i.lossUsd === "number" && Number.isFinite(i.lossUsd) && i.lossUsd >= 0));
+export function incidentOf(i: any): Incident | null {
+  if (!i || typeof i.provider !== "string" || !i.provider || typeof i.date !== "string" || Number.isNaN(Date.parse(i.date))) return null;
+  const halfLifeDays = typeof i.halfLifeDays === "number" && Number.isFinite(i.halfLifeDays) && i.halfLifeDays > 0 ? i.halfLifeDays : DEFAULT_HALF_LIFE_DAYS;
+  const lossUsd = typeof i.lossUsd === "number" && Number.isFinite(i.lossUsd) && i.lossUsd >= 0 ? i.lossUsd : undefined;
+  const cls = typeof i.class === "string" && i.class ? i.class : "unknown";
+  const { lossUsd: _loss, ...rest } = i;
+  return { ...rest, title: typeof i.title === "string" && i.title ? i.title : cls, class: cls, halfLifeDays, ...(lossUsd !== undefined ? { lossUsd } : {}) };
+}
+/** Whether a record is one the score can read (`incidentOf`). */
+export const isIncident = (i: any): i is Incident => incidentOf(i) !== null;
 
 /** Where an asset's symbol names its own chain (assets.ts HOME in @privacy-wallet/config): off it, a route record names the chain. */
 const HOME_CHAIN: Record<string, string> = { BTC: "bitcoin", SOL: "solana", ETH: "ethereum", USDC: "ethereum", USDT: "ethereum" };
@@ -80,7 +91,12 @@ function validProvider(x: any, file: string, problems: string[]): ProviderRiskRe
   if (x.gate !== undefined && !GATES.includes(x.gate)) { problems.push(`${file}: unknown gate ${x.gate}`); return null; }
   if (x.pFailPrior !== undefined && !(typeof x.pFailPrior === "number" && x.pFailPrior >= 0 && x.pFailPrior <= 1)) { problems.push(`${file}: pFailPrior outside [0, 1]`); return null; }
   if (x.bandBps !== undefined && !(Array.isArray(x.bandBps) && x.bandBps.length === 2 && x.bandBps.every((b: unknown) => typeof b === "number") && x.bandBps[0] <= x.bandBps[1])) { problems.push(`${file}: bandBps must be [min, max]`); return null; }
-  const securityEvents = Array.isArray(x.securityEvents) ? x.securityEvents.filter((i: unknown) => isIncident(i)).map((i: Incident) => ({ ...i, provider: x.provider })) : undefined;
+  const securityEvents = Array.isArray(x.securityEvents)
+    ? x.securityEvents.flatMap((i: unknown) => {
+        const inc = incidentOf({ ...(i as object), provider: x.provider });
+        return inc ? [inc] : [];
+      })
+    : undefined;
   if (Array.isArray(x.securityEvents) && securityEvents!.length !== x.securityEvents.length) problems.push(`${file}: ${x.securityEvents.length - securityEvents!.length} malformed security event(s) skipped`);
   return { ...x, ...(securityEvents ? { securityEvents } : {}) } as ProviderRiskRecord;
 }

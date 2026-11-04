@@ -25,14 +25,14 @@ export interface SecurityBreakdown {
   incidentList: Incident[];
 }
 
-export const INCIDENT_PENALTY: Record<Incident["class"], number> = { "key-compromise": 25, bridge: 20, solver: 10, api: 10, liquidity: 10 };
+export const INCIDENT_PENALTY: Record<string, number> = { "key-compromise": 25, bridge: 20, solver: 10, api: 10, liquidity: 10, other: 10 };
 const DAY = 86_400_000;
 
 /** The penalty of one incident at `now`: the class penalty decaying linearly to zero at halfLifeDays (V2 §16). */
 export function incidentPenalty(inc: Incident, now: number): number {
   const ageDays = (now - Date.parse(inc.date)) / DAY;
   if (!(ageDays >= 0)) return 0;
-  // an unknown class costs the most, never NaN (the loaders refuse such a record: the eighth review round, D-L5)
+  // an unknown class costs the most, never NaN (the ninth review round, A9-2: the loaders keep such a record, and it is charged this)
   return (INCIDENT_PENALTY[inc.class] ?? INCIDENT_PENALTY["key-compromise"]) * Math.max(0, 1 - ageDays / inc.halfLifeDays);
 }
 

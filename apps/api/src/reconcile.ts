@@ -24,12 +24,20 @@ export interface ReconcileReads {
   track(
     provider: string,
     ref: { tx?: string; ref?: string },
-  ): Promise<{ state: string; destinationTxHash?: string; refundedTo?: "escrow" | "destination" } | null>;
+  ): Promise<{
+    state: string;
+    destinationTxHash?: string;
+    refundedTo?: "escrow" | "destination";
+    /** base units delivered, when the provider says (A9-6) */ deliveredAmount?: string | bigint;
+  } | null>;
   /**
-   * Whether the escrow is deployed (eth_getCode; the eighth review round, A-L1): an escrow is deployed only by its execution or its
-   * refund, so an empty deployed escrow is neither a reorg nor "nothing moved". Null when it could not be read; absent, never read.
+   * Whether the escrow is deployed (eth_getCode; the eighth review round, A-L1): an empty deployed escrow after its funding is neither a
+   * reorg nor "nothing moved". Null when it could not be read; absent, never read. Anyone can deploy an escrow bare (the factory's
+   * `deploy` is public: the ninth review round, A9-12), so its code alone never says it executed — `executed` does
    */
   deployed?(escrow: string): Promise<boolean | null>;
+  /** The escrow's own `executed` flag (A9-12): false for an escrow not deployed; null when it could not be read; absent, never read. */
+  executed?(escrow: string): Promise<boolean | null>;
 }
 
 export type Source = "ok" | "none" | "unreachable";
@@ -46,6 +54,8 @@ export interface Reconciled {
 }
 
 const PRE_FUNDING: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING"];
+/** The execution's steps in their order: a reconcile never moves a row back along them (A9-7). */
+const FORWARD: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING"];
 
 /**
  * The operation's state from what was read — the wallet's tracker (packages/sdk/src/orderTracker.ts deriveState) read
@@ -54,7 +64,7 @@ const PRE_FUNDING: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_RE
 export function stateFrom(
   row: Pick<OperationRow, "state" | "executeDeadline" | "refundAfter" | "amount">,
   job: RelayerJobView | null,
-  track: { state: string; refundedTo?: "escrow" | "destination" } | null,
+  track: { state: string; refundedTo?: "escrow" | "destination"; deliveredAmount?: string | bigint } | null,
   funded: boolean | null,
   nowS: number,
   /** the escrow holds a refund that came back after the executor's watch (lateRefundHeld) */
@@ -65,16 +75,22 @@ export function stateFrom(
    * The eighth review round (2026-11-03, A-L1): the API finalized the order (an execution row), and whether its escrow is deployed —
    * the API's state had contradicted the wallet's and the chain's on three paths.
    */
-  facts: { finalized?: boolean; deployed?: boolean | null } = {},
+  facts: { finalized?: boolean; deployed?: boolean | null; executed?: boolean | null } = {},
 ): { state: OperationState; code?: string; delayed?: true } {
   const j = job?.state;
   if (j === "refunded") {
-    // the wallet's rule (orderTracker deriveState): an executed order whose rest came back delivered part — never refunded in full
-    const executed = !!job?.executed || !!job?.executionTx;
-    if (!executed) return { state: "REFUNDED" };
+    // the wallet's rule (orderTracker deriveState; the ninth review round, 2026-11-04, A9-6): mined only on the relayer's own flag — it keeps
+    // a reverted execution's transaction —, and an executed order whose rest came back delivered part only with delivered units; a refund
+    // read without any is refunded. The API had read the track's state and contradicted the wallet on four of five shapes
+    if (!job?.executed) return { state: "REFUNDED" };
     if (track === null) return { state: "REFUNDING" }; // the provider unread: nothing final on it
-    const delivered = ["partial", "completed", "destination-final", "destination-submitted"].includes(track.state);
-    return delivered ? { state: "RECOVERY_REQUIRED", code: "partial_delivery" } : { state: "REFUNDED" };
+    let units = 0n;
+    try {
+      units = BigInt(track.deliveredAmount ?? "0");
+    } catch {
+      units = 0n;
+    }
+    return units > 0n ? { state: "RECOVERY_REQUIRED", code: "partial_delivery" } : { state: "REFUNDED" };
   }
   // a refund the provider paid at the destination address (the sixth review round, 2026-11-03; Mayan Fast-MCTP): final, whatever
   // the executor's watch says — nothing reaches the escrow
@@ -122,7 +138,10 @@ export function stateFrom(
   const beforeFunding = PRE_FUNDING.includes(row.state) || row.state === "RECOVERY_REQUIRED";
   // a deployed escrow was executed or refunded (A-L1): executed through another relayer when this API finalized it — the provider
   // delivers — else refunded by anyone's deployAndRefund; never "the funding is pending again", never "nothing moved"
-  if (facts.deployed === true) return facts.finalized ? { state: "PROVIDER_EXECUTING" } : { state: "REFUNDING" };
+  // the escrow's own flag says it executed (A9-12) — unread, its code with this API's finalize, as before (A-L1); deployed, not executed, and
+  // empty after its funding: someone's deployAndRefund. Before any funding a bare deploy moves nothing: anyone can deploy an escrow
+  if (facts.executed === true || (facts.deployed === true && facts.executed == null && facts.finalized)) return { state: "PROVIDER_EXECUTING" };
+  if (facts.deployed === true && !beforeFunding) return { state: "REFUNDING" };
   // an order this API finalized is never closed as one that moved nothing (A-L1): it waits, open, for the wallet's reads
   if (nowS > row.executeDeadline && beforeFunding)
     return nowS >= row.refundAfter && !facts.finalized ? { state: "CANCELLED", code: "order_expired" } : { state: "RECOVERY_REQUIRED", code: "order_expired" };
@@ -176,14 +195,22 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
   const funded = balance === null ? null : balance >= BigInt(row.amount);
   // with no job to read, an empty escrow's code says whether it moved (A-L1); read only then
   const deployed = !job && funded === false && reads.deployed ? await reads.deployed(row.escrow).catch(() => null) : null;
-  const derived: { state: OperationState; code?: string; delayed?: true } =
+  const executedFlag = !job && funded === false && deployed === true && reads.executed ? await reads.executed(row.escrow).catch(() => null) : null;
+  const read: { state: OperationState; code?: string; delayed?: true } =
     TERMINAL_STATES.includes(row.state) || jobRead === null
       ? { state: row.state }
       : stateFrom(row, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)), balance !== null, {
           finalized: !!exec,
           deployed,
+          executed: executedFlag,
         });
-  store.updateState(row.id, { state: derived.state, settlement });
+  // an order this API finalized never goes from a later step of the execution back to an earlier one (the ninth review round, 2026-11-04,
+  // A9-7): a job read "none" — another relayer, a changed RELAYER_URL — had moved DESTINATION_CONFIRMING back to PROVIDER_EXECUTING. One never
+  // handed over still goes back when its escrow empties without a job (a reorg: the funding pending again)
+  const back = !!exec && FORWARD.indexOf(read.state) >= 0 && FORWARD.indexOf(read.state) < FORWARD.indexOf(row.state);
+  const derived = back ? { state: row.state } : read;
+  // over the row it read only (A9-7): a slower reconcile's snapshot had overwritten a newer terminal answer
+  store.updateState(row.id, { state: derived.state, settlement }, { unchangedSince: row.updatedAt });
   if (derived.state !== row.state)
     store.event({ event: "operation.reconciled", operationId: row.id, provider: row.provider, state: derived.state, network: row.network });
 

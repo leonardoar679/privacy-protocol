@@ -66,6 +66,8 @@ export function quoteOf(f: QuoteFacts): Quote | null {
   const score = set.scores.find((s) => s.provider === chosen.provider);
   const link = set.links[chosen.provider];
   const tier = set.tier as Tier | undefined;
+  // the plan runs as steps where the tier runs a campaign or the plan is staged (A9-8)
+  const stepped = !!set.protection?.trancheUsd && !!tier && (atLeast(tier, "high-value") || set.protection.staged);
   const risk = assessRisk({
     now: f.now,
     quote: {
@@ -86,7 +88,9 @@ export function quoteOf(f: QuoteFacts): Quote | null {
     // the review round of 2026-11-02: a $150K order had been judged at its $148.5K funding)
     ...(set.value && "usd" in set.value ? { usd: valuedAt(set.value.usd, req.amount, gross) } : {}),
     largeTrade: !!tier && atLeast(tier, "large-protected"),
-    route: { limitUsd: f.routeLimitUsd ?? null },
+    // a protected execution's route is qualified on its largest step, never the whole order (the ninth review round, 2026-11-04, A9-8): it
+    // runs as steps where its tier runs a campaign or its plan is staged — a $5M order in $125K steps had been refused a route measured to $2M
+    route: { limitUsd: f.routeLimitUsd ?? null, ...(stepped ? { pieceUsd: set.protection!.trancheUsd![1] } : {}) },
   });
   return {
     id: f.id,
