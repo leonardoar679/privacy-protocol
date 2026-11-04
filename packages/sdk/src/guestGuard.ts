@@ -6,7 +6,7 @@
 // user), and the memo must swap into the asset the guest chose, pay the destination the guest typed,
 // fit the chain's 80-byte OP_RETURN, and enforce a minimum no lower than the quote the guest saw. The
 // memo carries no refund address: THORChain refunds the sender, which here is the guest's own wallet.
-import { from1e8, MinimumMoved, ProviderCallMismatch, ProviderCallUnverified, THOR_CHAIN, thorAsset, thorAssetShort, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "./providerCall";
+import { from1e8, isThorDecimal, MinimumMoved, ProviderCallMismatch, ProviderCallUnverified, THOR_CHAIN, thorAsset, thorAssetShort, thornodeActiveVault, thornodeInbound, type ActiveVaultLookup, type InboundLookup } from "./providerCall";
 import type { AssetRef } from "./swapService";
 
 /** A guest signs nothing here: the instruction is simply not shown. */
@@ -54,6 +54,8 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   const m = /^=:([^:]+):([^:/]+):(\d+)$/.exec(memo);
   if (!m) fail("memo", `"${memo}" is not =:ASSET:DEST:LIMIT`);
   const [, asset, dest, limit] = m!;
+  // as THORNode reads it (the eleventh review round, D11-1): a leading zero is octal there — a guest would receive less than it was shown
+  if (!isThorDecimal(limit)) fail("memo", "the memo's limit is not written as THORNode reads it (a leading zero, or too many digits)");
   if (asset !== thorAsset(e.to) && asset !== thorAssetShort(e.to)) fail("memo asset", `${asset} is not ${thorAsset(e.to)}`);
   const evmDest = /^0x[0-9a-fA-F]{40}$/.test(e.destination);
   // an Ethereum target is paid to an Ethereum address only (audit round 2, r34): another chain's address, as typed, passed

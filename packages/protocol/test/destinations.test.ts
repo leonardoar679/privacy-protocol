@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { bech32 } from "@scure/base";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana, refusedRecipient } from "../src/wallet/destinations";
+import { ETH_TAKING_CONTRACTS, EVM_SHORT_NAMES, evmChainHint, groupAddress, looksLikeChain, parseBitcoin, parseDestination, parseEvm, parseSolana, refusedRecipient } from "../src/wallet/destinations";
 
 const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("./vectors/chainkeys.json", import.meta.url)), "utf8"));
 const EVM = vectors.bip44_evm.account0.address as string; // 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
@@ -117,5 +117,20 @@ describe("what a payment must not go to, and the code of every refusal (a V6 fol
     expect(parseDestination("bitcoin", "0x9858EfFD232B4033E47d90003D41EC34EcaEda94")).toMatchObject({ ok: false, code: "other_chain", looksLike: "evm" });
     const src = readFileSync(fileURLToPath(new URL("../src/wallet/destinations.ts", import.meta.url)), "utf8");
     expect((src.match(/ok: false, chain, reason/g) ?? []).length, "each refusal written with its code").toBe((src.match(/, code: "/g) ?? []).length);
+  });
+});
+
+describe("the contracts that take ETH and keep it (the eleventh review round, the critic's K1 — Classic's C10-8 rule)", () => {
+  it("WETH, stETH, wstETH and rETH, and the L2 WETHs a swap can deliver to, are refused recipients on every parse, with no deployment named", () => {
+    for (const [address, name] of Object.entries(ETH_TAKING_CONTRACTS)) {
+      expect(refusedRecipient(address), name).toMatchObject({ code: "token_contract", symbol: name });
+      expect(refusedRecipient(address.toUpperCase().replace("0X", "0x")), "any case").toMatchObject({ code: "token_contract" });
+      expect(parseDestination("evm", address), name).toMatchObject({ ok: false });
+    }
+    expect(Object.values(ETH_TAKING_CONTRACTS).sort()).toEqual(["WETH", "WETH", "WETH", "rETH", "stETH", "wstETH"]);
+    // the real contracts, as their projects publish them (a mistyped entry would pass the loop above)
+    for (const a of ["0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84", "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0", "0xae78736Cd615f374D3085123A210448E74Fc6393", "0x4200000000000000000000000000000000000006", "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"])
+      expect(refusedRecipient(a), a).toMatchObject({ code: "token_contract" });
+    expect(refusedRecipient("0x9858EfFD232B4033E47d90003D41EC34EcaEda94"), "an ordinary account stays").toBeNull();
   });
 });

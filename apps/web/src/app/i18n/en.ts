@@ -543,6 +543,8 @@ export const en = {
     "Its refund was not set up for this wallet's keys, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.funding_under_way.title": "A funding is on its way",
   "op.error.funding_under_way.reason": "This swap's funding is being prepared or sent right now, so nothing was changed. Try again once it has finished.",
+  "op.error.call_refused.title": "This swap needs a new quote",
+  "op.error.call_refused.reason": "The instructions prepared for this swap did not match what you reviewed, so it was stopped before anything was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.order_closed.title": "This swap needs a new quote",
   "op.error.order_closed.reason": "The order was closed while its funding was prepared, so nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.order_outdated.title": "This swap needs a new quote",
@@ -650,7 +652,7 @@ export const en = {
   "op.error.transport_refused.reason": "The wallet only talks to this deployment's endpoints. Nothing was sent.",
   "op.error.order_mismatch.title": "The service's order did not match your request",
   "op.error.order_mismatch.reason":
-    "The swap service returned an order with a different destination, amount or deadline than you asked for, so the wallet did not use it. Nothing left your protected balance.",
+    "The swap service returned an order that differs from what you asked for or reviewed, so the wallet did not use it. Nothing left your protected balance.",
   "op.error.provider_call_mismatch.title": "The provider call did not match your request",
   "op.error.provider_call_mismatch.reason":
     "The call the service built does not do what you asked, so the wallet did not sign it. Your funds sit in your one-time escrow; confirm again or return them.",

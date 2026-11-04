@@ -37,6 +37,8 @@ const NOW = 1_790_000_000;
 const PRICED = { ETH: 2_540_00000000n };
 const expectation = (over: Partial<CallExpectation> = {}): CallExpectation => ({ escrow: ESCROW, from: ETH, to: BTC, destination: DEST_BTC, net: NET, policy: "best-privacy", now: NOW, ...over });
 const refused = async (p: Promise<unknown>, field: RegExp) => { await expect(p).rejects.toThrow(ProviderCallMismatch); await expect(p).rejects.toThrow(field); };
+// a check that could not be made (the eleventh review round, after its critique): an outage, asked again — never a refusal
+const unverified = async (p: Promise<unknown>, field: RegExp) => { await expect(p).rejects.toThrow(ProviderCallUnverified); await expect(p).rejects.toThrow(field); };
 
 describe("the wallet's pins and notation equal the swap service's", () => {
   it("provider contracts, Chainflip ids, WETH, THORChain asset notation, selectors", () => {
@@ -220,9 +222,10 @@ describe("THORChain's active vaults, as the gateways list them (2026-10-14: its 
       expect(Object.keys(s.init.headers as Record<string, string>)).toEqual(["accept"]);
     }
   });
-  it("one answering gateway that does not list it fails closed; a retiring vault is not active; too few lists are an outage", async () => {
+  it("one answering gateway that does not list it fails closed — not yet checkable, asked again; a retiring vault is not active; too few lists are an outage", async () => {
     const one = fetchFrom({ ...all(V, W), "https://g3": asgard(V) });
-    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: one })).rejects.toBeInstanceOf(ProviderCallMismatch);
+    // a gateway behind a churn (the eleventh review round, after its critique): never signed, never a refusal that stops a delayed order
+    await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: one })).rejects.toBeInstanceOf(ProviderCallUnverified);
     await expect(thornodeActiveVault("ETH", W, { gateways, fetchFn: one })).rejects.toThrow(/is not an active THORChain ETH vault on 1 of the 3/);
     await expect(thornodeActiveVault("ETH", RETIRING, { gateways, fetchFn: fetchFrom(all(V, W)) })).rejects.toThrow(/not an active THORChain ETH vault on 3 of the 3/);
     await expect(thornodeActiveVault("ETH", "0x000000000000000000000000000000000000bad1", { gateways, fetchFn: fetchFrom(all(V, W)) })).rejects.toBeInstanceOf(ProviderCallMismatch);
@@ -336,8 +339,8 @@ describe("Mayan: forwarder and Fast-MCTP pinned, the order pays the fresh addres
     // before, any positive floor passed: a service could route the ETH through its own pool with the order holding one USDC unit
     await refused(checkProviderCall(ethCall({ minMiddle: 1n }), e), /below/);
     await refused(checkProviderCall(ethCall({ minMiddle: 1_270_000_000n }), e), /below/);
-    await refused(checkProviderCall(ethCall(), { ...e, usd: undefined }), /no fresh agreed ETH price/);
-    await refused(checkProviderCall(ethCall(), { ...e, usd: { USDC: 10n ** 8n } }), /no fresh agreed ETH price/);
+    await unverified(checkProviderCall(ethCall(), { ...e, usd: undefined }), /no fresh agreed ETH price/);
+    await unverified(checkProviderCall(ethCall(), { ...e, usd: { USDC: 10n ** 8n } }), /no fresh agreed ETH price/);
     await expect(checkProviderCall(ethCall({ minMiddle: 2_489_200_000n }), e), "exactly the floor").resolves.toMatchObject({ provider: "mayan" });
     await refused(checkProviderCall(ethCall({ minMiddle: 2_489_199_999n }), e), /below/);
     // a USDC feed under a dollar raises the floor: more USDC units make the same value
@@ -439,7 +442,7 @@ describe("Mayan SWIFT: Swift V2 and the ETH wrapper pinned, the order pays the f
     // the leg's floor is this wallet's own price less 2 % (the third review round, 2026-11-03)
     await refused(checkProviderCall(lock({ minMiddle: 1n }), pooled), /below/);
     await refused(checkProviderCall(lock({ minMiddle: 2_489_199_999n }), pooled), /below/);
-    await refused(checkProviderCall(lock(), { ...pooled, usd: undefined }), /no fresh agreed ETH price/);
+    await unverified(checkProviderCall(lock(), { ...pooled, usd: undefined }), /no fresh agreed ETH price/);
     expect((await checkProviderCall(lock({ minMiddle: 2_489_200_000n, amountIn: 2_489_200_000n }), pooled)).facts.join(" ")).toMatch(/within 2 % of the ETH at this wallet's own price/);
     await refused(checkProviderCall(lock({ middle: WETH_ETHEREUM }), pooled), /swap/);
     await refused(checkProviderCall(lock({ tokenIn: ZERO }), pooled), /order/);
@@ -656,7 +659,7 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
     await expect(checkProviderCall(mayanCall(leg(2_482_977_000n)), priced)).resolves.toMatchObject({ provider: "lifi", minOut: INNER_MIN * 10n });
     await refused(checkProviderCall(mayanCall(leg(2_482_976_999n)), priced), /below/);
     await refused(checkProviderCall(mayanCall(leg(1n)), priced), /below/);
-    await refused(checkProviderCall(mayanCall(leg(2_482_977_000n)), { ...es, pooled: POOL_USDC }), /no fresh agreed ETH price/);
+    await unverified(checkProviderCall(mayanCall(leg(2_482_977_000n)), { ...es, pooled: POOL_USDC }), /no fresh agreed ETH price/);
     await refused(checkProviderCall(mayanCall(mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: ENGINE_WETH.ethereum as Address, minMiddleAmount: MIN_AMOUNT })), priced), /not bounded in USDC/);
   });
   it("any other facet is a call this wallet cannot read", async () => {

@@ -95,6 +95,11 @@ export function markAddressUsed(chain: AddressChain, address: string, by: string
   const e = findEntry(chain, address, s);
   if (e) put(markUsed(e, by, now), s);
 }
+/** The use an attempt marked, taken over by the order it became (the eleventh review round, A11-5): one use, never two operations. */
+export function transferUse(chain: AddressChain, address: string, from: string, to: string, s: WalletSession = defaultSession, now = Date.now()): void {
+  const e = findEntry(chain, address, s);
+  if (e) put(markUsed({ ...e, usedBy: e.usedBy.filter((x) => x !== from) }, to, now), s);
+}
 /** V4 (plan §18–§19): the explicit approval for large payments, once verified and out of its cooling-off (or overridden). */
 export function approveAddress(id: string, s: WalletSession = defaultSession, now = Date.now()): AddressBookEntry | null {
   const e = bookOf(s.journal()).find((x) => x.id === id);

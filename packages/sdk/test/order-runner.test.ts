@@ -16,7 +16,8 @@ import type { ShieldJob, SwapJob } from "../src/relayer";
 import type { OrderState, Tracked } from "../src/orderTracker";
 import { CallTooClose, HAND_OVER_MARGIN_SECONDS, handOverSigned, prepareAndSign, type Signed } from "../src/swapExecute";
 import type { Deployment } from "../src/chain";
-import { MinimumMoved, ProviderCallUnverified } from "../src/providerCall";
+import { MinimumMoved, ProviderCallMismatch, ProviderCallUnverified } from "../src/providerCall";
+import { OrderMismatch } from "../src/swapGuard";
 import { OlderNotesUnavailable } from "../src/privateTx";
 import { OrderOutdated, OrderWindowClosed, RelayerNotReady, ServiceKeyChanged, TipStale } from "../src/swapFunding";
 import { FeeMoved } from "../src/privateTx";
@@ -1055,6 +1056,52 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
       throw new Error("not asked");
     };
     expect((await runOrderTick(action(), deps(c.io)))?.step).toBe("funded");
+  });
+
+  it("a delayed funding whose call does not do what was asked stops unfunded — never funded on a refused check (the eleventh review round, D11-7)", async () => {
+    const delayUntil = T0 + 3 * 3600_000;
+    order({ runner: { confirmedAt: T0, delayUntil } });
+    session.update((j) => {
+      j.schedule = [action(delayUntil)];
+    });
+    const { w, io } = world();
+    io.precheck = async () => {
+      throw new ProviderCallMismatch("mayan", "receiver", "the order pays another address than your fresh one");
+    };
+    expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("stopped");
+    expect(w.funds, "nothing funded").toBe(0);
+    expect(stored().paused?.code).toBe("call_refused");
+    expect(record()).toMatchObject({ state: "CANCELLED", reason: { code: "call_refused", fundsClass: "not-moved" } });
+    expect(pending(), "no further tick").toBeUndefined();
+  });
+
+  it("a delayed funding whose prepared order does not match stops unfunded too (the eleventh review round, after the critique)", async () => {
+    const delayUntil = T0 + 3 * 3600_000;
+    order({ runner: { confirmedAt: T0, delayUntil } });
+    session.update((j) => {
+      j.schedule = [action(delayUntil)];
+    });
+    const { w, io } = world();
+    io.precheck = async () => {
+      throw new OrderMismatch("digest", "it is not the digest of the call it describes");
+    };
+    expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("stopped");
+    expect(w.funds, "nothing funded").toBe(0);
+    expect(stored().paused?.code).toBe("call_refused");
+  });
+
+  it("a prepared call's deadline at the delayed funding's check is the moment's (a slow answer): the check could not be made, funded as before", async () => {
+    const delayUntil = T0 + 3 * 3600_000;
+    order({ runner: { confirmedAt: T0, delayUntil } });
+    session.update((j) => {
+      j.schedule = [action(delayUntil)];
+    });
+    const second = world();
+    second.io.precheck = async () => {
+      throw new OrderMismatch("deadline", "outside the order's execution window");
+    };
+    expect((await runOrderTick(action(delayUntil), deps(second.io, delayUntil)))?.step).toBe("funded");
+    expect(second.w.funds).toBe(1);
   });
 
   it("'Delay for more privacy' from older notes: funded at once; when they no longer cover it, stopped unfunded — never paid from younger notes", async () => {

@@ -270,7 +270,11 @@ export const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
     )
       throw new TypeError("fetch failed");
     if (u.pathname.endsWith("/inbound_addresses"))
-      return json([{ chain: "ETH", address: world.gateways.inbound, router: PINNED.thorchainRouter, halted: !!world.gateways.halted }]);
+      // every chain, as THORNode lists them: the wallet reads the destination's halt too (the eleventh review round, D11-9)
+      return json([
+        { chain: "ETH", address: world.gateways.inbound, router: PINNED.thorchainRouter, halted: !!world.gateways.halted },
+        { chain: "BTC", address: "bc1qthorvault0000000000000000000000000000", halted: false },
+      ]);
     return json(world.gateways.active.map((address) => ({ status: "ActiveVault", addresses: [{ chain: "ETH", address }] })));
   }
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body)); // the deployment's RPC endpoint (viem batches)

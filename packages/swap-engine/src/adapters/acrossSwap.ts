@@ -136,6 +136,8 @@ export function verifyAcrossSwapCall(
         const token = a.length === 64 ? addr(word(a, 0)) : "";
         const okToken = token === output || (pins.nativeOut && token === ZERO);
         if (!okToken || addr(word(a, 1)) !== dest) throw new Error("Across swap: the handler would drain another token, or to another address than the fresh destination");
+        // native out: the WETH only after the unwrap, its leftover (the eleventh review round, D11-8): drained before it, the fill went over as WETH
+        if (pins.nativeOut && token === output && !unwrapped) throw new Error("Across swap: the handler would hand over the WETH before unwrapping it");
         if (pins.nativeOut ? token === ZERO && unwrapped : true) drained = true;
       } else if (pins.nativeOut && call.target === pins.handler && sel === SEL_MAKE_CALL_WITH_BALANCE) {
         // makeCallWithBalance(target, callData, value, Replacement[] { token, offset }): exactly WETH.withdraw(<its WETH balance>)

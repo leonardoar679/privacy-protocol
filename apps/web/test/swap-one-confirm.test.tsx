@@ -389,7 +389,9 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     await act(async () => {
       fireEvent.click(await screen.findByTestId("review-confirm"));
     });
-    await waitFor(() => expect(document.body.textContent).toMatch(/1100000000000000 is more than the 1000000000000000 the Review showed/));
+    // in the wallet's words on the Simple screen (the eleventh review round): the service's figures in base units are for Advanced
+    await waitFor(() => expect(document.body.textContent).toMatch(/returned an order that differs from what you asked for or reviewed/));
+    expect(document.body.textContent).not.toMatch(/1100000000000000/);
     expect(session.journal().swaps, "the refused order is never journaled").toHaveLength(1);
   }, 60_000);
 

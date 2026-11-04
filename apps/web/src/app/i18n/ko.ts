@@ -539,6 +539,9 @@ export const ko: Record<MessageKey, string> = {
     "환불이 이 지갑의 키로 설정되지 않아, 자금을 넣기 전에 멈췄습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.funding_under_way.title": "자금 전송이 진행 중입니다",
   "op.error.funding_under_way.reason": "이 스왑의 자금이 지금 준비되거나 전송되고 있어 아무것도 바꾸지 않았습니다. 끝난 뒤 다시 시도하세요.",
+  "op.error.call_refused.title": "이 스왑은 새 견적이 필요합니다",
+  "op.error.call_refused.reason":
+    "이 스왑을 위해 준비된 지시가 검토한 내용과 맞지 않아, 아무것도 전송하기 전에 멈췄고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.order_closed.title": "이 스왑은 새 견적이 필요합니다",
   "op.error.order_closed.reason": "자금을 준비하는 동안 주문이 닫혀서 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.order_outdated.title": "이 스왑은 새 견적이 필요합니다",
@@ -649,8 +652,7 @@ export const ko: Record<MessageKey, string> = {
   "op.error.transport_refused.title": "알 수 없는 호스트로의 요청이 거부되었습니다",
   "op.error.transport_refused.reason": "지갑은 이 배포의 엔드포인트와만 통신합니다. 아무것도 전송되지 않았습니다.",
   "op.error.order_mismatch.title": "서비스의 주문이 요청과 일치하지 않았습니다",
-  "op.error.order_mismatch.reason":
-    "스왑 서비스가 요청과 다른 목적지, 금액 또는 기한의 주문을 반환해 지갑이 사용하지 않았습니다. 보호 잔액에서 빠져나간 것은 없습니다.",
+  "op.error.order_mismatch.reason": "스왑 서비스가 요청하거나 검토한 것과 다른 주문을 반환해 지갑이 사용하지 않았습니다. 보호 잔액에서 빠져나간 것은 없습니다.",
   "op.error.provider_call_mismatch.title": "제공자 호출이 요청과 일치하지 않았습니다",
   "op.error.provider_call_mismatch.reason":
     "서비스가 만든 호출이 요청한 동작을 하지 않아 지갑이 서명하지 않았습니다. 자금은 일회용 에스크로에 있습니다. 다시 확인하거나 자금을 반환하세요.",

@@ -614,8 +614,15 @@ export function SwapScreen(p: SwapScreenProps) {
       navigate(`/swap/progress/${routeHandle(swapRecordId(r.stored.orderId))}`, { replace: true });
     } catch (e) {
       const c = classify(e);
-      // the tip the Review showed and today's parted (the eighth review round, H1): the wallet's words, not the service's figures
-      setStatus(c.code === "tip_moved" ? t("op.error.tip_moved.reason") : c.detail || String(e));
+      // the tip the Review showed and today's parted (the eighth review round, H1): the wallet's words, not the service's figures — and an order
+      // the service committed otherwise than reviewed (the eleventh review round, D11-4), its field and provider ids for Advanced only
+      setStatus(
+        c.code === "tip_moved"
+          ? t("op.error.tip_moved.reason")
+          : c.code === "order_mismatch" && !advanced
+            ? t("op.error.order_mismatch.reason")
+            : c.detail || String(e),
+      );
     } finally {
       setBusy(false);
     }
@@ -1180,6 +1187,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       "fee_moved",
       "merges_moved",
       "tip_stale",
+      "call_refused", // the eleventh review round (2026-11-04, D11-7): it had read as a plain "Cancelled"
     ].includes(record.reason?.code ?? "")
   ) {
     return (

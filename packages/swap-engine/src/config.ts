@@ -54,8 +54,9 @@ function seconds(name: string, fallback: number, max: number): number {
 
 export function defaultEngine(over: Partial<EngineConfig> = {}): PrivateSwapEngine {
   return new PrivateSwapEngine({
-    // Mayan reads the service's own ETH price for the floor of an ETH-source order's USDC leg (the third review round, 2026-11-03)
-    adapters: [new ThorchainAdapter(), new LifiAdapter(), new ChainflipAdapter(), new MayanAdapter({ valuer: valuerFromEnv(Number(process.env.CHAIN_ID ?? "1")) }), new NearIntentsAdapter(), new AcrossAdapter()],
+    // Mayan reads the service's own ETH price for the floor of an ETH-source order's USDC leg (the third review round, 2026-11-03), and LI.FI for
+    // the same leg inside its Mayan facet (the eleventh review round, 2026-11-04)
+    adapters: ((valuer) => [new ThorchainAdapter(), new LifiAdapter({ valuer }), new ChainflipAdapter(), new MayanAdapter({ valuer }), new NearIntentsAdapter(), new AcrossAdapter()])(valuerFromEnv(Number(process.env.CHAIN_ID ?? "1"))),
     factory: process.env.SWAP_FACTORY ?? "0x0000000000000000000000000000000000000001", // placeholder until deployed; only affects the predicted address
     escrowCreationCode: BYTECODE.swapOrderEscrow, // @privacy-wallet/contracts: forge's export
     chainId: BigInt(process.env.CHAIN_ID ?? "1"),

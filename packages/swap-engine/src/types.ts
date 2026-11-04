@@ -50,6 +50,12 @@ export interface QuoteRequest {
   /** V6 Stage 12 (spec v2.0 §11.2, §12): "protected" — a same-chain swap into the protected balance, `destination` the
    *  wallet's shield receiver (a placeholder while indicative); absent or "external": an address */
   destinationType?: "protected" | "external";
+  /**
+   * The committed route's refund target, at a prepare (the eleventh review round, 2026-11-04): an adapter that chooses its route type afresh at
+   * every quote (Mayan's Swift or Fast-MCTP, LI.FI's Mayan facet) offers only one that refunds there — the wallet signs a call refunding at the
+   * destination only where the committed quote said so.
+   */
+  refundTarget?: "escrow" | "destination";
 }
 
 export interface Fee {

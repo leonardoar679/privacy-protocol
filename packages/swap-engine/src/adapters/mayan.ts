@@ -49,7 +49,7 @@ export const MAYAN_MIDDLE_MAX_SHORTFALL_BPS = 200;
 export const middleFloorUsdc = (ethWei: bigint, ethUsd1e8: bigint): bigint => ((ethWei * ethUsd1e8 * 10n ** 6n) / 10n ** 26n) * BigInt(10_000 - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 10_000n;
 /** The agreed ETH price a Mayan quote's leg is bounded against (null: none agreed or stale — an ETH-source quote is then refused). */
 export interface LegPrice { ethUsd1e8?: bigint | null }
-function boundMiddle(minMiddle: bigint, ethWei: bigint, v: LegPrice, what: string): void {
+export function boundMiddle(minMiddle: bigint, ethWei: bigint, v: LegPrice, what: string): void {
   if (v.ethUsd1e8 === undefined || v.ethUsd1e8 === null || v.ethUsd1e8 <= 0n) throw new Error(`Mayan ${what}: the ETH → USDC leg cannot be bounded without the service's own agreed ETH price (RPC_URLS feeds): not offered`);
   const floor = middleFloorUsdc(ethWei, v.ethUsd1e8);
   if (minMiddle < floor) throw new Error(`Mayan ${what}: minMiddleAmount ${minMiddle} USDC base units is below ${floor}, ${(10_000 - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100} % of the ETH at the agreed price`);
@@ -319,7 +319,9 @@ export class MayanAdapter implements ProviderAdapter {
     });
     const { data, status } = await getJson<{ quotes?: MayanQuote[]; code?: string; msg?: string }>(`${MAYAN_PRICE_API}/quote?${qs}`);
     if (status !== 200) throw new Error(`Mayan quote: HTTP ${status} ${JSON.stringify(data).slice(0, 200)}`);
-    const offered = (data.quotes ?? []).filter((x) => this.orderTypes.includes(x.type as MayanOrderType));
+    // at a prepare, only the committed route type's refund target (the eleventh review round): Swift refunds the escrow, Fast-MCTP the destination
+    const types = req.refundTarget === "escrow" ? ["SWIFT"] : req.refundTarget === "destination" ? ["FAST_MCTP"] : this.orderTypes;
+    const offered = (data.quotes ?? []).filter((x) => this.orderTypes.includes(x.type as MayanOrderType) && types.includes(x.type as MayanOrderType));
     const leg = await this.legPrice(req, Math.floor(Date.now() / 1000));
     const built: Quote[] = [], refused: string[] = [];
     for (const q of offered) {

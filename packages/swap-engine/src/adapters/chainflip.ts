@@ -103,9 +103,11 @@ export function decodeCfParameters(cf: Buffer): DecodedCfParameters {
   const retryDuration = cf.readUInt32LE(i); i += 4;
   const refundAddress = "0x" + cf.subarray(i, i + 20).toString("hex"); i += 20;
   let minPrice = 0n; for (let k = 31; k >= 0; k--) minPrice = (minPrice << 8n) | BigInt(cf[i + k]); i += 32;
-  const refundCcm = cf[i++] === 1; if (refundCcm) throw new Error("refund CCM metadata present; not expected");
-  const hasOracle = cf[i++] === 1; let maxOracleSlippage: number | null = null; if (hasOracle) { maxOracleSlippage = cf.readUInt16LE(i); i += 2; }
-  const hasDca = cf[i++] === 1; let dca: DecodedCfParameters["dca"] = null; if (hasDca) { dca = { chunks: cf.readUInt32LE(i), interval: cf.readUInt32LE(i + 4) }; i += 8; }
+  // an Option is 0 or 1 in SCALE (the eleventh review round, D11-5): Chainflip's witness ignores a vault swap with another tag — no swap, no refund
+  const option = (what: string): boolean => { const t = cf[i++]; if (t !== 0 && t !== 1) throw new Error(`cfParameters: the ${what} option's tag is ${t}, not 0 or 1`); return t === 1; };
+  const refundCcm = option("refund CCM"); if (refundCcm) throw new Error("refund CCM metadata present; not expected");
+  const hasOracle = option("max oracle slippage"); let maxOracleSlippage: number | null = null; if (hasOracle) { maxOracleSlippage = cf.readUInt16LE(i); i += 2; }
+  const hasDca = option("DCA"); let dca: DecodedCfParameters["dca"] = null; if (hasDca) { dca = { chunks: cf.readUInt32LE(i), interval: cf.readUInt32LE(i + 4) }; i += 8; }
   const boostFee = cf[i++];
   const brokerAccount = "0x" + cf.subarray(i, i + 32).toString("hex"); i += 32;
   const brokerBps = cf.readUInt16LE(i); i += 2;

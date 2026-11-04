@@ -126,6 +126,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   service_key_changed: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   // an older build committed the order under the privacy address's owner commitment (the audit round of 2026-10-16, c18)
   order_outdated: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the provider's call read before a delayed funding does not do what was asked (the eleventh review round, D11-7): stopped, nothing sent
+  call_refused: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // the order's funding is being proved or sent in this tab (the ninth review round, C-04; its row: the tenth, A10-8): nothing was changed
   funding_under_way: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
   // the order was closed while its funding was proved (C-04; A10-8): read again at the send, nothing was sent

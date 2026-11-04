@@ -22,6 +22,9 @@
 // can name recipients and amounts this adapter cannot read.
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
+import { boundMiddle, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, USDC_ETHEREUM, type LegPrice } from "./mayan";
+import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
+import type { Valuer } from "../valuation";
 import { WETH as ACROSS_WETH } from "./across";
 import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
@@ -49,6 +52,23 @@ export const SEL_MAYAN_SWAP = selectorHex(`swapAndStartBridgeTokensViaMayan(${BR
 export const MIN_OUT_VERIFIABLE_SELECTORS = [SEL_ACROSS_V4, SEL_ACROSS_V4_SWAP];
 export const isAcrossV4Call = (data: string) => MIN_OUT_VERIFIABLE_SELECTORS.includes(String(data).slice(0, 10).toLowerCase());
 export const isMayanFacetCall = (data: string) => [SEL_MAYAN, SEL_MAYAN_SWAP].includes(String(data).slice(0, 10).toLowerCase());
+
+/**
+ * Where an unfilled order of a LI.FI route refunds (the eleventh review round, 2026-11-04, D11-4): an Across deposit and a Swift order inside the
+ * Mayan facet refund the escrow, a Fast-MCTP order refunds USDC at the destination — Compare routes says so, and the wallet signs a call that
+ * refunds at the destination only where the committed quote said so. Unknown for anything else.
+ */
+export function lifiRefundTarget(data: string): "escrow" | "destination" | undefined {
+  if (isAcrossV4Call(data)) return "escrow";
+  if (!isMayanFacetCall(data)) return undefined;
+  try {
+    const { facetData } = decodeLifiCall(data);
+    const protocol = addr(facetData.subarray(32, 64)); // MayanData.mayanProtocol
+    return protocol === MAYAN_FAST_MCTP ? "destination" : protocol === MAYAN_SWIFT_V2 ? "escrow" : undefined;
+  } catch {
+    return undefined;
+  }
+}
 /** AcrossFacetV4.MULTIPLIER_BASE: the swap variant hands Across (swap result) × outputAmountMultiplier / 1e18 as the output. */
 export const ACROSS_MULTIPLIER_BASE = 10n ** 18n;
 /** Asked of the API (`allowBridges`) so it routes only through facets this adapter can read; the call is still checked by selector. */
@@ -104,7 +124,7 @@ export function decodeLifiCall(calldata: string): DecodedLifiCall {
 }
 
 /** Everything checked locally about a LI.FI `transactionRequest` before it may be signed. Throws on the first mismatch; returns the list of verified facts. */
-export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; calldata: `0x${string}`; value: bigint; verified: string[]; refundTokens: string[] } {
+export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice): { to: string; calldata: `0x${string}`; value: bigint; verified: string[]; refundTokens: string[] } {
   const tr = q.transactionRequest;
   if (!tr?.to || !tr?.data) throw new Error("LI.FI quote has no transactionRequest");
   if (!req.source) throw new Error("LI.FI: the escrow address (req.source) is required as the sender");
@@ -163,6 +183,18 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
     if (addr(M(7)) !== req.source.toLowerCase()) throw new Error(`LI.FI/Mayan calldata: refundRecipient ${addr(M(7))} is not the escrow (the facet sweeps excess value and swap surplus there)`);
     if (bd.hasSourceSwaps && u(M(8)) !== bd.minAmount) throw new Error(`LI.FI/Mayan calldata: mayanAmountIn ${u(M(8))} is not the bridged amount ${bd.minAmount} (the facet hands Mayan only mayanAmountIn and sweeps the rest to refundRecipient)`);
     verified.push("refund recipient=escrow", "bridged amount");
+    // the order inside, as the wallet reads it at signing (the eleventh review round, 2026-11-04, after its critique — D11-3, D11-6 and the
+    // verifier's NF-1): a route the wallet refuses is never offered — under Fastest it had been funded at once, and the escrow waited for its
+    // refund time. A swap & lock (MayanData.swapProtocol set) refunds its middle token to the escrow, which must re-shield it, and its swap has a
+    // floor; with the service's own agreed ETH price, an ETH → USDC leg and a swap into USDC before the facet are bounded at 98 % of the ETH
+    if (addr(M(3)) !== ZERO) {
+      const middle = addr(M(5)), minMiddle = u(M(6));
+      if (!escrowCanReshield(req.from, middle)) throw new Error(`LI.FI/Mayan calldata: the order swaps into ${middle} and locks it; an unfilled order would refund it to the escrow, which cannot re-shield it (the pool has no vault for it)`);
+      if (minMiddle === 0n) throw new Error("LI.FI/Mayan calldata: the swap before the lock has no floor (minMiddleAmount 0)");
+      if (leg && req.from.asset === "native" && !bd.hasSourceSwaps && middle === USDC_ETHEREUM) boundMiddle(minMiddle, bd.minAmount, leg, "LI.FI/Mayan");
+      verified.push("swap & lock refunds re-shieldable");
+    }
+    if (leg && bd.hasSourceSwaps && req.from.asset === "native" && bd.sendingAssetId === USDC_ETHEREUM) boundMiddle(bd.minAmount, req.amount, leg, "LI.FI source swap");
   }
   if (acrossV4) {
     // AcrossV4Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId (bytes32 each), outputAmount, outputAmountMultiplier, exclusiveRelayer, quoteTimestamp, fillDeadline, exclusivityParameter, message }
@@ -210,6 +242,18 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any): { to: string; 
 export class LifiAdapter implements ProviderAdapter {
   readonly id = "lifi" as const;
   readonly implemented = true;
+  /** the service's own agreed prices (as Mayan's): an ETH → USDC leg inside the Mayan facet is bounded against them (the eleventh review round) */
+  private readonly valuer: Valuer | null;
+  constructor(opts: { valuer?: Valuer | null } = {}) {
+    this.valuer = opts.valuer ?? null;
+  }
+  /** the agreed, fresh ETH price for an ETH-source quote; nothing without a valuer (the wallet bounds the leg at signing either way) */
+  private async legPrice(req: QuoteRequest): Promise<LegPrice | undefined> {
+    if (!this.valuer || req.from.asset !== "native") return undefined;
+    const now = Math.floor(Date.now() / 1000);
+    const prices = (await this.valuer.prices(now).catch(() => null)) ?? null;
+    return { ethUsd1e8: availablePrice(prices, "ETH", now)?.usd1e8 ?? null };
+  }
 
   capabilities(): Capabilities {
     return { routes: ["B", "C", "D", "E"], ingress: ["contract-call"], nativeAssets: false, atomic: false, chains: ["ethereum", "base", "arbitrum", "bsc", "avalanche", "optimism", "polygon", "solana", "bitcoin"], destinationLinkPublic: true, linkEvidence: "the bridge call carries the receiver (bridgeData.receiver, decoded locally before signing)" };
@@ -235,8 +279,9 @@ export class LifiAdapter implements ProviderAdapter {
     // every check prepareIngress makes, but against the quote's own addresses, which are placeholders until the commit (audit
     // round 2, n08): a quote failing the floors — the bridged token not the one delivered, a minimum the bridged amount does
     // not back — was ranked, chosen and funded, and its execution could not be prepared: the escrow waited for its refund time
+    const leg = await this.legPrice(req);
     try {
-      verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q);
+      verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q, leg);
     } catch (e) {
       throw new AdapterRefusal(String((e as Error)?.message ?? e)); // its answer to this request, never an outage (the eighth review round, D-M2)
     }
@@ -256,13 +301,13 @@ export class LifiAdapter implements ProviderAdapter {
       toAmount, toAmountMin, fees,
       etaSeconds: Number(est.executionDuration ?? 0), expiresAt: Math.floor(Date.now() / 1000) + 60, // LI.FI quotes are short-lived; re-quote at commit
       nativeAssets: !bridged, minOutEncoded: true, minOutVerified: isAcrossV4Call(q.transactionRequest?.data ?? ""), plan: SINGLE_PLAN(Number(est.executionDuration ?? 0)),
-      refundTarget: isAcrossV4Call(q.transactionRequest?.data ?? "") ? "escrow" : undefined,
+      refundTarget: lifiRefundTarget(q.transactionRequest?.data ?? ""),
       hops: [`${q.tool}`, ...hops], raw: q, obtainedAt: Date.now(),
     };
   }
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
-    const v = verifyLifiTransaction(req, quote.raw);
+    const v = verifyLifiTransaction(req, quote.raw, await this.legPrice(req));
     return { kind: "contract-call", to: v.to, calldata: v.calldata, value: v.value, expiresAt: quote.expiresAt, minOutEncoded: true, verified: v.verified, ...(v.refundTokens.length ? { refundTokens: v.refundTokens } : {}) };
   }
 

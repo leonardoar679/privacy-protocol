@@ -16,7 +16,7 @@
 // registered again if the executor forgot it), and once it reports a shield the delivered note is looked for in the pool.
 import type { Hex } from "viem";
 import type { Deployment } from "../chain";
-import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
+import { ProviderCallMismatch, ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
 import { trackOrder, type Tracked } from "../orderTracker";
 import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, RelayerTimeout, type ShieldJob, type SwapJob } from "../relayer";
@@ -33,7 +33,9 @@ import {
   type Signed,
   minimumBeforeFunding,
 } from "../swapExecute";
-import { shieldJobRequest } from "../shieldReceiver";
+import { ShieldReceiptMismatch, shieldJobRequest } from "../shieldReceiver";
+import { OrderMismatch } from "../swapGuard";
+import { RecordIncomplete } from "../swapSign";
 import { recoverShieldDelivery } from "../privateTx";
 import {
   abandonSwap,
@@ -541,7 +543,29 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         // that cannot be made funds it as before, and the signing after the funding has its own pauses and retries
         if (stored.runner?.delayUntil && io.precheck) {
           schedulerStatus.progress("Swap: checking a fresh quote before funding…");
-          const moved = await io.precheck(stored).catch(() => null);
+          // only a check that could not be made funds as before (the eleventh review round, D11-7): a refusal the signing would repeat — a provider
+          // call or a prepared order that does not do what was asked, a receipt that is not this wallet's, a record without its minimum — stops the
+          // order here, unfunded; it had been funded, and the signing then paused a funded escrow whose return waited for its refund time. A
+          // prepared call's deadline is the moment's (a slow answer), never a refusal
+          let refused: string | null = null;
+          const moved = await io.precheck(stored).catch((e: unknown) => {
+            if (
+              e instanceof ProviderCallMismatch ||
+              e instanceof ShieldReceiptMismatch ||
+              e instanceof RecordIncomplete ||
+              (e instanceof OrderMismatch && e.field !== "deadline")
+            )
+              refused = e.message;
+            return null;
+          });
+          if (refused !== null) {
+            patchSwap(a.orderId, { paused: { code: "call_refused", detail: refused, at: now } }, s);
+            abandonSwap(a.orderId, s);
+            cancelAction(a.id, s);
+            const st = journaled(a.orderId, s)!;
+            syncSwapRecord(st, null, null, now, s);
+            return { step: "stopped", stored: st };
+          }
           if (moved) {
             patchSwap(a.orderId, { paused: { code: "minimum_moved", at: now, minOut: moved.minOut.toString(), approved: moved.approved.toString() } }, s);
             const st = journaled(a.orderId, s)!;

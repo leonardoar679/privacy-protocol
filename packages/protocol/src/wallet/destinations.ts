@@ -113,6 +113,21 @@ export function looksLikeChain(text: string): ChainKind | null {
 
 /** The burn addresses: what is sent to them is lost (the zero address, and the conventional 0x…dEaD). */
 export const BURN_ADDRESSES: readonly string[] = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
+
+/**
+ * The contracts that take the ETH of a plain call and never give it back (the eleventh review round, 2026-11-04 — Classic's C10-8 rule, which
+ * the wallet had not taken): the vault pays an ETH withdrawal with a plain call; WETH's, stETH's and wstETH's payable entry points credit the
+ * payer — the vault, which can never move the token — and rETH keeps what it is sent; a swap delivering ETH to a chain's WETH does the same.
+ * Static, never an eth_getCode read: that read would tell an endpoint who the recipient is.
+ */
+export const ETH_TAKING_CONTRACTS: Readonly<Record<string, string>> = Object.freeze({
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH", // Ethereum
+  "0xae7ab96520de3a18e5e111b5eaab095312d7fe84": "stETH",
+  "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0": "wstETH",
+  "0xae78736cd615f374d3085123a210448e74fc6393": "rETH",
+  "0x4200000000000000000000000000000000000006": "WETH", // Base, Optimism (the OP Stack predeploy)
+  "0x82af49447d8a07e3bd95bd0d56f35241523fbab1": "WETH", // Arbitrum
+});
 /** An address of the wallet's own deployment (the pool, a vault, the router, a factory) or a token's own contract. */
 export interface KnownAddress {
   address: string;
@@ -129,6 +144,8 @@ export function refusedRecipient(address: string, known: readonly KnownAddress[]
   const a = address.toLowerCase();
   if (a === BURN_ADDRESSES[0]) return { code: "zero_address", reason: "the zero address: what is sent to it is lost" };
   if (BURN_ADDRESSES.includes(a)) return { code: "burn_address", reason: "a burn address: what is sent to it is lost" };
+  const taker = ETH_TAKING_CONTRACTS[a];
+  if (taker) return { code: "token_contract", reason: `the ${taker} token's own contract: what is sent to it cannot come back`, symbol: taker };
   const k = known.find((x) => x.address.toLowerCase() === a);
   if (k?.kind === "token")
     return { code: "token_contract", reason: `the ${k.symbol ?? "token"} token's own contract: what is sent to it cannot come back`, ...(k.symbol ? { symbol: k.symbol } : {}) };

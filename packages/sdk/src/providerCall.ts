@@ -77,6 +77,19 @@ const floorOf = (tokens: Address[] | undefined, least: bigint, divisor: bigint):
 /** What the facts say about an unfilled deposit coming back to the escrow. */
 const refundFact = (e: CallExpectation, tokens: Address[] | undefined) =>
   tokens ? `an unfilled deposit refunds the escrow in ${tokens[0]}, which re-shields ${asEth(e, tokens[0]) ? "as ETH" : "into its vault"}` : "an unfilled deposit refunds the escrow";
+/**
+ * Across's exclusivity (the eleventh review round, D11-10): no exclusive relayer, or one whose window ends within this — a relayer named
+ * exclusive that never fills would hold the deposit until its fill deadline, the escrow refunded hours later after a bundle. The SpokePool
+ * reads a parameter up to a year as seconds from the deposit, a larger one as a timestamp.
+ */
+const ACROSS_MAX_EXCLUSIVITY_SECONDS = 600;
+const ACROSS_EXCLUSIVITY_OFFSET_MAX = 31_536_000;
+function mustShortExclusivity(P: ProviderName, relayer: Hex, parameter: number | bigint, now: number): void {
+  if (BigInt(relayer) === 0n) return;
+  const p = Number(parameter);
+  const window = p <= ACROSS_EXCLUSIVITY_OFFSET_MAX ? p : p - now;
+  must(window <= ACROSS_MAX_EXCLUSIVITY_SECONDS, P, "exclusivity", `only one relayer may fill the deposit for ${window} s (at most ${ACROSS_MAX_EXCLUSIVITY_SECONDS} s here): one that never fills would hold it until its deadline`);
+}
 /** USDC on Ethereum: Mayan Fast-MCTP's input token (Circle CCTP). */
 const USDC_ETHEREUM: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const LIFI_CHAIN_ID: Record<string, bigint> = { ...Object.fromEntries(Object.entries(EVM_CHAIN_ID).map(([k, v]) => [k, BigInt(v)])), solana: 1151111081099710n, bitcoin: 20000000000001n };
@@ -107,6 +120,16 @@ const CF_MAX_RETRY_BLOCKS = 14_400;
 /** A THORChain stream this wallet signs (whale spec §12): an explicit quantity (0 would let the network choose), at most THORNode's own day of 6-second blocks, at most 100 blocks apart. */
 const THOR_MAX_STREAM_PARTS = 14_400;
 const THOR_MAX_INTERVAL_BLOCKS = 100;
+/** The most digits a memo's limit may have (10^30 in 1e8 units: more than any asset's supply). */
+export const THOR_LIMIT_DIGITS = 30;
+
+/**
+ * Whether a memo's number is in the canonical decimal form, bounded (the eleventh review round, 2026-11-04, D11-1): THORNode reads a single
+ * swap's limit with Go's base-0 rule, where a leading 0 is octal — `050000000` is 10,485,760, not the 50,000,000 a decimal reading gives —, and
+ * a number it cannot parse (an 8 or 9 after a leading 0, more than 256 bits) makes the memo invalid, which THORChain refunds to the
+ * transaction's signer: the relayer. A stream's numbers it reads in base 10; the wallet signs the canonical form only, there too.
+ */
+export const isThorDecimal = (n: string, digits: number = THOR_LIMIT_DIGITS): boolean => n.length <= digits && (n === "0" || /^[1-9]\d*$/.test(n));
 /**
  * The third review round (2026-11-03): an ETH → USDC leg a Mayan order runs first (a router Mayan names, bounded on chain by the
  * forwarder's minMiddleAmount) must be bounded at this share of the ETH's value at this wallet's own agreed Chainlink price, or
@@ -186,7 +209,14 @@ export class MinimumMoved extends Error {
  * every gateway that answered reports, or "" while they report different ones: THORChain is moving it between its active
  * vaults, and a vault is then confirmed against their lists of active vaults (ActiveVaultLookup).
  */
-export interface InboundVault { address: string; router?: string; halted: boolean; agreeing: string[] }
+export interface InboundVault {
+  address: string;
+  router?: string;
+  halted: boolean;
+  agreeing: string[];
+  /** every chain a reachable gateway reports halted or trading-paused, from the same answers (the eleventh review round, D11-9) */
+  haltedChains?: string[];
+}
 /** THORChain's EVM chains: their inbound entries carry a router contract. */
 const THOR_EVM_CHAINS = ["ETH", "BASE", "AVAX", "BSC"];
 export type InboundLookup = (chain: string) => Promise<InboundVault>;
@@ -260,7 +290,8 @@ export async function thornodeInbound(chain: string, opts: { gateways?: string[]
       const list = (await r.json()) as any[];
       const e = Array.isArray(list) ? list.find((c) => c?.chain === chain) : undefined;
       const ok = !!e && (THOR_EVM_CHAINS.includes(chain) ? isAddress(String(e.address)) && isAddress(String(e.router)) : typeof e.address === "string" && /^[a-zA-Z0-9:]{20,100}$/.test(e.address));
-      return ok ? { base, entry: e } : { base };
+      const halted = list.filter((c) => !!(c?.halted || c?.global_trading_paused || c?.chain_trading_paused)).map((c) => String(c?.chain));
+      return ok ? { base, entry: e, halted } : { base };
     } catch { return { base }; }
   }));
   const reachable = answers.filter((a) => a.entry);
@@ -275,6 +306,7 @@ export async function thornodeInbound(chain: string, opts: { gateways?: string[]
     router: evm ? getAddress(e.router) : undefined,
     halted: reachable.some(({ entry: x }: any) => !!(x.halted || x.global_trading_paused || x.chain_trading_paused)),
     agreeing: reachable.map((a) => a.base),
+    haltedChains: [...new Set(reachable.flatMap((a) => (a as { halted?: string[] }).halted ?? []))],
   };
 }
 
@@ -302,7 +334,10 @@ export async function thornodeActiveVault(chain: string, vault: string, opts: { 
   const answered = lists.filter((l): l is { base: string; active: string[] } => !!l.active);
   if (answered.length < quorum) throw new ProviderCallUnverified("thorchain", `only ${answered.length} of ${gateways.length} THORNode gateways listed THORChain's ${chain} vaults; ${quorum} must agree`);
   const missing = answered.filter((l) => !l.active.some((a) => same(a, vault)));
-  if (missing.length) throw new ProviderCallMismatch("thorchain", "vault", `${vault} is not an active THORChain ${chain} vault on ${missing.length} of the ${answered.length} THORNode gateways that answered`);
+  // listed by none: not THORChain's vault; by some only: a gateway behind a churn — the check cannot be made yet, asked again (the eleventh review
+  // round, after its critique: a delayed order had been abandoned on one gateway's lag)
+  if (missing.length === answered.length) throw new ProviderCallMismatch("thorchain", "vault", `${vault} is not an active THORChain ${chain} vault on ${missing.length} of the ${answered.length} THORNode gateways that answered`);
+  if (missing.length) throw new ProviderCallUnverified("thorchain", `${vault} is not an active THORChain ${chain} vault on ${missing.length} of the ${answered.length} THORNode gateways that answered (one behind a churn): asked again`);
   return { confirmedBy: answered.map((l) => l.base) };
 }
 
@@ -414,6 +449,11 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   const v = await inbound("ETH");
   // a halt is THORChain's outage, as the API reads it when it prepares a call: tried again, never an unsafe call
   if (v.halted) throw new ProviderCallUnverified(P, "THORChain has halted Ethereum inbound");
+  // and the destination chain's (the eleventh review round, D11-9): THORChain refunds a swap into a halted or trading-paused chain at once,
+  // less its outbound fee — nothing swapped, the tip spent and the escrow's refund waited for. The engine refuses such a call when it
+  // prepares it; the wallet reads it too, from the same quorum, and tries again later
+  const destChain = THOR_CHAIN[e.to.chain];
+  if (destChain && destChain !== "ETH" && v.haltedChains?.includes(destChain)) throw new ProviderCallUnverified(P, `THORChain has halted ${destChain}: it would refund the swap at once, less its outbound fee`);
   must(!!v.router && same(v.router, call.provider), P, "router", `the gateways report router ${v.router}, the call targets ${call.provider}`);
   // the vault THORChain suggests now, or another of its active vaults (it moves the suggestion between them several times
   // an hour; a call prepared a moment before names the previous one): every gateway that answers must list it
@@ -428,6 +468,8 @@ async function thorchain(call: ProviderCall, e: CallExpectation, now: number, in
   const m = /^=:([^:]+):([^:/]+)\/([^:/]+):(\d+)(?:\/(\d+)\/(\d+))?$/.exec(memo);
   must(!!m, P, "memo", `"${memo}" is not =:ASSET:DEST/REFUND:LIMIT[/INTERVAL/QUANTITY]`);
   const [, memoAsset, memoDest, memoRefund, limit, interval, quantity] = m!;
+  must(isThorDecimal(limit), P, "memo", `the memo's limit ${limit.length > 40 ? limit.slice(0, 40) + "…" : limit} is not in the canonical decimal form (no leading zero, at most ${THOR_LIMIT_DIGITS} digits): THORNode reads a single swap's limit with a leading zero as octal, and one it cannot parse makes the memo invalid, refunded to the relayer`);
+  must(interval === undefined || (isThorDecimal(interval, 5) && isThorDecimal(quantity!, 5)), P, "streaming", `the stream's interval ${interval} and quantity ${quantity} are not plain decimals of at most 5 digits`);
   must(memoAsset === thorAsset(e.to), P, "memo asset", `${memoAsset} is not ${thorAsset(e.to)}`);
   must(memoDest === e.destination, P, "receiver", `the memo pays ${memoDest}, not your fresh address`);
   must(same(memoRefund, e.escrow), P, "refund", `a refund would go to ${memoRefund}, not the escrow`);
@@ -490,8 +532,11 @@ export function decodeCfParameters(b: Uint8Array): CfParameters {
   need(20); const refundAddress = getAddress(bytesToHex(b.subarray(i, i + 20))); i += 20;
   need(32); let minPriceX128 = 0n; for (let k = 31; k >= 0; k--) minPriceX128 = (minPriceX128 << 8n) | BigInt(b[i + k]); i += 32;
   need(1); if (b[i++] !== 0) fail("refund CCM metadata present");
-  need(1); if (b[i++] === 1) { need(2); i += 2; } // max oracle slippage: does not move money
-  need(1); let dca: CfParameters["dca"] = null; if (b[i++] === 1) { need(8); dca = { chunks: dv.getUint32(i, true), interval: dv.getUint32(i + 4, true) }; i += 8; }
+  // an Option is 0 or 1 in SCALE (the eleventh review round, D11-5): Chainflip's witness refuses another tag and ignores the vault swap — no
+  // swap and no refund; any other byte had read as None here
+  const option = (what: string): boolean => { need(1); const t = b[i++]; if (t > 1) fail(`the ${what} option's tag is ${t}, not 0 or 1: Chainflip would ignore the swap`); return t === 1; };
+  if (option("max oracle slippage")) { need(2); i += 2; } // max oracle slippage: does not move money
+  let dca: CfParameters["dca"] = null; if (option("DCA")) { need(8); dca = { chunks: dv.getUint32(i, true), interval: dv.getUint32(i + 4, true) }; i += 8; }
   need(1); const boostFee = b[i++];
   need(32); i += 32; // broker account
   need(2); const brokerBps = dv.getUint16(i, true); i += 2;
@@ -510,7 +555,7 @@ export function decodeCfParameters(b: Uint8Array): CfParameters {
 function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
   const P: ProviderName = "across";
   const { args } = decode(P, PERIPHERY_ABI, call.calldata);
-  const s = args[0] as { submissionFees: { amount: bigint }; depositData: { inputToken: Address; outputToken: Hex; outputAmount: bigint; depositor: Address; recipient: Hex; destinationChainId: bigint; fillDeadline: number; message: Hex }; swapToken: Address; swapTokenAmount: bigint; minExpectedInputTokenAmount: bigint; spokePool: Address; nonce: bigint };
+  const s = args[0] as { submissionFees: { amount: bigint }; depositData: { inputToken: Address; outputToken: Hex; outputAmount: bigint; depositor: Address; recipient: Hex; destinationChainId: bigint; exclusiveRelayer: Hex; fillDeadline: number; exclusivityParameter: number; message: Hex }; swapToken: Address; swapTokenAmount: bigint; minExpectedInputTokenAmount: bigint; spokePool: Address; nonce: bigint };
   const d = s.depositData;
   const nativeOut = e.to.asset === "native";
   const outToken = nativeOut ? WETH[e.to.chain] : (e.to.asset as Address);
@@ -524,6 +569,7 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
   must(s.submissionFees.amount === 0n && s.nonce === 0n, P, "fee", "a submission fee or a signed-deposit nonce is set");
   must(s.minExpectedInputTokenAmount > 0n && d.outputAmount > 0n, P, "minimum", "a zero minimum");
   must(d.fillDeadline > now, P, "deadline", "the fill deadline has passed");
+  mustShortExclusivity(P, d.exclusiveRelayer, d.exclusivityParameter, now);
   must(reshieldable(e, d.inputToken), P, "refund", `swaps into ${d.inputToken} before bridging: an unfilled deposit would come back to the escrow in a token it cannot re-shield`);
   // the swap's own floor backs the deposit (audit 2026-10-16): the exchange and its calldata stay opaque, and the periphery deposits
   // whatever the swap returned against outputAmount. So the swapped-into token must be the asset delivered (sameAsset), and
@@ -549,7 +595,10 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
       try { fn = decodeFunctionData({ abi: HANDLER_ABI, data: c.callData }) as any; } catch { fn = null; }
       if (fn?.functionName === "drainLeftoverTokens" && same(c.target, handler)) {
         const token = fn.args[0] as Address;
+        // native out: the WETH is drained only after the unwrap, its leftover (the eleventh review round, D11-8) — a drain of the WETH before the
+        // unwrap had handed the fill over as WETH, the unwrap and the ETH drain then moving nothing, while the facts said "the ETH"
         must((same(token, outToken) || (nativeOut && same(token, ZERO))) && same(fn.args[1], e.destination), P, "receiver", "the handler would drain another token, or to another address than your fresh one");
+        must(!(nativeOut && same(token, outToken) && !unwrapped), P, "receiver", "the handler would hand over the WETH before unwrapping it, where the ETH you asked for goes to your fresh address");
         if (nativeOut ? same(token, ZERO) && unwrapped : true) drained = true;
       } else if (nativeOut && fn?.functionName === "makeCallWithBalance" && same(c.target, handler)) {
         const [target, inner, value, reps] = fn.args as [Address, Hex, bigint, readonly { token: Address; offset: bigint }[]];
@@ -574,7 +623,7 @@ function acrossSwap(call: ProviderCall, e: CallExpectation, now: number): Checke
 function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
   const P: ProviderName = "across";
   const { args } = decode(P, ACROSS_ABI, call.calldata);
-  const [depositor, recipient, inputToken, outputToken, inputAmount, outputAmount, destinationChainId, , , fillDeadline, , message] = args as [Address, Address, Address, Address, bigint, bigint, bigint, Address, number, number, number, Hex];
+  const [depositor, recipient, inputToken, outputToken, inputAmount, outputAmount, destinationChainId, exclusiveRelayer, , fillDeadline, exclusivityDeadline, message] = args as [Address, Address, Address, Address, bigint, bigint, bigint, Address, number, number, number, Hex];
   must(EVM_CHAIN_ID[e.to.chain] !== undefined, P, "destination", `Across bridges between EVM chains, not to ${e.to.chain}`);
   must(destinationChainId === BigInt(EVM_CHAIN_ID[e.to.chain]), P, "chain", `bridges to chain ${destinationChainId}, not ${e.to.chain}`);
   must(same(recipient, e.destination), P, "receiver", `pays ${recipient}, not your fresh address`);
@@ -585,6 +634,7 @@ function across(call: ProviderCall, e: CallExpectation, now: number): CheckedCal
   must(inputAmount === e.net && call.value === (e.from.asset === "native" ? e.net : 0n), P, "amount", `${inputAmount} (value ${call.value}) != ${e.net}`);
   must(message === "0x", P, "message", "a destination call is attached");
   must(fillDeadline > now, P, "deadline", "the fill deadline has passed");
+  mustShortExclusivity(P, exclusiveRelayer, exclusivityDeadline, now);
   return { provider: P, receiver: recipient, minOut: outputAmount, refundTo: "escrow", facts: ["SpokePool pinned", "pays your fresh address", "exact fill amount, an unfilled deposit refunds the escrow"] };
 }
 
@@ -598,9 +648,35 @@ export function middleFloorUsdc(ethWei: bigint, ethUsd1e8: bigint, usdcUsd1e8: b
 function mustBoundMiddle(e: CallExpectation, P: ProviderName, swap: { middleToken: Address; minMiddle: bigint }, ethWei: bigint): void {
   must(same(swap.middleToken, USDC_ETHEREUM) && swap.minMiddle > 0n, P, "swap", "the ETH → USDC leg is not bounded in USDC");
   const ethUsd = e.usd?.ETH;
-  must(ethUsd !== undefined && ethUsd > 0n, P, "swap", "the ETH → USDC leg cannot be bounded: this wallet has no fresh agreed ETH price (its price feeds are unavailable or stale), so the floor a router must meet cannot be checked; not signing it");
+  // a check that cannot be made is an outage, never a refusal (the eleventh review round, after its critique): the delayed funding's check stops
+  // an order for good on a refusal, and a price read that failed had abandoned it
+  if (ethUsd === undefined || ethUsd <= 0n) throw new ProviderCallUnverified(P, "the ETH → USDC leg cannot be bounded: this wallet has no fresh agreed ETH price (its price feeds are unavailable or stale), so the floor a router must meet cannot be checked yet");
   const floor = middleFloorUsdc(ethWei, ethUsd, e.usd?.USDC);
   must(swap.minMiddle >= floor, P, "swap", `the ETH → USDC leg is bounded at ${swap.minMiddle} USDC base units, below ${floor} — ${(10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100n} % of the ${ethWei} wei at this wallet's own price; a router could keep the difference`);
+}
+/**
+ * A source swap's on-chain floor against what the escrow forwards, at this wallet's own prices (the eleventh review round, 2026-11-04, the
+ * verifier's NF-1): LI.FI's swap-then-Mayan entry enforces only the swap's output ≥ BridgeData.minAmount and hands Mayan exactly that, and the
+ * minimum read from the Mayan order binds only a fill — a minAmount of one unit let the swap keep the order. A dollar stablecoin without a
+ * feed counts at $1, as the ETH → USDC leg's floor does.
+ */
+function mustBoundSourceSwap(e: CallExpectation, P: ProviderName, bridged: Address, minAmount: bigint): void {
+  const into = reshieldableAsset(e, bridged);
+  must(!!into, P, "swap", `swaps into ${bridged}, whose value this wallet does not know: the swap's floor cannot be checked`);
+  const usdOf = (symbol: string): bigint | undefined => {
+    const s = /^w?eth$/i.test(symbol) ? "ETH" : symbol.toUpperCase();
+    return e.usd?.[s] ?? (/^usd[ct]$/i.test(s) ? 10n ** 8n : undefined);
+  };
+  // into the same asset (LI.FI's fee collection, ETH → ETH; one dollar stablecoin into another) no price is needed: one unit is one unit
+  const fromSymbol = e.from.asset === "native" ? "ETH" : e.from.symbol;
+  const alike = sameAsset(fromSymbol, into!.symbol);
+  const fromUsd = alike ? 1n : usdOf(fromSymbol);
+  const intoUsd = alike ? 1n : usdOf(into!.symbol);
+  if (fromUsd === undefined || fromUsd <= 0n || intoUsd === undefined || intoUsd <= 0n)
+    throw new ProviderCallUnverified(P, "the swap before the bridge cannot be bounded: this wallet has no fresh agreed price for one of its two assets, so the floor a router must meet cannot be checked yet");
+  const expected = (e.net * fromUsd! * 10n ** BigInt(into!.decimals)) / (10n ** BigInt(e.from.decimals) * intoUsd!);
+  const floor = (expected * (10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS)) / 10_000n;
+  must(minAmount >= floor, P, "swap", `the swap before the bridge is bounded at ${minAmount} ${into!.symbol} base units, below ${floor} — ${(10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100n} % of the order at this wallet's own price; a router could keep the difference`);
 }
 const MIDDLE_FACT = `within ${(10_000n - MAYAN_MIDDLE_MAX_SHORTFALL_BPS) / 100n === 98n ? "2" : String(MAYAN_MIDDLE_MAX_SHORTFALL_BPS / 100n)} % of the ETH at this wallet's own price`;
 
@@ -712,18 +788,32 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
  * are — before, only the facet's own sweep recipient was, and a service could name itself the trader of an order it then let
  * lapse. A swap leg inside (ETH → USDC) is bounded as the direct call's is. Gives the route a minimum this wallet can read.
  */
-function lifiMayanOrder(e: CallExpectation, now: number, m: { mayanProtocol: Address; protocolData: Hex; swapProtocol: Address; middleToken: Address; minMiddleAmount: bigint; mayanAmountIn: bigint }, bridged: Address): { minOut: bigint; refundTo: "escrow" | "destination"; fact: string } {
+function lifiMayanOrder(
+  e: CallExpectation,
+  now: number,
+  m: { mayanProtocol: Address; protocolData: Hex; swapProtocol: Address; middleToken: Address; minMiddleAmount: bigint; mayanAmountIn: bigint },
+  bd: { sendingAssetId: Address; minAmount: bigint },
+): { minOut: bigint; refundTo: "escrow" | "destination"; fact: string; refundTokens?: Address[]; refundFloors?: Record<string, string> } {
   const P: ProviderName = "lifi";
-  if (BigInt(m.swapProtocol) !== 0n || BigInt(m.middleToken) !== 0n || m.minMiddleAmount !== 0n) {
+  const bridged = getAddress(bd.sendingAssetId);
+  const leg = BigInt(m.swapProtocol) !== 0n || BigInt(m.middleToken) !== 0n || m.minMiddleAmount !== 0n;
+  if (leg) {
     must(same(bridged, ZERO), P, "swap", "a swap leg inside Mayan on a token the facet already bridges");
-    mustBoundMiddle(e, P, { middleToken: m.middleToken, minMiddle: m.minMiddleAmount }, m.mayanAmountIn);
+    // bounded on what the facet forwards (the eleventh review round, D11-3): the bridge-only entry never reads mayanAmountIn — LI.FI's
+    // MayanFacet swaps the whole bridged ETH (`_bridgeData.minAmount`) under the leg's floor, so a floor read on mayanAmountIn of one wei was 0
+    mustBoundMiddle(e, P, { middleToken: m.middleToken, minMiddle: m.minMiddleAmount }, bd.minAmount);
   }
+  // what the order carries, for its fee bounds (the eleventh review round, D11-2): the leg's USDC floor, or the bridged token's amount — the
+  // direct decoders bound the fees, the order inside LI.FI had not been, and an order nobody fills pays them out of itself
+  const carriedDecimals = leg ? 6 : same(bridged, ZERO) ? 18 : reshieldableAsset(e, bridged)?.decimals;
+  must(carriedDecimals !== undefined, P, "fees", `the order inside is funded in ${bridged}, whose decimals this wallet does not know: its fees cannot be bounded`);
+  const carried = leg ? m.minMiddleAmount : bd.minAmount;
   const dest32 = bytes32Of(e.to.chain, e.destination);
   const wantTokenOut = e.to.asset === "native" ? padHex("0x", { size: 32 }) : bytes32Of(e.to.chain, e.to.asset);
   const scaled = (x: bigint) => (e.to.decimals > 8 ? x * 10n ** BigInt(e.to.decimals - 8) : x);
   if (same(m.mayanProtocol, PINNED.mayanSwiftV2)) {
     const { args } = decode(P, SWIFT_V2_ABI, m.protocolData);
-    const [, , o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
+    const [, , o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
     must(o.payloadType === 1 && customPayload === "0x", P, "order", "the Mayan order carries a custom payload");
     must(same(o.trader, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled Mayan order would be refunded to another address than the escrow");
     must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `the Mayan order delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
@@ -731,14 +821,29 @@ function lifiMayanOrder(e: CallExpectation, now: number, m: { mayanProtocol: Add
     must(same(o.tokenOut, wantTokenOut), P, "asset", `the Mayan order delivers ${o.tokenOut}, not ${e.to.symbol}`);
     must(o.gasDrop === 0n && BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop or carries a referrer fee");
     must(o.deadline > BigInt(now) && o.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS) && o.auctionMode > 0, P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead, or it has no auction mode");
+    // Swift amounts carry at most 8 decimals: the fees within 1 % of what the order carries, as a direct Swift order's (D11-2)
+    const normalizedIn = carriedDecimals! > 8 ? carried / 10n ** BigInt(carriedDecimals! - 8) : carried;
+    must((o.cancelFee + o.refundFee) * 10000n <= normalizedIn * SWIFT_MAX_REFUND_FEES_BPS, P, "fees", "the Mayan order's cancel and refund fees exceed 1% of the order");
     const minOut = scaled(o.minAmountOut);
     must(minOut > 0n, P, "minimum", "the Mayan order binds a zero minimum");
-    return { minOut, refundTo: "escrow", fact: "the Swift order inside is decoded: it pays your fresh address; unfilled, it is cancelled after its deadline and refunded to the escrow" };
+    // swap & lock: an unfilled order refunds the USDC the leg produced to the escrow (the eleventh review round, D11-6) — the pool must have a
+    // USDC vault, and the executor is told the token, as a direct swap & lock order's are
+    if (leg) {
+      must(reshieldable(e, USDC_ETHEREUM), P, "refund", "the ETH is swapped into USDC first: an unfilled order would refund USDC to the escrow, which cannot re-shield it (no USDC vault)");
+      const refundTokens = [USDC_ETHEREUM];
+      return { minOut, refundTo: "escrow", refundTokens, refundFloors: floorOf(refundTokens, m.minMiddleAmount, 100n), fact: "the Swift order inside is decoded, its fees within 1 %: it pays your fresh address; unfilled, it is cancelled after its deadline and refunds USDC to the escrow, re-shielded into its vault" };
+    }
+    return { minOut, refundTo: "escrow", fact: "the Swift order inside is decoded, its fees within 1 %: it pays your fresh address; unfilled, it is cancelled after its deadline and refunded to the escrow" };
   }
   must(same(m.mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${m.mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
   const order = decode(P, FAST_MCTP_ABI, m.protocolData);
-  const [tokenIn, , , destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
+  const [tokenIn, , circleMaxFee, destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; redeemFee: bigint; refundFee: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
   must(same(tokenIn, USDC_ETHEREUM), P, "order", "the Mayan order is not funded in USDC");
+  // its fees as a direct Fast-MCTP order's (D11-2): redeem + refund within 1 % of the USDC it carries (or 2 USDC), Circle's within 1 %
+  const usdc = carried;
+  const feeCap = (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n > FAST_MCTP_MIN_FEE_CAP ? (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n : FAST_MCTP_MIN_FEE_CAP;
+  must(payload.redeemFee + payload.refundFee <= feeCap, P, "fees", `the Mayan order's redeem + refund fees ${payload.redeemFee + payload.refundFee} are above ${feeCap} USDC base units (1 % of the order, or 2 USDC)`);
+  must(circleMaxFee * 10_000n <= usdc * FAST_MCTP_MAX_FEES_BPS, P, "fees", `the Mayan order's Circle maximum fee ${circleMaxFee} is above 1 % of the order`);
   must(CCTP_DOMAIN[e.to.chain] !== undefined && destDomain === CCTP_DOMAIN[e.to.chain], P, "chain", `the Mayan order delivers to CCTP domain ${destDomain}, not ${e.to.chain}`);
   must(payload.payloadType === 3, P, "order", `the Mayan order's payload type ${payload.payloadType}`);
   must(same(payload.destAddr, dest32), P, "receiver", "the Mayan order pays another address than your fresh one");
@@ -747,7 +852,7 @@ function lifiMayanOrder(e: CallExpectation, now: number, m: { mayanProtocol: Add
   must(payload.deadline > BigInt(now) && payload.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead");
   const minOut = scaled(payload.amountOutMin);
   must(minOut > 0n, P, "minimum", "the Mayan order binds a zero minimum");
-  return { minOut, refundTo: "destination", fact: "the Fast-MCTP order inside is decoded: it pays your fresh address; unfilled, it refunds USDC to your fresh address" };
+  return { minOut, refundTo: "destination", fact: "the Fast-MCTP order inside is decoded, its fees bounded: it pays your fresh address; unfilled, it refunds USDC to your fresh address" };
 }
 
 function lifi(call: ProviderCall, e: CallExpectation, now: number): CheckedCall {
@@ -777,13 +882,14 @@ function lifi(call: ProviderCall, e: CallExpectation, now: number): CheckedCall 
   const destination32 = bytes32Of(e.to.chain, e.destination);
 
   if (functionName.endsWith("AcrossV4")) {
-    const a = facet as { receiverAddress: Hex; refundAddress: Hex; sendingAssetId: Hex; receivingAssetId: Hex; outputAmount: bigint; outputAmountMultiplier: bigint; message: Hex };
+    const a = facet as { receiverAddress: Hex; refundAddress: Hex; sendingAssetId: Hex; receivingAssetId: Hex; outputAmount: bigint; outputAmountMultiplier: bigint; exclusiveRelayer: Hex; exclusivityParameter: number; message: Hex };
     must(same(a.receiverAddress, destination32), P, "receiver", "Across would pay another address than your fresh one");
     must(same(a.refundAddress, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled Across deposit would refund another address than the escrow");
     if (!same(bd.sendingAssetId, ZERO)) must(same(a.sendingAssetId, bytes32Of("ethereum", bd.sendingAssetId)), P, "asset", "Across would be told to pull another token than the one bridged");
     const wantOut = e.to.asset === "native" ? WETH[e.to.chain] : e.to.asset;
     must(!!wantOut && same(a.receivingAssetId, bytes32Of(e.to.chain, wantOut)), P, "asset", `delivers ${a.receivingAssetId}, not ${e.to.symbol}`);
     must(a.message === "0x", P, "message", "a destination message is attached");
+    mustShortExclusivity(P, a.exclusiveRelayer, a.exclusivityParameter, now);
     // the swap variant overwrites outputAmount on chain: (swap result, >= minAmount) × multiplier / 1e18
     const minOut = bd.hasSourceSwaps ? (bd.minAmount * a.outputAmountMultiplier) / ACROSS_MULTIPLIER_BASE : a.outputAmount;
     if (bd.hasSourceSwaps) must(a.outputAmount === minOut, P, "minimum", "outputAmount disagrees with minAmount × outputAmountMultiplier");
@@ -804,6 +910,11 @@ function lifi(call: ProviderCall, e: CallExpectation, now: number): CheckedCall 
   if (!evmDest) must(same(m.nonEVMReceiver, destination32), P, "receiver", "Mayan would pay another address than your fresh one");
   must(same(m.refundRecipient, e.escrow), P, "refund", `excess value and swap surplus would go to ${m.refundRecipient}, not the escrow`);
   if (bd.hasSourceSwaps) must(m.mayanAmountIn === bd.minAmount, P, "amount", `hands Mayan ${m.mayanAmountIn} of the ${bd.minAmount} bridged; the rest would be swept away`);
-  const inner = lifiMayanOrder(e, now, m, getAddress(bd.sendingAssetId));
-  return { provider: P, receiver: e.destination, minOut: inner.minOut, refundTo: inner.refundTo, ...(refundTokens ? { refundTokens, refundFloors } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", inner.fact] };
+  // the swap before the facet bounded at this wallet's own prices (NF-1): its minAmount is all the chain enforces of it
+  if (bd.hasSourceSwaps) mustBoundSourceSwap(e, P, getAddress(bd.sendingAssetId), bd.minAmount);
+  const inner = lifiMayanOrder(e, now, m, bd);
+  // the tokens an unfilled order or the facet's sweep may pay back: the bridged token of a source swap, and an inner swap & lock order's USDC (D11-6)
+  const tokens = [...(refundTokens ?? []), ...(inner.refundTokens ?? []).filter((t) => !(refundTokens ?? []).some((x) => same(x, t)))];
+  const floors = { ...(refundFloors ?? {}), ...(inner.refundFloors ?? {}) };
+  return { provider: P, receiver: e.destination, minOut: inner.minOut, refundTo: inner.refundTo, ...(tokens.length ? { refundTokens: tokens, refundFloors: floors } : {}), facts: ["LI.FI diamond pinned; Mayan facet decoded", "pays your fresh address", "excess value and swap surplus return to the escrow", inner.fact] };
 }

@@ -22,13 +22,13 @@ import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote 
 import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
 import { agreedUsd } from "./prices";
-import { DELAY_WINDOW } from "./policy";
+import { DELAY_WINDOW, policyFromPreference } from "./policy";
 import { noteStore } from "./wallet/notes";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import type { Submission } from "./wallet/settings";
 import type { StoredShield, StoredSwap } from "./wallet/journal";
 import { activityId, recordActivity } from "./wallet/activity";
-import { markAddressUsed } from "./wallet/addressBook";
+import { markAddressUsed, transferUse } from "./wallet/addressBook";
 import { chainKindOf } from "./keys/chainKeys";
 import { sampleDueAt, scheduleAction } from "./wallet/schedule";
 
@@ -113,18 +113,36 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     shield = buildShieldReceipt({ masterSeed: i.masterSeed, deployment: i.deployment, counter: noteStore.allocateCounter(), asset: req.to.asset, shieldTip: i.shield.shieldTip, fallbackRecipient: i.shield.fallbackRecipient });
     req = { ...req, destination: shield.receiver, destinationType: "protected" };
   }
+  // the destination and the shield's fallback go to the swap service with this call (the eleventh review round, A11-5): used from here — marked
+  // after the journal write, a commit refused after the answer had left them "verified, unused", and Receive offered an address the service ties
+  // to this user to a payer. Marked by this commit's attempt; the journaled order takes them over below
+  if (i.shield) markAddressUsed("evm", i.shield.fallbackRecipient, attemptId, s, now);
+  if (req.to?.chain && req.destination && !shield) markAddressUsed(chainKindOf(req.to.chain), req.destination, attemptId, s, now);
   // a receipt goes with its commit: the service vouches for it once it is this order's (audit gap 47)
   const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}), ...(i.shownTip !== undefined ? { executorTip: i.shownTip.toString() } : {}) });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3), read before the service was asked
   checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
   if (i.shownTip !== undefined && BigInt(response.order.params.executorTip) > i.shownTip) throw new OrderMismatch("executorTip", `${response.order.params.executorTip} is more than the ${i.shownTip} the Review showed`);
+  // the route the user reviewed (the eleventh review round, D11-4): committed on the provider asked for or shown, refunding where its quote said
+  const asked = i.provider ?? i.shown?.provider;
+  if (asked !== undefined && response.order.quote.provider !== asked)
+    throw new OrderMismatch("provider", `the service committed the order on ${response.order.quote.provider}, not on the ${asked} you reviewed`);
+  // a move toward a refund at the destination only — outside the pool, where the reviewed route refunded to it; one toward the pool is better
+  if (i.shown && i.shown.refundTarget !== "destination" && response.order.quote.refundTarget === "destination")
+    throw new OrderMismatch("refundTarget", "the committed route refunds a failure at your destination address, outside the pool, while the route you reviewed refunds to your protected balance");
   sameOpening(); // the service's answer came back to the opening that asked (D-1): journaled nowhere else
   const order = response.order;
   // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
   const serviceTier = asTier(order.tier ?? response.tier);
   const journaledTier: Tier | undefined = serviceTier && i.walletTier ? higherTier(serviceTier, i.walletTier) : serviceTier ?? (i.walletTier ?? undefined);
-  const orderPolicy: Policy = order.policy ?? response.policy ?? i.policy;
+  // bounded by the wallet's own reading of the user's preference (the eleventh review round, D11-11, after its critique): Fastest — which alone
+  // accepts a call that binds no minimum — only where the user chose Fastest, and never a shorter funding delay than the preference's. The
+  // screens pass the policy the service answered at quote time, and its answer here had been journaled as it came
+  const wanted: Policy = i.preference ? policyFromPreference(i.preference) : i.policy;
+  const tooLoose = (p: Policy): boolean => (p === "fastest" && wanted !== "fastest") || DELAY_WINDOW[p][0] < DELAY_WINDOW[wanted][0];
+  const answered = order.policy ?? response.policy;
+  const orderPolicy: Policy = [answered, i.policy].find((p): p is Policy => p !== undefined && !!DELAY_WINDOW[p] && !tooLoose(p)) ?? wanted;
   // institutional (spec §24): the funding is scheduled no earlier than the review hold, whatever the policy's window drew
   const reviewHoldUntil = i.schedule?.reviewHoldUntil;
   const sampled = i.schedule ? (orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy], now)) : undefined;
@@ -144,10 +162,10 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });
   // the shield receiver's fallback is published with the commit (sent to the swap service and the relayer, the receiver's
   // immutable, its deployment's calldata): never offered again as an unused fresh address (audit round 2, r32)
-  if (i.shield) markAddressUsed("evm", i.shield.fallbackRecipient, stored.orderId, s, now);
+  if (i.shield) transferUse("evm", i.shield.fallbackRecipient, attemptId, stored.orderId, s, now);
   // the destination goes to the swap service with this commit (audit round 2, n54): used from here, never offered again as an
   // unused fresh address should the order stop before its hand-over — the service has it already
-  if (req.to?.chain && req.destination && !shield) markAddressUsed(chainKindOf(req.to.chain), req.destination, stored.orderId, s, now);
+  if (req.to?.chain && req.destination && !shield) transferUse(chainKindOf(req.to.chain), req.destination, attemptId, stored.orderId, s, now);
   recordActivity({ id: activityId("swap", stored.orderId), kind: "swap", asset: i.fromAsset.symbol, decimals: i.fromAsset.decimals, amount: req.amount, status: "committed", ref: stored.orderId, note: `→ ${req.to.symbol}${i.campaign ? ` · step ${i.campaign.index + 1}` : ""}` }, s);
   if (dueAt !== undefined) scheduleAction({ kind: "fund-escrow", orderId: stored.orderId, dueAt }, s);
   return { stored, order, key, refund, response };
@@ -296,7 +314,9 @@ export async function minimumBeforeFunding(i: PrepareInput): Promise<MinimumMove
   if (!i.deployment) throw new Error("No deployment configured (VITE_RPC_URLS / VITE_CORE / VITE_ETH_VAULT).");
   const deployment = i.deployment;
   const prepared = await onOperation(deployment, stored, s, (id) => swapService.prepare(id), async (id) => swapService.prepare(id, undefined, await resumeRequestOf(stored, s, deployment)));
-  const gate = await checkBeforeSigning({ prepared, order, journaled: stored as unknown as JournaledOrder, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed });
+  // with this wallet's own prices, as at signing (the eleventh review round, D11-7): without them every Mayan ETH leg threw here, and the runner funded
+  const usd = await agreedUsd(deployment);
+  const gate = await checkBeforeSigning({ prepared, order, journaled: stored as unknown as JournaledOrder, factory: swapFactoryOf(deployment), chainId: BigInt(deployment.chainId), acceptMin: i.acceptMin, pooled: (deployment.erc20Vaults ?? []).map((v) => ({ token: v.token, symbol: v.symbol, decimals: v.decimals })), deployment, masterSeed: i.masterSeed, usd });
   return gate.ok ? null : gate.moved;
 }
 

@@ -150,6 +150,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   service_key_changed: { state: "CANCELLED", phase: "funding", code: "service_key_changed" },
   // an older build committed it under the privacy address's owner commitment (the audit round of 2026-10-16, c18): never funded
   order_outdated: { state: "CANCELLED", phase: "funding", code: "order_outdated" },
+  // the provider's call, read before a delayed funding, does not do what was asked (the eleventh review round, D11-7): never funded
+  call_refused: { state: "CANCELLED", phase: "funding", code: "call_refused" },
   // its refund note or signer is not this seed's (the tenth review round, D-1): never funded
   order_not_ours: { state: "CANCELLED", phase: "funding", code: "order_not_ours" },
   // the relayer's fee is more than the Review showed (the audit round of 2026-10-16, c46): never funded at that fee

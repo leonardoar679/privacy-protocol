@@ -115,7 +115,11 @@ const fetchMock = vi.fn(async (input: any, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   const u = new URL(url);
   calls.push(`${u.host}${u.pathname.replace(/\/op_[a-z0-9]+\//, "/:id/")}`); // an operation's opaque id as :id
-  if (u.pathname.endsWith("/thorchain/inbound_addresses")) return json([{ chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false }]);
+  if (u.pathname.endsWith("/thorchain/inbound_addresses"))
+    return json([
+      { chain: "ETH", address: VAULT, router: PINNED.thorchainRouter, halted: false },
+      { chain: "BTC", address: "bc1qthorvault0000000000000000000000000000", halted: false },
+    ]);
   if (u.host === "127.0.0.1:1") return json(Array.isArray(body) ? body.map(rpc) : rpc(body));
   if (u.host === "127.0.0.1:8787") return api(u.pathname, body); // V6: the API's /v1 routes in front of the V5-shaped mock
   if (u.host === "127.0.0.1:8790") {

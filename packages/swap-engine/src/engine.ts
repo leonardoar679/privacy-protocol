@@ -454,7 +454,13 @@ export class PrivateSwapEngine {
     const failed = (e: unknown): never => {
       throw asProviderFailure(adapter.id, e);
     };
+    // the committed route's refund target (the eleventh review round, 2026-11-04): an adapter choosing its route type afresh offers only that one,
+    // and a route that now refunds elsewhere is this provider's failure — prepared again later, never a call the wallet refuses after its funding
+    const committedRefund = order.quote.refundTarget;
+    if (committedRefund) req.refundTarget = committedRefund;
     const quote = boundedQuote(await adapter.quote(req).catch(failed), Math.floor(Date.now() / 1000)); // re-quote with the escrow as sender (spec §5)
+    if (committedRefund && quote.refundTarget !== committedRefund)
+      throw new ProviderFailure(adapter.id, `${adapter.id}: the route now refunds ${quote.refundTarget === "destination" ? "at the destination" : quote.refundTarget === "escrow" ? "to the escrow" : "where it does not say"}, not ${committedRefund === "escrow" ? "to the escrow" : "at the destination"} as committed`);
     if (quote.minOutVerified === false && order.policy !== "fastest") throw new ProviderFailure(adapter.id, `${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
     if (approvedMin !== undefined && quote.toAmountMin < approvedMin) throw new MinimumMovedError(approvedMin, quote.toAmountMin);
     if (guard) priceGuard(quote, guard.alternatives, guard.maxGapBps);

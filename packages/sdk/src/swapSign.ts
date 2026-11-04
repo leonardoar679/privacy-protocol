@@ -9,7 +9,7 @@ import type { Deployment } from "./chain";
 import { checkShieldReceipt } from "./shieldReceiver";
 import type { StoredShield } from "./wallet/journal";
 import { checkPrepared, predictEscrow } from "./swapGuard";
-import { checkMinimum, checkProviderCall, MinimumMoved, type ActiveVaultLookup, type CallExpectation, type CheckedCall, type InboundLookup } from "./providerCall";
+import { checkMinimum, checkProviderCall, MinimumMoved, ProviderCallMismatch, type ActiveVaultLookup, type CallExpectation, type CheckedCall, type InboundLookup, type ProviderName } from "./providerCall";
 import type { AssetRef, Policy, Prepared, ServiceOrder, ServiceOrderParams } from "./swapService";
 
 /** What the wallet journaled when it committed the order (wallet/journal.ts StoredSwap). */
@@ -18,9 +18,23 @@ export interface JournaledOrder {
   params: ServiceOrderParams;
   policy: Policy;
   approvedMin?: string;
-  quote?: { toAmountMin?: string };
+  quote?: { toAmountMin?: string; refundTarget?: string };
+  /** the route the order was committed on (the quote's provider, checked at the commit against the one reviewed) */
+  provider?: string;
   /** V6 Stage 12: the shield receiver a same-chain swap into the protected balance pays */
   shield?: StoredShield;
+}
+
+/** The provider contract a quote's route calls (the eleventh review round, D11-4): Across's swap leg is quoted as "uniswap-across". */
+export const ROUTE_CALLS: Record<string, ProviderName> = { thorchain: "thorchain", chainflip: "chainflip", mayan: "mayan", lifi: "lifi", across: "across", "uniswap-across": "across" };
+
+/** The order's record lacks what signing needs — the minimum it approved: never signed, and before its funding never funded (D11-7). */
+export class RecordIncomplete extends Error {
+  readonly code = "call_refused";
+  constructor(detail: string) {
+    super(detail);
+    this.name = "RecordIncomplete";
+  }
 }
 
 export type SignCheck =
@@ -51,9 +65,17 @@ export async function checkBeforeSigning(a: {
     { escrow, from: request.from, to: request.to, destination: request.destination, net: BigInt(params.amount) - BigInt(params.executorTip), policy, chainId: a.chainId, now: a.now, pooled: a.pooled, usd: a.usd },
     { inbound: a.inbound, active: a.active },
   );
+  // the route the user reviewed (the eleventh review round, D11-4): the call is the committed provider's, and it refunds at the destination only
+  // where the reviewed quote said so — a service had prepared a Mayan Fast-MCTP call for an order reviewed on THORChain, whose refund then
+  // landed as USDC at the fresh address, outside the pool, while the record went on tracking THORChain
+  const route = a.journaled.provider;
+  if (route !== undefined && ROUTE_CALLS[route] !== call.provider)
+    throw new ProviderCallMismatch(call.provider, "provider", `the call is ${call.provider}'s, while the order you reviewed and committed runs on ${route}`);
+  if (call.refundTo === "destination" && a.journaled.quote?.refundTarget !== "destination")
+    throw new ProviderCallMismatch(call.provider, "refund", "a failure would refund at your destination address, outside the pool, while the order you committed refunds to your protected balance");
   // never a default of zero (the third review round, 2026-11-03): a record without the minimum it approved signs nothing
   const recorded = a.journaled.approvedMin ?? a.journaled.quote?.toAmountMin;
-  if (a.acceptMin === undefined && recorded === undefined) throw new Error("the minimum you approved is not in this order's record: not signing it");
+  if (a.acceptMin === undefined && recorded === undefined) throw new RecordIncomplete("the minimum you approved is not in this order's record: not signing it");
   const approved = a.acceptMin ?? BigInt(recorded!);
   try { checkMinimum(call, approved); } catch (e) { if (e instanceof MinimumMoved) return { ok: false, moved: e }; throw e; }
   return { ok: true, escrow, params, call };
