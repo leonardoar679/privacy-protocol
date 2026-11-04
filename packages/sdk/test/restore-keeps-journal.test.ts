@@ -21,7 +21,11 @@ describe("a restore over this device's wallet (audit round 2, n45/n69)", () => {
     // the password is forgotten: the same phrase, under a new one
     await s.restoreFromPhrase(phrase, "second password", { replace: true });
     expect(s.journal().chainIndexes.evm, "the journal that seed opens is kept").toBe(5);
-    expect(noteStore.countersHeld(), "its counters are known: nothing held").toBe(false);
+    // held until the scan, as at every unlock (the eighth review round, B-7): the journal is this seed's, never proved the newest —
+    // an older copy of the profile had handed out a counter the newer one had used on chain
+    expect(noteStore.countersHeld(), "held until the scan after the restore").toBe(true);
+    noteStore.releaseCounters(0); // the scan: a current journal resumes where it was
+    expect(noteStore.countersHeld()).toBe(false);
     s.lock();
     expect(await s.unlock("second password")).toBe(true);
     expect(s.journal().chainIndexes.evm).toBe(5);

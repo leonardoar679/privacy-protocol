@@ -55,6 +55,8 @@ export interface PrepareOptions {
   reviewedFee?: bigint;
   /** each merge the funding needs first pays at most this: the Review's F (the review round of 2026-11-03, E3) */
   reviewedMergeFee?: bigint;
+  /** the merges the Review named (the eighth review round, B-2) */
+  reviewedMerges?: number;
   /** the executor tip the Review showed: the order is built on it, one above it refused (the seventh review round) */
   shownTip?: bigint;
   /** "Delay for more privacy": the funding at a random time, or at once from older notes (maxTiming) */
@@ -173,6 +175,7 @@ export function walletSwapProvider(d: WalletSwapProviderDeps): WalletSwapProvide
         ...(o.shield ? { shield: o.shield } : {}),
         ...(o.reviewedFee !== undefined ? { reviewedFee: o.reviewedFee } : {}),
         ...(o.reviewedMergeFee !== undefined ? { reviewedMergeFee: o.reviewedMergeFee } : {}),
+        ...(o.reviewedMerges !== undefined ? { reviewedMerges: o.reviewedMerges } : {}),
         ...(o.shownTip !== undefined ? { shownTip: o.shownTip } : {}),
         ...(o.delay !== undefined ? { delay: o.delay } : {}),
         ...(o.maxTiming !== undefined ? { maxTiming: o.maxTiming } : {}),

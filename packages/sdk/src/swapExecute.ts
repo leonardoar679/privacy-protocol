@@ -66,6 +66,8 @@ export interface CommitInput {
   reviewedFee?: bigint;
   /** each merge the funding needs first pays at most this: the Review's F (the review round of 2026-11-03, E3) */
   reviewedMergeFee?: bigint;
+  /** the merges the Review named (the eighth review round, B-2): a funding that needs more stops unfunded, `merges_moved` */
+  reviewedMerges?: number;
   /**
    * The executor tip the Review showed (the seventh review round, 2026-11-03): the service builds the order on it, and an order whose tip is
    * above it is refused. The commit's fresh competition had priced it again, up to three times what the Review said.
@@ -126,6 +128,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
     ...(shield ? { shield: { ...shield, ...(response.vouch?.shield ? { vouch: response.vouch.shield } : {}) } } : {}),
     ...(i.reviewedFee !== undefined ? { reviewedFee: i.reviewedFee.toString() } : {}),
     ...(i.reviewedMergeFee !== undefined ? { reviewedMergeFee: i.reviewedMergeFee.toString() } : {}),
+    ...(i.reviewedMerges !== undefined ? { reviewedMerges: i.reviewedMerges } : {}),
   };
   if (i.lint) stored.lint = { items: i.lint, at: now };
   s.update((j) => { j.swaps = [...j.swaps.filter((x) => x.orderId !== stored.orderId), stored]; });

@@ -509,6 +509,9 @@ export const en = {
   "op.error.fee_moved.title": "The relayer's fee went up",
   "op.error.fee_moved.reason":
     "It is now more than the fee you reviewed, so nothing was sent and your funds were not moved. Review it again to see the new fee.",
+  "op.error.merges_moved.title": "Your notes changed since the Review",
+  "op.error.merges_moved.reason":
+    "This now needs more private merges first than the Review showed, so it was stopped before any of them was paid. Nothing was sent and your funds were not moved. Review it again to see the merges it needs.",
   "op.error.tip_stale.title": "This swap needs a new quote",
   "op.error.tip_stale.reason":
     "Network fees rose since it was set up, and its executor would not carry it out at today's gas price. It was stopped before funding: nothing was sent and your funds were not moved. Get a new quote to swap.",

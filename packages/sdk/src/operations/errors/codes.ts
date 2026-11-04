@@ -129,6 +129,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   tip_stale: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // the relayer's fee rose above the one the Review showed: stopped before anything was proved (the audit round of 2026-10-16, c46)
   fee_moved: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // the spend needs more merges first than its Review named (the eighth review round, B-2): stopped before any merge was paid
+  merges_moved: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // the order runner: a funding sent and never confirmed before the order's window closed (the notes unspent, or refunded)
   funding_unconfirmed: { source: "wallet", fundsClass: "still-protected", actions: ["new-quote"] },
   // a record whose own flow is gone (operations/stale.ts): stopped before anything was sent, or its transaction dropped

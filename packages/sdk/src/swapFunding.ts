@@ -24,6 +24,7 @@ import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus } from "./wallet/schedule";
 import { runHousekeepingStep } from "./wallet/housekeeping";
 import { staleReads } from "./operations/stale";
+import { spendIndexOf } from "./wallet/spends";
 import { escrowBalance } from "./orderTracker";
 
 export const CLOSED_STATES = ["completed", "refunded", "abandoned", "lapsed"];
@@ -258,6 +259,13 @@ export interface FundingReads {
   txKnown(hash: Hex): Promise<boolean>;
   /** the nullifier pairs the transaction's core call spends; null while the node does not know it (absent: not read) */
   txSpends?(hash: Hex): Promise<[bigint, bigint][] | null>;
+  /**
+   * The pool's own record of the attempt's pair (the scan's agreed spend index; the eighth review round, B-4): the transaction that
+   * spent exactly this pair, "other" when the index has one of its notes spent with another note, null when it does not know.
+   */
+  spendOf?(pair: [bigint, bigint]): Promise<{ txHash: Hex } | "other" | null>;
+  /** the digest of a transaction's transact inputs (operations/stale.ts txInputs); null when it cannot tell */
+  txInputs?(hash: Hex): Promise<Hex | null>;
 }
 
 /**
@@ -267,13 +275,40 @@ export interface FundingReads {
  */
 export function fundingReads(d: Deployment): FundingReads {
   const outcome = outcomeReads(d);
-  return { spent: outcome.spent, relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers), receipt: outcome.receipt, txKnown: outcome.txKnown, txSpends: staleReads(d).txSpends };
+  const stale = staleReads(d);
+  const index = spendIndexOf(d.core);
+  return {
+    spent: outcome.spent,
+    relayerJob: (url, nullifiers) => relayerJobFor(url, nullifiers),
+    receipt: outcome.receipt,
+    txKnown: outcome.txKnown,
+    txSpends: stale.txSpends,
+    spendOf: async (pair) => {
+      if (!index) return null;
+      const s = index.spendOf(pair);
+      if (s) return { txHash: s.transactionHash };
+      return index.spent(pair[0]) || index.spent(pair[1]) ? "other" : null;
+    },
+    ...(stale.txInputs ? { txInputs: stale.txInputs } : {}),
+  };
 }
 
 export async function fundingFate(a: FundingAttempt, reads: FundingReads, now = Date.now()): Promise<FundingFate> {
   try {
     const spent = await Promise.all(a.nullifiers.map((n) => reads.spent(BigInt(n))));
-    if (spent.some(Boolean)) return "landed";
+    if (spent.some(Boolean)) {
+      // landed only by this attempt's own call (the eighth review round, 2026-11-03, B-4): its notes spent by another call — a Send, another
+      // order's funding, a housekeeping step after a reload, the relayer having dropped this one — make it a funding that never lands.
+      // Any spent note had read "landed": the order reconciled for good, Return funds and Abandon refused, nothing in the escrow
+      const pair: [bigint, bigint] = [BigInt(a.nullifiers[0]), BigInt(a.nullifiers[1])];
+      const seen = reads.spendOf ? await reads.spendOf(pair) : null;
+      if (seen === "other") return "dead";
+      if (seen && a.inputsDigest && reads.txInputs) {
+        const digest = await reads.txInputs(seen.txHash);
+        if (digest !== null && digest.toLowerCase() !== a.inputsDigest.toLowerCase()) return "dead";
+      }
+      return "landed";
+    }
     const job = a.by === "relayer" && a.relayerUrl ? await reads.relayerJob(a.relayerUrl, [BigInt(a.nullifiers[0]), BigInt(a.nullifiers[1])]) : null;
     // its transaction (the journaled one, else the one the relayer sent for these notes): mined and reverted, it never lands;
     // mined, it landed (the nullifier read lagged)
@@ -425,7 +460,11 @@ async function fundEscrowUnguarded(o: {
     if (e.type === "merging") nested = true;
     else if (e.type === "syncing") nested = false;
     else if (!nested && e.type === "submitting" && e.nullifiers)
-      patchSwap(stored.orderId, { fundingAttempt: { nullifiers: e.nullifiers, by: e.by, ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), at: Date.now() } }, s);
+      patchSwap(
+        stored.orderId,
+        { fundingAttempt: { nullifiers: e.nullifiers, by: e.by, ...(e.relayerUrl ? { relayerUrl: e.relayerUrl } : {}), ...(e.inputsDigest ? { inputsDigest: e.inputsDigest } : {}), at: Date.now() } },
+        s,
+      ); // its call's inputs (B-4): whose call spent its notes decides its fate
     else if (!nested && e.type === "submitted") {
       const attempt = s.journal().swaps.find((x) => x.orderId === stored.orderId)?.fundingAttempt;
       if (attempt) patchSwap(stored.orderId, { fundingAttempt: { ...attempt, txHash: e.txHash } }, s);
@@ -446,6 +485,8 @@ async function fundEscrowUnguarded(o: {
     ...(stored.reviewedFee !== undefined && /^[0-9]+$/.test(stored.reviewedFee) ? { maxFee: BigInt(stored.reviewedFee) } : {}),
     // nor a merge above the Review's F (the review round of 2026-11-03, E3): the merges a funding needs first had paid the live fee, unshown
     ...(stored.reviewedMergeFee !== undefined && /^[0-9]+$/.test(stored.reviewedMergeFee) ? { maxMergeFee: BigInt(stored.reviewedMergeFee) } : {}),
+    // nor more merges than its Review named (the eighth review round, B-2): a funding hours later found the notes split since
+    ...(Number.isSafeInteger(stored.reviewedMerges) && (stored.reviewedMerges as number) >= 0 ? { maxMerges: stored.reviewedMerges as number } : {}),
     // inside the spend's turn (E1): funded or sent meanwhile by another caller of this tab, nothing more is proved or sent
     beforeSpend: () => {
       const latest = s.journal().swaps.find((x) => x.orderId.toLowerCase() === stored.orderId.toLowerCase());
@@ -463,7 +504,7 @@ async function fundEscrowUnguarded(o: {
  * an order that was abandoned or funded by hand has its action cancelled instead of failing forever.
  */
 /** The funding refusals that stop an order unfunded (the one-confirmation runner's list; nothing was sent on any of them). */
-export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "older_notes_unavailable"];
+export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "merges_moved", "older_notes_unavailable"];
 
 export async function runScheduledAction(
   a: ScheduledAction,

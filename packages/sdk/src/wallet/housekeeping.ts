@@ -6,7 +6,7 @@
 import { planHousekeeping, shapeSummary, type HousekeepingAction, type ShapeReport } from "@privacy-wallet/protocol/wallet/noteStrategy";
 import type { Deployment } from "../chain";
 import { assetsOf, type Asset } from "../assets";
-import { feeTerms, mergeNotes, splitNote } from "../privateTx";
+import { FeeMoved, feeTerms, mergeNotes, splitNote } from "../privateTx";
 import { DELAY_WINDOW, policyFromPreference } from "../policy";
 import { noteStore, type OwnedNote } from "./notes";
 import { pendingActions, sampleDueAt, scheduleAction } from "./schedule";
@@ -61,9 +61,9 @@ export function spentToday(s: WalletSession = defaultSession, now = Date.now()):
 
 export interface StepDeps {
   masterSeed: Uint8Array; deployment: Deployment; session?: WalletSession; now?: number; onStatus?: (line: string) => void;
-  /** tests: the fee per step and the executors */
+  /** tests: the fee per step and the executors (an executor may answer the fee it paid) */
   fee?: (asset: Asset) => Promise<bigint>;
-  exec?: { split: (asset: Asset, note: OwnedNote, piece: bigint) => Promise<void>; merge: (asset: Asset, a: OwnedNote, b: OwnedNote) => Promise<void> };
+  exec?: { split: (asset: Asset, note: OwnedNote, piece: bigint) => Promise<void | bigint>; merge: (asset: Asset, a: OwnedNote, b: OwnedNote) => Promise<void | bigint> };
 }
 
 /**
@@ -95,9 +95,23 @@ export async function runHousekeepingStep(d: StepDeps): Promise<{ ran: Housekeep
   const notes = noteStore.unspent(BigInt(plan.asset.vault));
   const byId = (id: string) => notes.find((n) => String(n.leafIndex) === id)!;
   d.onStatus?.(`Private balance maintenance: ${action.reason} (${plan.asset.symbol})…`);
-  if (action.kind === "split") await (d.exec?.split ?? (async (asset, note, piece) => { await splitNote({ masterSeed: d.masterSeed, deployment: d.deployment, note, piece, onStatus: d.onStatus }); }))(plan.asset, byId(action.input.id), action.outputs[0]);
-  else await (d.exec?.merge ?? (async (asset, a, b) => { await mergeNotes({ masterSeed: d.masterSeed, deployment: d.deployment, a, b, onStatus: d.onStatus }); }))(plan.asset, byId(action.inputs[0].id), byId(action.inputs[1].id));
-  s.update((j) => { j.housekeeping = { day: dayOf(now), feeWei: (today.feeWei + action.fee).toString(), steps: today.steps + 1 }; });
+  // the step pays at most the fee its cap was checked against (the eighth review round, 2026-11-03, B-1): the split and the merge read
+  // the relayer again when their turn comes, and had paid that second read whatever it said — up to the note less the piece
+  const split = d.exec?.split ?? (async (_asset: Asset, note: OwnedNote, piece: bigint) => (await splitNote({ masterSeed: d.masterSeed, deployment: d.deployment, note, piece, maxFee: action.fee, onStatus: d.onStatus })).feeWei ?? 0n);
+  const merge = d.exec?.merge ?? (async (_asset: Asset, a: OwnedNote, b: OwnedNote) => (await mergeNotes({ masterSeed: d.masterSeed, deployment: d.deployment, a, b, mergeFee: action.fee, onStatus: d.onStatus })).feeWei ?? 0n);
+  let paid: bigint;
+  try {
+    const r = action.kind === "split" ? await split(plan.asset, byId(action.input.id), action.outputs[0]) : await merge(plan.asset, byId(action.inputs[0].id), byId(action.inputs[1].id));
+    paid = typeof r === "bigint" ? r : action.fee;
+  } catch (e) {
+    if (!(e instanceof FeeMoved)) throw e;
+    // the relayer now asks more than the step was checked against: nothing was sent, and the step waits for a later window
+    scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
+    d.onStatus?.("Private balance maintenance: the relayer's fee rose since this step was planned; it runs later.");
+    return { ran: null, remaining: remaining + 1, waitedForCap: false };
+  }
+  // the fee paid is what is booked, never the planned one: the cap holds for what left (B-1)
+  s.update((j) => { j.housekeeping = { day: dayOf(now), feeWei: (today.feeWei + paid).toString(), steps: today.steps + 1 }; });
   if (remaining > 0) scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
   return { ran: action, remaining, waitedForCap: false };
 }

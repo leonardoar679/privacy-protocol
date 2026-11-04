@@ -162,6 +162,9 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
   // address, which the privacy endpoints must never see beside this client. Without a provider's answer, every endpoint's receipt
   // (audit round 2, r23) — the scan's proven pool contradicts a note a lying provider would have invented (audit round 2, r24)
   const own = await receiptViaInjectedWallet(txHash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
+  // stopped by a lock (the eighth review round, B-6): the endpoints are never asked for a receipt whose `from` is the public address
+  if (!own && session.epoch() !== epoch)
+    throw Object.assign(new Error("the wallet was locked before the deposit was recorded; it is sent, and the next scan records its note"), { code: "locked_after_send" });
   const { inserted, costWei } = own
     ? await minedTx(clientFor(p.deployment), txHash, undefined, [], { receipt: own })
     : await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment));
@@ -614,7 +617,7 @@ export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]):
 /** Perform one split on chain (private self-transfer) and record both notes. */
 export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
 
-async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** run inside the spend's turn before anything is read or proved (the review round of 2026-11-03, E1): a caller's own re-check */ beforeSpend?: () => void | Promise<void> } & Progress): Promise<Submitted> {
+async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** the merges the Review named (the eighth review round, B-2) */ maxMerges?: number; /** run inside the spend's turn before anything is read or proved (the review round of 2026-11-03, E1): a caller's own re-check */ beforeSpend?: () => void | Promise<void> } & Progress): Promise<Submitted> {
   await o.beforeSpend?.();
   await guardDeployment(o.deployment);
   // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
@@ -623,12 +626,22 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
-  const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
+  let terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
   boundFee(terms, o.maxFee, vault, o.amount);
   const needed = o.amount + (terms?.fee.amount ?? 0n);
   // older notes only: checked before any merge (a merge would make a new note), and again on the synced pool's numbers
   if (o.maxTiming !== undefined) olderInputs(vault, o.maxTiming, needed);
-  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
+  const merges = await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
+  // the fee and the relayer read again after merges (the eighth review round, B-8): minutes of proving and mining later, the first
+  // read's relayer could refuse the fee it named, and the spend failed after its merges were paid
+  // read after them; the fee bounded by the first read's, which the merges were planned for and the Review's bound already held
+  if (merges > 0 && terms) {
+    const fresh = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount });
+    if (fresh) {
+      boundFee(fresh, terms.fee.amount, vault, o.amount);
+      terms = fresh;
+    }
+  }
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
@@ -675,6 +688,19 @@ export function planMerge(masterSeed: Uint8Array, tree: TreeArg, vaultId: bigint
 // V6 Stage 16: the merge schedule is pure and lives in ./wallet/mergeSchedule.ts (the campaigns store reads it without this module)
 export { mergeSchedule } from "./wallet/mergeSchedule";
 
+/**
+ * The spend needs more merges first than its Review named (the eighth review round, 2026-11-03, B-2): the notes changed since — a
+ * housekeeping split, another spend, a delayed funding hours later. Thrown before any merge is paid; the Review is shown again.
+ * The merges had run at the relayer's live fee, unbounded and unshown, whenever the Review had counted none.
+ */
+export class MergesMoved extends Error {
+  readonly code = "merges_moved";
+  constructor(readonly reviewed: number, readonly now: number) {
+    super(`this spend now needs ${now} merge(s) first, more than the ${reviewed} its Review named: nothing was sent`);
+    this.name = "MergesMoved";
+  }
+}
+
 /** The balance is there but spread over too many notes for one spend (plan V2 §73): housekeeping consolidates it. */
 export class HousekeepingNeeded extends Error {
   constructor(readonly notes: number, readonly merges: number, symbol: string) {
@@ -718,7 +744,7 @@ export async function maxSpendable(deployment: Deployment, vault: Address, submi
 }
 
 /** Merge until two notes cover `needed` (+ the fee of each merge and of the final spend). Returns the number of merges performed. */
-async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address; /** the fee of the spend these merges are for (its p + F); read for `needed` when absent */ finalFee?: bigint; /** each merge's fee as the Review showed it (audit round 2, r43) */ maxMergeFee?: bigint } & Progress): Promise<number> {
+async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; needed: bigint; vault?: Address; /** the fee of the spend these merges are for (its p + F); read for `needed` when absent */ finalFee?: bigint; /** each merge's fee as the Review showed it (audit round 2, r43) */ maxMergeFee?: bigint; /** the merges the Review named (the eighth review round, B-2): more is MergesMoved before any is paid */ maxMerges?: number } & Progress): Promise<number> {
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   const vaultId = BigInt(vault);
@@ -745,6 +771,7 @@ async function ensureSpendableInTurn(o: { masterSeed: Uint8Array; deployment: De
     if (!sched.ok && sched.reason === "too-many-merges") throw new HousekeepingNeeded(notes.length, 8, assetByVault(o.deployment, vault)?.symbol ?? "private");
     if (!sched.ok) throw new Error("insufficient shielded balance for the amount plus the relayer fees of the merges it needs");
     if (!sched.pairs.length) return done;
+    if (o.maxMerges !== undefined && done + sched.pairs.length > o.maxMerges) throw new MergesMoved(o.maxMerges, done + sched.pairs.length);
     if (moved) throw moved;
     const [ia, ib] = sched.pairs[0];
     const a = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ia)!, b = noteStore.unspent(vaultId).find((n) => String(n.leafIndex) === ib)!;
@@ -777,12 +804,13 @@ export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote
 }
 
 /** Perform one split on chain (private self-transfer) and record both notes. */
-async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
+async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint; /** the fee its caller checked (housekeeping's daily cap): a higher one stops it, FeeMoved (the eighth review round, B-1) */ maxFee?: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.note.note.vaultId;
   const vault = ("0x" + vaultId.toString(16).padStart(40, "0")) as Address;
   const terms = await feeTerms(o.deployment, submission, vault);
+  boundFee(terms, o.maxFee, vault, 0n); // the second read had been paid whatever it said: up to the note less the piece
   o.onStatus?.(`Splitting a note (${o.note.leafIndex}) into a common-sized piece privately…`);
   const tree = await syncTreeQuorum(o.deployment);
   o.onEvent?.({ type: "verifying" });
@@ -805,23 +833,31 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  * of a transaction. Outputs: the recipient's note (their owner commitment, payload encrypted to
  * their view key — they find it by rescanning), our change, the relayer's fee note or a dummy.
  */
-async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
+async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** the merges the Review named (the eighth review round, B-2) */ maxMerges?: number } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
   o.onEvent?.({ type: "fee-terms" });
-  const terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
+  let terms = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // V5 (spec §10): the percentage of what the recipient receives
   boundFee(terms, o.maxFee, vault, o.amount);
   const vaultId = BigInt(vault);
   const keys = deriveKeys(o.masterSeed);
-  await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
+  const merges = await ensureSpendableInTurn({ ...o, submission, vault, needed: o.amount, finalFee: terms?.fee.amount ?? 0n });
+  if (merges > 0 && terms) {
+    const fresh = await feeTerms(o.deployment, submission, vault, undefined, { delivered: o.amount }); // after the merges (B-8)
+    if (fresh) {
+      boundFee(fresh, terms.fee.amount, vault, o.amount);
+      terms = fresh;
+    }
+  }
   o.onStatus?.("Syncing the shielded tree from the core's events…");
   o.onEvent?.({ type: "syncing" });
   const tree = await syncTreeQuorum(o.deployment);
   o.onEvent?.({ type: "verifying" });
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
+  await noteStore.untilScanned(); // the scan after an unlock first, as every other spend (the eighth review round, B-5): its change note takes a counter
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, o.amount + (terms?.fee.amount ?? 0n));
   const recipientNote: Note = { vaultId, amount: o.amount, ownerCommitment: to.ownerCommitment, noteSecret: randomField() };
   const change = changeNote(keys, vaultId, changeAmount);
@@ -904,8 +940,10 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
           // the finalized chain at or past the block the spend was seen at does not have it: a dropped block, or an endpoint set that lies
           else if (p === false && k.spentAtBlock !== undefined && (provenBlock.get(i) ?? 0) >= k.spentAtBlock) noteStore.markUnspent([f.leafIndex]);
         }
-      } else if (k.spent && k.spentUnproven) {
-        noteStore.markUnspent([f.leafIndex]); // the quorum no longer calls it spent: the block that spent it was dropped
+      } else if (k.spent && k.spentUnproven && (k.spentAtBlock === undefined || atBlock >= k.spentAtBlock)) {
+        // the quorum, at or past the block the spend was seen at, no longer calls it spent: the block that spent it was dropped. A view
+        // older than the mark had lifted it (the eighth review round, B-3): a scan read at N−1 while a spend's receipt marked it at N
+        noteStore.markUnspent([f.leafIndex]);
       }
       continue;
     }

@@ -319,7 +319,8 @@ export function SendScreen(p: SendScreenProps) {
           recipient,
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (the audit round of 2026-10-16, c46)
-          ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (audit round 2, r43)
+          // nor for a merge (audit round 2, r43), nor more merges than it named (the eighth review round, B-2): none named is none run
+          ...(selfSubmitted ? {} : { ...(mergeEach > 0n ? { maxMergeFee: mergeEach } : {}), maxMerges: mergeCount }),
           onStatus: setProgress,
           onEvent,
         });
@@ -332,7 +333,7 @@ export function SendScreen(p: SendScreenProps) {
           recipient: recipient as Address,
           vault: asset.vault,
           ...(selfSubmitted ? {} : { maxFee: split.fee }), // never more than the Review showed (c46)
-          ...(mergeCount && !selfSubmitted ? { maxMergeFee: mergeEach } : {}), // nor for a merge (r43)
+          ...(selfSubmitted ? {} : { ...(mergeEach > 0n ? { maxMergeFee: mergeEach } : {}), maxMerges: mergeCount }), // nor for a merge (r43), nor more of them (B-2)
           onStatus: setProgress,
           onEvent,
         });

@@ -228,6 +228,10 @@ export class WalletSession {
     // a restore's first journal holds its counters (audit round 2, n71): written without, then held by a second write, a tab
     // closed between the two reopened with the counters free at 0 — the next note made one the restored wallet already had
     this.open(own, journal ?? (opts.holdCounters ? { ...emptyJournal(), countersHeld: true } : emptyJournal()));
+    // a journal kept is this seed's, never proved the newest (the eighth review round, 2026-11-03, B-7): held until the scan, as at
+    // every unlock — a profile restored from an older copy, then "forgot password → restore phrase", had handed out a counter the
+    // newer profile had used on chain
+    if (journal) noteStore.holdUntilScanned();
     this.update(() => {}); // the new wallet's journal is stored at once, beside its keystore
     if (!kept && asideJournal) this.store.remove(UNREADABLE_JOURNAL_KEY); // stored as the journal just now
     this.firstLaunch = true;

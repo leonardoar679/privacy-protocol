@@ -152,6 +152,8 @@ export const PAUSED_ORDER_MAP: Record<string, Mapped> = {
   order_outdated: { state: "CANCELLED", phase: "funding", code: "order_outdated" },
   // the relayer's fee is more than the Review showed (the audit round of 2026-10-16, c46): never funded at that fee
   fee_moved: { state: "CANCELLED", phase: "funding", code: "fee_moved" },
+  // more merges first than the Review named (the eighth review round, B-2): never funded through merges nobody saw
+  merges_moved: { state: "CANCELLED", phase: "funding", code: "merges_moved" },
   // its executor tip no longer pays its execution at today's gas price (audit round 2, p04): never funded to wait it out
   tip_stale: { state: "CANCELLED", phase: "funding", code: "tip_stale" },
   // a funding sent and never confirmed before the order's window closed: stopped, never sent again

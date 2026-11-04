@@ -589,7 +589,8 @@ export function SwapScreen(p: SwapScreenProps) {
           ...(shield ? { shield } : {}),
           // the relayer's fee the Review showed bounds the funding's (the audit round of 2026-10-16, c46)
           ...(terms ? { reviewedFee: units - swapFunding(units, terms).delivered } : {}),
-          ...(terms && mergeCount ? { reviewedMergeFee: terms.minimum } : {}), // each merge at most the Review's F (E3)
+          // each merge at most the Review's F (E3), and no more merges than it named (the eighth review round, B-2): none named is none run
+          ...(terms ? { reviewedMergeFee: terms.minimum, reviewedMerges: mergeCount } : {}),
           ...(quotes.executorTip !== undefined ? { shownTip: BigInt(quotes.executorTip) } : {}), // the order built on the tip the Review showed (B5)
           delay: delayOn,
           ...(older ? { maxTiming: older.maxTiming } : {}),
@@ -1163,6 +1164,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       "service_key_changed",
       "order_outdated",
       "fee_moved",
+      "merges_moved",
       "tip_stale",
     ].includes(record.reason?.code ?? "")
   ) {

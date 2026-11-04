@@ -585,6 +585,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.restore_unsigned.title": "서비스는 주문 자체의 키로만 주문을 다시 만듭니다",
   "op.error.restore_unsigned.reason":
     "주문을 다시 만들라는 이 지갑의 요청에 주문 키의 서명이 없었습니다. 자금은 에스크로 또는 보호 잔액에 있으며, 지갑이 자체 기록에서 다시 이어 갑니다.",
+  "op.error.merges_moved.title": "검토 이후 노트가 바뀌었습니다",
+  "op.error.merges_moved.reason":
+    "이제 검토 화면에 표시된 것보다 많은 비공개 병합이 먼저 필요하여, 병합 비용이 지불되기 전에 중지되었습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 필요한 병합을 보려면 다시 검토하세요.",
   "op.error.tip_stale.title": "이 스왑에는 새 견적이 필요합니다",
   "op.error.tip_stale.reason":
     "설정된 뒤로 네트워크 수수료가 올라 실행자가 오늘의 가스 가격으로는 이 스왑을 실행하지 않습니다. 자금 투입 전에 중지되어 아무것도 전송되지 않았고 자금도 움직이지 않았습니다. 스왑하려면 새 견적을 받으세요.",

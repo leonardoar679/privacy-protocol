@@ -29,7 +29,10 @@ import { startMockCore } from "./helpers/mockRpc";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const HASH2 = ("0x" + "cd".repeat(32)) as `0x${string}`;
-const calls: { transfer: { amount: bigint; recipient: string; maxMergeFee?: bigint }[]; withdraw: { amount: bigint; recipient: string }[] } = {
+const calls: {
+  transfer: { amount: bigint; recipient: string; maxMergeFee?: bigint; maxMerges?: number }[];
+  withdraw: { amount: bigint; recipient: string }[];
+} = {
   transfer: [],
   withdraw: [],
 };
@@ -72,6 +75,7 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
       amount: bigint;
       recipient: string;
       maxMergeFee?: bigint;
+      maxMerges?: number;
       onEvent?: (e: EngineEvent) => void;
       onStatus?: (s: string) => void;
     }) => {
@@ -80,7 +84,12 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
         o.onStatus?.(ENGINE_LINE); // the engine's own English progress line, before it stops
         throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
       }
-      calls.transfer.push({ amount: o.amount, recipient: o.recipient, ...(o.maxMergeFee !== undefined ? { maxMergeFee: o.maxMergeFee } : {}) });
+      calls.transfer.push({
+        amount: o.amount,
+        recipient: o.recipient,
+        ...(o.maxMergeFee !== undefined ? { maxMergeFee: o.maxMergeFee } : {}),
+        ...(o.maxMerges !== undefined ? { maxMerges: o.maxMerges } : {}),
+      });
       emit(o.onEvent, HASH, 5);
       return { txHash: HASH, proofMs: 1234, verifiedLocally: true, recipientNote: { leafIndex: 5 }, spent: [0], submittedBy: "relayer" };
     },
@@ -245,7 +254,8 @@ describe("Send (spec v2.0 §7.4)", () => {
     await screen.findByTestId("send-done");
     expect(path()).toMatch(/^\/send\/progress\/send:[0-9a-z:]+$/);
     expect(screen.getByTestId("send-done").textContent).toContain("Sent 0.989 ETH privately.");
-    expect(calls.transfer).toEqual([{ amount: 989n * 10n ** 15n, recipient: to }]);
+    // every merge bounded by the Review's F and none run that it did not name (the eighth review round, B-2): it named none
+    expect(calls.transfer).toEqual([{ amount: 989n * 10n ** 15n, recipient: to, maxMergeFee: 10n ** 15n, maxMerges: 0 }]);
     const [rec] = finishedOperations();
     expect(rec).toMatchObject({
       kind: "send",
@@ -401,6 +411,7 @@ describe("Send (spec v2.0 §7.4)", () => {
     });
     await waitFor(() => expect(calls.transfer).toHaveLength(1));
     expect(calls.transfer[0].maxMergeFee, "the merge pays no more than the Review showed").toBe(10n ** 15n);
+    expect(calls.transfer[0].maxMerges, "and no more merges than it named").toBe(1);
   });
 
   it("an address that is not one is refused with its reason; the connected wallet's own address is flagged; more than the protected balance is refused", async () => {
