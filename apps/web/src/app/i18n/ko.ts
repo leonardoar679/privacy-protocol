@@ -521,6 +521,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.fee_moved.title": "릴레이어 수수료가 올랐습니다",
   "op.error.fee_moved.reason":
     "지금 수수료가 검토하신 수수료보다 높아 아무것도 전송하지 않았고 자금은 이동하지 않았습니다. 새 수수료를 보려면 다시 검토하세요.",
+  "op.error.order_not_ours.title": "이 스왑은 새 견적이 필요합니다",
+  "op.error.order_not_ours.reason":
+    "환불이 이 지갑의 키로 설정되지 않아, 자금을 넣기 전에 멈췄습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.order_outdated.title": "이 스왑은 새 견적이 필요합니다",
   "op.error.order_outdated.reason":
     "이전 버전의 지갑이 이전 활동과 연결될 수 있는 방식으로 설정해, 자금을 넣기 전에 멈췄습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",

@@ -537,6 +537,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
               code === "relayer_not_ready" ||
               code === "service_key_changed" ||
               code === "order_outdated" ||
+              code === "order_not_ours" ||
               code === "fee_moved" ||
               code === "merges_moved" ||
               code === "tip_stale" ||

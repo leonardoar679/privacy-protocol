@@ -525,6 +525,9 @@ export const en = {
   "op.error.tip_stale.title": "This swap needs a new quote",
   "op.error.tip_stale.reason":
     "Network fees rose since it was set up, and its executor would not carry it out at today's gas price. It was stopped before funding: nothing was sent and your funds were not moved. Get a new quote to swap.",
+  "op.error.order_not_ours.title": "This swap needs a new quote",
+  "op.error.order_not_ours.reason":
+    "Its refund was not set up for this wallet's keys, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.order_outdated.title": "This swap needs a new quote",
   "op.error.order_outdated.reason":
     "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",

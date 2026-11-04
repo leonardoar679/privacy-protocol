@@ -143,7 +143,9 @@ beforeAll(async () => {
   deployment = { chainId: 31337, core: CORE, ethVault: ETH_VAULT, rpcUrl: url, rpcUrls: [url], fromBlock: 0n, erc20Vaults: [] };
 });
 afterAll(async () => { await new Promise<void>((r) => honest.close(() => r())); await new Promise<void>((r) => liar.close(() => r())); });
-afterEach(() => { session.forget(); noteStore.clear(); seen.depositReads = 0; chain = scenarioA; });
+// the Forget closes the note store until the next unlock (the tenth review round, D-1); these cases scan with no wallet unlocked, so the
+// store is opened again, empty
+afterEach(() => { session.forget(); noteStore.load({ notes: [], noteCounter: 0 }); seen.depositReads = 0; chain = scenarioA; });
 
 async function walletWithOrder(state = "funded") {
   await session.create("a strong password", seed);

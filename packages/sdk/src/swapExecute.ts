@@ -81,6 +81,13 @@ export interface Committed { stored: StoredSwap; order: ServiceOrder; key: { pri
 export async function commitOrder(i: CommitInput): Promise<Committed> {
   const s = i.session ?? defaultSession;
   assertJournalSaved(s); // its record would be lost at the next lock (audit round 2, r47)
+  // the opening this commit began in (the tenth review round, 2026-11-04, D-1): after every wait the session must still be it — a lock
+  // zeroes the seed this commit holds, and a quick unlock had let it derive the order key and the refund note from the zeroed seed, and
+  // journal the order, with a refund note anyone can spend, into the wallet opened again (or another one after a REPLACE)
+  const epoch = s.epoch();
+  const sameOpening = () => {
+    if (!s.isUnlocked() || s.epoch() !== epoch) throw Object.assign(new Error("the wallet locked during the commit: nothing was committed or sent"), { code: "locked_mid_flow" });
+  };
   const now = i.now ?? Date.now();
   const factory = swapFactoryOf(i.deployment);
   // the tips are checked against this wallet's own estimate of the gas they pay for, never left to the escrow's 1 % cap
@@ -91,8 +98,10 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   if (i.deployment && (maxTip === null || (i.shield && maxShieldTip === null))) throw new CostUnknown();
   // the signer must be fixed at commit time, before the service chooses the orderId, so a one-time key is derived per attempt from a random attempt id (never reused: a new attempt, a new key)
   const attemptId = randomHex32();
+  sameOpening();
   const key = deriveOrderKey(i.masterSeed, attemptId);
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the refund note's counter is handed out after it
+  sameOpening();
   const refundCounter = noteStore.allocateCounter();
   const refund = deriveRefundNote(i.masterSeed, refundCounter);
   // a same-chain swap into the protected balance pays a one-time shield receiver: its note, tip and fallback fixed now
@@ -110,6 +119,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3), read before the service was asked
   checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
   if (i.shownTip !== undefined && BigInt(response.order.params.executorTip) > i.shownTip) throw new OrderMismatch("executorTip", `${response.order.params.executorTip} is more than the ${i.shownTip} the Review showed`);
+  sameOpening(); // the service's answer came back to the opening that asked (D-1): journaled nowhere else
   const order = response.order;
   // the journaled tier is the higher of the service's and this wallet's (spec §1): a user's lower thresholds raise their own controls
   const serviceTier = asTier(order.tier ?? response.tier);

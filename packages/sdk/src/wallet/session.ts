@@ -206,6 +206,9 @@ export class WalletSession {
     if (this.hasKeystore() && isConfigured()) settings.reset();
     const generated = seed === undefined;
     const source = seed ?? generateMasterSeed();
+    // the all-zero seed is the public "abandon … art" phrase (the tenth review round, D-1): anyone can spend what it holds
+    if (source.every((b) => b === 0))
+      throw new Error("This recovery phrase is publicly known (its seed is all zeros): anyone could spend what a wallet made from it holds. Create a new wallet instead.");
     const own = source.slice(); // the session owns (and later zeroes) its own copy
     if (generated) source.fill(0); // the generated original is nobody's: zeroed, not left for the collector (the fifth review round, 2026-11-03)
     const ks = await createKeystore(own, password, this.kdfParams());
@@ -445,7 +448,7 @@ export class WalletSession {
     this.key?.fill(0);
     this.seed = null; this.key = null; this.data = null;
     this.unreadable = false;
-    noteStore.clear();
+    noteStore.close(); // closed until the next unlock: a flow that waited for the scan is refused, never handed counter 0 (D-1)
     this.holdList.clear(); // a lock ends every critical section; a stale release is a no-op
     // V6 Stage 15 (spec v2.0 §8): the runners' caches, the drafts and the crypto worker go with the keys
     for (const h of this.lockHooks) { try { h(); } catch { /* a hook never stops a lock */ } }

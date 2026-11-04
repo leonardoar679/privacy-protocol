@@ -41,6 +41,19 @@ type Listener = () => void;
  */
 export const SCAN_WAIT_MS = 120_000;
 
+/**
+ * Thrown when the note store is asked for a counter, or waited on, after a lock and before the next unlock's load (the tenth review
+ * round, 2026-11-04, D-1): a lock had resolved the wait for the scan as if it had finished and reset the counter to 0, and a flow that
+ * held the seed across the lock derived its note from the zeroed seed at counter 0 — a note anyone can spend. Nothing was made or sent.
+ */
+export class StoreClosed extends Error {
+  readonly code = "locked_mid_flow";
+  constructor() {
+    super("the wallet locked: no new note is made and nothing more is sent");
+    this.name = "StoreClosed";
+  }
+}
+
 export class CountersHeld extends Error {
   readonly code = "notes_loading";
   constructor() {
@@ -92,6 +105,8 @@ export class NoteStore {
   /** the journal's counter as loaded: a counter the scan finds at or past it is one the journal did not know */
   private loadedCounter = 0;
   private stale = false;
+  /** closed by a lock until the next load (D-1) */
+  private closed = false;
 
   /**
    * A note of this wallet at its leaf. The same note already there is completed instead of added again (a V6 follow-up of
@@ -148,6 +163,7 @@ export class NoteStore {
   }
   /** Next noteSecret counter for a note of ours (spec §5.5: never reused); none while the counters are held. */
   allocateCounter(): number {
+    if (this.closed) throw new StoreClosed();
     if (this.held || this.scanHold) throw new CountersHeld();
     const c = this.counter++;
     this.emit();
@@ -190,14 +206,22 @@ export class NoteStore {
    * the screens show that scan. (A Protect started a second after an unlock had failed on the hold before the scan could run.)
    */
   untilScanned(timeoutMs = SCAN_WAIT_MS): Promise<void> {
+    if (this.closed) return Promise.reject(new StoreClosed());
     if (!this.scanHold) return Promise.resolve();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let off = () => {};
       const timer = setTimeout(() => {
         off();
         resolve();
       }, timeoutMs);
       off = this.subscribe(() => {
+        // a lock ends the wait as a refusal, never as a finished scan (the tenth review round, D-1)
+        if (this.closed) {
+          clearTimeout(timer);
+          off();
+          reject(new StoreClosed());
+          return;
+        }
         if (this.scanHold) return;
         clearTimeout(timer);
         off();
@@ -237,9 +261,22 @@ export class NoteStore {
     this.loadedCounter = this.counter;
     this.stale = false;
     this.held = !!data.countersHeld;
+    this.closed = false;
     this.emit();
   }
-  /** Forget everything (on lock). */
+  /**
+   * At a lock (the tenth review round, D-1): everything forgotten, and the store closed until the next unlock's load — a flow waiting for
+   * the scan is refused (StoreClosed), and no counter is handed out to a flow that still holds the seed the lock zeroed.
+   */
+  close(): void {
+    this.closed = true;
+    this.clear();
+  }
+  /** Whether a lock closed the store (D-1). */
+  isClosed(): boolean {
+    return this.closed;
+  }
+  /** Forget everything. */
   clear(): void {
     this.notes = [];
     this.counter = 0;

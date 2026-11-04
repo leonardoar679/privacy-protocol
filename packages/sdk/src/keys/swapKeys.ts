@@ -4,7 +4,7 @@
 // persisted to dapp-origin storage (TC-01).
 import { hexToBytes, keccak256, type Hex } from "viem";
 import { privateKeyToAddress, sign } from "viem/accounts";
-import { deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
+import { assertLiveSeed, deriveKeys, deriveNoteSecret, deriveOwnerKey } from "@privacy-wallet/protocol/keys";
 import { ownerCommitmentOf } from "@privacy-wallet/protocol/note";
 
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
@@ -20,6 +20,7 @@ function concat(...xs: Uint8Array[]): Uint8Array {
 
 /** The one-time order key for `orderId` (hex). Never reused: a new orderId gives a new key. */
 export function deriveOrderKey(masterSeed: Uint8Array, orderId: Hex): { privateKey: Hex; address: Hex } {
+  assertLiveSeed(masterSeed); // never the zeroed seed a lock leaves behind (the tenth review round, D-1)
   const h = BigInt(keccak256(concat(masterSeed, enc.encode("/order/"), enc.encode(orderId.toLowerCase()))));
   const k = (h % (SECP256K1_N - 1n)) + 1n; // in [1, n-1]
   const privateKey = ("0x" + k.toString(16).padStart(64, "0")) as Hex;
@@ -58,6 +59,7 @@ export function shieldPayload(masterSeed: Uint8Array, counter: number): Hex {
 }
 
 function seedPayload(masterSeed: Uint8Array, domain: string, counter: number): Hex {
+  assertLiveSeed(masterSeed);
   const c = Uint8Array.of((counter >>> 24) & 0xff, (counter >>> 16) & 0xff, (counter >>> 8) & 0xff, counter & 0xff);
   const stream = Array.from({ length: Math.ceil((NOTE_DATA_BYTES - 1) / 32) }, (_, i) => hexToBytes(keccak256(concat(masterSeed, enc.encode(domain), c, Uint8Array.of(i)))));
   const payload = concat(Uint8Array.of(0x01), ...stream).subarray(0, NOTE_DATA_BYTES);

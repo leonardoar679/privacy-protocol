@@ -206,7 +206,7 @@ function world(
   };
   return { w, io };
 }
-const deps = (io: OrderIo, now = T0) => ({ masterSeed: new Uint8Array(32), deployment: null, io, now: () => now });
+const deps = (io: OrderIo, now = T0) => ({ masterSeed: new Uint8Array(32).fill(1), deployment: null, io, now: () => now });
 /** Run the ticks the runner plans, as the scheduler would, until it stops planning or `max` ticks ran. */
 async function drive(io: OrderIo, max = 10, from = T0): Promise<string[]> {
   const steps: string[] = [];
@@ -686,7 +686,7 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     try {
       await expect(
         prepareAndSign({
-          masterSeed: new Uint8Array(32),
+          masterSeed: new Uint8Array(32).fill(1),
           deployment,
           stored: stored(),
           order: {} as never,

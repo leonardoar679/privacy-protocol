@@ -113,7 +113,7 @@ export interface Progress { onStatus?: ProveStatus; /** V5 (spec §12): the type
  * leaf the chain assigned. Shielding is a PUBLIC deposit (amount visible); privacy comes from later private transfers.
  */
 /** `amount` is what the user puts in; `fee` the privacy fee ProtectRouter takes from it (0 without a router); the note holds the rest. */
-export interface PreparedShield { deployment: Deployment; vault: Address; token: Address | null; amount: bigint; fee: bigint; note: Note; noteData: Hex; counter: number; approve?: TxRequest; deposit: TxRequest }
+export interface PreparedShield { deployment: Deployment; vault: Address; token: Address | null; amount: bigint; fee: bigint; note: Note; noteData: Hex; counter: number; approve?: TxRequest; deposit: TxRequest; /** the wallet's opening its note was made in: every prompt is refused in another (D-1) */ epoch?: number }
 
 /**
  * The deposit of a protect (V6, spec v2.0 §3, §11.1): through the deployment's ProtectRouter — 1 % of `amount` to its fee
@@ -140,7 +140,7 @@ export function prepareShield(o: { masterSeed: Uint8Array; deployment: Deploymen
   const { fee, net } = protectNet(o.deployment, o.amount);
   if (net < 1n) throw new Error("This amount is too small to protect after fees.");
   const { note, noteData, counter } = depositNote(keys, BigInt(vault), net);
-  return { deployment: o.deployment, vault, token, amount: o.amount, fee, note, noteData, counter, ...shieldTxs(o.deployment, vault, token, o.amount, note, noteData) };
+  return { deployment: o.deployment, vault, token, amount: o.amount, fee, note, noteData, counter, ...shieldTxs(o.deployment, vault, token, o.amount, note, noteData), epoch: session.epoch() };
 }
 
 /** The calldata of a shield with a scratch note (random, never journaled), for a gas estimate before anything is prepared: no counter is spent. */
@@ -226,8 +226,15 @@ export async function submitShield(p: PreparedShield, o: Progress & { /** V6: th
  * lock the page between two prompts (the hold defers an automatic lock; an explicit one, or another tab's, does not wait).
  * What was sent stays sent, nothing more is asked, and the record reads interrupted (nothing moved by the missing prompt).
  */
-function assertStillUnlocked(): void {
-  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent"), { code: "locked_mid_flow" });
+function assertStillUnlocked(epoch?: number): void {
+  // the same opening, not only an unlocked one (the tenth review round, D-1): a lock and a quick unlock between two awaits had let a
+  // flow prompt with what it made from the seed the lock zeroed
+  if (!session.isUnlocked() || (epoch !== undefined && session.epoch() !== epoch))
+    throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent"), { code: "locked_mid_flow" });
+}
+/** The opening a flow started in, refused once the wallet locked or another phrase replaced it (D-1); `what` names the step. */
+function sameOpening(epoch: number, what = "the wallet locked before anything was sent"): void {
+  if (!session.isUnlocked() || session.epoch() !== epoch) throw Object.assign(new Error(what), { code: "locked_mid_flow" });
 }
 async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?: bigint }): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
@@ -245,7 +252,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   for (const [k, tx] of approvals.entries()) {
     const clearing = approvals.length === 2 && k === 0;
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
-    assertStillUnlocked();
+    assertStillUnlocked(p.epoch);
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
     const epoch = session.epoch();
     const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account);
@@ -266,7 +273,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   if (approvals.length) o.onStatus?.(`${n}/${n} Depositing into the vault (a shield is public by design)…`);
   else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
-  assertStillUnlocked();
+  assertStillUnlocked(p.epoch);
   o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
   const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId, account);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
@@ -281,7 +288,9 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
 
 /** Public shield of `amount` wei into the canonical ETH vault (prepare → submit → track). */
 export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ txHash: Hex; leafIndex: number }> {
+  const epoch = session.epoch();
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the note's counter is handed out after it
+  sameOpening(epoch); // a lock during the wait (the tenth review round, D-1)
   const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount }), o);
   return { txHash: r.txHash, leafIndex: r.leafIndex };
 }
@@ -292,7 +301,9 @@ export async function shieldNative(o: { masterSeed: Uint8Array; deployment: Depl
  * connected wallet; the second waits for the first to be mined.
  */
 export async function shieldERC20(o: { masterSeed: Uint8Array; deployment: Deployment; token: Address; vault: Address; amount: bigint; estimatedWei?: bigint } & Progress): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
+  const epoch = session.epoch();
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
+  sameOpening(epoch); // a lock during the wait (the tenth review round, D-1)
   const r = await submitShield(prepareShield({ masterSeed: o.masterSeed, deployment: o.deployment, amount: o.amount, token: o.token, vault: o.vault }), o);
   return { ...(r.approveTx ? { approveTx: r.approveTx } : {}), txHash: r.txHash, leafIndex: r.leafIndex }; // none when an open approval was used
 }
@@ -522,7 +533,7 @@ async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Pr
     release();
   }
 }
-async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
+async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** the opening the spend was planned in: nothing is sent in another (D-1, D-10) */ opening?: number; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
   const epoch = session.epoch();
   o.onEvent?.({ type: "proving" });
@@ -535,7 +546,9 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   assertPublicInputsOfSpec(proof.publicInputs, o.spec);
   // nothing is sent from a wallet that locked while it proved (audit round 2, r19): its record, locked out, still reads the
   // proof step, and a reconcile would call a mined spend "nothing moved"
-  if (!session.isUnlocked()) throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });
+  // nor from another opening (the tenth review round, D-1/D-10): a spend planned before a lock had been sent after a quick unlock
+  if (!session.isUnlocked() || (o.opening !== undefined && session.epoch() !== o.opening))
+    throw Object.assign(new Error("the wallet locked before anything was sent"), { code: "locked_mid_flow" });
   o.onEvent?.({ type: "proved", ms: proof.ms, verifiedLocally: proof.verifiedLocally });
   // the call's identity, kept by the record at its submission (the sixth review round, 2026-11-03): a lost answer is settled only by a
   // transaction with exactly these public inputs — two Sends of one note share the nullifier pair, never these
@@ -658,6 +671,7 @@ export const ensureSpendable = (o: Parameters<typeof ensureSpendableInTurn>[0]):
 export const splitNote = (o: Parameters<typeof splitNoteInTurn>[0]): ReturnType<typeof splitNoteInTurn> => inTurn(o, () => splitNoteInTurn(o));
 
 async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: Address; vault?: Address; maxTiming?: number; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** the merges the Review named (the eighth review round, B-2) */ maxMerges?: number; /** run inside the spend's turn before anything is read or proved (the review round of 2026-11-03, E1): a caller's own re-check */ beforeSpend?: () => void | Promise<void> } & Progress): Promise<Submitted> {
+  const opening = session.epoch();
   await o.beforeSpend?.();
   await guardDeployment(o.deployment);
   // a V6 follow-up of 2026-10-16: never to an address that loses what it receives (the zero or a burn address, a contract of
@@ -683,8 +697,9 @@ async function privateWithdrawalInTurn(o: { masterSeed: Uint8Array; deployment: 
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   const from = o.maxTiming !== undefined ? olderInputs(vault, o.maxTiming, needed) : undefined;
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03): the change note's counter is handed out after it
+  sameOpening(opening); // a lock since the spend began (the tenth review round, D-1)
   const plan = planWithdrawal(o.masterSeed, tree.layers, BigInt(vault), o.amount, BigInt(o.recipient), txDomainOf(o.deployment), terms?.fee, from);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee, payout: { vault, recipient: o.recipient } });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.change, fee: plan.fee, payout: { vault, recipient: o.recipient }, opening });
   if (o.record !== false) recordActivity({ id: activityId("withdraw", r.txHash), kind: "withdraw", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient}`, ...(o.record ?? {}) });
   return r;
 }
@@ -743,6 +758,7 @@ export class HousekeepingNeeded extends Error {
 
 /** Perform one merge on chain (private self-transfer) and record the merged note. */
 async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; a: OwnedNote; b: OwnedNote; /** the merge fee the Review showed: a higher one stops it (FeeMoved; audit round 2, r43) */ mergeFee?: bigint } & Progress): Promise<Submitted & { merged: OwnedNote }> {
+  const opening = session.epoch();
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.a.note.vaultId;
@@ -756,8 +772,9 @@ async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deploym
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
+  sameOpening(opening); // a lock since the merge began (the tenth review round, D-1)
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note, opening });
   const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
   noteStore.add({ ...merged, addedAt: Date.now() });
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: merged.note.amount.toString(), status: "completed", ref: r.txHash, note: "two notes merged privately before a spend" });
@@ -838,6 +855,7 @@ export function planSplit(masterSeed: Uint8Array, tree: TreeArg, note: OwnedNote
 
 /** Perform one split on chain (private self-transfer) and record both notes. */
 async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; note: OwnedNote; piece: bigint; /** the fee its caller checked (housekeeping's daily cap): a higher one stops it, FeeMoved (the eighth review round, B-1) */ maxFee?: bigint } & Progress): Promise<Submitted & { pieceNote: OwnedNote; restNote: OwnedNote }> {
+  const opening = session.epoch();
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vaultId = o.note.note.vaultId;
@@ -850,8 +868,9 @@ async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployme
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
+  sameOpening(opening); // a lock since the split began (the tenth review round, D-1)
   const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note, opening });
   const pieceNote: OwnedNote = { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };
   noteStore.add({ ...pieceNote, addedAt: Date.now() });
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: o.piece.toString(), status: "completed", ref: r.txHash, note: "a common-sized piece split off privately" });
@@ -868,6 +887,7 @@ export const noteRecordHex = (note: Note, leafIndex: number): Hex => toHex(encod
  */
 async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: Deployment; amount: bigint; recipient: string; vault?: Address; /** the relayer's fee the Review showed: a higher one stops the spend (FeeMoved) */ maxFee?: bigint; /** each merge's fee the Review showed (r43) */ maxMergeFee?: bigint; /** the merges the Review named (the eighth review round, B-2) */ maxMerges?: number } & Progress): Promise<Submitted & { recipientNote: { note: Note; leafIndex: number; record: Hex } }> {
   const to = decodePrivacyAddress(o.recipient); // throws on a malformed / mistyped address
+  const opening = session.epoch();
   await guardDeployment(o.deployment);
   const submission = o.submission ?? settings.get().submission;
   const vault = o.vault ?? o.deployment.ethVault;
@@ -885,6 +905,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
   await verifyTree(o.deployment, tree, o.onStatus); // plan §38: the tree must contain the pool proven at the latest finalized block
   poolStats.set({ notes: tree.notes, leaves: tree.nextLeafIndex });
   await noteStore.untilScanned(); // the scan after an unlock first, as every other spend (the eighth review round, B-5): its change note takes a counter
+  sameOpening(opening); // a lock since the transfer began: its keys and its change counter are another opening's (the tenth review round, D-1)
   const { spent, inputs, change: changeAmount } = pickInputs(keys, vaultId, o.amount + (terms?.fee.amount ?? 0n));
   const recipientNote: Note = { vaultId, amount: o.amount, ownerCommitment: to.ownerCommitment, noteSecret: randomField() };
   const change = changeNote(keys, vaultId, changeAmount);
@@ -894,7 +915,7 @@ async function privateTransferInTurn(o: { masterSeed: Uint8Array; deployment: De
     leaves: tree.leaves, tree: tree.layers, inputs, outputs: [recipientNote, change?.note ?? dummy(vaultId), fee?.note ?? dummy(vaultId)],
     withdrawal: null, outDataHash: noteData.map((d) => noteDataHash(hexToBytes(d))) as [bigint, bigint, bigint], txDomain: txDomainOf(o.deployment),
   };
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec, noteData, spent, change, fee, extra: recipientNote });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, network: networkCharge(o.deployment, terms, vault), spec, noteData, spent, change, fee, extra: recipientNote, opening });
   if (o.record !== false) recordActivity({ id: activityId("transfer", r.txHash), kind: "transfer", ...activityAsset(o.deployment, vault), amount: o.amount.toString(), status: "completed", ref: r.txHash, note: `to ${o.recipient.slice(0, 14)}…`, ...(o.record ?? {}) });
   return { ...r, recipientNote: { note: recipientNote, leafIndex: r.extraLeaf!, record: noteRecordHex(recipientNote, r.extraLeaf!) } };
 }

@@ -17,6 +17,7 @@ import { assetsOf, type Asset } from "./assets";
 import { OrderMismatch, orderVouchDigest, predictEscrow } from "./swapGuard";
 import { noteStore } from "./wallet/notes";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
+import { deriveOrderKey, deriveRefundNote } from "./keys/swapKeys";
 import { mainOwnerCommitment } from "./keys/ownerKeys";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import { fundedOf, type FundingAttempt, type ScheduledAction, type StoredSwap } from "./wallet/journal";
@@ -105,6 +106,28 @@ export class ServiceKeyChanged extends Error {
     super(`Not funded: ${reason}. Nothing was sent.`);
     this.name = "ServiceKeyChanged";
   }
+}
+
+/**
+ * Thrown before anything is sent (the tenth review round, 2026-11-04, D-1): the order's refund note or its one-time signer is not what
+ * this wallet's seed gives at the order's counter and attempt — an order committed while a lock zeroed the seed the commit held, or
+ * one that came from anywhere but this wallet's own commit. Its refund would go to a note this wallet cannot spend: never funded.
+ */
+export class OrderNotOurs extends Error {
+  readonly code = "order_not_ours";
+  constructor() {
+    super("Not funded: this order's refund is not set up for this wallet's keys. Nothing was sent.");
+    this.name = "OrderNotOurs";
+  }
+}
+
+/** Whether the order's refund note and one-time signer are this seed's, derived again at its counter and attempt (D-1). */
+export function orderIsOurs(stored: Pick<StoredSwap, "params" | "refundCounter" | "attemptId">, masterSeed: Uint8Array): boolean {
+  const p = stored.params as { refundOwnerCommitment?: unknown; refundNoteSecret?: unknown; orderSigner?: unknown } | undefined;
+  if (!p || typeof stored.refundCounter !== "number" || typeof stored.attemptId !== "string" || typeof p.orderSigner !== "string") return false;
+  const refund = deriveRefundNote(masterSeed, stored.refundCounter);
+  const signer = deriveOrderKey(masterSeed, stored.attemptId as Hex).address;
+  return String(p.refundOwnerCommitment) === refund.ownerCommitment.toString() && String(p.refundNoteSecret) === refund.noteSecret.toString() && p.orderSigner.toLowerCase() === signer.toLowerCase();
 }
 
 /**
@@ -492,6 +515,10 @@ async function fundEscrowUnguarded(o: {
   if (now + FUNDING_MARGIN_MS >= windowEndOf(stored)) throw new OrderWindowClosed();
   await checkTipCovers(o.deployment, stored, o.fees ?? feesOf);
   await checkFundingReady(o);
+  // a new funding goes only to an order whose refund note and signer this seed gives (the tenth review round, D-1): an order committed from
+  // the seed a lock zeroed refunds to a note anyone can spend. Checked last before anything leaves the wallet — the shield job's registration
+  // with the relayer included; a receipt's own note is checked again at the signature (checkShieldReceipt), its refund here
+  if (!orderIsOurs(stored, o.masterSeed)) throw new OrderNotOurs();
   // a same-chain swap's shield job is accepted before anything is funded (c12)
   await registerShieldBeforeFunding(o.relayerUrl ?? null, stored, s);
   // the funding's own submission is journaled before it is sent, then its transaction (a merge before it is nested: from
@@ -550,7 +577,7 @@ async function fundEscrowUnguarded(o: {
  * an order that was abandoned or funded by hand has its action cancelled instead of failing forever.
  */
 /** The funding refusals that stop an order unfunded (the one-confirmation runner's list; nothing was sent on any of them). */
-export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "merges_moved", "older_notes_unavailable"];
+export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_not_ours", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "merges_moved", "older_notes_unavailable"];
 
 export async function runScheduledAction(
   a: ScheduledAction,

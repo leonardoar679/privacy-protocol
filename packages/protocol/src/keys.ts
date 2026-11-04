@@ -16,7 +16,26 @@ export interface WalletKeys {
   noteKey: bigint; // derives per-note secrets
 }
 
+/**
+ * Thrown when a key would be derived from a seed that is no seed (the tenth review round, 2026-11-04, D-1): an empty or all-zero array —
+ * what a lock leaves of the seed a flow still held (the lock zeroes it in place), or the public "abandon … art" phrase. Every key it
+ * gives is anyone's: a deposit made out to it is spendable by anybody.
+ */
+export class SeedUnavailable extends Error {
+  readonly code = "locked_mid_flow";
+  constructor() {
+    super("the wallet's seed is not available (the wallet locked): nothing is derived from it, nothing is sent");
+    this.name = "SeedUnavailable";
+  }
+}
+
+/** Refuses a seed that is no seed (SeedUnavailable). */
+export function assertLiveSeed(masterSeed: Uint8Array): void {
+  if (!masterSeed.length || masterSeed.every((b) => b === 0)) throw new SeedUnavailable();
+}
+
 export function deriveKeys(masterSeed: Uint8Array): WalletKeys {
+  assertLiveSeed(masterSeed);
   return {
     spendKey: deriveField(masterSeed, "/spend"),
     viewKey: deriveField(masterSeed, "/view"),

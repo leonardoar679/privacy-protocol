@@ -1168,6 +1168,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       "relayer_not_ready",
       "service_key_changed",
       "order_outdated",
+      "order_not_ours",
       "fee_moved",
       "merges_moved",
       "tip_stale",

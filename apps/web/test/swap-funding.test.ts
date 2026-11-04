@@ -16,6 +16,7 @@ import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
+import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
 
 // the private withdrawal has its own suites: here what the funding hands it is recorded
 const withdrawals = vi.hoisted(() => ({
@@ -48,6 +49,10 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const seed = new Uint8Array(32).fill(7);
+// the refund note and the one-time signer this seed gives the test's orders at counter 0 and their attempt (the tenth review round, D-1: an
+// order whose refund or signer is not the funding wallet's is never funded)
+const REFUND0 = deriveRefundNote(seed, 0);
+const SIGNER0 = deriveOrderKey(seed, ("0x" + "11".repeat(32)) as `0x${string}`).address;
 const order = (id: string, state = "committed"): StoredSwap => ({
   orderId: id, attemptId: "0x" + "11".repeat(32), refundCounter: 0, provider: "thorchain", policy: "balanced", request: { from: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, to: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, amount: "500000000000000000", destination: "bc1q", slippageBps: 50 },
   params: { amount: "500000000000000000" }, endpoint: "0x" + "ab".repeat(20), createdAt: 0, state,
@@ -67,8 +72,8 @@ describe("swap funding", () => {
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
     const params = {
       orderId: ("0x" + "ad".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: (2_000_000n * GWEI).toString(),
+      orderSigner: SIGNER0, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: (2_000_000n * GWEI).toString(),
     };
     const committed: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
@@ -171,8 +176,8 @@ describe("swap funding", () => {
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
     const params = {
       orderId: ("0x" + "ab".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const endpoint = predictEscrow(FACTORY, params);
     const stored = (runner: StoredSwap["runner"]): StoredSwap => ({ ...order(params.orderId), params, endpoint, runner });
@@ -204,8 +209,8 @@ describe("swap funding", () => {
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
     const params = {
       orderId: ("0x" + "5d".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const shield = {
       factory: "0x" + "5f".repeat(20), receiver: "0x" + "5e".repeat(20), counter: 3, noteData: "0x01" + "ab".repeat(168), vouch: "0x" + "77".repeat(65),
@@ -255,8 +260,8 @@ describe("swap funding", () => {
     const NOW = 1_900_000_000_000;
     const params = {
       orderId: ("0x" + "3e".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
@@ -312,8 +317,8 @@ describe("swap funding", () => {
     const NOW = 1_900_000_000_000;
     const params = {
       orderId: ("0x" + "5c".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
@@ -344,7 +349,7 @@ describe("swap funding", () => {
     const NOW = 1_900_000_000_000;
     const params = {
       orderId: ("0x" + "40".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      orderSigner: SIGNER0, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
       refundOwnerCommitment: mainOwnerCommitment(deriveKeys(seed)).toString(), refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const sent: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params), fundingAttempt: { nullifiers: ["7", "8"], by: "relayer", relayerUrl: "http://relayer.test", txHash: "0x" + "ee".repeat(32), at: NOW - 1000 } };
@@ -362,8 +367,8 @@ describe("swap funding", () => {
     const NOW = 1_900_000_000_000;
     const params = {
       orderId: ("0x" + "3f".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: NOW / 1000 + 3600, refundAfter: NOW / 1000 + 7200, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const TX = "0x" + "ee".repeat(32);
     const sent: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params), fundingAttempt: { nullifiers: ["7", "8"], by: "relayer", relayerUrl: "http://relayer.test", txHash: TX, at: NOW - 1000 } };
@@ -381,8 +386,8 @@ describe("swap funding", () => {
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
     const params = {
       orderId: ("0x" + "cd".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
@@ -415,8 +420,8 @@ describe("swap funding", () => {
     const deployment = { chainId: 1, core: "0x" + "c0".repeat(20), ethVault: "0x" + "e7".repeat(20), rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [], swapFactory: FACTORY } as any;
     const params = {
       orderId: ("0x" + "c4".repeat(32)) as `0x${string}`, assetType: 0, asset: ("0x" + "00".repeat(20)) as `0x${string}`, amount: "500000000000000000",
-      orderSigner: ("0x" + "51".repeat(20)) as `0x${string}`, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
-      refundOwnerCommitment: "1", refundNoteSecret: "2", refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
+      orderSigner: SIGNER0, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, refundVault: deployment.ethVault,
+      refundOwnerCommitment: REFUND0.ownerCommitment.toString(), refundNoteSecret: REFUND0.noteSecret.toString(), refundNoteDataHash: ("0x" + "00".repeat(32)) as `0x${string}`, executorTip: "0",
     };
     const stored: StoredSwap = { ...order(params.orderId), params, endpoint: predictEscrow(FACTORY, params) };
     noteStore.add({ note: { vaultId: BigInt(deployment.ethVault), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });

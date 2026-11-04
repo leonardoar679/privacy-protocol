@@ -3,6 +3,7 @@
 // handed out twice. Every EVM network shares one account space (an address is valid on all of them);
 // Bitcoin and Solana have their own. Keys are re-derived on demand and never persisted.
 import { accountFor, bip39Seed, dappAccount as deriveDappAccount, type ChainAccount, type ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
+import { assertLiveSeed } from "@privacy-wallet/protocol/keys";
 import { seedToPhrase } from "../wallet/keystore";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "../wallet/session";
 import { recordFreshAddress, findEntry } from "../wallet/addressBook";
@@ -31,6 +32,8 @@ const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every(
 
 /** The 64-byte BIP-39 seed of the master seed's phrase (PBKDF2 once per unlock). Cached on the seed object and re-checked against its bytes, so a zeroed or reused buffer never yields a stale value. */
 export function chainSeed(masterSeed: Uint8Array): Uint8Array {
+  // never the zeroed seed a lock leaves behind (the tenth review round, D-1): its phrase is "abandon … art", and its addresses anyone's
+  assertLiveSeed(masterSeed);
   const hit = seeds.get(masterSeed);
   if (hit && same(hit.of, masterSeed)) return hit.seed64;
   const seed64 = bip39Seed(seedToPhrase(masterSeed));

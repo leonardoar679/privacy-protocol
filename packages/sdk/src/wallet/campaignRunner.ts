@@ -664,7 +664,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             nextAt = now + 1000;
             break;
           }
-          if (!sent && (e as { code?: unknown })?.code === "order_outdated") {
+          if (!sent && ((e as { code?: unknown })?.code === "order_outdated" || (e as { code?: unknown })?.code === "order_not_ours")) {
             // an order an older build committed under the privacy address's owner commitment (the audit round of 2026-10-16,
             // c18) is never funded: abandoned with nothing sent, and the step planned again under its own owner commitments
             abandonSwap(stored.orderId, s);
